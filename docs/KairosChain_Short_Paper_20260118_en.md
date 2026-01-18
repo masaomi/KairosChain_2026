@@ -123,12 +123,19 @@ Each skill definition is parsed into an Abstract Syntax Tree (AST), enabling sem
 
 KairosChain implements a legal-system-inspired layered architecture for knowledge management. This design recognizes that not all knowledge requires the same level of constraint or auditability:
 
-| Layer | Legal Analogy | Path | Blockchain Record | Mutability |
-|-------|---------------|------|-------------------|------------|
-| L0-A | Constitution | `skills/kairos.md` | None | Read-only (human-managed) |
-| L0-B | Law | `skills/kairos.rb` | Full transaction | Human approval required |
-| L1 | Ordinance | `knowledge/` | Hash reference only | Lightweight constraints |
-| L2 | Directive | `context/` | None | Free modification |
++-------+---------------+------------+---------------------+---------------------------+
+| Layer | Legal Analogy | Path       | Blockchain Record   | Mutability                |
++=======+===============+============+=====================+===========================+
+| L0-A  | Constitution  | skills/    | None                | Read-only                 |
+|       |               | kairos.md  |                     | (human-managed)           |
++-------+---------------+------------+---------------------+---------------------------+
+| L0-B  | Law           | skills/    | Full transaction    | Human approval            |
+|       |               | kairos.rb  |                     | required                  |
++-------+---------------+------------+---------------------+---------------------------+
+| L1    | Ordinance     | knowledge/ | Hash reference only | Lightweight constraints   |
++-------+---------------+------------+---------------------+---------------------------+
+| L2    | Directive     | context/   | None                | Free modification         |
++-------+---------------+------------+---------------------+---------------------------+
 
 **L0: Kairos Core.** The foundation layer contains meta-rules about self-modification. `kairos.md` embodies the system's philosophy and principles—immutable and managed outside the system through human consensus. `kairos.rb` contains executable meta-skills that govern evolution:
 
@@ -280,7 +287,55 @@ Private KairosChain                    Public Chain (Ethereum L2)
 
 **Layer 2 Solutions.** For applications requiring more frequent public anchoring, Ethereum L2 solutions (Optimism, Arbitrum, Base) or dedicated rollups significantly reduce costs while maintaining security guarantees.
 
-### 5.5 Future Directions
+### 5.5 Experimental Observation: Self-Referential Improvement
+
+To validate KairosChain's self-amendment capability, we conducted an experiment where KairosChain was used to improve itself. The AI agent (Cursor with KairosChain MCP enabled) was instructed to analyze its own codebase, extract coding conventions, and persist them as L1 knowledge.
+
+**Experimental Setup:**
+- Environment: Cursor IDE (2.3.41) with KairosChain MCP Server
+- Date: 18 January 2026
+- Task: Extract Ruby style conventions from `lib/kairos_mcp/` and save to L1
+
+**Procedure:**
+1. The AI analyzed actual code in `lib/kairos_mcp/`
+2. Extracted naming conventions, error handling patterns, and Ruby idioms
+3. Created `ruby_style_guide` in L1 using `knowledge_update`
+4. Verified the creation using `knowledge_get`
+5. Confirmed blockchain recording using `chain_history`
+
+**Results:**
+
+The following blockchain record was created:
+
+```
+Block #1
+├── Type: knowledge_update
+├── Layer: L1
+├── Knowledge ID: ruby_style_guide
+├── Action: create
+├── Content Hash: ae04bf58...
+├── Reason: "KairosChain self-improvement: Extract Ruby style 
+│           conventions from actual codebase"
+└── Timestamp: 2026-01-18T11:51:24+01:00
+```
+
+**Interpretation:**
+
+This experiment demonstrates several key properties of KairosChain:
+
+1. **Self-Referential Capability**: The system successfully analyzed its own code and extracted meaningful patterns—a form of self-inspection that is foundational to self-improvement.
+
+2. **L1 Layer Functioning**: Knowledge was persisted in the appropriate layer (L1) with hash-only blockchain recording, as designed. The content hash `ae04bf58...` provides verifiability without storing full content on-chain.
+
+3. **Immutable Audit Trail**: The reason field ("KairosChain self-improvement...") and timestamp create an auditable record of why and when the change occurred.
+
+4. **Meta-Demonstration**: This is not merely documentation generation—it is a system recording knowledge about improving itself within its own infrastructure. The paper you are reading was itself improved using this workflow.
+
+The full demonstration log is available at: [cursor_kairoschain_demo_log_20260118_en.md](docs/KairosChain_Short_Paper_20260118_en.md/cursor_kairoschain_demo_log_20260118_en.md)
+
+Source code: [https://github.com/masaomi/KairosChain_2026](https://github.com/masaomi/KairosChain_2026)
+
+### 5.6 Future Directions
 
 Planned extensions include:
 
@@ -328,8 +383,8 @@ This paper is available on Zenodo.
 
 **Recommended citation:**
 
-Hatakeyama, M. (2026). KairosChain: Pure Agent Skills with Self-Amendment for Auditable AI Evolution. Version 2.0. Zenodo. https://doi.org/10.5281/zenodo.[TO BE ASSIGNED]
+Hatakeyama, M. (2026). KairosChain: Pure Agent Skills with Self-Amendment for Auditable AI Evolution. Version 2.1. Zenodo. https://doi.org/10.5281/zenodo.18289164
 
 ---
 
-*Version 2.0 — 18 January 2026*
+*Version 2.1 — 18 January 2026*

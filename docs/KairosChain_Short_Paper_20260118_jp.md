@@ -280,7 +280,55 @@ KairosChainは現在プライベートブロックチェーンとして運用さ
 
 **レイヤー2ソリューション。** より頻繁なパブリックアンカリングを必要とするアプリケーションには、Ethereum L2ソリューション（Optimism、Arbitrum、Base）または専用ロールアップがセキュリティ保証を維持しながらコストを大幅に削減する。
 
-### 5.5 今後の方向性
+### 5.5 実験的観察：自己参照的改善
+
+KairosChainの自己改変能力を検証するため、KairosChainを使ってKairosChain自身を改良する実験を行った。AIエージェント（KairosChain MCPを有効にしたCursor）に、自身のコードベースを分析し、コーディング規約を抽出し、L1知識として永続化するよう指示した。
+
+**実験環境:**
+- 環境: Cursor IDE (2.3.41) + KairosChain MCPサーバー
+- 日時: 2026年1月18日
+- タスク: `lib/kairos_mcp/`からRubyスタイル規約を抽出しL1に保存
+
+**手順:**
+1. AIが`lib/kairos_mcp/`内の実際のコードを分析
+2. 命名規則、エラーハンドリングパターン、Rubyイディオムを抽出
+3. `knowledge_update`を使用してL1に`ruby_style_guide`を作成
+4. `knowledge_get`を使用して作成を検証
+5. `chain_history`を使用してブロックチェーン記録を確認
+
+**結果:**
+
+以下のブロックチェーン記録が作成された：
+
+```
+Block #1
+├── Type: knowledge_update
+├── Layer: L1
+├── Knowledge ID: ruby_style_guide
+├── Action: create
+├── Content Hash: ae04bf58...
+├── Reason: "KairosChain self-improvement: Extract Ruby style 
+│           conventions from actual codebase"
+└── Timestamp: 2026-01-18T11:51:24+01:00
+```
+
+**解釈:**
+
+この実験はKairosChainのいくつかの重要な特性を実証している：
+
+1. **自己参照能力**: システムは自身のコードを正常に分析し、意味のあるパターンを抽出した—これは自己改善の基盤となる自己検査の一形態である。
+
+2. **L1レイヤーの機能**: 知識は設計通り、適切なレイヤー（L1）にハッシュのみのブロックチェーン記録とともに永続化された。コンテンツハッシュ`ae04bf58...`は、オンチェーンに完全なコンテンツを保存することなく検証可能性を提供する。
+
+3. **不変の監査証跡**: 理由フィールド（"KairosChain self-improvement..."）とタイムスタンプにより、変更がなぜ、いつ発生したかの監査可能な記録が作成される。
+
+4. **メタ的デモンストレーション**: これは単なるドキュメント生成ではない—システムが自身を改善するための知識を、自身のインフラストラクチャ内に記録したものである。あなたが今読んでいるこの論文自体も、このワークフローを使用して改善された。
+
+完全なデモンストレーションログは以下で参照可能: [cursor_kairoschain_demo_log_20260118_jp.md](cursor_kairoschain_demo_log_20260118_jp.md)
+
+ソースコード: [https://github.com/masaomi/KairosChain_2026](https://github.com/masaomi/KairosChain_2026)
+
+### 5.6 今後の方向性
 
 計画されている拡張には以下が含まれる：
 
@@ -328,8 +376,8 @@ AIシステムがますます自律的で高性能になるにつれて、その
 
 **推奨引用形式：**
 
-Hatakeyama, M. (2026). KairosChain: Pure Agent Skills with Self-Amendment for Auditable AI Evolution. Version 2.0. Zenodo. https://doi.org/10.5281/zenodo.[TO BE ASSIGNED]
+Hatakeyama, M. (2026). KairosChain: Pure Agent Skills with Self-Amendment for Auditable AI Evolution. Version 2.1. Zenodo. https://doi.org/10.5281/zenodo.18289164
 
 ---
 
-*バージョン 2.0 — 2026年1月18日*
+*バージョン 2.1 — 2026年1月18日*
