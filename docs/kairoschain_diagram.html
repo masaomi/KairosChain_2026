@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KairosChain Architecture</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 40px;
+    }
+    .container {
+      background: white;
+      border-radius: 20px;
+      padding: 40px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      max-width: 900px;
+      width: 100%;
+    }
+    .title {
+      text-align: center;
+      margin-bottom: 10px;
+    }
+    .title h1 {
+      font-size: 2.5rem;
+      color: #1a1a2e;
+      font-weight: 700;
+    }
+    .title .subtitle {
+      color: #666;
+      font-size: 1.1rem;
+      margin-top: 5px;
+    }
+    .tagline {
+      text-align: center;
+      color: #0066cc;
+      font-size: 1rem;
+      margin-bottom: 30px;
+      font-style: italic;
+    }
+    .comparison {
+      display: grid;
+      grid-template-columns: 1fr 80px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    .column-title {
+      text-align: center;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 15px;
+      font-size: 1.1rem;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #eee;
+    }
+    .arrow-column {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding-top: 50px;
+    }
+    .arrow {
+      font-size: 2rem;
+      color: #0066cc;
+      margin: 30px 0;
+    }
+    .layer {
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 15px;
+      position: relative;
+    }
+    .layer-label {
+      position: absolute;
+      top: -10px;
+      left: 15px;
+      background: white;
+      padding: 0 8px;
+      font-weight: 700;
+      font-size: 0.9rem;
+    }
+    .layer h3 {
+      font-size: 1.1rem;
+      margin-bottom: 8px;
+    }
+    .layer p {
+      font-size: 0.85rem;
+      color: #555;
+      line-height: 1.4;
+    }
+    /* L0 - Red/Pink theme */
+    .l0 {
+      background: linear-gradient(135deg, #ffe5e5 0%, #ffd4d4 100%);
+      border: 2px solid #ff6b6b;
+    }
+    .l0 .layer-label { color: #cc0000; }
+    .l0 h3 { color: #cc0000; }
+    
+    /* L1 - Yellow/Orange theme */
+    .l1 {
+      background: linear-gradient(135deg, #fff8e5 0%, #ffeed4 100%);
+      border: 2px solid #ffb347;
+    }
+    .l1 .layer-label { color: #cc7a00; }
+    .l1 h3 { color: #cc7a00; }
+    
+    /* L2 - Green theme */
+    .l2 {
+      background: linear-gradient(135deg, #e5ffe5 0%, #d4ffd4 100%);
+      border: 2px solid #5cb85c;
+    }
+    .l2 .layer-label { color: #2d862d; }
+    .l2 h3 { color: #2d862d; }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin-top: 8px;
+    }
+    .badge-strict {
+      background: #ff6b6b;
+      color: white;
+    }
+    .badge-tracked {
+      background: #ffb347;
+      color: white;
+    }
+    .badge-free {
+      background: #5cb85c;
+      color: white;
+    }
+
+    .blockchain-note {
+      text-align: center;
+      margin-top: 25px;
+      padding: 15px;
+      background: #f0f4ff;
+      border-radius: 10px;
+      border: 1px solid #ccd9ff;
+    }
+    .blockchain-note p {
+      color: #0044aa;
+      font-size: 0.95rem;
+    }
+    .blockchain-icon {
+      font-size: 1.5rem;
+      margin-right: 8px;
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 20px;
+      color: #888;
+      font-size: 0.85rem;
+    }
+    .footer a {
+      color: #0066cc;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="title">
+      <h1>⛓️ KairosChain</h1>
+      <div class="subtitle">Pure Agent Skills with Auditable Evolution</div>
+    </div>
+    <div class="tagline">"Evolvable but not gameable" — Minimum-Nomic Principle</div>
+    
+    <div class="comparison">
+      <!-- Legal System Column -->
+      <div class="legal-column">
+        <div class="column-title">📜 Legal System</div>
+        
+        <div class="layer l0">
+          <span class="layer-label">L0</span>
+          <h3>Constitution & Law</h3>
+          <p>Fundamental principles that define the system's core identity and constraints</p>
+          <span class="badge badge-strict">Immutable / Strict</span>
+        </div>
+        
+        <div class="layer l1">
+          <span class="layer-label">L1</span>
+          <h3>Ordinance</h3>
+          <p>Local regulations that can be modified through proper procedures</p>
+          <span class="badge badge-tracked">Tracked Changes</span>
+        </div>
+        
+        <div class="layer l2">
+          <span class="layer-label">L2</span>
+          <h3>Directive</h3>
+          <p>Temporary guidelines for immediate operational needs</p>
+          <span class="badge badge-free">Flexible</span>
+        </div>
+      </div>
+      
+      <!-- Arrows -->
+      <div class="arrow-column">
+        <div class="arrow">↔</div>
+        <div class="arrow">↔</div>
+        <div class="arrow">↔</div>
+      </div>
+      
+      <!-- AI Skills Column -->
+      <div class="ai-column">
+        <div class="column-title">🤖 AI Skills System</div>
+        
+        <div class="layer l0">
+          <span class="layer-label">L0</span>
+          <h3>kairos.md / kairos.rb</h3>
+          <p>Philosophy (read-only) + Meta-rules (Ruby DSL with human approval)</p>
+          <span class="badge badge-strict">Full Blockchain Record</span>
+        </div>
+        
+        <div class="layer l1">
+          <span class="layer-label">L1</span>
+          <h3>knowledge/</h3>
+          <p>Project conventions, architecture docs, domain knowledge</p>
+          <span class="badge badge-tracked">Hash-only Record</span>
+        </div>
+        
+        <div class="layer l2">
+          <span class="layer-label">L2</span>
+          <h3>context/</h3>
+          <p>Working hypotheses, session notes, temporary exploration</p>
+          <span class="badge badge-free">No Record</span>
+        </div>
+      </div>
+    </div>
+    
+    <div class="blockchain-note">
+      <p><span class="blockchain-icon">🔗</span>Every L0 change is immutably recorded on the blockchain — answering "How was this AI formed?"</p>
+    </div>
+    
+    <div class="footer">
+      <p>DOI: <a href="https://doi.org/10.5281/zenodo.18289164">10.5281/zenodo.18289164</a> | GitHub: <a href="https://github.com/masaomi/KairosChain_2026">masaomi/KairosChain_2026</a></p>
+    </div>
+  </div>
+</body>
+</html>

@@ -47,6 +47,12 @@ Instead, we achieve: **Evolvable but not gameable systems**.
 
 ## Architecture
 
+![KairosChain Layered Architecture](docs/kairoschain_linkedin_diagram.png)
+
+*Figure: KairosChain's legal-system-inspired layered architecture for AI skill management*
+
+### System Overview
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    MCP Client (Cursor / Claude Code)            │
