@@ -43,5 +43,7 @@ layers:
 kairos_meta_skills:
   - core_safety
   - evolution_rules
+  - layer_awareness
+  - approval_workflow
   - self_inspection
   - chain_awareness

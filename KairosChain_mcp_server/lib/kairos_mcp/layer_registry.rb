@@ -45,6 +45,8 @@ module KairosMcp
     KAIROS_META_SKILLS = %i[
       core_safety
       evolution_rules
+      layer_awareness
+      approval_workflow
       self_inspection
       chain_awareness
     ].freeze
