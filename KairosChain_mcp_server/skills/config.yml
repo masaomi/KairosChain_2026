@@ -1,0 +1,47 @@
+# KairosChain Skills Configuration
+# This file defines the layered architecture settings
+
+# General settings
+enabled: true
+evolution_enabled: false
+max_evolutions_per_session: 3
+require_human_approval: true
+
+# Immutable skills (cannot be modified even with evolution_enabled)
+immutable_skills:
+  - core_safety
+
+# Layer configuration
+layers:
+  L0_constitution:
+    enabled: true
+    mutable: false
+    description: "Kairos philosophy and principles (read-only)"
+
+  L0_law:
+    enabled: true
+    mutable: true
+    require_blockchain: full
+    require_human_approval: true
+    description: "Kairos meta-rules (self-modifying constraints)"
+
+  L1:
+    enabled: true
+    mutable: true
+    require_blockchain: hash_only
+    require_human_approval: false
+    description: "Project knowledge (Anthropic skills format)"
+
+  L2:
+    enabled: true
+    mutable: true
+    require_blockchain: none
+    require_human_approval: false
+    description: "Temporary context (free modification)"
+
+# L0 meta-skills (only these can be placed in skills/kairos.rb)
+kairos_meta_skills:
+  - core_safety
+  - evolution_rules
+  - self_inspection
+  - chain_awareness

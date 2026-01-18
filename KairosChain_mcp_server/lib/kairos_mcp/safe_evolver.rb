@@ -5,10 +5,12 @@ require_relative 'skills_dsl'
 require_relative 'kairos'
 require_relative 'kairos_chain/chain'
 require_relative 'kairos_chain/skill_transition'
+require_relative 'layer_registry'
 
 module KairosMcp
   class SafeEvolver
     class EvolutionError < StandardError; end
+    class LayerViolationError < EvolutionError; end
     
     DSL_PATH = File.expand_path('../../skills/kairos.rb', __dir__)
     
@@ -27,6 +29,10 @@ module KairosMcp
       unless SkillsConfig.evolution_enabled?
         return { success: false, error: "Evolution is disabled. Set 'evolution_enabled: true' in config." }
       end
+
+      # Layer validation: Only Kairos meta-skills can be in L0 (skills/kairos.rb)
+      layer_check = validate_layer_constraint(skill_id)
+      return layer_check unless layer_check[:success]
       
       skill = Kairos.skill(skill_id)
       if skill && skill.evolution_rules
@@ -70,6 +76,10 @@ module KairosMcp
       unless SkillsConfig.evolution_enabled?
         return { success: false, error: "Evolution is disabled." }
       end
+
+      # Layer validation: Only Kairos meta-skills can be in L0 (skills/kairos.rb)
+      layer_check = validate_layer_constraint(skill_id)
+      return layer_check unless layer_check[:success]
       
       skill = Kairos.skill(skill_id)
       if skill && skill.evolution_rules
@@ -124,6 +134,10 @@ module KairosMcp
       unless SkillsConfig.evolution_enabled?
         return { success: false, error: "Evolution is disabled." }
       end
+
+      # Layer validation: Only Kairos meta-skills can be added to L0 (skills/kairos.rb)
+      layer_check = validate_layer_constraint(skill_id)
+      return layer_check unless layer_check[:success]
       
       if Kairos.skill(skill_id)
         return { success: false, error: "Skill '#{skill_id}' already exists. Use 'propose' to modify." }
@@ -162,6 +176,29 @@ module KairosMcp
     end
     
     private
+
+    # Validate that a skill can be placed in L0 (skills/kairos.rb)
+    # Only Kairos meta-skills are allowed in L0
+    def self.validate_layer_constraint(skill_id)
+      unless SkillsConfig.kairos_meta_skill?(skill_id)
+        meta_skills = SkillsConfig.kairos_meta_skills.join(', ')
+        return {
+          success: false,
+          error: "Skill '#{skill_id}' is not a Kairos meta-skill. " \
+                 "Only the following skills can be placed in L0 (skills/kairos.rb): #{meta_skills}. " \
+                 "For project-specific knowledge, use the L1 knowledge layer (knowledge_update tool)."
+        }
+      end
+
+      { success: true }
+    end
+
+    # Check compatibility with L1 knowledge references (if any)
+    def self.check_knowledge_compatibility(definition)
+      # Future: Parse definition to find knowledge references and validate
+      # For now, just return success
+      { success: true }
+    end
     
     def self.validate_in_sandbox(definition)
       begin

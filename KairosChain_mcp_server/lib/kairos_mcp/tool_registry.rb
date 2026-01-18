@@ -17,17 +17,32 @@ module KairosMcp
 
       # Register tools
       register_if_defined('KairosMcp::Tools::HelloWorld')
+      
+      # L0-A: skills/kairos.md (read-only)
       register_if_defined('KairosMcp::Tools::SkillsList')
       register_if_defined('KairosMcp::Tools::SkillsGet')
       
-      # Future tools (Phase 1+)
+      # L0-B: skills/kairos.rb (self-modifying with full blockchain record)
       register_if_defined('KairosMcp::Tools::SkillsDslList')
-      register_if_defined('KairosMcp::Tools::SkillsDslGet')
       register_if_defined('KairosMcp::Tools::SkillsDslGet')
       register_if_defined('KairosMcp::Tools::SkillsEvolve')
       register_if_defined('KairosMcp::Tools::SkillsRollback')
       
-      # Future tools (Phase 2+)
+      # L1: knowledge/ (Anthropic skills format with hash-only blockchain record)
+      register_if_defined('KairosMcp::Tools::KnowledgeList')
+      register_if_defined('KairosMcp::Tools::KnowledgeGet')
+      register_if_defined('KairosMcp::Tools::KnowledgeUpdate')
+      register_if_defined('KairosMcp::Tools::KnowledgeScripts')
+      register_if_defined('KairosMcp::Tools::KnowledgeAssets')
+      
+      # L2: context/ (Anthropic skills format without blockchain record)
+      register_if_defined('KairosMcp::Tools::ContextSessions')
+      register_if_defined('KairosMcp::Tools::ContextList')
+      register_if_defined('KairosMcp::Tools::ContextGet')
+      register_if_defined('KairosMcp::Tools::ContextSave')
+      register_if_defined('KairosMcp::Tools::ContextCreateSubdir')
+      
+      # Chain tools
       register_if_defined('KairosMcp::Tools::ChainStatus')
       register_if_defined('KairosMcp::Tools::ChainRecord')
       register_if_defined('KairosMcp::Tools::ChainVerify')
