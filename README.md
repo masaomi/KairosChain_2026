@@ -78,6 +78,80 @@ Instead, we achieve: **Evolvable but not gameable systems**.
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+## Layered Skills Architecture
+
+KairosChain implements a **legal-system-inspired layered architecture** for knowledge management:
+
+| Layer | Legal Analogy | Path | Blockchain Record | Mutability |
+|-------|---------------|------|-------------------|------------|
+| **L0-A** | Constitution | `skills/kairos.md` | - | Read-only |
+| **L0-B** | Law | `skills/kairos.rb` | Full transaction | Human approval required |
+| **L1** | Ordinance | `knowledge/` | Hash reference only | Lightweight constraints |
+| **L2** | Directive | `context/` | None | Free modification |
+
+### L0: Kairos Core (`skills/`)
+
+The foundation of KairosChain. Contains meta-rules about self-modification.
+
+- **kairos.md**: Philosophy and principles (immutable, read-only)
+- **kairos.rb**: Meta-skills in Ruby DSL (modifiable with full blockchain record)
+
+Only these meta-skills can be placed in L0:
+- `core_safety`, `evolution_rules`, `self_inspection`, `chain_awareness`
+
+### L1: Knowledge Layer (`knowledge/`)
+
+Project-specific universal knowledge in **Anthropic Skills format**.
+
+```
+knowledge/
+└── skill_name/
+    ├── skill_name.md       # YAML frontmatter + Markdown
+    ├── scripts/            # Executable scripts (Python, Bash, Node)
+    ├── assets/             # Templates, images, CSS
+    └── references/         # Reference materials, datasets
+```
+
+Example `skill_name.md`:
+
+```markdown
+---
+name: coding_rules
+description: Project coding conventions
+version: "1.0"
+layer: L1
+tags: [style, convention]
+---
+
+# Coding Rules
+
+## Naming Conventions
+- Class names: PascalCase
+- Method names: snake_case
+```
+
+### L2: Context Layer (`context/`)
+
+Temporary context for sessions. Same format as L1 but **no blockchain recording**.
+
+```
+context/
+└── session_id/
+    └── hypothesis/
+        └── hypothesis.md
+```
+
+Use for:
+- Working hypotheses
+- Scratch notes
+- Trial-and-error exploration
+
+### Why Layered Architecture?
+
+1. **Not all knowledge needs the same constraints** — temporary thoughts shouldn't require blockchain records
+2. **Separation of concerns** — Kairos meta-rules vs. project knowledge vs. temporary context
+3. **AI autonomy with accountability** — free exploration in L2, tracked changes in L1, strict control in L0
+
 ## Data Model: SkillStateTransition
 
 Every skill change is recorded as a `SkillStateTransition`:
@@ -491,16 +565,16 @@ Share the same `blockchain.json` to synchronize evolution history across multipl
    - All operations are recorded in `action_log`
    - Review logs regularly
 
-## Available Tools
+## Available Tools (21 total)
 
-### Skills Tools (Markdown)
+### L0-A: Skills Tools (Markdown) - Read-only
 
 | Tool | Description |
 |------|-------------|
 | `skills_list` | List all skills sections from kairos.md |
 | `skills_get` | Get specific section by ID |
 
-### Skills Tools (DSL)
+### L0-B: Skills Tools (DSL) - Full Blockchain Record
 
 | Tool | Description |
 |------|-------------|
@@ -508,6 +582,26 @@ Share the same `blockchain.json` to synchronize evolution history across multipl
 | `skills_dsl_get` | Get skill definition by ID |
 | `skills_evolve` | Propose/apply skill changes |
 | `skills_rollback` | Manage version snapshots |
+
+### L1: Knowledge Tools - Hash Reference Record
+
+| Tool | Description |
+|------|-------------|
+| `knowledge_list` | List all knowledge skills |
+| `knowledge_get` | Get knowledge content by name |
+| `knowledge_update` | Create/update/delete knowledge (hash recorded) |
+| `knowledge_scripts` | List scripts in a knowledge skill |
+| `knowledge_assets` | List assets in a knowledge skill |
+
+### L2: Context Tools - No Blockchain Record
+
+| Tool | Description |
+|------|-------------|
+| `context_sessions` | List all active sessions |
+| `context_list` | List contexts in a session |
+| `context_get` | Get context content |
+| `context_save` | Save context (free modification) |
+| `context_create_subdir` | Create scripts/assets/references subdir |
 
 ### Blockchain Tools
 
@@ -638,20 +732,38 @@ KairosChain_mcp_server/
 │       ├── protocol.rb           # JSON-RPC handler
 │       ├── kairos.rb             # Self-reference module
 │       ├── safe_evolver.rb       # Evolution with safety
+│       ├── layer_registry.rb     # Layered architecture management
+│       ├── anthropic_skill_parser.rb  # YAML frontmatter + MD parser
+│       ├── knowledge_provider.rb # L1 knowledge management
+│       ├── context_manager.rb    # L2 context management
 │       ├── kairos_chain/         # Blockchain implementation
 │       │   ├── block.rb
 │       │   ├── chain.rb
 │       │   ├── merkle_tree.rb
 │       │   └── skill_transition.rb
-│       └── tools/                # MCP tools
-├── skills/
-│   ├── kairos.md                 # Human-readable docs
-│   ├── kairos.rb                 # Executable definitions
-│   ├── config.yml                # Evolution settings
+│       └── tools/                # MCP tools (21 total)
+│           ├── skills_*.rb       # L0 tools
+│           ├── knowledge_*.rb    # L1 tools
+│           └── context_*.rb      # L2 tools
+├── skills/                       # L0: Kairos Core
+│   ├── kairos.md                 # L0-A: Philosophy (read-only)
+│   ├── kairos.rb                 # L0-B: Meta-rules (Ruby DSL)
+│   ├── config.yml                # Layer & evolution settings
 │   └── versions/                 # Version snapshots
+├── knowledge/                    # L1: Project Knowledge (Anthropic format)
+│   └── example_knowledge/
+│       ├── example_knowledge.md  # YAML frontmatter + Markdown
+│       ├── scripts/              # Executable scripts
+│       ├── assets/               # Templates, resources
+│       └── references/           # Reference materials
+├── context/                      # L2: Temporary Context (Anthropic format)
+│   └── session_xxx/
+│       └── hypothesis/
+│           └── hypothesis.md
 ├── storage/
 │   ├── blockchain.json           # Chain data
 │   └── off_chain/                # AST diffs, reasons
+├── test_local.rb                 # Local test script
 └── README.md
 ```
 
@@ -668,7 +780,7 @@ See [LICENSE](../LICENSE) file.
 
 ---
 
-**Version**: 0.1.0  
-**Last Updated**: 2026-01-15
+**Version**: 0.2.0  
+**Last Updated**: 2026-01-18
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*
