@@ -97,7 +97,7 @@ The foundation of KairosChain. Contains meta-rules about self-modification.
 - **kairos.rb**: Meta-skills in Ruby DSL (modifiable with full blockchain record)
 
 Only these meta-skills can be placed in L0:
-- `core_safety`, `evolution_rules`, `self_inspection`, `chain_awareness`
+- `core_safety`, `evolution_rules`, `layer_awareness`, `approval_workflow`, `self_inspection`, `chain_awareness`
 
 ### L1: Knowledge Layer (`knowledge/`)
 
@@ -773,6 +773,131 @@ KairosChain_mcp_server/
 2. **Multi-Agent Support**: Track multiple AI agents via `agent_id`
 3. **Zero-Knowledge Proofs**: Privacy-preserving verification
 4. **Web Dashboard**: Visualize skill evolution history
+5. **Team Governance**: Voting system for L0 changes (see FAQ)
+
+---
+
+## FAQ
+
+### Q: LLMはL1/L2を自動的に改変しますか？
+
+**A:** はい、LLMはMCPツールを使って自発的に（またはユーザーの依頼で）L1/L2を改変できます。
+
+| レイヤー | LLMによる改変 | 条件 |
+|---------|---------------|------|
+| **L0** (kairos.rb) | 可能だが厳格 | `evolution_enabled: true` + `approved: true`（人間承認）+ ブロックチェーン記録 |
+| **L1** (knowledge/) | 可能 | ハッシュのみブロックチェーン記録、人間承認不要 |
+| **L2** (context/) | 自由 | 記録なし、承認不要 |
+
+※ `kairos.md` は読み取り専用で、LLMは改変できません。
+
+**使用例:**
+- L2: 調査中の仮説を `context_save` で一時保存
+- L1: プロジェクトのコーディング規約を `knowledge_update` で永続化
+- L0: メタスキルの変更を `skills_evolve` で提案（人間承認必須）
+
+---
+
+### Q: チーム利用の場合、APIへの拡張が必要ですか？
+
+**A:** 現在の実装はstdio経由のローカル利用に限定されています。チーム利用には以下の選択肢があります：
+
+| 方式 | 追加実装 | 適合規模 |
+|------|----------|----------|
+| **Git共有** | 不要 | 小規模チーム（2-5人） |
+| **HTTP API化** | 必要 | 中規模チーム（5-20人） |
+| **MCP over SSE** | 必要 | リモート接続が必要な場合 |
+
+**Git共有（最もシンプル）:**
+```
+# knowledge/, skills/, data/blockchain.json をGitで管理
+# 各メンバーがローカルでMCPサーバーを起動
+# 変更はGit経由で同期
+```
+
+**HTTP API化が必要な場合:**
+- リアルタイム同期が必要
+- 認証・認可が必要
+- 同時編集のコンフリクト解決が必要
+
+---
+
+### Q: チーム運用でkairos.rbやkairos.mdの変更に投票システムは必要ですか？
+
+**A:** チーム規模と要件によります。
+
+**現在の実装（単一承認者モデル）:**
+```yaml
+require_human_approval: true  # 1人が承認すればOK
+```
+
+**チーム運用で必要になる可能性がある機能:**
+
+| 機能 | L0 | L1 | L2 |
+|------|----|----|----| 
+| 投票システム | 推奨 | オプション | 不要 |
+| 定足数（Quorum） | 推奨 | - | - |
+| 提案期間 | 推奨 | - | - |
+| 拒否権（Veto） | 場合による | - | - |
+
+**将来的に必要なツール（未実装）:**
+```
+governance_propose    - 変更提案を作成
+governance_vote       - 提案に投票（賛成/反対/棄権）
+governance_status     - 提案の投票状況を確認
+governance_execute    - 閾値を超えた提案を実行
+```
+
+**kairos.mdの特殊性:**
+
+`kairos.md`は「憲法」に相当するため、システム外での合意形成（GitHub Discussion等）を推奨します：
+
+1. GitHub Issue / Discussionで提案
+2. チーム全員でオフライン議論
+3. 全員一致（またはスーパーマジョリティ）で合意
+4. 手動でファイルを編集してコミット
+
+---
+
+### Q: ローカルテストの実行方法は？
+
+**A:** 以下のコマンドでテストを実行できます：
+
+```bash
+cd KairosChain_mcp_server
+ruby test_local.rb
+```
+
+テスト内容：
+- Layer Registry の動作確認
+- 21個のMCPツール一覧
+- L1 Knowledge の読み書き
+- L2 Context の読み書き
+- L0 Skills DSL（6スキル）の読み込み
+
+テスト後にアーティファクト（`context/test_session`）が作成されるので、不要なら削除してください：
+```bash
+rm -rf context/test_session
+```
+
+---
+
+### Q: kairos.rbに含まれるメタスキルは何ですか？
+
+**A:** 現在6つのメタスキルが定義されています：
+
+| スキル | 説明 | 改変可能性 |
+|--------|------|------------|
+| `core_safety` | 安全性の基盤 | 不可（`deny :all`） |
+| `evolution_rules` | 進化ルールの定義 | contentのみ可 |
+| `layer_awareness` | レイヤー構造の認識 | contentのみ可 |
+| `approval_workflow` | 承認ワークフロー | contentのみ可 |
+| `self_inspection` | 自己検査能力 | contentのみ可 |
+| `chain_awareness` | ブロックチェーン認識 | contentのみ可 |
+
+詳細は `skills/kairos.rb` を参照してください。
+
+---
 
 ## License
 
@@ -780,7 +905,7 @@ See [LICENSE](../LICENSE) file.
 
 ---
 
-**Version**: 0.2.0  
+**Version**: 0.2.1  
 **Last Updated**: 2026-01-18
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*
