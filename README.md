@@ -225,8 +225,6 @@ claude --version
 # Register KairosChain MCP server
 claude mcp add kairos-chain ruby /path/to/KairosChain_mcp_server/bin/kairos_mcp_server
 
-# Example with actual path (use full path)
-claude mcp add kairos-chain ruby ~/forback/github/KairosChain_2026/KairosChain_mcp_server/bin/kairos_mcp_server
 ```
 
 #### Step 3: Verify Registration

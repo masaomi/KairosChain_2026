@@ -225,8 +225,6 @@ claude --version
 # KairosChain MCPサーバーを登録
 claude mcp add kairos-chain ruby /path/to/KairosChain_mcp_server/bin/kairos_mcp_server
 
-# 実際のパスでの例（フルパスを使用）
-claude mcp add kairos-chain ruby ~/forback/github/KairosChain_2026/KairosChain_mcp_server/bin/kairos_mcp_server
 ```
 
 #### ステップ3：登録を確認
