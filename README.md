@@ -191,7 +191,7 @@ Every skill change is recorded as a `SkillStateTransition`:
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-repo/KairosChain_2026.git
+git clone https://github.com/masaomi/KairosChain_2026.git
 cd KairosChain_2026/KairosChain_mcp_server
 
 # Make executable

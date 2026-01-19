@@ -191,7 +191,7 @@ context/
 
 ```bash
 # リポジトリをクローン
-git clone https://github.com/your-repo/KairosChain_2026.git
+git clone https://github.com/masaomi/KairosChain_2026.git
 cd KairosChain_2026/KairosChain_mcp_server
 
 # 実行可能にする
