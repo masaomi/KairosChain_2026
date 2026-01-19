@@ -50,6 +50,61 @@ module KairosMcp
     end
   end
 
+  # Tool block context - defines MCP tool interface and implementation
+  class ToolContext
+    attr_reader :tool_name, :tool_description, :executor
+
+    def initialize
+      @input_properties = {}
+      @required_inputs = []
+      @executor = nil
+    end
+
+    def name(value)
+      @tool_name = value
+    end
+
+    def description(value)
+      @tool_description = value
+    end
+
+    def input(&block)
+      instance_eval(&block) if block_given?
+    end
+
+    def property(name, type:, description:)
+      @input_properties[name.to_sym] = { type: type, description: description }
+    end
+
+    def required(*names)
+      @required_inputs.concat(names.map(&:to_sym))
+    end
+
+    # Execute block for tool implementation (with args)
+    def execute(&block)
+      @executor = block
+    end
+
+    def input_schema
+      {
+        type: 'object',
+        properties: @input_properties.transform_keys(&:to_s).transform_values { |v|
+          { type: v[:type], description: v[:description] }
+        },
+        required: @required_inputs.map(&:to_s)
+      }
+    end
+
+    def to_h
+      {
+        name: @tool_name,
+        description: @tool_description,
+        input_schema: input_schema,
+        has_executor: !@executor.nil?
+      }
+    end
+  end
+
   # Evolve block context
   class EvolveContext
     attr_reader :skill_id, :allowed, :denied, :conditions

@@ -1,5 +1,6 @@
 require_relative 'safety'
 require_relative 'tools/base_tool'
+require_relative 'skills_config'
 
 module KairosMcp
   class ToolRegistry
@@ -47,6 +48,25 @@ module KairosMcp
       register_if_defined('KairosMcp::Tools::ChainRecord')
       register_if_defined('KairosMcp::Tools::ChainVerify')
       register_if_defined('KairosMcp::Tools::ChainHistory')
+
+      # Skill-based tools (from kairos.rb with tool block)
+      register_skill_tools if skill_tools_enabled?
+    end
+
+    # Register tools defined in kairos.rb via tool block
+    def register_skill_tools
+      require_relative 'skill_tool_adapter'
+      require_relative 'kairos'
+
+      Kairos.skills.each do |skill|
+        next unless skill.has_tool?  # Only skills with tool block and executor
+        adapter = SkillToolAdapter.new(skill, @safety)
+        register(adapter)
+      end
+    end
+
+    def skill_tools_enabled?
+      SkillsConfig.load['skill_tools_enabled'] == true
     end
 
     def register_if_defined(class_name)

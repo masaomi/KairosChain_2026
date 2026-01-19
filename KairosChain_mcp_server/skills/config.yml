@@ -7,6 +7,11 @@ evolution_enabled: false
 max_evolutions_per_session: 3
 require_human_approval: true
 
+# Skill-tool unification
+# When enabled, skills with 'tool' block in kairos.rb are exposed as MCP tools
+# This allows adding/modifying tools by editing kairos.rb (subject to L0 constraints)
+skill_tools_enabled: false
+
 # Immutable skills (cannot be modified even with evolution_enabled)
 immutable_skills:
   - core_safety
