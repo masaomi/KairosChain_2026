@@ -268,6 +268,18 @@ code ~/.claude.json
 
 Cursor is a VS Code-based AI coding IDE.
 
+#### Option A: Via GUI (Recommended)
+
+1. Open **Cursor Settings** (Cmd/Ctrl + ,)
+2. Navigate to **Tools & MCP**
+3. Click **New MCP Server**
+4. Enter the server details:
+   - Name: `kairos-chain`
+   - Command: `ruby`
+   - Args: `/path/to/KairosChain_mcp_server/bin/kairos_mcp_server`
+
+#### Option B: Via Configuration File
+
 #### Step 1: Locate the Configuration File
 
 ```bash
