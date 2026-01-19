@@ -1028,6 +1028,25 @@ skill_tools_enabled: true   # Default: false
 - All changes are recorded on blockchain
 - Aligns with Minimum-Nomic: "can change, but recorded"
 
+**Why is this so strict?**
+
+L0 (`kairos.rb`) is intentionally locked with **triple protection**:
+
+| Protection | Setting | Effect |
+|------------|---------|--------|
+| 1 | `evolution_enabled: false` | Blocks any kairos.rb changes |
+| 2 | `require_human_approval: true` | Requires explicit human approval |
+| 3 | `skill_tools_enabled: false` | Skills not registered as tools |
+
+**Important:** There is no MCP tool to modify `config.yml`. Even if an LLM is asked to "change these settings," it cannot — humans must manually edit `config.yml`.
+
+This is by design: L0 corresponds to "constitution/law" in the legal analogy. It should rarely change. For frequent tool additions, consider:
+
+- **Current limitation**: Only L0 supports `tool` blocks
+- **Future possibility**: L1 tool definition support (lighter constraints, no human approval, hash-only recording)
+
+For most use cases, **L0 tools should not need frequent changes**. The strict lock ensures system integrity.
+
 ---
 
 ## License
