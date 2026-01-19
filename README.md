@@ -2,6 +2,8 @@
 
 **A Meta Ledger for Recording AI Skill Evolution**
 
+> 📖 [日本語版 README はこちら (Japanese README)](README_jp.md)
+
 KairosChain is a Model Context Protocol (MCP) server that records the evolution of AI capabilities on a private blockchain. It combines Pure Skills design (Ruby DSL/AST) with immutable ledger technology, enabling AI agents to have auditable, evolvable, and self-referential skill definitions.
 
 ## Philosophy
@@ -785,123 +787,188 @@ KairosChain_mcp_server/
 
 ## FAQ
 
-### Q: LLMはL1/L2を自動的に改変しますか？
+### Q: Can LLMs automatically modify L1/L2?
 
-**A:** はい、LLMはMCPツールを使って自発的に（またはユーザーの依頼で）L1/L2を改変できます。
+**A:** Yes, LLMs can modify L1/L2 autonomously (or upon user request) using MCP tools.
 
-| レイヤー | LLMによる改変 | 条件 |
-|---------|---------------|------|
-| **L0** (kairos.rb) | 可能だが厳格 | `evolution_enabled: true` + `approved: true`（人間承認）+ ブロックチェーン記録 |
-| **L1** (knowledge/) | 可能 | ハッシュのみブロックチェーン記録、人間承認不要 |
-| **L2** (context/) | 自由 | 記録なし、承認不要 |
+| Layer | LLM Modification | Conditions |
+|-------|------------------|------------|
+| **L0** (kairos.rb) | Possible but strict | `evolution_enabled: true` + `approved: true` (human approval) + blockchain record |
+| **L1** (knowledge/) | Possible | Hash-only blockchain record, no human approval required |
+| **L2** (context/) | Free | No record, no approval required |
 
-※ `kairos.md` は読み取り専用で、LLMは改変できません。
+Note: `kairos.md` is read-only and cannot be modified by LLMs.
 
-**使用例:**
-- L2: 調査中の仮説を `context_save` で一時保存
-- L1: プロジェクトのコーディング規約を `knowledge_update` で永続化
-- L0: メタスキルの変更を `skills_evolve` で提案（人間承認必須）
-
----
-
-### Q: チーム利用の場合、APIへの拡張が必要ですか？
-
-**A:** 現在の実装はstdio経由のローカル利用に限定されています。チーム利用には以下の選択肢があります：
-
-| 方式 | 追加実装 | 適合規模 |
-|------|----------|----------|
-| **Git共有** | 不要 | 小規模チーム（2-5人） |
-| **HTTP API化** | 必要 | 中規模チーム（5-20人） |
-| **MCP over SSE** | 必要 | リモート接続が必要な場合 |
-
-**Git共有（最もシンプル）:**
-```
-# knowledge/, skills/, data/blockchain.json をGitで管理
-# 各メンバーがローカルでMCPサーバーを起動
-# 変更はGit経由で同期
-```
-
-**HTTP API化が必要な場合:**
-- リアルタイム同期が必要
-- 認証・認可が必要
-- 同時編集のコンフリクト解決が必要
+**Usage Examples:**
+- L2: Temporarily save hypotheses during research with `context_save`
+- L1: Persist project coding conventions with `knowledge_update`
+- L0: Propose meta-skill changes with `skills_evolve` (human approval required)
 
 ---
 
-### Q: チーム運用でkairos.rbやkairos.mdの変更に投票システムは必要ですか？
+### Q: Is API extension needed for team usage?
 
-**A:** チーム規模と要件によります。
+**A:** The current implementation is limited to local use via stdio. For team usage, the following options are available:
 
-**現在の実装（単一承認者モデル）:**
+| Method | Additional Implementation | Suitable Scale |
+|--------|---------------------------|----------------|
+| **Git sharing** | Not required | Small teams (2-5 people) |
+| **HTTP API** | Required | Medium teams (5-20 people) |
+| **MCP over SSE** | Required | When remote connection is needed |
+
+**Git sharing (simplest):**
+```
+# Manage knowledge/, skills/, data/blockchain.json with Git
+# Each member runs the MCP server locally
+# Changes are synced via Git
+```
+
+**When HTTP API is needed:**
+- Real-time synchronization required
+- Authentication/authorization required
+- Conflict resolution for concurrent edits required
+
+---
+
+### Q: Is a voting system needed for changes to kairos.rb or kairos.md in team settings?
+
+**A:** It depends on team size and requirements.
+
+**Current implementation (single approver model):**
 ```yaml
-require_human_approval: true  # 1人が承認すればOK
+require_human_approval: true  # One person's approval is sufficient
 ```
 
-**チーム運用で必要になる可能性がある機能:**
+**Features that may be needed for team operations:**
 
-| 機能 | L0 | L1 | L2 |
-|------|----|----|----| 
-| 投票システム | 推奨 | オプション | 不要 |
-| 定足数（Quorum） | 推奨 | - | - |
-| 提案期間 | 推奨 | - | - |
-| 拒否権（Veto） | 場合による | - | - |
+| Feature | L0 | L1 | L2 |
+|---------|----|----|----| 
+| Voting system | Recommended | Optional | Not needed |
+| Quorum | Recommended | - | - |
+| Proposal period | Recommended | - | - |
+| Veto power | Depends | - | - |
 
-**将来的に必要なツール（未実装）:**
+**Tools needed in the future (not implemented):**
 ```
-governance_propose    - 変更提案を作成
-governance_vote       - 提案に投票（賛成/反対/棄権）
-governance_status     - 提案の投票状況を確認
-governance_execute    - 閾値を超えた提案を実行
+governance_propose    - Create change proposals
+governance_vote       - Vote on proposals (approve/reject/abstain)
+governance_status     - Check proposal voting status
+governance_execute    - Execute proposals that exceed threshold
 ```
 
-**kairos.mdの特殊性:**
+**Special nature of kairos.md:**
 
-`kairos.md`は「憲法」に相当するため、システム外での合意形成（GitHub Discussion等）を推奨します：
+Since `kairos.md` corresponds to a "constitution," consensus building outside the system (GitHub Discussion, etc.) is recommended:
 
-1. GitHub Issue / Discussionで提案
-2. チーム全員でオフライン議論
-3. 全員一致（またはスーパーマジョリティ）で合意
-4. 手動でファイルを編集してコミット
+1. Propose via GitHub Issue / Discussion
+2. Offline discussion with the entire team
+3. Reach consensus by unanimity (or supermajority)
+4. Manually edit and commit the file
 
 ---
 
-### Q: ローカルテストの実行方法は？
+### Q: How do I run local tests?
 
-**A:** 以下のコマンドでテストを実行できます：
+**A:** Run tests with the following commands:
 
 ```bash
 cd KairosChain_mcp_server
 ruby test_local.rb
 ```
 
-テスト内容：
-- Layer Registry の動作確認
-- 21個のMCPツール一覧
-- L1 Knowledge の読み書き
-- L2 Context の読み書き
-- L0 Skills DSL（6スキル）の読み込み
+Test coverage:
+- Layer Registry operation verification
+- List of 21 MCP tools
+- L1 Knowledge read/write
+- L2 Context read/write
+- L0 Skills DSL (6 skills) loading
 
-テスト後にアーティファクト（`context/test_session`）が作成されるので、不要なら削除してください：
+After testing, artifacts (`context/test_session`) are created. Delete if not needed:
 ```bash
 rm -rf context/test_session
 ```
 
 ---
 
-### Q: kairos.rbに含まれるメタスキルは何ですか？
+### Q: What meta-skills are included in kairos.rb?
 
-**A:** 現在6つのメタスキルが定義されています：
+**A:** Currently 6 meta-skills are defined:
 
-| スキル | 説明 | 改変可能性 |
-|--------|------|------------|
-| `core_safety` | 安全性の基盤 | 不可（`deny :all`） |
-| `evolution_rules` | 進化ルールの定義 | contentのみ可 |
-| `layer_awareness` | レイヤー構造の認識 | contentのみ可 |
-| `approval_workflow` | 承認ワークフロー | contentのみ可 |
-| `self_inspection` | 自己検査能力 | contentのみ可 |
-| `chain_awareness` | ブロックチェーン認識 | contentのみ可 |
+| Skill | Description | Modifiability |
+|-------|-------------|---------------|
+| `core_safety` | Safety foundation | Not modifiable (`deny :all`) |
+| `evolution_rules` | Evolution rules definition | Content only |
+| `layer_awareness` | Layer structure awareness | Content only |
+| `approval_workflow` | Approval workflow | Content only |
+| `self_inspection` | Self-inspection capability | Content only |
+| `chain_awareness` | Blockchain awareness | Content only |
 
-詳細は `skills/kairos.rb` を参照してください。
+See `skills/kairos.rb` for details.
+
+---
+
+### Q: How does KairosChain decide when to evolve its own skills? Is there a meta-skill for this?
+
+**A:** **KairosChain intentionally does NOT include logic for deciding "when to evolve."** This decision is delegated to the human side (or the AI client interacting with humans).
+
+**Current design responsibilities:**
+
+| Responsibility | Owner | Details |
+|----------------|-------|---------|
+| **Evolution judgment (when/what)** | Human / AI client | Outside KairosChain |
+| **Evolution constraints (allow/deny)** | KairosChain | Validated by internal rules |
+| **Evolution approval** | Human | Explicit `approved: true` |
+| **Evolution recording** | KairosChain | Automatically recorded on blockchain |
+
+**What is already implemented:**
+- ✅ Evolution constraints (`SafeEvolver`)
+- ✅ Workflow (propose → review → apply)
+- ✅ Layer structure (L0/L1/L2)
+- ✅ 6 meta-skills definition
+
+**What is NOT implemented (by design):**
+- ❌ "When to evolve" decision logic
+- ❌ Self-detection of capability gaps
+- ❌ Recognition of learning opportunities
+- ❌ Evolution trigger conditions
+
+**Design rationale:**
+
+This is intentional. From `kairos.md` (PHILOSOPHY-020 Minimum-Nomic):
+
+| Approach | Problem |
+|----------|---------|
+| Completely fixed rules | No adaptation, system becomes obsolete |
+| **Unrestricted self-modification** | **Chaos, no accountability** |
+
+To avoid "unrestricted self-modification," KairosChain intentionally delegates evolution triggers to external actors. KairosChain serves as a **gatekeeper** and **recorder**, not an autonomous self-modifier.
+
+**Future extensibility:**
+
+If you want to add a meta-skill for "when to evolve," you could define something like:
+
+```ruby
+skill :evolution_trigger do
+  version "1.0"
+  title "Evolution Trigger Logic"
+  
+  evolve do
+    allow :content      # Trigger conditions can be modified
+    deny :behavior      # Decision logic itself is fixed
+  end
+  
+  content <<~MD
+    ## Evolution Trigger Conditions
+    
+    1. When the same error pattern occurs 3+ times
+    2. When user explicitly says "remember this"
+    3. When new domain knowledge is provided
+    → Propose saving to L1
+  MD
+end
+```
+
+However, even with such a meta-skill, **final approval should remain with humans**. This is the core of KairosChain's safety design.
 
 ---
 
@@ -912,6 +979,6 @@ See [LICENSE](../LICENSE) file.
 ---
 
 **Version**: 0.2.1  
-**Last Updated**: 2026-01-18
+**Last Updated**: 2026-01-19
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*
