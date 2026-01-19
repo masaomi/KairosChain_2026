@@ -107,6 +107,9 @@ The foundation of KairosChain. Contains meta-rules about self-modification.
 Only these meta-skills can be placed in L0:
 - `core_safety`, `evolution_rules`, `layer_awareness`, `approval_workflow`, `self_inspection`, `chain_awareness`
 
+> **Note: Skill-Tool Unification**  
+> Skills in `kairos.rb` can also define MCP tools via the `tool` block. When `skill_tools_enabled: true` is set in config, these skills are automatically registered as MCP tools. This means **skills and tools are unified in L0-B** — you can add, modify, or remove tools by editing `kairos.rb` (subject to L0 constraints: human approval required, full blockchain record).
+
 ### L1: Knowledge Layer (`knowledge/`)
 
 Project-specific universal knowledge in **Anthropic Skills format**.
@@ -573,7 +576,9 @@ Share the same `blockchain.json` to synchronize evolution history across multipl
    - All operations are recorded in `action_log`
    - Review logs regularly
 
-## Available Tools (21 total)
+## Available Tools (21 core + skill-tools)
+
+The base installation provides 21 tools. Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
 
 ### L0-A: Skills Tools (Markdown) - Read-only
 
@@ -590,6 +595,8 @@ Share the same `blockchain.json` to synchronize evolution history across multipl
 | `skills_dsl_get` | Get skill definition by ID |
 | `skills_evolve` | Propose/apply skill changes |
 | `skills_rollback` | Manage version snapshots |
+
+> **Skill-defined tools**: When `skill_tools_enabled: true`, skills with `tool` blocks in `kairos.rb` are also registered here as MCP tools.
 
 ### L1: Knowledge Tools - Hash Reference Record
 
@@ -749,7 +756,7 @@ KairosChain_mcp_server/
 │       │   ├── chain.rb
 │       │   ├── merkle_tree.rb
 │       │   └── skill_transition.rb
-│       └── tools/                # MCP tools (21 total)
+│       └── tools/                # MCP tools (21 core)
 │           ├── skills_*.rb       # L0 tools
 │           ├── knowledge_*.rb    # L1 tools
 │           └── context_*.rb      # L2 tools
@@ -878,7 +885,7 @@ ruby test_local.rb
 
 Test coverage:
 - Layer Registry operation verification
-- List of 21 MCP tools
+- List of 21 core MCP tools
 - L1 Knowledge read/write
 - L2 Context read/write
 - L0 Skills DSL (6 skills) loading
@@ -972,13 +979,64 @@ However, even with such a meta-skill, **final approval should remain with humans
 
 ---
 
+### Q: What is Skill-Tool Unification? Can I add MCP tools without editing Ruby files?
+
+**A:** Yes! Skills in `kairos.rb` can now define MCP tools via the `tool` block. This unifies skills and tools in L0-B.
+
+**How it works:**
+
+```ruby
+# In kairos.rb
+skill :my_custom_tool do
+  version "1.0"
+  title "My Custom Tool"
+  
+  # Traditional behavior (for skill introspection)
+  behavior do
+    { capability: "..." }
+  end
+  
+  # Tool definition (exposed as MCP tool)
+  tool do
+    name "my_custom_tool"
+    description "Does something useful"
+    
+    input do
+      property :arg, type: "string", description: "Argument"
+      required :arg
+    end
+    
+    execute do |args|
+      # Tool implementation
+      { result: process(args["arg"]) }
+    end
+  end
+end
+```
+
+**Enable in config:**
+
+```yaml
+# skills/config.yml
+skill_tools_enabled: true   # Default: false
+```
+
+**Key points:**
+- Default is **disabled** (conservative)
+- Adding/modifying tools requires editing `kairos.rb` (L0 constraints apply)
+- Changes require human approval (`approved: true`)
+- All changes are recorded on blockchain
+- Aligns with Minimum-Nomic: "can change, but recorded"
+
+---
+
 ## License
 
 See [LICENSE](../LICENSE) file.
 
 ---
 
-**Version**: 0.2.1  
+**Version**: 0.3.0  
 **Last Updated**: 2026-01-19
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*

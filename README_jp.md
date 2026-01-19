@@ -107,6 +107,9 @@ KairosChainの基盤。自己改変に関するメタルールを含みます。
 L0に配置できるのはこれらのメタスキルのみ：
 - `core_safety`, `evolution_rules`, `layer_awareness`, `approval_workflow`, `self_inspection`, `chain_awareness`
 
+> **注意：スキル-ツール統一**  
+> `kairos.rb`のスキルは`tool`ブロックでMCPツールを定義することもできます。`skill_tools_enabled: true`が設定されている場合、これらのスキルは自動的にMCPツールとして登録されます。つまり、**L0-Bではスキルとツールが統一されています** — `kairos.rb`を編集することでツールの追加、変更、削除ができます（L0の制約が適用：人間の承認が必要、完全なブロックチェーン記録）。
+
 ### L1：知識レイヤー（`knowledge/`）
 
 **Anthropic Skillsフォーマット**でのプロジェクト固有の普遍的知識。
@@ -573,7 +576,9 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
    - すべての操作は`action_log`に記録される
    - 定期的にログをレビュー
 
-## 利用可能なツール（全21個）
+## 利用可能なツール（コア21個 + スキルツール）
+
+基本インストールでは21個のツールが提供されます。`skill_tools_enabled: true`の場合、`kairos.rb`の`tool`ブロックで追加のツールを定義できます。
 
 ### L0-A：スキルツール（Markdown） - 読み取り専用
 
@@ -590,6 +595,8 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
 | `skills_dsl_get` | IDでスキル定義を取得 |
 | `skills_evolve` | スキル変更を提案/適用 |
 | `skills_rollback` | バージョンスナップショットを管理 |
+
+> **スキル定義ツール**：`skill_tools_enabled: true`の場合、`kairos.rb`内の`tool`ブロックを持つスキルもここにMCPツールとして登録されます。
 
 ### L1：知識ツール - ハッシュ参照記録
 
@@ -749,7 +756,7 @@ KairosChain_mcp_server/
 │       │   ├── chain.rb
 │       │   ├── merkle_tree.rb
 │       │   └── skill_transition.rb
-│       └── tools/                # MCPツール（全21個）
+│       └── tools/                # MCPツール（コア21個）
 │           ├── skills_*.rb       # L0ツール
 │           ├── knowledge_*.rb    # L1ツール
 │           └── context_*.rb      # L2ツール
@@ -878,7 +885,7 @@ ruby test_local.rb
 
 テスト内容：
 - Layer Registry の動作確認
-- 21個のMCPツール一覧
+- 21個のコアMCPツール一覧
 - L1 Knowledge の読み書き
 - L2 Context の読み書き
 - L0 Skills DSL（6スキル）の読み込み
@@ -972,13 +979,64 @@ end
 
 ---
 
+### Q: スキル-ツール統一とは何ですか？Rubyファイルを編集せずにMCPツールを追加できますか？
+
+**A:** はい！`kairos.rb`のスキルは`tool`ブロックでMCPツールを定義できるようになりました。これによりL0-Bでスキルとツールが統一されます。
+
+**仕組み：**
+
+```ruby
+# kairos.rb内
+skill :my_custom_tool do
+  version "1.0"
+  title "My Custom Tool"
+  
+  # 従来のbehavior（スキル内省用）
+  behavior do
+    { capability: "..." }
+  end
+  
+  # ツール定義（MCPツールとして公開）
+  tool do
+    name "my_custom_tool"
+    description "便利な処理を行う"
+    
+    input do
+      property :arg, type: "string", description: "引数"
+      required :arg
+    end
+    
+    execute do |args|
+      # ツール実装
+      { result: process(args["arg"]) }
+    end
+  end
+end
+```
+
+**設定で有効化：**
+
+```yaml
+# skills/config.yml
+skill_tools_enabled: true   # デフォルト: false
+```
+
+**重要なポイント：**
+- デフォルトは**無効**（保守的）
+- ツールの追加・変更には`kairos.rb`の編集が必要（L0制約が適用）
+- 変更には人間の承認が必要（`approved: true`）
+- すべての変更はブロックチェーンに記録
+- Minimum-Nomicに合致：「変更できるが、記録される」
+
+---
+
 ## ライセンス
 
 [LICENSE](./LICENSE)ファイルを参照してください。
 
 ---
 
-**バージョン**: 0.2.1  
+**バージョン**: 0.3.0  
 **最終更新**: 2026-01-19
 
 > *「KairosChainは『この結果は正しいか？』ではなく『この知性はどのように形成されたか？』に答えます」*
