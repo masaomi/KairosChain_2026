@@ -678,9 +678,9 @@ Share the same `blockchain.json` to synchronize evolution history across multipl
    - All operations are recorded in `action_log`
    - Review logs regularly
 
-## Available Tools (21 core + skill-tools)
+## Available Tools (18 core + skill-tools)
 
-The base installation provides 21 tools. Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
+The base installation provides 18 tools. Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
 
 ### L0-A: Skills Tools (Markdown) - Read-only
 
@@ -700,6 +700,18 @@ The base installation provides 21 tools. Additional tools can be defined via `to
 
 > **Skill-defined tools**: When `skill_tools_enabled: true`, skills with `tool` blocks in `kairos.rb` are also registered here as MCP tools.
 
+### Resource Tools - Unified Access
+
+| Tool | Description |
+|------|-------------|
+| `resource_list` | List resources across all layers (L0/L1/L2) with URI |
+| `resource_read` | Read resource content by URI |
+
+URI format:
+- `l0://kairos.md`, `l0://kairos.rb` (L0 Skills)
+- `knowledge://{name}`, `knowledge://{name}/scripts/{file}` (L1)
+- `context://{session}/{name}` (L2)
+
 ### L1: Knowledge Tools - Hash Reference Record
 
 | Tool | Description |
@@ -707,16 +719,11 @@ The base installation provides 21 tools. Additional tools can be defined via `to
 | `knowledge_list` | List all knowledge skills |
 | `knowledge_get` | Get knowledge content by name |
 | `knowledge_update` | Create/update/delete knowledge (hash recorded) |
-| `knowledge_scripts` | List scripts in a knowledge skill |
-| `knowledge_assets` | List assets in a knowledge skill |
 
 ### L2: Context Tools - No Blockchain Record
 
 | Tool | Description |
 |------|-------------|
-| `context_sessions` | List all active sessions |
-| `context_list` | List contexts in a session |
-| `context_get` | Get context content |
 | `context_save` | Save context (free modification) |
 | `context_create_subdir` | Create scripts/assets/references subdir |
 
@@ -858,7 +865,7 @@ KairosChain_mcp_server/
 │       │   ├── chain.rb
 │       │   ├── merkle_tree.rb
 │       │   └── skill_transition.rb
-│       └── tools/                # MCP tools (21 core)
+│       └── tools/                # MCP tools (18 core)
 │           ├── skills_*.rb       # L0 tools
 │           ├── knowledge_*.rb    # L1 tools
 │           └── context_*.rb      # L2 tools
@@ -891,6 +898,172 @@ KairosChain_mcp_server/
 3. **Zero-Knowledge Proofs**: Privacy-preserving verification
 4. **Web Dashboard**: Visualize skill evolution history
 5. **Team Governance**: Voting system for L0 changes (see FAQ)
+
+---
+
+## Deployment and Operation
+
+### Data Storage Overview
+
+KairosChain stores data in the following locations:
+
+| Directory | Contents | Git Tracked | Importance |
+|-----------|----------|-------------|------------|
+| `skills/kairos.rb` | L0 DSL (evolvable) | Yes | High |
+| `skills/kairos.md` | L0 Philosophy (immutable) | Yes | High |
+| `skills/config.yml` | Configuration | Yes | High |
+| `skills/versions/` | DSL snapshots | Yes | Medium |
+| `knowledge/` | L1 project knowledge | Yes | High |
+| `context/` | L2 temporary context | Yes | Low |
+| `storage/blockchain.json` | Blockchain data | Yes | High |
+| `storage/embeddings/*.ann` | Vector index (auto-generated) | No | Low |
+| `skills/action_log.jsonl` | Action log | No | Low |
+
+### Blockchain Storage Format
+
+The private blockchain is stored as a **JSON flat file** at `storage/blockchain.json`:
+
+```json
+[
+  {
+    "index": 0,
+    "timestamp": "1970-01-01T00:00:00.000000Z",
+    "data": ["Genesis Block"],
+    "previous_hash": "0000...0000",
+    "merkle_root": "0000...0000",
+    "hash": "a1b2c3..."
+  },
+  {
+    "index": 1,
+    "timestamp": "2026-01-20T10:30:00.123456Z",
+    "data": ["{\"type\":\"skill_evolution\",\"skill_id\":\"...\"}"],
+    "previous_hash": "a1b2c3...",
+    "merkle_root": "xyz...",
+    "hash": "789..."
+  }
+]
+```
+
+**Why JSON flat file?**
+- **Simplicity**: No external dependencies
+- **Readability**: Human-inspectable for auditing
+- **Portability**: Copy to backup/migrate
+- **Philosophy alignment**: Auditability is core to Kairos
+
+### Recommended Operation Patterns
+
+#### Pattern 1: Fork + Private Repository (Recommended)
+
+Fork KairosChain and keep it as a private repository. This is the simplest approach.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  GitHub                                                         │
+│  ┌─────────────────────┐    ┌─────────────────────┐            │
+│  │ KairosChain (public)│───▶│ your-fork (private) │            │
+│  │ - code updates      │    │ - skills/           │            │
+│  └─────────────────────┘    │ - knowledge/        │            │
+│                             │ - storage/          │            │
+│                             └─────────────────────┘            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Pros:** Simple, everything in one place, full backup  
+**Cons:** May conflict when pulling upstream updates
+
+**Setup:**
+```bash
+# Fork on GitHub, then clone your private fork
+git clone https://github.com/YOUR_USERNAME/KairosChain_2026.git
+cd KairosChain_2026
+
+# Add upstream for updates
+git remote add upstream https://github.com/masaomi/KairosChain_2026.git
+
+# Pull upstream updates (when needed)
+git fetch upstream
+git merge upstream/main
+```
+
+#### Pattern 2: Data Directory Separation
+
+Keep KairosChain code and data in separate repositories.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Two repositories                                               │
+│                                                                 │
+│  ┌────────────────────┐    ┌─────────────────────────────┐     │
+│  │ KairosChain (public│    │ my-kairos-data (private)    │     │
+│  │ - lib/             │    │ - skills/                   │     │
+│  │ - bin/             │    │ - knowledge/                │     │
+│  │ - config/          │    │ - context/                  │     │
+│  └────────────────────┘    │ - storage/                  │     │
+│                            └─────────────────────────────┘     │
+│                                                                 │
+│  Link via symlinks:                                             │
+│  $ ln -s ~/my-kairos-data/skills ./skills                       │
+│  $ ln -s ~/my-kairos-data/knowledge ./knowledge                 │
+│  $ ln -s ~/my-kairos-data/storage ./storage                     │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Pros:** Easy to pull upstream updates, clean separation  
+**Cons:** Requires symlink setup, two repos to manage
+
+#### Pattern 3: Cloud Sync (Non-Git)
+
+Sync data directories with cloud storage (Dropbox, iCloud, Google Drive).
+
+```bash
+# Example: Symlink to Dropbox
+ln -s ~/Dropbox/KairosChain/skills ./skills
+ln -s ~/Dropbox/KairosChain/knowledge ./knowledge
+ln -s ~/Dropbox/KairosChain/storage ./storage
+```
+
+**Pros:** Automatic sync, no Git knowledge required  
+**Cons:** Weak version control, conflict resolution is harder
+
+### Backup Strategy
+
+#### Regular Backups
+
+```bash
+# Create backup script
+#!/bin/bash
+BACKUP_DIR=~/kairos-backups/$(date +%Y%m%d_%H%M%S)
+mkdir -p $BACKUP_DIR
+
+# Backup critical data
+cp -r skills/ $BACKUP_DIR/
+cp -r knowledge/ $BACKUP_DIR/
+cp -r storage/ $BACKUP_DIR/
+
+# Cleanup old backups (older than 30 days)
+find ~/kairos-backups -mtime +30 -type d -exec rm -rf {} +
+
+echo "Backup created: $BACKUP_DIR"
+```
+
+#### What to Back Up
+
+| Priority | Directory | Reason |
+|----------|-----------|--------|
+| **Critical** | `storage/blockchain.json` | Immutable evolution history |
+| **Critical** | `skills/kairos.rb` | L0 meta-rules |
+| **High** | `knowledge/` | Project knowledge |
+| **Medium** | `skills/versions/` | Evolution snapshots |
+| **Low** | `context/` | Temporary (can be recreated) |
+| **Skip** | `storage/embeddings/` | Auto-regenerated |
+
+#### Verification After Restore
+
+```bash
+# After restoring from backup, verify integrity
+cd KairosChain_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | bin/kairos_mcp_server
+```
 
 ---
 
@@ -987,7 +1160,8 @@ ruby test_local.rb
 
 Test coverage:
 - Layer Registry operation verification
-- List of 21 core MCP tools
+- List of 18 core MCP tools
+- Resource tools (resource_list, resource_read)
 - L1 Knowledge read/write
 - L2 Context read/write
 - L0 Skills DSL (6 skills) loading
@@ -1201,7 +1375,7 @@ See [LICENSE](../LICENSE) file.
 
 ---
 
-**Version**: 0.3.0  
-**Last Updated**: 2026-01-19
+**Version**: 0.4.0  
+**Last Updated**: 2026-01-20
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*

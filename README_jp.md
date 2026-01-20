@@ -678,9 +678,9 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
    - すべての操作は`action_log`に記録される
    - 定期的にログをレビュー
 
-## 利用可能なツール（コア21個 + スキルツール）
+## 利用可能なツール（コア18個 + スキルツール）
 
-基本インストールでは21個のツールが提供されます。`skill_tools_enabled: true`の場合、`kairos.rb`の`tool`ブロックで追加のツールを定義できます。
+基本インストールでは18個のツールが提供されます。`skill_tools_enabled: true`の場合、`kairos.rb`の`tool`ブロックで追加のツールを定義できます。
 
 ### L0-A：スキルツール（Markdown） - 読み取り専用
 
@@ -700,6 +700,18 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
 
 > **スキル定義ツール**：`skill_tools_enabled: true`の場合、`kairos.rb`内の`tool`ブロックを持つスキルもここにMCPツールとして登録されます。
 
+### リソースツール - 統一アクセス
+
+| ツール | 説明 |
+|--------|------|
+| `resource_list` | 全レイヤー（L0/L1/L2）のリソースをURIで一覧表示 |
+| `resource_read` | URIでリソースコンテンツを取得 |
+
+URI形式：
+- `l0://kairos.md`, `l0://kairos.rb` (L0スキル)
+- `knowledge://{name}`, `knowledge://{name}/scripts/{file}` (L1)
+- `context://{session}/{name}` (L2)
+
 ### L1：知識ツール - ハッシュ参照記録
 
 | ツール | 説明 |
@@ -707,16 +719,11 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
 | `knowledge_list` | すべての知識スキルを一覧表示 |
 | `knowledge_get` | 名前で知識コンテンツを取得 |
 | `knowledge_update` | 知識を作成/更新/削除（ハッシュ記録） |
-| `knowledge_scripts` | 知識スキル内のスクリプトを一覧表示 |
-| `knowledge_assets` | 知識スキル内のアセットを一覧表示 |
 
 ### L2：コンテキストツール - ブロックチェーン記録なし
 
 | ツール | 説明 |
 |--------|------|
-| `context_sessions` | すべてのアクティブセッションを一覧表示 |
-| `context_list` | セッション内のコンテキストを一覧表示 |
-| `context_get` | コンテキストコンテンツを取得 |
 | `context_save` | コンテキストを保存（自由に変更可能） |
 | `context_create_subdir` | scripts/assets/referencesサブディレクトリを作成 |
 
@@ -858,7 +865,7 @@ KairosChain_mcp_server/
 │       │   ├── chain.rb
 │       │   ├── merkle_tree.rb
 │       │   └── skill_transition.rb
-│       └── tools/                # MCPツール（コア21個）
+│       └── tools/                # MCPツール（コア18個）
 │           ├── skills_*.rb       # L0ツール
 │           ├── knowledge_*.rb    # L1ツール
 │           └── context_*.rb      # L2ツール
@@ -891,6 +898,172 @@ KairosChain_mcp_server/
 3. **ゼロ知識証明**：プライバシーを保護した検証
 4. **Webダッシュボード**：スキル進化履歴の可視化
 5. **チームガバナンス**：L0変更のための投票システム（FAQを参照）
+
+---
+
+## デプロイと運用
+
+### データストレージの概要
+
+KairosChainは以下の場所にデータを保存します：
+
+| ディレクトリ | 内容 | Git追跡 | 重要度 |
+|-------------|------|---------|--------|
+| `skills/kairos.rb` | L0 DSL（進化可能） | Yes | 高 |
+| `skills/kairos.md` | L0 哲学（不変） | Yes | 高 |
+| `skills/config.yml` | 設定 | Yes | 高 |
+| `skills/versions/` | DSLスナップショット | Yes | 中 |
+| `knowledge/` | L1プロジェクト知識 | Yes | 高 |
+| `context/` | L2一時コンテキスト | Yes | 低 |
+| `storage/blockchain.json` | ブロックチェーンデータ | Yes | 高 |
+| `storage/embeddings/*.ann` | ベクトルインデックス（自動生成） | No | 低 |
+| `skills/action_log.jsonl` | アクションログ | No | 低 |
+
+### ブロックチェーンのストレージ形式
+
+プライベートブロックチェーンは`storage/blockchain.json`に**JSONフラットファイル**として保存されます：
+
+```json
+[
+  {
+    "index": 0,
+    "timestamp": "1970-01-01T00:00:00.000000Z",
+    "data": ["Genesis Block"],
+    "previous_hash": "0000...0000",
+    "merkle_root": "0000...0000",
+    "hash": "a1b2c3..."
+  },
+  {
+    "index": 1,
+    "timestamp": "2026-01-20T10:30:00.123456Z",
+    "data": ["{\"type\":\"skill_evolution\",\"skill_id\":\"...\"}"],
+    "previous_hash": "a1b2c3...",
+    "merkle_root": "xyz...",
+    "hash": "789..."
+  }
+]
+```
+
+**なぜJSONフラットファイルか？**
+- **シンプルさ**：外部依存なし
+- **可読性**：監査のために人間が直接確認可能
+- **ポータビリティ**：コピーするだけでバックアップ/移行可能
+- **哲学への適合**：監査可能性はKairosの核心
+
+### 推奨運用パターン
+
+#### パターン1：Fork + プライベートリポジトリ（推奨）
+
+KairosChainをフォークしてプライベートリポジトリとして保持します。最もシンプルなアプローチです。
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  GitHub                                                         │
+│  ┌─────────────────────┐    ┌─────────────────────┐            │
+│  │ KairosChain (公開)  │───▶│ your-fork (非公開)  │            │
+│  │ - コード更新        │    │ - skills/           │            │
+│  └─────────────────────┘    │ - knowledge/        │            │
+│                             │ - storage/          │            │
+│                             └─────────────────────┘            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**メリット:** シンプル、すべてが一箇所、完全バックアップ  
+**デメリット:** 上流の更新をプルする際にコンフリクトの可能性
+
+**セットアップ:**
+```bash
+# GitHubでフォークし、プライベートフォークをクローン
+git clone https://github.com/YOUR_USERNAME/KairosChain_2026.git
+cd KairosChain_2026
+
+# 更新用にupstreamを追加
+git remote add upstream https://github.com/masaomi/KairosChain_2026.git
+
+# 上流の更新をプル（必要時）
+git fetch upstream
+git merge upstream/main
+```
+
+#### パターン2：データディレクトリ分離
+
+KairosChainのコードとデータを別々のリポジトリで管理します。
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  2つのリポジトリ                                                 │
+│                                                                 │
+│  ┌────────────────────┐    ┌─────────────────────────────┐     │
+│  │ KairosChain (公開) │    │ my-kairos-data (非公開)     │     │
+│  │ - lib/             │    │ - skills/                   │     │
+│  │ - bin/             │    │ - knowledge/                │     │
+│  │ - config/          │    │ - context/                  │     │
+│  └────────────────────┘    │ - storage/                  │     │
+│                            └─────────────────────────────┘     │
+│                                                                 │
+│  シンボリックリンクで接続：                                       │
+│  $ ln -s ~/my-kairos-data/skills ./skills                       │
+│  $ ln -s ~/my-kairos-data/knowledge ./knowledge                 │
+│  $ ln -s ~/my-kairos-data/storage ./storage                     │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**メリット:** 上流の更新を取り込みやすい、明確な分離  
+**デメリット:** シンボリックリンクの設定が必要、2つのリポジトリを管理
+
+#### パターン3：クラウド同期（非Git）
+
+データディレクトリをクラウドストレージ（Dropbox、iCloud、Google Drive）と同期します。
+
+```bash
+# 例：Dropboxへのシンボリックリンク
+ln -s ~/Dropbox/KairosChain/skills ./skills
+ln -s ~/Dropbox/KairosChain/knowledge ./knowledge
+ln -s ~/Dropbox/KairosChain/storage ./storage
+```
+
+**メリット:** 自動同期、Git知識不要  
+**デメリット:** バージョン管理が弱い、コンフリクト解決が難しい
+
+### バックアップ戦略
+
+#### 定期バックアップ
+
+```bash
+# バックアップスクリプトを作成
+#!/bin/bash
+BACKUP_DIR=~/kairos-backups/$(date +%Y%m%d_%H%M%S)
+mkdir -p $BACKUP_DIR
+
+# 重要データをバックアップ
+cp -r skills/ $BACKUP_DIR/
+cp -r knowledge/ $BACKUP_DIR/
+cp -r storage/ $BACKUP_DIR/
+
+# 古いバックアップを削除（30日以上前）
+find ~/kairos-backups -mtime +30 -type d -exec rm -rf {} +
+
+echo "バックアップ作成: $BACKUP_DIR"
+```
+
+#### バックアップ対象
+
+| 優先度 | ディレクトリ | 理由 |
+|--------|-------------|------|
+| **最重要** | `storage/blockchain.json` | 不変の進化履歴 |
+| **最重要** | `skills/kairos.rb` | L0メタルール |
+| **高** | `knowledge/` | プロジェクト知識 |
+| **中** | `skills/versions/` | 進化スナップショット |
+| **低** | `context/` | 一時的（再作成可能） |
+| **スキップ** | `storage/embeddings/` | 自動再生成 |
+
+#### リストア後の検証
+
+```bash
+# バックアップからリストア後、整合性を検証
+cd KairosChain_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | bin/kairos_mcp_server
+```
 
 ---
 
@@ -987,7 +1160,8 @@ ruby test_local.rb
 
 テスト内容：
 - Layer Registry の動作確認
-- 21個のコアMCPツール一覧
+- 18個のコアMCPツール一覧
+- リソースツール（resource_list, resource_read）
 - L1 Knowledge の読み書き
 - L2 Context の読み書き
 - L0 Skills DSL（6スキル）の読み込み
@@ -1201,7 +1375,7 @@ AIエージェント（Cursor Rules、Claude system_promptなど）に以下を�
 
 ---
 
-**バージョン**: 0.3.0  
-**最終更新**: 2026-01-19
+**バージョン**: 0.4.0  
+**最終更新**: 2026-01-20
 
 > *「KairosChainは『この結果は正しいか？』ではなく『この知性はどのように形成されたか？』に答えます」*
