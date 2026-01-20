@@ -6,6 +6,26 @@
 
 KairosChain is a Model Context Protocol (MCP) server that records the evolution of AI capabilities on a private blockchain. It combines Pure Skills design (Ruby DSL/AST) with immutable ledger technology, enabling AI agents to have auditable, evolvable, and self-referential skill definitions.
 
+## Table of Contents
+
+- [Philosophy](#philosophy)
+- [Architecture](#architecture)
+- [Layered Skills Architecture](#layered-skills-architecture)
+- [Data Model: SkillStateTransition](#data-model-skillstatetransition)
+- [Setup](#setup)
+- [Client Configuration](#client-configuration)
+- [Testing the Setup](#testing-the-setup)
+- [Usage Tips](#usage-tips)
+- [Available Tools](#available-tools-18-core--skill-tools)
+- [Usage Examples](#usage-examples)
+- [Self-Evolution Workflow](#self-evolution-workflow)
+- [Pure Skills Design](#pure-skills-design)
+- [Directory Structure](#directory-structure)
+- [Future Roadmap](#future-roadmap)
+- [Deployment and Operation](#deployment-and-operation)
+- [FAQ](#faq)
+- [License](#license)
+
 ## Philosophy
 
 ### The Problem
