@@ -29,17 +29,16 @@ module KairosMcp
       register_if_defined('KairosMcp::Tools::SkillsEvolve')
       register_if_defined('KairosMcp::Tools::SkillsRollback')
       
+      # Resource tools (unified access to L0/L1/L2 resources)
+      register_if_defined('KairosMcp::Tools::ResourceList')
+      register_if_defined('KairosMcp::Tools::ResourceRead')
+
       # L1: knowledge/ (Anthropic skills format with hash-only blockchain record)
       register_if_defined('KairosMcp::Tools::KnowledgeList')
       register_if_defined('KairosMcp::Tools::KnowledgeGet')
       register_if_defined('KairosMcp::Tools::KnowledgeUpdate')
-      register_if_defined('KairosMcp::Tools::KnowledgeScripts')
-      register_if_defined('KairosMcp::Tools::KnowledgeAssets')
       
       # L2: context/ (Anthropic skills format without blockchain record)
-      register_if_defined('KairosMcp::Tools::ContextSessions')
-      register_if_defined('KairosMcp::Tools::ContextList')
-      register_if_defined('KairosMcp::Tools::ContextGet')
       register_if_defined('KairosMcp::Tools::ContextSave')
       register_if_defined('KairosMcp::Tools::ContextCreateSubdir')
       

@@ -12,6 +12,7 @@ require 'kairos_mcp/layer_registry'
 require 'kairos_mcp/knowledge_provider'
 require 'kairos_mcp/context_manager'
 require 'kairos_mcp/anthropic_skill_parser'
+require 'kairos_mcp/resource_registry'
 
 def separator
   puts "\n#{'=' * 60}\n"
@@ -61,46 +62,14 @@ test_section("List Available Tools") do
   end
 end
 
-# Test 3: Knowledge List
-test_section("Knowledge List (L1)") do
-  request = {
-    jsonrpc: '2.0',
-    id: 2,
-    method: 'tools/call',
-    params: {
-      name: 'knowledge_list',
-      arguments: {}
-    }
-  }
-  
-  response = protocol.handle_message(request.to_json)
-  puts response[:result][:content].first[:text]
-end
-
-# Test 4: Knowledge Get
-test_section("Knowledge Get (L1)") do
+# Test 3: Resource List (All)
+test_section("Resource List - All Layers") do
   request = {
     jsonrpc: '2.0',
     id: 3,
     method: 'tools/call',
     params: {
-      name: 'knowledge_get',
-      arguments: { 'name' => 'example_knowledge', 'include_scripts' => true }
-    }
-  }
-  
-  response = protocol.handle_message(request.to_json)
-  puts response[:result][:content].first[:text]
-end
-
-# Test 5: Context Sessions
-test_section("Context Sessions (L2)") do
-  request = {
-    jsonrpc: '2.0',
-    id: 4,
-    method: 'tools/call',
-    params: {
-      name: 'context_sessions',
+      name: 'resource_list',
       arguments: {}
     }
   }
@@ -109,7 +78,122 @@ test_section("Context Sessions (L2)") do
   puts response[:result][:content].first[:text]
 end
 
-# Test 6: Context Save
+# Test 4: Resource List (L0 only)
+test_section("Resource List - L0 Only") do
+  request = {
+    jsonrpc: '2.0',
+    id: 4,
+    method: 'tools/call',
+    params: {
+      name: 'resource_list',
+      arguments: { 'layer' => 'l0' }
+    }
+  }
+  
+  response = protocol.handle_message(request.to_json)
+  puts response[:result][:content].first[:text]
+end
+
+# Test 5: Resource List (L1, scripts only)
+test_section("Resource List - L1 Scripts Only") do
+  request = {
+    jsonrpc: '2.0',
+    id: 5,
+    method: 'tools/call',
+    params: {
+      name: 'resource_list',
+      arguments: { 'layer' => 'l1', 'type' => 'scripts' }
+    }
+  }
+  
+  response = protocol.handle_message(request.to_json)
+  puts response[:result][:content].first[:text]
+end
+
+# Test 6: Resource Read - L0 kairos.md
+test_section("Resource Read - L0 kairos.md") do
+  request = {
+    jsonrpc: '2.0',
+    id: 6,
+    method: 'tools/call',
+    params: {
+      name: 'resource_read',
+      arguments: { 'uri' => 'l0://kairos.md' }
+    }
+  }
+  
+  response = protocol.handle_message(request.to_json)
+  # Only show first 1000 chars to avoid flooding
+  text = response[:result][:content].first[:text]
+  puts text.length > 1000 ? "#{text[0, 1000]}...\n\n[truncated]" : text
+end
+
+# Test 7: Resource Read - L0 kairos.rb
+test_section("Resource Read - L0 kairos.rb") do
+  request = {
+    jsonrpc: '2.0',
+    id: 7,
+    method: 'tools/call',
+    params: {
+      name: 'resource_read',
+      arguments: { 'uri' => 'l0://kairos.rb' }
+    }
+  }
+  
+  response = protocol.handle_message(request.to_json)
+  text = response[:result][:content].first[:text]
+  puts text.length > 1000 ? "#{text[0, 1000]}...\n\n[truncated]" : text
+end
+
+# Test 8: Resource Read - L1 Knowledge
+test_section("Resource Read - L1 Knowledge") do
+  request = {
+    jsonrpc: '2.0',
+    id: 8,
+    method: 'tools/call',
+    params: {
+      name: 'resource_read',
+      arguments: { 'uri' => 'knowledge://example_knowledge' }
+    }
+  }
+  
+  response = protocol.handle_message(request.to_json)
+  puts response[:result][:content].first[:text]
+end
+
+# Test 9: Resource Read - L1 Script
+test_section("Resource Read - L1 Script") do
+  request = {
+    jsonrpc: '2.0',
+    id: 9,
+    method: 'tools/call',
+    params: {
+      name: 'resource_read',
+      arguments: { 'uri' => 'knowledge://example_knowledge/scripts/example_script.sh' }
+    }
+  }
+  
+  response = protocol.handle_message(request.to_json)
+  puts response[:result][:content].first[:text]
+end
+
+# Test 10: Resource Read - Not Found
+test_section("Resource Read - Not Found") do
+  request = {
+    jsonrpc: '2.0',
+    id: 10,
+    method: 'tools/call',
+    params: {
+      name: 'resource_read',
+      arguments: { 'uri' => 'knowledge://nonexistent' }
+    }
+  }
+  
+  response = protocol.handle_message(request.to_json)
+  puts response[:result][:content].first[:text]
+end
+
+# Test 11: Context Save (to test L2 resources)
 test_section("Context Save (L2)") do
   content = <<~MD
     ---
@@ -128,7 +212,7 @@ test_section("Context Save (L2)") do
 
   request = {
     jsonrpc: '2.0',
-    id: 5,
+    id: 11,
     method: 'tools/call',
     params: {
       name: 'context_save',
@@ -144,15 +228,15 @@ test_section("Context Save (L2)") do
   puts response[:result][:content].first[:text]
 end
 
-# Test 7: Context List
-test_section("Context List (L2)") do
+# Test 12: Resource List - L2 Context
+test_section("Resource List - L2 Context") do
   request = {
     jsonrpc: '2.0',
-    id: 6,
+    id: 12,
     method: 'tools/call',
     params: {
-      name: 'context_list',
-      arguments: { 'session_id' => 'test_session' }
+      name: 'resource_list',
+      arguments: { 'layer' => 'l2' }
     }
   }
   
@@ -160,15 +244,15 @@ test_section("Context List (L2)") do
   puts response[:result][:content].first[:text]
 end
 
-# Test 8: Context Get
-test_section("Context Get (L2)") do
+# Test 13: Resource Read - L2 Context
+test_section("Resource Read - L2 Context") do
   request = {
     jsonrpc: '2.0',
-    id: 7,
+    id: 13,
     method: 'tools/call',
     params: {
-      name: 'context_get',
-      arguments: { 'session_id' => 'test_session', 'name' => 'test_hypothesis' }
+      name: 'resource_read',
+      arguments: { 'uri' => 'context://test_session/test_hypothesis' }
     }
   }
   
@@ -176,14 +260,30 @@ test_section("Context Get (L2)") do
   puts response[:result][:content].first[:text]
 end
 
-# Test 9: Skills DSL List (L0)
+# Test 14: Skills DSL List (L0)
 test_section("Skills DSL List (L0)") do
   request = {
     jsonrpc: '2.0',
-    id: 8,
+    id: 14,
     method: 'tools/call',
     params: {
       name: 'skills_dsl_list',
+      arguments: {}
+    }
+  }
+  
+  response = protocol.handle_message(request.to_json)
+  puts response[:result][:content].first[:text]
+end
+
+# Test 15: Knowledge List (L1)
+test_section("Knowledge List (L1)") do
+  request = {
+    jsonrpc: '2.0',
+    id: 15,
+    method: 'tools/call',
+    params: {
+      name: 'knowledge_list',
       arguments: {}
     }
   }
