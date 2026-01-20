@@ -1059,6 +1059,50 @@ For most use cases, **L0 tools should not need frequent changes**. The strict lo
 
 ---
 
+### Q: Should KairosChain proactively recommend skill creation to the LLM?
+
+**A:** **No. KairosChain should focus on "recording and constraining," not "recommending when to learn."** The logic for recommending skill creation should be delegated to the LLM/AI agent side (e.g., Cursor Rules, system_prompt).
+
+**Why this separation?**
+
+| Aspect | Implemented in KairosChain | Delegated to LLM/Agent |
+|--------|---------------------------|------------------------|
+| **Minimum-Nomic Principle** | "Changes should be rare and high-cost" | Agent decides when learning is valuable |
+| **Separation of Concerns** | KairosChain = gatekeeper & recorder | LLM = decision-maker for learning triggers |
+| **Customizability** | Same constraints for all users | Each user can configure different agent behaviors |
+| **Prompt Injection Risk** | Recommendation logic could be attacked | Defense can be handled at agent level |
+
+**KairosChain's role:**
+- ✅ Record skill changes immutably
+- ✅ Enforce evolution constraints (approval, layer rules)
+- ✅ Provide tools for skill management
+- ❌ Decide "when" or "what" to learn
+
+**Recommended approach for proactive skill recommendations:**
+
+Configure your AI agent (Cursor Rules, Claude system_prompt, etc.) to include:
+
+```markdown
+# Agent Learning Rules
+
+## When to Recommend Skill Creation
+- After solving a problem that required multiple iterations
+- When the user says "I always forget..." or "This is a common pattern"
+- When similar code patterns are generated repeatedly
+
+## Recommendation Format
+"I noticed [pattern]. Would you like me to capture this as a KairosChain skill?"
+
+## Then use KairosChain tools:
+- L2: `context_save` for temporary hypotheses
+- L1: `knowledge_update` for project knowledge (hash-only record)
+- L0: `skills_evolve` for meta-skills (requires human approval)
+```
+
+This keeps KairosChain as a **neutral infrastructure** while allowing each team/user to define their own learning policies at the agent level.
+
+---
+
 ## License
 
 See [LICENSE](../LICENSE) file.
