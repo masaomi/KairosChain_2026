@@ -12,6 +12,16 @@ require_human_approval: true
 # This allows adding/modifying tools by editing kairos.rb (subject to L0 constraints)
 skill_tools_enabled: false
 
+# Vector Search (RAG) settings
+# Enables semantic search for skills and knowledge when optional gems are installed
+# Requires: gem install hnswlib informers (or bundle install with Gemfile)
+vector_search:
+  enabled: true                                      # Enable vector search if gems available
+  model: "sentence-transformers/all-MiniLM-L6-v2"    # Sentence transformer model
+  dimension: 384                                     # Embedding dimension (must match model)
+  index_path: "storage/embeddings"                   # Path to store index files
+  auto_index: true                                   # Auto-rebuild index on skill changes
+
 # Immutable skills (cannot be modified even with evolution_enabled)
 immutable_skills:
   - core_safety

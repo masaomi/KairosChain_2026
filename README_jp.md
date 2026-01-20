@@ -184,7 +184,7 @@ context/
 
 ### 前提条件
 
-- Ruby 3.3+（標準ライブラリのみ使用、gem不要）
+- Ruby 3.3+（基本機能は標準ライブラリのみ使用、gem不要）
 - Claude Code CLI（`claude`）またはCursor IDE
 
 ### インストール
@@ -199,6 +199,88 @@ chmod +x bin/kairos_mcp_server
 
 # 基本動作をテスト
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | bin/kairos_mcp_server
+```
+
+### オプション：RAG（セマンティック検索）サポート
+
+KairosChainはベクトル埋め込みを使用したオプションのセマンティック検索をサポートしています。これにより、完全なキーワード一致ではなく意味でスキルを検索できます（例：「認証」で検索すると「ログイン」や「パスワード」に関するスキルも見つかります）。
+
+**RAG gemなし:** 正規表現ベースのキーワード検索（デフォルト、インストール不要）  
+**RAG gemあり:** 文章埋め込みを使用したセマンティックベクトル検索
+
+#### 必要要件
+
+- C++コンパイラ（ネイティブ拡張のため）
+- ~90MBのディスク容量（埋め込みモデル用、初回使用時にダウンロード）
+
+#### インストール
+
+```bash
+cd KairosChain_mcp_server
+
+# オプション1: Bundlerを使用（推奨）
+bundle install --with rag
+
+# オプション2: 直接gemをインストール
+gem install hnswlib informers
+```
+
+#### 使用するgem
+
+| Gem | バージョン | 用途 |
+|-----|-----------|------|
+| `hnswlib` | ~> 0.9 | HNSW近似最近傍探索 |
+| `informers` | ~> 1.0 | ONNXベースの文章埋め込み |
+
+#### 設定
+
+`skills/config.yml`のRAG設定：
+
+```yaml
+vector_search:
+  enabled: true                                      # gemが利用可能な場合に有効化
+  model: "sentence-transformers/all-MiniLM-L6-v2"    # 埋め込みモデル
+  dimension: 384                                     # モデルと一致させる必要あり
+  index_path: "storage/embeddings"                   # インデックス保存パス
+  auto_index: true                                   # 変更時に自動再構築
+```
+
+#### 確認方法
+
+```bash
+# RAGが利用可能か確認
+ruby -e "require 'hnswlib'; require 'informers'; puts 'RAG gems installed!'"
+
+# またはMCP経由でテスト
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hello_world","arguments":{}}}' | bin/kairos_mcp_server
+```
+
+#### 動作の仕組み
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      検索クエリ                              │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────────┐
+                    │  VectorSearch.available?  │
+                    └─────────────────────┘
+                              │
+              ┌───────────────┴───────────────┐
+              │                               │
+              ▼                               ▼
+    ┌─────────────────┐             ┌─────────────────┐
+    │ セマンティック検索 │             │ フォールバック検索 │
+    │ (hnswlib +      │             │ (正規表現ベース)  │
+    │  informers)     │             │                 │
+    └─────────────────┘             └─────────────────┘
+              │                               │
+              └───────────────┬───────────────┘
+                              ▼
+                    ┌─────────────────┐
+                    │    検索結果     │
+                    └─────────────────┘
 ```
 
 ---

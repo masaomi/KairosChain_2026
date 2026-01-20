@@ -184,7 +184,7 @@ Every skill change is recorded as a `SkillStateTransition`:
 
 ### Prerequisites
 
-- Ruby 3.3+ (uses standard library only, no gems required)
+- Ruby 3.3+ (uses standard library only, no gems required for basic functionality)
 - Claude Code CLI (`claude`) or Cursor IDE
 
 ### Installation
@@ -199,6 +199,88 @@ chmod +x bin/kairos_mcp_server
 
 # Test basic execution
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | bin/kairos_mcp_server
+```
+
+### Optional: RAG (Semantic Search) Support
+
+KairosChain supports optional semantic search using vector embeddings. This enables finding skills by meaning rather than exact keyword matches (e.g., searching "authentication" can find skills about "login" or "password").
+
+**Without RAG gems:** Regex-based keyword search (default, no installation required)  
+**With RAG gems:** Semantic vector search using sentence embeddings
+
+#### Requirements
+
+- C++ compiler (for native extensions)
+- ~90MB disk space (for embedding model, downloaded on first use)
+
+#### Installation
+
+```bash
+cd KairosChain_mcp_server
+
+# Option 1: Using Bundler (recommended)
+bundle install --with rag
+
+# Option 2: Direct gem install
+gem install hnswlib informers
+```
+
+#### Gems Used
+
+| Gem | Version | Purpose |
+|-----|---------|---------|
+| `hnswlib` | ~> 0.9 | HNSW approximate nearest neighbor search |
+| `informers` | ~> 1.0 | ONNX-based sentence embeddings |
+
+#### Configuration
+
+RAG settings in `skills/config.yml`:
+
+```yaml
+vector_search:
+  enabled: true                                      # Enable if gems available
+  model: "sentence-transformers/all-MiniLM-L6-v2"    # Embedding model
+  dimension: 384                                     # Must match model
+  index_path: "storage/embeddings"                   # Index storage path
+  auto_index: true                                   # Auto-rebuild on changes
+```
+
+#### Verification
+
+```bash
+# Check if RAG is available
+ruby -e "require 'hnswlib'; require 'informers'; puts 'RAG gems installed!'"
+
+# Or test via MCP
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hello_world","arguments":{}}}' | bin/kairos_mcp_server
+```
+
+#### How It Works
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Search Query                            │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────────┐
+                    │  VectorSearch.available?  │
+                    └─────────────────────┘
+                              │
+              ┌───────────────┴───────────────┐
+              │                               │
+              ▼                               ▼
+    ┌─────────────────┐             ┌─────────────────┐
+    │ Semantic Search │             │ Fallback Search │
+    │ (hnswlib +      │             │ (Regex-based)   │
+    │  informers)     │             │                 │
+    └─────────────────┘             └─────────────────┘
+              │                               │
+              └───────────────┬───────────────┘
+                              ▼
+                    ┌─────────────────┐
+                    │  Search Results │
+                    └─────────────────┘
 ```
 
 ---

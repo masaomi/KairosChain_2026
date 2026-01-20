@@ -4,6 +4,7 @@ require 'digest'
 require 'fileutils'
 require_relative 'anthropic_skill_parser'
 require_relative 'kairos_chain/chain'
+require_relative 'vector_search/provider'
 
 module KairosMcp
   # KnowledgeProvider: Manages L1 (knowledge layer) skills in Anthropic format
@@ -15,9 +16,13 @@ module KairosMcp
   #
   class KnowledgeProvider
     KNOWLEDGE_DIR = File.expand_path('../../knowledge', __dir__)
+    KNOWLEDGE_INDEX_PATH = File.expand_path('../../storage/embeddings/knowledge', __dir__)
 
-    def initialize(knowledge_dir = KNOWLEDGE_DIR)
+    def initialize(knowledge_dir = KNOWLEDGE_DIR, vector_search_enabled: true)
       @knowledge_dir = knowledge_dir
+      @vector_search_enabled = vector_search_enabled
+      @vector_search = nil
+      @index_built = false
       FileUtils.mkdir_p(@knowledge_dir)
     end
 
@@ -78,6 +83,9 @@ module KairosMcp
         reason: reason || "Create knowledge: #{name}"
       )
 
+      # Update vector search index
+      update_vector_index(name, content, skill)
+
       { success: true, skill: skill.to_h, hash: content_hash }
     end
 
@@ -114,6 +122,9 @@ module KairosMcp
         reason: reason || "Update knowledge: #{name}"
       )
 
+      # Update vector search index
+      update_vector_index(name, new_content, updated_skill)
+
       { success: true, skill: updated_skill.to_h, prev_hash: prev_hash, next_hash: next_hash }
     end
 
@@ -143,6 +154,9 @@ module KairosMcp
         next_hash: nil,
         reason: reason || "Delete knowledge: #{name}"
       )
+
+      # Remove from vector search index
+      remove_from_vector_index(name)
 
       { success: true, deleted: name, prev_hash: prev_hash }
     end
@@ -184,8 +198,89 @@ module KairosMcp
     #
     # @param query [String] Search query
     # @param max_results [Integer] Maximum number of results
+    # @param semantic [Boolean] Force semantic search if available
     # @return [Array<Hash>] Matching skills
-    def search(query, max_results = 5)
+    def search(query, max_results = 5, semantic: nil)
+      use_semantic = semantic.nil? ? @vector_search_enabled : semantic
+      
+      if use_semantic && vector_search.semantic?
+        semantic_search(query, max_results)
+      else
+        regex_search(query, max_results)
+      end
+    end
+
+    # Get vector search status
+    #
+    # @return [Hash] Status information
+    def vector_search_status
+      {
+        enabled: @vector_search_enabled,
+        semantic_available: VectorSearch.available?,
+        index_built: @index_built,
+        document_count: vector_search.count
+      }
+    end
+
+    # Rebuild the vector search index
+    #
+    # @return [Boolean] Success status
+    def rebuild_index
+      documents = skill_dirs.filter_map do |dir|
+        skill = AnthropicSkillParser.parse(dir)
+        next unless skill
+
+        content = File.read(skill.md_file_path) rescue ''
+        {
+          id: skill.name,
+          text: build_searchable_text(skill, content),
+          metadata: {
+            description: skill.description,
+            tags: skill.tags,
+            version: skill.version
+          }
+        }
+      end
+
+      result = vector_search.rebuild(documents)
+      @index_built = result
+      result
+    end
+
+    private
+
+    def vector_search
+      @vector_search ||= VectorSearch.create(index_path: KNOWLEDGE_INDEX_PATH)
+    end
+
+    def ensure_index_built
+      return if @index_built
+      rebuild_index
+    end
+
+    def semantic_search(query, max_results)
+      ensure_index_built
+
+      results = vector_search.search(query, k: max_results)
+
+      results.filter_map do |result|
+        skill = get(result[:id])
+        next unless skill
+
+        {
+          name: skill.name,
+          description: skill.description,
+          version: skill.version,
+          tags: skill.tags,
+          has_scripts: skill.has_scripts?,
+          has_assets: skill.has_assets?,
+          has_references: skill.has_references?,
+          score: result[:score]
+        }
+      end
+    end
+
+    def regex_search(query, max_results)
       pattern = Regexp.new(query, Regexp::IGNORECASE)
 
       list.select do |skill|
@@ -195,7 +290,41 @@ module KairosMcp
       end.first(max_results)
     end
 
-    private
+    def build_searchable_text(skill, content)
+      parts = [
+        skill.name,
+        skill.description,
+        skill.tags&.join(' '),
+        content
+      ].compact
+
+      parts.join("\n\n")
+    end
+
+    def update_vector_index(name, content, skill)
+      return unless @vector_search_enabled
+
+      text = build_searchable_text(skill, content)
+      metadata = {
+        description: skill.description,
+        tags: skill.tags,
+        version: skill.version
+      }
+
+      vector_search.add(name, text, metadata: metadata)
+      vector_search.save
+    rescue StandardError => e
+      warn "[KnowledgeProvider] Failed to update vector index: #{e.message}"
+    end
+
+    def remove_from_vector_index(name)
+      return unless @vector_search_enabled
+
+      vector_search.remove(name)
+      vector_search.save
+    rescue StandardError => e
+      warn "[KnowledgeProvider] Failed to remove from vector index: #{e.message}"
+    end
 
     def skill_dirs
       Dir[File.join(@knowledge_dir, '*')].select { |f| File.directory?(f) }

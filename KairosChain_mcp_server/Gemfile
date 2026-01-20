@@ -1,0 +1,51 @@
+# frozen_string_literal: true
+
+source 'https://rubygems.org'
+
+# KairosChain MCP Server
+#
+# By default, KairosChain requires no external gems (Ruby standard library only).
+# The gems below are OPTIONAL and enable additional features.
+#
+# To install optional dependencies:
+#   bundle install
+#
+# Or install individually:
+#   gem install hnswlib informers
+
+# =============================================================================
+# Optional: RAG (Semantic Search) Support
+# =============================================================================
+#
+# These gems enable semantic/vector search for skills and knowledge.
+# Without these gems, KairosChain falls back to regex-based search.
+#
+# Requirements:
+#   - C++ compiler (for native extensions)
+#   - ~90MB disk space for embedding model (downloaded on first use)
+#
+# Installation:
+#   bundle install --with rag
+#   # or
+#   gem install hnswlib informers
+#
+
+group :rag, optional: true do
+  # HNSW (Hierarchical Navigable Small World) for fast approximate nearest neighbor search
+  # https://github.com/yoshoku/hnswlib.rb
+  gem 'hnswlib', '~> 0.9'
+
+  # ONNX-based sentence embeddings (sentence-transformers compatible)
+  # https://github.com/ankane/informers
+  gem 'informers', '~> 1.0'
+end
+
+# =============================================================================
+# Development Dependencies
+# =============================================================================
+
+group :development, :test do
+  # Testing
+  gem 'minitest', '~> 5.0'
+  gem 'rake', '~> 13.0'
+end
