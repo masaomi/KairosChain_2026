@@ -232,6 +232,16 @@ gem install hnswlib informers
 | `hnswlib` | ~> 0.9 | HNSW近似最近傍探索 |
 | `informers` | ~> 1.0 | ONNXベースの文章埋め込み |
 
+#### 対応レイヤー
+
+| レイヤー | 対象 | RAG対応 | インデックスパス |
+|---------|------|---------|-----------------|
+| **L0** | `skills/kairos.rb`（メタスキル） | あり | `storage/embeddings/skills/` |
+| **L1** | `knowledge/`（プロジェクト知識） | あり | `storage/embeddings/knowledge/` |
+| **L2** | `context/`（一時コンテキスト） | なし | N/A（正規表現検索のみ） |
+
+L2は一時的なコンテキストで短命かつ通常は数が少ないため、正規表現検索で十分です。
+
 #### 設定
 
 `skills/config.yml`のRAG設定：

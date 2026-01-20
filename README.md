@@ -232,6 +232,16 @@ gem install hnswlib informers
 | `hnswlib` | ~> 0.9 | HNSW approximate nearest neighbor search |
 | `informers` | ~> 1.0 | ONNX-based sentence embeddings |
 
+#### Supported Layers
+
+| Layer | Target | RAG Support | Index Path |
+|-------|--------|-------------|------------|
+| **L0** | `skills/kairos.rb` (meta-skills) | Yes | `storage/embeddings/skills/` |
+| **L1** | `knowledge/` (project knowledge) | Yes | `storage/embeddings/knowledge/` |
+| **L2** | `context/` (temporary context) | No | N/A (regex search only) |
+
+L2 is excluded because temporary contexts are short-lived and typically few in number, making regex search sufficient.
+
 #### Configuration
 
 RAG settings in `skills/config.yml`:
