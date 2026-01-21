@@ -1528,6 +1528,48 @@ Would you like to promote it from L2 to L1?"
 
 ---
 
+### Q: What happens when skills or knowledge contradict each other?
+
+**A:** Currently, KairosChain **does not have automatic contradiction detection** between skills/knowledge. This is a recognized limitation noted in the design paper.
+
+**Why no automatic detection?**
+
+KairosChain intentionally delegates "judgment" to external actors (LLM/human):
+
+| KairosChain's Responsibility | Delegated to External |
+|-----------------------------|----------------------|
+| Record changes | Judge what to save |
+| Enforce constraints | Judge content validity |
+| Maintain history | Resolve contradictions |
+
+**Current approach when contradictions occur:**
+
+1. **Implicit layer priority**: `L0 (meta-rules) > L1 (project knowledge) > L2 (temporary context)` — lower layers take precedence
+2. **LLM interpretation**: When multiple skills are referenced, the LLM interprets and mediates based on context
+3. **Human resolution**: Important contradictions are resolved by humans updating the relevant skills
+
+**Future possibility:**
+
+Contradiction detection could be added as an L1 knowledge or L0 skill:
+
+```markdown
+# Contradiction Detection Skill (example)
+
+## Detection Rules
+- Same topic with different recommendations
+- Conflicting constraint definitions
+- Circular dependencies
+
+## Resolution Flow
+1. Warn user upon detection
+2. Generate discussion via Persona Assembly
+3. Human makes final decision
+```
+
+However, "what constitutes a contradiction" is itself a philosophical question, and KairosChain's current design intentionally does not make that judgment.
+
+---
+
 ## License
 
 See [LICENSE](../LICENSE) file.
