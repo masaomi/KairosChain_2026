@@ -1570,6 +1570,62 @@ However, "what constitutes a contradiction" is itself a philosophical question, 
 
 ---
 
+### Q: What happens when too many skills accumulate? Is there a cleanup mechanism?
+
+**A:** This is a recognized limitation. Currently, KairosChain **does not have automatic skill lifecycle management** (deprecation, archiving, cleanup).
+
+**Potential concerns:**
+
+| Problem | Impact |
+|---------|--------|
+| Search efficiency degradation | More skills = slower relevant skill lookup |
+| Context window pressure | More referenced skills = fewer effective tokens for LLM |
+| Stale skill conflicts | Outdated skills may provide incorrect information |
+| Signal-to-noise ratio | Useful skills get buried |
+
+**Current capabilities:**
+
+- `knowledge_update command="delete"` can delete L1 skills (deletion is also recorded on blockchain)
+- L2 contexts are ephemeral by design (session-scoped)
+- No automatic cleanup or deprecation mechanism exists
+
+**Future considerations:**
+
+1. **Metadata-based lifecycle**: Add `last_accessed`, `access_count`, `status` fields
+2. **Archive layer**: Skills removed from active search but still accessible
+3. **Periodic inventory prompts**: Agent-side rules to suggest cleanup
+
+**Recommended workaround (agent-side inventory prompt):**
+
+Configure your AI agent to periodically review skills:
+
+```markdown
+# Skill Inventory Rules (for Cursor Rules / system_prompt)
+
+## Monthly Review Triggers
+- At the start of each month, or when user says "review skills"
+- When skill count exceeds a threshold (e.g., 50+ L1 skills)
+
+## Inventory Process
+1. List all L1 skills with last modified date
+2. Identify skills not accessed in 30+ days
+3. Present to user: "These skills haven't been used recently: [list]"
+4. Ask: "Would you like to archive or delete any of these?"
+
+## Cleanup Actions
+- Archive: Move to a separate "archived" knowledge directory
+- Delete: Use `knowledge_update command="delete" reason="Cleanup: unused for 30+ days"`
+- Keep: Mark as reviewed (update modified date or add review tag)
+
+## Review Format
+"Monthly skill inventory: You have [N] L1 skills. [M] haven't been accessed in 30+ days.
+Would you like to review them for potential cleanup?"
+```
+
+This approach keeps KairosChain as neutral infrastructure while enabling proactive maintenance at the agent level.
+
+---
+
 ## License
 
 See [LICENSE](../LICENSE) file.
