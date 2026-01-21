@@ -1626,6 +1626,61 @@ This approach keeps KairosChain as neutral infrastructure while enabling proacti
 
 ---
 
+### Q: How do I fix a skill when it provides incorrect or outdated information?
+
+**A:** You can modify skills using existing tools, though the workflow isn't explicitly streamlined yet.
+
+**Currently available tools:**
+
+| Tool | Purpose |
+|------|---------|
+| `knowledge_get` | Retrieve skill content for review |
+| `knowledge_update command="update"` | Modify skill (recorded on blockchain) |
+
+**Basic modification workflow:**
+
+```
+1. User: "That answer was wrong. Show me the skill you referenced."
+2. LLM: Calls knowledge_get name="skill_name"
+3. User: "The section about X is outdated. Fix it."
+4. LLM: Proposes modified content
+5. User: Approves changes
+6. LLM: Calls knowledge_update command="update" content="..." reason="User feedback: outdated info"
+```
+
+**Recommended agent-side rules for feedback handling:**
+
+```markdown
+# Skill Quality Feedback Rules (for Cursor Rules / system_prompt)
+
+## When User Reports Skill Issues
+If user says "this is wrong", "outdated", "unclear", or similar:
+
+1. Identify which skill was referenced in the problematic response
+2. Call `knowledge_get` to display the skill content
+3. Ask user to specify what's wrong
+4. Propose a fix with before/after comparison
+5. After user approval, call `knowledge_update` with:
+   - command: "update"
+   - reason: "User feedback: [specific issue]"
+
+## Proactive Quality Check
+After providing an answer based on a skill:
+"This answer was based on [skill_name]. Does it look correct, 
+or would you like me to update the skill?"
+```
+
+**Future considerations:**
+
+1. **Inline feedback mechanism**: One-action way to report "this referenced skill has issues"
+2. **Automatic fix suggestions**: LLM proposes improvements based on context
+3. **Change diff preview**: Side-by-side comparison before applying updates
+4. **Feedback history**: Track feedback per skill to identify frequently problematic ones
+
+This limitation is recognized. The current design requires explicit user-initiated modification, which maintains human oversight but adds friction to the feedback loop.
+
+---
+
 ## License
 
 See [LICENSE](../LICENSE) file.
