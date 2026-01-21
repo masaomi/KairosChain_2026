@@ -1500,6 +1500,32 @@ Configure your AI agent (Cursor Rules, Claude system_prompt, etc.) to include:
 
 This keeps KairosChain as a **neutral infrastructure** while allowing each team/user to define their own learning policies at the agent level.
 
+**Skill promotion triggers (same principle applies):**
+
+KairosChain also does NOT automatically suggest skill promotion (L2→L1→L0). Configure your AI agent to suggest promotions:
+
+```markdown
+# Skill Promotion Rules (add to above)
+
+## When to Suggest L2 → L1 Promotion
+- Same context referenced 3+ times across sessions
+- User says "this is useful" or "I want to keep this"
+- Hypothesis validated through actual use
+
+## When to Suggest L1 → L0 Promotion
+- Knowledge governs KairosChain's own behavior
+- Mature, stable pattern that shouldn't change often
+- Team consensus reached (for shared instances)
+
+## Promotion Suggestion Format
+"This knowledge has been useful across multiple sessions. 
+Would you like to promote it from L2 to L1?"
+
+## Then use KairosChain tools:
+- `skills_promote command="analyze"` - With Persona Assembly for deliberation
+- `skills_promote command="promote"` - Direct promotion
+```
+
 ---
 
 ## License
