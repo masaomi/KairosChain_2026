@@ -698,9 +698,9 @@ Share the same `blockchain.json` to synchronize evolution history across multipl
    - All operations are recorded in `action_log`
    - Review logs regularly
 
-## Available Tools (18 core + skill-tools)
+## Available Tools (19 core + skill-tools)
 
-The base installation provides 18 tools. Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
+The base installation provides 19 tools. Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
 
 ### L0-A: Skills Tools (Markdown) - Read-only
 
@@ -719,6 +719,17 @@ The base installation provides 18 tools. Additional tools can be defined via `to
 | `skills_rollback` | Manage version snapshots |
 
 > **Skill-defined tools**: When `skill_tools_enabled: true`, skills with `tool` blocks in `kairos.rb` are also registered here as MCP tools.
+
+### Cross-Layer Promotion Tools
+
+| Tool | Description |
+|------|-------------|
+| `skills_promote` | Promote knowledge between layers (L2→L1, L1→L0) with optional Persona Assembly |
+
+Commands:
+- `analyze`: Generate persona assembly discussion for promotion decision
+- `promote`: Execute direct promotion
+- `status`: Check promotion requirements
 
 ### Resource Tools - Unified Access
 
@@ -1108,6 +1119,74 @@ Note: `kairos.md` is read-only and cannot be modified by LLMs.
 
 ---
 
+### Q: How do I decide which layer to store knowledge in?
+
+**A:** Use the built-in `layer_placement_guide` knowledge (L1) for guidance. Here's a quick decision tree:
+
+```
+1. Does this modify Kairos's own rules or constraints?
+   → YES: L0 (requires human approval)
+   → NO: Continue
+
+2. Is this temporary or session-specific?
+   → YES: L2 (freely modifiable, no recording)
+   → NO: Continue
+
+3. Will this be reused across multiple sessions?
+   → YES: L1 (hash reference recorded)
+   → NO: L2
+```
+
+**Key principle:** When in doubt, start with L2 and promote later.
+
+| Layer | Purpose | Typical Content |
+|-------|---------|-----------------|
+| L0 | Kairos meta-rules | Safety constraints, evolution rules |
+| L1 | Project knowledge | Coding conventions, architecture docs |
+| L2 | Temporary work | Hypotheses, session notes, experiments |
+
+**Promotion pattern:** Knowledge can move up as it matures: L2 → L1 → L0
+
+For detailed guidance, use: `knowledge_get name="layer_placement_guide"`
+
+---
+
+### Q: What is Persona Assembly and when should I use it?
+
+**A:** Persona Assembly is an optional feature that provides multi-perspective evaluation when promoting knowledge between layers. It helps surface different viewpoints before human decision-making.
+
+**When to use:**
+- Promoting L1 → L0 (high-stakes, meta-rule changes)
+- When you want structured feedback before making a decision
+- For team discussions about layer placement
+
+**Available personas:**
+
+| Persona | Role | Bias |
+|---------|------|------|
+| `kairos` | Philosophy Advocate | Auditability, constraint preservation |
+| `conservative` | Stability Guardian | Prefers lower-commitment layers |
+| `radical` | Innovation Advocate | Favors action, accepts higher risk |
+| `pragmatic` | Cost-Benefit Analyst | Implementation complexity vs. value |
+| `optimistic` | Opportunity Seeker | Focuses on potential benefits |
+| `skeptic` | Risk Identifier | Looks for problems and edge cases |
+
+**Usage:**
+
+```bash
+# Analyze a promotion with persona assembly
+skills_promote command="analyze" source_name="my_knowledge" from_layer="L1" to_layer="L0" personas=["kairos", "conservative", "skeptic"]
+
+# Direct promotion without assembly
+skills_promote command="promote" source_name="my_context" from_layer="L2" to_layer="L1" session_id="xxx"
+```
+
+**Important:** Assembly output is advisory only. Human judgment remains the final authority, especially for L0 promotions.
+
+Persona definitions can be customized in: `knowledge/persona_definitions/`
+
+---
+
 ### Q: Is API extension needed for team usage?
 
 **A:** The current implementation is limited to local use via stdio. For team usage, the following options are available:
@@ -1395,7 +1474,7 @@ See [LICENSE](../LICENSE) file.
 
 ---
 
-**Version**: 0.4.0  
-**Last Updated**: 2026-01-20
+**Version**: 0.5.0  
+**Last Updated**: 2026-01-21
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*
