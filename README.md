@@ -1424,6 +1424,40 @@ For most use cases, **L0 tools should not need frequent changes**. The strict lo
 
 ---
 
+### Q: What is the difference between adding tools via kairos.rb vs tools/ directory?
+
+**A:** There are two ways to add MCP tools to KairosChain:
+
+1. **Via `kairos.rb` (L0)**: Using the `tool` block in skill definitions
+2. **Via `tools/` directory**: Adding Ruby files directly to `lib/kairos_mcp/tools/`
+
+**Functional equivalence:** Both methods register MCP tools that can be called by LLMs.
+
+**Key differences:**
+
+| Aspect | `kairos.rb` (L0) | `tools/` directory |
+|--------|------------------|-------------------|
+| Addition method | Via `skills_evolve` tool | Manual file addition |
+| Human approval | **Required** | Not required |
+| Blockchain record | **Yes** (full record) | No |
+| Activation | `skill_tools_enabled: true` | Always active |
+| Under KairosChain management | **Yes** | No |
+
+**Important:** Adding tools directly to `tools/` is **not via KairosChain**. It's a regular code change (tracked by git, but not audited by KairosChain's blockchain).
+
+**Design intent:**
+
+- **Core infrastructure** (`tools/`): Tools necessary for KairosChain itself to function. Should rarely change.
+- **Extension tools** (`kairos.rb`): Custom tools added by users. Use when you want change history audited.
+
+In other words:
+- `kairos.rb` route: "Strict but auditable"
+- `tools/` route: "Free but not audited"
+
+**Future consideration:** L1 tool definition support may be added (lighter constraints, hash-only recording) for tools that are useful but don't need L0's strict controls.
+
+---
+
 ### Q: Should KairosChain proactively recommend skill creation to the LLM?
 
 **A:** **No. KairosChain should focus on "recording and constraining," not "recommending when to learn."** The logic for recommending skill creation should be delegated to the LLM/AI agent side (e.g., Cursor Rules, system_prompt).
