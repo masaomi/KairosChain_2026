@@ -16,7 +16,7 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
 - [Client Configuration](#client-configuration)
 - [Testing the Setup](#testing-the-setup)
 - [Usage Tips](#usage-tips)
-- [Available Tools](#available-tools-18-core--skill-tools)
+- [Available Tools](#available-tools-20-core--skill-tools)
 - [Usage Examples](#usage-examples)
 - [Self-Evolution Workflow](#self-evolution-workflow)
 - [Pure Skills Design](#pure-skills-design)
@@ -698,9 +698,9 @@ Share the same `blockchain.json` to synchronize evolution history across multipl
    - All operations are recorded in `action_log`
    - Review logs regularly
 
-## Available Tools (19 core + skill-tools)
+## Available Tools (20 core + skill-tools)
 
-The base installation provides 19 tools. Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
+The base installation provides 20 tools. Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
 
 ### L0-A: Skills Tools (Markdown) - Read-only
 
@@ -730,6 +730,21 @@ Commands:
 - `analyze`: Generate persona assembly discussion for promotion decision
 - `promote`: Execute direct promotion
 - `status`: Check promotion requirements
+
+### Audit Tools - Knowledge Lifecycle Management
+
+| Tool | Description |
+|------|-------------|
+| `skills_audit` | Audit knowledge health across L0/L1/L2 layers with optional Persona Assembly |
+
+Commands:
+- `check`: Health check across specified layers
+- `stale`: Detect outdated items (L0: no date check, L1: 180 days, L2: 14 days)
+- `conflicts`: Detect potential contradictions between knowledge
+- `dangerous`: Detect patterns conflicting with L0 safety
+- `recommend`: Get promotion and archive recommendations
+- `archive`: Archive L1 knowledge (human approval required)
+- `unarchive`: Restore from archive (human approval required)
 
 ### Resource Tools - Unified Access
 
@@ -1621,72 +1636,86 @@ However, "what constitutes a contradiction" is itself a philosophical question, 
 
 ### Q: What happens when too many skills accumulate? Is there a cleanup mechanism?
 
-**A:** This is a recognized limitation. Currently, KairosChain **does not have automatic skill lifecycle management** (deprecation, archiving, cleanup).
+**A:** KairosChain provides the `skills_audit` tool for knowledge lifecycle management across all layers.
 
-**Potential concerns:**
+**The `skills_audit` tool provides:**
 
-| Problem | Impact |
-|---------|--------|
-| Search efficiency degradation | More skills = slower relevant skill lookup |
-| Context window pressure | More referenced skills = fewer effective tokens for LLM |
-| Stale skill conflicts | Outdated skills may provide incorrect information |
-| Signal-to-noise ratio | Useful skills get buried |
+| Command | Description |
+|---------|-------------|
+| `check` | Health check across L0/L1/L2 layers |
+| `stale` | Detect outdated items (layer-specific thresholds) |
+| `conflicts` | Detect potential contradictions between knowledge |
+| `dangerous` | Detect patterns that may conflict with L0 safety |
+| `recommend` | Get promotion/archive recommendations |
+| `archive` | Archive L1 knowledge (human approval required) |
+| `unarchive` | Restore from archive (human approval required) |
 
-**Current capabilities:**
+**Layer-specific staleness thresholds:**
 
-- `knowledge_update command="delete"` can delete L1 skills (deletion is also recorded on blockchain)
-- L2 contexts are ephemeral by design (session-scoped)
-- No automatic cleanup or deprecation mechanism exists
+| Layer | Threshold | Rationale |
+|-------|-----------|-----------|
+| L0 | No date check | Stability is a feature, not staleness |
+| L1 | 180 days | Project knowledge should be periodically reviewed |
+| L2 | 14 days | Temporary contexts should be cleaned up |
 
-**Future considerations:**
+**Usage examples:**
 
-1. **Metadata-based lifecycle**: Add `last_accessed`, `access_count`, `status` fields
-2. **Archive layer**: Skills removed from active search but still accessible
-3. **Periodic inventory prompts**: Agent-side rules to suggest cleanup
+```bash
+# Run health check across all layers
+skills_audit command="check" layer="all"
 
-**Recommended workaround (agent-side inventory prompt):**
+# Find stale L1 knowledge
+skills_audit command="stale" layer="L1"
 
-Configure your AI agent to periodically review skills:
+# Get recommendations for archiving and promotion
+skills_audit command="recommend"
 
-```markdown
-# Skill Inventory Rules (for Cursor Rules / system_prompt)
+# Archive with Persona Assembly for deeper analysis
+skills_audit command="check" with_assembly=true assembly_mode="discussion"
 
-## Monthly Review Triggers
-- At the start of each month, or when user says "review skills"
-- When skill count exceeds a threshold (e.g., 50+ L1 skills)
-
-## Inventory Process
-1. List all L1 skills with last modified date
-2. Identify skills not accessed in 30+ days
-3. Present to user: "These skills haven't been used recently: [list]"
-4. Ask: "Would you like to archive or delete any of these?"
-
-## Cleanup Actions
-- Archive: Move to a separate "archived" knowledge directory
-- Delete: Use `knowledge_update command="delete" reason="Cleanup: unused for 30+ days"`
-- Keep: Mark as reviewed (update modified date or add review tag)
-
-## Review Format
-"Monthly skill inventory: You have [N] L1 skills. [M] haven't been accessed in 30+ days.
-Would you like to review them for potential cleanup?"
+# Archive a stale knowledge item (requires human approval)
+skills_audit command="archive" target="old_knowledge" reason="Unused for 1 year" approved=true
 ```
 
-This approach keeps KairosChain as neutral infrastructure while enabling proactive maintenance at the agent level.
+**Archive mechanism:**
+
+- Archived knowledge is moved to `knowledge/.archived/` directory
+- Archive metadata (reason, date, superseded_by) is stored in `.archive_meta.yml`
+- Archived items are excluded from normal searches but can be restored
+- All archive/unarchive operations are recorded on blockchain
+
+**Human oversight:**
+
+Archive and unarchive operations require explicit human approval (`approved: true`). This rule is defined in L0 `audit_rules` skill and is itself configurable (L0-B).
 
 ---
 
 ### Q: How do I fix a skill when it provides incorrect or outdated information?
 
-**A:** You can modify skills using existing tools, though the workflow isn't explicitly streamlined yet.
+**A:** KairosChain provides multiple tools for identifying and fixing problematic knowledge.
 
-**Currently available tools:**
+**Step 1: Identify issues with `skills_audit`**
+
+```bash
+# Check for dangerous patterns (safety conflicts)
+skills_audit command="dangerous" layer="L1"
+
+# Check for stale knowledge
+skills_audit command="stale" layer="L1"
+
+# Full health check with Persona Assembly
+skills_audit command="check" with_assembly=true
+```
+
+**Step 2: Review and fix with knowledge tools**
 
 | Tool | Purpose |
 |------|---------|
 | `knowledge_get` | Retrieve skill content for review |
 | `knowledge_update command="update"` | Modify skill (recorded on blockchain) |
+| `skills_audit command="archive"` | Archive if obsolete (human approval required) |
 
-**Basic modification workflow:**
+**Modification workflow:**
 
 ```
 1. User: "That answer was wrong. Show me the skill you referenced."
@@ -1697,36 +1726,39 @@ This approach keeps KairosChain as neutral infrastructure while enabling proacti
 6. LLM: Calls knowledge_update command="update" content="..." reason="User feedback: outdated info"
 ```
 
-**Recommended agent-side rules for feedback handling:**
+**For obsolete knowledge (archive instead of delete):**
 
-```markdown
-# Skill Quality Feedback Rules (for Cursor Rules / system_prompt)
+```bash
+# Archive obsolete knowledge (preserves history, removes from active search)
+skills_audit command="archive" target="outdated_skill" reason="Superseded by new_skill" approved=true
 
-## When User Reports Skill Issues
-If user says "this is wrong", "outdated", "unclear", or similar:
-
-1. Identify which skill was referenced in the problematic response
-2. Call `knowledge_get` to display the skill content
-3. Ask user to specify what's wrong
-4. Propose a fix with before/after comparison
-5. After user approval, call `knowledge_update` with:
-   - command: "update"
-   - reason: "User feedback: [specific issue]"
-
-## Proactive Quality Check
-After providing an answer based on a skill:
-"This answer was based on [skill_name]. Does it look correct, 
-or would you like me to update the skill?"
+# Later, if needed, restore from archive
+skills_audit command="unarchive" target="outdated_skill" reason="Still relevant" approved=true
 ```
 
-**Future considerations:**
+**Dangerous pattern detection:**
 
-1. **Inline feedback mechanism**: One-action way to report "this referenced skill has issues"
-2. **Automatic fix suggestions**: LLM proposes improvements based on context
-3. **Change diff preview**: Side-by-side comparison before applying updates
-4. **Feedback history**: Track feedback per skill to identify frequently problematic ones
+The `skills_audit command="dangerous"` checks for:
+- Language suggesting bypassing safety checks
+- Hardcoded credentials or API keys
+- Patterns that conflict with L0 `core_safety`
 
-This limitation is recognized. The current design requires explicit user-initiated modification, which maintains human oversight but adds friction to the feedback loop.
+**Proactive maintenance:**
+
+Configure your AI agent (Cursor Rules / system_prompt) to suggest periodic audits:
+
+```markdown
+# Skill Quality Rules
+
+## Periodic Audit
+- Run `skills_audit command="check"` monthly or when issues arise
+- Review recommendations from `skills_audit command="recommend"`
+
+## When User Reports Issues
+1. Run `skills_audit command="dangerous"` to check for safety issues
+2. Use `knowledge_get` to review the specific skill
+3. Fix with `knowledge_update` or archive if obsolete
+```
 
 ---
 
