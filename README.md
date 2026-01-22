@@ -1258,6 +1258,7 @@ Persona definitions can be customized in: `knowledge/persona_definitions/`
 | Method | Additional Implementation | Suitable Scale |
 |--------|---------------------------|----------------|
 | **Git sharing** | Not required | Small teams (2-5 people) |
+| **SSH tunneling** | Not required | LAN teams (2-10 people) |
 | **HTTP API** | Required | Medium teams (5-20 people) |
 | **MCP over SSE** | Required | When remote connection is needed |
 
@@ -1267,6 +1268,62 @@ Persona definitions can be customized in: `knowledge/persona_definitions/`
 # Each member runs the MCP server locally
 # Changes are synced via Git
 ```
+
+**SSH tunneling (LAN teams, no code changes required):**
+
+For teams on the same LAN, you can connect to a remote MCP server via SSH. This requires no additional implementation — just SSH access to the server machine.
+
+**Setup:**
+
+1. Run the MCP server on a shared machine (e.g., `server.local`):
+   ```bash
+   # On the server machine
+   cd /path/to/KairosChain_mcp_server
+   # Server is ready (stdio-based, no daemon needed)
+   ```
+
+2. Configure MCP client to connect via SSH:
+
+   **For Cursor (`~/.cursor/mcp.json`):**
+   ```json
+   {
+     "mcpServers": {
+       "kairos-chain": {
+         "command": "ssh",
+         "args": [
+           "-o", "StrictHostKeyChecking=accept-new",
+           "user@server.local",
+           "cd /path/to/KairosChain_mcp_server && ruby bin/kairos_mcp_server"
+         ]
+       }
+     }
+   }
+   ```
+
+   **For Claude Code:**
+   ```bash
+   claude mcp add kairos-chain ssh -- -o StrictHostKeyChecking=accept-new user@server.local "cd /path/to/KairosChain_mcp_server && ruby bin/kairos_mcp_server"
+   ```
+
+3. (Optional) Use SSH key authentication for passwordless access:
+   ```bash
+   # Generate key if not exists
+   ssh-keygen -t ed25519
+   
+   # Copy to server
+   ssh-copy-id user@server.local
+   ```
+
+**SSH tunneling advantages:**
+- No code changes or HTTP server implementation needed
+- Uses existing SSH infrastructure and authentication
+- Encrypted communication by default
+- Works with stdio-based MCP protocol as-is
+
+**SSH tunneling limitations:**
+- Requires SSH access to the server machine
+- Each client opens a new server process (no shared state between connections)
+- For concurrent writes, use Git to sync `storage/blockchain.json` and `knowledge/`
 
 **When HTTP API is needed:**
 - Real-time synchronization required

@@ -1258,6 +1258,7 @@ assembly_defaults:
 | 方式 | 追加実装 | 適合規模 |
 |------|----------|----------|
 | **Git共有** | 不要 | 小規模チーム（2-5人） |
+| **SSHトンネリング** | 不要 | LANチーム（2-10人） |
 | **HTTP API化** | 必要 | 中規模チーム（5-20人） |
 | **MCP over SSE** | 必要 | リモート接続が必要な場合 |
 
@@ -1267,6 +1268,62 @@ assembly_defaults:
 # 各メンバーがローカルでMCPサーバーを起動
 # 変更はGit経由で同期
 ```
+
+**SSHトンネリング（LANチーム、コード変更不要）:**
+
+同一LAN内のチームでは、SSH経由でリモートMCPサーバーに接続できます。追加実装は不要で、サーバーマシンへのSSHアクセスがあれば利用可能です。
+
+**セットアップ:**
+
+1. 共有マシン（例：`server.local`）でMCPサーバーを準備：
+   ```bash
+   # サーバーマシン上で
+   cd /path/to/KairosChain_mcp_server
+   # サーバー準備完了（stdioベース、デーモン不要）
+   ```
+
+2. MCPクライアントをSSH経由で接続するよう設定：
+
+   **Cursorの場合（`~/.cursor/mcp.json`）:**
+   ```json
+   {
+     "mcpServers": {
+       "kairos-chain": {
+         "command": "ssh",
+         "args": [
+           "-o", "StrictHostKeyChecking=accept-new",
+           "user@server.local",
+           "cd /path/to/KairosChain_mcp_server && ruby bin/kairos_mcp_server"
+         ]
+       }
+     }
+   }
+   ```
+
+   **Claude Codeの場合:**
+   ```bash
+   claude mcp add kairos-chain ssh -- -o StrictHostKeyChecking=accept-new user@server.local "cd /path/to/KairosChain_mcp_server && ruby bin/kairos_mcp_server"
+   ```
+
+3. （オプション）パスワードなしアクセスのためSSH鍵認証を設定：
+   ```bash
+   # 鍵がなければ生成
+   ssh-keygen -t ed25519
+   
+   # サーバーにコピー
+   ssh-copy-id user@server.local
+   ```
+
+**SSHトンネリングの利点:**
+- コード変更やHTTPサーバー実装が不要
+- 既存のSSHインフラと認証を活用
+- デフォルトで暗号化通信
+- stdioベースのMCPプロトコルをそのまま利用可能
+
+**SSHトンネリングの制限:**
+- サーバーマシンへのSSHアクセスが必要
+- 各クライアントが新しいサーバープロセスを起動（接続間で状態共有なし）
+- 同時書き込みの場合、Gitで`storage/blockchain.json`と`knowledge/`を同期
 
 **HTTP API化が必要な場合:**
 - リアルタイム同期が必要
