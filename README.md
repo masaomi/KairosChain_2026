@@ -275,6 +275,22 @@ vector_search:
   auto_index: true                                   # Auto-rebuild on changes
 ```
 
+#### Installing RAG Later
+
+If you install RAG gems after already using KairosChain:
+
+1. Install the gems: `bundle install --with rag` or `gem install hnswlib informers`
+2. **Restart the MCP server** (reconnect in Cursor/Claude Code)
+3. On first search, the index is automatically rebuilt from all skills/knowledge
+4. Initial model download (~90MB) and embedding generation will take some time
+
+**Why this works:** The `@available` flag is checked at server startup and cached. FallbackSearch (regex-based) does not persist any index data. When switching to SemanticSearch, the `ensure_index_built` method triggers a full `rebuild_index` on first use, creating embeddings for all existing skills and knowledge.
+
+**What happens to existing data:**
+- Skills and knowledge files: Unchanged (source of truth)
+- Vector index: Created fresh from current content
+- No migration needed: FallbackSearch → SemanticSearch is seamless
+
 #### Verification
 
 ```bash
@@ -1816,6 +1832,68 @@ Configure your AI agent (Cursor Rules / system_prompt) to suggest periodic audit
 2. Use `knowledge_get` to review the specific skill
 3. Fix with `knowledge_update` or archive if obsolete
 ```
+
+---
+
+### Q: Why does KairosChain use Ruby, specifically DSL and AST?
+
+**A:** KairosChain's choice of Ruby DSL/AST is not accidental but essential for self-modifying AI systems. A self-referential skill system must satisfy three constraints simultaneously:
+
+| Requirement | Description | Ruby's Implementation |
+|-------------|-------------|----------------------|
+| **Static Analyzability** | Security verification before execution | `RubyVM::AbstractSyntaxTree` (standard library) |
+| **Runtime Modifiability** | Add/modify skills during operation | `define_method`, `class_eval`, open classes |
+| **Human Readability** | Specifications domain experts can read | Natural-language-like DSL syntax |
+
+**Why these three matter for self-reference:**
+
+KairosChain implements a unique self-referential structure where **skills are constrained by skills themselves**. For example, `evolution_rules` skill contains:
+
+```ruby
+evolve do
+  allow :content
+  deny :guarantees, :evolve, :behavior
+end
+```
+
+This means "the rule about evolving cannot itself be evolved" — a bootstrap constraint that requires:
+1. **Parsing** the rule definition (static analysis via AST)
+2. **Evaluating** the constraint at runtime (metaprogramming)
+3. **Understanding** what the rule means (human-readable DSL)
+
+**Comparison with other languages:**
+
+| Aspect | Lisp/Clojure | Ruby | Python | JavaScript |
+|--------|-------------|------|--------|------------|
+| **Homoiconicity (code=data)** | ○ Complete | × No | × No | × No |
+| **Human readability** | △ S-expressions hard to read | ○ Natural | △ Brackets required | △ Syntax constraints |
+| **AST tools in stdlib** | × Not needed but audit-hard | ○ Complete | △ Limited | △ External deps |
+| **DSL expressiveness** | ○ | ○ | △ | △ |
+| **Production ecosystem** | △ | ○ Proven (Rails, RSpec) | ○ | ○ |
+
+**Theoretically optimal:** Lisp/Clojure (homoiconicity makes self-modification natural)  
+**Practically optimal:** **Ruby** (balances readability + analyzability + evolvability)
+
+**The decisive advantage — Separability:**
+
+In KairosChain's self-referential system, the separation of **definition**, **analysis**, and **execution** is crucial:
+
+```ruby
+# 1. Definition: Human-readable
+skill :evolution_rules do
+  evolve { deny :evolve }  # Self-constraint
+end
+
+# 2. Analysis: Validate before execution
+RubyVM::AbstractSyntaxTree.parse(definition)  # Static analysis
+
+# 3. Execution: Evaluate constraint
+skill.evolution_rules.can_evolve?(:evolve)  # => false
+```
+
+In Lisp, code=data blurs the boundary between "analysis" and "execution." While this provides freedom, achieving **auditability** requires additional mechanisms.
+
+**Conclusion:** Given KairosChain's goal of "auditable AI skill evolution," Ruby is the **practical optimum** — not the only correct answer, but a realistic choice that satisfies all three constraints simultaneously.
 
 ---
 
