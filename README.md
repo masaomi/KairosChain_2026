@@ -1153,32 +1153,81 @@ For detailed guidance, use: `knowledge_get name="layer_placement_guide"`
 
 ### Q: What is Persona Assembly and when should I use it?
 
-**A:** Persona Assembly is an optional feature that provides multi-perspective evaluation when promoting knowledge between layers. It helps surface different viewpoints before human decision-making.
+**A:** Persona Assembly is an optional feature that provides multi-perspective evaluation when promoting knowledge between layers or auditing knowledge health. It helps surface different viewpoints before human decision-making.
 
-**When to use:**
-- Promoting L1 → L0 (high-stakes, meta-rule changes)
-- When you want structured feedback before making a decision
-- For team discussions about layer placement
+**Assembly Modes:**
+
+| Mode | Description | Token Cost | Use Case |
+|------|-------------|------------|----------|
+| `oneshot` (default) | Single-round evaluation by all personas | ~500 + 300×N | Routine decisions, quick feedback |
+| `discussion` | Multi-round facilitated debate | ~500 + 300×N×R + 200×R | Important decisions, deep analysis |
+
+*N = number of personas, R = number of rounds (default max: 3)*
+
+**When to use each mode:**
+
+| Scenario | Recommended Mode |
+|----------|------------------|
+| L2 → L1 promotion | oneshot |
+| L1 → L0 promotion | **discussion** |
+| Archive decision | oneshot |
+| Conflict resolution | **discussion** |
+| Quick validation | oneshot (kairos only) |
+| High-stakes decision | discussion (all personas) |
 
 **Available personas:**
 
 | Persona | Role | Bias |
 |---------|------|------|
-| `kairos` | Philosophy Advocate | Auditability, constraint preservation |
+| `kairos` | Philosophy Advocate / Default Facilitator | Auditability, constraint preservation |
 | `conservative` | Stability Guardian | Prefers lower-commitment layers |
 | `radical` | Innovation Advocate | Favors action, accepts higher risk |
 | `pragmatic` | Cost-Benefit Analyst | Implementation complexity vs. value |
 | `optimistic` | Opportunity Seeker | Focuses on potential benefits |
 | `skeptic` | Risk Identifier | Looks for problems and edge cases |
+| `archivist` | Knowledge Curator | Knowledge freshness, redundancy |
+| `guardian` | Safety Watchdog | L0 alignment, security risks |
+| `promoter` | Promotion Scout | Identifies promotion candidates |
 
 **Usage:**
 
 ```bash
-# Analyze a promotion with persona assembly
+# Oneshot mode (default) - single evaluation
 skills_promote command="analyze" source_name="my_knowledge" from_layer="L1" to_layer="L0" personas=["kairos", "conservative", "skeptic"]
+
+# Discussion mode - multi-round with facilitator
+skills_promote command="analyze" source_name="my_knowledge" from_layer="L1" to_layer="L0" \
+  assembly_mode="discussion" facilitator="kairos" max_rounds=3 consensus_threshold=0.6 \
+  personas=["kairos", "conservative", "radical", "skeptic"]
+
+# With skills_audit
+skills_audit command="check" with_assembly=true assembly_mode="oneshot"
+skills_audit command="check" with_assembly=true assembly_mode="discussion" facilitator="kairos"
 
 # Direct promotion without assembly
 skills_promote command="promote" source_name="my_context" from_layer="L2" to_layer="L1" session_id="xxx"
+```
+
+**Discussion mode workflow:**
+
+```
+Round 1: Each persona states position (SUPPORT/OPPOSE/NEUTRAL)
+         ↓
+Facilitator: Summarizes agreements/disagreements, identifies concerns
+         ↓
+Round 2-N: Personas respond to concerns (if consensus < threshold)
+         ↓
+Final Summary: Consensus status, recommendation, key resolutions
+```
+
+**Configuration defaults (from `audit_rules` L0 skill):**
+
+```yaml
+assembly_defaults:
+  mode: "oneshot"           # Default mode
+  facilitator: "kairos"     # Discussion moderator
+  max_rounds: 3             # Maximum rounds in discussion
+  consensus_threshold: 0.6  # 60% = early termination
 ```
 
 **Important:** Assembly output is advisory only. Human judgment remains the final authority, especially for L0 promotions.
@@ -1687,7 +1736,7 @@ See [LICENSE](../LICENSE) file.
 
 ---
 
-**Version**: 0.5.0  
-**Last Updated**: 2026-01-21
+**Version**: 0.6.0  
+**Last Updated**: 2026-01-22
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*

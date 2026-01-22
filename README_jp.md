@@ -1153,32 +1153,81 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_veri
 
 ### Q: Persona Assemblyとは何ですか？いつ使うべきですか？
 
-**A:** Persona Assemblyは、レイヤー間で知識を昇格させる際に、複数の視点から評価を行うオプション機能です。人間の意思決定前に異なる観点を浮き彫りにするのに役立ちます。
+**A:** Persona Assemblyは、レイヤー間で知識を昇格させる際や、知識の健全性を監査する際に、複数の視点から評価を行うオプション機能です。人間の意思決定前に異なる観点を浮き彫りにするのに役立ちます。
 
-**使用すべき場面:**
-- L1 → L0への昇格（高リスク、メタルール変更）
-- 決定前に構造化されたフィードバックが欲しい場合
-- チームでレイヤー配置について議論する場合
+**アセンブリモード:**
+
+| モード | 説明 | トークンコスト | ユースケース |
+|--------|------|---------------|-------------|
+| `oneshot` (デフォルト) | 全ペルソナによる1回評価 | ~500 + 300×N | 日常的な判断、迅速なフィードバック |
+| `discussion` | ファシリテーター付きマルチラウンド議論 | ~500 + 300×N×R + 200×R | 重要な決定、深い分析 |
+
+*N = ペルソナ数、R = ラウンド数（デフォルト最大: 3）*
+
+**モード選択の指針:**
+
+| シナリオ | 推奨モード |
+|----------|-----------|
+| L2 → L1 昇格 | oneshot |
+| L1 → L0 昇格 | **discussion** |
+| アーカイブ判断 | oneshot |
+| 矛盾解消 | **discussion** |
+| クイック検証 | oneshot (kairosのみ) |
+| 高リスク決定 | discussion (全ペルソナ) |
 
 **利用可能なペルソナ:**
 
 | ペルソナ | 役割 | バイアス |
 |---------|------|----------|
-| `kairos` | 哲学擁護者 | 監査可能性、制約保持 |
+| `kairos` | 哲学擁護者 / デフォルトファシリテーター | 監査可能性、制約保持 |
 | `conservative` | 安定性の守護者 | より低コミットメントのレイヤーを好む |
 | `radical` | イノベーション推進者 | 行動を好み、高リスクも許容 |
 | `pragmatic` | コスト対効果分析者 | 実装複雑性 vs 価値 |
 | `optimistic` | 機会探索者 | 潜在的利益に焦点 |
 | `skeptic` | リスク特定者 | 問題やエッジケースを探す |
+| `archivist` | 知識キュレーター | 知識の鮮度、冗長性 |
+| `guardian` | 安全性番人 | L0整合性、セキュリティリスク |
+| `promoter` | 昇格スカウト | 昇格候補の発見 |
 
 **使用方法:**
 
 ```bash
-# ペルソナアセンブリで昇格を分析
+# oneshotモード（デフォルト）- 1回評価
 skills_promote command="analyze" source_name="my_knowledge" from_layer="L1" to_layer="L0" personas=["kairos", "conservative", "skeptic"]
+
+# discussionモード - ファシリテーター付きマルチラウンド
+skills_promote command="analyze" source_name="my_knowledge" from_layer="L1" to_layer="L0" \
+  assembly_mode="discussion" facilitator="kairos" max_rounds=3 consensus_threshold=0.6 \
+  personas=["kairos", "conservative", "radical", "skeptic"]
+
+# skills_auditでの使用
+skills_audit command="check" with_assembly=true assembly_mode="oneshot"
+skills_audit command="check" with_assembly=true assembly_mode="discussion" facilitator="kairos"
 
 # アセンブリなしで直接昇格
 skills_promote command="promote" source_name="my_context" from_layer="L2" to_layer="L1" session_id="xxx"
+```
+
+**discussionモードのワークフロー:**
+
+```
+Round 1: 各ペルソナが立場を表明（SUPPORT/OPPOSE/NEUTRAL）
+         ↓
+ファシリテーター: 合意/不合意を整理、懸念点を特定
+         ↓
+Round 2-N: ペルソナが懸念に対応（合意 < 閾値の場合）
+         ↓
+最終サマリー: 合意状況、推奨、主要解決事項
+```
+
+**設定デフォルト（`audit_rules` L0スキルより）:**
+
+```yaml
+assembly_defaults:
+  mode: "oneshot"           # デフォルトモード
+  facilitator: "kairos"     # 議論のまとめ役
+  max_rounds: 3             # discussionの最大ラウンド数
+  consensus_threshold: 0.6  # 60% = 早期終了
 ```
 
 **重要:** アセンブリの出力は助言のみです。人間の判断が最終的な権限を持ち続けます（特にL0昇格の場合）。
@@ -1687,7 +1736,7 @@ AIエージェントに定期的なスキルレビューを設定してくださ
 
 ---
 
-**バージョン**: 0.5.0  
-**最終更新**: 2026-01-21
+**バージョン**: 0.6.0  
+**最終更新**: 2026-01-22
 
 > *「KairosChainは『この結果は正しいか？』ではなく『この知性はどのように形成されたか？』に答えます」*
