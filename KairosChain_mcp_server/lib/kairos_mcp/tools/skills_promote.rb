@@ -72,6 +72,23 @@ module KairosMcp
               type: 'array',
               items: { type: 'string' },
               description: 'Personas to use for assembly (default: ["kairos"]). Available: kairos, conservative, radical, pragmatic, optimistic, skeptic'
+            },
+            assembly_mode: {
+              type: 'string',
+              description: 'Assembly mode: "oneshot" (default, single evaluation) or "discussion" (multi-round with facilitator)',
+              enum: %w[oneshot discussion]
+            },
+            facilitator: {
+              type: 'string',
+              description: 'Facilitator persona for discussion mode (default: "kairos")'
+            },
+            max_rounds: {
+              type: 'integer',
+              description: 'Maximum discussion rounds for discussion mode (default: 3)'
+            },
+            consensus_threshold: {
+              type: 'number',
+              description: 'Consensus threshold for early termination in discussion mode (default: 0.6 = 60%)'
             }
           },
           required: %w[command]
@@ -104,6 +121,7 @@ module KairosMcp
         return text_content("Error: #{source_content[:error]}") if source_content[:error]
 
         personas = args['personas'] || DEFAULT_PERSONAS
+        assembly_mode = args['assembly_mode'] || 'oneshot'
         persona_definitions = load_persona_definitions
 
         if persona_definitions[:error]
@@ -115,6 +133,10 @@ module KairosMcp
           source_content: source_content[:content],
           from_layer: args['from_layer'],
           to_layer: args['to_layer'],
+          assembly_mode: assembly_mode,
+          facilitator: args['facilitator'],
+          max_rounds: args['max_rounds'],
+          consensus_threshold: args['consensus_threshold'],
           target_name: args['target_name'] || args['source_name'],
           reason: args['reason'],
           personas: personas,
@@ -249,8 +271,21 @@ module KairosMcp
         MD
       end
 
-      def generate_assembly_template(source_name:, source_content:, from_layer:, to_layer:, target_name:, reason:, personas:, persona_definitions:)
-        output = <<~MD
+      def generate_assembly_template(source_name:, source_content:, from_layer:, to_layer:, target_name:, reason:, personas:, persona_definitions:, assembly_mode: 'oneshot', facilitator: nil, max_rounds: nil, consensus_threshold: nil)
+        assembly_mode ||= 'oneshot'
+        facilitator ||= 'kairos'
+        max_rounds ||= 3
+        consensus_threshold ||= 0.6
+        threshold_percent = (consensus_threshold * 100).to_i
+
+        # Token warning
+        warning = generate_token_warning(personas, assembly_mode, max_rounds)
+
+        # Common header
+        header = <<~MD
+          #{warning}
+          ---
+
           ## Persona Assembly Request
 
           ### Promotion Proposal
@@ -260,6 +295,7 @@ module KairosMcp
           | **Source** | #{source_name} (#{from_layer}) |
           | **Target** | #{target_name} (#{to_layer}) |
           | **Reason** | #{reason || 'Not specified'} |
+          | **Mode** | #{assembly_mode} |
 
           ### Source Content Preview
 
@@ -273,39 +309,121 @@ module KairosMcp
 
           ---
 
-          ## Assembly Instructions
-
-          Please evaluate this promotion proposal from each persona's perspective. For each persona, provide:
-
-          ```markdown
-          #### [persona_name] ([role])
-          - **Position**: [SUPPORT / OPPOSE / NEUTRAL]
-          - **Rationale**: [1-2 sentences]
-          - **Concerns**: [If any]
-          - **Conditions**: [Under which position might change]
-          ```
-
-          ### Persona Reference
-
-          #{extract_persona_summaries(persona_definitions, personas)}
-
-          ---
-
-          After completing the persona evaluations, provide:
-
-          ### Consensus Summary
-
-          - **Support count**: X/#{personas.size}
-          - **Key concerns**: [List main concerns raised]
-          - **Recommendation**: [PROCEED / DEFER / REJECT]
-
-          ---
-
-          *After review, use `skills_promote` with `command: "promote"` to execute the promotion.*
-          *L0 promotions will still require explicit human approval via `skills_evolve`.*
         MD
 
-        text_content(output)
+        # Mode-specific instructions
+        if assembly_mode == 'discussion'
+          instructions = <<~MD
+            ## Discussion Mode Instructions
+
+            **Facilitator**: #{facilitator}
+            **Max rounds**: #{max_rounds}
+            **Consensus threshold**: #{threshold_percent}%
+
+            Please conduct a multi-round discussion:
+
+            ### Round 1: Initial Positions
+
+            Each persona states their position on the promotion proposal:
+            #{personas.map { |p| "- **#{p}**: [SUPPORT/OPPOSE/NEUTRAL] + rationale" }.join("\n")}
+
+            ### Facilitator (#{facilitator}): Round 1 Summary
+
+            - Summarize agreements and disagreements
+            - Identify open concerns
+            - Decide: proceed to next round or conclude
+
+            ### Round 2-#{max_rounds}: Address Concerns (if needed)
+
+            - Personas respond to concerns raised
+            - Facilitator summarizes after each round
+            - End early if #{threshold_percent}%+ consensus reached
+
+            ### Final Summary (by #{facilitator})
+
+            - **Consensus**: [YES / NO / PARTIAL]
+            - **Rounds used**: X/#{max_rounds}
+            - **Final recommendation**: [PROCEED / DEFER / REJECT]
+            - **Key resolutions**: [List]
+            - **Unresolved concerns**: [List, if any]
+
+            ---
+
+            ### Persona Reference
+
+            #{extract_persona_summaries(persona_definitions, personas)}
+
+            ---
+
+            *After discussion, use `skills_promote` with `command: "promote"` to execute.*
+            *L0 promotions require explicit human approval via `skills_evolve`.*
+          MD
+        else
+          instructions = <<~MD
+            ## Oneshot Mode Instructions
+
+            Please evaluate this promotion proposal from each persona's perspective. For each persona, provide:
+
+            ```markdown
+            #### [persona_name] ([role])
+            - **Position**: [SUPPORT / OPPOSE / NEUTRAL]
+            - **Rationale**: [1-2 sentences]
+            - **Concerns**: [If any]
+            - **Conditions**: [Under which position might change]
+            ```
+
+            ### Persona Reference
+
+            #{extract_persona_summaries(persona_definitions, personas)}
+
+            ---
+
+            After completing the persona evaluations, provide:
+
+            ### Consensus Summary
+
+            - **Support count**: X/#{personas.size}
+            - **Key concerns**: [List main concerns raised]
+            - **Recommendation**: [PROCEED / DEFER / REJECT]
+
+            ---
+
+            *After review, use `skills_promote` with `command: "promote"` to execute.*
+            *L0 promotions require explicit human approval via `skills_evolve`.*
+          MD
+        end
+
+        text_content(header + instructions)
+      end
+
+      def generate_token_warning(personas, mode, max_rounds)
+        persona_count = personas&.size || 1
+        max_rounds ||= 3
+
+        if mode == 'discussion'
+          estimated = 500 + (300 * persona_count * max_rounds) + (200 * max_rounds)
+          <<~WARNING
+            ⚠️ **Persona Assembly: Discussion Mode**
+
+            Estimated tokens: ~#{estimated} (maximum)
+            - Base: ~500 tokens
+            - Personas × Rounds: ~#{300 * persona_count} × #{max_rounds}
+            - Facilitator summaries: ~#{200 * max_rounds}
+
+            For simpler analysis, use `assembly_mode: "oneshot"`.
+          WARNING
+        else
+          estimated = 500 + (300 * persona_count)
+          <<~WARNING
+            ⚠️ **Persona Assembly: Oneshot Mode**
+
+            Estimated tokens: ~#{estimated}
+            - Persona definitions: ~500 tokens
+            - Per-persona evaluation: ~300 × #{persona_count}
+
+            For deeper analysis, use `assembly_mode: "discussion"`.
+          WARNING
+        end
       end
 
       def extract_persona_summaries(definitions, requested_personas)

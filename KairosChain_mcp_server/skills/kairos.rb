@@ -143,6 +143,7 @@ skill :layer_awareness do
     - approval_workflow
     - self_inspection
     - chain_awareness
+    - audit_rules
   MD
 end
 
@@ -297,5 +298,143 @@ skill :chain_awareness do
     - L0 changes: Full transaction (skill_id, hashes, timestamp, reason)
     - L1 changes: Hash reference only (content_hash, timestamp)
     - L2 changes: Not recorded
+  MD
+end
+
+# =============================================================================
+# AUDIT RULES - Governs knowledge health checks and archiving (L0-B)
+# =============================================================================
+skill :audit_rules do
+  version "1.0"
+  title "Audit Rules"
+  
+  evolve do
+    allow :content          # Rules can be adjusted
+    deny :behavior          # Logic is fixed
+    deny :guarantees        # Human oversight guarantee is fixed
+  end
+  
+  guarantees do
+    human_oversight
+  end
+  
+  behavior do
+    # Returns audit configuration
+    {
+      require_human_approval: {
+        archive: true,
+        unarchive: true,
+        bulk_cleanup: true
+      },
+      auto_allowed: {
+        check: true,
+        conflicts: true,
+        stale: true,
+        dangerous: true,
+        recommend: true
+      },
+      staleness_thresholds: {
+        l0: { check_date: false },
+        l1: { check_date: true, days: 180 },
+        l2: { check_date: true, days: 14 }
+      },
+      assembly_defaults: {
+        mode: 'oneshot',
+        facilitator: 'kairos',
+        max_rounds: 3,
+        consensus_threshold: 0.6
+      }
+    }
+  end
+  
+  content <<~MD
+    ## Audit Rules
+    
+    Rules governing knowledge health checks, archiving, and promotion recommendations.
+    
+    ### Core Principle
+    
+    **Audit functions are advisory only and do not have authority to execute changes.**
+    
+    All modification actions require human confirmation and approval.
+    
+    ### Permission Matrix
+    
+    | Action | Auto-Execute | Human Approval |
+    |--------|-------------|----------------|
+    | check | OK | - |
+    | conflicts | OK | - |
+    | stale | OK | - |
+    | dangerous | OK | - |
+    | recommend | OK | - |
+    | archive | - | Required |
+    | unarchive | - | Required |
+    | bulk_cleanup | - | Required |
+    
+    ### Staleness Thresholds (Configurable)
+    
+    | Layer | Threshold | Date Check |
+    |-------|-----------|------------|
+    | L0 | N/A | No (stability is valued) |
+    | L1 | 180 days | Yes |
+    | L2 | 14 days | Yes |
+    
+    ### L0 Staleness Policy
+    
+    L0 skills are intentionally stable and rarely modified.
+    Age indicates maturity, not staleness.
+    
+    L0 checks instead:
+    - External reference validity
+    - Internal consistency with L1
+    - Deprecated pattern detection
+    
+    ### Why L0-B?
+    
+    This rule is important but may need adjustment based on team or situation:
+    - Threshold adjustments (90 days vs 180 days)
+    - Expansion/reduction of auto-execution scope
+    - Addition of new check items
+    
+    However, changes require human approval and all changes are recorded to blockchain.
+    
+    ### Modifying These Rules
+    
+    Use `skills_evolve` to modify the content of this skill:
+    
+    ```
+    skills_evolve(
+      command: "propose",
+      skill_id: "audit_rules",
+      definition: "...",
+      approved: true  # After human review
+    )
+    ```
+    
+    ### Assembly Modes
+    
+    Persona Assembly supports two modes for different use cases:
+    
+    | Mode | Default | Use Case |
+    |------|---------|----------|
+    | oneshot | Yes | Routine checks, simple decisions |
+    | discussion | No | Important decisions, deep analysis |
+    
+    ### Discussion Mode Settings (Configurable)
+    
+    | Setting | Default | Description |
+    |---------|---------|-------------|
+    | facilitator | kairos | Discussion moderator persona |
+    | max_rounds | 3 | Maximum discussion rounds |
+    | consensus_threshold | 0.6 | Early termination threshold (60%) |
+    
+    ### When to Use Discussion Mode
+    
+    - L1 to L0 promotion (important meta-rule changes)
+    - Conflict resolution between knowledge items
+    - Archive decisions for widely-used knowledge
+    - Any decision with significant impact
+    
+    For routine checks, oneshot mode is recommended for efficiency.
   MD
 end

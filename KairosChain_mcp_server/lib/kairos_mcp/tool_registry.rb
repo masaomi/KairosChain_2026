@@ -32,6 +32,9 @@ module KairosMcp
       # Cross-layer promotion with optional Persona Assembly
       register_if_defined('KairosMcp::Tools::SkillsPromote')
       
+      # Audit tools (health checks, archive management, recommendations)
+      register_if_defined('KairosMcp::Tools::SkillsAudit')
+      
       # Resource tools (unified access to L0/L1/L2 resources)
       register_if_defined('KairosMcp::Tools::ResourceList')
       register_if_defined('KairosMcp::Tools::ResourceRead')

@@ -2,6 +2,7 @@
 
 require 'digest'
 require 'fileutils'
+require 'yaml'
 require_relative 'anthropic_skill_parser'
 require_relative 'kairos_chain/chain'
 require_relative 'vector_search/provider'
@@ -13,10 +14,13 @@ module KairosMcp
   # - Project-specific universal knowledge
   # - Hash-only blockchain recording
   # - Lightweight modification constraints
+  # - Folder-based archiving (.archived/ directory)
   #
   class KnowledgeProvider
     KNOWLEDGE_DIR = File.expand_path('../../knowledge', __dir__)
     KNOWLEDGE_INDEX_PATH = File.expand_path('../../storage/embeddings/knowledge', __dir__)
+    ARCHIVED_DIR = '.archived'
+    ARCHIVE_META_FILE = '.archive_meta.yml'
 
     def initialize(knowledge_dir = KNOWLEDGE_DIR, vector_search_enabled: true)
       @knowledge_dir = knowledge_dir
@@ -247,6 +251,171 @@ module KairosMcp
       result
     end
 
+    # =========================================================================
+    # Archive Operations (Folder-based)
+    # =========================================================================
+
+    # Archive a knowledge skill (move to .archived/ directory)
+    #
+    # @param name [String] Skill name
+    # @param reason [String] Reason for archiving
+    # @param superseded_by [String, nil] Name of the knowledge that supersedes this one
+    # @return [Hash] Result with success status
+    def archive(name, reason:, superseded_by: nil)
+      skill = get(name)
+      unless skill
+        return { success: false, error: "Knowledge '#{name}' not found" }
+      end
+
+      # Check if already archived
+      if archived?(name)
+        return { success: false, error: "Knowledge '#{name}' is already archived" }
+      end
+
+      # Create archive directory
+      archived_dir = File.join(@knowledge_dir, ARCHIVED_DIR)
+      FileUtils.mkdir_p(archived_dir)
+
+      # Calculate hash before moving
+      content = File.read(skill.md_file_path)
+      content_hash = Digest::SHA256.hexdigest(content)
+
+      # Move to archive
+      dest_path = File.join(archived_dir, name)
+      FileUtils.mv(skill.base_path, dest_path)
+
+      # Create archive metadata file
+      meta = {
+        'archived_at' => Time.now.iso8601,
+        'archived_reason' => reason,
+        'superseded_by' => superseded_by,
+        'original_path' => skill.base_path,
+        'content_hash' => content_hash
+      }
+      File.write(File.join(dest_path, ARCHIVE_META_FILE), meta.to_yaml)
+
+      # Record to blockchain
+      record_hash_reference(
+        name: name,
+        action: 'archive',
+        prev_hash: content_hash,
+        next_hash: nil,
+        reason: reason
+      )
+
+      # Remove from vector search index
+      remove_from_vector_index(name)
+
+      { success: true, archived: name, path: dest_path, hash: content_hash }
+    rescue StandardError => e
+      { success: false, error: "Archive failed: #{e.message}" }
+    end
+
+    # Unarchive a knowledge skill (restore from .archived/ directory)
+    #
+    # @param name [String] Skill name
+    # @param reason [String] Reason for unarchiving
+    # @return [Hash] Result with success status
+    def unarchive(name, reason:)
+      archived_path = File.join(@knowledge_dir, ARCHIVED_DIR, name)
+
+      unless File.directory?(archived_path)
+        return { success: false, error: "Archived knowledge '#{name}' not found" }
+      end
+
+      # Check if active knowledge with same name exists
+      active_path = File.join(@knowledge_dir, name)
+      if File.directory?(active_path)
+        return { success: false, error: "Active knowledge '#{name}' already exists. Rename or delete it first." }
+      end
+
+      # Read archive metadata
+      meta_file = File.join(archived_path, ARCHIVE_META_FILE)
+      meta = File.exist?(meta_file) ? YAML.safe_load(File.read(meta_file)) : {}
+
+      # Move back to active
+      FileUtils.mv(archived_path, active_path)
+
+      # Remove archive metadata file
+      FileUtils.rm_f(File.join(active_path, ARCHIVE_META_FILE))
+
+      # Parse the restored skill
+      skill = AnthropicSkillParser.parse(active_path)
+      content = File.read(skill.md_file_path)
+      content_hash = Digest::SHA256.hexdigest(content)
+
+      # Record to blockchain
+      record_hash_reference(
+        name: name,
+        action: 'unarchive',
+        prev_hash: meta['content_hash'],
+        next_hash: content_hash,
+        reason: reason
+      )
+
+      # Update vector search index
+      update_vector_index(name, content, skill)
+
+      { success: true, unarchived: name, path: active_path, hash: content_hash }
+    rescue StandardError => e
+      { success: false, error: "Unarchive failed: #{e.message}" }
+    end
+
+    # List all archived knowledge skills
+    #
+    # @return [Array<Hash>] List of archived knowledge summaries
+    def list_archived
+      archived_dir = File.join(@knowledge_dir, ARCHIVED_DIR)
+      return [] unless File.directory?(archived_dir)
+
+      Dir[File.join(archived_dir, '*')].select { |f| File.directory?(f) }.map do |dir|
+        skill = AnthropicSkillParser.parse(dir)
+        meta_file = File.join(dir, ARCHIVE_META_FILE)
+        meta = File.exist?(meta_file) ? YAML.safe_load(File.read(meta_file)) : {}
+
+        {
+          name: skill&.name || File.basename(dir),
+          description: skill&.description,
+          archived_at: meta['archived_at'],
+          archived_reason: meta['archived_reason'],
+          superseded_by: meta['superseded_by'],
+          content_hash: meta['content_hash']
+        }
+      end
+    end
+
+    # Get a specific archived knowledge skill
+    #
+    # @param name [String] Skill name
+    # @return [Hash, nil] Archived skill info or nil
+    def get_archived(name)
+      archived_path = File.join(@knowledge_dir, ARCHIVED_DIR, name)
+      return nil unless File.directory?(archived_path)
+
+      skill = AnthropicSkillParser.parse(archived_path)
+      return nil unless skill
+
+      meta_file = File.join(archived_path, ARCHIVE_META_FILE)
+      meta = File.exist?(meta_file) ? YAML.safe_load(File.read(meta_file)) : {}
+
+      {
+        skill: skill.to_h,
+        archived_at: meta['archived_at'],
+        archived_reason: meta['archived_reason'],
+        superseded_by: meta['superseded_by'],
+        content_hash: meta['content_hash']
+      }
+    end
+
+    # Check if a knowledge skill is archived
+    #
+    # @param name [String] Skill name
+    # @return [Boolean] True if archived
+    def archived?(name)
+      archived_path = File.join(@knowledge_dir, ARCHIVED_DIR, name)
+      File.directory?(archived_path)
+    end
+
     private
 
     def vector_search
@@ -327,7 +496,9 @@ module KairosMcp
     end
 
     def skill_dirs
-      Dir[File.join(@knowledge_dir, '*')].select { |f| File.directory?(f) }
+      Dir[File.join(@knowledge_dir, '*')].select do |f|
+        File.directory?(f) && File.basename(f) != ARCHIVED_DIR
+      end
     end
 
     def record_hash_reference(name:, action:, prev_hash:, next_hash:, reason:)
