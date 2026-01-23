@@ -81,5 +81,27 @@ module KairosMcp
     def self.kairos_meta_skill?(skill_id)
       kairos_meta_skills.include?(skill_id.to_s)
     end
+
+    # Storage backend configuration
+
+    def self.storage_config
+      load['storage'] || { 'backend' => 'file' }
+    end
+
+    def self.storage_backend
+      storage_config['backend'] || 'file'
+    end
+
+    def self.storage_backend_sqlite?
+      storage_backend == 'sqlite'
+    end
+
+    def self.sqlite_config
+      storage_config['sqlite'] || {}
+    end
+
+    def self.file_config
+      storage_config['file'] || {}
+    end
   end
 end
