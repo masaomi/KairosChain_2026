@@ -53,6 +53,8 @@ module KairosMcp
       register_if_defined('KairosMcp::Tools::ChainRecord')
       register_if_defined('KairosMcp::Tools::ChainVerify')
       register_if_defined('KairosMcp::Tools::ChainHistory')
+      register_if_defined('KairosMcp::Tools::ChainExport')
+      register_if_defined('KairosMcp::Tools::ChainImport')
 
       # Skill-based tools (from kairos.rb with tool block)
       register_skill_tools if skill_tools_enabled?
