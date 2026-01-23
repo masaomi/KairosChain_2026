@@ -9,25 +9,46 @@ module KairosMcp
       end
 
       def description
-        'List all available KairosChain skills defined in Ruby DSL. Returns ID, title, and usage hints.'
+        'List all available KairosChain skills defined in Ruby DSL. Returns ID, title, and usage hints. Supports optional search query.'
       end
 
       def input_schema
         {
           type: 'object',
-          properties: {}
+          properties: {
+            search: {
+              type: 'string',
+              description: 'Optional search query to filter results (uses semantic search if available)'
+            }
+          }
         }
       end
 
       def call(arguments)
         provider = DslSkillsProvider.new
-        skills = provider.list_skills
+        search_query = arguments['search']
+
+        skills = if search_query && !search_query.empty?
+                   provider.search_skills(search_query).map do |skill|
+                     { id: skill.id, title: skill.title, use_when: skill.use_when }
+                   end
+                 else
+                   provider.list_skills
+                 end
 
         if skills.empty?
-          return text_content("No DSL skills found. Check if skills/kairos.rb exists and has definitions.")
+          return text_content("No DSL skills found.#{search_query ? " (search: #{search_query})" : ''}")
         end
 
         output = "Available KairosChain DSL Skills:\n\n"
+
+        # Show search metadata if searching
+        if search_query && !search_query.empty?
+          vs_status = provider.vector_search_status
+          search_method = vs_status[:semantic_available] ? 'semantic (RAG)' : 'keyword'
+          output += "_Search: \"#{search_query}\" | Method: #{search_method}_\n\n"
+        end
+
         output += "| ID | Title | Use When |\n"
         output += "|-----|-------|----------|\n"
 

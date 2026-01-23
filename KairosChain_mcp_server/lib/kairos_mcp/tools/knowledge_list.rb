@@ -41,6 +41,14 @@ module KairosMcp
         end
 
         output = "## L1 Knowledge Skills\n\n"
+
+        # Show search metadata if searching
+        if search_query && !search_query.empty?
+          vs_status = provider.vector_search_status
+          search_method = vs_status[:semantic_available] ? 'semantic (RAG)' : 'keyword'
+          output += "_Search: \"#{search_query}\" | Method: #{search_method}_\n\n"
+        end
+
         output += "| Name | Description | Tags | Scripts | Assets | Refs |\n"
         output += "|------|-------------|------|---------|--------|------|\n"
 
@@ -49,7 +57,8 @@ module KairosMcp
           scripts = skill[:has_scripts] ? '✓' : '-'
           assets = skill[:has_assets] ? '✓' : '-'
           refs = skill[:has_references] ? '✓' : '-'
-          output += "| #{skill[:name]} | #{skill[:description] || '-'} | #{tags} | #{scripts} | #{assets} | #{refs} |\n"
+          score_info = skill[:score] ? " (#{(skill[:score] * 100).round(1)}%)" : ''
+          output += "| #{skill[:name]}#{score_info} | #{skill[:description] || '-'} | #{tags} | #{scripts} | #{assets} | #{refs} |\n"
         end
 
         output += "\nUse `knowledge_get` with a skill name to retrieve full content."
