@@ -1,4 +1,21 @@
 #!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Setup bundler if Gemfile exists (enables optional RAG gems)
+gemfile_path = File.expand_path('../../Gemfile', __FILE__)
+if File.exist?(gemfile_path)
+  ENV['BUNDLE_GEMFILE'] ||= gemfile_path
+  # Use local vendor/bundle if it exists
+  vendor_path = File.expand_path('../../vendor/bundle', __FILE__)
+  ENV['BUNDLE_PATH'] ||= vendor_path if File.directory?(vendor_path)
+  begin
+    require 'bundler/setup'
+  rescue Bundler::GemNotFound, LoadError
+    # Fall back to running without bundler if gems not installed
+    warn "[KairosChain] Bundler gems not found, running without optional dependencies"
+  end
+end
+
 $LOAD_PATH.unshift File.expand_path('../../lib', __FILE__)
 require 'kairos_mcp/server'
 
