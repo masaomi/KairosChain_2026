@@ -258,11 +258,14 @@ module KairosMcp
 
         new_index = create_index(new_max_elements)
         
-        # Copy all points to new index
-        @id_map.each do |internal_idx, _doc_id|
-          # Get the vector for this point
-          # Note: hnswlib doesn't have a direct get_point method in all versions
-          # We'll rebuild from stored text if needed
+        # Rebuild from stored text since hnswlib doesn't support direct point retrieval
+        # This is expensive but ensures data integrity during resize
+        @id_map.each do |internal_idx, doc_id|
+          text = @metadata_store.dig(doc_id, :text)
+          next unless text
+          
+          embedding = generate_embedding(text)
+          new_index.add_point(embedding, internal_idx)
         end
         
         @index = new_index
