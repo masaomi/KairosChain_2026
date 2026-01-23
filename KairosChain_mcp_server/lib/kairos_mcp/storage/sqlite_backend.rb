@@ -113,17 +113,19 @@ module KairosMcp
 
       def save_block(block)
         data = block.is_a?(Hash) ? block : block.to_h
-        @db.execute(<<~SQL, [
+        params = [
           data[:index],
           data[:timestamp].to_s,
           data[:data].to_json,
           data[:previous_hash],
           data[:merkle_root],
           data[:hash]
-        ])
+        ]
+        sql = <<~SQL
           INSERT OR REPLACE INTO blocks (block_index, timestamp, data, previous_hash, merkle_root, hash)
           VALUES (?, ?, ?, ?, ?, ?)
         SQL
+        @db.execute(sql, params)
         true
       rescue SQLite3::Exception => e
         warn "[SqliteBackend] Failed to save block: #{e.message}"
@@ -149,16 +151,18 @@ module KairosMcp
       # ===========================================================================
 
       def record_action(entry)
-        @db.execute(<<~SQL, [
+        params = [
           entry[:timestamp] || Time.now.iso8601,
           entry[:action],
           entry[:skill_id],
           entry[:layer],
           entry[:details]&.to_json
-        ])
+        ]
+        sql = <<~SQL
           INSERT INTO action_logs (timestamp, action, skill_id, layer, details)
           VALUES (?, ?, ?, ?, ?)
         SQL
+        @db.execute(sql, params)
         true
       rescue SQLite3::Exception => e
         warn "[SqliteBackend] Failed to record action: #{e.message}"
@@ -202,7 +206,7 @@ module KairosMcp
         existing = get_knowledge_meta(name)
 
         if existing
-          @db.execute(<<~SQL, [
+          params = [
             meta[:content_hash],
             meta[:version],
             meta[:description],
@@ -212,15 +216,17 @@ module KairosMcp
             meta[:archived_reason],
             meta[:superseded_by],
             name
-          ])
+          ]
+          sql = <<~SQL
             UPDATE knowledge_meta
             SET content_hash = ?, version = ?, description = ?, tags = ?,
                 is_archived = ?, archived_at = ?, archived_reason = ?, superseded_by = ?,
                 updated_at = datetime('now')
             WHERE name = ?
           SQL
+          @db.execute(sql, params)
         else
-          @db.execute(<<~SQL, [
+          params = [
             name,
             meta[:content_hash],
             meta[:version],
@@ -230,11 +236,13 @@ module KairosMcp
             meta[:archived_at],
             meta[:archived_reason],
             meta[:superseded_by]
-          ])
+          ]
+          sql = <<~SQL
             INSERT INTO knowledge_meta (name, content_hash, version, description, tags,
                                         is_archived, archived_at, archived_reason, superseded_by)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           SQL
+          @db.execute(sql, params)
         end
         true
       rescue SQLite3::Exception => e
@@ -309,16 +317,18 @@ module KairosMcp
       end
 
       def update_knowledge_archived(name, archived, reason: nil)
-        @db.execute(<<~SQL, [
+        params = [
           archived ? 1 : 0,
           archived ? Time.now.iso8601 : nil,
           reason,
           name
-        ])
+        ]
+        sql = <<~SQL
           UPDATE knowledge_meta
           SET is_archived = ?, archived_at = ?, archived_reason = ?, updated_at = datetime('now')
           WHERE name = ?
         SQL
+        @db.execute(sql, params)
         true
       rescue SQLite3::Exception => e
         warn "[SqliteBackend] Failed to update knowledge archived status: #{e.message}"

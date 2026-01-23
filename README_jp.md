@@ -13,6 +13,8 @@ KairosChainは、AIの能力進化をプライベートブロックチェーン�
 - [レイヤー化されたスキルアーキテクチャ](#レイヤー化されたスキルアーキテクチャ)
 - [データモデル：SkillStateTransition](#データモデルskillstatetransition)
 - [セットアップ](#セットアップ)
+  - [オプション：RAGサポート](#オプションragセマンティック検索サポート)
+  - [オプション：SQLite](#オプションsqliteストレージバックエンドチーム利用向け)
 - [クライアント設定](#クライアント設定)
 - [セットアップのテスト](#セットアップのテスト)
 - [使用のヒント](#使用のヒント)
@@ -328,6 +330,232 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hello_worl
                     │    検索結果     │
                     └─────────────────┘
 ```
+
+---
+
+### オプション：SQLiteストレージバックエンド（チーム利用向け）
+
+デフォルトでは、KairosChainはファイルベースのストレージ（JSON/JSONLファイル）を使用します。同時アクセスが発生するチーム環境では、オプションでSQLiteストレージバックエンドを有効化できます。
+
+**デフォルト（ファイルベース）:** 設定不要、個人利用に適切  
+**SQLite:** 同時アクセス処理が改善、小規模チーム利用（2-10人）に適切
+
+#### SQLiteを使うべきタイミング
+
+| シナリオ | 推奨バックエンド |
+|----------|-----------------|
+| 個人開発者 | ファイル（デフォルト） |
+| 小規模チーム（2-10人） | **SQLite** |
+| 大規模チーム（10人以上） | PostgreSQL（将来対応） |
+| CI/CDパイプライン | SQLite |
+
+#### インストール
+
+```bash
+cd KairosChain_mcp_server
+
+# オプション1: Bundlerを使用（推奨）
+bundle install --with sqlite
+
+# オプション2: 直接gemをインストール
+gem install sqlite3
+```
+
+#### 設定
+
+`skills/config.yml`を編集してSQLiteを有効化：
+
+```yaml
+# ストレージバックエンド設定
+storage:
+  backend: sqlite                         # 'file' から 'sqlite' に変更
+
+  sqlite:
+    path: "storage/kairos.db"             # SQLiteデータベースファイルのパス
+    wal_mode: true                        # 同時アクセス改善のためWAL有効化
+```
+
+#### 確認方法
+
+```bash
+# SQLite gemがインストールされているか確認
+ruby -e "require 'sqlite3'; puts 'SQLite3 gem installed!'"
+
+# 有効化後、サーバーをテスト
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | bin/kairos_mcp_server
+```
+
+#### SQLiteからファイルへのエクスポート
+
+SQLiteのデータを人間が読めるファイルにエクスポートしてバックアップや検査ができます：
+
+```ruby
+# Rubyコンソールまたはスクリプトで
+require_relative 'lib/kairos_mcp/storage/exporter'
+
+# 全データをエクスポート
+KairosMcp::Storage::Exporter.export(
+  db_path: "storage/kairos.db",
+  output_dir: "storage/export"
+)
+
+# 出力構造：
+# storage/export/
+# ├── blockchain.json       # 全ブロック
+# ├── action_log.jsonl      # アクションログエントリ
+# ├── knowledge_meta.json   # 知識メタデータ
+# └── manifest.json         # エクスポートメタデータ
+```
+
+#### ファイルからSQLiteを再構築
+
+SQLiteデータベースが破損した場合、ファイルベースのデータから再構築できます：
+
+```ruby
+# Rubyコンソールまたはスクリプトで
+require_relative 'lib/kairos_mcp/storage/importer'
+
+# 元のファイルストレージから再構築
+KairosMcp::Storage::Importer.rebuild_from_files(
+  db_path: "storage/kairos.db"
+)
+
+# またはエクスポートされたファイルからインポート
+KairosMcp::Storage::Importer.import(
+  input_dir: "storage/export",
+  db_path: "storage/kairos.db"
+)
+```
+
+#### SQLiteへの移行手順（ステップバイステップ）
+
+既にファイルベースのストレージでKairosChainを使用していてSQLiteに移行する場合：
+
+**ステップ1: sqlite3 gemをインストール**
+
+```bash
+cd KairosChain_mcp_server
+
+# Bundlerを使用（推奨）
+bundle install --with sqlite
+
+# または直接インストール
+gem install sqlite3
+
+# インストール確認
+ruby -e "require 'sqlite3'; puts 'SQLite3 ready!'"
+```
+
+**ステップ2: config.ymlを更新**
+
+```yaml
+# skills/config.yml
+storage:
+  backend: sqlite                         # 'file' から 'sqlite' に変更
+
+  sqlite:
+    path: "storage/kairos.db"
+    wal_mode: true
+```
+
+**ステップ3: 既存データを移行**
+
+```bash
+cd KairosChain_mcp_server
+
+ruby -e "
+require_relative 'lib/kairos_mcp/storage/importer'
+
+result = KairosMcp::Storage::Importer.rebuild_from_files(
+  db_path: 'storage/kairos.db'
+)
+
+puts '移行完了!'
+puts \"インポートされたブロック: #{result[:blocks]}\"
+puts \"インポートされたアクションログ: #{result[:action_logs]}\"
+puts \"インポートされた知識メタデータ: #{result[:knowledge_meta]}\"
+"
+```
+
+**ステップ4: MCPサーバーを再起動**
+
+Cursor/Claude Codeを再起動するか、MCPサーバーを再接続します。
+
+**ステップ5: 移行を確認**
+
+```bash
+# チェーンステータスを確認
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | bin/kairos_mcp_server 2>/dev/null | jq -r '.result.content[0].text'
+
+# チェーンの整合性を検証
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | bin/kairos_mcp_server 2>/dev/null | jq -r '.result.content[0].text'
+```
+
+**ステップ6: 元ファイルをバックアップとして保持**
+
+移行後、元のファイルはバックアップとして保持してください：
+
+```
+storage/
+├── blockchain.json      # ← 元ファイル（バックアップとして保持）
+├── kairos.db            # ← 新しいSQLiteデータベース
+└── kairos.db-wal        # ← WALファイル（自動生成）
+
+skills/
+└── action_log.jsonl     # ← 元ファイル（バックアップとして保持）
+```
+
+#### SQLiteトラブルシューティング
+
+**sqlite3 gemがロードできない：**
+
+```bash
+# インストール確認
+gem list sqlite3
+
+# 必要に応じて再インストール
+gem uninstall sqlite3
+gem install sqlite3
+```
+
+**移行後にデータが見えない：**
+
+```bash
+# 移行を再実行
+ruby -e "
+require_relative 'lib/kairos_mcp/storage/importer'
+KairosMcp::Storage::Importer.rebuild_from_files(db_path: 'storage/kairos.db')
+"
+```
+
+**SQLiteデータベースが破損した：**
+
+```bash
+# 破損したデータベースを削除して元ファイルから再構築
+rm storage/kairos.db storage/kairos.db-wal storage/kairos.db-shm 2>/dev/null
+
+ruby -e "
+require_relative 'lib/kairos_mcp/storage/importer'
+KairosMcp::Storage::Importer.rebuild_from_files(db_path: 'storage/kairos.db')
+"
+```
+
+**ファイルベースストレージに戻す：**
+
+```yaml
+# config.ymlを変更するだけ
+storage:
+  backend: file    # 'sqlite' から 'file' に変更
+```
+
+元のファイル（`blockchain.json`、`action_log.jsonl`）が自動的に使用されます。
+
+#### 重要な注意事項
+
+- **知識コンテンツ（*.mdファイル）**: バックエンドに関係なく常にファイルに保存
+- **SQLiteに保存されるもの**: ブロックチェーン、アクションログ、知識メタデータのみ
+- **人間可読性**: エクスポート機能でSQLコマンドなしでデータを確認
+- **バックアップ**: SQLiteの場合は`.db`ファイルをコピーするだけ。より安全のためファイルへのエクスポートも併用
 
 ---
 
@@ -977,13 +1205,16 @@ KairosChainは以下の場所にデータを保存します：
 | `skills/versions/` | DSLスナップショット | Yes | 中 |
 | `knowledge/` | L1プロジェクト知識 | Yes | 高 |
 | `context/` | L2一時コンテキスト | Yes | 低 |
-| `storage/blockchain.json` | ブロックチェーンデータ | Yes | 高 |
+| `storage/blockchain.json` | ブロックチェーンデータ（ファイルモード） | Yes | 高 |
+| `storage/kairos.db` | SQLiteデータベース（SQLiteモード） | No | 高 |
 | `storage/embeddings/*.ann` | ベクトルインデックス（自動生成） | No | 低 |
-| `skills/action_log.jsonl` | アクションログ | No | 低 |
+| `skills/action_log.jsonl` | アクションログ（ファイルモード） | No | 低 |
 
 ### ブロックチェーンのストレージ形式
 
-プライベートブロックチェーンは`storage/blockchain.json`に**JSONフラットファイル**として保存されます：
+デフォルトでは、プライベートブロックチェーンは`storage/blockchain.json`に**JSONフラットファイル**として保存されます。オプションでSQLiteバックエンドも使用可能です（「オプション：SQLiteストレージバックエンド」セクションを参照）。
+
+**ファイルモード（デフォルト）** - `storage/blockchain.json`：
 
 ```json
 [
@@ -1011,6 +1242,42 @@ KairosChainは以下の場所にデータを保存します：
 - **可読性**：監査のために人間が直接確認可能
 - **ポータビリティ**：コピーするだけでバックアップ/移行可能
 - **哲学への適合**：監査可能性はKairosの核心
+
+**SQLiteモード** - `storage/kairos.db`：
+
+```sql
+-- blocksテーブル
+CREATE TABLE blocks (
+  id INTEGER PRIMARY KEY,
+  idx INTEGER NOT NULL,
+  timestamp TEXT NOT NULL,
+  data TEXT NOT NULL,        -- JSON配列
+  previous_hash TEXT NOT NULL,
+  merkle_root TEXT NOT NULL,
+  hash TEXT NOT NULL UNIQUE
+);
+
+-- action_logsテーブル
+CREATE TABLE action_logs (
+  id INTEGER PRIMARY KEY,
+  timestamp TEXT NOT NULL,
+  entry TEXT NOT NULL        -- JSONエントリ
+);
+```
+
+**なぜSQLiteか？（チーム利用時）**
+- **同時アクセス**：WALモードで複数の読み取り + 単一書き込み
+- **ACIDトランザクション**：データ整合性の保証
+- **クエリ能力**：複雑なクエリがSQLで可能
+- **自己完結型**：単一ファイルでサーバー不要
+
+**ファイル vs SQLiteの選択：**
+
+| シナリオ | 推奨 |
+|----------|------|
+| 個人開発者 | ファイル（シンプル） |
+| チーム（2-10人） | SQLite（同時アクセス） |
+| 監査/検査 | ファイルへエクスポート |
 
 ### 推奨運用パターン
 
@@ -1832,6 +2099,29 @@ AIエージェント（Cursor Rules / system_prompt）に定期的な監査を�
 2. `knowledge_get` で特定のスキルをレビュー
 3. `knowledge_update` で修正、または廃止されていればアーカイブ
 ```
+
+---
+
+### Q: ファイルベースストレージとSQLiteの違いは何ですか？
+
+**A:** KairosChainは2種類のストレージバックエンドをサポートしています：
+
+| 観点 | ファイルベース（デフォルト） | SQLite |
+|------|----------------------------|--------|
+| 設定 | 不要 | gemインストール + config変更 |
+| 同時アクセス | 限定的 | WALモードで改善 |
+| 人間可読性 | 直接JSONを確認可能 | エクスポートが必要 |
+| バックアップ | ファイルコピー | .dbファイルコピー |
+| 適合規模 | 個人 | 小規模チーム（2-10人） |
+
+**移行は簡単：**
+
+1. `gem install sqlite3`
+2. config.ymlで`backend: sqlite`に変更
+3. `Importer.rebuild_from_files`で移行
+4. サーバー再起動
+
+詳細は「オプション：SQLiteストレージバックエンド」セクションを参照してください。
 
 ---
 
