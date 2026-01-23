@@ -425,6 +425,37 @@ KairosMcp::Storage::Importer.import(
 )
 ```
 
+#### Using MCP Tools for Export/Import
+
+You can also use MCP tools directly from your AI assistant (Cursor/Claude Code):
+
+**Export (read-only, safe):**
+```
+# In Cursor/Claude Code chat:
+"Export the SQLite database to files using chain_export"
+
+# Or call directly:
+chain_export output_dir="storage/backup"
+```
+
+**Import (requires approval):**
+```
+# Preview mode (shows impact without making changes):
+chain_import source="files" approved=false
+
+# Execute with automatic backup:
+chain_import source="files" approved=true
+
+# Import from exported directory:
+chain_import source="export" input_dir="storage/backup" approved=true
+```
+
+**Safety features of chain_import:**
+- Requires `approved=true` to execute (otherwise shows preview)
+- Automatically creates backup at `storage/backups/kairos_{timestamp}.db`
+- Shows impact summary before execution
+- `skip_backup=true` available but NOT recommended
+
 #### Switching Between Backends
 
 **File → SQLite:**
@@ -1035,10 +1066,12 @@ URI format:
 
 | Tool | Description |
 |------|-------------|
-| `chain_status` | Get blockchain status |
+| `chain_status` | Get blockchain status (includes storage backend info) |
 | `chain_record` | Record data to blockchain |
 | `chain_verify` | Verify chain integrity |
 | `chain_history` | View block history |
+| `chain_export` | Export SQLite data to files (SQLite mode only) |
+| `chain_import` | Import files to SQLite with automatic backup (SQLite mode only, requires `approved=true`) |
 
 ## Usage Examples
 

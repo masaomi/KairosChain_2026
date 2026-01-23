@@ -427,6 +427,37 @@ KairosMcp::Storage::Importer.import(
 )
 ```
 
+#### MCPツールでエクスポート/インポート
+
+AIアシスタント（Cursor/Claude Code）からMCPツールを直接使用することもできます：
+
+**エクスポート（読み取り専用、安全）:**
+```
+# Cursor/Claude Codeのチャットで：
+「chain_exportを使ってSQLiteデータベースをファイルにエクスポートして」
+
+# または直接呼び出し：
+chain_export output_dir="storage/backup"
+```
+
+**インポート（承認が必要）:**
+```
+# プレビューモード（変更せずに影響を表示）：
+chain_import source="files" approved=false
+
+# 自動バックアップ付きで実行：
+chain_import source="files" approved=true
+
+# エクスポートされたディレクトリからインポート：
+chain_import source="export" input_dir="storage/backup" approved=true
+```
+
+**chain_importの安全機能:**
+- `approved=true`が必要（それ以外はプレビュー表示）
+- `storage/backups/kairos_{timestamp}.db`に自動バックアップ
+- 実行前に影響のサマリーを表示
+- `skip_backup=true`で回避可能（非推奨）
+
 #### SQLiteへの移行手順（ステップバイステップ）
 
 既にファイルベースのストレージでKairosChainを使用していてSQLiteに移行する場合：
@@ -1021,10 +1052,12 @@ URI形式：
 
 | ツール | 説明 |
 |--------|------|
-| `chain_status` | ブロックチェーンステータスを取得 |
+| `chain_status` | ブロックチェーンステータスを取得（ストレージバックエンド情報含む） |
 | `chain_record` | ブロックチェーンにデータを記録 |
 | `chain_verify` | チェーンの整合性を検証 |
 | `chain_history` | ブロック履歴を表示 |
+| `chain_export` | SQLiteデータをファイルにエクスポート（SQLiteモードのみ） |
+| `chain_import` | ファイルをSQLiteにインポート、自動バックアップ付き（SQLiteモードのみ、`approved=true`必須） |
 
 ## 使用例
 
