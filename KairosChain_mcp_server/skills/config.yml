@@ -12,6 +12,40 @@ require_human_approval: true
 # This allows adding/modifying tools by editing kairos.rb (subject to L0 constraints)
 skill_tools_enabled: false
 
+# =============================================================================
+# Storage Backend Configuration
+# =============================================================================
+#
+# KairosChain supports two storage backends:
+#   - file (default): File-based storage, suitable for individual use
+#   - sqlite: SQLite-based storage, suitable for team use with concurrent access
+#
+# For SQLite backend, install the sqlite3 gem:
+#   bundle install --with sqlite
+#   # or
+#   gem install sqlite3
+#
+storage:
+  backend: file                           # 'file' (default) or 'sqlite'
+
+  # File backend settings (used when backend: file)
+  file:
+    storage_dir: "storage"                # Directory for storage files
+    blockchain_file: "storage/blockchain.json"
+    action_log_file: "skills/action_log.jsonl"
+
+  # SQLite backend settings (used when backend: sqlite)
+  sqlite:
+    path: "storage/kairos.db"             # Path to SQLite database file
+    wal_mode: true                        # Enable WAL for better concurrency
+
+  # Export settings (SQLite mode only)
+  # Allows exporting data from SQLite to files for backup/inspection
+  export:
+    enabled: true                         # Enable export functionality
+    auto_export: false                    # Auto-export on every write (performance impact)
+    export_path: "storage/export"         # Directory for exported files
+
 # Vector Search (RAG) settings
 # Enables semantic search for skills and knowledge when optional gems are installed
 # Requires: gem install hnswlib informers (or bundle install with Gemfile)

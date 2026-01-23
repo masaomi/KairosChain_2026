@@ -41,6 +41,37 @@ group :rag, optional: true do
 end
 
 # =============================================================================
+# Optional: SQLite Storage Backend (Team Use)
+# =============================================================================
+#
+# Enables SQLite-based storage for team environments with concurrent access.
+# Without this gem, KairosChain uses file-based storage (default).
+#
+# Features:
+#   - ACID transactions for data integrity
+#   - Built-in locking for concurrent access
+#   - WAL mode for better read/write concurrency
+#
+# Installation:
+#   bundle install --with sqlite
+#   # or
+#   gem install sqlite3
+#
+# Configuration (in skills/config.yml):
+#   storage:
+#     backend: sqlite
+#     sqlite:
+#       path: "storage/kairos.db"
+#       wal_mode: true
+#
+
+group :sqlite, optional: true do
+  # SQLite3 Ruby bindings
+  # https://github.com/sparklemotion/sqlite3-ruby
+  gem 'sqlite3', '~> 1.6'
+end
+
+# =============================================================================
 # Development Dependencies
 # =============================================================================
 

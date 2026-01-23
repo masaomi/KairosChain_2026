@@ -331,6 +331,248 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hello_worl
 
 ---
 
+### Optional: SQLite Storage Backend (Team Use)
+
+By default, KairosChain uses file-based storage (JSON/JSONL files). For team environments with concurrent access, you can optionally enable SQLite storage backend.
+
+**Default (File-based):** No configuration required, suitable for individual use  
+**SQLite:** Better concurrent access handling, suitable for small team use (2-10 people)
+
+#### When to Use SQLite
+
+| Scenario | Recommended Backend |
+|----------|---------------------|
+| Individual developer | File (default) |
+| Small team (2-10) | **SQLite** |
+| Large team (10+) | PostgreSQL (future) |
+| CI/CD pipelines | SQLite |
+
+#### Installation
+
+```bash
+cd KairosChain_mcp_server
+
+# Option 1: Using Bundler (recommended)
+bundle install --with sqlite
+
+# Option 2: Direct gem install
+gem install sqlite3
+```
+
+#### Configuration
+
+Edit `skills/config.yml` to enable SQLite:
+
+```yaml
+# Storage backend configuration
+storage:
+  backend: sqlite                         # Change from 'file' to 'sqlite'
+
+  sqlite:
+    path: "storage/kairos.db"             # Path to SQLite database file
+    wal_mode: true                        # Enable WAL for better concurrency
+```
+
+#### Verification
+
+```bash
+# Check if SQLite gem is installed
+ruby -e "require 'sqlite3'; puts 'SQLite3 gem installed!'"
+
+# After enabling, test the server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | bin/kairos_mcp_server
+```
+
+#### Exporting Data from SQLite to Files
+
+You can export SQLite data to human-readable files for backup or inspection:
+
+```ruby
+# In Ruby console or script
+require_relative 'lib/kairos_mcp/storage/exporter'
+
+# Export all data
+KairosMcp::Storage::Exporter.export(
+  db_path: "storage/kairos.db",
+  output_dir: "storage/export"
+)
+
+# Output structure:
+# storage/export/
+# ├── blockchain.json       # All blocks
+# ├── action_log.jsonl      # Action log entries
+# ├── knowledge_meta.json   # Knowledge metadata
+# └── manifest.json         # Export metadata
+```
+
+#### Rebuilding SQLite from Files
+
+If SQLite database becomes corrupted, you can rebuild it from file-based data:
+
+```ruby
+# In Ruby console or script
+require_relative 'lib/kairos_mcp/storage/importer'
+
+# Rebuild from original file storage
+KairosMcp::Storage::Importer.rebuild_from_files(
+  db_path: "storage/kairos.db"
+)
+
+# Or import from exported files
+KairosMcp::Storage::Importer.import(
+  input_dir: "storage/export",
+  db_path: "storage/kairos.db"
+)
+```
+
+#### Switching Between Backends
+
+**File → SQLite:**
+1. Install sqlite3 gem
+2. Change `storage.backend` to `sqlite` in config.yml
+3. Run `Importer.rebuild_from_files` to migrate data
+4. Restart the MCP server
+
+**SQLite → File:**
+1. Run `Exporter.export` to export data
+2. Copy exported files to original locations:
+   - `blockchain.json` → `storage/blockchain.json`
+   - `action_log.jsonl` → `skills/action_log.jsonl`
+3. Change `storage.backend` to `file` in config.yml
+4. Restart the MCP server
+
+#### Migrating to SQLite (Step-by-Step)
+
+If you're already using KairosChain with file-based storage and want to migrate to SQLite:
+
+**Step 1: Install sqlite3 gem**
+
+```bash
+cd KairosChain_mcp_server
+
+# Using Bundler (recommended)
+bundle install --with sqlite
+
+# Or direct install
+gem install sqlite3
+
+# Verify installation
+ruby -e "require 'sqlite3'; puts 'SQLite3 ready!'"
+```
+
+**Step 2: Update config.yml**
+
+```yaml
+# skills/config.yml
+storage:
+  backend: sqlite                         # Change from 'file' to 'sqlite'
+
+  sqlite:
+    path: "storage/kairos.db"
+    wal_mode: true
+```
+
+**Step 3: Migrate existing data**
+
+```bash
+cd KairosChain_mcp_server
+
+ruby -e "
+require_relative 'lib/kairos_mcp/storage/importer'
+
+result = KairosMcp::Storage::Importer.rebuild_from_files(
+  db_path: 'storage/kairos.db'
+)
+
+puts 'Migration completed!'
+puts \"Blocks imported: #{result[:blocks]}\"
+puts \"Action logs imported: #{result[:action_logs]}\"
+puts \"Knowledge metadata imported: #{result[:knowledge_meta]}\"
+"
+```
+
+**Step 4: Restart MCP server**
+
+Restart Cursor/Claude Code or reconnect the MCP server.
+
+**Step 5: Verify migration**
+
+```bash
+# Check chain status
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | bin/kairos_mcp_server 2>/dev/null | jq -r '.result.content[0].text'
+
+# Verify chain integrity
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | bin/kairos_mcp_server 2>/dev/null | jq -r '.result.content[0].text'
+```
+
+**Step 6: Keep original files as backup**
+
+After migration, keep the original files as backup:
+
+```
+storage/
+├── blockchain.json      # ← Original file (keep as backup)
+├── kairos.db            # ← New SQLite database
+└── kairos.db-wal        # ← WAL file (auto-generated)
+
+skills/
+└── action_log.jsonl     # ← Original file (keep as backup)
+```
+
+#### Troubleshooting SQLite
+
+**sqlite3 gem won't load:**
+
+```bash
+# Check if installed
+gem list sqlite3
+
+# Reinstall if needed
+gem uninstall sqlite3
+gem install sqlite3
+```
+
+**Data not visible after migration:**
+
+```bash
+# Re-run migration
+ruby -e "
+require_relative 'lib/kairos_mcp/storage/importer'
+KairosMcp::Storage::Importer.rebuild_from_files(db_path: 'storage/kairos.db')
+"
+```
+
+**SQLite database corrupted:**
+
+```bash
+# Delete corrupted database and rebuild from original files
+rm storage/kairos.db storage/kairos.db-wal storage/kairos.db-shm 2>/dev/null
+
+ruby -e "
+require_relative 'lib/kairos_mcp/storage/importer'
+KairosMcp::Storage::Importer.rebuild_from_files(db_path: 'storage/kairos.db')
+"
+```
+
+**Reverting to file-based storage:**
+
+```yaml
+# Simply change config.yml back
+storage:
+  backend: file    # Change from 'sqlite' to 'file'
+```
+
+The original files (`blockchain.json`, `action_log.jsonl`) will be used automatically.
+
+#### Important Notes
+
+- **Knowledge content (*.md files)**: Always stored in files regardless of backend
+- **SQLite stores**: Blockchain, action logs, and knowledge metadata only
+- **Human readability**: Use export feature to inspect data without SQL commands
+- **Backup**: For SQLite, simply copy the `.db` file; for extra safety, also export to files
+
+---
+
 ## Client Configuration
 
 ### Claude Code Configuration (Detailed)
@@ -1835,6 +2077,100 @@ Configure your AI agent (Cursor Rules / system_prompt) to suggest periodic audit
 
 ---
 
+### Q: What are the advantages and disadvantages of using SQLite?
+
+**A:** SQLite is an optional storage backend for team environments. Here's what you need to know:
+
+**Advantages:**
+
+| Advantage | Description |
+|-----------|-------------|
+| **Concurrent Access** | Built-in locking prevents data corruption when multiple users access simultaneously |
+| **ACID Transactions** | Guarantees data integrity even during crashes |
+| **WAL Mode** | Allows concurrent reads and writes (readers don't block writers) |
+| **Single File** | Easy backup (just copy the `.db` file) |
+| **No Server Required** | Unlike PostgreSQL/MySQL, no separate database server needed |
+| **Fast Queries** | Indexed queries are faster than scanning JSON files |
+
+**Disadvantages / Cautions:**
+
+| Disadvantage | Description | Mitigation |
+|--------------|-------------|------------|
+| **External Dependency** | Requires `sqlite3` gem installation | Use file backend for simple deployments |
+| **Network File System** | SQLite is NOT recommended on NFS/network drives | Use local disk or PostgreSQL for network storage |
+| **Write Scalability** | Only one writer at a time (WAL helps but has limits) | Fine for small teams (2-10), consider PostgreSQL for larger |
+| **Binary Format** | Cannot read data directly without tools | Use `Exporter` to create human-readable files |
+| **Gem Updates** | Need to track `sqlite3` gem updates | Pin version in Gemfile, test before updating |
+
+**When to Use SQLite:**
+
+```
+Individual use → File backend (default)
+     │
+     ▼
+Small team (2-10 people)
+  └─► SQLite backend ✓
+     │
+     ▼
+Large team (10+ people)
+  └─► PostgreSQL (future)
+```
+
+**Recovery from Issues:**
+
+If SQLite database becomes corrupted or you encounter issues:
+
+```ruby
+# 1. Export current data (if possible)
+KairosMcp::Storage::Exporter.export(
+  db_path: "storage/kairos.db",
+  output_dir: "storage/backup"
+)
+
+# 2. Delete corrupted database
+# rm storage/kairos.db
+
+# 3. Rebuild from files
+KairosMcp::Storage::Importer.rebuild_from_files(
+  db_path: "storage/kairos.db"
+)
+```
+
+**Best Practices:**
+
+1. **Regular Exports**: Periodically export to files for human-readable backups
+2. **Version Pin**: Pin sqlite3 gem version in Gemfile
+3. **Local Disk**: Always use local disk, not network drives
+4. **Backup Strategy**: Backup both `.db` file AND exported files
+
+---
+
+### Q: How do I inspect SQLite data without SQL commands?
+
+**A:** Use the built-in Exporter to create human-readable files:
+
+```ruby
+require_relative 'lib/kairos_mcp/storage/exporter'
+
+# Export to human-readable JSON/JSONL files
+KairosMcp::Storage::Exporter.export(
+  db_path: "storage/kairos.db",
+  output_dir: "storage/export"
+)
+```
+
+This creates:
+- `blockchain.json` - All blocks in readable JSON
+- `action_log.jsonl` - Action logs (one JSON per line)
+- `knowledge_meta.json` - Knowledge metadata
+- `manifest.json` - Export information
+
+You can then view these files with any text editor or JSON viewer.
+
+**Note:** Knowledge content (`*.md` files) is always stored as files in `knowledge/` directory, regardless of storage backend. SQLite only stores metadata for faster queries.
+
+---
+
 ### Q: Why does KairosChain use Ruby, specifically DSL and AST?
 
 **A:** KairosChain's choice of Ruby DSL/AST is not accidental but essential for self-modifying AI systems. A self-referential skill system must satisfy three constraints simultaneously:
@@ -1903,7 +2239,7 @@ See [LICENSE](../LICENSE) file.
 
 ---
 
-**Version**: 0.6.0  
-**Last Updated**: 2026-01-22
+**Version**: 0.7.0  
+**Last Updated**: 2026-01-23
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*

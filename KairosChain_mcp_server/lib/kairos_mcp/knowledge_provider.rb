@@ -16,18 +16,35 @@ module KairosMcp
   # - Lightweight modification constraints
   # - Folder-based archiving (.archived/ directory)
   #
+  # Storage:
+  # - Content (*.md files): Always stored in files for human readability
+  # - Metadata: Stored in files (default) or SQLite (when sqlite backend enabled)
+  # - Blockchain: Uses the configured storage backend
+  #
   class KnowledgeProvider
     KNOWLEDGE_DIR = File.expand_path('../../knowledge', __dir__)
     KNOWLEDGE_INDEX_PATH = File.expand_path('../../storage/embeddings/knowledge', __dir__)
     ARCHIVED_DIR = '.archived'
     ARCHIVE_META_FILE = '.archive_meta.yml'
 
-    def initialize(knowledge_dir = KNOWLEDGE_DIR, vector_search_enabled: true)
+    # Initialize the KnowledgeProvider
+    #
+    # @param knowledge_dir [String] Path to knowledge directory
+    # @param vector_search_enabled [Boolean] Enable vector search
+    # @param storage_backend [Storage::Backend, nil] Storage backend to use
+    def initialize(knowledge_dir = KNOWLEDGE_DIR, vector_search_enabled: true, storage_backend: nil)
       @knowledge_dir = knowledge_dir
       @vector_search_enabled = vector_search_enabled
+      @storage_backend = storage_backend
       @vector_search = nil
       @index_built = false
       FileUtils.mkdir_p(@knowledge_dir)
+    end
+
+    # Get the storage backend type
+    # @return [Symbol] :file or :sqlite
+    def storage_type
+      storage_backend.backend_type
     end
 
     # List all knowledge skills
@@ -502,7 +519,7 @@ module KairosMcp
     end
 
     def record_hash_reference(name:, action:, prev_hash:, next_hash:, reason:)
-      chain = KairosChain::Chain.new
+      chain = KairosChain::Chain.new(storage_backend: storage_backend)
       chain.add_block([{
         type: 'knowledge_update',
         layer: 'L1',
@@ -513,9 +530,30 @@ module KairosMcp
         reason: reason,
         timestamp: Time.now.iso8601
       }.to_json])
+
+      # If using SQLite backend, also update knowledge metadata
+      if storage_backend.backend_type == :sqlite
+        meta = {
+          content_hash: next_hash,
+          version: get(name)&.version,
+          description: get(name)&.description,
+          tags: get(name)&.tags
+        }
+        storage_backend.save_knowledge_meta(name, meta) if next_hash
+        storage_backend.delete_knowledge_meta(name) unless next_hash
+      end
     rescue StandardError => e
       # Log but don't fail if blockchain recording fails
       warn "Failed to record to blockchain: #{e.message}"
+    end
+
+    def storage_backend
+      @storage_backend ||= default_storage_backend
+    end
+
+    def default_storage_backend
+      require_relative 'storage/backend'
+      Storage::Backend.default
     end
   end
 end

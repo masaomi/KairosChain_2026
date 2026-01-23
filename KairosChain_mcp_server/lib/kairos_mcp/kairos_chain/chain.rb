@@ -10,8 +10,13 @@ module KairosMcp
 
       DEFAULT_CHAIN_FILE = File.expand_path('../../../storage/blockchain.json', __dir__)
 
-      def initialize(chain_file: DEFAULT_CHAIN_FILE)
+      # Initialize the chain
+      #
+      # @param chain_file [String] Path to blockchain file (for backward compatibility)
+      # @param storage_backend [Storage::Backend, nil] Storage backend to use
+      def initialize(chain_file: DEFAULT_CHAIN_FILE, storage_backend: nil)
         @chain_file = chain_file
+        @storage_backend = storage_backend || default_storage_backend
         @chain = load_chain || [Block.genesis]
       end
 
@@ -66,28 +71,49 @@ module KairosMcp
       end
 
       def save_chain
-        FileUtils.mkdir_p(File.dirname(@chain_file))
-        File.write(@chain_file, JSON.pretty_generate(@chain.map(&:to_h)))
+        @storage_backend.save_all_blocks(@chain.map(&:to_h))
+      end
+
+      # Get the storage backend type
+      # @return [Symbol] :file or :sqlite
+      def storage_type
+        @storage_backend.backend_type
       end
 
       private
 
-      def load_chain
-        return nil unless File.exist?(@chain_file)
+      def default_storage_backend
+        require_relative '../storage/backend'
+        Storage::Backend.default
+      end
 
-        json_data = JSON.parse(File.read(@chain_file), symbolize_names: true)
-        
-        json_data.map do |block_data|
+      def load_chain
+        blocks_data = @storage_backend.load_blocks
+        return nil unless blocks_data
+
+        blocks_data.map do |block_data|
           Block.new(
             index: block_data[:index],
-            timestamp: Time.parse(block_data[:timestamp]),
+            timestamp: parse_timestamp(block_data[:timestamp]),
             data: block_data[:data],
             previous_hash: block_data[:previous_hash],
             merkle_root: block_data[:merkle_root]
           )
         end
-      rescue JSON::ParserError, ArgumentError
+      rescue StandardError => e
+        warn "[Chain] Failed to load chain: #{e.message}"
         nil
+      end
+
+      def parse_timestamp(timestamp)
+        case timestamp
+        when Time
+          timestamp
+        when String
+          Time.parse(timestamp)
+        else
+          Time.now.utc
+        end
       end
     end
   end
