@@ -976,9 +976,9 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
    - すべての操作は`action_log`に記録される
    - 定期的にログをレビュー
 
-## 利用可能なツール（コア20個 + スキルツール）
+## 利用可能なツール（コア23個 + スキルツール）
 
-基本インストールでは20個のツールが提供されます。`skill_tools_enabled: true`の場合、`kairos.rb`の`tool`ブロックで追加のツールを定義できます。
+基本インストールでは23個のツールが提供されます。`skill_tools_enabled: true`の場合、`kairos.rb`の`tool`ブロックで追加のツールを定義できます。
 
 ### L0-A：スキルツール（Markdown） - 読み取り専用
 
@@ -1058,9 +1058,24 @@ URI形式：
 | `chain_status` | ブロックチェーンステータスを取得（ストレージバックエンド情報含む） |
 | `chain_record` | ブロックチェーンにデータを記録 |
 | `chain_verify` | チェーンの整合性を検証 |
-| `chain_history` | ブロック履歴を表示 |
+| `chain_history` | ブロック履歴を表示（拡張版：StateCommitブロックをフォーマット表示） |
 | `chain_export` | SQLiteデータをファイルにエクスポート（SQLiteモードのみ） |
 | `chain_import` | ファイルをSQLiteにインポート、自動バックアップ付き（SQLiteモードのみ、`approved=true`必須） |
+
+### StateCommitツール（監査可能性向上）
+
+StateCommitは、特定の「コミットポイント」で全レイヤー（L0/L1/L2）のスナップショットを作成し、クロスレイヤーの監査可能性を提供します。
+
+| ツール | 説明 |
+|--------|------|
+| `state_commit` | 理由を付けて明示的な状態コミットを作成（ブロックチェーンに記録） |
+| `state_status` | 現在の状態、保留中の変更、自動コミットトリガー状況を表示 |
+| `state_history` | 状態コミット履歴を閲覧、スナップショットの詳細を表示 |
+
+**主な機能：**
+- スナップショットはオフチェーン保存（JSONファイル）、ハッシュ参照のみオンチェーン
+- 自動コミットトリガー：L0変更、昇格/降格、閾値ベース（L1変更5件または合計10件）
+- 空コミット防止：マニフェストハッシュが実際に変更された場合のみコミット
 
 ## 使用例
 
@@ -1191,10 +1206,17 @@ KairosChain_mcp_server/
 │       │   ├── chain.rb
 │       │   ├── merkle_tree.rb
 │       │   └── skill_transition.rb
-│       └── tools/                # MCPツール（コア18個）
+│       ├── state_commit/         # StateCommitモジュール
+│       │   ├── manifest_builder.rb
+│       │   ├── snapshot_manager.rb
+│       │   ├── diff_calculator.rb
+│       │   ├── pending_changes.rb
+│       │   └── commit_service.rb
+│       └── tools/                # MCPツール（コア23個）
 │           ├── skills_*.rb       # L0ツール
 │           ├── knowledge_*.rb    # L1ツール
-│           └── context_*.rb      # L2ツール
+│           ├── context_*.rb      # L2ツール
+│           └── state_*.rb        # StateCommitツール
 ├── skills/                       # L0：Kairosコア
 │   ├── kairos.md                 # L0-A：哲学（読み取り専用）
 │   ├── kairos.rb                 # L0-B：メタルール（Ruby DSL）
@@ -1244,6 +1266,7 @@ KairosChainは以下の場所にデータを保存します：
 | `storage/blockchain.json` | ブロックチェーンデータ（ファイルモード） | Yes | 高 |
 | `storage/kairos.db` | SQLiteデータベース（SQLiteモード） | No | 高 |
 | `storage/embeddings/*.ann` | ベクトルインデックス（自動生成） | No | 低 |
+| `storage/snapshots/` | StateCommitスナップショット（オフチェーン） | No | 中 |
 | `skills/action_log.jsonl` | アクションログ（ファイルモード） | No | 低 |
 
 ### ブロックチェーンのストレージ形式
@@ -2220,6 +2243,82 @@ KairosChainは意図的に「判断」を外部（LLM/人間）に委ねてい�
 ```
 
 ただし、「何を矛盾とみなすか」自体が哲学的な問題であり、KairosChainの現設計は意図的にそこに踏み込んでいません。
+
+---
+
+### Q: StateCommitとは何ですか？監査可能性をどう向上させますか？
+
+**A:** StateCommitは、特定の「コミットポイント」で全レイヤー（L0/L1/L2）のスナップショットを作成し、監査可能性を向上させる機能です。個別のスキル変更記録とは異なり、StateCommitはある時点での**システム全体の状態**をキャプチャします。
+
+**なぜStateCommitか？**
+
+| 既存の記録 | StateCommit |
+|----------|-------------|
+| L0: 完全なブロックチェーントランザクション | 全レイヤーをまとめてキャプチャ |
+| L1: ハッシュ参照のみ | レイヤー間の関係を含む |
+| L2: 記録なし | コミット理由で「なぜ」を示す |
+
+**ストレージ戦略:**
+- **オフチェーン**: 完全なスナップショットJSONファイルを`storage/snapshots/`に保存
+- **オンチェーン**: ハッシュ参照とサマリーのみ（ブロックチェーン肥大化防止）
+
+**コミットタイプ:**
+
+| タイプ | トリガー | 理由 |
+|--------|---------|------|
+| `explicit` | ユーザーが`state_commit`を呼び出し | 必須（ユーザー提供） |
+| `auto` | システムがトリガー条件を検出 | 自動生成 |
+
+**自動コミットトリガー（OR条件）:**
+- L0変更を検出
+- 昇格（L2→L1またはL1→L0）が発生
+- 降格/アーカイブが発生
+- セッション終了（MCPサーバー停止時）
+- L1変更の閾値（デフォルト: 5）
+- 合計変更の閾値（デフォルト: 10）
+
+**AND条件（空コミット防止）:**
+マニフェストハッシュが前回のコミットと異なる場合のみ自動コミットが実行されます。
+
+**設定（`skills/config.yml`）:**
+
+```yaml
+state_commit:
+  enabled: true
+  snapshot_dir: "storage/snapshots"
+  max_snapshots: 100
+
+  auto_commit:
+    enabled: true
+    skip_if_no_changes: true  # AND条件
+
+    on_events:
+      l0_change: true
+      promotion: true
+      demotion: true
+      session_end: true
+
+    change_threshold:
+      enabled: true
+      l1_changes: 5
+      total_changes: 10
+```
+
+**使用方法:**
+
+```bash
+# 明示的コミットを作成
+state_commit reason="機能実装完了"
+
+# 現在の状態を確認
+state_status
+
+# コミット履歴を表示
+state_history
+
+# 特定のコミットの詳細を表示
+state_history hash="abc123"
+```
 
 ---
 

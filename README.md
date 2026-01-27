@@ -990,9 +990,9 @@ Share the same `blockchain.json` to synchronize evolution history across multipl
    - All operations are recorded in `action_log`
    - Review logs regularly
 
-## Available Tools (20 core + skill-tools)
+## Available Tools (23 core + skill-tools)
 
-The base installation provides 20 tools. Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
+The base installation provides 23 tools. Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
 
 ### L0-A: Skills Tools (Markdown) - Read-only
 
@@ -1072,9 +1072,24 @@ URI format:
 | `chain_status` | Get blockchain status (includes storage backend info) |
 | `chain_record` | Record data to blockchain |
 | `chain_verify` | Verify chain integrity |
-| `chain_history` | View block history |
+| `chain_history` | View block history (enhanced: shows StateCommit blocks with formatted details) |
 | `chain_export` | Export SQLite data to files (SQLite mode only) |
 | `chain_import` | Import files to SQLite with automatic backup (SQLite mode only, requires `approved=true`) |
+
+### State Commit Tools (Auditability)
+
+State commits provide cross-layer auditability by creating snapshots of all layers (L0/L1/L2) at specific commit points.
+
+| Tool | Description |
+|------|-------------|
+| `state_commit` | Create an explicit state commit with reason (records to blockchain) |
+| `state_status` | View current state, pending changes, and auto-commit trigger status |
+| `state_history` | Browse state commit history and view snapshot details |
+
+**Key features:**
+- Snapshots stored off-chain (JSON files), hash references on-chain
+- Auto-commit triggers: L0 changes, promotions/demotions, threshold-based (5 L1 changes or 10 total)
+- Empty commit prevention: commits only when manifest hash actually changes
 
 ## Usage Examples
 
@@ -1205,10 +1220,17 @@ KairosChain_mcp_server/
 │       │   ├── chain.rb
 │       │   ├── merkle_tree.rb
 │       │   └── skill_transition.rb
-│       └── tools/                # MCP tools (18 core)
+│       ├── state_commit/         # StateCommit module
+│       │   ├── manifest_builder.rb
+│       │   ├── snapshot_manager.rb
+│       │   ├── diff_calculator.rb
+│       │   ├── pending_changes.rb
+│       │   └── commit_service.rb
+│       └── tools/                # MCP tools (23 core)
 │           ├── skills_*.rb       # L0 tools
 │           ├── knowledge_*.rb    # L1 tools
-│           └── context_*.rb      # L2 tools
+│           ├── context_*.rb      # L2 tools
+│           └── state_*.rb        # StateCommit tools
 ├── skills/                       # L0: Kairos Core
 │   ├── kairos.md                 # L0-A: Philosophy (read-only)
 │   ├── kairos.rb                 # L0-B: Meta-rules (Ruby DSL)
@@ -1257,6 +1279,7 @@ KairosChain stores data in the following locations:
 | `context/` | L2 temporary context | Yes | Low |
 | `storage/blockchain.json` | Blockchain data | Yes | High |
 | `storage/embeddings/*.ann` | Vector index (auto-generated) | No | Low |
+| `storage/snapshots/` | StateCommit snapshots (off-chain) | No | Medium |
 | `skills/action_log.jsonl` | Action log | No | Low |
 
 ### Blockchain Storage Format
@@ -2195,6 +2218,82 @@ Contradiction detection could be added as an L1 knowledge or L0 skill:
 ```
 
 However, "what constitutes a contradiction" is itself a philosophical question, and KairosChain's current design intentionally does not make that judgment.
+
+---
+
+### Q: What is StateCommit and how does it improve auditability?
+
+**A:** StateCommit is a feature that creates snapshots of all layers (L0/L1/L2) at specific "commit points" for improved auditability. Unlike individual skill change records, StateCommit captures the **entire system state** at a moment in time.
+
+**Why StateCommit?**
+
+| Existing Records | StateCommit |
+|------------------|-------------|
+| L0: Full blockchain transaction | Captures all layers together |
+| L1: Hash reference only | Includes layer relationships |
+| L2: No recording | Shows "why" via commit reason |
+
+**Storage strategy:**
+- **Off-chain**: Full snapshot JSON files in `storage/snapshots/`
+- **On-chain**: Hash reference and summary only (prevents blockchain bloat)
+
+**Commit types:**
+
+| Type | Trigger | Reason |
+|------|---------|--------|
+| `explicit` | User calls `state_commit` | Required (user-provided) |
+| `auto` | System detects trigger conditions | Auto-generated |
+
+**Auto-commit triggers (OR conditions):**
+- L0 change detected
+- Promotion (L2→L1 or L1→L0) occurred
+- Demotion/archive occurred
+- Session end (when MCP server stops)
+- L1 changes threshold (default: 5)
+- Total changes threshold (default: 10)
+
+**AND condition (empty commit prevention):**
+Auto-commit only triggers if the manifest hash differs from the previous commit.
+
+**Configuration (`skills/config.yml`):**
+
+```yaml
+state_commit:
+  enabled: true
+  snapshot_dir: "storage/snapshots"
+  max_snapshots: 100
+
+  auto_commit:
+    enabled: true
+    skip_if_no_changes: true  # AND condition
+
+    on_events:
+      l0_change: true
+      promotion: true
+      demotion: true
+      session_end: true
+
+    change_threshold:
+      enabled: true
+      l1_changes: 5
+      total_changes: 10
+```
+
+**Usage:**
+
+```bash
+# Create explicit commit
+state_commit reason="Feature complete"
+
+# Check current status
+state_status
+
+# View commit history
+state_history
+
+# View specific commit details
+state_history hash="abc123"
+```
 
 ---
 
