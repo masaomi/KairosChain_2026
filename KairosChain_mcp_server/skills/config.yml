@@ -96,3 +96,33 @@ kairos_meta_skills:
   - approval_workflow
   - self_inspection
   - chain_awareness
+
+# =============================================================================
+# State Commit Configuration
+# =============================================================================
+#
+# State commits create snapshots of all layers (L0/L1/L2) for auditability.
+# Snapshots are stored off-chain in JSON files, with hash references on-chain.
+#
+state_commit:
+  enabled: true
+  snapshot_dir: "storage/snapshots"      # Directory for snapshot files
+  max_snapshots: 100                     # Maximum snapshots to keep
+
+  # Auto-commit settings
+  auto_commit:
+    enabled: true
+    skip_if_no_changes: true             # AND condition: only commit if hash changed
+
+    # Event-based triggers (OR conditions)
+    on_events:
+      l0_change: true                    # Commit after L0 changes
+      promotion: true                    # Commit after L2→L1 or L1→L0 promotion
+      demotion: true                     # Commit after demotion/archive
+      session_end: true                  # Commit when MCP server stops
+
+    # Threshold-based triggers (OR conditions)
+    change_threshold:
+      enabled: true
+      l1_changes: 5                      # Commit after 5 L1 changes
+      total_changes: 10                  # Commit after 10 total changes

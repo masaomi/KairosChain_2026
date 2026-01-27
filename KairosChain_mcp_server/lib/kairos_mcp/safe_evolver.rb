@@ -116,6 +116,9 @@ module KairosMcp
           }
         )
         
+        # Track pending change for state commit
+        track_pending_change(layer: 'L0', action: 'update', skill_id: skill_id, reason: "Skill evolved")
+        
         { success: true, message: "Skill '#{skill_id}' evolved successfully and recorded on KairosChain. Snapshot: #{snapshot}" }
       rescue => e
         VersionManager.rollback(snapshot)
@@ -166,6 +169,9 @@ module KairosMcp
           skill_id: skill_id,
           details: { snapshot: snapshot }
         )
+        
+        # Track pending change for state commit
+        track_pending_change(layer: 'L0', action: 'create', skill_id: skill_id, reason: "Skill added")
         
         { success: true, message: "Skill '#{skill_id}' added successfully and recorded on KairosChain." }
       rescue => e
@@ -237,6 +243,30 @@ module KairosMcp
       
       chain = KairosChain::Chain.new
       chain.add_block([transition.to_json])
+    end
+
+    # Track pending change for state commit auto-commit
+    def self.track_pending_change(layer:, action:, skill_id:, reason: nil)
+      return unless SkillsConfig.state_commit_enabled?
+
+      require_relative 'state_commit/pending_changes'
+      require_relative 'state_commit/commit_service'
+
+      StateCommit::PendingChanges.add(
+        layer: layer,
+        action: action,
+        skill_id: skill_id,
+        reason: reason
+      )
+
+      # Check if auto-commit should be triggered
+      if SkillsConfig.state_commit_auto_enabled?
+        service = StateCommit::CommitService.new
+        service.check_and_auto_commit
+      end
+    rescue StandardError => e
+      # Log but don't fail if state commit tracking fails
+      warn "[SafeEvolver] Failed to track pending change: #{e.message}"
     end
   end
 end

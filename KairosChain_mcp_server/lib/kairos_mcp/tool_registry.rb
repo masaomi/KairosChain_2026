@@ -56,6 +56,11 @@ module KairosMcp
       register_if_defined('KairosMcp::Tools::ChainExport')
       register_if_defined('KairosMcp::Tools::ChainImport')
 
+      # State commit tools (auditability)
+      register_if_defined('KairosMcp::Tools::StateCommit')
+      register_if_defined('KairosMcp::Tools::StateStatus')
+      register_if_defined('KairosMcp::Tools::StateHistory')
+
       # Skill-based tools (from kairos.rb with tool block)
       register_skill_tools if skill_tools_enabled?
     end

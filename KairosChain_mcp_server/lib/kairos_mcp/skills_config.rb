@@ -103,5 +103,31 @@ module KairosMcp
     def self.file_config
       storage_config['file'] || {}
     end
+
+    # State commit configuration
+
+    def self.state_commit_config
+      load['state_commit'] || {}
+    end
+
+    def self.state_commit_enabled?
+      state_commit_config['enabled'] != false
+    end
+
+    def self.state_commit_auto_config
+      state_commit_config['auto_commit'] || {}
+    end
+
+    def self.state_commit_auto_enabled?
+      state_commit_auto_config['enabled'] == true
+    end
+
+    def self.state_commit_snapshot_dir
+      state_commit_config['snapshot_dir'] || 'storage/snapshots'
+    end
+
+    def self.state_commit_max_snapshots
+      state_commit_config['max_snapshots'] || 100
+    end
   end
 end

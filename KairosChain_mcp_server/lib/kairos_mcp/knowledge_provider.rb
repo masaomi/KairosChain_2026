@@ -107,7 +107,10 @@ module KairosMcp
       # Update vector search index
       update_vector_index(name, content, skill)
 
-      { success: true, skill: skill.to_h, hash: content_hash }
+      # Track pending change for state commit
+      track_pending_change(layer: 'L1', action: 'create', skill_id: name, reason: reason)
+
+      { success: true, skill: skill.to_h, hash: content_hash, next_hash: content_hash }
     end
 
     # Update an existing knowledge skill
@@ -146,6 +149,9 @@ module KairosMcp
       # Update vector search index
       update_vector_index(name, new_content, updated_skill)
 
+      # Track pending change for state commit
+      track_pending_change(layer: 'L1', action: 'update', skill_id: name, reason: reason)
+
       { success: true, skill: updated_skill.to_h, prev_hash: prev_hash, next_hash: next_hash }
     end
 
@@ -178,6 +184,9 @@ module KairosMcp
 
       # Remove from vector search index
       remove_from_vector_index(name)
+
+      # Track pending change for state commit
+      track_pending_change(layer: 'L1', action: 'delete', skill_id: name, reason: reason)
 
       { success: true, deleted: name, prev_hash: prev_hash }
     end
@@ -323,6 +332,9 @@ module KairosMcp
       # Remove from vector search index
       remove_from_vector_index(name)
 
+      # Track pending change for state commit (archive = demotion)
+      track_pending_change(layer: 'L1', action: 'archive', skill_id: name, reason: reason)
+
       { success: true, archived: name, path: dest_path, hash: content_hash }
     rescue StandardError => e
       { success: false, error: "Archive failed: #{e.message}" }
@@ -372,6 +384,9 @@ module KairosMcp
 
       # Update vector search index
       update_vector_index(name, content, skill)
+
+      # Track pending change for state commit
+      track_pending_change(layer: 'L1', action: 'unarchive', skill_id: name, reason: reason)
 
       { success: true, unarchived: name, path: active_path, hash: content_hash }
     rescue StandardError => e
@@ -554,6 +569,30 @@ module KairosMcp
     def default_storage_backend
       require_relative 'storage/backend'
       Storage::Backend.default
+    end
+
+    # Track pending change for state commit auto-commit
+    def track_pending_change(layer:, action:, skill_id:, reason: nil)
+      return unless SkillsConfig.state_commit_enabled?
+
+      require_relative 'state_commit/pending_changes'
+      require_relative 'state_commit/commit_service'
+
+      StateCommit::PendingChanges.add(
+        layer: layer,
+        action: action,
+        skill_id: skill_id,
+        reason: reason
+      )
+
+      # Check if auto-commit should be triggered
+      if SkillsConfig.state_commit_auto_enabled?
+        service = StateCommit::CommitService.new
+        service.check_and_auto_commit
+      end
+    rescue StandardError => e
+      # Log but don't fail if state commit tracking fails
+      warn "[KnowledgeProvider] Failed to track pending change: #{e.message}"
     end
   end
 end

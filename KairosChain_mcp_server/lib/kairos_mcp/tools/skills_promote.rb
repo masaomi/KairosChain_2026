@@ -458,6 +458,9 @@ module KairosMcp
                  end
 
         if result[:success]
+          # Track promotion event for state commit (this triggers auto-commit on promotion)
+          track_promotion_change(from_layer: 'L2', to_layer: 'L1', skill_id: target_name, reason: reason)
+
           action = existing ? 'updated' : 'created'
           output = "## Promotion Successful\n\n"
           output += "**Target**: #{target_name} (L1)\n"
@@ -561,6 +564,31 @@ module KairosMcp
         else
           "Unknown transition requirements."
         end
+      end
+
+      # Track promotion event for state commit auto-commit
+      def track_promotion_change(from_layer:, to_layer:, skill_id:, reason: nil)
+        return unless SkillsConfig.state_commit_enabled?
+
+        require_relative '../state_commit/pending_changes'
+        require_relative '../state_commit/commit_service'
+
+        StateCommit::PendingChanges.add(
+          layer: to_layer,
+          action: 'promote',
+          skill_id: skill_id,
+          reason: reason,
+          metadata: { from_layer: from_layer, to_layer: to_layer }
+        )
+
+        # Promotion triggers auto-commit check
+        if SkillsConfig.state_commit_auto_enabled?
+          service = StateCommit::CommitService.new
+          service.check_and_auto_commit
+        end
+      rescue StandardError => e
+        # Log but don't fail if state commit tracking fails
+        warn "[SkillsPromote] Failed to track promotion change: #{e.message}"
       end
     end
   end
