@@ -255,4 +255,147 @@ Use knowledge_update for L1.
 
 ---
 
+## [SPEC-010] Pure Agent Skill Specification
+
+### Purpose
+
+This specification defines **what must hold true** for L0 to remain Pure.
+It is a semantic contract, not an implementation guide.
+
+### Core Principle
+
+> **All rules, criteria, and justifications for modifying L0
+> must be explicitly described within L0 itself.**
+
+No external entity—developer, LLM, user, or runtime behavior—may
+introduce new criteria for L0 changes.
+
+L0 may evolve, but only through **derivation from its own rules**,
+not through external intervention.
+
+### Definition of "Pure" in Agent Skill Context
+
+Pure does **not** mean:
+- Complete absence of side effects in the entire system
+- Byte-level identical outputs at all times
+
+Pure **means**:
+> The semantics, constraints, and evaluation logic of a skill
+> do not change based on implicit context, external state,
+> LLM behavior, or human preference.
+
+Specifically for L0:
+- Interpretation does not vary by which LLM is used
+- Meaning does not change based on who the approver is
+- Meaning does not depend on execution history or time
+
+All judgment criteria must be **explicit and internal**.
+
+### Referentially Transparent Self-Reference
+
+L0 is **self-referential**:
+- L0 defines how it may be modified
+
+Yet L0 must be **referentially transparent**:
+- L0 does not directly rewrite itself
+- L0 does not depend on time, state, or past executions for meaning
+
+The correct model is:
+
+```
+L0 (current)
+  → Defines L0 change criteria
+  → Evaluates proposed changes
+  → Derives L0 (next state)
+```
+
+This is **fixed-point self-reference**, not stateful self-modification.
+
+### Prohibited Patterns (Pure Violations)
+
+L0's Pure property is violated if any of the following hold:
+
+- Justification for L0 change exists outside L0 (README, comments, developer intent)
+- Human approval is treated as discretionary judgment
+- LLM output serves as the decision basis for L0 changes
+- L0 meaning varies by model performance, prompt tuning, or personal preference
+- L0 rules are overwritten because they "seem good"
+
+**Any change that cannot be traced back to explicit L0 rules is invalid.**
+
+### Permitted Roles for Humans and LLMs
+
+Humans and LLMs may only participate as:
+
+- **Proposer**: Presents change proposals
+- **Evaluator**: Verifies criteria defined in L0 are satisfied
+- **Executor**: Applies changes after criteria are met
+
+Not permitted:
+- Creating new criteria
+- Creative interpretation of L0
+- Applying personal or contextual judgment
+
+In other words:
+> **Humans and LLMs must be verifiers, not authors,
+> of L0's semantics.**
+
+### One-Sentence Rule
+
+> **L0 may only be changed through methods L0 already permits,
+> for reasons L0 itself defines,
+> via processes L0 itself specifies.**
+
+Anything contrary is a violation of Pure Agent Skill design.
+
+---
+
+## [SPEC-020] Theoretical Limits and Practical Implementation
+
+### Gödelian Limits
+
+This specification pursues an ideal of **semantic self-containment**.
+However, any sufficiently expressive formal system faces inherent limits
+(Gödel's Incompleteness Theorems):
+
+1. **The Halting Problem**: We cannot always mechanically verify whether
+   a proposed L0 change satisfies all L0 criteria.
+
+2. **Meta-level Dependency**: No matter how perfect L0's rules are,
+   the **interpreter** of those rules (code, LLM) exists outside L0.
+   This meta-level cannot be eliminated entirely.
+
+3. **Bootstrapping**: The initial L0 must be authored by something
+   external to L0. This "genesis moment" is inherently not self-governed.
+
+### Practical Implications
+
+Given these theoretical limits, KairosChain adopts a **pragmatic approach**:
+
+| Ideal (Pure) | Practical Implementation |
+|--------------|-------------------------|
+| All criteria in L0 | Core criteria in L0, implementation details in code |
+| No external interpretation | Minimize interpretation through explicit checklists |
+| Fully mechanical verification | Human-assisted verification with structured criteria |
+
+### What KairosChain Guarantees
+
+Despite theoretical limits, KairosChain provides:
+
+1. **Audit Trail**: All L0 changes are recorded immutably
+2. **Explicit Criteria**: Approval checklists are defined in L0
+3. **Layered Governance**: L0 governs itself; L1/L2 operate under L0's rules
+4. **Resistance to Drift**: The gap between ideal and implementation is documented
+
+### The "Good Enough" Principle
+
+Rather than claiming perfect Purity (which is impossible),
+KairosChain aims for **sufficient Purity**:
+
+> If an independent reviewer, using only L0's documented rules,
+> can reconstruct the justification for any L0 change,
+> then L0 is sufficiently Pure.
+
+---
+
 *This document is the constitutional foundation of KairosChain. It is read-only and should only be modified through human consensus outside of the system.*

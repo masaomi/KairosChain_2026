@@ -56,9 +56,40 @@ vector_search:
   index_path: "storage/embeddings"                   # Path to store index files
   auto_index: true                                   # Auto-rebuild index on skill changes
 
-# Immutable skills (cannot be modified even with evolution_enabled)
+# =============================================================================
+# L0 Governance Settings (FALLBACK ONLY)
+# =============================================================================
+#
+# IMPORTANT: These settings are now FALLBACK values only.
+#
+# The canonical source for L0 governance is the `l0_governance` skill
+# in skills/kairos.rb. This implements the Pure Agent Skill principle:
+# all L0 rules must be defined within L0 itself.
+#
+# These fallback values are used only during:
+# - Initial bootstrapping (before kairos.rb is loaded)
+# - Error recovery (if l0_governance skill cannot be evaluated)
+#
+# To modify L0 governance rules, use `skills_evolve` to update the
+# l0_governance skill, NOT by editing this file.
+#
+# See: kairos.md SPEC-010 (Pure Agent Skill Specification)
+# =============================================================================
+
+# Fallback: Immutable skills (canonical source: l0_governance skill)
 immutable_skills:
   - core_safety
+
+# Fallback: Allowed L0 skills (canonical source: l0_governance skill)
+kairos_meta_skills:
+  - core_safety
+  - l0_governance
+  - evolution_rules
+  - layer_awareness
+  - approval_workflow
+  - self_inspection
+  - chain_awareness
+  - audit_rules
 
 # Layer configuration
 layers:

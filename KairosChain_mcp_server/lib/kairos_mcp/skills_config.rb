@@ -74,12 +74,54 @@ module KairosMcp
       config['require_human_approval'] == true
     end
 
+    # Get allowed L0 skills - prefers l0_governance skill if available
+    # This implements Pure Agent Skill principle: L0 rules are in L0
     def self.kairos_meta_skills
+      # Try to get from l0_governance skill first (canonical source)
+      if defined?(Kairos) && Kairos.respond_to?(:skill)
+        governance_skill = Kairos.skill(:l0_governance)
+        if governance_skill&.behavior
+          begin
+            config = governance_skill.behavior.call
+            if config[:allowed_skills]
+              return config[:allowed_skills].map(&:to_s)
+            end
+          rescue StandardError
+            # Fall through to config.yml
+          end
+        end
+      end
+      
+      # Fallback to config.yml (for bootstrapping)
       load['kairos_meta_skills'] || DEFAULTS['kairos_meta_skills']
     end
 
     def self.kairos_meta_skill?(skill_id)
       kairos_meta_skills.include?(skill_id.to_s)
+    end
+
+    # Get immutable skills - prefers l0_governance skill if available
+    def self.immutable_skills
+      if defined?(Kairos) && Kairos.respond_to?(:skill)
+        governance_skill = Kairos.skill(:l0_governance)
+        if governance_skill&.behavior
+          begin
+            config = governance_skill.behavior.call
+            if config[:immutable_skills]
+              return config[:immutable_skills].map(&:to_s)
+            end
+          rescue StandardError
+            # Fall through to config.yml
+          end
+        end
+      end
+      
+      # Fallback to config.yml
+      load['immutable_skills'] || DEFAULTS['immutable_skills']
+    end
+
+    def self.immutable_skill?(skill_id)
+      immutable_skills.include?(skill_id.to_s)
     end
 
     # Storage backend configuration

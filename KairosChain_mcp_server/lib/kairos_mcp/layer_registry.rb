@@ -42,13 +42,17 @@ module KairosMcp
     }.freeze
 
     # Kairos meta-skills that can be placed in L0
-    KAIROS_META_SKILLS = %i[
+    # NOTE: This is a fallback. The canonical source is the l0_governance skill.
+    # See: kairos.md SPEC-010 (Pure Agent Skill Specification)
+    KAIROS_META_SKILLS_FALLBACK = %i[
       core_safety
+      l0_governance
       evolution_rules
       layer_awareness
       approval_workflow
       self_inspection
       chain_awareness
+      audit_rules
     ].freeze
 
     class << self
@@ -89,9 +93,29 @@ module KairosMcp
         LAYERS[layer]&.[](:description)
       end
 
+      # Get allowed L0 skills from l0_governance skill (or fallback)
+      # Implements Pure Agent Skill principle: L0 rules are in L0
+      def kairos_meta_skills
+        # Try to get from l0_governance skill first (canonical source)
+        if defined?(Kairos) && Kairos.respond_to?(:skill)
+          governance_skill = Kairos.skill(:l0_governance)
+          if governance_skill&.behavior
+            begin
+              config = governance_skill.behavior.call
+              return config[:allowed_skills] if config[:allowed_skills]
+            rescue StandardError
+              # Fall through to fallback
+            end
+          end
+        end
+        
+        # Fallback for bootstrapping
+        KAIROS_META_SKILLS_FALLBACK
+      end
+
       # Check if a skill ID is a Kairos meta-skill (allowed in L0)
       def kairos_meta_skill?(skill_id)
-        KAIROS_META_SKILLS.include?(skill_id.to_sym)
+        kairos_meta_skills.include?(skill_id.to_sym)
       end
 
       # Get all layer names
@@ -118,9 +142,12 @@ module KairosMcp
         case target_layer
         when :L0_law
           unless kairos_meta_skill?(skill_id)
+            allowed = kairos_meta_skills.join(', ')
             return {
               valid: false,
-              error: "Skill '#{skill_id}' is not a Kairos meta-skill. Only #{KAIROS_META_SKILLS.join(', ')} can be in L0."
+              error: "Skill '#{skill_id}' is not allowed in L0. " \
+                     "Allowed skills (from l0_governance): #{allowed}. " \
+                     "To add a new skill type, first evolve the l0_governance skill."
             }
           end
         when :L0_constitution

@@ -9,7 +9,7 @@ module KairosMcp
       end
 
       def description
-        'Propose and apply changes to Skills DSL definitions. Automatically records changes to KairosChain.'
+        'Propose and apply changes to Skills DSL definitions. Runs L0 auto-check and records changes to KairosChain.'
       end
 
       def input_schema
@@ -29,6 +29,10 @@ module KairosMcp
               type: 'string',
               description: 'New skill definition (Ruby DSL code)'
             },
+            reason: {
+              type: 'string',
+              description: 'Reason for the change (documented for traceability)'
+            },
             approved: {
               type: 'boolean',
               description: 'Set to true to approve the change (when human approval is required)'
@@ -41,14 +45,15 @@ module KairosMcp
         command = arguments['command'] || 'propose'
         skill_id = arguments['skill_id']
         definition = arguments['definition']
+        reason = arguments['reason']
         approved = arguments['approved'] || false
 
         case command
         when 'propose'
           return text_content("Error: skill_id and definition are required") unless skill_id && definition
           
-          result = SafeEvolver.propose(skill_id: skill_id, new_definition: definition)
-          format_result(result)
+          result = SafeEvolver.propose(skill_id: skill_id, new_definition: definition, reason: reason)
+          format_result(result, show_checks: true)
 
         when 'apply'
           return text_content("Error: skill_id and definition are required") unless skill_id && definition
@@ -73,18 +78,61 @@ module KairosMcp
 
       private
 
-      def format_result(result)
+      def format_result(result, show_checks: false)
+        output = ""
+        
         if result[:success]
-          output = "SUCCESS\n\n"
+          output = "✅ SUCCESS\n\n"
           output += "Message: #{result[:message]}\n" if result[:message]
-          output += "\nPreview:\n```ruby\n#{result[:preview]}\n```" if result[:preview]
-          text_content(output)
         else
-          output = "FAILED\n\n"
+          output = "❌ FAILED\n\n"
           output += "Error: #{result[:error]}\n"
-          output += "\nNote: This change requires human approval. Set approved=true to confirm." if result[:pending]
-          text_content(output)
+          output += "\nNote: This change requires human approval. Set approved=true to confirm.\n" if result[:pending]
         end
+        
+        # Show auto-check results if available
+        if show_checks && result[:auto_check]
+          output += format_auto_check(result[:auto_check])
+        end
+        
+        output += "\nPreview:\n```ruby\n#{result[:preview]}\n```" if result[:preview]
+        
+        text_content(output)
+      end
+      
+      def format_auto_check(check_result)
+        output = "\n" + "=" * 60 + "\n"
+        output += "📋 L0 AUTO-CHECK REPORT\n"
+        output += "=" * 60 + "\n\n"
+        
+        output += "#{check_result[:summary]}\n\n"
+        
+        # Group checks by category
+        checks_by_category = (check_result[:checks] || []).group_by { |c| c[:category] }
+        
+        checks_by_category.each do |category, checks|
+          output += "### #{category}\n"
+          checks.each do |check|
+            status = case check[:passed]
+                     when true then "✅"
+                     when false then "❌"
+                     when :unknown then "⚠️"
+                     else "❓"
+                     end
+            output += "#{status} #{check[:item]}\n"
+            output += "   #{check[:detail]}\n"
+          end
+          output += "\n"
+        end
+        
+        if check_result[:human_review_needed] && check_result[:human_review_needed] > 0
+          output += "-" * 60 + "\n"
+          output += "⚠️  #{check_result[:human_review_needed]} item(s) require HUMAN verification.\n"
+          output += "    Review the ⚠️ items above before approving.\n"
+          output += "-" * 60 + "\n"
+        end
+        
+        output
       end
     end
   end

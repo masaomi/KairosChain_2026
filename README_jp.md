@@ -127,7 +127,10 @@ KairosChainの基盤。自己改変に関するメタルールを含みます。
 - **kairos.rb**：Ruby DSLでのメタスキル（完全なブロックチェーン記録で変更可能）
 
 L0に配置できるのはこれらのメタスキルのみ：
-- `core_safety`, `evolution_rules`, `layer_awareness`, `approval_workflow`, `self_inspection`, `chain_awareness`
+- `l0_governance`, `core_safety`, `evolution_rules`, `layer_awareness`, `approval_workflow`, `self_inspection`, `chain_awareness`, `audit_rules`
+
+> **注意：L0自己統治**  
+> `l0_governance`スキルは、どのスキルがL0に存在できるかを定義します。これはPure Agent Skillの原則を実装しています：すべてのL0統治基準はL0自身の中で定義されなければなりません。詳細は[Pure Agent SkillのFAQ](#q-pure-agent-skillとは何ですかなぜ重要ですか)を参照してください。
 
 > **注意：スキル-ツール統一**  
 > `kairos.rb`のスキルは`tool`ブロックでMCPツールを定義することもできます。`skill_tools_enabled: true`が設定されている場合、これらのスキルは自動的にMCPツールとして登録されます。つまり、**L0-Bではスキルとツールが統一されています** — `kairos.rb`を編集することでツールの追加、変更、削除ができます（L0の制約が適用：人間の承認が必要、完全なブロックチェーン記録）。
@@ -1482,6 +1485,48 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_veri
 
 ---
 
+### Q: L1知識の健全性をどう維持しますか？L1の肥大化をどう防ぎますか？
+
+**A:** `l1_health_guide`知識（L1）と`skills_audit`ツールを使って定期的なメンテナンスを行います。
+
+**主要な閾値：**
+
+| 条件 | 閾値 | アクション |
+|------|------|----------|
+| レビュー推奨 | 更新から180日経過 | `skills_audit`チェックを実行 |
+| アーカイブ候補 | 更新から270日経過 | アーカイブを検討 |
+| 危険なパターン | 検出時 | 即座に更新またはアーカイブ |
+
+**推奨監査スケジュール：**
+
+| 頻度 | コマンド |
+|------|---------|
+| 月次 | `skills_audit command="check" layer="L1"` |
+| 月次 | `skills_audit command="recommend" layer="L1"` |
+| 四半期 | `skills_audit command="conflicts" layer="L1"` |
+| 問題発生時 | `skills_audit command="dangerous" layer="L1"` |
+
+**セルフチェックリスト（l1_health_guideより）：**
+
+- [ ] **関連性**: この知識はまだ適用可能か？
+- [ ] **一意性**: 類似の知識が既に存在しないか？
+- [ ] **品質**: 情報は正確で最新か？
+- [ ] **安全性**: L0の安全制約に適合しているか？
+
+**アーカイブプロセス：**
+
+```bash
+# 知識をレビュー
+knowledge_get name="candidate_knowledge"
+
+# 承認付きでアーカイブ
+skills_audit command="archive" target="candidate_knowledge" reason="プロジェクト完了" approved=true
+```
+
+詳細なガイドラインは: `knowledge_get name="l1_health_guide"` を使用してください。
+
+---
+
 ### Q: Persona Assemblyとは何ですか？いつ使うべきですか？
 
 **A:** Persona Assemblyは、レイヤー間で知識を昇格させる際や、知識の健全性を監査する際に、複数の視点から評価を行うオプション機能です。人間の意思決定前に異なる観点を浮き彫りにするのに役立ちます。
@@ -1711,18 +1756,189 @@ rm -rf context/test_session
 
 ### Q: kairos.rbに含まれるメタスキルは何ですか？
 
-**A:** 現在6つのメタスキルが定義されています：
+**A:** 現在8つのメタスキルが定義されています：
 
 | スキル | 説明 | 改変可能性 |
 |--------|------|------------|
+| `l0_governance` | L0自己統治ルール | contentのみ可 |
 | `core_safety` | 安全性の基盤 | 不可（`deny :all`） |
 | `evolution_rules` | 進化ルールの定義 | contentのみ可 |
 | `layer_awareness` | レイヤー構造の認識 | contentのみ可 |
-| `approval_workflow` | 承認ワークフロー | contentのみ可 |
+| `approval_workflow` | 承認ワークフロー（チェックリスト付き） | contentのみ可 |
 | `self_inspection` | 自己検査能力 | contentのみ可 |
 | `chain_awareness` | ブロックチェーン認識 | contentのみ可 |
+| `audit_rules` | 知識ライフサイクル監査ルール | contentのみ可 |
+
+`l0_governance`スキルは特別な存在です：どのスキルがL0に存在できるかを定義し、自己参照的統治というPure Agent Skillの原則を実装しています。
 
 詳細は `skills/kairos.rb` を参照してください。
+
+---
+
+### Q: L0スキルを変更するにはどうすればいいですか？手順は？
+
+**A:** L0の変更には、人間の監視を伴う厳格な複数ステップの手順が必要です。これは意図的な設計です — L0はKairosChainの「憲法」です。
+
+**前提条件：**
+- `skills/config.yml`で`evolution_enabled: true`（手動で設定が必要）
+- セッション内の進化回数 < `max_evolutions_per_session`（デフォルト: 3）
+- 対象スキルが`immutable_skills`に含まれていない（`core_safety`は変更不可）
+- 変更がスキルの`evolve`ブロックで許可されている
+
+**ステップバイステップの手順：**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ 1. 人間: config.ymlでevolution_enabled: trueを手動設定          │
+└───────────────────────────────┬─────────────────────────────────┘
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 2. AI: skills_evolve command="propose" skill_id="..." def="..." │
+│    - 構文検証                                                    │
+│    - l0_governanceのallowed_skillsチェック                      │
+│    - evolveルールチェック                                        │
+└───────────────────────────────┬─────────────────────────────────┘
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 3. 人間: 15項目チェックリストでレビュー（approval_workflow）     │
+│    - Traceability（追跡可能性）: 3項目                          │
+│    - Consistency（整合性）: 3項目                               │
+│    - Scope（範囲）: 3項目                                       │
+│    - Authority（権限）: 3項目                                   │
+│    - Pure Agent Compliance（Pure準拠）: 3項目                   │
+└───────────────────────────────┬─────────────────────────────────┘
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 4. AI: skills_evolve command="apply" ... approved=true          │
+│    - バージョンスナップショット作成                               │
+│    - kairos.rb更新                                              │
+│    - ブロックチェーンに記録                                       │
+│    - Kairos.reload!                                             │
+└───────────────────────────────┬─────────────────────────────────┘
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 5. 検証: skills_dsl_get, chain_history, chain_verify            │
+└───────────────────────────────┬─────────────────────────────────┘
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 6. 人間: evolution_enabled: falseに戻す（推奨）                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**重要なポイント：**
+
+| 観点 | 説明 |
+|------|------|
+| **進化の有効化** | 手動で設定が必要（AIはconfig.ymlを変更できない） |
+| **承認** | 人間が15項目チェックリストを確認 |
+| **記録** | すべての変更がブロックチェーンに記録 |
+| **ロールバック** | `skills_rollback`でスナップショットから復元可能 |
+| **不変** | `core_safety`は変更不可（`evolve deny :all`） |
+
+**新しいL0スキルタイプを追加する場合：**
+
+完全に新しいメタスキルタイプ（例：`my_new_meta_skill`）を追加するには：
+
+1. まず`l0_governance`を進化させて`allowed_skills`リストに追加
+2. 次に`skills_evolve command="add"`で新しいスキルを作成
+
+両方のステップで人間承認とチェックリスト確認が必要です。
+
+**L1/L2は影響を受けません：**
+
+| レイヤー | ツール | 人間承認 | 進化有効化 |
+|---------|--------|----------|-----------|
+| **L0** | `skills_evolve` | 必要 | 必要 |
+| **L1** | `knowledge_update` | 不要 | 不要 |
+| **L2** | `context_save` | 不要 | 不要 |
+
+L1とL2は従来通りAIが自由に変更できます。
+
+---
+
+### Q: L0 Auto-Checkとは何ですか？15項目チェックリストをどう助けますか？
+
+**A:** L0 Auto-Checkは、L0変更前に**機械的なチェックを自動検証**する機能で、人間のレビュー負担を軽減します。
+
+**仕組み：**
+
+`skills_evolve command="propose"`を実行すると、システムは`approval_workflow`スキル（L0の一部）で定義されたチェックを自動実行します。これによりチェック基準が自己参照的に保たれます（Pure Agent Skill準拠）。
+
+**チェックカテゴリ：**
+
+| カテゴリ | タイプ | 項目数 | 説明 |
+|---------|-------|-------|------|
+| **Consistency** | 機械的 | 4 | allowed_skills内、非不変、構文有効、evolveルール |
+| **Authority** | 機械的 | 2 | evolution_enabled、セッション制限内 |
+| **Scope** | 機械的 | 1 | ロールバック可能 |
+| **Traceability** | 人間 | 2 | 理由記載、L0ルールへの追跡可能 |
+| **Pure Compliance** | 人間 | 2 | 外部依存なし、LLM非依存 |
+
+**出力例：**
+
+```
+📋 L0 AUTO-CHECK REPORT
+============================================================
+
+✅ All 7 mechanical checks PASSED. 3 items require human verification.
+
+### Consistency
+✅ Skill in allowed_skills
+   evolution_rules is in allowed_skills
+✅ Skill not immutable
+   evolution_rules is not immutable
+✅ Ruby syntax valid
+   Syntax is valid
+✅ Evolve rules permit change
+   Skill's evolve rules allow modification
+
+### Authority
+✅ Evolution enabled
+   evolution_enabled: true in config
+✅ Within session limit
+   1/3 evolutions used
+
+### Scope
+✅ Rollback possible
+   Version snapshots directory exists
+
+### Traceability
+✅ Reason documented
+   Reason: Updating for clarity
+⚠️ Traceable to L0 rule
+   ⚠️ HUMAN CHECK: Verify this change can be traced to an explicit L0 rule.
+
+### Pure Compliance
+⚠️ No external dependencies
+   ⚠️ HUMAN CHECK: Verify the change doesn't introduce external dependencies.
+⚠️ LLM-independent semantics
+   ⚠️ HUMAN CHECK: Would different LLMs interpret this change the same way?
+
+------------------------------------------------------------
+⚠️  3 item(s) require HUMAN verification.
+    Review the ⚠️ items above before approving.
+------------------------------------------------------------
+```
+
+**メリット：**
+
+| Auto-Checkなし | Auto-Checkあり |
+|---------------|---------------|
+| 人間が15項目すべてを確認 | AIが7項目の機械的チェックを実施 |
+| 構文エラーを見落としやすい | 構文が自動検証される |
+| l0_governanceを手動チェック | allowed_skillsを自動チェック |
+| 構造化されたレポートなし | 明確なパス/フェイルレポート |
+
+**使用方法：**
+
+```bash
+# 追跡可能性のために理由を含める
+skills_evolve command="propose" skill_id="evolution_rules" definition="..." reason="進化ワークフローを明確化"
+```
+
+**Pure Agent Skill準拠：**
+
+チェックロジックは**L0内**（`approval_workflow`スキルのbehaviorブロック内）に定義されており、外部コードではありません。これはL0変更をチェックする基準自体がL0の一部であることを意味し、自己参照的整合性を維持しています。
 
 ---
 
@@ -1743,7 +1959,7 @@ rm -rf context/test_session
 - ✅ 進化の制約（`SafeEvolver`）
 - ✅ ワークフロー（propose → review → apply）
 - ✅ レイヤー構造（L0/L1/L2）
-- ✅ 6つのメタスキル定義
+- ✅ 8つのメタスキル定義
 
 **実装されていないもの（設計上意図的）：**
 - ❌ 「いつ進化すべきか」の判断ロジック
@@ -2158,6 +2374,72 @@ AIエージェント（Cursor Rules / system_prompt）に定期的な監査を�
 
 ---
 
+### Q: Pure Agent Skillとは何ですか？なぜ重要ですか？
+
+**A:** Pure Agent Skillは、L0の意味論的自己完結性を保証する設計原則です。根本的な問いに答えます：**AIシステムは外部依存なしに自身の進化をどう統治できるか？**
+
+**核心原則：**
+
+> L0を変更するためのすべてのルール、基準、正当化は、L0自身の中に明示的に記述されていなければならない。
+
+**この文脈での「Pure」の意味：**
+
+Pureは以下を意味**しません**：
+- 副作用の完全な不在
+- バイトレベルで同一の出力
+
+Pureは以下を**意味します**：
+- スキルの意味がどのLLMが解釈するかで変わらない
+- 意味が承認者によって変わらない
+- 意味が実行履歴や時間に依存しない
+
+**KairosChainでの実装：**
+
+| 以前 | 現在 |
+|------|------|
+| `config.yml`が許可されるL0スキルを定義（外部） | `l0_governance`スキルがこれを定義（自己参照的） |
+| 承認基準が暗黙的 | `approval_workflow`に明示的チェックリスト |
+| L0の認識なしに変更が可能 | L0が自身のルールを通じて自己統治 |
+
+**`l0_governance`スキル：**
+
+```ruby
+skill :l0_governance do
+  behavior do
+    {
+      allowed_skills: [:core_safety, :l0_governance, ...],
+      immutable_skills: [:core_safety],
+      purity_requirements: { all_criteria_in_l0: true, ... }
+    }
+  end
+end
+```
+
+これにより「何がL0に入れるか」がL0自身の一部となり、外部設定ではなくなります。
+
+**理論的限界（ゲーデル的）：**
+
+完全な自己完結は理論的に不可能です。以下の理由により：
+
+1. **停止問題**：変更がすべての基準を満たすかを機械的に常に検証できない
+2. **メタレベル依存**：L0ルールの解釈者（コード/LLM）はL0の外部に存在
+3. **ブートストラップ**：最初のL0は外部から作成されなければならない
+
+KairosChainはこれらの限界を認識しつつ、**十分なPurity**を目指します：
+
+> 独立したレビューアがL0の文書化されたルールのみを使用して、任意のL0変更の正当化を再構築できるなら、L0は十分にPureである。
+
+**実践的なメリット：**
+
+- **監査可能性**：すべての統治基準が一箇所に
+- **ドリフト耐性**：統治を誤って壊しにくい
+- **明示的な承認基準**：人間のレビューアにチェックリスト
+- **自己文書化**：L0が自身を説明する
+
+完全な仕様は `skills/kairos.md` のセクション [SPEC-010] と [SPEC-020] を参照してください。
+
+---
+
 ### Q: なぜKairosChainはRuby、特にDSLとASTを使うのですか？
 
 **A:** KairosChainがRuby DSL/ASTを選択したのは偶然ではなく、自己改変AIシステムにとって本質的な選択です。自己言及的なスキルシステムは、以下の3つの制約を同時に満たす必要があります：
@@ -2228,7 +2510,7 @@ Lispではコード=データなので、「解析」と「実行」の境界が
 
 ---
 
-**バージョン**: 0.6.0  
-**最終更新**: 2026-01-22
+**バージョン**: 0.8.0  
+**最終更新**: 2026-01-27
 
 > *「KairosChainは『この結果は正しいか？』ではなく『この知性はどのように形成されたか？』に答えます」*

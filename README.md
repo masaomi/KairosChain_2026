@@ -125,7 +125,10 @@ The foundation of KairosChain. Contains meta-rules about self-modification.
 - **kairos.rb**: Meta-skills in Ruby DSL (modifiable with full blockchain record)
 
 Only these meta-skills can be placed in L0:
-- `core_safety`, `evolution_rules`, `layer_awareness`, `approval_workflow`, `self_inspection`, `chain_awareness`
+- `l0_governance`, `core_safety`, `evolution_rules`, `layer_awareness`, `approval_workflow`, `self_inspection`, `chain_awareness`, `audit_rules`
+
+> **Note: L0 Self-Governance**  
+> The `l0_governance` skill now defines which skills can exist in L0, implementing the Pure Agent Skill principle: all L0 governance criteria must be defined within L0 itself. See the [Pure Agent Skill FAQ](#q-what-is-pure-agent-skill-and-why-does-it-matter) for details.
 
 > **Note: Skill-Tool Unification**  
 > Skills in `kairos.rb` can also define MCP tools via the `tool` block. When `skill_tools_enabled: true` is set in config, these skills are automatically registered as MCP tools. This means **skills and tools are unified in L0-B** — you can add, modify, or remove tools by editing `kairos.rb` (subject to L0 constraints: human approval required, full blockchain record).
@@ -1457,6 +1460,48 @@ For detailed guidance, use: `knowledge_get name="layer_placement_guide"`
 
 ---
 
+### Q: How do I maintain L1 knowledge health? How do I prevent L1 bloat?
+
+**A:** Use the `l1_health_guide` knowledge (L1) and the `skills_audit` tool for periodic maintenance.
+
+**Key Thresholds:**
+
+| Condition | Threshold | Action |
+|-----------|-----------|--------|
+| Review recommended | 180 days without update | Run `skills_audit` check |
+| Archive candidate | 270 days without update | Consider archiving |
+| Dangerous patterns | Detected | Update or archive immediately |
+
+**Recommended Audit Schedule:**
+
+| Frequency | Commands |
+|-----------|----------|
+| Monthly | `skills_audit command="check" layer="L1"` |
+| Monthly | `skills_audit command="recommend" layer="L1"` |
+| Quarterly | `skills_audit command="conflicts" layer="L1"` |
+| On issues | `skills_audit command="dangerous" layer="L1"` |
+
+**Self-Check Checklist (from l1_health_guide):**
+
+- [ ] **Relevance**: Is this knowledge still applicable?
+- [ ] **Uniqueness**: Does similar knowledge already exist?
+- [ ] **Quality**: Is the information accurate and up-to-date?
+- [ ] **Safety**: Does it align with L0 safety constraints?
+
+**Archive Process:**
+
+```bash
+# Review knowledge
+knowledge_get name="candidate_knowledge"
+
+# Archive with approval
+skills_audit command="archive" target="candidate_knowledge" reason="Project completed" approved=true
+```
+
+For detailed guidelines, use: `knowledge_get name="l1_health_guide"`
+
+---
+
 ### Q: What is Persona Assembly and when should I use it?
 
 **A:** Persona Assembly is an optional feature that provides multi-perspective evaluation when promoting knowledge between layers or auditing knowledge health. It helps surface different viewpoints before human decision-making.
@@ -1686,18 +1731,189 @@ rm -rf context/test_session
 
 ### Q: What meta-skills are included in kairos.rb?
 
-**A:** Currently 6 meta-skills are defined:
+**A:** Currently 8 meta-skills are defined:
 
 | Skill | Description | Modifiability |
 |-------|-------------|---------------|
+| `l0_governance` | L0 self-governance rules | Content only |
 | `core_safety` | Safety foundation | Not modifiable (`deny :all`) |
 | `evolution_rules` | Evolution rules definition | Content only |
 | `layer_awareness` | Layer structure awareness | Content only |
-| `approval_workflow` | Approval workflow | Content only |
+| `approval_workflow` | Approval workflow with checklist | Content only |
 | `self_inspection` | Self-inspection capability | Content only |
 | `chain_awareness` | Blockchain awareness | Content only |
+| `audit_rules` | Knowledge lifecycle audit rules | Content only |
+
+The `l0_governance` skill is special: it defines which skills can exist in L0, implementing the Pure Agent Skill principle of self-referential governance.
 
 See `skills/kairos.rb` for details.
+
+---
+
+### Q: How do I modify L0 skills? What is the procedure?
+
+**A:** L0 modification requires a strict multi-step procedure with human oversight. This is intentional — L0 is the "constitution" of KairosChain.
+
+**Prerequisites:**
+- `evolution_enabled: true` in `skills/config.yml` (must be set manually)
+- Session evolution count < `max_evolutions_per_session` (default: 3)
+- Target skill is not in `immutable_skills` (`core_safety` cannot be modified)
+- Change is permitted by the skill's `evolve` block
+
+**Step-by-Step Procedure:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ 1. Human: Manually set evolution_enabled: true in config.yml    │
+└───────────────────────────────┬─────────────────────────────────┘
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 2. AI: skills_evolve command="propose" skill_id="..." def="..." │
+│    - Syntax validation                                          │
+│    - l0_governance allowed_skills check                         │
+│    - evolve rules check                                         │
+└───────────────────────────────┬─────────────────────────────────┘
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 3. Human: Review with 15-item checklist (approval_workflow)     │
+│    - Traceability (3 items)                                     │
+│    - Consistency (3 items)                                      │
+│    - Scope (3 items)                                            │
+│    - Authority (3 items)                                        │
+│    - Pure Agent Compliance (3 items)                            │
+└───────────────────────────────┬─────────────────────────────────┘
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 4. AI: skills_evolve command="apply" ... approved=true          │
+│    - Creates version snapshot                                   │
+│    - Updates kairos.rb                                          │
+│    - Records to blockchain                                      │
+│    - Kairos.reload!                                             │
+└───────────────────────────────┬─────────────────────────────────┘
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 5. Verify: skills_dsl_get, chain_history, chain_verify          │
+└───────────────────────────────┬─────────────────────────────────┘
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 6. Human: Set evolution_enabled: false (recommended)            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key Points:**
+
+| Aspect | Description |
+|--------|-------------|
+| **Enabling evolution** | Must be done manually (AI cannot change config.yml) |
+| **Approval** | Human must verify 15-item checklist |
+| **Recording** | All changes recorded on blockchain |
+| **Rollback** | Use `skills_rollback` to restore from snapshot |
+| **Immutable** | `core_safety` cannot be changed (`evolve deny :all`) |
+
+**Adding a New L0 Skill Type:**
+
+To add a completely new meta-skill type (e.g., `my_new_meta_skill`):
+
+1. First, evolve `l0_governance` to add it to `allowed_skills` list
+2. Then, use `skills_evolve command="add"` to create the new skill
+
+Both steps require human approval and checklist verification.
+
+**L1/L2 are NOT affected:**
+
+| Layer | Tool | Human Approval | Evolution Enable |
+|-------|------|----------------|------------------|
+| **L0** | `skills_evolve` | Required | Required |
+| **L1** | `knowledge_update` | Not required | Not required |
+| **L2** | `context_save` | Not required | Not required |
+
+L1 and L2 remain freely modifiable by AI as before.
+
+---
+
+### Q: What is L0 Auto-Check? How does it help with the 15-item checklist?
+
+**A:** L0 Auto-Check is a feature that **automatically verifies mechanical checks** before L0 changes, reducing the human review burden.
+
+**How it works:**
+
+When you run `skills_evolve command="propose"`, the system automatically runs checks defined in the `approval_workflow` skill (which is part of L0). This keeps the check criteria self-referential (Pure Agent Skill compliant).
+
+**Check Categories:**
+
+| Category | Type | Items | Description |
+|----------|------|-------|-------------|
+| **Consistency** | Mechanical | 4 | In allowed_skills, not immutable, syntax valid, evolve rules |
+| **Authority** | Mechanical | 2 | evolution_enabled, within session limit |
+| **Scope** | Mechanical | 1 | Rollback possible |
+| **Traceability** | Human | 2 | Reason documented, traceable to L0 rule |
+| **Pure Compliance** | Human | 2 | No external deps, LLM-independent |
+
+**Example Output:**
+
+```
+📋 L0 AUTO-CHECK REPORT
+============================================================
+
+✅ All 7 mechanical checks PASSED. 3 items require human verification.
+
+### Consistency
+✅ Skill in allowed_skills
+   evolution_rules is in allowed_skills
+✅ Skill not immutable
+   evolution_rules is not immutable
+✅ Ruby syntax valid
+   Syntax is valid
+✅ Evolve rules permit change
+   Skill's evolve rules allow modification
+
+### Authority
+✅ Evolution enabled
+   evolution_enabled: true in config
+✅ Within session limit
+   1/3 evolutions used
+
+### Scope
+✅ Rollback possible
+   Version snapshots directory exists
+
+### Traceability
+✅ Reason documented
+   Reason: Updating for clarity
+⚠️ Traceable to L0 rule
+   ⚠️ HUMAN CHECK: Verify this change can be traced to an explicit L0 rule.
+
+### Pure Compliance
+⚠️ No external dependencies
+   ⚠️ HUMAN CHECK: Verify the change doesn't introduce external dependencies.
+⚠️ LLM-independent semantics
+   ⚠️ HUMAN CHECK: Would different LLMs interpret this change the same way?
+
+------------------------------------------------------------
+⚠️  3 item(s) require HUMAN verification.
+    Review the ⚠️ items above before approving.
+------------------------------------------------------------
+```
+
+**Benefits:**
+
+| Without Auto-Check | With Auto-Check |
+|-------------------|-----------------|
+| Human verifies all 15 items | AI verifies 7 mechanical items |
+| Easy to miss syntax errors | Syntax validated automatically |
+| Manual l0_governance check | Automatic allowed_skills check |
+| No structured report | Clear pass/fail report |
+
+**Usage:**
+
+```bash
+# Include reason for better traceability
+skills_evolve command="propose" skill_id="evolution_rules" definition="..." reason="Clarify evolution workflow"
+```
+
+**Pure Agent Skill Compliance:**
+
+The check logic is defined **within L0** (in the `approval_workflow` skill's behavior block), not in external code. This means the criteria for checking L0 changes are themselves part of L0 — maintaining self-referential integrity.
 
 ---
 
@@ -1718,7 +1934,7 @@ See `skills/kairos.rb` for details.
 - ✅ Evolution constraints (`SafeEvolver`)
 - ✅ Workflow (propose → review → apply)
 - ✅ Layer structure (L0/L1/L2)
-- ✅ 6 meta-skills definition
+- ✅ 8 meta-skills definition
 
 **What is NOT implemented (by design):**
 - ❌ "When to evolve" decision logic
@@ -2204,6 +2420,72 @@ You can then view these files with any text editor or JSON viewer.
 
 ---
 
+### Q: What is Pure Agent Skill and why does it matter?
+
+**A:** Pure Agent Skill is a design principle that ensures L0's semantic self-containment. It addresses a fundamental question: **How can an AI system govern its own evolution without external dependencies?**
+
+**The Core Principle:**
+
+> All rules, criteria, and justifications for modifying L0 must be explicitly described within L0 itself.
+
+**What "Pure" means in this context:**
+
+Pure does **not** mean:
+- Complete absence of side effects
+- Byte-level identical outputs
+
+Pure **means**:
+- Skill semantics don't change based on which LLM interprets them
+- Meaning doesn't vary by who the approver is
+- Meaning doesn't depend on execution history or time
+
+**How KairosChain implements this:**
+
+| Before | After |
+|--------|-------|
+| `config.yml` defined allowed L0 skills (external) | `l0_governance` skill defines this (self-referential) |
+| Approval criteria were implicit | `approval_workflow` includes explicit checklist |
+| Changes were possible without L0 awareness | L0 governs itself through its own rules |
+
+**The `l0_governance` skill:**
+
+```ruby
+skill :l0_governance do
+  behavior do
+    {
+      allowed_skills: [:core_safety, :l0_governance, ...],
+      immutable_skills: [:core_safety],
+      purity_requirements: { all_criteria_in_l0: true, ... }
+    }
+  end
+end
+```
+
+This makes "what can be in L0" part of L0 itself, not external configuration.
+
+**Theoretical Limits (Gödelian):**
+
+Perfect self-containment is theoretically impossible due to:
+
+1. **Halting Problem**: Cannot always mechanically verify if a change satisfies all criteria
+2. **Meta-level Dependency**: The interpreter of L0 rules (code/LLM) exists outside L0
+3. **Bootstrapping**: Initial L0 must be authored externally
+
+KairosChain acknowledges these limits while aiming for **sufficient Purity**:
+
+> If an independent reviewer, using only L0's documented rules, can reconstruct the justification for any L0 change, then L0 is sufficiently Pure.
+
+**Practical Benefits:**
+
+- **Auditability**: All governance criteria are in one place
+- **Resistance to Drift**: Harder to accidentally break governance
+- **Explicit Approval Criteria**: Human reviewers have a checklist
+- **Self-documenting**: L0 explains itself
+
+For full specification, see `skills/kairos.md` sections [SPEC-010] and [SPEC-020].
+
+---
+
 ### Q: Why does KairosChain use Ruby, specifically DSL and AST?
 
 **A:** KairosChain's choice of Ruby DSL/AST is not accidental but essential for self-modifying AI systems. A self-referential skill system must satisfy three constraints simultaneously:
@@ -2272,7 +2554,7 @@ See [LICENSE](../LICENSE) file.
 
 ---
 
-**Version**: 0.7.0  
-**Last Updated**: 2026-01-23
+**Version**: 0.8.0  
+**Last Updated**: 2026-01-27
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*

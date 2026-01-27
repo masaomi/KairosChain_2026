@@ -25,41 +25,71 @@ module KairosMcp
       @@evolution_count
     end
     
-    def self.propose(skill_id:, new_definition:)
-      unless SkillsConfig.evolution_enabled?
-        return { success: false, error: "Evolution is disabled. Set 'evolution_enabled: true' in config." }
-      end
-
-      # Layer validation: Only Kairos meta-skills can be in L0 (skills/kairos.rb)
-      layer_check = validate_layer_constraint(skill_id)
-      return layer_check unless layer_check[:success]
+    def self.propose(skill_id:, new_definition:, reason: nil)
+      # Run L0 Auto-Check (defined in approval_workflow skill for Pure Agent Skill compliance)
+      auto_check_result = run_l0_auto_check(skill_id: skill_id, definition: new_definition, reason: reason)
       
-      skill = Kairos.skill(skill_id)
-      if skill && skill.evolution_rules
-        rules = skill.evolution_rules
-        if rules.denied.include?(:all) || (rules.denied.include?(:behavior) && rules.denied.include?(:content))
-          return { success: false, error: "Skill '#{skill_id}' has evolution rules that deny modification." }
-        end
+      # If mechanical checks failed, return immediately with check results
+      unless auto_check_result[:mechanical_passed]
+        return { 
+          success: false, 
+          error: auto_check_result[:summary],
+          auto_check: auto_check_result
+        }
       end
       
-      immutable = SkillsConfig.load['immutable_skills'] || []
-      if immutable.include?(skill_id.to_s)
-        return { success: false, error: "Skill '#{skill_id}' is immutable and cannot be modified." }
-      end
-      
-      max_evolutions = SkillsConfig.load['max_evolutions_per_session'] || 3
-      if @@evolution_count >= max_evolutions
-        return { success: false, error: "Evolution limit reached (#{max_evolutions}/session). Reset required." }
-      end
-      
+      # Additional sandbox validation
       validation = validate_in_sandbox(new_definition)
       return validation unless validation[:success]
       
       { 
         success: true, 
         preview: new_definition,
-        message: "Proposal validated. Use 'apply' command with approved=true to apply."
+        message: "Proposal validated. Use 'apply' command with approved=true to apply.",
+        auto_check: auto_check_result
       }
+    end
+    
+    # Run the auto-check logic defined in L0 (approval_workflow skill)
+    # This keeps the check criteria within L0 for Pure Agent Skill compliance
+    def self.run_l0_auto_check(skill_id:, definition:, reason: nil)
+      approval_workflow = Kairos.skill(:approval_workflow)
+      
+      unless approval_workflow&.behavior
+        # Fallback if approval_workflow skill not loaded
+        return {
+          passed: true,
+          mechanical_passed: true,
+          human_review_needed: 0,
+          checks: [],
+          summary: "Warning: approval_workflow skill not loaded. Skipping auto-check."
+        }
+      end
+      
+      begin
+        workflow_data = approval_workflow.behavior.call
+        auto_check = workflow_data[:auto_check]
+        
+        if auto_check
+          auto_check.call(skill_id: skill_id, definition: definition, reason: reason)
+        else
+          {
+            passed: true,
+            mechanical_passed: true,
+            human_review_needed: 0,
+            checks: [],
+            summary: "Warning: auto_check not available in approval_workflow."
+          }
+        end
+      rescue StandardError => e
+        {
+          passed: false,
+          mechanical_passed: false,
+          human_review_needed: 0,
+          checks: [],
+          summary: "Auto-check error: #{e.message}"
+        }
+      end
     end
     
     def self.apply(skill_id:, new_definition:, approved: false)
@@ -183,15 +213,59 @@ module KairosMcp
     
     private
 
+    # Get L0 governance configuration from the l0_governance skill itself
+    # This implements the Pure Agent Skill principle: L0 rules are in L0
+    # Falls back to config.yml only during bootstrapping
+    def self.l0_governance_config
+      # Try to get from l0_governance skill first (canonical source)
+      governance_skill = Kairos.skill(:l0_governance)
+      if governance_skill&.behavior
+        begin
+          return governance_skill.behavior.call
+        rescue StandardError => e
+          warn "[SafeEvolver] Failed to evaluate l0_governance behavior: #{e.message}"
+        end
+      end
+      
+      # Fallback to config.yml (for bootstrapping or if skill not loaded)
+      {
+        allowed_skills: SkillsConfig.kairos_meta_skills.map(&:to_sym),
+        immutable_skills: (SkillsConfig.load['immutable_skills'] || ['core_safety']).map(&:to_sym),
+        require_human_approval: SkillsConfig.load['require_human_approval']
+      }
+    end
+
+    # Get allowed L0 skills from l0_governance (or fallback)
+    def self.allowed_l0_skills
+      l0_governance_config[:allowed_skills] || []
+    end
+
+    # Get immutable skills from l0_governance (or fallback)
+    def self.immutable_l0_skills
+      l0_governance_config[:immutable_skills] || [:core_safety]
+    end
+
+    # Check if a skill is allowed in L0
+    def self.l0_allowed_skill?(skill_id)
+      allowed_l0_skills.include?(skill_id.to_sym)
+    end
+
+    # Check if a skill is immutable
+    def self.l0_immutable_skill?(skill_id)
+      immutable_l0_skills.include?(skill_id.to_sym)
+    end
+
     # Validate that a skill can be placed in L0 (skills/kairos.rb)
     # Only Kairos meta-skills are allowed in L0
+    # Now reads from l0_governance skill itself (Pure Agent Skill compliance)
     def self.validate_layer_constraint(skill_id)
-      unless SkillsConfig.kairos_meta_skill?(skill_id)
-        meta_skills = SkillsConfig.kairos_meta_skills.join(', ')
+      unless l0_allowed_skill?(skill_id)
+        allowed = allowed_l0_skills.join(', ')
         return {
           success: false,
-          error: "Skill '#{skill_id}' is not a Kairos meta-skill. " \
-                 "Only the following skills can be placed in L0 (skills/kairos.rb): #{meta_skills}. " \
+          error: "Skill '#{skill_id}' is not allowed in L0. " \
+                 "Allowed L0 skills (from l0_governance): #{allowed}. " \
+                 "To add a new skill type to L0, first evolve the l0_governance skill. " \
                  "For project-specific knowledge, use the L1 knowledge layer (knowledge_update tool)."
         }
       end
