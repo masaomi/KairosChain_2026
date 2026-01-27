@@ -110,12 +110,14 @@ Instead, we achieve: **Evolvable but not gameable systems**.
 
 KairosChain implements a **legal-system-inspired layered architecture** for knowledge management:
 
-| Layer | Legal Analogy | Path | Blockchain Record | Mutability |
-|-------|---------------|------|-------------------|------------|
+| Layer | Legal Analogy | Path | Blockchain Record (per-operation) | Mutability |
+|-------|---------------|------|----------------------------------|------------|
 | **L0-A** | Constitution | `skills/kairos.md` | - | Read-only |
 | **L0-B** | Law | `skills/kairos.rb` | Full transaction | Human approval required |
 | **L1** | Ordinance | `knowledge/` | Hash reference only | Lightweight constraints |
-| **L2** | Directive | `context/` | None | Free modification |
+| **L2** | Directive | `context/` | None* | Free modification |
+
+*Note: While individual L2 operations are not recorded, [StateCommit](#state-commit-tools-auditability) periodically captures all layers (including L2) in off-chain snapshots with on-chain hash references.
 
 ### L0: Kairos Core (`skills/`)
 
@@ -166,7 +168,7 @@ tags: [style, convention]
 
 ### L2: Context Layer (`context/`)
 
-Temporary context for sessions. Same format as L1 but **no blockchain recording**.
+Temporary context for sessions. Same format as L1 but **no per-operation blockchain recording**.
 
 ```
 context/
@@ -180,11 +182,14 @@ Use for:
 - Scratch notes
 - Trial-and-error exploration
 
+> **Note**: While individual L2 changes are not recorded, the [StateCommit](#state-commit-tools-auditability) feature can capture L2 state in periodic snapshots (stored off-chain with on-chain hash references).
+
 ### Why Layered Architecture?
 
-1. **Not all knowledge needs the same constraints** — temporary thoughts shouldn't require blockchain records
+1. **Not all knowledge needs the same constraints** — temporary thoughts shouldn't require per-operation blockchain records
 2. **Separation of concerns** — Kairos meta-rules vs. project knowledge vs. temporary context
 3. **AI autonomy with accountability** — free exploration in L2, tracked changes in L1, strict control in L0
+4. **Cross-layer auditability** — [StateCommit](#state-commit-tools-auditability) enables periodic snapshots of all layers together for holistic audit trails
 
 ## Data Model: SkillStateTransition
 
@@ -1440,9 +1445,11 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_veri
 |-------|------------------|------------|
 | **L0** (kairos.rb) | Possible but strict | `evolution_enabled: true` + `approved: true` (human approval) + blockchain record |
 | **L1** (knowledge/) | Possible | Hash-only blockchain record, no human approval required |
-| **L2** (context/) | Free | No record, no approval required |
+| **L2** (context/) | Free | No per-operation record, no approval required |
 
 Note: `kairos.md` is read-only and cannot be modified by LLMs.
+
+**StateCommit addendum**: Regardless of per-operation recording, [StateCommit](#q-what-is-statecommit-and-how-does-it-improve-auditability) can capture all layers (including L2) at commit points. Snapshots are stored off-chain; only hash references are recorded on-chain.
 
 **Usage Examples:**
 - L2: Temporarily save hypotheses during research with `context_save`
@@ -1461,7 +1468,7 @@ Note: `kairos.md` is read-only and cannot be modified by LLMs.
    → NO: Continue
 
 2. Is this temporary or session-specific?
-   → YES: L2 (freely modifiable, no recording)
+   → YES: L2 (freely modifiable, no per-operation recording; can be captured by StateCommit)
    → NO: Continue
 
 3. Will this be reused across multiple sessions?
