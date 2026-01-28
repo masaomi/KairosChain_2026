@@ -970,6 +970,41 @@ Share the same `blockchain.json` to synchronize evolution history across multipl
 }
 ```
 
+### Tool Discovery with tool_guide
+
+The `tool_guide` tool helps you discover and learn about KairosChain tools dynamically.
+
+```
+# Browse all tools by category
+"Run tool_guide command='catalog'"
+
+# Search for tools by keyword
+"Run tool_guide command='search' query='blockchain'"
+
+# Get recommendations for a task
+"Run tool_guide command='recommend' task='audit knowledge health'"
+
+# Get detailed info about a specific tool
+"Run tool_guide command='detail' tool_name='skills_audit'"
+
+# Learn common workflow patterns
+"Run tool_guide command='workflow'"
+"Run tool_guide command='workflow' workflow_name='skill_evolution'"
+```
+
+**For tool developers (LLM-assisted metadata generation):**
+
+```
+# Suggest metadata for a tool
+"Run tool_guide command='suggest' tool_name='my_new_tool'"
+
+# Validate suggested metadata
+"Run tool_guide command='validate' tool_name='my_new_tool' metadata={...}"
+
+# Apply metadata with human approval
+"Run tool_guide command='apply_metadata' tool_name='my_new_tool' metadata={...} approved=true"
+```
+
 ### Common Commands Reference
 
 | Task | Cursor/Claude Code Prompt |
@@ -980,6 +1015,9 @@ Share the same `blockchain.json` to synchronize evolution history across multipl
 | View History | "Show chain_history" |
 | Verify Integrity | "Run chain_verify" |
 | Record Data | "Record a log with chain_record" |
+| Browse Tools | "Run tool_guide command='catalog'" |
+| Search Tools | "Run tool_guide command='search' query='...'" |
+| Get Tool Help | "Run tool_guide command='detail' tool_name='...'" |
 
 ### Security Considerations
 
@@ -1090,6 +1128,24 @@ State commits provide cross-layer auditability by creating snapshots of all laye
 | `state_commit` | Create an explicit state commit with reason (records to blockchain) |
 | `state_status` | View current state, pending changes, and auto-commit trigger status |
 | `state_history` | Browse state commit history and view snapshot details |
+
+### Guide Tools (Tool Discovery)
+
+Dynamic tool guidance system for discovering and learning about KairosChain tools.
+
+| Tool | Description |
+|------|-------------|
+| `tool_guide` | Dynamic tool discovery, search, and documentation |
+
+Commands:
+- `catalog`: List all tools organized by category
+- `search`: Search tools by keyword
+- `recommend`: Get tool recommendations for specific tasks
+- `detail`: Get detailed information about a specific tool
+- `workflow`: Show common workflow patterns
+- `suggest`: Generate metadata suggestions for a tool (LLM-assisted)
+- `validate`: Validate proposed metadata before applying
+- `apply_metadata`: Apply metadata to a tool (requires human approval)
 
 **Key features:**
 - Snapshots stored off-chain (JSON files), hash references on-chain
@@ -2651,6 +2707,62 @@ skill.evolution_rules.can_evolve?(:evolve)  # => false
 In Lisp, code=data blurs the boundary between "analysis" and "execution." While this provides freedom, achieving **auditability** requires additional mechanisms.
 
 **Conclusion:** Given KairosChain's goal of "auditable AI skill evolution," Ruby is the **practical optimum** — not the only correct answer, but a realistic choice that satisfies all three constraints simultaneously.
+
+---
+
+### Q: What's the difference between using local skills vs. KairosChain?
+
+**A:** AI agent editors (Cursor, Claude Code, Antigravity, etc.) typically provide a local skills/rules mechanism. Here's a comparison with KairosChain:
+
+**Local Skills (e.g., `.cursor/skills/`, `CLAUDE.md`, agent rules)**
+
+| Pros | Cons |
+|------|------|
+| Simple — just place files, ready to use | No change history — who/when/why is not tracked |
+| Fast — direct file read, no MCP overhead | Too free — unintended modifications can occur |
+| Native IDE integration | No layer concept — temporary hypotheses and permanent knowledge mix |
+| Standard format (SKILL.md, etc.) | No self-reference — AI cannot inspect/explain its own skills |
+
+**KairosChain (MCP server)**
+
+| Pros | Cons |
+|------|------|
+| **Auditability** — all changes recorded on blockchain | MCP call overhead — slight latency |
+| **Layered architecture** — L0 (meta-rules) / L1 (project knowledge) / L2 (temporary context) | Learning curve — must understand layers and tools |
+| **Approval workflow** — L0 changes require human approval | Setup required — MCP server configuration |
+| **Self-reference** — AI can inspect, explain, and evolve skills | Complexity — may be overkill for simple use cases |
+| **Semantic search** — RAG-enabled meaning-based search | |
+| **StateCommit** — system-wide snapshots at any point | |
+| **Lifecycle management** — `skills_audit` for detecting/archiving stale knowledge | |
+
+**Usage Guidelines:**
+
+| Scenario | Recommendation |
+|----------|----------------|
+| Small personal project | Local skills |
+| Audit/accountability required | KairosChain |
+| Recording AI capability evolution | KairosChain |
+| Team knowledge sharing | KairosChain (especially with SQLite backend) |
+| Quick prototyping | Local skills → migrate to KairosChain when mature |
+
+**The Essential Difference:**
+
+- **Local Skills**: Function as "convenient documentation"
+- **KairosChain**: Functions as an "auditable ledger of AI capability evolution"
+
+KairosChain's philosophy:
+
+> *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*
+
+If you just need to use skills, local skills are sufficient. However, if you need to **explain how the AI learned and evolved**, KairosChain is the appropriate choice.
+
+**Hybrid Approach:**
+
+You can use both simultaneously:
+- Local skills for quick, informal knowledge
+- KairosChain for knowledge that needs audit trails
+
+KairosChain doesn't replace local skills — it provides an additional layer of auditability and governance when needed.
 
 ---
 

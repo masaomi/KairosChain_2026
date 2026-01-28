@@ -956,6 +956,41 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
 }
 ```
 
+### tool_guideによるツール発見
+
+`tool_guide`ツールは、KairosChainツールの発見と学習を動的にサポートします。
+
+```
+# カテゴリ別に全ツールを閲覧
+"tool_guide command='catalog'を実行して"
+
+# キーワードでツールを検索
+"tool_guide command='search' query='blockchain'を実行して"
+
+# タスクに適したツールの推奨を取得
+"tool_guide command='recommend' task='knowledge healthを監査'を実行して"
+
+# 特定ツールの詳細情報を取得
+"tool_guide command='detail' tool_name='skills_audit'を実行して"
+
+# 一般的なワークフローパターンを学ぶ
+"tool_guide command='workflow'を実行して"
+"tool_guide command='workflow' workflow_name='skill_evolution'を実行して"
+```
+
+**ツール開発者向け（LLM支援メタデータ生成）：**
+
+```
+# ツールのメタデータを提案
+"tool_guide command='suggest' tool_name='my_new_tool'を実行して"
+
+# 提案されたメタデータを検証
+"tool_guide command='validate' tool_name='my_new_tool' metadata={...}を実行して"
+
+# 人間の承認付きでメタデータを適用
+"tool_guide command='apply_metadata' tool_name='my_new_tool' metadata={...} approved=trueを実行して"
+```
+
 ### よく使うコマンドリファレンス
 
 | タスク | Cursor/Claude Codeプロンプト |
@@ -966,6 +1001,9 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
 | 履歴を表示 | "Show chain_history" |
 | 整合性検証 | "Run chain_verify" |
 | データを記録 | "Record a log with chain_record" |
+| ツール一覧を閲覧 | "Run tool_guide command='catalog'" |
+| ツールを検索 | "Run tool_guide command='search' query='...'" |
+| ツールのヘルプを取得 | "Run tool_guide command='detail' tool_name='...'" |
 
 ### セキュリティ考慮事項
 
@@ -1076,6 +1114,24 @@ StateCommitは、特定の「コミットポイント」で全レイヤー（L0/
 | `state_commit` | 理由を付けて明示的な状態コミットを作成（ブロックチェーンに記録） |
 | `state_status` | 現在の状態、保留中の変更、自動コミットトリガー状況を表示 |
 | `state_history` | 状態コミット履歴を閲覧、スナップショットの詳細を表示 |
+
+### ガイドツール（ツール発見）
+
+KairosChainツールを発見し学ぶための動的ツールガイドシステム。
+
+| ツール | 説明 |
+|--------|------|
+| `tool_guide` | 動的なツール発見、検索、ドキュメンテーション |
+
+コマンド:
+- `catalog`: カテゴリ別に全ツールを一覧表示
+- `search`: キーワードでツールを検索
+- `recommend`: 特定のタスク用にツールを推奨
+- `detail`: 特定のツールの詳細情報を取得
+- `workflow`: 一般的なワークフローパターンを表示
+- `suggest`: ツールのメタデータ提案を生成（LLM支援）
+- `validate`: 適用前に提案されたメタデータを検証
+- `apply_metadata`: ツールにメタデータを適用（人間の承認が必要）
 
 **主な機能：**
 - スナップショットはオフチェーン保存（JSONファイル）、ハッシュ参照のみオンチェーン
@@ -2607,6 +2663,62 @@ skill.evolution_rules.can_evolve?(:evolve)  # => false
 Lispではコード=データなので、「解析」と「実行」の境界が曖昧になります。これは自由度は高いですが、**監査可能性**を実現するには追加の仕組みが必要です。
 
 **結論:** KairosChainの目的が「AIスキルの監査可能な進化」である以上、Rubyは**実用的な最適解**です。唯一の正解ではありませんが、3つの制約を同時に満たす現実的な選択です。
+
+---
+
+### Q: ローカルスキルとKairosChainの違いは何ですか？
+
+**A:** AIエージェントエディタ（Cursor、Claude Code、Antigravityなど）は通常、ローカルのスキル/ルール機構を提供しています。KairosChainとの比較は以下の通りです：
+
+**ローカルスキル（例：`.cursor/skills/`、`CLAUDE.md`、エージェントルール）**
+
+| 利点 | 欠点 |
+|------|------|
+| シンプル — ファイルを配置するだけで即利用可能 | 変更履歴なし — 誰が/いつ/なぜ変更したか追跡不可 |
+| 高速 — ファイル直接読み込み、MCPオーバーヘッドなし | 自由すぎる — 意図しない改変が発生しうる |
+| IDE標準統合 | レイヤー概念なし — 一時的な仮説と永続的な知識が混在 |
+| 標準フォーマット（SKILL.md等） | 自己参照不可 — AIが自身のスキルを検査・説明できない |
+
+**KairosChain（MCPサーバー）**
+
+| 利点 | 欠点 |
+|------|------|
+| **監査可能性** — すべての変更がブロックチェーンに記録 | MCPオーバーヘッド — 若干のレイテンシ |
+| **レイヤー構造** — L0（メタルール）/ L1（プロジェクト知識）/ L2（一時コンテキスト） | 学習コスト — レイヤーとツールの理解が必要 |
+| **承認ワークフロー** — L0変更には人間の承認が必要 | セットアップ — MCPサーバーの設定が必要 |
+| **自己参照** — AIがスキルを検査・説明・進化させられる | 複雑性 — シンプルな用途には過剰な場合がある |
+| **セマンティック検索** — RAG対応で意味ベースの検索が可能 | |
+| **StateCommit** — 任意の時点でシステム全体のスナップショット取得可能 | |
+| **ライフサイクル管理** — `skills_audit`で古い知識の検出・アーカイブ | |
+
+**使い分けの指針：**
+
+| シナリオ | 推奨 |
+|----------|------|
+| 個人の小規模プロジェクト | ローカルスキル |
+| 監査・説明責任が必要 | KairosChain |
+| AIの能力進化を記録したい | KairosChain |
+| チームでの知識共有 | KairosChain（特にSQLiteバックエンド） |
+| 素早いプロトタイピング | ローカルスキル → 成熟したらKairosChainに移行 |
+
+**本質的な違い：**
+
+- **ローカルスキル**: 「便利なドキュメント」として機能
+- **KairosChain**: 「監査可能なAI能力進化の台帳」として機能
+
+KairosChainの哲学：
+
+> *「KairosChainは『この結果は正しいか？』ではなく『この知性はどのように形成されたか？』に答えます」*
+
+単にスキルを使うだけならローカルスキルで十分ですが、**AIがどのように学び、進化してきたかを説明できる必要がある**場合はKairosChainが適しています。
+
+**ハイブリッドアプローチ：**
+
+両方を同時に使用することも可能です：
+- ローカルスキル：素早い、非公式な知識用
+- KairosChain：監査証跡が必要な知識用
+
+KairosChainはローカルスキルを置き換えるものではありません。必要な場合に監査可能性とガバナンスの追加レイヤーを提供するものです。
 
 ---
 
