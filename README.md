@@ -1316,11 +1316,32 @@ KairosChain_mcp_server/
 
 ## Future Roadmap
 
+### Near-term
+
 1. **Ethereum Anchor**: Periodic hash anchoring to public chain
 2. **Multi-Agent Support**: Track multiple AI agents via `agent_id`
 3. **Zero-Knowledge Proofs**: Privacy-preserving verification
 4. **Web Dashboard**: Visualize skill evolution history
 5. **Team Governance**: Voting system for L0 changes (see FAQ)
+
+### Long-term Vision: Distributed KairosChain Network
+
+A future vision for KairosChain: multiple KairosChain MCP servers communicating over the internet via public MCP protocols, autonomously evolving their knowledge while adhering to their L0 constitutions.
+
+**Key concepts**:
+- L0 Constitution as distributed governance
+- Knowledge cross-pollination between specialized nodes
+- Autonomous evolution within constitutional bounds
+- Integration with GenomicsChain PoC/DAO
+
+**Implementation phases**:
+1. Dockerization (deployment foundation)
+2. HTTP/WebSocket API (remote access)
+3. Inter-server communication protocol
+4. Distributed consensus mechanism
+5. Distributed L0 governance
+
+For detailed vision document, see: [Distributed KairosChain Network Vision](docs/distributed_kairoschain_vision_20260128_en.md)
 
 ---
 
