@@ -14,6 +14,27 @@ module KairosMcp
         'Create a subdirectory (scripts, assets, or references) in a L2 context.'
       end
 
+      def category
+        :context
+      end
+
+      def usecase_tags
+        %w[create L2 context subdirectory scripts assets references]
+      end
+
+      def examples
+        [
+          {
+            title: 'Create scripts subdirectory',
+            code: 'context_create_subdir(session_id: "my_session", name: "my_context", subdir: "scripts")'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[context_save]
+      end
+
       def input_schema
         {
           type: 'object',

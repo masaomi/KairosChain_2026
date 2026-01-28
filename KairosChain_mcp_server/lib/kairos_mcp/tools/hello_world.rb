@@ -11,6 +11,31 @@ module KairosMcp
         'Returns a hello message from KairosChain MCP Server'
       end
 
+      def category
+        :guide
+      end
+
+      def usecase_tags
+        %w[hello test greeting verify connection]
+      end
+
+      def examples
+        [
+          {
+            title: 'Simple greeting',
+            code: 'hello_world()'
+          },
+          {
+            title: 'Personalized greeting',
+            code: 'hello_world(name: "Kairos")'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[tool_guide chain_status]
+      end
+
       def input_schema
         {
           type: 'object',

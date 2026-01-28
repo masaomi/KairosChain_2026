@@ -19,6 +19,31 @@ module KairosMcp
         'View state commit history. Shows past snapshots with reasons and change summaries.'
       end
 
+      def category
+        :state
+      end
+
+      def usecase_tags
+        %w[history snapshots commits audit trail past]
+      end
+
+      def examples
+        [
+          {
+            title: 'View recent history',
+            code: 'state_history(limit: 10)'
+          },
+          {
+            title: 'View specific commit',
+            code: 'state_history(hash: "abc12345")'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[state_status state_commit chain_history]
+      end
+
       def input_schema
         {
           type: 'object',

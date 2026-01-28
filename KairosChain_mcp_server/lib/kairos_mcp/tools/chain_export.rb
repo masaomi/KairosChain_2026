@@ -14,6 +14,31 @@ module KairosMcp
         'Export data from SQLite database to human-readable files (blockchain.json, action_log.jsonl, knowledge_meta.json). Only works when using SQLite backend.'
       end
 
+      def category
+        :chain
+      end
+
+      def usecase_tags
+        %w[export backup sqlite files blockchain]
+      end
+
+      def examples
+        [
+          {
+            title: 'Export to default directory',
+            code: 'chain_export()'
+          },
+          {
+            title: 'Export to custom directory',
+            code: 'chain_export(output_dir: "/path/to/export")'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[chain_import chain_status]
+      end
+
       def input_schema
         {
           type: 'object',

@@ -16,6 +16,31 @@ module KairosMcp
         'Import data from files to SQLite database. WARNING: This will overwrite existing data. Requires approved=true and creates automatic backup before import.'
       end
 
+      def category
+        :chain
+      end
+
+      def usecase_tags
+        %w[import restore sqlite migrate blockchain]
+      end
+
+      def examples
+        [
+          {
+            title: 'Import from files',
+            code: 'chain_import(source: "files", approved: true)'
+          },
+          {
+            title: 'Import from export directory',
+            code: 'chain_import(source: "export", input_dir: "/path/to/export", approved: true)'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[chain_export chain_status]
+      end
+
       def input_schema
         {
           type: 'object',

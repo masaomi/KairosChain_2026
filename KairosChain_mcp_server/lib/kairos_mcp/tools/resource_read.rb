@@ -20,6 +20,35 @@ module KairosMcp
         'Supports L0 (l0://), L1 knowledge (knowledge://), and L2 context (context://) resources.'
       end
 
+      def category
+        :resource
+      end
+
+      def usecase_tags
+        %w[read get content URI L0 L1 L2 fetch]
+      end
+
+      def examples
+        [
+          {
+            title: 'Read L0 skill',
+            code: 'resource_read(uri: "l0://kairos.md")'
+          },
+          {
+            title: 'Read L1 knowledge',
+            code: 'resource_read(uri: "knowledge://api_guidelines")'
+          },
+          {
+            title: 'Read script from knowledge',
+            code: 'resource_read(uri: "knowledge://deployment/scripts/deploy.sh")'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[resource_list knowledge_get skills_get]
+      end
+
       def input_schema
         {
           type: 'object',

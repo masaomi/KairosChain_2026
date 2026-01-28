@@ -12,6 +12,27 @@ module KairosMcp
         'Verify the integrity of the entire blockchain.'
       end
 
+      def category
+        :chain
+      end
+
+      def usecase_tags
+        %w[verify integrity check blockchain validate]
+      end
+
+      def examples
+        [
+          {
+            title: 'Verify blockchain integrity',
+            code: 'chain_verify()'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[chain_status chain_history]
+      end
+
       def input_schema
         {
           type: 'object',

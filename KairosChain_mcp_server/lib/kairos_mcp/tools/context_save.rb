@@ -15,6 +15,31 @@ module KairosMcp
         'Save (create or update) a L2 context. No blockchain recording - free modification for temporary work.'
       end
 
+      def category
+        :context
+      end
+
+      def usecase_tags
+        %w[save temporary L2 context hypothesis memo scratch]
+      end
+
+      def examples
+        [
+          {
+            title: 'Save a hypothesis',
+            code: 'context_save(name: "auth_hypothesis", content: "---\nname: auth_hypothesis\ndescription: Trying new auth approach\n---\n# Auth Hypothesis\n...")'
+          },
+          {
+            title: 'Save with session ID',
+            code: 'context_save(session_id: "debug_session_123", name: "debug_notes", content: "...")'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[context_create_subdir skills_promote knowledge_update]
+      end
+
       def input_schema
         {
           type: 'object',

@@ -12,6 +12,27 @@ module KairosMcp
         'Get the detailed content and metadata of a specific DSL skill by ID.'
       end
 
+      def category
+        :skills
+      end
+
+      def usecase_tags
+        %w[get read L0 DSL skill detail content]
+      end
+
+      def examples
+        [
+          {
+            title: 'Get DSL skill details',
+            code: 'skills_dsl_get(skill_id: "core_safety")'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[skills_dsl_list skills_evolve skills_get]
+      end
+
       def input_schema
         {
           type: 'object',

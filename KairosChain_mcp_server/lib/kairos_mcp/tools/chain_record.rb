@@ -12,6 +12,27 @@ module KairosMcp
         'Record data to the KairosChain blockchain. Should primarily be used for Skill Transitions, but can record generic logs.'
       end
 
+      def category
+        :chain
+      end
+
+      def usecase_tags
+        %w[record write blockchain log add]
+      end
+
+      def examples
+        [
+          {
+            title: 'Record logs',
+            code: 'chain_record(logs: ["Action performed", "Result: success"])'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[chain_status chain_history]
+      end
+
       def input_schema
         {
           type: 'object',

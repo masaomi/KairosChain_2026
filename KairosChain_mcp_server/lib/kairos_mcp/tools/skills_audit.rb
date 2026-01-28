@@ -51,6 +51,39 @@ module KairosMcp
         'Archive operations require human approval (approved: true).'
       end
 
+      def category
+        :skills
+      end
+
+      def usecase_tags
+        %w[audit health check recommend archive stale dangerous L0 L1 L2]
+      end
+
+      def examples
+        [
+          {
+            title: 'Full health check',
+            code: 'skills_audit(command: "check")'
+          },
+          {
+            title: 'Check for dangerous patterns',
+            code: 'skills_audit(command: "dangerous")'
+          },
+          {
+            title: 'Get promotion recommendations',
+            code: 'skills_audit(command: "recommend")'
+          },
+          {
+            title: 'Archive stale knowledge',
+            code: 'skills_audit(command: "archive", target: "old_guide", reason: "No longer relevant", approved: true)'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[skills_promote knowledge_update chain_verify state_status]
+      end
+
       def input_schema
         {
           type: 'object',

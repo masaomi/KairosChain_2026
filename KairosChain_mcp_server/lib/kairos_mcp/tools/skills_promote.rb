@@ -33,6 +33,35 @@ module KairosMcp
         'Assembly generates a structured discussion from multiple perspectives before human decision.'
       end
 
+      def category
+        :skills
+      end
+
+      def usecase_tags
+        %w[promote L2 L1 L0 upgrade permanent persona assembly]
+      end
+
+      def examples
+        [
+          {
+            title: 'Analyze promotion with Persona Assembly',
+            code: 'skills_promote(command: "analyze", source_name: "my_context", from_layer: "L2", to_layer: "L1", session_id: "session_123", personas: ["kairos", "pragmatic"])'
+          },
+          {
+            title: 'Direct promotion L2 to L1',
+            code: 'skills_promote(command: "promote", source_name: "validated_idea", from_layer: "L2", to_layer: "L1", session_id: "session_123", reason: "Validated through use")'
+          },
+          {
+            title: 'Check promotion requirements',
+            code: 'skills_promote(command: "status", from_layer: "L1", to_layer: "L0")'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[context_save knowledge_update skills_evolve skills_audit]
+      end
+
       def input_schema
         {
           type: 'object',

@@ -18,6 +18,27 @@ module KairosMcp
         'Get current state commit status including last commit, pending changes, and auto-commit triggers.'
       end
 
+      def category
+        :state
+      end
+
+      def usecase_tags
+        %w[status check pending changes state overview]
+      end
+
+      def examples
+        [
+          {
+            title: 'Check state status',
+            code: 'state_status()'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[state_commit state_history chain_status]
+      end
+
       def input_schema
         {
           type: 'object',

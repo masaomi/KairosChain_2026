@@ -22,6 +22,35 @@ module KairosMcp
         'and context files/scripts/assets (L2).'
       end
 
+      def category
+        :resource
+      end
+
+      def usecase_tags
+        %w[list resources L0 L1 L2 discover browse URI]
+      end
+
+      def examples
+        [
+          {
+            title: 'List all resources',
+            code: 'resource_list()'
+          },
+          {
+            title: 'Filter by layer',
+            code: 'resource_list(layer: "l1")'
+          },
+          {
+            title: 'Filter by type',
+            code: 'resource_list(type: "scripts")'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[resource_read knowledge_list skills_list]
+      end
+
       def input_schema
         {
           type: 'object',

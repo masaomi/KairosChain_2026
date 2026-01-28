@@ -12,6 +12,35 @@ module KairosMcp
         'Propose and apply changes to Skills DSL definitions. Runs L0 auto-check and records changes to KairosChain.'
       end
 
+      def category
+        :skills
+      end
+
+      def usecase_tags
+        %w[evolve modify L0 meta-skill change propose apply blockchain]
+      end
+
+      def examples
+        [
+          {
+            title: 'Propose a change',
+            code: 'skills_evolve(command: "propose", skill_id: "my_skill", definition: "skill :my_skill do ... end", reason: "Add new feature")'
+          },
+          {
+            title: 'Apply with approval',
+            code: 'skills_evolve(command: "apply", skill_id: "my_skill", definition: "...", approved: true)'
+          },
+          {
+            title: 'Add new skill',
+            code: 'skills_evolve(command: "add", skill_id: "new_skill", definition: "...", approved: true)'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[skills_rollback skills_dsl_list skills_dsl_get chain_history]
+      end
+
       def input_schema
         {
           type: 'object',

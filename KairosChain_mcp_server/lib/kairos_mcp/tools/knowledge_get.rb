@@ -14,6 +14,31 @@ module KairosMcp
         'Get the content of a specific L1 knowledge skill by name. Includes frontmatter metadata and full content.'
       end
 
+      def category
+        :knowledge
+      end
+
+      def usecase_tags
+        %w[get read L1 knowledge detail content]
+      end
+
+      def examples
+        [
+          {
+            title: 'Get knowledge content',
+            code: 'knowledge_get(name: "api_guidelines")'
+          },
+          {
+            title: 'Get knowledge with scripts',
+            code: 'knowledge_get(name: "deployment_process", include_scripts: true)'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[knowledge_list knowledge_update resource_read]
+      end
+
       def input_schema
         {
           type: 'object',

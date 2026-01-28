@@ -13,6 +13,27 @@ module KairosMcp
         'Get the current status of the KairosChain blockchain.'
       end
 
+      def category
+        :chain
+      end
+
+      def usecase_tags
+        %w[status blockchain check overview health]
+      end
+
+      def examples
+        [
+          {
+            title: 'Check blockchain status',
+            code: 'chain_status()'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[chain_verify chain_history state_status]
+      end
+
       def input_schema
         {
           type: 'object',

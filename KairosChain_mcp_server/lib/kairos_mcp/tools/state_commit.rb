@@ -18,6 +18,31 @@ module KairosMcp
         'Create a state commit (snapshot of L0/L1/L2 layers). Records to blockchain for auditability.'
       end
 
+      def category
+        :state
+      end
+
+      def usecase_tags
+        %w[commit snapshot checkpoint save audit blockchain]
+      end
+
+      def examples
+        [
+          {
+            title: 'Create a commit',
+            code: 'state_commit(reason: "Before major refactoring")'
+          },
+          {
+            title: 'Force commit',
+            code: 'state_commit(reason: "Checkpoint", force: true)'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[state_status state_history chain_history]
+      end
+
       def input_schema
         {
           type: 'object',

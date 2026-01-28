@@ -12,6 +12,27 @@ module KairosMcp
         'Get the content of a specific KairosChain skills section by ID (Markdown).'
       end
 
+      def category
+        :skills
+      end
+
+      def usecase_tags
+        %w[get read L0 markdown skill section content]
+      end
+
+      def examples
+        [
+          {
+            title: 'Get skill section',
+            code: 'skills_get(section_id: "PHILOSOPHY-010")'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[skills_list skills_dsl_get resource_read]
+      end
+
       def input_schema
         {
           type: 'object',

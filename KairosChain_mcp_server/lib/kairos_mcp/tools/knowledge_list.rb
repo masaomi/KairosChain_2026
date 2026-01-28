@@ -14,6 +14,31 @@ module KairosMcp
         'List all available L1 knowledge skills (Anthropic format). Returns name, description, tags, and subdirectory info.'
       end
 
+      def category
+        :knowledge
+      end
+
+      def usecase_tags
+        %w[list search L1 knowledge browse discover]
+      end
+
+      def examples
+        [
+          {
+            title: 'List all knowledge',
+            code: 'knowledge_list()'
+          },
+          {
+            title: 'Search knowledge',
+            code: 'knowledge_list(search: "api design")'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[knowledge_get knowledge_update resource_list]
+      end
+
       def input_schema
         {
           type: 'object',

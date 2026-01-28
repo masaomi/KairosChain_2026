@@ -13,6 +13,35 @@ module KairosMcp
         'Manage Skills DSL versions. List available versions, create snapshots, or rollback to a previous version.'
       end
 
+      def category
+        :skills
+      end
+
+      def usecase_tags
+        %w[rollback version snapshot backup restore L0 undo]
+      end
+
+      def examples
+        [
+          {
+            title: 'List versions',
+            code: 'skills_rollback(command: "list")'
+          },
+          {
+            title: 'Create snapshot',
+            code: 'skills_rollback(command: "snapshot", reason: "Before major change")'
+          },
+          {
+            title: 'Rollback to version',
+            code: 'skills_rollback(command: "rollback", version: "kairos_20240115_143000.rb")'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[skills_evolve skills_dsl_list chain_history]
+      end
+
       def input_schema
         {
           type: 'object',

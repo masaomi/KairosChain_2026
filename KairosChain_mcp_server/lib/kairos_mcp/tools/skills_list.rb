@@ -12,6 +12,27 @@ module KairosMcp
         'List all available KairosChain skills sections (Markdown).'
       end
 
+      def category
+        :skills
+      end
+
+      def usecase_tags
+        %w[list L0 markdown skills philosophy browse]
+      end
+
+      def examples
+        [
+          {
+            title: 'List all skill sections',
+            code: 'skills_list()'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[skills_get skills_dsl_list resource_list]
+      end
+
       def input_schema
         {
           type: 'object',

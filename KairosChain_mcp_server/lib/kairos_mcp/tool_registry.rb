@@ -61,6 +61,9 @@ module KairosMcp
       register_if_defined('KairosMcp::Tools::StateStatus')
       register_if_defined('KairosMcp::Tools::StateHistory')
 
+      # Guide tools (discovery, help, metadata management)
+      register_if_defined('KairosMcp::Tools::ToolGuide')
+
       # Skill-based tools (from kairos.rb with tool block)
       register_skill_tools if skill_tools_enabled?
     end

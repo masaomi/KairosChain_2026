@@ -15,6 +15,35 @@ module KairosMcp
         'Create, update, or delete L1 knowledge skills. Changes are recorded with hash references to the blockchain.'
       end
 
+      def category
+        :knowledge
+      end
+
+      def usecase_tags
+        %w[save update delete L1 knowledge project permanent]
+      end
+
+      def examples
+        [
+          {
+            title: 'Create new knowledge',
+            code: 'knowledge_update(command: "create", name: "api_guidelines", content: "---\nname: api_guidelines\ndescription: API design rules\n---\n# API Guidelines\n...")'
+          },
+          {
+            title: 'Update existing knowledge',
+            code: 'knowledge_update(command: "update", name: "api_guidelines", content: "...", reason: "Added auth section")'
+          },
+          {
+            title: 'Delete knowledge',
+            code: 'knowledge_update(command: "delete", name: "old_rule", reason: "No longer applicable")'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[knowledge_list knowledge_get context_save skills_promote]
+      end
+
       def input_schema
         {
           type: 'object',

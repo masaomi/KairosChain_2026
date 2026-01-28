@@ -13,6 +13,35 @@ module KairosMcp
         'Get block history from the blockchain. Shows skill transitions, knowledge updates, and state commits.'
       end
 
+      def category
+        :chain
+      end
+
+      def usecase_tags
+        %w[history blocks blockchain audit trail log]
+      end
+
+      def examples
+        [
+          {
+            title: 'Get recent history',
+            code: 'chain_history(limit: 10)'
+          },
+          {
+            title: 'Filter by type',
+            code: 'chain_history(type: "skill_transition")'
+          },
+          {
+            title: 'Get raw JSON',
+            code: 'chain_history(format: "json")'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[chain_status chain_verify state_history]
+      end
+
       def input_schema
         {
           type: 'object',

@@ -12,6 +12,31 @@ module KairosMcp
         'List all available KairosChain skills defined in Ruby DSL. Returns ID, title, and usage hints. Supports optional search query.'
       end
 
+      def category
+        :skills
+      end
+
+      def usecase_tags
+        %w[list search L0 DSL skills browse discover]
+      end
+
+      def examples
+        [
+          {
+            title: 'List all DSL skills',
+            code: 'skills_dsl_list()'
+          },
+          {
+            title: 'Search DSL skills',
+            code: 'skills_dsl_list(search: "safety")'
+          }
+        ]
+      end
+
+      def related_tools
+        %w[skills_dsl_get skills_evolve skills_list]
+      end
+
       def input_schema
         {
           type: 'object',
