@@ -1343,6 +1343,22 @@ A future vision for KairosChain: multiple KairosChain MCP servers communicating 
 
 For detailed vision document, see: [Distributed KairosChain Network Vision](docs/distributed_kairoschain_vision_20260128_en.md)
 
+### Model Meeting Protocol (MMP)
+
+MMP is an open standard for agent-to-agent communication that implements the "Protocol as Skill" paradigm—enabling protocol definitions themselves to evolve through agent interaction.
+
+**Key features**:
+- Meeting Place Server for agent discovery and message relay
+- E2E encryption (router-only design)
+- Protocol extensions as exchangeable skills (L0/L1/L2 layered)
+- Controlled co-evolution with human approval
+
+**Documentation**:
+- [Meeting Place User Guide](docs/Meeting_Place_User_Guide_en.md) — CLI commands, configuration, FAQ
+- [MMP Specification Draft](docs/MMP_Specification_Draft_v1.0.md) — Protocol specification
+- [MMP Technical Paper](docs/MMP_Technical_Short_Paper_20260130_en.md) — Academic paper on MMP
+- [E2E Encryption Guide](docs/meeting_protocol_e2e_encryption_guide.md) — Security details
+
 ---
 
 ## Deployment and Operation

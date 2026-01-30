@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MMP Architecture Diagrams</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #f5f5f5;
+            padding: 40px;
+            color: #333;
+        }
+        .page {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 40px;
+            color: #2c3e50;
+        }
+        h2 {
+            margin: 40px 0 20px 0;
+            color: #34495e;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        .diagram-container {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin: 20px 0;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .caption {
+            text-align: center;
+            font-style: italic;
+            color: #666;
+            margin-top: 15px;
+        }
+        
+        /* Figure 1: Protocol Stack Comparison */
+        .protocol-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .stack-row {
+            display: grid;
+            grid-template-columns: 150px 1fr;
+            gap: 10px;
+            align-items: center;
+        }
+        .stack-label {
+            font-weight: bold;
+            text-align: right;
+            padding-right: 15px;
+            color: #555;
+        }
+        .stack-item {
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: 500;
+        }
+        .stack-mcp {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+        }
+        .stack-a2a {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+            color: white;
+        }
+        .stack-mmp {
+            background: linear-gradient(135deg, #9b59b6, #8e44ad);
+            color: white;
+        }
+        .stack-desc {
+            font-size: 0.85em;
+            opacity: 0.9;
+            margin-top: 5px;
+        }
+        
+        /* Figure 2: Communication Modes */
+        .comm-modes {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .comm-mode {
+            text-align: center;
+        }
+        .comm-mode h3 {
+            margin-bottom: 20px;
+            color: #2c3e50;
+        }
+        .agents-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            position: relative;
+            padding: 30px 0;
+        }
+        .agent-box {
+            width: 100px;
+            height: 80px;
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-weight: bold;
+        }
+        .agent-icon {
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+        .arrow-line {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: #666;
+            font-size: 0.8em;
+        }
+        .arrow-line .arrows {
+            font-size: 20px;
+            letter-spacing: -3px;
+        }
+        .meeting-place {
+            width: 120px;
+            height: 100px;
+            background: linear-gradient(135deg, #2ecc71, #27ae60);
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-weight: bold;
+            font-size: 0.85em;
+        }
+        .relay-note {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 6px;
+            padding: 10px;
+            font-size: 0.8em;
+            margin-top: 15px;
+            color: #856404;
+        }
+        
+        /* Figure 3: Layer Architecture */
+        .layer-stack {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .layer {
+            display: grid;
+            grid-template-columns: 80px 1fr 200px;
+            gap: 15px;
+            align-items: center;
+            padding: 15px;
+            margin: 5px 0;
+            border-radius: 8px;
+        }
+        .layer-l0 {
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            color: white;
+        }
+        .layer-l1 {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+        }
+        .layer-l2 {
+            background: linear-gradient(135deg, #95a5a6, #7f8c8d);
+            color: white;
+        }
+        .layer-name {
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+        .layer-desc {
+            font-size: 0.9em;
+        }
+        .layer-actions {
+            font-size: 0.8em;
+            opacity: 0.9;
+        }
+        
+        /* Figure 4: Protocol Evolution Flow */
+        .evolution-flow {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .flow-columns {
+            display: grid;
+            grid-template-columns: 1fr 40px 1fr;
+            gap: 0;
+        }
+        .flow-column {
+            padding: 10px;
+        }
+        .flow-column.center {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 60px;
+        }
+        .flow-header {
+            text-align: center;
+            font-weight: bold;
+            padding: 15px;
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            border-radius: 8px 8px 0 0;
+        }
+        .flow-header.right {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+        }
+        .flow-step {
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+            border-top: none;
+            font-size: 0.85em;
+            min-height: 50px;
+            display: flex;
+            align-items: center;
+        }
+        .flow-step:last-child {
+            border-radius: 0 0 8px 8px;
+        }
+        .flow-step.action {
+            background: #e8f4f8;
+            font-weight: 500;
+        }
+        .flow-step.note {
+            background: #fff9e6;
+            font-style: italic;
+            color: #666;
+        }
+        .flow-arrow {
+            font-size: 24px;
+            color: #3498db;
+            margin: 8px 0;
+        }
+        .flow-arrow.left {
+            color: #e74c3c;
+        }
+        
+        /* Figure 5: Comparison Table */
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        .comparison-table th, .comparison-table td {
+            padding: 15px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+        .comparison-table th {
+            background: #2c3e50;
+            color: white;
+        }
+        .comparison-table th:first-child {
+            background: #34495e;
+        }
+        .comparison-table tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+        .comparison-table tr:hover {
+            background: #e8f4f8;
+        }
+        .highlight {
+            background: #d4edda !important;
+            font-weight: 500;
+        }
+        
+        @media print {
+            body {
+                background: white;
+                padding: 20px;
+            }
+            .diagram-container {
+                box-shadow: none;
+                border: 1px solid #ddd;
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <h1>Model Meeting Protocol (MMP) — Architecture Diagrams</h1>
+        
+        <!-- Figure 1: Protocol Stack -->
+        <h2>Figure 1: Protocol Stack Positioning</h2>
+        <div class="diagram-container">
+            <div class="protocol-stack">
+                <div class="stack-row">
+                    <div class="stack-label">LLM ↔ Tools</div>
+                    <div class="stack-item stack-mcp">
+                        <div>Model Context Protocol (MCP)</div>
+                        <div class="stack-desc">Local, stdio/HTTP, static tool definitions</div>
+                    </div>
+                </div>
+                <div class="stack-row">
+                    <div class="stack-label">Agent ↔ Agent</div>
+                    <div class="stack-item stack-a2a">
+                        <div>Agent2Agent Protocol (A2A)</div>
+                        <div class="stack-desc">Network, HTTP/SSE, static AgentSkill definitions</div>
+                    </div>
+                </div>
+                <div class="stack-row">
+                    <div class="stack-label">Agent ↔ Agent</div>
+                    <div class="stack-item stack-mmp">
+                        <div>Model Meeting Protocol (MMP)</div>
+                        <div class="stack-desc">Network, HTTP, <strong>evolvable</strong> protocol-as-skill definitions</div>
+                    </div>
+                </div>
+            </div>
+            <p class="caption">MMP complements MCP (vertical) and A2A (horizontal-static) by enabling dynamic protocol evolution.</p>
+        </div>
+        
+        <!-- Figure 2: Communication Modes -->
+        <h2>Figure 2: Communication Modes</h2>
+        <div class="diagram-container">
+            <div class="comm-modes">
+                <div class="comm-mode">
+                    <h3>Direct (P2P)</h3>
+                    <div class="agents-container">
+                        <div class="agent-box">
+                            <div class="agent-icon">🤖</div>
+                            <div>Agent A</div>
+                        </div>
+                        <div class="arrow-line">
+                            <div class="arrows">◄──────►</div>
+                            <div>TCP/HTTP</div>
+                        </div>
+                        <div class="agent-box">
+                            <div class="agent-icon">🤖</div>
+                            <div>Agent B</div>
+                        </div>
+                    </div>
+                    <div class="relay-note">Direct communication when network topology permits</div>
+                </div>
+                <div class="comm-mode">
+                    <h3>Via Meeting Place (Relay)</h3>
+                    <div class="agents-container">
+                        <div class="agent-box" style="width:80px; height:70px;">
+                            <div class="agent-icon">🤖</div>
+                            <div>Agent A</div>
+                        </div>
+                        <div class="arrow-line">
+                            <div class="arrows">◄──►</div>
+                        </div>
+                        <div class="meeting-place">
+                            <div style="font-size:20px;">🏛️</div>
+                            <div>Meeting</div>
+                            <div>Place</div>
+                        </div>
+                        <div class="arrow-line">
+                            <div class="arrows">◄──►</div>
+                        </div>
+                        <div class="agent-box" style="width:80px; height:70px;">
+                            <div class="agent-icon">🤖</div>
+                            <div>Agent B</div>
+                        </div>
+                    </div>
+                    <div class="relay-note">
+                        <strong>E2E Encrypted:</strong> Meeting Place is router-only, cannot read content
+                    </div>
+                </div>
+            </div>
+            <p class="caption">MMP supports both direct P2P and relay-based communication with end-to-end encryption.</p>
+        </div>
+        
+        <!-- Figure 3: Layer Architecture -->
+        <h2>Figure 3: Layered Protocol Architecture</h2>
+        <div class="diagram-container">
+            <div class="layer-stack">
+                <div class="layer layer-l0">
+                    <div class="layer-name">L0</div>
+                    <div class="layer-desc">Core (Immutable)</div>
+                    <div class="layer-actions">introduce, goodbye, error</div>
+                </div>
+                <div class="layer layer-l1">
+                    <div class="layer-name">L1</div>
+                    <div class="layer-desc">Stable (Human Approval)</div>
+                    <div class="layer-actions">skill_exchange, evolution</div>
+                </div>
+                <div class="layer layer-l2">
+                    <div class="layer-name">L2</div>
+                    <div class="layer-desc">Experimental (Free)</div>
+                    <div class="layer-actions">Custom domain extensions</div>
+                </div>
+            </div>
+            <p class="caption">Different protocol layers have different governance requirements, mirroring KairosChain's legal-system-inspired architecture.</p>
+        </div>
+        
+        <!-- Figure 4: Protocol Evolution Flow -->
+        <h2>Figure 4: Protocol Evolution Flow</h2>
+        <div class="diagram-container">
+            <div class="evolution-flow">
+                <div class="flow-columns">
+                    <div class="flow-column">
+                        <div class="flow-header">Agent A (has: discussion)</div>
+                        <div class="flow-step action">1. introduce<br><small>{extensions: [skill_exchange, discussion]}</small></div>
+                        <div class="flow-step"></div>
+                        <div class="flow-step"></div>
+                        <div class="flow-step action">4. accept</div>
+                        <div class="flow-step action">5. skill_content<br><small>(discussion_protocol.md)</small></div>
+                        <div class="flow-step"></div>
+                        <div class="flow-step"></div>
+                        <div class="flow-step"></div>
+                        <div class="flow-step note">Later: A can use discussion actions with B</div>
+                    </div>
+                    <div class="flow-column center">
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-arrow left">←</div>
+                        <div class="flow-arrow left">←</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-arrow">→</div>
+                    </div>
+                    <div class="flow-column">
+                        <div class="flow-header right">Agent B (needs: discussion)</div>
+                        <div class="flow-step"></div>
+                        <div class="flow-step action">2. introduce<br><small>{extensions: [skill_exchange]}</small></div>
+                        <div class="flow-step action">3. request_skill<br><small>("discussion_protocol")</small></div>
+                        <div class="flow-step"></div>
+                        <div class="flow-step"></div>
+                        <div class="flow-step note">6. B validates, stores in L2</div>
+                        <div class="flow-step note">7. B tests for evaluation period</div>
+                        <div class="flow-step note">8. Human approves → L1 promotion</div>
+                        <div class="flow-step note">9. B can now teach C the extension</div>
+                    </div>
+                </div>
+            </div>
+            <p class="caption">Agents can learn new protocol capabilities from peers through controlled skill exchange.</p>
+        </div>
+        
+        <!-- Figure 5: Protocol Comparison -->
+        <h2>Figure 5: Protocol Comparison Table</h2>
+        <div class="diagram-container">
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Aspect</th>
+                        <th>MCP</th>
+                        <th>A2A</th>
+                        <th>MMP</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Primary Scope</strong></td>
+                        <td>LLM ↔ Tools</td>
+                        <td>Agent ↔ Agent</td>
+                        <td>Agent ↔ Agent</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Transport</strong></td>
+                        <td>stdio, HTTP</td>
+                        <td>HTTP, SSE</td>
+                        <td>HTTP, P2P/Relay</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Capability Definition</strong></td>
+                        <td>JSON Schema</td>
+                        <td>AgentSkill JSON</td>
+                        <td class="highlight">Markdown + YAML</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Extensibility</strong></td>
+                        <td>Static</td>
+                        <td>Static</td>
+                        <td class="highlight">Dynamic (Skill Exchange)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Evolution</strong></td>
+                        <td>Spec update</td>
+                        <td>Spec update</td>
+                        <td class="highlight">Agent-to-Agent Teaching</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Governance</strong></td>
+                        <td>Anthropic</td>
+                        <td>Google</td>
+                        <td class="highlight">Layered (L0/L1/L2)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Discovery</strong></td>
+                        <td>Configuration</td>
+                        <td>Agent Card</td>
+                        <td>introduce + Registry</td>
+                    </tr>
+                    <tr>
+                        <td><strong>E2E Encryption</strong></td>
+                        <td>—</td>
+                        <td>Optional</td>
+                        <td>Built-in (Relay)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Provenance Tracking</strong></td>
+                        <td>—</td>
+                        <td>—</td>
+                        <td class="highlight">Blockchain-based</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p class="caption">MMP's key innovations are highlighted: dynamic extensibility, agent-to-agent teaching, and provenance tracking.</p>
+        </div>
+        
+        <!-- Figure 6: Security Architecture -->
+        <h2>Figure 6: End-to-End Encryption Flow</h2>
+        <div class="diagram-container">
+            <div style="max-width:700px; margin:0 auto;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:20px;">
+                    <div style="flex:1; text-align:center;">
+                        <div style="background:#3498db; color:white; padding:15px; border-radius:8px;">
+                            <strong>Agent A</strong>
+                            <div style="font-size:0.8em; margin-top:5px;">Has: Private Key A</div>
+                        </div>
+                        <div style="margin:15px 0; font-size:0.85em; text-align:left; padding:10px; background:#f8f9fa; border-radius:6px;">
+                            <div>1. Get B's public key</div>
+                            <div>2. Generate random AES key</div>
+                            <div>3. Encrypt message with AES</div>
+                            <div>4. Encrypt AES key with B's RSA</div>
+                            <div>5. Send encrypted blob</div>
+                        </div>
+                    </div>
+                    <div style="flex:1; text-align:center;">
+                        <div style="background:#2ecc71; color:white; padding:15px; border-radius:8px;">
+                            <strong>Meeting Place</strong>
+                            <div style="font-size:0.8em; margin-top:5px;">Router Only</div>
+                        </div>
+                        <div style="margin:15px 0; font-size:0.85em; text-align:left; padding:10px; background:#fff3cd; border-radius:6px; border:1px solid #ffc107;">
+                            <div><strong>Sees only:</strong></div>
+                            <div>• Encrypted blob</div>
+                            <div>• Sender/Receiver IDs</div>
+                            <div>• Timestamps</div>
+                            <div>• Blob size/hash</div>
+                            <div style="margin-top:8px; color:#856404;"><strong>Cannot see:</strong></div>
+                            <div style="color:#856404;">• Message content</div>
+                            <div style="color:#856404;">• Action types</div>
+                        </div>
+                    </div>
+                    <div style="flex:1; text-align:center;">
+                        <div style="background:#e74c3c; color:white; padding:15px; border-radius:8px;">
+                            <strong>Agent B</strong>
+                            <div style="font-size:0.8em; margin-top:5px;">Has: Private Key B</div>
+                        </div>
+                        <div style="margin:15px 0; font-size:0.85em; text-align:left; padding:10px; background:#f8f9fa; border-radius:6px;">
+                            <div>1. Receive encrypted blob</div>
+                            <div>2. Decrypt AES key with RSA</div>
+                            <div>3. Decrypt message with AES</div>
+                            <div>4. Process message</div>
+                        </div>
+                    </div>
+                </div>
+                <div style="text-align:center; margin-top:20px; padding:15px; background:#d4edda; border-radius:8px; border:1px solid #28a745;">
+                    <strong>Result:</strong> Auditable metadata + Private content
+                </div>
+            </div>
+            <p class="caption">RSA-2048 + AES-256-GCM hybrid encryption ensures Meeting Place cannot read message content.</p>
+        </div>
+        
+        <div style="margin-top:60px; text-align:center; color:#666; font-size:0.9em;">
+            <p>Model Meeting Protocol (MMP) — Technical Short Paper Supplementary Material</p>
+            <p>M. Hatakeyama — 30 January 2026</p>
+        </div>
+    </div>
+</body>
+</html>

@@ -1329,6 +1329,22 @@ KairosChainの将来構想：複数のKairosChain MCPサーバーがインター
 
 詳細なビジョンドキュメント: [分散KairosChainネットワーク構想](docs/distributed_kairoschain_vision_20260128_jp.md)
 
+### Model Meeting Protocol (MMP)
+
+MMPは「Protocol as Skill」パラダイムを実装したエージェント間通信のオープン標準です。プロトコル定義自体がエージェント間の相互作用を通じて進化できます。
+
+**主要機能**：
+- エージェント発見とメッセージリレーのための Meeting Place Server
+- E2E暗号化（ルーターに徹する設計）
+- 交換可能なスキルとしてのプロトコル拡張（L0/L1/L2レイヤー化）
+- 人間承認を伴う制御された共進化
+
+**ドキュメント**：
+- [Meeting Place ユーザーガイド](docs/Meeting_Place_User_Guide_jp.md) — CLIコマンド、設定、FAQ
+- [MMP仕様書ドラフト](docs/MMP_Specification_Draft_v1.0.md) — プロトコル仕様
+- [MMP技術論文](docs/MMP_Technical_Short_Paper_20260130_jp.md) — MMPに関する学術論文
+- [E2E暗号化ガイド](docs/meeting_protocol_e2e_encryption_guide.md) — セキュリティ詳細
+
 ---
 
 ## デプロイと運用
