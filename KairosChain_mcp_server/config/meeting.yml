@@ -76,3 +76,30 @@ peers:
   # Save peer list to file
   persist_peers: false
   # peers_file: "storage/peers.json"
+
+# E2E Encryption (Phase 4.5)
+# All messages exchanged via Meeting Place are encrypted end-to-end.
+# The Meeting Place server CANNOT read message content.
+encryption:
+  # Enable E2E encryption for message relay
+  enabled: true
+  
+  # Encryption algorithm (RSA for key exchange, AES for messages)
+  algorithm: "RSA-2048+AES-256-GCM"
+  
+  # Path to save/load keypair (relative to workspace)
+  keypair_path: "config/meeting_keypair.pem"
+  
+  # Auto-generate keypair if not found
+  auto_generate: true
+
+# Meeting Place Client (when connecting to a Meeting Place server)
+meeting_place:
+  # Default Meeting Place URL (can be overridden at runtime)
+  # url: "http://localhost:8888"
+  
+  # Auto-register public key when connecting
+  auto_register_key: true
+  
+  # Cache peer public keys locally
+  cache_keys: true

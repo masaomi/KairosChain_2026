@@ -3,20 +3,26 @@
 require 'net/http'
 require 'json'
 require 'uri'
+require_relative 'crypto'
 
 module KairosMcp
   module Meeting
     # PlaceClient connects to a Meeting Place Server and provides
     # methods to register, browse, and interact with the bulletin board.
+    # Supports E2E encrypted message relay for secure communication.
     class PlaceClient
-      attr_reader :place_url, :agent_id, :connected
+      attr_reader :place_url, :agent_id, :connected, :crypto
 
-      def initialize(place_url:, identity:, timeout: 10)
+      def initialize(place_url:, identity:, timeout: 10, crypto: nil, keypair_path: nil)
         @place_url = place_url.chomp('/')
         @identity = identity
         @timeout = timeout
         @agent_id = nil
         @connected = false
+        
+        # E2E encryption support
+        @crypto = crypto || Crypto.new(keypair_path: keypair_path, auto_generate: true)
+        @peer_public_keys = {}  # Cache of peer public keys
       end
 
       # Connect to the Meeting Place
@@ -190,6 +196,168 @@ module KairosMcp
       # Find skill requests matching criteria
       def find_skill_requests(search: nil, tags: nil, format: nil)
         browse(type: 'request_skill', search: search, tags: tags, skill_format: format)
+      end
+
+      # === E2E Encryption Operations ===
+
+      # Register our public key with the Meeting Place
+      def register_public_key
+        return { error: 'Not connected' } unless @connected
+        return { error: 'No crypto keypair available' } unless @crypto&.has_keypair?
+
+        post('/place/v1/keys/register', {
+          agent_id: @agent_id,
+          public_key: @crypto.export_public_key
+        })
+      end
+
+      # Get another agent's public key
+      def get_public_key(peer_agent_id)
+        # Check cache first
+        return @peer_public_keys[peer_agent_id] if @peer_public_keys[peer_agent_id]
+
+        result = get("/place/v1/keys/#{peer_agent_id}")
+        return result if result[:error]
+
+        # Cache the public key
+        @peer_public_keys[peer_agent_id] = result[:public_key]
+        result[:public_key]
+      end
+
+      # Clear cached public keys
+      def clear_key_cache
+        @peer_public_keys.clear
+      end
+
+      # === Message Relay Operations (E2E Encrypted) ===
+
+      # Send an encrypted message to another agent via the Meeting Place
+      # The Meeting Place CANNOT read the content - only the recipient can decrypt it
+      def send_encrypted(to:, message:, message_type: 'message')
+        return { error: 'Not connected' } unless @connected
+        return { error: 'No crypto keypair available' } unless @crypto&.has_keypair?
+
+        # Get recipient's public key
+        recipient_public_key = get_public_key(to)
+        return { error: "Could not get public key for #{to}" } if recipient_public_key.is_a?(Hash) && recipient_public_key[:error]
+        return { error: "Public key not found for #{to}" } unless recipient_public_key
+
+        # Encrypt the message with recipient's public key
+        encrypted = @crypto.encrypt(message, recipient_public_key)
+
+        # Send via relay (Meeting Place only sees encrypted blob)
+        post('/place/v1/relay/send', {
+          from: @agent_id,
+          to: to,
+          message_type: message_type,
+          encrypted_blob: encrypted[:encrypted_blob],
+          blob_hash: encrypted[:blob_hash]
+        })
+      end
+
+      # Receive and decrypt messages from the relay
+      # Returns decrypted messages - Meeting Place never saw the plaintext
+      def receive_and_decrypt(limit: 10)
+        return { error: 'Not connected' } unless @connected
+        return { error: 'No crypto keypair available' } unless @crypto&.has_keypair?
+
+        result = get('/place/v1/relay/receive', { agent_id: @agent_id, limit: limit })
+        return result if result[:error]
+
+        messages = result[:messages] || []
+        decrypted_messages = messages.map do |msg|
+          begin
+            plaintext = @crypto.decrypt(msg[:encrypted_blob])
+            {
+              id: msg[:id],
+              from: msg[:from],
+              message_type: msg[:message_type],
+              content: plaintext,
+              created_at: msg[:created_at],
+              decryption_status: 'success'
+            }
+          rescue StandardError => e
+            {
+              id: msg[:id],
+              from: msg[:from],
+              message_type: msg[:message_type],
+              content: nil,
+              created_at: msg[:created_at],
+              decryption_status: 'failed',
+              decryption_error: e.message
+            }
+          end
+        end
+
+        { messages: decrypted_messages, count: decrypted_messages.size }
+      end
+
+      # Peek at pending messages (without removing them)
+      def peek_messages(limit: 10)
+        return { error: 'Not connected' } unless @connected
+
+        get('/place/v1/relay/peek', { agent_id: @agent_id, limit: limit })
+      end
+
+      # Check relay queue status
+      def relay_status
+        return { error: 'Not connected' } unless @connected
+
+        get('/place/v1/relay/status', { agent_id: @agent_id })
+      end
+
+      # Get relay statistics
+      def relay_stats
+        get('/place/v1/relay/stats')
+      end
+
+      # === High-level Encrypted Communication ===
+
+      # Send a skill content securely via relay
+      def send_skill_via_relay(to:, skill_name:, skill_content:, skill_hash:, provenance: nil)
+        message = {
+          action: 'skill_content',
+          skill_name: skill_name,
+          content: skill_content,
+          content_hash: skill_hash,
+          provenance: provenance,
+          sent_at: Time.now.utc.iso8601
+        }
+
+        send_encrypted(to: to, message: message, message_type: 'skill_content')
+      end
+
+      # Send an introduction via relay
+      def send_introduction_via_relay(to:)
+        intro = @identity.introduce
+        send_encrypted(to: to, message: intro, message_type: 'introduce')
+      end
+
+      # Send a protocol message via relay
+      def send_protocol_message_via_relay(to:, action:, payload: {})
+        message = {
+          action: action,
+          payload: payload,
+          sent_at: Time.now.utc.iso8601
+        }
+
+        send_encrypted(to: to, message: message, message_type: action.to_s)
+      end
+
+      # === Audit Operations ===
+
+      # Get audit log (metadata only - Meeting Place cannot see content)
+      def get_audit_log(limit: 100, type: nil, since: nil)
+        params = { limit: limit }
+        params[:type] = type if type
+        params[:since] = since if since
+
+        get('/place/v1/audit', params)
+      end
+
+      # Get audit statistics
+      def get_audit_stats(hours: 24)
+        get('/place/v1/audit/stats', { hours: hours })
       end
 
       private

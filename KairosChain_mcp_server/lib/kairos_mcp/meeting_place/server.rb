@@ -4,6 +4,8 @@ require 'json'
 require 'rack'
 require_relative 'registry'
 require_relative 'bulletin_board'
+require_relative 'message_relay'
+require_relative 'audit_logger'
 
 module KairosMcp
   module MeetingPlace
@@ -12,15 +14,43 @@ module KairosMcp
     # - Register their presence
     # - Browse the bulletin board
     # - Discover other agents
+    # - Exchange encrypted messages (relay)
+    #
+    # IMPORTANT: This server acts as a ROUTER ONLY.
+    # It NEVER decrypts or inspects message content.
     class MeetingPlaceApp
-      attr_reader :registry, :bulletin_board
+      attr_reader :registry, :bulletin_board, :message_relay, :audit_logger
 
       def initialize(config: {})
         @config = config
-        @registry = Registry.new(ttl_seconds: config[:registry_ttl] || 300)
-        @bulletin_board = BulletinBoard.new(default_ttl_hours: config[:posting_ttl_hours] || 24)
         @place_name = config[:name] || 'KairosChain Meeting Place'
         @place_description = config[:description] || 'A place for KairosChain agents to meet and exchange skills'
+        
+        # Initialize audit logger first (other components may use it)
+        @audit_logger = AuditLogger.new(
+          config: {
+            anonymize_participants: config[:anonymize_participants] || false,
+            anonymization_salt: config[:anonymization_salt]
+          },
+          log_path: config[:audit_log_path]
+        )
+        
+        @registry = Registry.new(ttl_seconds: config[:registry_ttl] || 300)
+        @bulletin_board = BulletinBoard.new(default_ttl_hours: config[:posting_ttl_hours] || 24)
+        
+        # Message relay for encrypted message forwarding
+        @message_relay = MessageRelay.new(
+          config: {
+            ttl_seconds: config[:relay_ttl_seconds] || 3600,
+            max_queue_size: config[:relay_max_queue_size] || 100,
+            max_message_size: config[:relay_max_message_size] || 1_048_576
+          },
+          audit_logger: @audit_logger
+        )
+        
+        # Public key storage (agent_id => public_key_pem)
+        @public_keys = {}
+        @keys_mutex = Mutex.new
       end
 
       # Rack call interface
@@ -61,6 +91,30 @@ module KairosMcp
         # Stats
         when '/place/v1/stats'
           handle_stats(request)
+
+        # Public key endpoints (for E2E encryption)
+        when '/place/v1/keys/register'
+          handle_key_register(request)
+        when %r{^/place/v1/keys/(.+)$}
+          handle_get_key(request, ::Regexp.last_match(1))
+
+        # Message relay endpoints (encrypted messages only)
+        when '/place/v1/relay/send'
+          handle_relay_send(request)
+        when '/place/v1/relay/receive'
+          handle_relay_receive(request)
+        when '/place/v1/relay/peek'
+          handle_relay_peek(request)
+        when '/place/v1/relay/status'
+          handle_relay_status(request)
+        when '/place/v1/relay/stats'
+          handle_relay_stats(request)
+
+        # Audit endpoints (metadata only, no content)
+        when '/place/v1/audit'
+          handle_audit(request)
+        when '/place/v1/audit/stats'
+          handle_audit_stats(request)
 
         # Health check
         when '/health'
@@ -112,10 +166,12 @@ module KairosMcp
         json_response({
           name: @place_name,
           description: @place_description,
-          version: '1.0.0',
-          features: %w[registry bulletin_board],
+          version: '1.1.0',
+          features: %w[registry bulletin_board message_relay e2e_encryption audit],
           agents_count: @registry.count,
           postings_count: @bulletin_board.count,
+          pending_messages: @message_relay.stats[:total_messages],
+          privacy_note: 'This server acts as a router only. Message content is end-to-end encrypted and never inspected.',
           timestamp: Time.now.utc.iso8601
         })
       end
@@ -261,8 +317,168 @@ module KairosMcp
           place: @place_name,
           registry: @registry.stats,
           bulletin_board: @bulletin_board.stats,
+          message_relay: @message_relay.stats,
+          audit: @audit_logger.stats,
           timestamp: Time.now.utc.iso8601
         })
+      end
+
+      # Public key handlers
+
+      def handle_key_register(request)
+        return method_not_allowed unless request.request_method == 'POST'
+
+        body = parse_json_body(request)
+        agent_id = body[:agent_id]
+        public_key = body[:public_key]
+
+        return error_response(400, 'agent_id is required') unless agent_id
+        return error_response(400, 'public_key is required') unless public_key
+
+        # Calculate fingerprint for logging (not the actual key content)
+        fingerprint = calculate_key_fingerprint(public_key)
+
+        @keys_mutex.synchronize do
+          @public_keys[agent_id] = {
+            public_key: public_key,
+            fingerprint: fingerprint,
+            registered_at: Time.now.utc.iso8601
+          }
+        end
+
+        # Log key registration (fingerprint only, not the key itself)
+        @audit_logger.log_key_registration(
+          agent_id: agent_id,
+          key_fingerprint: fingerprint
+        )
+
+        json_response({
+          status: 'registered',
+          agent_id: agent_id,
+          fingerprint: fingerprint
+        }, status: 201)
+      end
+
+      def handle_get_key(_request, agent_id)
+        key_data = @keys_mutex.synchronize { @public_keys[agent_id] }
+        return error_response(404, 'Public key not found for agent') unless key_data
+
+        json_response({
+          agent_id: agent_id,
+          public_key: key_data[:public_key],
+          fingerprint: key_data[:fingerprint],
+          registered_at: key_data[:registered_at]
+        })
+      end
+
+      # Message relay handlers
+      # IMPORTANT: These handlers NEVER decrypt or inspect message content
+
+      def handle_relay_send(request)
+        return method_not_allowed unless request.request_method == 'POST'
+
+        body = parse_json_body(request)
+        from = body[:from]
+        to = body[:to]
+        encrypted_blob = body[:encrypted_blob]
+        blob_hash = body[:blob_hash]
+        message_type = body[:message_type] || 'unknown'
+
+        return error_response(400, 'from is required') unless from
+        return error_response(400, 'to is required') unless to
+        return error_response(400, 'encrypted_blob is required') unless encrypted_blob
+        return error_response(400, 'blob_hash is required') unless blob_hash
+
+        begin
+          result = @message_relay.enqueue(
+            from: from,
+            to: to,
+            encrypted_blob: encrypted_blob,
+            blob_hash: blob_hash,
+            message_type: message_type
+          )
+          json_response(result, status: 201)
+        rescue ArgumentError => e
+          error_response(400, e.message)
+        end
+      end
+
+      def handle_relay_receive(request)
+        return method_not_allowed unless request.request_method == 'GET'
+
+        agent_id = request.params['agent_id']
+        limit = (request.params['limit'] || 10).to_i
+
+        return error_response(400, 'agent_id is required') unless agent_id
+
+        result = @message_relay.dequeue(agent_id, limit: limit)
+        json_response(result)
+      end
+
+      def handle_relay_peek(request)
+        return method_not_allowed unless request.request_method == 'GET'
+
+        agent_id = request.params['agent_id']
+        limit = (request.params['limit'] || 10).to_i
+
+        return error_response(400, 'agent_id is required') unless agent_id
+
+        result = @message_relay.peek(agent_id, limit: limit)
+        json_response(result)
+      end
+
+      def handle_relay_status(request)
+        return method_not_allowed unless request.request_method == 'GET'
+
+        agent_id = request.params['agent_id']
+        return error_response(400, 'agent_id is required') unless agent_id
+
+        result = @message_relay.queue_status(agent_id)
+        json_response(result)
+      end
+
+      def handle_relay_stats(_request)
+        json_response(@message_relay.stats)
+      end
+
+      # Audit handlers (metadata only)
+
+      def handle_audit(request)
+        return method_not_allowed unless request.request_method == 'GET'
+
+        limit = (request.params['limit'] || 100).to_i
+        event_type = request.params['type']
+        since = request.params['since']
+
+        entries = @audit_logger.recent_entries(
+          limit: limit,
+          event_type: event_type,
+          since: since
+        )
+
+        json_response({
+          entries: entries,
+          count: entries.size,
+          note: 'Audit log contains metadata only. Message content is never recorded.'
+        })
+      end
+
+      def handle_audit_stats(request)
+        hours = (request.params['hours'] || 24).to_i
+
+        json_response({
+          summary: @audit_logger.stats,
+          hourly: @audit_logger.hourly_stats(hours: hours)
+        })
+      end
+
+      # Helper methods
+
+      def calculate_key_fingerprint(public_key_pem)
+        require 'digest'
+        # Use SHA256 of the PEM for fingerprint
+        hash = Digest::SHA256.hexdigest(public_key_pem)
+        hash.scan(/../).join(':')[0, 47]
       end
     end
 
@@ -318,6 +534,14 @@ module KairosMcp
 
       def bulletin_board
         @app.bulletin_board
+      end
+
+      def message_relay
+        @app.message_relay
+      end
+
+      def audit_logger
+        @app.audit_logger
       end
     end
   end
