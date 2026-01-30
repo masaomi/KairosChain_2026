@@ -1,0 +1,102 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# KairosChain Meeting Protocol HTTP Server (Puma)
+# Usage: bin/kairos_meeting_server [options]
+#
+# Examples:
+#   bin/kairos_meeting_server                    # Start with defaults (localhost:8080)
+#   bin/kairos_meeting_server -p 9000            # Start on port 9000
+#   bin/kairos_meeting_server -h 0.0.0.0 -p 8080 # Bind to all interfaces
+#
+# Alternative (using rackup):
+#   bundle exec rackup -p 8080
+#
+# For P2P via SSH tunnel:
+#   ssh -L 9999:localhost:8080 friend@friend-server
+#   Then connect to http://localhost:9999
+
+$LOAD_PATH.unshift File.expand_path('../lib', __dir__)
+
+require 'optparse'
+require 'kairos_mcp/transport/http_server'
+
+options = {
+  host: nil,
+  port: nil,
+  workspace: File.expand_path('..', __dir__)
+}
+
+OptionParser.new do |opts|
+  opts.banner = "Usage: #{$PROGRAM_NAME} [options]"
+
+  opts.on('-h', '--host HOST', 'Host to bind to (default: 127.0.0.1)') do |v|
+    options[:host] = v
+  end
+
+  opts.on('-p', '--port PORT', Integer, 'Port to listen on (default: 8080)') do |v|
+    options[:port] = v
+  end
+
+  opts.on('-w', '--workspace DIR', 'Workspace directory') do |v|
+    options[:workspace] = File.expand_path(v)
+  end
+
+  opts.on('--help', 'Show this help') do
+    puts opts
+    puts
+    puts "API Endpoints:"
+    puts "  GET  /health                      - Health check"
+    puts "  GET  /meeting/v1/introduce        - Get self-introduction"
+    puts "  POST /meeting/v1/introduce        - Process incoming introduction"
+    puts "  GET  /meeting/v1/capabilities     - Get capabilities"
+    puts "  GET  /meeting/v1/skills           - List available skills"
+    puts "  POST /meeting/v1/message          - Process any protocol message"
+    puts "  POST /meeting/v1/offer_skill      - Create offer_skill message"
+    puts "  POST /meeting/v1/request_skill    - Create request_skill message"
+    puts "  POST /meeting/v1/accept           - Create accept message"
+    puts "  POST /meeting/v1/decline          - Create decline message"
+    puts "  POST /meeting/v1/skill_content    - Send skill content"
+    puts "  POST /meeting/v1/reflect          - Create reflect message"
+    puts "  POST /meeting/v1/session/start    - Start interaction session"
+    puts "  POST /meeting/v1/session/end      - End interaction session"
+    puts "  GET  /meeting/v1/history          - Get interaction history"
+    puts
+    puts "SSH Tunnel Example (P2P with friend):"
+    puts "  # On your machine:"
+    puts "  bin/kairos_meeting_server -p 8080"
+    puts
+    puts "  # On friend's machine, to connect to you:"
+    puts "  ssh -L 9999:localhost:8080 you@your-server"
+    puts "  curl http://localhost:9999/meeting/v1/introduce"
+    exit
+  end
+end.parse!
+
+puts "KairosChain Meeting Protocol Server (Puma)"
+puts "==========================================="
+puts "Workspace: #{options[:workspace]}"
+puts
+
+begin
+  server = KairosMcp::Transport::HTTPServer.new(
+    workspace_root: options[:workspace],
+    host: options[:host],
+    port: options[:port]
+  )
+
+  puts "Starting server..."
+  puts "URL: #{server.url}"
+  puts
+  puts "Test with: curl #{server.url}/health"
+  puts "Introduce:  curl #{server.url}/meeting/v1/introduce"
+  puts
+
+  server.start
+rescue Interrupt
+  puts "\nServer stopped."
+rescue StandardError => e
+  $stderr.puts "Error: #{e.message}"
+  $stderr.puts e.backtrace.first(5).join("\n")
+  exit 1
+end

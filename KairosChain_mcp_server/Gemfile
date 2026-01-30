@@ -72,6 +72,26 @@ group :sqlite, optional: true do
 end
 
 # =============================================================================
+# Meeting Protocol HTTP Server (Phase 3+)
+# =============================================================================
+#
+# Enables HTTP-based Meeting Protocol for P2P communication.
+# Required for: bin/kairos_meeting_server
+#
+# Installation:
+#   bundle install
+#
+
+# Rack - Web server interface
+gem 'rack', '~> 3.0'
+
+# Puma - High-performance, multi-threaded HTTP server
+gem 'puma', '~> 6.0'
+
+# Rack::Handler for JSON parsing
+gem 'rack-contrib', '~> 2.5'
+
+# =============================================================================
 # Development Dependencies
 # =============================================================================
 

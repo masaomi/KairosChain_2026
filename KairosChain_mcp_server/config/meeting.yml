@@ -1,0 +1,78 @@
+# KairosChain Meeting Protocol Configuration
+# This file configures how this KairosChain instance presents itself
+# and interacts with other KairosChain instances.
+
+# Identity: How this instance introduces itself
+identity:
+  name: "KairosChain Instance"
+  description: "A memory-capable, evolvable agent framework"
+  # Scope describes the domain expertise (e.g., "bioinformatics", "web-development", "general")
+  scope: "general"
+
+# Capabilities: What this instance can do in the Meeting Protocol
+capabilities:
+  meeting_protocol_version: "1.0.0"
+  supported_actions:
+    - introduce
+    - offer_skill
+    - request_skill
+    - accept
+    - decline
+    - reflect
+
+# Skill Exchange: Rules for sharing skills with other instances
+skill_exchange:
+  # Allowed formats for skill exchange (safety-first approach)
+  # - markdown: Safe, human-readable documentation
+  # - yaml_frontmatter: Metadata in YAML format at the top of markdown
+  allowed_formats:
+    - markdown
+    - yaml_frontmatter
+  
+  # SECURITY: Allow executable code exchange (Ruby DSL/AST)
+  # WARNING: Set to true only if you trust ALL peers you connect with
+  # Default: false (recommended for safety)
+  allow_executable: false
+  
+  # Whether skills are public by default
+  # If false, skills need explicit `public: true` in frontmatter to be shared
+  public_by_default: false
+  
+  # Filter which skills to expose (glob patterns)
+  # Empty list means all skills in knowledge/ are candidates
+  include_patterns: []
+  
+  # Exclude specific skills from sharing
+  exclude_patterns:
+    - "**/private/**"
+    - "**/.git/**"
+
+# Constraints: Limits and safety boundaries
+constraints:
+  # Maximum size of a skill file in bytes
+  max_skill_size_bytes: 100000
+  
+  # Rate limiting for incoming requests (per minute)
+  rate_limit_per_minute: 10
+  
+  # Maximum number of skills to return in a list
+  max_skills_in_list: 50
+
+# HTTP Server (for Meeting Protocol API)
+# This enables HTTP-based communication between KairosChain instances
+http_server:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8080
+  # Timeout for HTTP requests (seconds)
+  timeout: 10
+  # For SSH tunneling, keep host as localhost
+  # Access via: ssh -L 9999:localhost:8080 user@remote
+
+# Peer Management
+peers:
+  # Auto-reconnect to known peers on startup
+  auto_reconnect: false
+  # Save peer list to file
+  persist_peers: false
+  # peers_file: "storage/peers.json"
