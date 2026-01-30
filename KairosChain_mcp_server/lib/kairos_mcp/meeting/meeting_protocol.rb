@@ -3,17 +3,31 @@
 require 'json'
 require 'digest'
 require 'time'
+require_relative 'protocol_loader'
 
 module KairosMcp
   module Meeting
     # MeetingProtocol defines the semantic actions for agent-to-agent communication.
     # These are "speech acts" - not API commands, but intentional communication.
+    #
+    # Phase 6: Protocol definitions are now loaded from skill files in knowledge/.
+    # This enables dynamic extension of the protocol through skill exchange.
     class MeetingProtocol
       PROTOCOL_VERSION = '1.0.0'
 
-      # Supported action types
+      # Core actions (always available, for backward compatibility)
+      CORE_ACTIONS = %w[
+        introduce
+        goodbye
+        error
+      ].freeze
+
+      # Legacy action list (for backward compatibility)
+      # New code should use @protocol_loader.available_actions
       ACTIONS = %w[
         introduce
+        goodbye
+        error
         offer_skill
         request_skill
         accept
@@ -21,6 +35,8 @@ module KairosMcp
         reflect
         skill_content
       ].freeze
+
+      attr_reader :protocol_loader, :supported_extensions
 
       # Message structure for all protocol messages
       Message = Struct.new(
@@ -52,17 +68,93 @@ module KairosMcp
         end
       end
 
-      def initialize(identity:)
+      def initialize(identity:, knowledge_root: nil)
         @identity = identity
         @pending_offers = {}  # Track pending skill offers
         @pending_requests = {} # Track pending skill requests
+        
+        # Phase 6: Initialize protocol loader
+        @knowledge_root = knowledge_root || default_knowledge_root
+        @protocol_loader = ProtocolLoader.new(knowledge_root: @knowledge_root)
+        @supported_extensions = []
+        
+        # Load protocols from skill files
+        load_protocols
+      end
+
+      # Load or reload protocols from skill files
+      def load_protocols
+        result = @protocol_loader.load_all
+        @supported_extensions = @protocol_loader.extensions
+        result
+      rescue StandardError => e
+        warn "[MeetingProtocol] Error loading protocols: #{e.message}"
+        # Fall back to built-in actions
+        { error: e.message, fallback: true }
+      end
+
+      # Get all supported actions (from protocol loader + built-in)
+      def supported_actions
+        if @protocol_loader.available_actions.any?
+          @protocol_loader.available_actions
+        else
+          ACTIONS
+        end
+      end
+
+      # Check if an action is supported
+      def action_supported?(action)
+        supported_actions.include?(action)
+      end
+
+      # Get core (immutable) actions
+      def core_actions
+        @protocol_loader.core_actions.any? ? @protocol_loader.core_actions : CORE_ACTIONS
       end
 
       # Create an introduce message
+      # Phase 6: Now includes supported extensions
       def create_introduce
+        intro = @identity.introduce
+        intro[:extensions] = @supported_extensions
+        
         create_message(
           action: 'introduce',
-          payload: @identity.introduce
+          payload: intro
+        )
+      end
+
+      # Create a goodbye message (Core Action)
+      # @param reason [String] Reason for goodbye
+      # @param summary [String, nil] Optional session summary
+      def create_goodbye(to:, reason: 'session_complete', summary: nil)
+        create_message(
+          action: 'goodbye',
+          to: to,
+          payload: {
+            reason: reason,
+            summary: summary
+          }.compact
+        )
+      end
+
+      # Create an error message (Core Action)
+      # @param to [String] Recipient instance_id
+      # @param error_code [String] Error code
+      # @param message [String] Error message
+      # @param recoverable [Boolean] Whether error is recoverable
+      # @param in_reply_to [String, nil] Message being responded to
+      def create_error(to:, error_code:, message:, recoverable: true, in_reply_to: nil, details: nil)
+        create_message(
+          action: 'error',
+          to: to,
+          in_reply_to: in_reply_to,
+          payload: {
+            error_code: error_code,
+            message: message,
+            recoverable: recoverable,
+            details: details
+          }.compact
         )
       end
 
@@ -200,14 +292,41 @@ module KairosMcp
                      message_json
                    end
         
-        # Validate message structure
-        validate_message!(msg_data)
+        # Validate message structure (basic validation)
+        validate_message_structure!(msg_data)
 
         action = msg_data[:action]
         
+        # Phase 6: Check if action is supported
+        unless action_supported?(action)
+          return {
+            status: 'error',
+            action: 'error',
+            error: "Unsupported action: #{action}",
+            suggested_response: create_error(
+              to: msg_data[:from],
+              error_code: 'unsupported_action',
+              message: "Action '#{action}' is not supported by this agent",
+              recoverable: true,
+              in_reply_to: msg_data[:id],
+              details: {
+                unsupported_action: action,
+                supported_actions: supported_actions
+              }
+            )
+          }
+        end
+        
+        # Process based on action type
         case action
+        # Core Actions
         when 'introduce'
           process_introduce(msg_data)
+        when 'goodbye'
+          process_goodbye(msg_data)
+        when 'error'
+          process_error(msg_data)
+        # Skill Exchange Extension
         when 'offer_skill'
           process_offer_skill(msg_data)
         when 'request_skill'
@@ -221,11 +340,18 @@ module KairosMcp
         when 'reflect'
           process_reflect(msg_data)
         else
+          # This shouldn't happen if action_supported? works correctly
           { status: 'error', error: "Unknown action: #{action}" }
         end
       end
 
       private
+
+      def default_knowledge_root
+        # Find knowledge root relative to this file
+        lib_dir = File.dirname(File.dirname(File.dirname(__FILE__)))
+        File.join(File.dirname(lib_dir), 'knowledge')
+      end
 
       def create_message(action:, payload:, to: nil, in_reply_to: nil)
         Message.new(
@@ -249,21 +375,63 @@ module KairosMcp
         skills.find { |s| s[:id] == skill_id }
       end
 
-      def validate_message!(msg_data)
+      # Basic message structure validation (doesn't check action validity)
+      def validate_message_structure!(msg_data)
         required_fields = %i[id action from timestamp]
         missing = required_fields.select { |f| msg_data[f].nil? }
         
         raise ArgumentError, "Missing required fields: #{missing.join(', ')}" unless missing.empty?
-        raise ArgumentError, "Unknown action: #{msg_data[:action]}" unless ACTIONS.include?(msg_data[:action])
+      end
+
+      # Legacy validation (for backward compatibility)
+      def validate_message!(msg_data)
+        validate_message_structure!(msg_data)
+        raise ArgumentError, "Unknown action: #{msg_data[:action]}" unless action_supported?(msg_data[:action])
       end
 
       def process_introduce(msg_data)
+        payload = msg_data[:payload] || {}
+        peer_extensions = payload[:extensions] || []
+        
+        # Calculate common extensions
+        common_extensions = @supported_extensions & peer_extensions
+        
         {
           status: 'received',
           action: 'introduce',
           from: msg_data[:from],
-          peer_identity: msg_data[:payload],
+          peer_identity: payload,
+          peer_extensions: peer_extensions,
+          common_extensions: common_extensions,
           suggested_response: create_introduce
+        }
+      end
+
+      def process_goodbye(msg_data)
+        payload = msg_data[:payload] || {}
+        
+        {
+          status: 'received',
+          action: 'goodbye',
+          from: msg_data[:from],
+          reason: payload[:reason],
+          summary: payload[:summary],
+          session_complete: true
+        }
+      end
+
+      def process_error(msg_data)
+        payload = msg_data[:payload] || {}
+        
+        {
+          status: 'received',
+          action: 'error',
+          from: msg_data[:from],
+          error_code: payload[:error_code],
+          message: payload[:message],
+          recoverable: payload[:recoverable],
+          details: payload[:details],
+          in_reply_to: msg_data[:in_reply_to]
         }
       end
 
