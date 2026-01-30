@@ -1,0 +1,737 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# KairosChain Meeting Observer CLI
+# Usage: bin/kairos_meeting <command> [options]
+#
+# This CLI allows users to observe their own agent's communication.
+# Users can see their full communication history (decrypted with their private key).
+#
+# Commands:
+#   watch     - Real-time monitoring of communication
+#   history   - View communication history
+#   skills    - View skill exchange history
+#   verify    - Verify message hashes
+#   keys      - Manage encryption keys
+
+$LOAD_PATH.unshift File.expand_path('../lib', __dir__)
+
+require 'optparse'
+require 'json'
+require 'time'
+
+# Load KairosChain components
+require 'kairos_mcp/meeting/identity'
+require 'kairos_mcp/meeting/interaction_log'
+require 'kairos_mcp/meeting/crypto'
+require 'kairos_mcp/meeting/skill_exchange'
+
+module KairosMcp
+  module CLI
+    # User CLI for observing own agent's communication
+    class MeetingCLI
+      WORKSPACE_ROOT = File.expand_path('../..', __dir__)
+
+      def initialize
+        @workspace_root = find_workspace_root
+        @identity = Meeting::Identity.new(workspace_root: @workspace_root)
+        @interaction_log = Meeting::InteractionLog.new(workspace_root: @workspace_root)
+        @crypto = load_crypto
+        @config = load_meeting_config
+        @place_client = nil
+      end
+
+      def run(args)
+        command = args.shift || 'help'
+
+        case command
+        when 'connect'
+          cmd_connect(args)
+        when 'disconnect'
+          cmd_disconnect(args)
+        when 'watch'
+          cmd_watch(args)
+        when 'history'
+          cmd_history(args)
+        when 'skills'
+          cmd_skills(args)
+        when 'verify'
+          cmd_verify(args)
+        when 'keys'
+          cmd_keys(args)
+        when 'status'
+          cmd_status(args)
+        when 'help', '--help', '-h'
+          cmd_help
+        else
+          puts "Unknown command: #{command}"
+          puts "Run 'kairos_meeting help' for usage."
+          exit 1
+        end
+      end
+
+      private
+
+      # === Commands ===
+
+      def cmd_connect(args)
+        options = { url: nil, yes: false }
+        
+        OptionParser.new do |opts|
+          opts.banner = "Usage: kairos_meeting connect [options]"
+          opts.on('--url URL', 'Meeting Place URL (required)') { |v| options[:url] = v }
+          opts.on('-y', '--yes', 'Skip confirmation prompt') { options[:yes] = true }
+        end.parse!(args)
+
+        # Check connection mode
+        connection_mode = @config.dig('meeting_place', 'connection_mode') || 'manual'
+        if connection_mode == 'off'
+          puts "Error: Meeting Place connection is disabled in config."
+          puts "Set meeting_place.connection_mode to 'manual' in config/meeting.yml"
+          exit 1
+        end
+
+        # Get URL
+        url = options[:url] || @config.dig('meeting_place', 'url')
+        unless url
+          puts "Error: No Meeting Place URL specified."
+          puts "Use --url option or set meeting_place.url in config/meeting.yml"
+          exit 1
+        end
+
+        # Confirmation
+        confirm_required = @config.dig('meeting_place', 'confirm_before_connect')
+        confirm_required = true if confirm_required.nil?  # default to true
+        
+        unless options[:yes] || !confirm_required
+          puts "=" * 60
+          puts "MEETING PLACE CONNECTION"
+          puts "=" * 60
+          puts
+          puts "You are about to connect to: #{url}"
+          puts
+          puts "WARNING: This may incur costs if the connection remains"
+          puts "active and interactions occur."
+          puts
+          max_minutes = @config.dig('meeting_place', 'max_session_minutes') || 60
+          puts "Session will auto-disconnect after: #{max_minutes} minutes"
+          puts
+          print "Do you want to proceed? [y/N] "
+          
+          response = $stdin.gets.chomp.downcase
+          unless response == 'y' || response == 'yes'
+            puts "Connection cancelled."
+            exit 0
+          end
+        end
+
+        # Connect
+        require 'kairos_mcp/meeting/place_client'
+        
+        puts "Connecting to #{url}..."
+        
+        @place_client = Meeting::PlaceClient.new(
+          place_url: url,
+          identity: @identity,
+          crypto: @crypto,
+          config: {
+            max_session_minutes: @config.dig('meeting_place', 'max_session_minutes') || 60,
+            warn_after_interactions: @config.dig('meeting_place', 'warn_after_interactions') || 50
+          }
+        )
+        
+        result = @place_client.connect
+        
+        if result[:error]
+          puts "Connection failed: #{result[:error]}"
+          exit 1
+        end
+        
+        puts
+        puts "Connected successfully!"
+        puts "  Agent ID: #{result[:agent_id]}"
+        puts "  Status: #{result[:status]}"
+        puts
+        puts "Session limits:"
+        puts "  Max duration: #{@place_client.session_status[:max_session_minutes]} minutes"
+        puts "  Interaction warning at: #{@place_client.session_status[:warn_after_interactions]}"
+        puts
+        puts "Use 'kairos_meeting disconnect' to end the session."
+        
+        # Register public key if configured
+        if @config.dig('meeting_place', 'auto_register_key') && @crypto
+          puts "Registering public key..."
+          key_result = @place_client.register_public_key
+          if key_result[:error]
+            puts "Warning: Could not register public key: #{key_result[:error]}"
+          else
+            puts "Public key registered."
+          end
+        end
+        
+        # Save connection state to file for other commands
+        save_connection_state(url, result[:agent_id])
+      end
+
+      def cmd_disconnect(args)
+        state = load_connection_state
+        
+        unless state
+          puts "Not connected to any Meeting Place."
+          exit 0
+        end
+        
+        puts "Disconnecting from #{state[:url]}..."
+        
+        require 'kairos_mcp/meeting/place_client'
+        
+        @place_client = Meeting::PlaceClient.new(
+          place_url: state[:url],
+          identity: @identity,
+          crypto: @crypto
+        )
+        
+        # Restore agent_id
+        @place_client.instance_variable_set(:@agent_id, state[:agent_id])
+        @place_client.instance_variable_set(:@connected, true)
+        @place_client.instance_variable_set(:@session_start_time, Time.parse(state[:connected_at]))
+        
+        result = @place_client.disconnect
+        
+        puts
+        puts "Disconnected."
+        if result[:session_duration_minutes]
+          puts "  Session duration: #{result[:session_duration_minutes]} minutes"
+        end
+        if result[:total_interactions]
+          puts "  Total interactions: #{result[:total_interactions]}"
+        end
+        
+        clear_connection_state
+      end
+
+      def cmd_watch(args)
+        options = { peer: nil, types: nil }
+        
+        OptionParser.new do |opts|
+          opts.banner = "Usage: kairos_meeting watch [options]"
+          opts.on('--peer PEER_ID', 'Filter by peer') { |v| options[:peer] = v }
+          opts.on('--types TYPES', 'Filter by types (comma-separated)') { |v| options[:types] = v.split(',') }
+        end.parse!(args)
+
+        puts "Watching communication... (Ctrl+C to stop)"
+        puts "=" * 60
+        puts
+
+        # Get initial count
+        last_count = @interaction_log.summary[:total_interactions]
+
+        loop do
+          sleep 2
+          
+          # Check for new interactions
+          current = @interaction_log.summary
+          if current[:total_interactions] > last_count
+            new_count = current[:total_interactions] - last_count
+            
+            # Get recent interactions
+            recent = @interaction_log.recent(limit: new_count)
+            recent.each do |interaction|
+              next if options[:peer] && interaction[:peer_id] != options[:peer]
+              next if options[:types] && !options[:types].include?(interaction[:type])
+              
+              print_interaction(interaction)
+            end
+            
+            last_count = current[:total_interactions]
+          end
+        end
+      rescue Interrupt
+        puts "\nStopped watching."
+      end
+
+      def cmd_history(args)
+        options = { limit: 20, peer: nil, since: nil, type: nil }
+        
+        OptionParser.new do |opts|
+          opts.banner = "Usage: kairos_meeting history [options]"
+          opts.on('-l', '--limit N', Integer, 'Number of entries (default: 20)') { |v| options[:limit] = v }
+          opts.on('--peer PEER_ID', 'Filter by peer') { |v| options[:peer] = v }
+          opts.on('--since DATE', 'Show entries since date (YYYY-MM-DD)') { |v| options[:since] = v }
+          opts.on('--type TYPE', 'Filter by type') { |v| options[:type] = v }
+        end.parse!(args)
+
+        puts "Communication History"
+        puts "=" * 60
+        puts
+
+        # Get summary
+        summary = @interaction_log.summary
+        puts "Total interactions: #{summary[:total_interactions]}"
+        puts "Unique peers: #{summary[:unique_peers]}"
+        puts "Skills transferred: #{summary[:skills_transferred]}"
+        puts
+
+        # Get recent interactions
+        interactions = @interaction_log.recent(limit: options[:limit])
+        
+        # Apply filters
+        if options[:peer]
+          interactions = interactions.select { |i| i[:peer_id] == options[:peer] }
+        end
+        if options[:type]
+          interactions = interactions.select { |i| i[:type] == options[:type] }
+        end
+        if options[:since]
+          since_time = Time.parse(options[:since])
+          interactions = interactions.select { |i| Time.parse(i[:timestamp]) >= since_time }
+        end
+
+        if interactions.empty?
+          puts "(No interactions found)"
+        else
+          interactions.each { |i| print_interaction(i) }
+        end
+      end
+
+      def cmd_skills(args)
+        subcommand = args.shift || 'list'
+
+        case subcommand
+        when 'received'
+          show_received_skills(args)
+        when 'sent'
+          show_sent_skills(args)
+        when 'provenance'
+          show_skill_provenance(args)
+        when 'list'
+          show_skill_summary
+        else
+          puts "Usage: kairos_meeting skills [received|sent|provenance|list]"
+        end
+      end
+
+      def cmd_verify(args)
+        options = { hash: nil, session: nil }
+        
+        OptionParser.new do |opts|
+          opts.banner = "Usage: kairos_meeting verify [options]"
+          opts.on('--hash HASH', 'Verify content hash') { |v| options[:hash] = v }
+          opts.on('--session SESSION_ID', 'Verify session integrity') { |v| options[:session] = v }
+        end.parse!(args)
+
+        if options[:hash]
+          verify_hash(options[:hash])
+        elsif options[:session]
+          verify_session(options[:session])
+        else
+          puts "Please specify --hash or --session"
+        end
+      end
+
+      def cmd_keys(args)
+        subcommand = args.shift || 'info'
+
+        case subcommand
+        when 'info'
+          show_key_info
+        when 'generate'
+          generate_new_key(args)
+        when 'export'
+          export_public_key(args)
+        else
+          puts "Usage: kairos_meeting keys [info|generate|export]"
+        end
+      end
+
+      def cmd_status(args)
+        puts "KairosChain Meeting Status"
+        puts "=" * 60
+        puts
+
+        # Connection state
+        state = load_connection_state
+        puts "Meeting Place Connection:"
+        if state
+          puts "  Status: CONNECTED"
+          puts "  URL: #{state[:url]}"
+          puts "  Agent ID: #{state[:agent_id]}"
+          puts "  Connected at: #{state[:connected_at]}"
+          duration = ((Time.now - Time.parse(state[:connected_at])) / 60.0).round(1)
+          puts "  Duration: #{duration} minutes"
+        else
+          puts "  Status: Not connected"
+          mode = @config.dig('meeting_place', 'connection_mode') || 'manual'
+          puts "  Mode: #{mode}"
+        end
+        puts
+
+        # Identity info
+        intro = @identity.introduce
+        puts "Identity:"
+        puts "  Name: #{intro[:identity][:name]}"
+        puts "  Instance ID: #{intro[:identity][:instance_id]}"
+        puts "  Scope: #{intro[:identity][:scope]}"
+        puts
+
+        # Crypto info
+        if @crypto
+          puts "Encryption:"
+          puts "  Status: Enabled"
+          puts "  Key fingerprint: #{@crypto.key_fingerprint}"
+        else
+          puts "Encryption:"
+          puts "  Status: Not configured"
+        end
+        puts
+
+        # Interaction summary
+        summary = @interaction_log.summary
+        puts "Interactions:"
+        puts "  Total: #{summary[:total_interactions]}"
+        puts "  Unique peers: #{summary[:unique_peers]}"
+        puts "  Skills transferred: #{summary[:skills_transferred]}"
+        puts
+
+        # Capabilities
+        puts "Capabilities:"
+        intro[:capabilities][:supported_actions].each do |action|
+          puts "  - #{action}"
+        end
+      end
+
+      def cmd_help
+        puts <<~HELP
+          KairosChain Meeting Observer CLI
+          
+          Usage: kairos_meeting <command> [options]
+          
+          Commands:
+            connect    Connect to a Meeting Place server
+            disconnect Disconnect from Meeting Place
+            status     Show current status and connection info
+            watch      Real-time monitoring of your agent's communication
+            history    View communication history
+            skills     View skill exchange history
+            verify     Verify message/session integrity
+            keys       Manage encryption keys
+            help       Show this help
+          
+          Connection Examples:
+            # Connect to a Meeting Place (requires confirmation)
+            kairos_meeting connect --url http://meeting.example.com:8888
+          
+            # Connect without confirmation (use with caution)
+            kairos_meeting connect --url http://localhost:8888 --yes
+          
+            # Check connection status
+            kairos_meeting status
+          
+            # Disconnect (important to avoid unnecessary costs)
+            kairos_meeting disconnect
+          
+          Other Examples:
+            # Watch real-time communication
+            kairos_meeting watch
+            kairos_meeting watch --peer agent_123
+          
+            # View history
+            kairos_meeting history
+            kairos_meeting history --limit 50 --peer agent_123
+          
+            # View skill exchanges
+            kairos_meeting skills received
+            kairos_meeting skills sent
+            kairos_meeting skills provenance translation_skill
+          
+            # Verify integrity
+            kairos_meeting verify --hash sha256:abc123
+          
+            # Key management
+            kairos_meeting keys info
+            kairos_meeting keys export > my_public_key.pem
+          
+          ╔════════════════════════════════════════════════════════════╗
+          ║                  IMPORTANT: COST WARNING                   ║
+          ╠════════════════════════════════════════════════════════════╣
+          ║  Connecting to a Meeting Place may incur costs if the      ║
+          ║  connection remains active and interactions occur.         ║
+          ║                                                            ║
+          ║  - Always disconnect when done: kairos_meeting disconnect  ║
+          ║  - Sessions auto-timeout after configured duration         ║
+          ║  - Warnings shown after N interactions                     ║
+          ╚════════════════════════════════════════════════════════════╝
+          
+          Privacy Note:
+            This CLI shows YOUR communication history using YOUR private key.
+            Other users cannot see your decrypted messages.
+        HELP
+      end
+
+      # === Helper Methods ===
+
+      def print_interaction(interaction)
+        time = interaction[:timestamp]
+        type = interaction[:type]
+        peer = interaction[:peer_id] || 'unknown'
+        direction = interaction[:direction] || '?'
+        
+        arrow = direction == 'outgoing' ? '→' : '←'
+        
+        puts "[#{time}] #{arrow} #{peer}: #{type}"
+        
+        if interaction[:metadata]
+          metadata = interaction[:metadata]
+          if metadata[:skill_name]
+            puts "    Skill: #{metadata[:skill_name]}"
+          end
+          if metadata[:content_hash]
+            puts "    Hash: #{metadata[:content_hash][0, 20]}..."
+          end
+        end
+        puts
+      end
+
+      def show_received_skills(args)
+        puts "Received Skills"
+        puts "=" * 60
+        puts
+
+        # Get skill transfers from interaction log
+        transfers = @interaction_log.skill_transfer_history rescue []
+        received = transfers.select { |t| t[:direction] == 'received' }
+
+        if received.empty?
+          puts "(No skills received)"
+        else
+          received.each do |transfer|
+            puts "#{transfer[:skill_name]}"
+            puts "  From: #{transfer[:peer_id]}"
+            puts "  Hash: #{transfer[:content_hash]}"
+            puts "  Date: #{transfer[:timestamp]}"
+            if transfer[:provenance]
+              puts "  Origin: #{transfer[:provenance][:origin]}"
+              puts "  Hops: #{transfer[:provenance][:hop_count]}"
+            end
+            puts
+          end
+        end
+      end
+
+      def show_sent_skills(args)
+        puts "Sent Skills"
+        puts "=" * 60
+        puts
+
+        transfers = @interaction_log.skill_transfer_history rescue []
+        sent = transfers.select { |t| t[:direction] == 'sent' }
+
+        if sent.empty?
+          puts "(No skills sent)"
+        else
+          sent.each do |transfer|
+            puts "#{transfer[:skill_name]}"
+            puts "  To: #{transfer[:peer_id]}"
+            puts "  Hash: #{transfer[:content_hash]}"
+            puts "  Date: #{transfer[:timestamp]}"
+            puts
+          end
+        end
+      end
+
+      def show_skill_provenance(args)
+        skill_name = args.first
+        unless skill_name
+          puts "Usage: kairos_meeting skills provenance <skill_name>"
+          return
+        end
+
+        puts "Provenance for: #{skill_name}"
+        puts "=" * 60
+        puts
+
+        # Try to find provenance info
+        transfers = @interaction_log.skill_transfer_history rescue []
+        skill_transfer = transfers.find { |t| t[:skill_name] == skill_name }
+
+        if skill_transfer && skill_transfer[:provenance]
+          prov = skill_transfer[:provenance]
+          puts "Origin: #{prov[:origin]}"
+          puts "Hop count: #{prov[:hop_count]}"
+          puts
+          puts "Propagation chain:"
+          prov[:chain]&.each_with_index do |agent, i|
+            prefix = i == 0 ? "  [origin]" : "  [hop #{i}]"
+            puts "#{prefix} #{agent}"
+          end
+        else
+          puts "(Provenance information not available)"
+        end
+      end
+
+      def show_skill_summary
+        puts "Skill Exchange Summary"
+        puts "=" * 60
+        puts
+
+        summary = @interaction_log.summary
+        puts "Total skills transferred: #{summary[:skills_transferred]}"
+        puts
+        puts "Use 'kairos_meeting skills received' or 'kairos_meeting skills sent' for details."
+      end
+
+      def verify_hash(hash)
+        puts "Verifying hash: #{hash}"
+        puts "=" * 60
+        puts
+
+        # Search in interaction log
+        interactions = @interaction_log.recent(limit: 1000)
+        matches = interactions.select do |i|
+          i[:metadata]&.dig(:content_hash) == hash
+        end
+
+        if matches.empty?
+          puts "No matching entries found in local history."
+        else
+          puts "Found #{matches.size} matching entries:"
+          matches.each { |m| print_interaction(m) }
+        end
+      end
+
+      def verify_session(session_id)
+        puts "Verifying session: #{session_id}"
+        puts "=" * 60
+        puts
+
+        # Get session interactions
+        interactions = @interaction_log.recent(limit: 1000)
+        session_interactions = interactions.select do |i|
+          i[:session_id] == session_id
+        end
+
+        if session_interactions.empty?
+          puts "Session not found."
+        else
+          puts "Session contains #{session_interactions.size} interactions:"
+          session_interactions.each { |i| print_interaction(i) }
+        end
+      end
+
+      def show_key_info
+        puts "Encryption Key Information"
+        puts "=" * 60
+        puts
+
+        if @crypto
+          puts "Status: Configured"
+          puts "Fingerprint: #{@crypto.key_fingerprint}"
+          puts "Has private key: #{@crypto.has_keypair? ? 'Yes' : 'No'}"
+          
+          keypair_path = File.join(@workspace_root, 'config', 'meeting_keypair.pem')
+          if File.exist?(keypair_path)
+            puts "Key file: #{keypair_path}"
+            puts "Key file size: #{File.size(keypair_path)} bytes"
+          end
+        else
+          puts "Status: Not configured"
+          puts
+          puts "Generate a new keypair with: kairos_meeting keys generate"
+        end
+      end
+
+      def generate_new_key(args)
+        puts "This would generate a new keypair."
+        puts "For safety, please do this manually or use Agent mode."
+        puts
+        puts "Example Ruby code:"
+        puts "  crypto = KairosMcp::Meeting::Crypto.new"
+        puts "  crypto.save_keypair('config/meeting_keypair.pem')"
+      end
+
+      def export_public_key(args)
+        if @crypto
+          puts @crypto.export_public_key
+        else
+          $stderr.puts "No keypair configured."
+          exit 1
+        end
+      end
+
+      def find_workspace_root
+        # Try to find workspace root
+        current = Dir.pwd
+        while current != '/'
+          if File.exist?(File.join(current, 'config', 'meeting.yml'))
+            return current
+          end
+          current = File.dirname(current)
+        end
+        
+        # Default to script location
+        WORKSPACE_ROOT
+      end
+
+      def load_crypto
+        keypair_path = File.join(@workspace_root, 'config', 'meeting_keypair.pem')
+        if File.exist?(keypair_path)
+          Meeting::Crypto.new(keypair_path: keypair_path, auto_generate: false)
+        else
+          nil
+        end
+      rescue StandardError => e
+        $stderr.puts "Warning: Could not load crypto: #{e.message}"
+        nil
+      end
+
+      def load_meeting_config
+        config_path = File.join(@workspace_root, 'config', 'meeting.yml')
+        if File.exist?(config_path)
+          require 'yaml'
+          YAML.load_file(config_path) || {}
+        else
+          {}
+        end
+      rescue StandardError => e
+        $stderr.puts "Warning: Could not load meeting config: #{e.message}"
+        {}
+      end
+
+      def connection_state_path
+        File.join(@workspace_root, 'storage', '.meeting_connection_state.json')
+      end
+
+      def save_connection_state(url, agent_id)
+        require 'fileutils'
+        FileUtils.mkdir_p(File.dirname(connection_state_path))
+        
+        state = {
+          url: url,
+          agent_id: agent_id,
+          connected_at: Time.now.utc.iso8601
+        }
+        
+        File.write(connection_state_path, JSON.pretty_generate(state))
+      end
+
+      def load_connection_state
+        return nil unless File.exist?(connection_state_path)
+        
+        JSON.parse(File.read(connection_state_path), symbolize_names: true)
+      rescue StandardError
+        nil
+      end
+
+      def clear_connection_state
+        File.delete(connection_state_path) if File.exist?(connection_state_path)
+      rescue StandardError
+        # Ignore errors
+      end
+    end
+  end
+end
+
+# Run CLI
+if __FILE__ == $PROGRAM_NAME
+  KairosMcp::CLI::MeetingCLI.new.run(ARGV)
+end

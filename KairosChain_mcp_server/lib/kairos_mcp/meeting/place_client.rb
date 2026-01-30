@@ -10,15 +10,32 @@ module KairosMcp
     # PlaceClient connects to a Meeting Place Server and provides
     # methods to register, browse, and interact with the bulletin board.
     # Supports E2E encrypted message relay for secure communication.
+    #
+    # IMPORTANT: Connection is NOT automatic. Users must explicitly call
+    # connect() to establish a connection. This prevents unexpected
+    # token usage and costs.
     class PlaceClient
       attr_reader :place_url, :agent_id, :connected, :crypto
+      attr_reader :session_start_time, :interaction_count
 
-      def initialize(place_url:, identity:, timeout: 10, crypto: nil, keypair_path: nil)
+      # Default session limits (can be overridden in config)
+      DEFAULT_MAX_SESSION_MINUTES = 60
+      DEFAULT_WARN_AFTER_INTERACTIONS = 50
+
+      def initialize(place_url:, identity:, timeout: 10, crypto: nil, keypair_path: nil, config: {})
         @place_url = place_url.chomp('/')
         @identity = identity
         @timeout = timeout
         @agent_id = nil
         @connected = false
+        
+        # Session management
+        @session_start_time = nil
+        @interaction_count = 0
+        @max_session_minutes = config[:max_session_minutes] || DEFAULT_MAX_SESSION_MINUTES
+        @warn_after_interactions = config[:warn_after_interactions] || DEFAULT_WARN_AFTER_INTERACTIONS
+        @session_warning_shown = false
+        @interaction_warning_shown = false
         
         # E2E encryption support
         @crypto = crypto || Crypto.new(keypair_path: keypair_path, auto_generate: true)
@@ -26,11 +43,16 @@ module KairosMcp
       end
 
       # Connect to the Meeting Place
+      # Returns connection result or error
       def connect
         result = register
         if result && result[:agent_id]
           @agent_id = result[:agent_id]
           @connected = true
+          @session_start_time = Time.now
+          @interaction_count = 0
+          @session_warning_shown = false
+          @interaction_warning_shown = false
         end
         result
       end
@@ -40,16 +62,88 @@ module KairosMcp
         return { status: 'not_connected' } unless @connected
 
         result = unregister
+        session_duration = session_duration_minutes
+        
         @connected = false
         @agent_id = nil
-        result
+        @session_start_time = nil
+        
+        result.merge(
+          session_duration_minutes: session_duration,
+          total_interactions: @interaction_count
+        )
+      end
+
+      # Check if session should be terminated (timeout or interaction limit)
+      def check_session_limits
+        warnings = []
+        should_disconnect = false
+        
+        if @connected && @session_start_time
+          # Check session duration
+          if @max_session_minutes > 0 && session_duration_minutes >= @max_session_minutes
+            warnings << "Session timeout: #{@max_session_minutes} minutes reached"
+            should_disconnect = true
+          elsif @max_session_minutes > 0 && session_duration_minutes >= (@max_session_minutes * 0.8) && !@session_warning_shown
+            warnings << "Warning: Session will timeout in #{(@max_session_minutes - session_duration_minutes).round} minutes"
+            @session_warning_shown = true
+          end
+          
+          # Check interaction count
+          if @warn_after_interactions > 0 && @interaction_count >= @warn_after_interactions && !@interaction_warning_shown
+            warnings << "Warning: #{@interaction_count} interactions performed. Consider disconnecting to save costs."
+            @interaction_warning_shown = true
+          end
+        end
+        
+        { warnings: warnings, should_disconnect: should_disconnect }
+      end
+
+      # Get session status
+      def session_status
+        return { connected: false } unless @connected
+        
+        {
+          connected: true,
+          place_url: @place_url,
+          agent_id: @agent_id,
+          session_start_time: @session_start_time&.iso8601,
+          session_duration_minutes: session_duration_minutes,
+          interaction_count: @interaction_count,
+          max_session_minutes: @max_session_minutes,
+          warn_after_interactions: @warn_after_interactions
+        }
+      end
+
+      # Session duration in minutes
+      def session_duration_minutes
+        return 0 unless @session_start_time
+        ((Time.now - @session_start_time) / 60.0).round(1)
       end
 
       # Send heartbeat to stay registered
       def heartbeat
         return { error: 'Not connected' } unless @connected
 
+        track_interaction
         post('/place/v1/heartbeat', { agent_id: @agent_id })
+      end
+
+      # Track an interaction (for usage monitoring)
+      def track_interaction
+        @interaction_count += 1
+        limits = check_session_limits
+        
+        # Log warnings if any
+        limits[:warnings].each do |warning|
+          $stderr.puts "[PlaceClient] #{warning}"
+        end
+        
+        # Auto-disconnect if session expired
+        if limits[:should_disconnect]
+          $stderr.puts "[PlaceClient] Auto-disconnecting due to session timeout"
+          disconnect
+        end
       end
 
       # Get Meeting Place info

@@ -2,21 +2,46 @@
 # frozen_string_literal: true
 
 # KairosChain Meeting Place Server
-# Usage: bin/kairos_meeting_place [options]
+# Usage: bin/kairos_meeting_place [command] [options]
+#
+# Commands:
+#   start (default)  - Start the Meeting Place server
+#   admin            - Administrative commands (stats, audit, agents)
 #
 # Examples:
 #   bin/kairos_meeting_place                     # Start with defaults (0.0.0.0:8888)
-#   bin/kairos_meeting_place -p 9000             # Start on port 9000
-#   bin/kairos_meeting_place --name "My Place"   # Custom place name
+#   bin/kairos_meeting_place start -p 9000       # Start on port 9000
+#   bin/kairos_meeting_place admin stats         # Show statistics
+#   bin/kairos_meeting_place admin audit         # Show audit log
 #
 # This creates a public Meeting Place where KairosChain agents can:
 #   - Register their presence
 #   - Post skill offers/requests on the bulletin board
 #   - Discover other agents
+#   - Exchange encrypted messages (relay)
+#
+# Privacy Note:
+#   The admin commands show METADATA ONLY. Message content is E2E encrypted
+#   and CANNOT be read by the server administrator.
 
 $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 
 require 'optparse'
+require 'net/http'
+require 'json'
+require 'uri'
+
+# Check for admin subcommand
+if ARGV[0] == 'admin'
+  ARGV.shift
+  require_relative '../lib/kairos_mcp/cli/admin_cli'
+  KairosMcp::CLI::AdminCLI.new.run(ARGV)
+  exit
+end
+
+# Remove 'start' if present (it's the default)
+ARGV.shift if ARGV[0] == 'start'
+
 require 'kairos_mcp/meeting_place/server'
 
 options = {
@@ -25,7 +50,9 @@ options = {
   name: 'KairosChain Meeting Place',
   description: 'A place for KairosChain agents to meet and exchange skills',
   registry_ttl: 300,
-  posting_ttl_hours: 24
+  posting_ttl_hours: 24,
+  audit_log_path: nil,
+  anonymize_participants: false
 }
 
 OptionParser.new do |opts|
@@ -55,8 +82,26 @@ OptionParser.new do |opts|
     options[:posting_ttl_hours] = v
   end
 
+  opts.on('--audit-log PATH', 'Path to audit log file') do |v|
+    options[:audit_log_path] = v
+  end
+
+  opts.on('--anonymize', 'Anonymize participant IDs in audit log') do
+    options[:anonymize_participants] = true
+  end
+
   opts.on('--help', 'Show this help') do
     puts opts
+    puts
+    puts "Commands:"
+    puts "  start (default)  Start the Meeting Place server"
+    puts "  admin            Administrative commands"
+    puts
+    puts "Admin Commands:"
+    puts "  admin stats              Show server statistics"
+    puts "  admin audit              Show audit log (metadata only)"
+    puts "  admin agents             List registered agents"
+    puts "  admin relay              Show relay queue stats"
     puts
     puts "API Endpoints:"
     puts
@@ -79,23 +124,37 @@ OptionParser.new do |opts|
     puts "    GET  /place/v1/board/posting/:id - Get specific posting"
     puts "    GET  /place/v1/board/my_postings - Get my postings"
     puts
+    puts "  Public Keys (E2E Encryption):"
+    puts "    POST /place/v1/keys/register    - Register public key"
+    puts "    GET  /place/v1/keys/:agent_id   - Get agent's public key"
+    puts
+    puts "  Message Relay (E2E Encrypted):"
+    puts "    POST /place/v1/relay/send       - Send encrypted message"
+    puts "    GET  /place/v1/relay/receive    - Receive messages"
+    puts "    GET  /place/v1/relay/peek       - Peek at queue"
+    puts "    GET  /place/v1/relay/stats      - Relay statistics"
+    puts
+    puts "  Audit (Metadata Only - No Content):"
+    puts "    GET  /place/v1/audit            - View audit log"
+    puts "    GET  /place/v1/audit/stats      - Audit statistics"
+    puts
+    puts "Privacy Note:"
+    puts "  This server acts as a ROUTER ONLY. All message content is"
+    puts "  end-to-end encrypted. The server administrator CANNOT read"
+    puts "  message content - only metadata (timestamps, sizes, hashes)."
+    puts
     puts "Examples:"
     puts "  # Start the server"
     puts "  #{$PROGRAM_NAME}"
+    puts "  #{$PROGRAM_NAME} start -p 9000"
+    puts
+    puts "  # Admin commands (while server is running)"
+    puts "  #{$PROGRAM_NAME} admin stats"
+    puts "  #{$PROGRAM_NAME} admin audit --limit 50"
     puts
     puts "  # Test with curl"
     puts "  curl http://localhost:8888/health"
     puts "  curl http://localhost:8888/place/v1/info"
-    puts
-    puts "  # Register an agent"
-    puts "  curl -X POST http://localhost:8888/place/v1/register \\"
-    puts "    -H 'Content-Type: application/json' \\"
-    puts "    -d '{\"name\": \"MyAgent\", \"description\": \"Test agent\"}'"
-    puts
-    puts "  # Post a skill offer"
-    puts "  curl -X POST http://localhost:8888/place/v1/board/post \\"
-    puts "    -H 'Content-Type: application/json' \\"
-    puts "    -d '{\"agent_id\": \"agent_xxx\", \"type\": \"offer_skill\", \"skill_name\": \"translation\"}'"
     exit
   end
 end.parse!
@@ -116,7 +175,9 @@ begin
       name: options[:name],
       description: options[:description],
       registry_ttl: options[:registry_ttl],
-      posting_ttl_hours: options[:posting_ttl_hours]
+      posting_ttl_hours: options[:posting_ttl_hours],
+      audit_log_path: options[:audit_log_path],
+      anonymize_participants: options[:anonymize_participants]
     }
   )
 

@@ -95,8 +95,26 @@ encryption:
 
 # Meeting Place Client (when connecting to a Meeting Place server)
 meeting_place:
+  # Connection mode: "off" | "manual" | "auto"
+  # - off: Meeting Place features completely disabled
+  # - manual: Connect only when user explicitly requests (RECOMMENDED)
+  # - auto: Auto-connect on startup (NOT RECOMMENDED - may incur costs)
+  connection_mode: "manual"
+  
   # Default Meeting Place URL (can be overridden at runtime)
+  # Leave commented out or null to require explicit URL on connect
   # url: "http://localhost:8888"
+  
+  # Require user confirmation before connecting (for CLI)
+  confirm_before_connect: true
+  
+  # Maximum session duration in minutes (0 = unlimited, not recommended)
+  # After this time, connection will be automatically closed with warning
+  max_session_minutes: 60
+  
+  # Warning after N interactions (to prevent runaway token usage)
+  # Set to 0 to disable
+  warn_after_interactions: 50
   
   # Auto-register public key when connecting
   auto_register_key: true
