@@ -3,11 +3,17 @@
 require 'digest'
 require 'yaml'
 require 'fileutils'
+require_relative '../kairos_chain/chain'
 
 module KairosMcp
   module Meeting
     # SkillExchange handles the packaging, validation, and storage of exchanged skills.
     # It enforces safety policies to prevent execution of untrusted code.
+    # 
+    # Provenance Tracking:
+    # - Each received skill is recorded in the local KairosChain with origin information
+    # - Provenance chain tracks the full path a skill has traveled between agents
+    # - This enables tracing issues back to their source
     class SkillExchange
       # Safe formats that can be exchanged by default
       SAFE_FORMATS = %w[markdown yaml_frontmatter].freeze
@@ -18,10 +24,13 @@ module KairosMcp
       # Maximum skill size in bytes (default 100KB)
       DEFAULT_MAX_SIZE = 100_000
 
-      def initialize(config:, workspace_root: nil)
+      attr_reader :chain
+
+      def initialize(config:, workspace_root: nil, chain: nil)
         @config = config
         @workspace_root = workspace_root
         @exchange_config = config['skill_exchange'] || {}
+        @chain = chain || KairosChain::Chain.new
       end
 
       # Package a skill for sending to another agent
@@ -105,7 +114,7 @@ module KairosMcp
       # Store a received skill in the appropriate location
       # @param skill_data [Hash] Validated skill data
       # @param target_layer [String] Layer to store in ('L1' or 'L2')
-      # @return [Hash] Storage result
+      # @return [Hash] Storage result with provenance information
       def store_received_skill(skill_data, target_layer: 'L2')
         validation = validate_received_skill(skill_data)
         raise SecurityError, "Skill validation failed: #{validation[:errors].join(', ')}" unless validation[:valid]
@@ -113,6 +122,9 @@ module KairosMcp
         skill_name = skill_data[:skill_name] || skill_data['skill_name'] || 'received_skill'
         content = skill_data[:content] || skill_data['content']
         format = skill_data[:format] || skill_data['format']
+
+        # Build provenance chain (tracks where this skill came from)
+        provenance = build_provenance(skill_data)
 
         # Determine storage path based on layer
         base_dir = case target_layer.upcase
@@ -132,17 +144,63 @@ module KairosMcp
         filename = "#{safe_name}_#{timestamp}.md"
         filepath = File.join(base_dir, filename)
 
-        # Add received metadata to frontmatter
-        enriched_content = add_received_metadata(content, skill_data)
+        # Add received metadata and provenance to frontmatter
+        enriched_content = add_received_metadata(content, skill_data, provenance)
 
         File.write(filepath, enriched_content)
+
+        final_hash = Digest::SHA256.hexdigest(enriched_content)
+
+        # Record provenance to blockchain for immutable audit trail
+        record_provenance_to_chain(skill_data, provenance, filepath, final_hash)
 
         {
           stored: true,
           path: filepath,
           layer: target_layer,
           skill_name: skill_name,
-          content_hash: Digest::SHA256.hexdigest(enriched_content)
+          content_hash: final_hash,
+          provenance: provenance
+        }
+      end
+
+      # Get provenance history for a skill by its content hash
+      # @param content_hash [String] The skill's content hash
+      # @return [Array<Hash>] Provenance records from the chain
+      def get_provenance_history(content_hash)
+        records = []
+        @chain.chain.each do |block|
+          block.data.each do |data_item|
+            next unless data_item.is_a?(String)
+            
+            parsed = JSON.parse(data_item, symbolize_names: true)
+            if parsed[:_type] == 'skill_provenance' && 
+               (parsed[:content_hash] == content_hash || parsed[:original_hash] == content_hash)
+              records << parsed
+            end
+          rescue JSON::ParserError
+            next
+          end
+        end
+        records
+      end
+
+      # Trace the origin of a skill through its provenance chain
+      # @param content_hash [String] The skill's content hash
+      # @return [Hash] Origin information
+      def trace_skill_origin(content_hash)
+        records = get_provenance_history(content_hash)
+        return nil if records.empty?
+
+        # Find the oldest record (closest to origin)
+        oldest = records.min_by { |r| r[:received_at] }
+        
+        {
+          original_sender: oldest[:provenance_chain]&.first || oldest[:received_from],
+          full_chain: oldest[:provenance_chain] || [oldest[:received_from]],
+          first_received_at: oldest[:received_at],
+          total_hops: (oldest[:provenance_chain]&.length || 1) - 1,
+          content_hash: content_hash
         }
       end
 
@@ -237,12 +295,73 @@ module KairosMcp
         { warnings: warnings, errors: errors }
       end
 
-      def add_received_metadata(content, skill_data)
+      # Build provenance information for a received skill
+      # @param skill_data [Hash] The skill data with optional existing provenance
+      # @return [Hash] Provenance information
+      def build_provenance(skill_data)
+        sender = skill_data[:from] || skill_data['from']
+        original_hash = skill_data[:content_hash] || skill_data['content_hash']
+        
+        # Check if the skill already has provenance chain (was forwarded)
+        existing_provenance = skill_data[:provenance] || skill_data['provenance'] || {}
+        existing_chain = existing_provenance[:chain] || existing_provenance['chain'] || []
+        
+        # Build the provenance chain
+        provenance_chain = if existing_chain.empty?
+                             [sender]  # This is the first hop
+                           else
+                             existing_chain + [sender]  # Add this sender to the chain
+                           end
+
+        {
+          received_from: sender,
+          received_at: Time.now.utc.iso8601,
+          original_hash: original_hash,
+          provenance_chain: provenance_chain,
+          origin: provenance_chain.first,  # Original source
+          hop_count: provenance_chain.length - 1,  # Number of intermediaries
+          protocol_version: '1.0.0'
+        }
+      end
+
+      # Record provenance to the blockchain for immutable audit trail
+      # @param skill_data [Hash] Original skill data
+      # @param provenance [Hash] Computed provenance
+      # @param stored_path [String] Where the skill was stored
+      # @param final_hash [String] Hash of the stored content
+      def record_provenance_to_chain(skill_data, provenance, stored_path, final_hash)
+        record = {
+          _type: 'skill_provenance',
+          skill_name: skill_data[:skill_name] || skill_data['skill_name'],
+          original_hash: provenance[:original_hash],
+          content_hash: final_hash,
+          received_from: provenance[:received_from],
+          received_at: provenance[:received_at],
+          provenance_chain: provenance[:provenance_chain],
+          origin: provenance[:origin],
+          hop_count: provenance[:hop_count],
+          stored_path: stored_path,
+          recorded_at: Time.now.utc.iso8601
+        }
+
+        @chain.add_block([record.to_json])
+      end
+
+      def add_received_metadata(content, skill_data, provenance = nil)
+        provenance ||= build_provenance(skill_data)
+        
         metadata = {
-          'received_from' => skill_data[:from] || skill_data['from'],
-          'received_at' => Time.now.utc.iso8601,
-          'original_hash' => skill_data[:content_hash] || skill_data['content_hash'],
-          'exchange_protocol_version' => '1.0.0'
+          'received_from' => provenance[:received_from],
+          'received_at' => provenance[:received_at],
+          'original_hash' => provenance[:original_hash],
+          'exchange_protocol_version' => provenance[:protocol_version]
+        }
+
+        # Add provenance tracking information
+        provenance_data = {
+          'origin' => provenance[:origin],
+          'chain' => provenance[:provenance_chain],
+          'hop_count' => provenance[:hop_count]
         }
 
         if content.start_with?('---')
@@ -250,13 +369,20 @@ module KairosMcp
           parts = content.split(/^---\s*$/, 3)
           if parts.length >= 3
             existing = YAML.safe_load(parts[1]) || {}
-            merged = existing.merge('_received' => metadata)
+            merged = existing.merge(
+              '_received' => metadata,
+              '_provenance' => provenance_data
+            )
             return "---\n#{merged.to_yaml}---\n#{parts[2]}"
           end
         end
 
         # Add new frontmatter
-        "---\n#{({ '_received' => metadata }).to_yaml}---\n\n#{content}"
+        frontmatter = {
+          '_received' => metadata,
+          '_provenance' => provenance_data
+        }
+        "---\n#{frontmatter.to_yaml}---\n\n#{content}"
       end
     end
   end

@@ -126,22 +126,53 @@ module KairosMcp
         )
       end
 
-      # Log a skill exchange event
+      # Log a skill exchange event with full provenance tracking
       # @param skill_name [String] Name of the skill
       # @param skill_hash [String] Content hash of the skill
       # @param direction [Symbol] :sent or :received
       # @param peer_id [String] The peer's instance_id
-      def log_skill_exchange(skill_name:, skill_hash:, direction:, peer_id:)
+      # @param provenance [Hash, nil] Optional provenance information for received skills
+      def log_skill_exchange(skill_name:, skill_hash:, direction:, peer_id:, provenance: nil)
+        metadata = {
+          skill_name: skill_name,
+          content_hash: skill_hash,
+          transferred_at: Time.now.utc.iso8601
+        }
+
+        # Add provenance information if available (for received skills)
+        if provenance
+          metadata[:provenance] = {
+            origin: provenance[:origin],
+            hop_count: provenance[:hop_count],
+            chain: provenance[:provenance_chain]
+          }
+        end
+
         log_interaction(
           type: 'skill_transferred',
           direction: direction.to_s,
           peer_id: peer_id,
-          metadata: {
-            skill_name: skill_name,
-            content_hash: skill_hash,
-            transferred_at: Time.now.utc.iso8601
-          }
+          metadata: metadata
         )
+      end
+
+      # Get all skill transfer records
+      # @param limit [Integer] Maximum number of records
+      # @return [Array<Hash>] Skill transfer records with provenance
+      def skill_transfer_history(limit: 100)
+        all_interactions(limit: limit * 2)
+          .select { |i| i[:type] == 'skill_transferred' }
+          .last(limit)
+      end
+
+      # Find skills received from a specific origin (original source)
+      # @param origin_id [String] The original source's instance_id
+      # @return [Array<Hash>] Skills that originated from this source
+      def skills_from_origin(origin_id)
+        skill_transfer_history(limit: 1000).select do |record|
+          record.dig(:metadata, :provenance, :origin) == origin_id ||
+            record[:peer_id] == origin_id
+        end
       end
 
       # Get interaction history for a specific peer
