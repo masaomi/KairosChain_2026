@@ -1,0 +1,140 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# KairosChain Meeting Place Server
+# Usage: bin/kairos_meeting_place [options]
+#
+# Examples:
+#   bin/kairos_meeting_place                     # Start with defaults (0.0.0.0:8888)
+#   bin/kairos_meeting_place -p 9000             # Start on port 9000
+#   bin/kairos_meeting_place --name "My Place"   # Custom place name
+#
+# This creates a public Meeting Place where KairosChain agents can:
+#   - Register their presence
+#   - Post skill offers/requests on the bulletin board
+#   - Discover other agents
+
+$LOAD_PATH.unshift File.expand_path('../lib', __dir__)
+
+require 'optparse'
+require 'kairos_mcp/meeting_place/server'
+
+options = {
+  host: nil,
+  port: nil,
+  name: 'KairosChain Meeting Place',
+  description: 'A place for KairosChain agents to meet and exchange skills',
+  registry_ttl: 300,
+  posting_ttl_hours: 24
+}
+
+OptionParser.new do |opts|
+  opts.banner = "Usage: #{$PROGRAM_NAME} [options]"
+
+  opts.on('-h', '--host HOST', 'Host to bind to (default: 0.0.0.0)') do |v|
+    options[:host] = v
+  end
+
+  opts.on('-p', '--port PORT', Integer, 'Port to listen on (default: 8888)') do |v|
+    options[:port] = v
+  end
+
+  opts.on('-n', '--name NAME', 'Meeting Place name') do |v|
+    options[:name] = v
+  end
+
+  opts.on('-d', '--description DESC', 'Meeting Place description') do |v|
+    options[:description] = v
+  end
+
+  opts.on('--registry-ttl SECONDS', Integer, 'Agent TTL in seconds (default: 300)') do |v|
+    options[:registry_ttl] = v
+  end
+
+  opts.on('--posting-ttl HOURS', Integer, 'Posting TTL in hours (default: 24)') do |v|
+    options[:posting_ttl_hours] = v
+  end
+
+  opts.on('--help', 'Show this help') do
+    puts opts
+    puts
+    puts "API Endpoints:"
+    puts
+    puts "  Place Info:"
+    puts "    GET  /health                    - Health check"
+    puts "    GET  /place/v1/info             - Place information"
+    puts "    GET  /place/v1/stats            - Statistics"
+    puts
+    puts "  Registry (Agent Management):"
+    puts "    POST /place/v1/register         - Register an agent"
+    puts "    POST /place/v1/heartbeat        - Keep registration alive"
+    puts "    POST /place/v1/unregister       - Unregister an agent"
+    puts "    GET  /place/v1/agents           - List all agents"
+    puts "    GET  /place/v1/agents/:id       - Get specific agent"
+    puts
+    puts "  Bulletin Board:"
+    puts "    POST /place/v1/board/post       - Create a posting"
+    puts "    POST /place/v1/board/remove     - Remove a posting"
+    puts "    GET  /place/v1/board/browse     - Browse postings"
+    puts "    GET  /place/v1/board/posting/:id - Get specific posting"
+    puts "    GET  /place/v1/board/my_postings - Get my postings"
+    puts
+    puts "Examples:"
+    puts "  # Start the server"
+    puts "  #{$PROGRAM_NAME}"
+    puts
+    puts "  # Test with curl"
+    puts "  curl http://localhost:8888/health"
+    puts "  curl http://localhost:8888/place/v1/info"
+    puts
+    puts "  # Register an agent"
+    puts "  curl -X POST http://localhost:8888/place/v1/register \\"
+    puts "    -H 'Content-Type: application/json' \\"
+    puts "    -d '{\"name\": \"MyAgent\", \"description\": \"Test agent\"}'"
+    puts
+    puts "  # Post a skill offer"
+    puts "  curl -X POST http://localhost:8888/place/v1/board/post \\"
+    puts "    -H 'Content-Type: application/json' \\"
+    puts "    -d '{\"agent_id\": \"agent_xxx\", \"type\": \"offer_skill\", \"skill_name\": \"translation\"}'"
+    exit
+  end
+end.parse!
+
+puts "KairosChain Meeting Place Server"
+puts "================================"
+puts "Name: #{options[:name]}"
+puts "Description: #{options[:description]}"
+puts "Registry TTL: #{options[:registry_ttl]} seconds"
+puts "Posting TTL: #{options[:posting_ttl_hours]} hours"
+puts
+
+begin
+  server = KairosMcp::MeetingPlace::MeetingPlaceServer.new(
+    host: options[:host],
+    port: options[:port],
+    config: {
+      name: options[:name],
+      description: options[:description],
+      registry_ttl: options[:registry_ttl],
+      posting_ttl_hours: options[:posting_ttl_hours]
+    }
+  )
+
+  puts "Starting server..."
+  puts "URL: #{server.url}"
+  puts
+  puts "Test with:"
+  puts "  curl #{server.url}/health"
+  puts "  curl #{server.url}/place/v1/info"
+  puts "  curl #{server.url}/place/v1/agents"
+  puts "  curl #{server.url}/place/v1/board/browse"
+  puts
+
+  server.start
+rescue Interrupt
+  puts "\nServer stopped."
+rescue StandardError => e
+  $stderr.puts "Error: #{e.message}"
+  $stderr.puts e.backtrace.first(5).join("\n")
+  exit 1
+end
