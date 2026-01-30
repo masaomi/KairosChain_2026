@@ -4,6 +4,8 @@ require 'json'
 require 'digest'
 require 'time'
 require_relative 'protocol_loader'
+require_relative 'protocol_evolution'
+require_relative 'compatibility'
 
 module KairosMcp
   module Meeting
@@ -12,6 +14,9 @@ module KairosMcp
     #
     # Phase 6: Protocol definitions are now loaded from skill files in knowledge/.
     # This enables dynamic extension of the protocol through skill exchange.
+    #
+    # Phase 7: Protocol Evolution enables agents to propose, adopt, and share
+    # protocol extensions dynamically (co-evolution).
     class MeetingProtocol
       PROTOCOL_VERSION = '1.0.0'
 
@@ -34,9 +39,13 @@ module KairosMcp
         decline
         reflect
         skill_content
+        propose_extension
+        evaluate_extension
+        adopt_extension
+        share_extension
       ].freeze
 
-      attr_reader :protocol_loader, :supported_extensions
+      attr_reader :protocol_loader, :supported_extensions, :evolution, :compatibility
 
       # Message structure for all protocol messages
       Message = Struct.new(
@@ -68,10 +77,11 @@ module KairosMcp
         end
       end
 
-      def initialize(identity:, knowledge_root: nil)
+      def initialize(identity:, knowledge_root: nil, evolution_config: {})
         @identity = identity
         @pending_offers = {}  # Track pending skill offers
         @pending_requests = {} # Track pending skill requests
+        @pending_extension_proposals = {} # Track pending extension proposals
         
         # Phase 6: Initialize protocol loader
         @knowledge_root = knowledge_root || default_knowledge_root
@@ -80,6 +90,19 @@ module KairosMcp
         
         # Load protocols from skill files
         load_protocols
+        
+        # Phase 7: Initialize protocol evolution
+        @evolution = ProtocolEvolution.new(
+          knowledge_root: @knowledge_root,
+          config: evolution_config
+        )
+        
+        # Phase 7: Initialize compatibility manager
+        @compatibility = Compatibility.new(
+          protocol_version: PROTOCOL_VERSION,
+          extensions: @supported_extensions,
+          actions: supported_actions
+        )
       end
 
       # Load or reload protocols from skill files
@@ -278,6 +301,111 @@ module KairosMcp
         )
       end
 
+      # =========================================
+      # Phase 7: Protocol Evolution Actions
+      # =========================================
+
+      # Create a propose_extension message
+      # @param extension_content [String] Full markdown content of the extension
+      # @param to [String] Recipient instance_id
+      def create_propose_extension(extension_content:, to:)
+        proposal = @evolution.create_proposal(extension_content: extension_content)
+        return nil if proposal[:error]
+
+        message = create_message(
+          action: 'propose_extension',
+          to: to,
+          payload: proposal
+        )
+
+        @pending_extension_proposals[message.id] = {
+          extension_name: proposal[:extension_name],
+          content: extension_content,
+          created_at: Time.now.utc
+        }
+
+        message
+      end
+
+      # Create an evaluate_extension message (request full content)
+      # @param extension_name [String] Name of the extension
+      # @param content_hash [String] Expected content hash
+      # @param to [String] Recipient instance_id
+      # @param in_reply_to [String] Original proposal message ID
+      def create_evaluate_extension(extension_name:, content_hash:, to:, in_reply_to:)
+        create_message(
+          action: 'evaluate_extension',
+          to: to,
+          in_reply_to: in_reply_to,
+          payload: {
+            extension_name: extension_name,
+            content_hash: content_hash,
+            evaluation_intent: 'adopt'
+          }
+        )
+      end
+
+      # Create an adopt_extension message (confirm adoption)
+      # @param extension_name [String] Name of the extension
+      # @param content_hash [String] Content hash
+      # @param evaluation_result [Hash] Result of evaluation
+      # @param to [String] Recipient instance_id
+      # @param in_reply_to [String] share_extension message ID
+      def create_adopt_extension(extension_name:, content_hash:, evaluation_result:, to:, in_reply_to:)
+        create_message(
+          action: 'adopt_extension',
+          to: to,
+          in_reply_to: in_reply_to,
+          payload: {
+            extension_name: extension_name,
+            content_hash: content_hash,
+            adopted_layer: 'L2',
+            evaluation_result: evaluation_result
+          }
+        )
+      end
+
+      # Create a share_extension message (send full content)
+      # @param extension_name [String] Name of the extension
+      # @param to [String] Recipient instance_id
+      # @param in_reply_to [String] evaluate_extension message ID
+      def create_share_extension(extension_name:, to:, in_reply_to:)
+        content = @evolution.get_extension_content(extension_name)
+        return nil unless content
+
+        ext_status = @evolution.extension_status(extension_name)
+        
+        create_message(
+          action: 'share_extension',
+          to: to,
+          in_reply_to: in_reply_to,
+          payload: {
+            extension_name: extension_name,
+            extension_version: ext_status&.dig(:version) || '1.0.0',
+            content: content,
+            content_hash: "sha256:#{Digest::SHA256.hexdigest(content)}",
+            provenance: {
+              origin: ext_status&.dig(:from_agent) || @identity.introduce[:identity][:instance_id],
+              chain: [ext_status&.dig(:from_agent), @identity.introduce[:identity][:instance_id]].compact.uniq,
+              hop_count: ext_status&.dig(:from_agent) ? 1 : 0
+            }
+          }
+        )
+      end
+
+      # Negotiate compatibility with a peer
+      # @param peer_info [Hash] Peer's introduce payload
+      # @return [Hash] Compatibility result
+      def negotiate_compatibility(peer_info)
+        @compatibility.negotiate(peer_info)
+      end
+
+      # Get list of shareable extensions
+      # @return [Array<Hash>]
+      def shareable_extensions
+        @evolution.shareable_extensions
+      end
+
       # Process an incoming message
       # @param message_json [String, Hash] Incoming message
       # @return [Hash] Processing result with suggested response
@@ -339,6 +467,15 @@ module KairosMcp
           process_skill_content(msg_data)
         when 'reflect'
           process_reflect(msg_data)
+        # Protocol Evolution Extension
+        when 'propose_extension'
+          process_propose_extension(msg_data)
+        when 'evaluate_extension'
+          process_evaluate_extension(msg_data)
+        when 'adopt_extension'
+          process_adopt_extension(msg_data)
+        when 'share_extension'
+          process_share_extension(msg_data)
         else
           # This shouldn't happen if action_supported? works correctly
           { status: 'error', error: "Unknown action: #{action}" }
@@ -545,6 +682,183 @@ module KairosMcp
           from: msg_data[:from],
           reflection: msg_data.dig(:payload, :reflection),
           interaction_complete: true
+        }
+      end
+
+      # =========================================
+      # Phase 7: Protocol Evolution Processors
+      # =========================================
+
+      def process_propose_extension(msg_data)
+        payload = msg_data[:payload] || {}
+        extension_name = payload[:extension_name]
+        actions = payload[:actions] || []
+        
+        # Check if we already have this extension
+        existing = @evolution.extension_status(extension_name)
+        if existing
+          return {
+            status: 'already_have',
+            action: 'propose_extension',
+            from: msg_data[:from],
+            extension_name: extension_name,
+            current_version: existing[:version],
+            suggested_response: create_decline(
+              in_reply_to: msg_data[:id],
+              to: msg_data[:from],
+              reason: "Already have extension '#{extension_name}'"
+            )
+          }
+        end
+
+        # Check if actions are blocked
+        blocked = actions & (@evolution.config[:blocked_actions] || [])
+        if blocked.any?
+          return {
+            status: 'rejected',
+            action: 'propose_extension',
+            from: msg_data[:from],
+            extension_name: extension_name,
+            reason: 'blocked_actions',
+            blocked_actions: blocked,
+            suggested_response: create_decline(
+              in_reply_to: msg_data[:id],
+              to: msg_data[:from],
+              reason: "Extension contains blocked actions: #{blocked.join(', ')}"
+            )
+          }
+        end
+
+        # Proposal looks interesting, request full content
+        {
+          status: 'interested',
+          action: 'propose_extension',
+          from: msg_data[:from],
+          extension_name: extension_name,
+          proposed_actions: actions,
+          suggested_response: create_evaluate_extension(
+            extension_name: extension_name,
+            content_hash: payload[:content_hash],
+            to: msg_data[:from],
+            in_reply_to: msg_data[:id]
+          )
+        }
+      end
+
+      def process_evaluate_extension(msg_data)
+        payload = msg_data[:payload] || {}
+        extension_name = payload[:extension_name]
+        
+        # Check if we have this extension to share
+        content = @evolution.get_extension_content(extension_name)
+        
+        unless content
+          return {
+            status: 'not_found',
+            action: 'evaluate_extension',
+            from: msg_data[:from],
+            extension_name: extension_name,
+            suggested_response: create_error(
+              to: msg_data[:from],
+              error_code: 'extension_not_found',
+              message: "Extension '#{extension_name}' not found",
+              in_reply_to: msg_data[:id]
+            )
+          }
+        end
+
+        # Share the extension
+        {
+          status: 'sharing',
+          action: 'evaluate_extension',
+          from: msg_data[:from],
+          extension_name: extension_name,
+          suggested_response: create_share_extension(
+            extension_name: extension_name,
+            to: msg_data[:from],
+            in_reply_to: msg_data[:id]
+          )
+        }
+      end
+
+      def process_share_extension(msg_data)
+        payload = msg_data[:payload] || {}
+        extension_name = payload[:extension_name]
+        content = payload[:content]
+        content_hash = payload[:content_hash]
+        
+        # Verify hash
+        calculated_hash = "sha256:#{Digest::SHA256.hexdigest(content || '')}"
+        if content_hash && calculated_hash != content_hash
+          return {
+            status: 'error',
+            action: 'share_extension',
+            from: msg_data[:from],
+            error: 'Content hash mismatch',
+            suggested_response: create_error(
+              to: msg_data[:from],
+              error_code: 'hash_mismatch',
+              message: 'Extension content hash does not match',
+              in_reply_to: msg_data[:id]
+            )
+          }
+        end
+
+        # Try to adopt the extension
+        adopt_result = @evolution.adopt_extension(
+          extension_content: content,
+          from_agent: msg_data[:from]
+        )
+
+        if adopt_result[:adopted]
+          # Reload protocols to include new extension
+          load_protocols
+          
+          {
+            status: 'adopted',
+            action: 'share_extension',
+            from: msg_data[:from],
+            extension_name: extension_name,
+            layer: 'L2',
+            suggested_response: create_adopt_extension(
+              extension_name: extension_name,
+              content_hash: calculated_hash,
+              evaluation_result: {
+                safety_check: 'passed',
+                compatibility_check: 'passed'
+              },
+              to: msg_data[:from],
+              in_reply_to: msg_data[:id]
+            )
+          }
+        else
+          {
+            status: 'rejected',
+            action: 'share_extension',
+            from: msg_data[:from],
+            extension_name: extension_name,
+            reason: adopt_result[:reason] || adopt_result[:message],
+            suggested_response: create_decline(
+              in_reply_to: msg_data[:id],
+              to: msg_data[:from],
+              reason: adopt_result[:message]
+            )
+          }
+        end
+      end
+
+      def process_adopt_extension(msg_data)
+        payload = msg_data[:payload] || {}
+        
+        # Peer has adopted our extension
+        {
+          status: 'received',
+          action: 'adopt_extension',
+          from: msg_data[:from],
+          extension_name: payload[:extension_name],
+          adopted_layer: payload[:adopted_layer],
+          evaluation_result: payload[:evaluation_result],
+          propagation_successful: true
         }
       end
 

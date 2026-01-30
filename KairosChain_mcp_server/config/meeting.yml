@@ -121,3 +121,43 @@ meeting_place:
   
   # Cache peer public keys locally
   cache_keys: true
+
+# Protocol Evolution (Phase 7)
+# Controls how this instance handles protocol extension sharing and adoption.
+protocol_evolution:
+  # Automatically evaluate proposed extensions from peers
+  auto_evaluate: true
+  
+  # Days to keep extension in L2 (experimental) before promotion eligible
+  evaluation_period_days: 7
+  
+  # Allow automatic promotion to L1 (NOT RECOMMENDED)
+  # If false, all promotions require human approval
+  auto_promote: false
+  
+  # Require human approval for L1 promotion
+  require_human_approval_for_l1: true
+  
+  # Actions that are NEVER allowed in extensions
+  # Extensions containing these actions will be rejected
+  blocked_actions:
+    - execute_code
+    - system_command
+    - file_write
+    - shell_exec
+    - eval
+    - require
+    - load
+  
+  # Maximum number of actions per extension
+  max_actions_per_extension: 20
+  
+  # Auto-share adopted extensions with peers
+  # If true, extensions you've promoted to L1 will be offered to peers
+  auto_share_extensions: false
+  
+  # Trust level for automatic adoption
+  # - none: Never auto-adopt (always require evaluation)
+  # - known: Auto-adopt from previously trusted peers
+  # - all: Auto-adopt from any peer (NOT RECOMMENDED)
+  auto_adopt_trust_level: "none"
