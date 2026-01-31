@@ -19,7 +19,7 @@
 $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 
 require 'optparse'
-require 'kairos_mcp/transport/http_server'
+require 'yaml'
 
 options = {
   host: nil,
@@ -72,6 +72,27 @@ OptionParser.new do |opts|
     exit
   end
 end.parse!
+
+# Check if Meeting Protocol is enabled
+config_path = File.join(options[:workspace], 'config', 'meeting.yml')
+if File.exist?(config_path)
+  config = YAML.load_file(config_path) || {}
+  unless config['enabled'] == true
+    $stderr.puts "ERROR: Meeting Protocol is disabled."
+    $stderr.puts ""
+    $stderr.puts "To enable, set 'enabled: true' in #{config_path}"
+    $stderr.puts ""
+    $stderr.puts "Current setting: enabled: #{config['enabled'].inspect}"
+    exit 1
+  end
+else
+  $stderr.puts "WARNING: No config/meeting.yml found at #{config_path}"
+  $stderr.puts "Server will start with default settings."
+  $stderr.puts ""
+end
+
+# Load HTTP server module (only after enabled check passes)
+require 'kairos_mcp/transport/http_server'
 
 puts "KairosChain Meeting Protocol Server (Puma)"
 puts "==========================================="

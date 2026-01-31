@@ -1,6 +1,6 @@
 # Model Meeting Protocol: スキルベース定義によるエージェント間通信の動的プロトコル進化
 
-**畠山 雅臣**  
+**Masaomi Hatakeyama**  
 Genomics on Blockchain  
 2026年1月30日
 

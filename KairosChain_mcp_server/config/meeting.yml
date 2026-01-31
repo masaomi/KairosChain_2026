@@ -2,6 +2,19 @@
 # This file configures how this KairosChain instance presents itself
 # and interacts with other KairosChain instances.
 
+# Master switch for Meeting Protocol (MMP) features
+# - false (default): Meeting Protocol is disabled, no meeting code is loaded
+# - true: Meeting Protocol is enabled
+# 
+# When disabled:
+# - No meeting-related require statements are executed (reduces memory footprint)
+# - meeting/* methods return "Meeting Protocol disabled" error
+# - No Meeting Place connections can be made
+# - HTTP server for Meeting Protocol is not started
+#
+# Set to true only if you need inter-agent communication features.
+enabled: false
+
 # Identity: How this instance introduces itself
 identity:
   name: "KairosChain Instance"

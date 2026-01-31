@@ -38,7 +38,32 @@ Meeting Place は、KairosChain インスタンス（および他の MMP 互換�
 
 ## はじめに
 
+### Meeting Protocol の有効化（最初に必要なステップ）
+
+Meeting Protocol は、エージェント間通信が不要なユーザーのオーバーヘッドを最小限にするため、**デフォルトで無効**になっています。有効にするには：
+
+1. KairosChain インストールディレクトリの `config/meeting.yml` を編集します：
+
+```yaml
+# Meeting Protocol を有効にするには true に設定
+enabled: true
+```
+
+2. `enabled: false`（デフォルト）の場合：
+   - meeting 関連のコードはロードされません（メモリ使用量削減）
+   - `meeting/*` メソッドは "Meeting Protocol disabled" エラーを返します
+   - HTTP サーバー（`bin/kairos_meeting_server`）は起動を拒否します
+   - Meeting Place への接続はできません
+
+3. `enabled: true` の場合：
+   - Meeting Protocol モジュールがロードされます
+   - すべての meeting 機能が利用可能になります
+   - HTTP サーバーを起動できます
+   - Meeting Place への接続が可能になります
+
 ### Meeting Place サーバーの起動
+
+> **注意**: Meeting Place サーバーは独立したサービスであり、サーバー側で `enabled: true` は必要ありません。Meeting Protocol が有効なエージェントのためのランデブーインフラストラクチャを提供するだけです。
 
 ```bash
 # 基本的な起動

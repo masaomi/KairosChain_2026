@@ -1,10 +1,10 @@
 require 'json'
+require 'yaml'
 require_relative 'tool_registry'
 require_relative 'version'
-require_relative 'meeting/identity'
-require_relative 'meeting/meeting_protocol'
-require_relative 'meeting/skill_exchange'
-require_relative 'meeting/interaction_log'
+
+# Meeting Protocol is loaded conditionally based on config/meeting.yml
+# This reduces memory footprint when Meeting Protocol is not needed.
 
 module KairosMcp
   class Protocol
@@ -19,7 +19,54 @@ module KairosMcp
       @interaction_log = nil   # Lazy initialized after workspace is set
       @workspace_root = nil
       @initialized = false
+      @meeting_enabled = nil   # Cached meeting enabled state
+      @meeting_loaded = false  # Track if meeting modules have been loaded
     end
+
+    # Check if Meeting Protocol is enabled in config
+    def meeting_enabled?
+      return @meeting_enabled unless @meeting_enabled.nil?
+
+      config_path = find_meeting_config
+      if config_path && File.exist?(config_path)
+        config = YAML.load_file(config_path) || {}
+        @meeting_enabled = config['enabled'] == true
+      else
+        @meeting_enabled = false  # Default: disabled
+      end
+      @meeting_enabled
+    end
+
+    # Lazy load meeting modules only when needed
+    def load_meeting_modules!
+      return if @meeting_loaded
+      return unless meeting_enabled?
+
+      require_relative 'meeting/identity'
+      require_relative 'meeting/meeting_protocol'
+      require_relative 'meeting/skill_exchange'
+      require_relative 'meeting/interaction_log'
+
+      @meeting_loaded = true
+    end
+
+    private
+
+    def find_meeting_config
+      # Try workspace-relative path first, then default location
+      if @workspace_root
+        workspace_config = File.join(@workspace_root, 'config', 'meeting.yml')
+        return workspace_config if File.exist?(workspace_config)
+      end
+
+      # Fallback to KairosChain_mcp_server config
+      default_config = File.expand_path('../../../config/meeting.yml', __FILE__)
+      return default_config if File.exist?(default_config)
+
+      nil
+    end
+
+    public
 
     def handle_message(line)
       request = parse_json(line)
@@ -38,34 +85,10 @@ module KairosMcp
                  handle_tools_list
                when 'tools/call'
                  handle_tools_call(params)
-               # Meeting Protocol methods (Phase 1)
-               when 'meeting/introduce'
-                 handle_meeting_introduce(params)
-               when 'meeting/capabilities'
-                 handle_meeting_capabilities(params)
-               when 'meeting/skills'
-                 handle_meeting_skills(params)
-               # Meeting Protocol methods (Phase 2)
-               when 'meeting/offer_skill'
-                 handle_meeting_offer_skill(params)
-               when 'meeting/request_skill'
-                 handle_meeting_request_skill(params)
-               when 'meeting/accept'
-                 handle_meeting_accept(params)
-               when 'meeting/decline'
-                 handle_meeting_decline(params)
-               when 'meeting/skill_content'
-                 handle_meeting_skill_content(params)
-               when 'meeting/reflect'
-                 handle_meeting_reflect(params)
-               when 'meeting/process_message'
-                 handle_meeting_process_message(params)
-               when 'meeting/start_session'
-                 handle_meeting_start_session(params)
-               when 'meeting/end_session'
-                 handle_meeting_end_session(params)
-               when 'meeting/interaction_history'
-                 handle_meeting_interaction_history(params)
+               # Meeting Protocol methods - guarded by meeting_enabled?
+               when /^meeting\//
+                 return format_error(id, -32601, 'Meeting Protocol is disabled. Set enabled: true in config/meeting.yml to enable.') unless meeting_enabled?
+                 handle_meeting_method(method, params)
                else
                  return nil
                end
@@ -88,30 +111,38 @@ module KairosMcp
       @tool_registry.set_workspace(roots)
       @initialized = true
 
-      # Initialize Meeting components with workspace root
+      # Extract workspace root first (needed for config lookup)
       @workspace_root = extract_workspace_root(roots)
-      @meeting_identity = Meeting::Identity.new(workspace_root: @workspace_root)
-      @meeting_protocol = Meeting::MeetingProtocol.new(identity: @meeting_identity)
-      @skill_exchange = Meeting::SkillExchange.new(
-        config: @meeting_identity.config,
-        workspace_root: @workspace_root
-      )
-      @interaction_log = Meeting::InteractionLog.new(workspace_root: @workspace_root)
+
+      # Build capabilities based on meeting enabled state
+      capabilities = { tools: {} }
+
+      if meeting_enabled?
+        # Load meeting modules and initialize components
+        load_meeting_modules!
+        
+        @meeting_identity = Meeting::Identity.new(workspace_root: @workspace_root)
+        @meeting_protocol = Meeting::MeetingProtocol.new(identity: @meeting_identity)
+        @skill_exchange = Meeting::SkillExchange.new(
+          config: @meeting_identity.config,
+          workspace_root: @workspace_root
+        )
+        @interaction_log = Meeting::InteractionLog.new(workspace_root: @workspace_root)
+
+        capabilities[:meeting] = {
+          version: MEETING_PROTOCOL_VERSION,
+          supported_actions: %w[
+            introduce capabilities skills
+            offer_skill request_skill accept decline
+            skill_content reflect process_message
+            start_session end_session interaction_history
+          ]
+        }
+      end
 
       {
         protocolVersion: PROTOCOL_VERSION,
-        capabilities: {
-          tools: {},
-          meeting: {
-            version: MEETING_PROTOCOL_VERSION,
-            supported_actions: %w[
-              introduce capabilities skills
-              offer_skill request_skill accept decline
-              skill_content reflect process_message
-              start_session end_session interaction_history
-            ]
-          }
-        },
+        capabilities: capabilities,
         serverInfo: {
           name: 'kairos-mcp-server',
           version: KairosMcp::VERSION
@@ -145,6 +176,41 @@ module KairosMcp
       {
         content: content
       }
+    end
+
+    # Meeting Protocol method dispatcher
+    # Only called when meeting_enabled? is true
+    def handle_meeting_method(method, params)
+      case method
+      when 'meeting/introduce'
+        handle_meeting_introduce(params)
+      when 'meeting/capabilities'
+        handle_meeting_capabilities(params)
+      when 'meeting/skills'
+        handle_meeting_skills(params)
+      when 'meeting/offer_skill'
+        handle_meeting_offer_skill(params)
+      when 'meeting/request_skill'
+        handle_meeting_request_skill(params)
+      when 'meeting/accept'
+        handle_meeting_accept(params)
+      when 'meeting/decline'
+        handle_meeting_decline(params)
+      when 'meeting/skill_content'
+        handle_meeting_skill_content(params)
+      when 'meeting/reflect'
+        handle_meeting_reflect(params)
+      when 'meeting/process_message'
+        handle_meeting_process_message(params)
+      when 'meeting/start_session'
+        handle_meeting_start_session(params)
+      when 'meeting/end_session'
+        handle_meeting_end_session(params)
+      when 'meeting/interaction_history'
+        handle_meeting_interaction_history(params)
+      else
+        raise ArgumentError, "Unknown meeting method: #{method}"
+      end
     end
 
     # Meeting Protocol Handlers

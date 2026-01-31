@@ -38,7 +38,32 @@ Meeting Place is a rendezvous server that enables KairosChain instances (and oth
 
 ## Getting Started
 
+### Enabling Meeting Protocol (Required First Step)
+
+Meeting Protocol is **disabled by default** to minimize overhead for users who don't need inter-agent communication. To enable it:
+
+1. Edit `config/meeting.yml` in your KairosChain installation:
+
+```yaml
+# Set this to true to enable Meeting Protocol
+enabled: true
+```
+
+2. When `enabled: false` (default):
+   - No meeting-related code is loaded (reduced memory footprint)
+   - `meeting/*` methods return "Meeting Protocol disabled" error
+   - The HTTP server (`bin/kairos_meeting_server`) refuses to start
+   - No Meeting Place connections can be made
+
+3. When `enabled: true`:
+   - Meeting Protocol modules are loaded
+   - All meeting features become available
+   - HTTP server can be started
+   - Connection to Meeting Place is possible
+
 ### Starting a Meeting Place Server
+
+> **Note**: Meeting Place Server is a separate service that doesn't require `enabled: true` on the server side. It simply provides the rendezvous infrastructure for agents that have Meeting Protocol enabled.
 
 ```bash
 # Basic start
