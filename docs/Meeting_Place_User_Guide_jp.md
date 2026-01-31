@@ -188,6 +188,108 @@ kairos_meeting_place admin relay
 
 ---
 
+## MCP ツール（LLM 用）
+
+Cursor や他の MCP クライアントで KairosChain を使用する場合、LLM（Claude）はこれらの高レベルツールを使ってエージェント間通信を行えます。
+
+### `meeting_connect`
+
+Meeting Place に接続し、利用可能なエージェントとスキルを発見します。
+
+**Cursor チャットでの使い方**:
+```
+ユーザー: 「localhost:4568 の Meeting Place に接続して」
+
+Claude が呼び出し: meeting_connect(url: "http://localhost:4568")
+
+レスポンス:
+- 接続されたエージェント
+- 各エージェントの利用可能なスキル
+- 次のステップのヒント
+```
+
+**パラメータ**:
+- `url`（必須）: Meeting Place サーバーの URL
+- `filter_capabilities`: 機能でピアをフィルタ
+- `filter_tags`: タグでピアをフィルタ
+
+### `meeting_get_skill_details`
+
+スキルを取得する前に、詳細情報を取得します。
+
+**Cursor チャットでの使い方**:
+```
+ユーザー: 「Agent-B の translation_skill について詳しく教えて」
+
+Claude が呼び出し: meeting_get_skill_details(
+  peer_id: "agent-b-001",
+  skill_id: "translation_skill",
+  include_preview: true
+)
+
+レスポンス:
+- スキルメタデータ（バージョン、説明、タグ）
+- 使用例
+- 内容のプレビュー（オプション）
+```
+
+**パラメータ**:
+- `peer_id`（必須）: ピアエージェントの ID
+- `skill_id`（必須）: スキルの ID
+- `include_preview`: 内容プレビューを含める（デフォルト: false）
+- `preview_lines`: プレビュー行数（デフォルト: 10）
+
+### `meeting_acquire_skill`
+
+他のエージェントからスキルを取得します。交換プロセス全体を自動化します。
+
+**Cursor チャットでの使い方**:
+```
+ユーザー: 「Agent-B の translation_skill を取得して」
+
+Claude が呼び出し: meeting_acquire_skill(
+  peer_id: "agent-b-001",
+  skill_id: "translation_skill"
+)
+
+ツールは自動的に:
+1. 自己紹介を送信
+2. スキルをリクエスト
+3. コンテンツを受信
+4. 検証してローカルに保存
+```
+
+**パラメータ**:
+- `peer_id`（必須）: ピアエージェントの ID
+- `skill_id`（必須）: 取得するスキルの ID
+- `save_to_layer`: L1（knowledge）または L2（context）、デフォルト: L1
+
+### `meeting_disconnect`
+
+Meeting Place から切断します。
+
+**Cursor チャットでの使い方**:
+```
+ユーザー: 「Meeting Place から切断して」
+
+Claude が呼び出し: meeting_disconnect()
+
+レスポンス:
+- セッションサマリー
+- 接続時間
+- 発見したピア
+```
+
+### 典型的なワークフロー
+
+1. **接続**: 「localhost:4568 の Meeting Place に接続して」
+2. **探索**: 「Agent-B はどんなスキルを持ってる？」
+3. **詳細確認**: 「translation_skill について詳しく教えて」
+4. **取得**: 「そのスキルを取得して」
+5. **切断**: 「Meeting Place から切断して」
+
+---
+
 ## 設定
 
 ### Meeting 設定 (`config/meeting.yml`)

@@ -2,6 +2,7 @@
 
 require 'json'
 require 'rack'
+require 'digest'
 require_relative '../meeting/identity'
 require_relative '../meeting/meeting_protocol'
 require_relative '../meeting/skill_exchange'
@@ -59,6 +60,11 @@ module KairosMcp
           handle_end_session(request)
         when '/meeting/v1/history'
           handle_history(request)
+        # Discovery extension endpoints
+        when '/meeting/v1/skill_details'
+          handle_skill_details(request)
+        when '/meeting/v1/skill_preview'
+          handle_skill_preview(request)
         else
           not_found
         end
@@ -328,6 +334,154 @@ module KairosMcp
           interactions: interactions,
           summary: @interaction_log.summary
         })
+      end
+
+      # Discovery extension handlers
+
+      def handle_skill_details(request)
+        return method_not_allowed unless request.request_method == 'GET'
+
+        skill_id = request.params['skill_id']
+        return error_response(400, 'skill_id is required') unless skill_id
+
+        # Find skill in available skills
+        skill = @identity.introduce[:skills].find { |s| s[:id] == skill_id }
+        
+        unless skill
+          return json_response({
+            skill_id: skill_id,
+            available: false,
+            reason: 'skill_not_found'
+          })
+        end
+
+        # Check if skill is public or discovery is allowed
+        discovery_config = @config['discovery'] || {}
+        expose_private = discovery_config['expose_private_skills'] || false
+        
+        unless skill[:public] || expose_private
+          return json_response({
+            skill_id: skill_id,
+            available: false,
+            reason: 'skill_not_public'
+          })
+        end
+
+        # Read skill file for additional metadata
+        skill_metadata = extract_skill_metadata(skill[:path])
+        
+        # Build response
+        json_response({
+          skill_id: skill_id,
+          available: true,
+          metadata: {
+            name: skill[:name] || skill_metadata['name'],
+            version: skill_metadata['version'] || '1.0.0',
+            layer: skill_metadata['layer'] || 'L1',
+            format: skill[:format] || 'markdown',
+            description: skill_metadata['description'] || skill[:description],
+            tags: skill_metadata['tags'] || skill[:tags] || [],
+            author: skill_metadata['author'] || @identity.introduce[:identity][:name],
+            created_at: skill_metadata['created_at'],
+            updated_at: skill_metadata['updated_at'] || File.mtime(skill[:path]).utc.iso8601,
+            size_bytes: File.size(skill[:path]),
+            dependencies: skill_metadata['dependencies'] || skill_metadata['requires'] || [],
+            usage_examples: skill_metadata['usage_examples'] || [],
+            public: skill[:public]
+          },
+          exchange_info: {
+            allowed_formats: @config.dig('skill_exchange', 'allowed_formats') || ['markdown'],
+            requires_approval: @config.dig('skill_exchange', 'require_approval') != false
+          }
+        })
+      rescue StandardError => e
+        error_response(500, "Failed to get skill details: #{e.message}")
+      end
+
+      def handle_skill_preview(request)
+        return method_not_allowed unless request.request_method == 'GET'
+
+        skill_id = request.params['skill_id']
+        preview_type = request.params['preview_type'] || 'head'
+        lines = (request.params['lines'] || 10).to_i
+
+        return error_response(400, 'skill_id is required') unless skill_id
+
+        # Check if previews are allowed
+        discovery_config = @config['discovery'] || {}
+        unless discovery_config['allow_preview'] != false
+          return json_response({
+            skill_id: skill_id,
+            error: 'preview_disabled',
+            message: 'This agent does not allow skill previews'
+          })
+        end
+
+        # Find skill
+        skill = @identity.introduce[:skills].find { |s| s[:id] == skill_id }
+        
+        unless skill
+          return json_response({
+            skill_id: skill_id,
+            error: 'skill_not_found'
+          })
+        end
+
+        # Check max preview lines
+        max_lines = discovery_config['max_preview_lines'] || 20
+        lines = [lines, max_lines].min
+
+        # Read and extract preview
+        content = File.read(skill[:path])
+        content_lines = content.lines
+        total_lines = content_lines.length
+
+        preview = case preview_type
+                  when 'head'
+                    content_lines.first(lines).join
+                  when 'toc'
+                    # Extract headers (markdown)
+                    content_lines.select { |l| l.start_with?('#') }.first(lines).join
+                  when 'summary'
+                    # Try to extract description from frontmatter
+                    extract_skill_metadata(skill[:path])['description'] || content_lines.first(lines).join
+                  else
+                    content_lines.first(lines).join
+                  end
+
+        json_response({
+          skill_id: skill_id,
+          preview_type: preview_type,
+          preview: preview,
+          preview_lines: [lines, total_lines].min,
+          total_lines: total_lines,
+          truncated: total_lines > lines,
+          content_hash: "sha256:#{Digest::SHA256.hexdigest(content)}"
+        })
+      rescue StandardError => e
+        error_response(500, "Failed to get skill preview: #{e.message}")
+      end
+
+      def extract_skill_metadata(path)
+        return {} unless File.exist?(path)
+
+        content = File.read(path)
+        
+        # Check for YAML frontmatter
+        if content.start_with?('---')
+          lines = content.lines
+          end_idx = lines[1..].index { |l| l.strip == '---' }
+          
+          if end_idx
+            frontmatter = lines[1..end_idx].join
+            require 'yaml'
+            return YAML.safe_load(frontmatter) || {}
+          end
+        end
+
+        {}
+      rescue StandardError
+        {}
       end
     end
 

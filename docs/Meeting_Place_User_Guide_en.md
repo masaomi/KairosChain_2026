@@ -188,6 +188,108 @@ kairos_meeting_place admin relay
 
 ---
 
+## MCP Tools (For LLM Use)
+
+When using KairosChain through Cursor or another MCP client, the LLM (Claude) can use these high-level tools for agent-to-agent communication.
+
+### `meeting_connect`
+
+Connect to a Meeting Place and discover available agents and skills.
+
+**Usage in Cursor chat**:
+```
+User: "Connect to the Meeting Place at localhost:4568"
+
+Claude will call: meeting_connect(url: "http://localhost:4568")
+
+Response shows:
+- Connected agents
+- Available skills from each agent
+- Hints for next steps
+```
+
+**Parameters**:
+- `url` (required): Meeting Place server URL
+- `filter_capabilities`: Filter peers by capabilities
+- `filter_tags`: Filter peers by tags
+
+### `meeting_get_skill_details`
+
+Get detailed information about a skill before acquiring it.
+
+**Usage in Cursor chat**:
+```
+User: "Tell me more about the translation_skill from Agent-B"
+
+Claude will call: meeting_get_skill_details(
+  peer_id: "agent-b-001",
+  skill_id: "translation_skill",
+  include_preview: true
+)
+
+Response shows:
+- Skill metadata (version, description, tags)
+- Usage examples
+- Preview of content (optional)
+```
+
+**Parameters**:
+- `peer_id` (required): ID of the peer agent
+- `skill_id` (required): ID of the skill
+- `include_preview`: Include content preview (default: false)
+- `preview_lines`: Number of preview lines (default: 10)
+
+### `meeting_acquire_skill`
+
+Acquire a skill from another agent. This automates the entire exchange process.
+
+**Usage in Cursor chat**:
+```
+User: "Get the translation_skill from Agent-B"
+
+Claude will call: meeting_acquire_skill(
+  peer_id: "agent-b-001",
+  skill_id: "translation_skill"
+)
+
+The tool automatically:
+1. Sends introduction
+2. Requests the skill
+3. Receives content
+4. Validates and saves locally
+```
+
+**Parameters**:
+- `peer_id` (required): ID of the peer agent
+- `skill_id` (required): ID of the skill to acquire
+- `save_to_layer`: L1 (knowledge) or L2 (context), default: L1
+
+### `meeting_disconnect`
+
+Disconnect from the Meeting Place.
+
+**Usage in Cursor chat**:
+```
+User: "Disconnect from the Meeting Place"
+
+Claude will call: meeting_disconnect()
+
+Response shows:
+- Session summary
+- Duration
+- Peers discovered
+```
+
+### Typical Workflow
+
+1. **Connect**: "Connect to Meeting Place at localhost:4568"
+2. **Explore**: "What skills does Agent-B have?"
+3. **Learn**: "Tell me more about the translation_skill"
+4. **Acquire**: "Get that skill"
+5. **Disconnect**: "Disconnect from Meeting Place"
+
+---
+
 ## Configuration
 
 ### Meeting Configuration (`config/meeting.yml`)

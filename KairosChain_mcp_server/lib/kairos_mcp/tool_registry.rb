@@ -64,8 +64,30 @@ module KairosMcp
       # Guide tools (discovery, help, metadata management)
       register_if_defined('KairosMcp::Tools::ToolGuide')
 
+      # Meeting Protocol tools (only when enabled in config/meeting.yml)
+      register_meeting_tools if meeting_protocol_enabled?
+
       # Skill-based tools (from kairos.rb with tool block)
       register_skill_tools if skill_tools_enabled?
+    end
+
+    # Register Meeting Protocol tools for agent-to-agent communication
+    def register_meeting_tools
+      register_if_defined('KairosMcp::Tools::MeetingConnect')
+      register_if_defined('KairosMcp::Tools::MeetingGetSkillDetails')
+      register_if_defined('KairosMcp::Tools::MeetingAcquireSkill')
+      register_if_defined('KairosMcp::Tools::MeetingDisconnect')
+    end
+
+    def meeting_protocol_enabled?
+      config_path = File.join(__dir__, '..', '..', 'config', 'meeting.yml')
+      return false unless File.exist?(config_path)
+
+      require 'yaml'
+      config = YAML.load_file(config_path) || {}
+      config['enabled'] == true
+    rescue StandardError
+      false
     end
 
     # Register tools defined in kairos.rb via tool block
