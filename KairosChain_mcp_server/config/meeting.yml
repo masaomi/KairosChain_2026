@@ -21,6 +21,10 @@ identity:
   description: "A memory-capable, evolvable agent framework"
   # Scope describes the domain expertise (e.g., "bioinformatics", "web-development", "general")
   scope: "general"
+  # Fixed agent ID for consistent identity across connections (recommended)
+  # If not set, a new random ID is generated each time you connect
+  # Example: agent_id: "my-unique-agent-001"
+  # agent_id: null
 
 # Capabilities: What this instance can do in the Meeting Protocol
 capabilities:

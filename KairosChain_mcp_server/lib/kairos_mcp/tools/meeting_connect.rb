@@ -240,6 +240,11 @@ module KairosMcp
       def generate_agent_id
         config = load_meeting_config
         identity = config['identity'] || {}
+        
+        # Use fixed agent_id from config if available (recommended for consistent identity)
+        return identity['agent_id'] if identity['agent_id']
+        
+        # Otherwise generate a new one (will be different each connection)
         name = identity['name'] || 'kairos'
         "#{name.downcase.gsub(/\s+/, '-')}-#{SecureRandom.hex(4)}"
       end
