@@ -367,6 +367,10 @@ module KairosMcp
       # Load local skills from knowledge/ directory
       def load_local_skills
         skills = []
+        config = load_meeting_config
+        
+        # Check default_public setting
+        public_by_default = config.dig('skill_exchange', 'public_by_default') || false
         
         knowledge_dir = File.expand_path('../../../../knowledge', __FILE__)
         return skills unless File.directory?(knowledge_dir)
@@ -375,8 +379,16 @@ module KairosMcp
           content = File.read(file)
           metadata = extract_frontmatter(content)
           
-          # Only publish if explicitly marked as public
-          next unless metadata['public'] == true || metadata[:public] == true
+          # Determine if skill should be public
+          # - If public_by_default: true, publish unless explicitly public: false
+          # - If public_by_default: false (default), only publish if public: true
+          is_public = if public_by_default
+            metadata['public'] != false && metadata[:public] != false
+          else
+            metadata['public'] == true || metadata[:public] == true
+          end
+          
+          next unless is_public
           
           skill_name = File.basename(File.dirname(file))
           
