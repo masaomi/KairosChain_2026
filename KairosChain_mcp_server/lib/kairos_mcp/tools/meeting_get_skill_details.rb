@@ -112,9 +112,17 @@ module KairosMcp
         end
 
         begin
-          # Get skill details from the peer
-          endpoint = peer['endpoint'] || peer[:endpoint]
-          details = get_skill_details(endpoint, skill_id)
+          # Check if we're in relay mode
+          relay_mode = connection['relay_mode'] || connection[:relay_mode]
+          meeting_place_url = connection['url'] || connection[:url]
+          
+          # Get skill details
+          details = if relay_mode
+            get_skill_details_from_meeting_place(meeting_place_url, skill_id)
+          else
+            endpoint = peer['endpoint'] || peer[:endpoint]
+            get_skill_details_direct(endpoint, skill_id)
+          end
           
           unless details
             return text_content(JSON.pretty_generate({
@@ -127,7 +135,12 @@ module KairosMcp
           # Get preview if requested
           preview = nil
           if include_preview
-            preview = get_skill_preview(endpoint, skill_id, preview_lines)
+            preview = if relay_mode
+              get_skill_preview_from_meeting_place(meeting_place_url, skill_id, preview_lines)
+            else
+              endpoint = peer['endpoint'] || peer[:endpoint]
+              get_skill_preview_direct(endpoint, skill_id, preview_lines)
+            end
           end
 
           # Build response
@@ -210,10 +223,42 @@ module KairosMcp
         peers.find { |p| (p['agent_id'] || p[:agent_id]) == peer_id }
       end
 
-      def get_skill_details(endpoint, skill_id)
+      # Get skill details from Meeting Place (relay mode)
+      def get_skill_details_from_meeting_place(url, skill_id)
+        uri = URI.parse("#{url}/place/v1/skills/metadata/#{URI.encode_www_form_component(skill_id)}")
+        response = Net::HTTP.get_response(uri)
+        
+        if response.is_a?(Net::HTTPSuccess)
+          JSON.parse(response.body)
+        else
+          nil
+        end
+      rescue StandardError
+        nil
+      end
+
+      # Get skill preview from Meeting Place (relay mode)
+      def get_skill_preview_from_meeting_place(url, skill_id, lines)
+        uri = URI.parse("#{url}/place/v1/skills/preview/#{URI.encode_www_form_component(skill_id)}?lines=#{lines}")
+        response = Net::HTTP.get_response(uri)
+        
+        if response.is_a?(Net::HTTPSuccess)
+          JSON.parse(response.body)
+        else
+          nil
+        end
+      rescue StandardError
+        nil
+      end
+
+      # Get skill details directly from agent's endpoint (direct mode)
+      def get_skill_details_direct(endpoint, skill_id)
         # First try the details endpoint
         uri = URI.parse("#{endpoint}/meeting/v1/skill_details?skill_id=#{URI.encode_www_form_component(skill_id)}")
-        response = Net::HTTP.get_response(uri)
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.open_timeout = 3
+        http.read_timeout = 5
+        response = http.get(uri.request_uri)
         
         if response.is_a?(Net::HTTPSuccess)
           data = JSON.parse(response.body)
@@ -222,7 +267,7 @@ module KairosMcp
 
         # Fallback: get from skills list
         uri = URI.parse("#{endpoint}/meeting/v1/skills")
-        response = Net::HTTP.get_response(uri)
+        response = http.get(uri.path)
         
         if response.is_a?(Net::HTTPSuccess)
           data = JSON.parse(response.body)
@@ -236,9 +281,13 @@ module KairosMcp
         nil
       end
 
-      def get_skill_preview(endpoint, skill_id, lines)
+      # Get skill preview directly from agent's endpoint (direct mode)
+      def get_skill_preview_direct(endpoint, skill_id, lines)
         uri = URI.parse("#{endpoint}/meeting/v1/skill_preview?skill_id=#{URI.encode_www_form_component(skill_id)}&lines=#{lines}")
-        response = Net::HTTP.get_response(uri)
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.open_timeout = 3
+        http.read_timeout = 5
+        response = http.get(uri.request_uri)
         
         if response.is_a?(Net::HTTPSuccess)
           JSON.parse(response.body)

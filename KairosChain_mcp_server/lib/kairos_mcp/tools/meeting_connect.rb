@@ -95,20 +95,33 @@ module KairosMcp
         begin
           # Step 1: Connect and get Meeting Place info
           place_info = get_meeting_place_info(url)
+          relay_mode = place_info['relay_mode'] || place_info['features']&.include?('skill_store')
           
           # Step 2: Register ourselves (if not already registered)
           register_result = register_self(url)
           @current_agent_id = register_result[:agent_id]  # Store for self-exclusion
           
-          # Step 3: Get list of available agents
+          # Step 3: Publish our skills to Meeting Place (relay mode)
+          published_skills = []
+          if relay_mode
+            published_skills = publish_skills_to_meeting_place(url, @current_agent_id)
+          end
+          
+          # Step 4: Get list of available agents
           agents = list_agents(url, filter_caps, filter_tags)
           
-          # Step 4: For each agent, get their skills summary
-          # Note: Server returns 'id' not 'agent_id'
+          # Step 5: For each agent, get their skills summary
+          # In relay mode: get from Meeting Place's skill store
+          # In direct mode: get from agent's endpoint (requires HTTP server)
           peers_with_skills = agents.map do |agent|
-            skills = get_agent_skills(agent)
+            agent_id = agent['id'] || agent[:id]
+            skills = if relay_mode
+              get_agent_skills_from_meeting_place(url, agent_id)
+            else
+              get_agent_skills_direct(agent)
+            end
             {
-              agent_id: agent['id'] || agent[:id],
+              agent_id: agent_id,
               name: agent['name'] || agent[:name],
               endpoint: agent['endpoint'] || agent[:endpoint],
               capabilities: agent['capabilities'] || agent[:capabilities] || [],
@@ -117,11 +130,12 @@ module KairosMcp
           end
 
           # Store connection state
-          save_connection_state(url, peers_with_skills)
+          save_connection_state(url, peers_with_skills, relay_mode)
 
           # Build response
           result = {
             status: 'connected',
+            mode: relay_mode ? 'relay' : 'direct',
             meeting_place: {
               url: url,
               name: place_info['name'] || 'Meeting Place',
@@ -129,6 +143,7 @@ module KairosMcp
             },
             self_registered: register_result[:registered],
             self_agent_id: register_result[:agent_id],
+            self_skills_published: published_skills.length,
             peers_found: peers_with_skills.length,
             peers: peers_with_skills.map do |peer|
               {
@@ -256,11 +271,38 @@ module KairosMcp
         []
       end
 
-      def get_agent_skills(agent)
+      # Get skills directly from agent's HTTP endpoint (direct mode)
+      def get_agent_skills_direct(agent)
         endpoint = agent['endpoint'] || agent[:endpoint]
         return [] unless endpoint
         
         uri = URI.parse("#{endpoint}/meeting/v1/skills")
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.open_timeout = 3
+        http.read_timeout = 5
+        response = http.get(uri.path)
+        
+        if response.is_a?(Net::HTTPSuccess)
+          data = JSON.parse(response.body)
+          skills = data['skills'] || data[:skills] || []
+          skills.map do |s|
+            {
+              id: s['id'] || s[:id],
+              name: s['name'] || s[:name],
+              tags: s['tags'] || s[:tags] || [],
+              format: s['format'] || s[:format] || 'markdown'
+            }
+          end
+        else
+          []
+        end
+      rescue StandardError
+        []
+      end
+
+      # Get skills from Meeting Place's skill store (relay mode)
+      def get_agent_skills_from_meeting_place(url, agent_id)
+        uri = URI.parse("#{url}/place/v1/skills/by_agent?agent_id=#{URI.encode_www_form_component(agent_id)}")
         response = Net::HTTP.get_response(uri)
         
         if response.is_a?(Net::HTTPSuccess)
@@ -281,11 +323,100 @@ module KairosMcp
         []
       end
 
-      def save_connection_state(url, peers)
+      # Publish our skills to Meeting Place (relay mode)
+      def publish_skills_to_meeting_place(url, agent_id)
+        published = []
+        
+        # Get our local skills
+        local_skills = load_local_skills
+        
+        local_skills.each do |skill|
+          begin
+            uri = URI.parse("#{url}/place/v1/skills/publish")
+            http = Net::HTTP.new(uri.host, uri.port)
+            http.use_ssl = uri.scheme == 'https'
+            
+            request = Net::HTTP::Post.new(uri.path)
+            request['Content-Type'] = 'application/json'
+            request.body = JSON.generate({
+              agent_id: agent_id,
+              id: skill[:id],
+              name: skill[:name],
+              description: skill[:description],
+              layer: skill[:layer],
+              format: skill[:format],
+              tags: skill[:tags],
+              version: skill[:version],
+              content: skill[:content],
+              metadata: skill[:metadata]
+            })
+            
+            response = http.request(request)
+            
+            if response.is_a?(Net::HTTPSuccess)
+              published << skill[:id]
+            end
+          rescue StandardError
+            # Skip failed skills
+          end
+        end
+        
+        published
+      end
+
+      # Load local skills from knowledge/ directory
+      def load_local_skills
+        skills = []
+        
+        knowledge_dir = File.expand_path('../../../../knowledge', __FILE__)
+        return skills unless File.directory?(knowledge_dir)
+        
+        Dir.glob(File.join(knowledge_dir, '*', '*.md')).each do |file|
+          content = File.read(file)
+          metadata = extract_frontmatter(content)
+          
+          # Only publish if explicitly marked as public
+          next unless metadata['public'] == true || metadata[:public] == true
+          
+          skill_name = File.basename(File.dirname(file))
+          
+          skills << {
+            id: metadata['name'] || metadata[:name] || skill_name,
+            name: metadata['name'] || metadata[:name] || skill_name,
+            description: metadata['description'] || metadata[:description] || '',
+            layer: metadata['layer'] || metadata[:layer] || 'L1',
+            format: 'markdown',
+            tags: metadata['tags'] || metadata[:tags] || [],
+            version: metadata['version'] || metadata[:version] || '1.0.0',
+            content: content,
+            metadata: metadata
+          }
+        end
+        
+        skills
+      end
+
+      def extract_frontmatter(content)
+        return {} unless content.start_with?('---')
+        
+        lines = content.lines
+        end_idx = lines[1..].index { |l| l.strip == '---' }
+        return {} unless end_idx
+        
+        frontmatter = lines[1..end_idx].join
+        require 'yaml'
+        YAML.safe_load(frontmatter, permitted_classes: [Symbol]) || {}
+      rescue StandardError
+        {}
+      end
+
+      def save_connection_state(url, peers, relay_mode = false)
         # Save connection state to a temp file for other tools to use
         state = {
           connected: true,
           url: url,
+          relay_mode: relay_mode,
+          agent_id: @current_agent_id,
           connected_at: Time.now.utc.iso8601,
           peers: peers
         }

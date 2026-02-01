@@ -114,26 +114,39 @@ module KairosMcp
           }))
         end
 
+        # Check if we're in relay mode
+        relay_mode = connection['relay_mode'] || connection[:relay_mode]
+        meeting_place_url = connection['url'] || connection[:url]
         endpoint = peer['endpoint'] || peer[:endpoint]
         
         begin
-          # Step 1: Send introduction
-          intro_result = send_introduction(endpoint)
+          content_result = nil
+          intro_result = { success: true }
+          request_result = { success: true }
           
-          # Step 2: Request the skill
-          request_result = request_skill(endpoint, skill_id)
-          
-          unless request_result[:success]
-            return text_content(JSON.pretty_generate({
-              error: "Failed to request skill",
-              message: request_result[:error],
-              peer_id: peer_id,
-              skill_id: skill_id
-            }))
-          end
+          if relay_mode
+            # RELAY MODE: Get skill directly from Meeting Place
+            content_result = get_skill_content_from_meeting_place(meeting_place_url, skill_id, peer_id)
+          else
+            # DIRECT MODE: Get skill from peer's HTTP server
+            # Step 1: Send introduction
+            intro_result = send_introduction(endpoint)
+            
+            # Step 2: Request the skill
+            request_result = request_skill(endpoint, skill_id)
+            
+            unless request_result[:success]
+              return text_content(JSON.pretty_generate({
+                error: "Failed to request skill",
+                message: request_result[:error],
+                peer_id: peer_id,
+                skill_id: skill_id
+              }))
+            end
 
-          # Step 3: Get skill content
-          content_result = get_skill_content(endpoint, skill_id, request_result[:message_id])
+            # Step 3: Get skill content
+            content_result = get_skill_content_direct(endpoint, skill_id, request_result[:message_id])
+          end
           
           unless content_result[:success]
             return text_content(JSON.pretty_generate({
@@ -168,8 +181,10 @@ module KairosMcp
             }))
           end
 
-          # Step 6: Send reflection/acknowledgment
-          send_reflection(endpoint, skill_id, content_result[:message_id])
+          # Step 6: Send reflection/acknowledgment (only in direct mode)
+          unless relay_mode
+            send_reflection(endpoint, skill_id, content_result[:message_id])
+          end
 
           # Build success response
           result = {
@@ -305,10 +320,41 @@ module KairosMcp
         { success: false, error: e.message }
       end
 
-      def get_skill_content(endpoint, skill_id, in_reply_to)
+      # Get skill content from Meeting Place (relay mode)
+      def get_skill_content_from_meeting_place(url, skill_id, peer_id)
+        uri = URI.parse("#{url}/place/v1/skills/content/#{URI.encode_www_form_component(skill_id)}")
+        response = Net::HTTP.get_response(uri)
+        
+        if response.is_a?(Net::HTTPSuccess)
+          data = JSON.parse(response.body)
+          
+          {
+            success: true,
+            message_id: SecureRandom.uuid,
+            skill_name: data['name'] || data[:name] || skill_id,
+            format: data['format'] || data[:format] || 'markdown',
+            content: data['content'] || data[:content],
+            content_hash: data['content_hash'] || data[:content_hash],
+            size_bytes: data['size_bytes'] || data[:size_bytes] || 0,
+            provenance: data['provenance'] || data[:provenance] || {
+              origin: peer_id,
+              hop_count: 1
+            }
+          }
+        else
+          { success: false, error: "Failed to get skill from Meeting Place: #{response.code}" }
+        end
+      rescue StandardError => e
+        { success: false, error: e.message }
+      end
+
+      # Get skill content directly from peer (direct mode)
+      def get_skill_content_direct(endpoint, skill_id, in_reply_to)
         uri = URI.parse("#{endpoint}/meeting/v1/skill_content")
         http = Net::HTTP.new(uri.host, uri.port)
         http.use_ssl = uri.scheme == 'https'
+        http.open_timeout = 5
+        http.read_timeout = 10
 
         request = Net::HTTP::Post.new(uri.path)
         request['Content-Type'] = 'application/json'

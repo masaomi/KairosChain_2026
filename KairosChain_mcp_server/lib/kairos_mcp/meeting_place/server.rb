@@ -6,6 +6,7 @@ require_relative 'registry'
 require_relative 'bulletin_board'
 require_relative 'message_relay'
 require_relative 'audit_logger'
+require_relative 'skill_store'
 
 module KairosMcp
   module MeetingPlace
@@ -19,7 +20,7 @@ module KairosMcp
     # IMPORTANT: This server acts as a ROUTER ONLY.
     # It NEVER decrypts or inspects message content.
     class MeetingPlaceApp
-      attr_reader :registry, :bulletin_board, :message_relay, :audit_logger
+      attr_reader :registry, :bulletin_board, :message_relay, :audit_logger, :skill_store
 
       def initialize(config: {})
         @config = config
@@ -37,6 +38,12 @@ module KairosMcp
         
         @registry = Registry.new(ttl_seconds: config[:registry_ttl] || 300)
         @bulletin_board = BulletinBoard.new(default_ttl_hours: config[:posting_ttl_hours] || 24)
+        
+        # Skill store for relay mode (agents publish skills to Meeting Place)
+        @skill_store = SkillStore.new(
+          ttl_hours: config[:skill_ttl_hours] || 24,
+          max_skill_size: config[:max_skill_size] || 1_048_576
+        )
         
         # Message relay for encrypted message forwarding
         @message_relay = MessageRelay.new(
@@ -97,6 +104,24 @@ module KairosMcp
           handle_cleanup_dead(request)
         when '/place/v1/admin/cleanup/stale'
           handle_cleanup_stale(request)
+
+        # Skill store endpoints (relay mode - agents publish skills here)
+        when '/place/v1/skills/publish'
+          handle_skill_publish(request)
+        when '/place/v1/skills/unpublish'
+          handle_skill_unpublish(request)
+        when '/place/v1/skills/browse'
+          handle_skill_browse(request)
+        when %r{^/place/v1/skills/metadata/(.+)$}
+          handle_skill_metadata(request, ::Regexp.last_match(1))
+        when %r{^/place/v1/skills/content/(.+)$}
+          handle_skill_content(request, ::Regexp.last_match(1))
+        when %r{^/place/v1/skills/preview/(.+)$}
+          handle_skill_preview(request, ::Regexp.last_match(1))
+        when '/place/v1/skills/by_agent'
+          handle_skills_by_agent(request)
+        when '/place/v1/skills/stats'
+          handle_skill_stats(request)
 
         # Public key endpoints (for E2E encryption)
         when '/place/v1/keys/register'
@@ -172,10 +197,12 @@ module KairosMcp
         json_response({
           name: @place_name,
           description: @place_description,
-          version: '1.1.0',
-          features: %w[registry bulletin_board message_relay e2e_encryption audit],
+          version: '1.2.0',
+          features: %w[registry bulletin_board skill_store message_relay e2e_encryption audit],
+          relay_mode: true,  # Agents can publish/acquire skills without HTTP servers
           agents_count: @registry.count,
           postings_count: @bulletin_board.count,
+          skills_count: @skill_store.stats[:total_skills],
           pending_messages: @message_relay.stats[:total_messages],
           privacy_note: 'This server acts as a router only. Message content is end-to-end encrypted and never inspected.',
           timestamp: Time.now.utc.iso8601
@@ -323,6 +350,7 @@ module KairosMcp
           place: @place_name,
           registry: @registry.stats,
           bulletin_board: @bulletin_board.stats,
+          skill_store: @skill_store.stats,
           message_relay: @message_relay.stats,
           audit: @audit_logger.stats,
           timestamp: Time.now.utc.iso8601
@@ -361,6 +389,95 @@ module KairosMcp
         )
         
         json_response(result)
+      end
+
+      # Skill store handlers (relay mode)
+
+      def handle_skill_publish(request)
+        return method_not_allowed unless request.request_method == 'POST'
+
+        body = parse_json_body(request)
+        agent_id = body[:agent_id]
+
+        return error_response(400, 'agent_id is required') unless agent_id
+
+        begin
+          result = @skill_store.publish(agent_id: agent_id, skill_data: body)
+          json_response(result, status: 201)
+        rescue ArgumentError => e
+          error_response(400, e.message)
+        end
+      end
+
+      def handle_skill_unpublish(request)
+        return method_not_allowed unless request.request_method == 'POST'
+
+        body = parse_json_body(request)
+        skill_id = body[:skill_id]
+        agent_id = body[:agent_id]
+
+        return error_response(400, 'skill_id is required') unless skill_id
+
+        result = @skill_store.unpublish(skill_id, agent_id: agent_id)
+        
+        if result[:error]
+          error_response(400, result[:error])
+        else
+          json_response(result)
+        end
+      end
+
+      def handle_skill_browse(request)
+        return method_not_allowed unless request.request_method == 'GET'
+
+        filters = {}
+        filters[:agent_id] = request.params['agent_id'] if request.params['agent_id']
+        filters[:format] = request.params['format'] if request.params['format']
+        filters[:search] = request.params['search'] if request.params['search']
+        filters[:limit] = request.params['limit'].to_i if request.params['limit']
+        
+        if request.params['tags']
+          filters[:tags] = request.params['tags'].split(',').map(&:strip)
+        end
+
+        skills = @skill_store.browse(filters: filters)
+        json_response({ skills: skills, count: skills.size })
+      end
+
+      def handle_skill_metadata(_request, skill_id)
+        metadata = @skill_store.get_metadata(skill_id)
+        return error_response(404, 'Skill not found') unless metadata
+
+        json_response(metadata)
+      end
+
+      def handle_skill_content(_request, skill_id)
+        content = @skill_store.get_content(skill_id)
+        return error_response(404, 'Skill not found') unless content
+
+        json_response(content)
+      end
+
+      def handle_skill_preview(request, skill_id)
+        lines = (request.params['lines'] || 10).to_i
+        preview = @skill_store.get_preview(skill_id, lines: lines)
+        return error_response(404, 'Skill not found') unless preview
+
+        json_response(preview)
+      end
+
+      def handle_skills_by_agent(request)
+        return method_not_allowed unless request.request_method == 'GET'
+
+        agent_id = request.params['agent_id']
+        return error_response(400, 'agent_id is required') unless agent_id
+
+        skills = @skill_store.list_by_agent(agent_id)
+        json_response({ skills: skills, count: skills.size })
+      end
+
+      def handle_skill_stats(_request)
+        json_response(@skill_store.stats)
       end
 
       # Public key handlers
@@ -574,6 +691,10 @@ module KairosMcp
 
       def bulletin_board
         @app.bulletin_board
+      end
+
+      def skill_store
+        @app.skill_store
       end
 
       def message_relay
