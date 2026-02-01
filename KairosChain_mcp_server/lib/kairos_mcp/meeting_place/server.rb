@@ -92,6 +92,12 @@ module KairosMcp
         when '/place/v1/stats'
           handle_stats(request)
 
+        # Admin cleanup endpoints
+        when '/place/v1/admin/cleanup/dead'
+          handle_cleanup_dead(request)
+        when '/place/v1/admin/cleanup/stale'
+          handle_cleanup_stale(request)
+
         # Public key endpoints (for E2E encryption)
         when '/place/v1/keys/register'
           handle_key_register(request)
@@ -321,6 +327,40 @@ module KairosMcp
           audit: @audit_logger.stats,
           timestamp: Time.now.utc.iso8601
         })
+      end
+
+      # Admin cleanup handlers
+
+      def handle_cleanup_dead(request)
+        return method_not_allowed unless request.request_method == 'POST'
+        
+        result = @registry.cleanup_dead_agents
+        
+        @audit_logger.log_registry(
+          action: 'cleanup_dead',
+          removed_count: result[:removed_count],
+          removed_agents: result[:removed_agents].map { |a| a[:id] }
+        )
+        
+        json_response(result)
+      end
+
+      def handle_cleanup_stale(request)
+        return method_not_allowed unless request.request_method == 'POST'
+        
+        body = parse_json_body(request)
+        older_than = body[:older_than_seconds] || body['older_than_seconds'] || 3600  # Default 1 hour
+        
+        result = @registry.cleanup_stale(older_than_seconds: older_than.to_i)
+        
+        @audit_logger.log_registry(
+          action: 'cleanup_stale',
+          older_than_seconds: older_than,
+          removed_count: result[:removed_count],
+          removed_agents: result[:removed_agents].map { |a| a[:id] }
+        )
+        
+        json_response(result)
       end
 
       # Public key handlers

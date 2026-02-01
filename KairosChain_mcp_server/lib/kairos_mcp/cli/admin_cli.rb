@@ -32,8 +32,8 @@ module KairosMcp
           cmd_relay(args)
         when 'keys'
           cmd_keys(args)
-        when 'prune'
-          cmd_prune(args)
+        when 'cleanup'
+          cmd_cleanup(args)
         when 'help', '--help', '-h'
           cmd_help
         else
@@ -233,12 +233,72 @@ module KairosMcp
         puts "Note: Only public keys are stored. Private keys remain with agents."
       end
 
-      def cmd_prune(args)
-        puts "Prune command not yet implemented."
-        puts "This would clean up old data from the server."
+      def cmd_cleanup(args)
+        options = { url: @base_url, mode: 'dead', older_than: 3600 }
+        
+        OptionParser.new do |opts|
+          opts.banner = "Usage: kairos_meeting_place admin cleanup [options]"
+          opts.on('--url URL', "Server URL (default: #{DEFAULT_URL})") { |v| options[:url] = v }
+          opts.on('--dead', 'Remove dead agents (ping each one)') { options[:mode] = 'dead' }
+          opts.on('--stale', 'Remove stale agents (by time)') { options[:mode] = 'stale' }
+          opts.on('--older-than SECONDS', Integer, 'For stale mode: remove agents not seen within N seconds (default: 3600)') { |v| options[:older_than] = v }
+        end.parse!(args)
+
+        @base_url = options[:url]
+
+        case options[:mode]
+        when 'dead'
+          cleanup_dead_agents
+        when 'stale'
+          cleanup_stale_agents(options[:older_than])
+        end
+      end
+
+      def cleanup_dead_agents
+        puts "Checking agent health and removing dead agents..."
         puts
-        puts "For now, restart the server to clear in-memory data,"
-        puts "or manually delete the audit log file."
+        
+        data = post('/place/v1/admin/cleanup/dead', {})
+        return unless data
+        
+        puts "Cleanup Results"
+        puts "=" * 60
+        puts
+        puts "Removed: #{data[:removed_count]} agents"
+        puts "Remaining: #{data[:remaining_count]} agents"
+        
+        if data[:removed_agents] && !data[:removed_agents].empty?
+          puts
+          puts "Removed agents:"
+          data[:removed_agents].each do |agent|
+            puts "  - #{agent[:name] || agent[:id]} (#{agent[:endpoint]})"
+          end
+        end
+        puts
+      end
+
+      def cleanup_stale_agents(older_than)
+        puts "Removing agents not seen in the last #{older_than} seconds..."
+        puts
+        
+        data = post('/place/v1/admin/cleanup/stale', { older_than_seconds: older_than })
+        return unless data
+        
+        puts "Cleanup Results"
+        puts "=" * 60
+        puts
+        puts "Cutoff time: #{data[:cutoff_time]}"
+        puts "Removed: #{data[:removed_count]} agents"
+        puts "Remaining: #{data[:remaining_count]} agents"
+        
+        if data[:removed_agents] && !data[:removed_agents].empty?
+          puts
+          puts "Removed agents:"
+          data[:removed_agents].each do |agent|
+            puts "  - #{agent[:name] || agent[:id]} (last seen: #{agent[:last_seen]})"
+          end
+        end
+        puts
       end
 
       def cmd_help
@@ -253,7 +313,7 @@ module KairosMcp
             agents     List registered agents
             relay      Show message relay status
             keys       Show public key registry info
-            prune      Clean up old data (not yet implemented)
+            cleanup    Remove dead or stale agent registrations
             help       Show this help
           
           Global Options:
@@ -266,6 +326,13 @@ module KairosMcp
             kairos_meeting_place admin audit --hourly
             kairos_meeting_place admin agents
             kairos_meeting_place admin relay
+            kairos_meeting_place admin cleanup --dead
+            kairos_meeting_place admin cleanup --stale --older-than 1800
+          
+          Cleanup Options:
+            --dead              Ping each agent and remove unresponsive ones
+            --stale             Remove agents not seen within a time period
+            --older-than SECS   For --stale: seconds since last seen (default: 3600)
           
           ╔════════════════════════════════════════════════════════════╗
           ║                     PRIVACY NOTICE                         ║
@@ -380,6 +447,35 @@ module KairosMcp
         http.read_timeout = 10
 
         response = http.get(uri.request_uri)
+        
+        if response.is_a?(Net::HTTPSuccess)
+          JSON.parse(response.body, symbolize_names: true)
+        else
+          $stderr.puts "Error: HTTP #{response.code}"
+          $stderr.puts response.body
+          nil
+        end
+      rescue Errno::ECONNREFUSED
+        $stderr.puts "Error: Cannot connect to #{@base_url}"
+        $stderr.puts "Is the Meeting Place server running?"
+        nil
+      rescue StandardError => e
+        $stderr.puts "Error: #{e.message}"
+        nil
+      end
+
+      def post(path, body = {})
+        uri = URI.parse("#{@base_url}#{path}")
+
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.open_timeout = 5
+        http.read_timeout = 30  # Longer timeout for cleanup operations
+
+        request = Net::HTTP::Post.new(uri.path)
+        request['Content-Type'] = 'application/json'
+        request.body = JSON.generate(body)
+
+        response = http.request(request)
         
         if response.is_a?(Net::HTTPSuccess)
           JSON.parse(response.body, symbolize_names: true)
