@@ -2,6 +2,8 @@
 
 require 'yaml'
 require 'digest'
+require 'set'
+require 'time'
 
 module KairosMcp
   module Meeting
@@ -61,6 +63,7 @@ module KairosMcp
       end
 
       # Load extension protocols (non-bootstrap)
+      # Sorted by dependencies to ensure correct load order
       # @return [Array<Hash>] Loaded extension protocols
       def load_extension_protocols
         protocols = find_protocol_files.reject do |file|
@@ -68,9 +71,65 @@ module KairosMcp
           metadata && metadata['bootstrap'] == true
         end
 
-        protocols.map do |file|
+        # Sort by dependencies using topological sort
+        sorted_protocols = sort_by_dependencies(protocols)
+
+        sorted_protocols.map do |file|
           load_protocol_file(file)
         end.compact
+      end
+
+      # Sort protocol files by their dependencies (topological sort)
+      # @param files [Array<String>] Protocol file paths
+      # @return [Array<String>] Sorted file paths
+      def sort_by_dependencies(files)
+        # Build a map of protocol name -> file path
+        name_to_file = {}
+        file_to_metadata = {}
+
+        files.each do |file|
+          metadata = parse_frontmatter(file)
+          next unless metadata && metadata['name']
+
+          name_to_file[metadata['name']] = file
+          file_to_metadata[file] = metadata
+        end
+
+        # Build dependency graph
+        sorted = []
+        visited = Set.new
+        temp_visited = Set.new
+
+        # Topological sort helper (depth-first)
+        visit = lambda do |file|
+          return if visited.include?(file)
+
+          if temp_visited.include?(file)
+            # Circular dependency detected, just continue
+            return
+          end
+
+          temp_visited.add(file)
+
+          metadata = file_to_metadata[file]
+          if metadata
+            requires = metadata['requires'] || []
+            requires.each do |req|
+              # Skip bootstrap protocols (already loaded)
+              next if @loaded_protocols.key?(req)
+
+              dep_file = name_to_file[req]
+              visit.call(dep_file) if dep_file
+            end
+          end
+
+          temp_visited.delete(file)
+          visited.add(file)
+          sorted << file
+        end
+
+        files.each { |file| visit.call(file) }
+        sorted
       end
 
       # Load a specific extension by name
