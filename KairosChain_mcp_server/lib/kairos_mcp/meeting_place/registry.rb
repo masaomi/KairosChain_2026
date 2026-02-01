@@ -32,7 +32,10 @@ module KairosMcp
       # Register a new agent or update existing
       def register(agent_data)
         @mutex.synchronize do
-          id = agent_data[:id] || agent_data['id'] || generate_agent_id
+          # Support both 'id' and 'agent_id' keys for compatibility
+          id = agent_data[:id] || agent_data['id'] || 
+               agent_data[:agent_id] || agent_data['agent_id'] || 
+               generate_agent_id
           now = Time.now.utc
 
           agent = Agent.new(
