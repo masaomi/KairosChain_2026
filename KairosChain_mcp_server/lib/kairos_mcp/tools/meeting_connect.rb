@@ -98,15 +98,17 @@ module KairosMcp
           
           # Step 2: Register ourselves (if not already registered)
           register_result = register_self(url)
+          @current_agent_id = register_result[:agent_id]  # Store for self-exclusion
           
           # Step 3: Get list of available agents
           agents = list_agents(url, filter_caps, filter_tags)
           
           # Step 4: For each agent, get their skills summary
+          # Note: Server returns 'id' not 'agent_id'
           peers_with_skills = agents.map do |agent|
             skills = get_agent_skills(agent)
             {
-              agent_id: agent['agent_id'] || agent[:agent_id],
+              agent_id: agent['id'] || agent[:id],
               name: agent['name'] || agent[:name],
               endpoint: agent['endpoint'] || agent[:endpoint],
               capabilities: agent['capabilities'] || agent[:capabilities] || [],
@@ -244,9 +246,9 @@ module KairosMcp
             caps_match && tags_match
           end
           
-          # Exclude self
+          # Exclude self (server returns 'id', not 'agent_id')
           my_agent_id = @current_agent_id
-          agents.reject { |a| a['agent_id'] == my_agent_id }
+          agents.reject { |a| (a['id'] || a[:id]) == my_agent_id }
         else
           []
         end
