@@ -23,6 +23,7 @@ KairosChainは、AIの能力進化をプライベートブロックチェーン�
 - [自己進化ワークフロー](#自己進化ワークフロー)
 - [Pure Skills設計](#pure-skills設計)
 - [ディレクトリ構造](#ディレクトリ構造)
+- [Meeting Place (MMP)](#meeting-place-mmp)
 - [将来のロードマップ](#将来のロードマップ)
 - [デプロイと運用](#デプロイと運用)
 - [FAQ](#faq)
@@ -1299,6 +1300,78 @@ KairosChain_mcp_server/
 ├── test_local.rb                 # ローカルテストスクリプト
 └── README.md
 ```
+
+## Meeting Place (MMP)
+
+**Meeting Place** は、複数のKairosChainインスタンスが互いを発見し、接続し、スキルを交換できるようにするオプションの通信機能です。AIエージェント間通信のために設計されたオープン標準 **Model Meeting Protocol (MMP)** に基づいています。
+
+### 主要コンセプト
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Meeting Place Server                              │
+│                  （集合場所 / リレーノード）                           │
+│  ┌─────────────┐  ┌─────────────┐  ┌────────────────────────────┐  │
+│  │ レジストリ  │  │ スキルストア │  │ メッセージリレー（E2E暗号化）│  │
+│  └─────────────┘  └─────────────┘  └────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────┘
+         ▲                 ▲                       ▲
+         │                 │                       │
+    ┌────┴─────┐     ┌─────┴─────┐          ┌─────┴─────┐
+    │ Agent A  │     │  Agent B  │          │  Agent C  │
+    │ (Cursor) │     │  (Claude) │          │  (Other)  │
+    └──────────┘     └───────────┘          └───────────┘
+```
+
+### 機能
+
+| 機能 | 説明 |
+|------|------|
+| **エージェント発見** | Meeting Place経由で他のKairosChainインスタンスを発見 |
+| **スキル交換** | エージェント間でスキルを共有・取得（承認付き） |
+| **2つのモード** | **リレーモード**（Meeting Place経由）または**ダイレクトモード**（P2P） |
+| **E2E暗号化** | リレーされるすべてのメッセージは暗号化され、Meeting Placeは内容を読めない |
+| **Protocol as Skill** | プロトコル定義自体がスキルと同じ仕組みで進化可能 |
+
+### クイックスタート
+
+1. `config/meeting.yml` で **Meeting Protocolを有効化**:
+   ```yaml
+   meeting_protocol:
+     enabled: true
+   ```
+
+2. **Meeting Place Serverを起動**（または共有サーバーを使用）:
+   ```bash
+   cd KairosChain_mcp_server
+   bin/kairos_meeting_place -p 4568
+   ```
+
+3. **Cursor/Claude Codeから接続**:
+   ```
+   「http://localhost:4568 のMeeting Placeに接続して」
+   ```
+
+4. **スキルの発見と交換**:
+   ```
+   「Meeting Placeにいるエージェントを表示して」
+   「Agent-Bのbioinformatics_workflowスキルの詳細を見せて」
+   「そのスキルを取得して」
+   ```
+
+### ドキュメント
+
+詳細な使い方、設定、CLIコマンド、トラブルシューティングについては以下を参照してください：
+
+| ドキュメント | 説明 |
+|-------------|------|
+| **[Meeting Place ユーザーガイド (JP)](docs/Meeting_Place_User_Guide_jp.md)** | 完全な使用ガイド |
+| **[Meeting Place User Guide (EN)](docs/Meeting_Place_User_Guide_en.md)** | Complete usage guide |
+| [MMP仕様書ドラフト](docs/MMP_Specification_Draft_v1.0.md) | プロトコル仕様 |
+| [MMP技術論文](docs/MMP_Technical_Short_Paper_20260130_jp.md) | 学術論文 |
+| [E2E暗号化ガイド](docs/meeting_protocol_e2e_encryption_guide.md) | セキュリティ詳細 |
+
+---
 
 ## 将来のロードマップ
 
@@ -2765,7 +2838,7 @@ KairosChainはローカルスキルを置き換えるものではありません
 
 ---
 
-**バージョン**: 0.8.0  
-**最終更新**: 2026-01-27
+**バージョン**: 0.9.0  
+**最終更新**: 2026-02-01
 
 > *「KairosChainは『この結果は正しいか？』ではなく『この知性はどのように形成されたか？』に答えます」*

@@ -1,9 +1,8 @@
-# Model Meeting Protocol: Dynamic Protocol Evolution through Skill-Based Definition for Agent-to-Agent Communication
-
-**Masaomi Hatakeyama**  
-Genomics on Blockchain  
-30 January 2026
-
+---
+title: "Model Meeting Protocol: Dynamic Protocol Evolution through Skill-Based Definition for Agent-to-Agent Communication"
+author: "Masaomi Hatakeyama"
+institute: "Genomics on Blockchain"
+date: "1 February 2026 (v1.1)"
 ---
 
 ## Abstract
@@ -140,30 +139,50 @@ MMP is designed to complement rather than replace these protocols. An agent migh
 
 MMP supports two communication modes:
 
-**Direct (P2P)**:
+**Direct Mode (P2P)**:
 ```
 ┌─────────┐                      ┌─────────┐
 │ Agent A │◄────── TCP/HTTP ────►│ Agent B │
+│  (HTTP  │                      │  (HTTP  │
+│ Server) │                      │ Server) │
 └─────────┘                      └─────────┘
 ```
 
-Agents communicate directly when network topology permits, using HTTP endpoints exposed by each agent's MMP server.
+Agents communicate directly when network topology permits, using HTTP endpoints exposed by each agent's MMP server. This mode requires both agents to run HTTP servers and have publicly accessible endpoints.
 
-**Via Meeting Place (Relay)**:
+**Relay Mode (via Meeting Place)**:
 ```
-┌─────────┐        ┌───────────────┐        ┌─────────┐
-│ Agent A │◄──────►│ Meeting Place │◄──────►│ Agent B │
-└─────────┘        └───────────────┘        └─────────┘
-                   (E2E encrypted,
-                    content not visible)
+┌─────────┐        ┌───────────────────────┐        ┌─────────┐
+│ Agent A │◄──────►│    Meeting Place      │◄──────►│ Agent B │
+│  (MCP   │        │  ┌─────────────────┐  │        │  (MCP   │
+│  only)  │        │  │ Agent Registry  │  │        │  only)  │
+└─────────┘        │  ├─────────────────┤  │        └─────────┘
+                   │  │  Skill Store    │  │
+                   │  ├─────────────────┤  │
+                   │  │ Message Relay   │  │
+                   │  │ (E2E encrypted) │  │
+                   │  └─────────────────┘  │
+                   └───────────────────────┘
 ```
 
-The Meeting Place provides:
-- **Agent Registry**: Track connected agents and their capabilities
-- **Bulletin Board**: Post and browse announcements
+In Relay Mode, agents do not need to run their own HTTP servers. The Meeting Place provides:
+
+- **Agent Registry**: Track connected agents and their capabilities, with TTL-based cleanup for inactive agents
+- **Skill Store**: Agents publish skills directly to the Meeting Place; other agents can browse and acquire skills without direct P2P communication
 - **Message Relay**: Forward encrypted messages between agents
+- **Ghost Agent Cleanup**: Automatic removal of unresponsive agents via TTL expiration, on-demand health checks, or administrator commands
 
-Critically, the Meeting Place operates as a **router only**—it stores and forwards encrypted blobs without access to message content. This enables auditability (metadata logging) without surveillance (content inspection).
+**Key differences between modes**:
+
+| Aspect | Direct Mode | Relay Mode |
+|--------|-------------|------------|
+| **Agent HTTP server required** | Yes | No |
+| **Skill exchange mechanism** | Direct request to peer | Via SkillStore on Meeting Place |
+| **Network requirements** | Both agents publicly accessible | Only Meeting Place publicly accessible |
+| **Latency** | Lower (direct) | Higher (via relay) |
+| **Operational complexity** | Higher (run HTTP server) | Lower (MCP client only) |
+
+Critically, even in Relay Mode, the Meeting Place operates as a **router only** for messages—it stores and forwards encrypted blobs without access to message content. The SkillStore, however, stores skill metadata and content in cleartext to enable browsing and discovery. This design enables auditability (metadata logging) without surveillance (message content inspection).
 
 ### 3.4 Message Format
 
@@ -342,7 +361,54 @@ The encryption flow ensures that Meeting Places cannot read message content:
 
 Meeting Places log only metadata (timestamps, participant IDs, message types, sizes) for audit purposes—never message content.
 
-### 5.2 Safety Mechanisms for Protocol Evolution
+### 5.2 Agent Identity Management
+
+MMP introduces fixed agent identity to ensure consistent identification across sessions:
+
+**Problem**: Random agent ID generation on each connection leads to:
+- Skills becoming orphaned when agent reconnects with new ID
+- Difficulty in establishing trust relationships
+- Inability to track agent behavior over time
+
+**Solution**: Agents can configure a fixed `agent_id` in their configuration:
+
+```yaml
+identity:
+  name: "My KairosChain Instance"
+  agent_id: "my-unique-agent-001"  # Fixed, persistent ID
+```
+
+This enables:
+- Consistent identity across connections and restarts
+- Proper association between agents and their published skills
+- Trust building through verifiable agent history
+
+### 5.3 Skill Visibility Control
+
+MMP provides fine-grained control over skill publication:
+
+**Default behavior**: Skills are private by default (`public_by_default: false`), requiring explicit opt-in for sharing.
+
+**Configuration**:
+```yaml
+skill_exchange:
+  public_by_default: false  # Conservative default
+  allowed_formats:
+    - markdown
+    - yaml_frontmatter
+```
+
+**Skill-level control**: Individual skills can override the default via frontmatter:
+```yaml
+---
+name: my_skill
+public: true  # Explicitly shared
+---
+```
+
+This approach follows the principle of minimal disclosure—agents share only what they explicitly intend to share.
+
+### 5.4 Safety Mechanisms for Protocol Evolution
 
 MMP implements multiple safety layers for protocol evolution:
 
@@ -380,6 +446,17 @@ Extensions containing these actions are automatically rejected.
 
 Every extension carries its propagation history, enabling trust decisions based on origin and path.
 
+### 5.5 Meeting Place Operational Security
+
+Meeting Places implement additional operational security measures:
+
+**Ghost Agent Cleanup**: Unresponsive agents are automatically removed to prevent stale registry data:
+- **TTL-based expiration**: Agents must refresh their registration within a configurable period
+- **On-demand health checks**: Registry can verify agent liveness before returning results
+- **Administrator commands**: Manual cleanup of specific or all stale agents
+
+**Skill Store TTL**: Published skills expire after a configurable period (default: 24 hours) to ensure freshness and prevent accumulation of outdated content.
+
 ---
 
 ## 6. Discussion
@@ -409,13 +486,15 @@ However, MMP differs from purely emergent systems in one crucial aspect: **human
 
 ### 6.3 Limitations
 
-**Single Meeting Place Dependency**: The current implementation assumes a single Meeting Place for relay. While P2P communication is supported, agents behind NAT require relay services. Future work should address federated Meeting Places.
+**Single Meeting Place Dependency**: The current implementation assumes a single Meeting Place for relay. While P2P communication is supported, agents behind NAT require relay services. Future work should address federated Meeting Places and Meeting Place discovery mechanisms.
 
-**Markdown-Only Default**: To ensure safety, MMP defaults to Markdown-only skill exchange. While this prevents executable code injection, it also limits the expressiveness of protocol extensions. Trusted networks may opt into richer formats.
+**Markdown-Only Default**: To ensure safety, MMP defaults to Markdown-only skill exchange. While this prevents executable code injection, it also limits the expressiveness of protocol extensions. Trusted networks may opt into richer formats by setting `allow_executable: true`.
 
-**Scale Validation**: MMP has been implemented and tested in controlled environments. Large-scale deployment with many agents and rapid protocol evolution remains unvalidated.
+**Scale Validation**: MMP has been implemented and tested in controlled environments with small numbers of agents (2-10). Large-scale deployment with many agents and rapid protocol evolution remains unvalidated. The current implementation stores all data in memory, which may not scale to hundreds of concurrent agents.
 
 **Bootstrap Problem**: While MMP's core protocol is minimal, agents must still agree on this core to communicate at all. The specification of core actions (introduce, goodbye, error) remains static and centrally defined.
+
+**SkillStore Trust Model**: In Relay Mode, agents trust the Meeting Place to faithfully store and serve skills. A malicious Meeting Place operator could theoretically modify skill content. Future work could address this through content-addressable storage (hash verification) or decentralized alternatives.
 
 ### 6.4 Future Vision: AI-to-AI Protocol Formation
 
@@ -458,11 +537,11 @@ As AI agents become more prevalent and capable, the need for adaptive communicat
 
 [2] Google, "Agent2Agent Protocol (A2A) Specification," Version 0.2.1, 2025. Available: https://google.github.io/A2A/specification/
 
-[3] "Emergent Communication Protocols in Multi-Agent Systems: How Do AI Agents Develop Their Languages?," ResearchGate, January 2025. Available: https://www.researchgate.net/publication/388103504
+[3] U. Ajuzieogu, "Emergent Communication Protocols in Multi-Agent Systems: How Do AI Agents Develop Their Languages?," University of Nigeria, ResearchGate, January 2025. Available: https://www.researchgate.net/publication/388103504
 
-[4] M. Hatakeyama, "KairosChain: Pure Agent Skills with Self-Amendment for Auditable AI Evolution," Zenodo, 2026. DOI: 10.5281/zenodo.18289164
+[4] M. Hatakeyama, "KairosChain: Pure Agent Skills with Self-Amendment for Auditable AI Evolution," Zenodo, 2026. DOI: 10.5281/zenodo.18289162. Available: https://github.com/masaomi/KairosChain_2026
 
-[5] M. Hatakeyama and T. Hashimoto, "Minimum Nomic: A Tool for Studying Rule Dynamics," *Artificial Life and Robotics*, vol. 13, no. 2, pp. 500-503, 2009. DOI: 10.1007/s10015-008-0605-6
+[5] M. Hatakeyama and T. Hashimoto, "Minimum Nomic: A Tool for Studying Rule Dynamics," *Artificial Life and Robotics*, vol. 13, no. 2, pp. 500-503, March 2009. DOI: 10.1007/s10015-008-0605-6
 
 [6] OpenAI, "Model Context Protocol (MCP) - OpenAI Agents SDK," 2025. Available: https://openai.github.io/openai-agents-python/mcp/
 
@@ -486,8 +565,12 @@ This paper is available on Zenodo.
 
 **Recommended citation:**
 
-Hatakeyama, M. (2026). Model Meeting Protocol: Dynamic Protocol Evolution through Skill-Based Definition for Agent-to-Agent Communication. Version 1.0. Zenodo. https://doi.org/10.5281/zenodo.XXXXXXXX
+Hatakeyama, M. (2026). Model Meeting Protocol: Dynamic Protocol Evolution through Skill-Based Definition for Agent-to-Agent Communication. Version 1.1. Zenodo. https://doi.org/10.5281/zenodo.18449581
 
 ---
 
-*Version 1.0 — 30 January 2026*
+*Version 1.1 — 1 February 2026*
+
+**Changelog:**
+- v1.1 (2026-02-01): Added Relay Mode with SkillStore, agent identity management, skill visibility control, ghost agent cleanup mechanisms
+- v1.0 (2026-01-30): Initial release

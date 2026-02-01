@@ -2,7 +2,7 @@
 
 **Masaomi Hatakeyama**  
 Genomics on Blockchain  
-2026年1月30日
+2026年2月1日（v1.1）
 
 ---
 
@@ -140,30 +140,50 @@ MMP はこれらのプロトコルを置き換えるのではなく補完する�
 
 MMP は2つの通信モードをサポートする：
 
-**直接（P2P）**:
+**ダイレクトモード（P2P）**:
 ```
 ┌─────────┐                      ┌─────────┐
 │ Agent A │◄────── TCP/HTTP ────►│ Agent B │
+│  (HTTP  │                      │  (HTTP  │
+│ Server) │                      │ Server) │
 └─────────┘                      └─────────┘
 ```
 
-ネットワークトポロジーが許可する場合、エージェントは各エージェントの MMP サーバーが公開する HTTP エンドポイントを使用して直接通信する。
+ネットワークトポロジーが許可する場合、エージェントは各エージェントの MMP サーバーが公開する HTTP エンドポイントを使用して直接通信する。このモードでは、両方のエージェントが HTTP サーバーを実行し、公開アクセス可能なエンドポイントを持つ必要がある。
 
-**Meeting Place 経由（リレー）**:
+**リレーモード（Meeting Place 経由）**:
 ```
-┌─────────┐        ┌───────────────┐        ┌─────────┐
-│ Agent A │◄──────►│ Meeting Place │◄──────►│ Agent B │
-└─────────┘        └───────────────┘        └─────────┘
-                   (E2E 暗号化、
-                    内容は見えない)
+┌─────────┐        ┌───────────────────────┐        ┌─────────┐
+│ Agent A │◄──────►│    Meeting Place      │◄──────►│ Agent B │
+│  (MCP   │        │  ┌─────────────────┐  │        │  (MCP   │
+│  のみ)  │        │  │ Agent Registry  │  │        │  のみ)  │
+└─────────┘        │  ├─────────────────┤  │        └─────────┘
+                   │  │  Skill Store    │  │
+                   │  ├─────────────────┤  │
+                   │  │ Message Relay   │  │
+                   │  │ (E2E 暗号化)    │  │
+                   │  └─────────────────┘  │
+                   └───────────────────────┘
 ```
 
-Meeting Place は以下を提供する：
-- **エージェントレジストリ**: 接続されたエージェントとその機能を追跡
-- **掲示板**: アナウンスの投稿と閲覧
+リレーモードでは、エージェントは独自の HTTP サーバーを実行する必要がない。Meeting Place は以下を提供する：
+
+- **エージェントレジストリ**: 接続されたエージェントとその機能を追跡、非アクティブエージェントの TTL ベースのクリーンアップ付き
+- **スキルストア**: エージェントは Meeting Place にスキルを直接公開し、他のエージェントは直接 P2P 通信なしにスキルを閲覧・取得可能
 - **メッセージリレー**: エージェント間で暗号化されたメッセージを転送
+- **ゴーストエージェントクリーンアップ**: TTL 期限切れ、オンデマンドヘルスチェック、または管理者コマンドによる無応答エージェントの自動削除
 
-重要なのは、Meeting Place は**ルーターとしてのみ**動作することである—メッセージ内容にアクセスせずに暗号化された blob を保存・転送する。これにより、監視（内容検査）なしに監査可能性（メタデータログ）を実現する。
+**モード間の主な違い**:
+
+| 観点 | ダイレクトモード | リレーモード |
+|------|-----------------|-------------|
+| **エージェント HTTP サーバー必要** | はい | いいえ |
+| **スキル交換メカニズム** | ピアへの直接リクエスト | Meeting Place の SkillStore 経由 |
+| **ネットワーク要件** | 両エージェントが公開アクセス可能 | Meeting Place のみが公開アクセス可能 |
+| **レイテンシ** | 低い（直接） | 高い（リレー経由） |
+| **運用複雑性** | 高い（HTTP サーバー運用） | 低い（MCP クライアントのみ） |
+
+重要なのは、リレーモードでもメッセージに関しては Meeting Place は**ルーターとしてのみ**動作することである—メッセージ内容にアクセスせずに暗号化された blob を保存・転送する。ただし、SkillStore はスキルのメタデータとコンテンツを平文で保存し、閲覧と発見を可能にする。この設計により、監視（メッセージ内容検査）なしに監査可能性（メタデータログ）を実現する。
 
 ### 3.4 メッセージフォーマット
 
@@ -343,7 +363,54 @@ Meeting Place を経由してリレーされるすべてのメッセージはハ
 
 Meeting Place は監査目的でメタデータ（タイムスタンプ、参加者 ID、メッセージタイプ、サイズ）のみをログし、メッセージ内容は決して記録しない。
 
-### 5.2 プロトコル進化のための安全メカニズム
+### 5.2 エージェントアイデンティティ管理
+
+MMP はセッションをまたいだ一貫した識別を確保するために固定エージェントアイデンティティを導入する：
+
+**問題点**: 接続ごとにランダムなエージェント ID を生成すると以下が発生：
+- エージェントが新しい ID で再接続した時にスキルが孤立
+- 信頼関係の構築が困難
+- 時間経過に伴うエージェント行動の追跡が不可能
+
+**解決策**: エージェントは設定で固定の `agent_id` を構成可能：
+
+```yaml
+identity:
+  name: "My KairosChain Instance"
+  agent_id: "my-unique-agent-001"  # 固定、永続的 ID
+```
+
+これにより以下が可能になる：
+- 接続や再起動をまたいだ一貫したアイデンティティ
+- エージェントと公開スキル間の適切な関連付け
+- 検証可能なエージェント履歴による信頼構築
+
+### 5.3 スキル可視性制御
+
+MMP はスキル公開の詳細な制御を提供する：
+
+**デフォルト動作**: スキルはデフォルトで非公開（`public_by_default: false`）であり、共有には明示的なオプトインが必要。
+
+**設定**:
+```yaml
+skill_exchange:
+  public_by_default: false  # 保守的なデフォルト
+  allowed_formats:
+    - markdown
+    - yaml_frontmatter
+```
+
+**スキルレベル制御**: 個別のスキルはフロントマターでデフォルトを上書き可能：
+```yaml
+---
+name: my_skill
+public: true  # 明示的に共有
+---
+```
+
+このアプローチは最小開示の原則に従う—エージェントは明示的に共有する意図のあるものだけを共有する。
+
+### 5.4 プロトコル進化のための安全メカニズム
 
 MMP はプロトコル進化のための複数の安全レイヤーを実装する：
 
@@ -381,6 +448,17 @@ blocked_actions:
 
 すべての拡張はその伝播履歴を持ち、起源とパスに基づく信頼判断を可能にする。
 
+### 5.5 Meeting Place 運用セキュリティ
+
+Meeting Place は追加の運用セキュリティ対策を実装する：
+
+**ゴーストエージェントクリーンアップ**: 無応答エージェントは古いレジストリデータを防ぐために自動的に削除される：
+- **TTL ベースの期限切れ**: エージェントは設定可能な期間内に登録を更新する必要がある
+- **オンデマンドヘルスチェック**: レジストリは結果を返す前にエージェントの生存を検証可能
+- **管理者コマンド**: 特定またはすべての古いエージェントの手動クリーンアップ
+
+**スキルストア TTL**: 公開されたスキルは設定可能な期間（デフォルト: 24時間）後に期限切れとなり、鮮度を確保し古いコンテンツの蓄積を防ぐ。
+
 ---
 
 ## 6. 議論
@@ -410,13 +488,15 @@ MAPEF 研究 [3] は創発的コミュニケーションの4つのフェーズ�
 
 ### 6.3 制限
 
-**単一 Meeting Place 依存**: 現在の実装はリレーに単一の Meeting Place を想定している。P2P 通信はサポートされているが、NAT 背後のエージェントはリレーサービスを必要とする。将来の作業では連合 Meeting Place に対応すべきである。
+**単一 Meeting Place 依存**: 現在の実装はリレーに単一の Meeting Place を想定している。P2P 通信はサポートされているが、NAT 背後のエージェントはリレーサービスを必要とする。将来の作業では連合 Meeting Place と Meeting Place 発見メカニズムに対応すべきである。
 
-**Markdown のみがデフォルト**: 安全性を確保するため、MMP はスキル交換で Markdown のみをデフォルトとする。これは実行可能コードインジェクションを防ぐが、プロトコル拡張の表現力も制限する。信頼できるネットワークはより豊富なフォーマットにオプトインできる。
+**Markdown のみがデフォルト**: 安全性を確保するため、MMP はスキル交換で Markdown のみをデフォルトとする。これは実行可能コードインジェクションを防ぐが、プロトコル拡張の表現力も制限する。信頼できるネットワークは `allow_executable: true` を設定してより豊富なフォーマットにオプトインできる。
 
-**スケール検証**: MMP は制御された環境で実装・テストされている。多数のエージェントと急速なプロトコル進化を伴う大規模展開は未検証のままである。
+**スケール検証**: MMP は少数のエージェント（2-10）を用いた制御された環境で実装・テストされている。多数のエージェントと急速なプロトコル進化を伴う大規模展開は未検証のままである。現在の実装はすべてのデータをメモリに保存するため、数百の同時エージェントにはスケールしない可能性がある。
 
 **ブートストラップ問題**: MMP のコアプロトコルは最小限だが、エージェントは通信するためにこのコアに同意する必要がある。コアアクション（introduce、goodbye、error）の仕様は静的で中央で定義されたままである。
+
+**SkillStore 信頼モデル**: リレーモードでは、エージェントは Meeting Place がスキルを忠実に保存・提供することを信頼する。理論的に、悪意のある Meeting Place 運営者はスキルコンテンツを改変できる。将来の作業ではコンテンツアドレス可能ストレージ（ハッシュ検証）や分散型代替手段でこれに対処できる。
 
 ### 6.4 将来ビジョン: AI 間プロトコル形成
 
@@ -459,11 +539,11 @@ AIエージェントがより普及し高度になるにつれ、適応的な通
 
 [2] Google, "Agent2Agent Protocol (A2A) Specification," Version 0.2.1, 2025. Available: https://google.github.io/A2A/specification/
 
-[3] "Emergent Communication Protocols in Multi-Agent Systems: How Do AI Agents Develop Their Languages?," ResearchGate, January 2025. Available: https://www.researchgate.net/publication/388103504
+[3] U. Ajuzieogu, "Emergent Communication Protocols in Multi-Agent Systems: How Do AI Agents Develop Their Languages?," University of Nigeria, ResearchGate, January 2025. Available: https://www.researchgate.net/publication/388103504
 
-[4] M. Hatakeyama, "KairosChain: Pure Agent Skills with Self-Amendment for Auditable AI Evolution," Zenodo, 2026. DOI: 10.5281/zenodo.18289164
+[4] M. Hatakeyama, "KairosChain: Pure Agent Skills with Self-Amendment for Auditable AI Evolution," Zenodo, 2026. DOI: 10.5281/zenodo.18289162. Available: https://github.com/masaomi/KairosChain_2026
 
-[5] M. Hatakeyama and T. Hashimoto, "Minimum Nomic: A Tool for Studying Rule Dynamics," *Artificial Life and Robotics*, vol. 13, no. 2, pp. 500-503, 2009. DOI: 10.1007/s10015-008-0605-6
+[5] M. Hatakeyama and T. Hashimoto, "Minimum Nomic: A Tool for Studying Rule Dynamics," *Artificial Life and Robotics*, vol. 13, no. 2, pp. 500-503, March 2009. DOI: 10.1007/s10015-008-0605-6
 
 [6] OpenAI, "Model Context Protocol (MCP) - OpenAI Agents SDK," 2025. Available: https://openai.github.io/openai-agents-python/mcp/
 
@@ -487,8 +567,12 @@ MMP は Anthropic による Model Context Protocol、Google による Agent2Agen
 
 **推奨引用形式:**
 
-Hatakeyama, M. (2026). Model Meeting Protocol: Dynamic Protocol Evolution through Skill-Based Definition for Agent-to-Agent Communication. Version 1.0. Zenodo. https://doi.org/10.5281/zenodo.XXXXXXXX
+Hatakeyama, M. (2026). Model Meeting Protocol: Dynamic Protocol Evolution through Skill-Based Definition for Agent-to-Agent Communication. Version 1.1. Zenodo. https://doi.org/10.5281/zenodo.18449581
 
 ---
 
-*バージョン 1.0 — 2026年1月30日*
+*バージョン 1.1 — 2026年2月1日*
+
+**変更履歴:**
+- v1.1 (2026-02-01): リレーモードと SkillStore、エージェントアイデンティティ管理、スキル可視性制御、ゴーストエージェントクリーンアップメカニズムを追加
+- v1.0 (2026-01-30): 初版リリース

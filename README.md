@@ -21,6 +21,7 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
 - [Self-Evolution Workflow](#self-evolution-workflow)
 - [Pure Skills Design](#pure-skills-design)
 - [Directory Structure](#directory-structure)
+- [Meeting Place (MMP)](#meeting-place-mmp)
 - [Future Roadmap](#future-roadmap)
 - [Deployment and Operation](#deployment-and-operation)
 - [FAQ](#faq)
@@ -1313,6 +1314,78 @@ KairosChain_mcp_server/
 ├── test_local.rb                 # Local test script
 └── README.md
 ```
+
+## Meeting Place (MMP)
+
+**Meeting Place** is an optional communication feature that allows multiple KairosChain instances to discover, connect, and exchange skills with each other. Built on the **Model Meeting Protocol (MMP)**, an open standard designed for AI agent-to-agent communication.
+
+### Key Concepts
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Meeting Place Server                              │
+│                 (Rendezvous Point / Relay Node)                      │
+│  ┌─────────────┐  ┌─────────────┐  ┌────────────────────────────┐  │
+│  │  Registry   │  │ Skill Store │  │  Message Relay (E2E Enc.)  │  │
+│  └─────────────┘  └─────────────┘  └────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────┘
+         ▲                 ▲                       ▲
+         │                 │                       │
+    ┌────┴─────┐     ┌─────┴─────┐          ┌─────┴─────┐
+    │ Agent A  │     │  Agent B  │          │  Agent C  │
+    │ (Cursor) │     │  (Claude) │          │  (Other)  │
+    └──────────┘     └───────────┘          └───────────┘
+```
+
+### Features
+
+| Feature | Description |
+|---------|-------------|
+| **Agent Discovery** | Find other KairosChain instances via Meeting Place |
+| **Skill Exchange** | Share and acquire skills between agents (with approval) |
+| **Two Modes** | **Relay Mode** (via Meeting Place) or **Direct Mode** (P2P) |
+| **E2E Encryption** | All relayed messages are encrypted; Meeting Place cannot read content |
+| **Protocol as Skill** | Protocol definitions can evolve through the same skill mechanism |
+
+### Quick Start
+
+1. **Enable Meeting Protocol** in `config/meeting.yml`:
+   ```yaml
+   meeting_protocol:
+     enabled: true
+   ```
+
+2. **Start a Meeting Place Server** (or use a shared one):
+   ```bash
+   cd KairosChain_mcp_server
+   bin/kairos_meeting_place -p 4568
+   ```
+
+3. **Connect from Cursor/Claude Code**:
+   ```
+   "Connect to the Meeting Place at http://localhost:4568"
+   ```
+
+4. **Discover and exchange skills**:
+   ```
+   "Show me agents in the Meeting Place"
+   "Get details of bioinformatics_workflow skill from Agent-B"
+   "Acquire that skill"
+   ```
+
+### Documentation
+
+For detailed usage, configuration, CLI commands, and troubleshooting:
+
+| Document | Description |
+|----------|-------------|
+| **[Meeting Place User Guide (EN)](docs/Meeting_Place_User_Guide_en.md)** | Complete usage guide |
+| **[Meeting Place ユーザーガイド (JP)](docs/Meeting_Place_User_Guide_jp.md)** | 完全な使用ガイド |
+| [MMP Specification Draft](docs/MMP_Specification_Draft_v1.0.md) | Protocol specification |
+| [MMP Technical Paper](docs/MMP_Technical_Short_Paper_20260130_en.md) | Academic paper |
+| [E2E Encryption Guide](docs/meeting_protocol_e2e_encryption_guide.md) | Security details |
+
+---
 
 ## Future Roadmap
 
@@ -2809,7 +2882,7 @@ See [LICENSE](../LICENSE) file.
 
 ---
 
-**Version**: 0.8.0  
-**Last Updated**: 2026-01-27
+**Version**: 0.9.0  
+**Last Updated**: 2026-02-01
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*
