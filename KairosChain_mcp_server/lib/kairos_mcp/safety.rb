@@ -6,15 +6,54 @@ module KairosMcp
     CONFIG_PATH = File.expand_path('../../config/safety.yml', __dir__)
     SERVER_ROOT = File.expand_path('../..', __dir__)
 
-    attr_reader :workspace_root
+    attr_reader :workspace_root, :current_user
 
     def initialize
       @config = load_config
       @default_root = File.expand_path(@config['safe_root'] || SERVER_ROOT)
       @workspace_root = nil  # Set dynamically via set_workspace
+      @current_user = nil    # Set dynamically via set_user (HTTP mode)
       @allowed_paths = @config['allowed_paths'] || []
       @blocklist = @config['blocklist'] || []
       @limits = @config['limits'] || {}
+    end
+
+    # Set user context from HTTP authentication
+    #
+    # @param user_context [Hash, nil] { user: "name", role: "owner"|"member"|"guest", ... }
+    def set_user(user_context)
+      @current_user = user_context
+      if user_context
+        $stderr.puts "[INFO] User context set: #{user_context[:user]} (#{user_context[:role]})"
+      end
+    end
+
+    # Phase 2: Role-based authorization hooks
+    # These methods return true for all roles in Phase 1.
+    # Override behavior when role-based authorization is implemented.
+
+    # Check if current user can modify L0 skills
+    # Phase 2: Only 'owner' role
+    def can_modify_l0?
+      true # Phase 1: no role restrictions
+    end
+
+    # Check if current user can modify L1 knowledge
+    # Phase 2: 'owner' and 'member' roles
+    def can_modify_l1?
+      true # Phase 1: no role restrictions
+    end
+
+    # Check if current user can modify L2 context
+    # Phase 2: all roles (guests limited to own context)
+    def can_modify_l2?
+      true # Phase 1: no role restrictions
+    end
+
+    # Check if current user can manage tokens
+    # Phase 2: Only 'owner' role
+    def can_manage_tokens?
+      true # Phase 1: no role restrictions
     end
 
     # Set workspace root from MCP client (roots) or environment

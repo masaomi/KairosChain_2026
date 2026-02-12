@@ -1,0 +1,216 @@
+# frozen_string_literal: true
+
+require 'json'
+require_relative 'protocol'
+require_relative 'version'
+require_relative 'auth/token_store'
+require_relative 'auth/authenticator'
+require_relative 'skills_config'
+
+module KairosMcp
+  # HttpServer: Streamable HTTP transport for MCP
+  #
+  # Implements the MCP Streamable HTTP transport (2025-03-26 spec).
+  # Uses Rack as the application interface and Puma as the web server.
+  #
+  # Endpoints:
+  #   POST /mcp     - MCP JSON-RPC endpoint (requires Bearer token)
+  #   GET  /health  - Health check (no auth required)
+  #
+  # Usage:
+  #   HttpServer.run(port: 8080)
+  #
+  # Configuration:
+  #   Set in skills/config.yml under 'http' key, or via CLI options.
+  #
+  class HttpServer
+    DEFAULT_PORT = 8080
+    DEFAULT_HOST = '0.0.0.0'
+
+    JSON_HEADERS = {
+      'Content-Type' => 'application/json',
+      'Cache-Control' => 'no-cache'
+    }.freeze
+
+    attr_reader :port, :host, :token_store, :authenticator
+
+    def initialize(port: nil, host: nil, token_store_path: nil)
+      http_config = SkillsConfig.load['http'] || {}
+
+      @port = port || http_config['port'] || DEFAULT_PORT
+      @host = host || http_config['host'] || DEFAULT_HOST
+      @token_store = Auth::TokenStore.new(token_store_path || http_config['token_store'])
+      @authenticator = Auth::Authenticator.new(@token_store)
+    end
+
+    # Start the HTTP server with Puma
+    def run
+      check_dependencies!
+      check_tokens!
+
+      app = build_rack_app
+      server = self
+
+      log "Starting KairosChain MCP Server v#{VERSION} (Streamable HTTP)"
+      log "Listening on #{@host}:#{@port}"
+      log "MCP endpoint: POST /mcp"
+      log "Health check: GET /health"
+
+      require 'puma'
+      require 'puma/configuration'
+      require 'puma/launcher'
+
+      puma_config = Puma::Configuration.new do |config|
+        config.bind "tcp://#{server.host}:#{server.port}"
+        config.app app
+        config.workers 0
+        config.threads 1, 5
+        config.environment 'production'
+        config.log_requests false
+        config.quiet false
+      end
+
+      launcher = Puma::Launcher.new(puma_config)
+      launcher.run
+    rescue Interrupt
+      log "KairosChain HTTP Server interrupted."
+    end
+
+    # Build the Rack application (class method for testing)
+    def self.build_app(token_store_path: nil)
+      server = new(token_store_path: token_store_path)
+      server.build_rack_app
+    end
+
+    # Build Rack application as a lambda
+    #
+    # Captures authenticator and token_store via closure.
+    # Each POST /mcp request creates a new Protocol instance for thread safety.
+    def build_rack_app
+      auth = @authenticator
+      store = @token_store
+
+      ->(env) do
+        request_method = env['REQUEST_METHOD']
+        path = env['PATH_INFO']
+
+        case [request_method, path]
+        when ['GET', '/health']
+          handle_health(store)
+        when ['POST', '/mcp']
+          handle_mcp(env, auth)
+        when ['GET', '/mcp']
+          # Streamable HTTP spec: GET /mcp for SSE streaming
+          json_response(501, error: 'not_implemented',
+                             message: 'SSE streaming via GET /mcp is not yet supported')
+        else
+          json_response(404, error: 'not_found',
+                             message: 'Endpoint not found. Use POST /mcp for MCP requests.')
+        end
+      end
+    end
+
+    private
+
+    # -----------------------------------------------------------------------
+    # Request Handlers
+    # -----------------------------------------------------------------------
+
+    def self.handle_health(token_store)
+      body = {
+        status: 'ok',
+        server: 'kairos-mcp-server',
+        version: KairosMcp::VERSION,
+        transport: 'streamable-http',
+        tokens_configured: !token_store.empty?
+      }
+
+      [200, JSON_HEADERS, [body.to_json]]
+    end
+
+    def self.handle_mcp(env, authenticator)
+      # 1. Authenticate
+      auth_result = authenticator.authenticate!(env)
+      unless auth_result.success?
+        return json_response(401, error: 'unauthorized', message: auth_result.message)
+      end
+
+      # 2. Read and validate request body
+      body = env['rack.input']&.read
+      if body.nil? || body.empty?
+        return json_response(400, error: 'bad_request', message: 'Request body is required')
+      end
+
+      content_type = env['CONTENT_TYPE'] || ''
+      unless content_type.include?('application/json')
+        return json_response(400, error: 'bad_request',
+                                  message: 'Content-Type must be application/json')
+      end
+
+      # 3. Process MCP message with user context
+      user_context = auth_result.user_context
+      protocol = Protocol.new(user_context: user_context)
+      response = protocol.handle_message(body)
+
+      if response
+        [200, JSON_HEADERS, [response.to_json]]
+      else
+        # Some MCP messages (like 'initialized') return nil
+        [204, {}, []]
+      end
+    rescue JSON::ParserError
+      json_response(400, error: 'bad_request', message: 'Invalid JSON in request body')
+    rescue StandardError => e
+      $stderr.puts "[ERROR] MCP request failed: #{e.message}"
+      $stderr.puts e.backtrace.first(5).join("\n")
+      json_response(500, error: 'internal_error',
+                         message: "Internal server error: #{e.message}")
+    end
+
+    # -----------------------------------------------------------------------
+    # Helpers
+    # -----------------------------------------------------------------------
+
+    def self.json_response(status, body_hash)
+      [status, JSON_HEADERS, [body_hash.to_json]]
+    end
+
+    def check_dependencies!
+      begin
+        require 'puma'
+        require 'rack'
+      rescue LoadError => e
+        $stderr.puts <<~MSG
+          [ERROR] HTTP transport requires puma and rack gems.
+
+          Install with:
+            cd #{File.expand_path('../..', __dir__)}
+            bundle install --with http
+
+          Or install individually:
+            gem install puma rack
+
+          Error: #{e.message}
+        MSG
+        exit 1
+      end
+    end
+
+    def check_tokens!
+      if @token_store.empty?
+        $stderr.puts <<~MSG
+          [WARNING] No active tokens found.
+          No clients will be able to connect without a valid token.
+
+          Generate an admin token with:
+            ruby bin/kairos_mcp_server --init-admin
+
+        MSG
+      end
+    end
+
+    def log(message)
+      $stderr.puts "[INFO] #{message}"
+    end
+  end
+end

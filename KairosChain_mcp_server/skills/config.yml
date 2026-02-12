@@ -157,3 +157,51 @@ state_commit:
       enabled: true
       l1_changes: 5                      # Commit after 5 L1 changes
       total_changes: 10                  # Commit after 10 total changes
+
+# =============================================================================
+# Streamable HTTP Transport (Optional, for Remote/Team Access)
+# =============================================================================
+#
+# Enables remote MCP access via Streamable HTTP transport.
+# Requires: bundle install --with http (installs puma + rack)
+#
+# Usage:
+#   ruby bin/kairos_mcp_server --http              # Start HTTP server
+#   ruby bin/kairos_mcp_server --http --port 9090  # Custom port
+#   ruby bin/kairos_mcp_server --init-admin        # Generate admin token
+#
+# For production HTTPS, use Caddy as reverse proxy:
+#   kairos.example.com { reverse_proxy localhost:8080 }
+#
+# Recommended: Use with SQLite backend for concurrent access safety.
+#
+http:
+  enabled: false                          # Set to true to enable (or use --http flag)
+  port: 8080                              # HTTP listen port
+  host: "0.0.0.0"                         # Bind address
+  token_store: "storage/tokens.json"      # Token storage path (uses SQLite if backend is sqlite)
+  default_token_expiry_days: 90           # Default token expiry (days)
+
+  # -----------------------------------------------------------------------
+  # Phase 2 (Future): Role-Based Authorization
+  # -----------------------------------------------------------------------
+  # Roles:
+  #   owner:  Full access (L0/L1/L2 read-write, token management)
+  #   member: L1/L2 read-write, L0 read-only
+  #   guest:  Read-only, own L2 context only
+  #
+  # role_authorization:
+  #   enabled: false
+  #   owner_permissions: [l0_rw, l1_rw, l2_rw, token_manage]
+  #   member_permissions: [l0_ro, l1_rw, l2_rw]
+  #   guest_permissions: [l0_ro, l1_ro, l2_own]
+  #
+  # -----------------------------------------------------------------------
+  # Phase 3 (Future): Wallet / JWT Integration (GenomicsChain)
+  # -----------------------------------------------------------------------
+  # jwt:
+  #   enabled: false
+  #   issuer: "genomicschain"
+  #   algorithm: "RS256"
+  #   public_key_path: "config/jwt_public.pem"
+  #   wallet_field: "wallet_address"

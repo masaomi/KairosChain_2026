@@ -1,7 +1,55 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Setup bundler if Gemfile exists (enables optional RAG gems)
+# KairosChain MCP Server
+#
+# Usage:
+#   ruby bin/kairos_mcp_server              # stdio mode (default, for Cursor local)
+#   ruby bin/kairos_mcp_server --http       # Streamable HTTP mode (remote access)
+#   ruby bin/kairos_mcp_server --http --port 9090
+#   ruby bin/kairos_mcp_server --init-admin # Generate initial admin token
+#
+# Streamable HTTP mode requires: bundle install --with http
+
+require 'optparse'
+
+# Parse CLI options before loading anything else
+options = {}
+
+OptionParser.new do |opts|
+  opts.banner = "Usage: kairos_mcp_server [options]"
+
+  opts.on('--http', 'Start in Streamable HTTP mode (default: stdio)') do
+    options[:http] = true
+  end
+
+  opts.on('--port PORT', Integer, 'HTTP port (default: 8080)') do |port|
+    options[:port] = port
+  end
+
+  opts.on('--host HOST', 'HTTP bind host (default: 0.0.0.0)') do |host|
+    options[:host] = host
+  end
+
+  opts.on('--init-admin', 'Generate initial admin token and exit') do
+    options[:init_admin] = true
+  end
+
+  opts.on('--token-store PATH', 'Path to token store file') do |path|
+    options[:token_store] = path
+  end
+
+  opts.on('-v', '--version', 'Show version') do
+    options[:version] = true
+  end
+
+  opts.on('-h', '--help', 'Show help') do
+    puts opts
+    exit
+  end
+end.parse!
+
+# Setup bundler if Gemfile exists (enables optional gems)
 gemfile_path = File.expand_path('../../Gemfile', __FILE__)
 if File.exist?(gemfile_path)
   ENV['BUNDLE_GEMFILE'] ||= gemfile_path
@@ -17,6 +65,77 @@ if File.exist?(gemfile_path)
 end
 
 $LOAD_PATH.unshift File.expand_path('../../lib', __FILE__)
-require 'kairos_mcp/server'
 
-KairosMcp::Server.run
+# Handle --version
+if options[:version]
+  require 'kairos_mcp/version'
+  puts "KairosChain MCP Server v#{KairosMcp::VERSION}"
+  exit
+end
+
+# Handle --init-admin
+if options[:init_admin]
+  require 'kairos_mcp/auth/token_store'
+
+  store = KairosMcp::Auth::TokenStore.new(options[:token_store])
+
+  if !store.empty?
+    $stderr.puts "[WARNING] Active tokens already exist."
+    $stderr.puts "Use the token_manage MCP tool to create additional tokens."
+    $stderr.puts ""
+    $stderr.puts "Existing tokens:"
+    store.list.each do |t|
+      $stderr.puts "  - #{t[:user]} (#{t[:role]}, expires: #{t[:expires_at] || 'never'})"
+    end
+    $stderr.puts ""
+    $stderr.puts "Proceed anyway? (y/N)"
+    answer = $stdin.gets&.strip
+    exit unless answer&.downcase == 'y'
+  end
+
+  result = store.create(user: 'admin', role: 'owner', issued_by: 'system')
+
+  puts ""
+  puts "=" * 60
+  puts "  KairosChain Admin Token Generated"
+  puts "=" * 60
+  puts ""
+  puts "  Token: #{result['raw_token']}"
+  puts "  User:  #{result['user']}"
+  puts "  Role:  #{result['role']}"
+  puts "  Expires: #{result['expires_at'] || 'never'}"
+  puts ""
+  puts "  IMPORTANT: Store this token securely."
+  puts "  It will NOT be shown again."
+  puts ""
+  puts "  Configure in Cursor mcp.json:"
+  puts "  {"
+  puts "    \"mcpServers\": {"
+  puts "      \"kairos\": {"
+  puts "        \"url\": \"http://localhost:#{options[:port] || 8080}/mcp\","
+  puts "        \"headers\": {"
+  puts "          \"Authorization\": \"Bearer #{result['raw_token']}\""
+  puts "        }"
+  puts "      }"
+  puts "    }"
+  puts "  }"
+  puts ""
+  puts "=" * 60
+  exit
+end
+
+# Handle --http (Streamable HTTP mode)
+if options[:http]
+  require 'kairos_mcp/http_server'
+
+  server = KairosMcp::HttpServer.new(
+    port: options[:port],
+    host: options[:host],
+    token_store_path: options[:token_store]
+  )
+  server.run
+else
+  # Default: stdio mode
+  require 'kairos_mcp/server'
+  KairosMcp::Server.run
+end
