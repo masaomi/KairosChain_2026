@@ -3208,7 +3208,7 @@ See [LICENSE](../LICENSE) file.
 
 ---
 
-**Version**: 0.9.0  
+**Version**: 0.5.0  
 **Last Updated**: 2026-02-12
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*
