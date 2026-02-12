@@ -27,6 +27,7 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
 - [Future Roadmap](#future-roadmap)
 - [Deployment and Operation](#deployment-and-operation)
 - [FAQ](#faq)
+- [Subtree Integration Guide](#subtree-integration-guide)
 - [License](#license)
 
 ## Philosophy
@@ -3199,6 +3200,159 @@ You can use both simultaneously:
 - KairosChain for knowledge that needs audit trails
 
 KairosChain doesn't replace local skills — it provides an additional layer of auditability and governance when needed.
+
+---
+
+## Subtree Integration Guide
+
+KairosChain_2026 is designed to be embedded into other projects using `git subtree`. This allows each project to:
+
+- Receive framework updates from the upstream KairosChain_2026 repository
+- Accumulate project-specific knowledge (L1) locally
+- Keep everything in a single repository with no extra clone steps
+
+### Why Subtree (Not Submodule)
+
+| Aspect | subtree | submodule |
+|--------|---------|-----------|
+| Local file additions | Managed naturally by parent repo | Complicated inside submodule |
+| `git clone` for teammates | Just works (all files included) | Requires `git submodule init && update` |
+| CI/CD | No special setup | Needs submodule initialization step |
+| Knowledge accumulation | Commit directly to parent repo | Awkward cross-repo management |
+| Accidental upstream push | Safe unless explicit `subtree push` | Easier to push to wrong remote |
+
+### How It Works with KairosChain Layers
+
+```
+KairosChain_2026 (upstream)           YourProject (parent repo)
+┌──────────────────────────┐          ┌─────────────────────────────────┐
+│ L0: Framework code       │ subtree  │ server/                         │
+│ L0: Meta-skills          │ --pull-> │   KairosChain_mcp_server/       │
+│ L1: Generic templates    │          │     knowledge/                  │
+│   example_knowledge/     │          │       example_knowledge/ <- sync│
+│   persona_definitions/   │          │       persona_definitions/<-sync│
+│                          │          │       your_project/   <- local  │
+│                          │          │       your_tools/     <- local  │
+│                          │          │     context/          <- L2     │
+└──────────────────────────┘          └─────────────────────────────────┘
+```
+
+| Layer | Location | Managed By |
+|-------|----------|------------|
+| L0 (meta-skills, framework) | Upstream KairosChain_2026 | `subtree pull` syncs to all projects |
+| L1 (project knowledge) | `knowledge/` in each project | Committed to parent repo only |
+| L2 (session context) | `context/` | Ephemeral, gitignored |
+
+### Setup: Adding KairosChain to a New Project
+
+**Step 1: Add subtree**
+
+```bash
+git subtree add --prefix=server https://github.com/masaomi/KairosChain_2026 main --squash
+```
+
+**Step 2: Register remote (for convenience)**
+
+```bash
+git remote add mcp_server https://github.com/masaomi/KairosChain_2026
+```
+
+**Step 3: Configure .gitignore**
+
+In `server/.gitignore`, add:
+
+```gitignore
+# Bundler
+KairosChain_mcp_server/Gemfile.lock
+KairosChain_mcp_server/.bundle/
+KairosChain_mcp_server/vendor/
+
+# L2 session context (ephemeral)
+KairosChain_mcp_server/context/
+
+# Vector search index files (auto-generated)
+KairosChain_mcp_server/storage/embeddings/**/*.ann
+KairosChain_mcp_server/storage/embeddings/**/*.json
+!KairosChain_mcp_server/storage/embeddings/**/.gitkeep
+
+# Action log
+KairosChain_mcp_server/skills/action_log.jsonl
+```
+
+### Daily Operations
+
+**Pull upstream updates:**
+
+```bash
+git subtree pull --prefix=server mcp_server main --squash
+```
+
+- Files from upstream are updated/merged
+- Locally added files (project knowledge) are NOT affected
+- If a file exists both locally and upstream with different content, a normal merge conflict occurs — resolve as usual
+
+**Commit project-specific knowledge:**
+
+```bash
+# Knowledge files created by MCP server appear as untracked
+git add server/KairosChain_mcp_server/knowledge/your_project/
+git add server/KairosChain_mcp_server/storage/blockchain.json
+git commit -m "Add project-specific knowledge"
+```
+
+These commits go to the **parent repo only** — upstream is never affected.
+
+**Push to upstream (CAUTION):**
+
+```bash
+# Only if you want to contribute changes back to KairosChain_2026
+# Usually NOT needed for project-specific files
+git subtree push --prefix=server mcp_server main
+```
+
+> **Warning:** Do NOT push unless you intentionally want to send changes to the KairosChain_2026 repository. Project-specific knowledge should stay in the parent repo.
+
+### Conflict Resolution
+
+When `subtree pull` encounters a conflict:
+
+```bash
+$ git subtree pull --prefix=server mcp_server main --squash
+# CONFLICT (add/add): Merge conflict in server/.../some_file.md
+
+# 1. Open the conflicted file and resolve
+# 2. Stage and commit
+git add server/KairosChain_mcp_server/...
+git commit -m "Resolve subtree merge conflict, keep local changes"
+```
+
+**Rule of thumb:** For project knowledge files, prefer local content over upstream content.
+
+### Multi-Project Deployment Example
+
+```
+ProjectA/                           ProjectB/
+├── .git/                           ├── .git/
+└── server/ (subtree)               └── server/ (subtree)
+    └── KairosChain_mcp_server/         └── KairosChain_mcp_server/
+        ├── knowledge/                      ├── knowledge/
+        │   ├── example_knowledge/ (shared) │   ├── example_knowledge/ (shared)
+        │   ├── tool_a/       (A-specific)  │   ├── tool_b/       (B-specific)
+        │   └── utils_a/      (A-specific)  │   └── utils_b/      (B-specific)
+        └── storage/                        └── storage/
+            └── blockchain.json (A-specific)    └── blockchain.json (B-specific)
+```
+
+Each project independently:
+- Pulls framework updates from the same upstream
+- Accumulates its own L1 knowledge
+- Manages its own blockchain state
+
+### Reference
+
+- Upstream: `https://github.com/masaomi/KairosChain_2026`
+- Subtree prefix: `server/` (or your preferred path)
+- Remote alias: `mcp_server`
 
 ---
 
