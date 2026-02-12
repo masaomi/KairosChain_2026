@@ -12,3 +12,9 @@ KairosChain_mcp_server/storage/embeddings/**/*.json
 # Bundler
 KairosChain_mcp_server/Gemfile.lock
 KairosChain_mcp_server/.bundle/
+KairosChain_mcp_server/vendor/
+
+# Runtime data
+KairosChain_mcp_server/storage/blockchain.json
+KairosChain_mcp_server/storage/meeting_connection.json
+KairosChain_mcp_server/context/
