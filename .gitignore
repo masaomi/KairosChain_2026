@@ -18,3 +18,6 @@ KairosChain_mcp_server/vendor/
 KairosChain_mcp_server/storage/blockchain.json
 KairosChain_mcp_server/storage/meeting_connection.json
 KairosChain_mcp_server/context/
+
+# Authentication tokens (sensitive - never commit)
+KairosChain_mcp_server/storage/tokens.json

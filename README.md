@@ -13,6 +13,9 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
 - [Layered Skills Architecture](#layered-skills-architecture)
 - [Data Model: SkillStateTransition](#data-model-skillstatetransition)
 - [Setup](#setup)
+  - [Optional: RAG Support](#optional-rag-semantic-search-support)
+  - [Optional: SQLite](#optional-sqlite-storage-backend-team-use)
+  - [Optional: Streamable HTTP](#optional-streamable-http-transport-remoteteam-access)
 - [Client Configuration](#client-configuration)
 - [Testing the Setup](#testing-the-setup)
 - [Usage Tips](#usage-tips)
@@ -80,12 +83,14 @@ Instead, we achieve: **Evolvable but not gameable systems**.
 │                    MCP Client (Cursor / Claude Code)            │
 └───────────────────────────────┬─────────────────────────────────┘
                                 │ STDIO (JSON-RPC)
+                                │   or
+                                │ Streamable HTTP (POST /mcp)
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    KairosChain MCP Server                        │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────────┐ │
-│  │    Server    │ │   Protocol   │ │     Tool Registry        │ │
-│  │  STDIO Loop  │ │  JSON-RPC    │ │  12+ Tools Available     │ │
+│  │ Server/HTTP  │ │   Protocol   │ │     Tool Registry        │ │
+│  │ STDIO/Puma   │ │  JSON-RPC    │ │  23+ Tools Available     │ │
 │  └──────────────┘ └──────────────┘ └──────────────────────────┘ │
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐   │
@@ -612,6 +617,404 @@ The original files (`blockchain.json`, `action_log.jsonl`) will be used automati
 
 ---
 
+### Optional: Streamable HTTP Transport (Remote/Team Access)
+
+By default, KairosChain uses stdio transport (local process). For remote access and team sharing, you can optionally enable Streamable HTTP transport with Bearer token authentication.
+
+**Default (stdio):** Local process via stdin/stdout, no additional setup required  
+**Streamable HTTP:** Remote access via `POST /mcp`, Bearer token authentication, team sharing
+
+#### When to Use HTTP Transport
+
+| Scenario | Recommended Transport |
+|----------|----------------------|
+| Individual developer (local Cursor/Claude Code) | stdio (default) |
+| Team sharing a single KairosChain instance | **Streamable HTTP** |
+| Remote access across network | **Streamable HTTP** |
+| CI/CD integration via HTTP | **Streamable HTTP** |
+
+#### Installation
+
+```bash
+cd KairosChain_mcp_server
+
+# Install HTTP transport gems
+bundle install --with http
+
+# For full team setup (HTTP + SQLite for concurrent access):
+bundle install --with http sqlite
+
+# Verify installation
+ruby -e "require 'puma'; require 'rack'; puts 'HTTP transport gems installed!'"
+```
+
+#### Gems Used
+
+| Gem | Version | Purpose |
+|-----|---------|---------|
+| `puma` | ~> 6.0 | High-performance concurrent web server |
+| `rack` | ~> 3.0 | Modular Ruby web server interface |
+
+#### Quick Start
+
+```bash
+cd KairosChain_mcp_server
+
+# Step 1: Generate admin token
+ruby bin/kairos_mcp_server --init-admin
+
+# Step 2: Start HTTP server
+ruby bin/kairos_mcp_server --http --port 8080
+
+# Step 3: Test with curl (in another terminal)
+curl http://localhost:8080/health
+```
+
+#### Setup Steps
+
+**Step 1: Generate an Admin Token**
+
+```bash
+ruby bin/kairos_mcp_server --init-admin
+```
+
+Output:
+```
+============================================================
+  KairosChain Admin Token Generated
+============================================================
+
+  Token: kc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  User:  admin
+  Role:  owner
+  Expires: 2026-05-13T10:00:00+01:00
+
+  IMPORTANT: Store this token securely.
+  It will NOT be shown again.
+============================================================
+```
+
+**Step 2: Start the HTTP Server**
+
+```bash
+# Default port 8080
+ruby bin/kairos_mcp_server --http
+
+# Custom port
+ruby bin/kairos_mcp_server --http --port 9090
+
+# Custom host and port
+ruby bin/kairos_mcp_server --http --host 127.0.0.1 --port 8080
+```
+
+**Step 3: Configure Cursor to Connect**
+
+Add to `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "kairos-chain-http": {
+      "url": "http://localhost:8080/mcp",
+      "headers": {
+        "Authorization": "Bearer kc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    }
+  }
+}
+```
+
+Restart Cursor after saving.
+
+#### Testing the HTTP Transport
+
+**Unit tests (no gems required):**
+
+```bash
+ruby test_http.rb
+```
+
+**Integration tests (requires puma + rack):**
+
+```bash
+ruby test_http.rb --integration
+```
+
+**Manual testing with curl:**
+
+```bash
+# Health check (no auth required)
+curl http://localhost:8080/health
+
+# MCP initialize (with auth)
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <your-token>" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+
+# List tools
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <your-token>" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+
+# Call a tool
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <your-token>" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"hello_world","arguments":{"name":"HTTP"}}}'
+```
+
+#### Token Management
+
+After initial setup, manage tokens via the `token_manage` MCP tool:
+
+```bash
+# Create a token for a team member
+token_manage command="create" user="alice" role="member"
+
+# List active tokens
+token_manage command="list"
+
+# Rotate a token (revoke old, create new)
+token_manage command="rotate" user="alice"
+
+# Revoke a token
+token_manage command="revoke" user="alice"
+```
+
+**Token roles (Phase 1: all roles have equal access):**
+
+| Role | Description | Phase 2 Permissions |
+|------|-------------|---------------------|
+| `owner` | System administrator | Full access + token management |
+| `member` | Team member | L1/L2 write, L0 read-only |
+| `guest` | External collaborator | Read-only, own L2 only |
+
+**Token expiry:**
+
+| Duration | Option | Use Case |
+|----------|--------|----------|
+| 90 days (default) | `expires_in="90d"` | Daily use in Cursor |
+| 24 hours | `expires_in="24h"` | CI/CD, temporary access |
+| 7 days | `expires_in="7d"` | Short-term collaboration |
+| No expiry | `expires_in="never"` | Owner tokens only |
+
+#### CLI Options
+
+```
+Usage: kairos_mcp_server [options]
+
+    --http          Start in Streamable HTTP mode (default: stdio)
+    --port PORT     HTTP port (default: 8080)
+    --host HOST     HTTP bind host (default: 0.0.0.0)
+    --init-admin    Generate initial admin token and exit
+    --token-store PATH  Path to token store file
+    -v, --version   Show version
+    -h, --help      Show help
+```
+
+#### Production Deployment with HTTPS
+
+For production use, place a reverse proxy in front of Puma to handle TLS/HTTPS. Puma only handles plain HTTP internally; the reverse proxy terminates SSL.
+
+```
+Client (Cursor) ──HTTPS──▶ Reverse Proxy ──HTTP──▶ Puma (:8080)
+                           (Caddy/Nginx)
+                           TLS termination
+```
+
+**Option A: Caddy (Recommended — Simplest)**
+
+Caddy provides automatic HTTPS with Let's Encrypt certificates (zero configuration for TLS).
+
+```bash
+# Install Caddy
+# macOS
+brew install caddy
+
+# Ubuntu/Debian
+sudo apt install -y caddy
+
+# Or see: https://caddyserver.com/docs/install
+```
+
+Create a `Caddyfile`:
+
+```
+kairos.example.com {
+    reverse_proxy localhost:8080
+}
+```
+
+Start Caddy:
+
+```bash
+# Foreground (for testing)
+caddy run
+
+# As a service (production)
+sudo systemctl enable --now caddy
+```
+
+That's it. Caddy automatically:
+- Obtains a Let's Encrypt certificate for `kairos.example.com`
+- Renews it before expiry
+- Redirects HTTP to HTTPS
+- Handles TLS termination
+
+**Option B: Nginx**
+
+For environments where Nginx is already available or preferred.
+
+```bash
+# Install Nginx + Certbot
+# macOS
+brew install nginx
+
+# Ubuntu/Debian
+sudo apt install -y nginx certbot python3-certbot-nginx
+```
+
+Create Nginx config (`/etc/nginx/sites-available/kairos`):
+
+```nginx
+server {
+    listen 80;
+    server_name kairos.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Enable and get SSL certificate:
+
+```bash
+# Enable the site
+sudo ln -s /etc/nginx/sites-available/kairos /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+
+# Obtain Let's Encrypt certificate (automatic Nginx config update)
+sudo certbot --nginx -d kairos.example.com
+```
+
+Certbot automatically modifies the Nginx config to add SSL and sets up auto-renewal.
+
+**Option C: Self-Signed Certificate (LAN / Development)**
+
+For LAN teams or development where you don't have a public domain:
+
+```bash
+# Generate self-signed certificate (valid for 1 year)
+mkdir -p certs
+openssl req -x509 -newkey rsa:4096 -keyout certs/key.pem -out certs/cert.pem \
+  -days 365 -nodes -subj "/CN=kairos.local"
+```
+
+With Caddy (using self-signed cert):
+
+```
+kairos.local {
+    tls /path/to/certs/cert.pem /path/to/certs/key.pem
+    reverse_proxy localhost:8080
+}
+```
+
+With Nginx:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name kairos.local;
+
+    ssl_certificate /path/to/certs/cert.pem;
+    ssl_certificate_key /path/to/certs/key.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+**Cursor Configuration (HTTPS)**
+
+After setting up HTTPS, update `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "kairos-chain-http": {
+      "url": "https://kairos.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer kc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    }
+  }
+}
+```
+
+**Comparison: Caddy vs Nginx**
+
+| Aspect | Caddy | Nginx |
+|--------|-------|-------|
+| HTTPS setup | Automatic (zero config) | Manual (certbot required) |
+| Certificate renewal | Automatic | Automatic (via certbot timer) |
+| Configuration | Simple Caddyfile | More verbose |
+| Performance | Good | Excellent (battle-tested) |
+| Best for | New setups, simplicity | Existing Nginx infrastructure |
+
+#### Configuration
+
+HTTP settings in `skills/config.yml`:
+
+```yaml
+http:
+  enabled: false                          # Set to true or use --http flag
+  port: 8080                              # HTTP listen port
+  host: "0.0.0.0"                         # Bind address
+  token_store: "storage/tokens.json"      # Token storage path
+  default_token_expiry_days: 90           # Default token expiry
+```
+
+#### Cleanup After Testing
+
+All generated files are in `.gitignore`. To clean up:
+
+```bash
+cd KairosChain_mcp_server
+
+rm -f storage/tokens.json       # Generated tokens
+rm -rf vendor/bundle vendor/    # Locally installed gems
+rm -rf .bundle/                 # Bundler cache
+rm -f Gemfile.lock              # Lock file
+```
+
+Verify clean state: `git status` should show `working tree clean`.
+
+#### Future Phases (Not Yet Implemented)
+
+**Phase 2: Role-Based Authorization**
+- Layer-specific permissions per role (owner/member/guest)
+- `notifications/tools/list_changed` for dynamic tool updates
+- Per-user permission overrides
+
+**Phase 3: Wallet / JWT Integration (GenomicsChain)**
+- JWT tokens issued by GenomicsChain Rails API
+- Wallet-based authentication (MetaMask signature)
+- Integration with PoC (Proof of Contribution) token system
+
+---
+
 ## Client Configuration
 
 ### Claude Code Configuration (Detailed)
@@ -1033,9 +1436,9 @@ The `tool_guide` tool helps you discover and learn about KairosChain tools dynam
    - All operations are recorded in `action_log`
    - Review logs regularly
 
-## Available Tools (23 core + skill-tools)
+## Available Tools (24 core + skill-tools)
 
-The base installation provides 23 tools. Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
+The base installation provides 24 tools (23 + 1 HTTP-only). Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
 
 ### L0-A: Skills Tools (Markdown) - Read-only
 
@@ -1128,6 +1531,12 @@ State commits provide cross-layer auditability by creating snapshots of all laye
 | `state_commit` | Create an explicit state commit with reason (records to blockchain) |
 | `state_status` | View current state, pending changes, and auto-commit trigger status |
 | `state_history` | Browse state commit history and view snapshot details |
+
+### Authentication Tools (HTTP Mode Only)
+
+| Tool | Description |
+|------|-------------|
+| `token_manage` | Manage Bearer tokens (create, revoke, list, rotate). Requires `owner` role. |
 
 ### Guide Tools (Tool Discovery)
 
@@ -1269,6 +1678,7 @@ KairosChain_mcp_server/
 ├── lib/
 │   └── kairos_mcp/
 │       ├── server.rb             # STDIO server
+│       ├── http_server.rb        # Streamable HTTP server (Puma/Rack)
 │       ├── protocol.rb           # JSON-RPC handler
 │       ├── kairos.rb             # Self-reference module
 │       ├── safe_evolver.rb       # Evolution with safety
@@ -1276,6 +1686,9 @@ KairosChain_mcp_server/
 │       ├── anthropic_skill_parser.rb  # YAML frontmatter + MD parser
 │       ├── knowledge_provider.rb # L1 knowledge management
 │       ├── context_manager.rb    # L2 context management
+│       ├── auth/                 # Authentication module
+│       │   ├── token_store.rb    # Token CRUD with SHA-256 hashing
+│       │   └── authenticator.rb  # Bearer token verification
 │       ├── kairos_chain/         # Blockchain implementation
 │       │   ├── block.rb
 │       │   ├── chain.rb
@@ -1287,11 +1700,12 @@ KairosChain_mcp_server/
 │       │   ├── diff_calculator.rb
 │       │   ├── pending_changes.rb
 │       │   └── commit_service.rb
-│       └── tools/                # MCP tools (23 core)
+│       └── tools/                # MCP tools (24 core)
 │           ├── skills_*.rb       # L0 tools
 │           ├── knowledge_*.rb    # L1 tools
 │           ├── context_*.rb      # L2 tools
-│           └── state_*.rb        # StateCommit tools
+│           ├── state_*.rb        # StateCommit tools
+│           └── token_manage.rb   # Token management (HTTP mode)
 ├── skills/                       # L0: Kairos Core
 │   ├── kairos.md                 # L0-A: Philosophy (read-only)
 │   ├── kairos.rb                 # L0-B: Meta-rules (Ruby DSL)
@@ -1336,7 +1750,7 @@ A future vision for KairosChain: multiple KairosChain MCP servers communicating 
 
 **Implementation phases**:
 1. Dockerization (deployment foundation)
-2. HTTP/WebSocket API (remote access)
+2. ~~HTTP/WebSocket API (remote access)~~ ✅ Streamable HTTP transport (Phase 1 complete)
 3. Inter-server communication protocol
 4. Distributed consensus mechanism
 5. Distributed L0 governance
@@ -1696,14 +2110,14 @@ Persona definitions can be customized in: `knowledge/persona_definitions/`
 
 ### Q: Is API extension needed for team usage?
 
-**A:** The current implementation is limited to local use via stdio. For team usage, the following options are available:
+**A:** KairosChain now supports **Streamable HTTP transport** for remote/team access. For team usage, the following options are available:
 
 | Method | Additional Implementation | Suitable Scale |
 |--------|---------------------------|----------------|
 | **Git sharing** | Not required | Small teams (2-5 people) |
 | **SSH tunneling** | Not required | LAN teams (2-10 people) |
-| **HTTP API** | Required | Medium teams (5-20 people) |
-| **MCP over SSE** | Required | When remote connection is needed |
+| **Streamable HTTP** | ✅ Available (`--http` flag) | Medium teams (5-20 people) |
+| **MCP over SSE** | Not needed (Streamable HTTP replaces) | When remote connection is needed |
 
 **Git sharing (simplest):**
 ```
@@ -1768,10 +2182,11 @@ For teams on the same LAN, you can connect to a remote MCP server via SSH. This 
 - Each client opens a new server process (no shared state between connections)
 - For concurrent writes, use Git to sync `storage/blockchain.json` and `knowledge/`
 
-**When HTTP API is needed:**
-- Real-time synchronization required
-- Authentication/authorization required
-- Conflict resolution for concurrent edits required
+**When Streamable HTTP is better:**
+- Remote access beyond SSH reach (internet-facing)
+- Bearer token authentication needed
+- Integration with CI/CD or external systems
+- See [Optional: Streamable HTTP Transport](#optional-streamable-http-transport-remoteteam-access) for setup details
 
 ---
 
@@ -2793,7 +3208,7 @@ See [LICENSE](../LICENSE) file.
 
 ---
 
-**Version**: 0.8.0  
-**Last Updated**: 2026-01-27
+**Version**: 0.5.0  
+**Last Updated**: 2026-02-12
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*

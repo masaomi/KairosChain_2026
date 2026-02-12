@@ -4,8 +4,10 @@ require_relative 'skills_config'
 
 module KairosMcp
   class ToolRegistry
-    def initialize
+    # @param user_context [Hash, nil] Authenticated user info from HTTP mode
+    def initialize(user_context: nil)
       @safety = Safety.new
+      @safety.set_user(user_context) if user_context
       @tools = {}
       register_tools
     end
@@ -63,6 +65,9 @@ module KairosMcp
 
       # Guide tools (discovery, help, metadata management)
       register_if_defined('KairosMcp::Tools::ToolGuide')
+
+      # Token management (HTTP authentication)
+      register_if_defined('KairosMcp::Tools::TokenManage')
 
       # Skill-based tools (from kairos.rb with tool block)
       register_skill_tools if skill_tools_enabled?

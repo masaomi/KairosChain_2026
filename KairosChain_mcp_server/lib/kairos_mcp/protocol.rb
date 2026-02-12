@@ -4,10 +4,15 @@ require_relative 'version'
 
 module KairosMcp
   class Protocol
-    PROTOCOL_VERSION = '2024-11-05'
+    # Protocol versions
+    STDIO_PROTOCOL_VERSION = '2024-11-05'
+    HTTP_PROTOCOL_VERSION = '2025-03-26'
 
-    def initialize
-      @tool_registry = ToolRegistry.new
+    # @param user_context [Hash, nil] Authenticated user info from HTTP mode
+    #   { user: "name", role: "owner"|"member"|"guest", ... }
+    def initialize(user_context: nil)
+      @user_context = user_context
+      @tool_registry = ToolRegistry.new(user_context: user_context)
       @initialized = false
     end
 
@@ -45,15 +50,22 @@ module KairosMcp
       nil
     end
 
+    def protocol_version
+      @user_context ? HTTP_PROTOCOL_VERSION : STDIO_PROTOCOL_VERSION
+    end
+
     def handle_initialize(params)
       roots = params['roots'] || params['workspaceFolders']
       @tool_registry.set_workspace(roots)
       @initialized = true
 
       {
-        protocolVersion: PROTOCOL_VERSION,
+        protocolVersion: protocol_version,
         capabilities: {
-          tools: {}
+          tools: {
+            # Phase 2: Set to true when notifications/tools/list_changed is implemented
+            listChanged: false
+          }
         },
         serverInfo: {
           name: 'kairos-mcp-server',
