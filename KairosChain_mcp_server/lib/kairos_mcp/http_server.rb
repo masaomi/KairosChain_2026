@@ -84,11 +84,10 @@ module KairosMcp
 
     # Build Rack application as a lambda
     #
-    # Captures authenticator and token_store via closure.
+    # Captures self (HttpServer instance) via closure.
     # Each POST /mcp request creates a new Protocol instance for thread safety.
     def build_rack_app
-      auth = @authenticator
-      store = @token_store
+      server = self
 
       ->(env) do
         request_method = env['REQUEST_METHOD']
@@ -96,41 +95,39 @@ module KairosMcp
 
         case [request_method, path]
         when ['GET', '/health']
-          handle_health(store)
+          server.handle_health
         when ['POST', '/mcp']
-          handle_mcp(env, auth)
+          server.handle_mcp(env)
         when ['GET', '/mcp']
           # Streamable HTTP spec: GET /mcp for SSE streaming
-          json_response(501, error: 'not_implemented',
-                             message: 'SSE streaming via GET /mcp is not yet supported')
+          server.json_response(501, error: 'not_implemented',
+                                    message: 'SSE streaming via GET /mcp is not yet supported')
         else
-          json_response(404, error: 'not_found',
-                             message: 'Endpoint not found. Use POST /mcp for MCP requests.')
+          server.json_response(404, error: 'not_found',
+                                    message: 'Endpoint not found. Use POST /mcp for MCP requests.')
         end
       end
     end
 
-    private
-
     # -----------------------------------------------------------------------
-    # Request Handlers
+    # Request Handlers (public for Rack lambda access)
     # -----------------------------------------------------------------------
 
-    def self.handle_health(token_store)
+    def handle_health
       body = {
         status: 'ok',
         server: 'kairos-mcp-server',
         version: KairosMcp::VERSION,
         transport: 'streamable-http',
-        tokens_configured: !token_store.empty?
+        tokens_configured: !@token_store.empty?
       }
 
       [200, JSON_HEADERS, [body.to_json]]
     end
 
-    def self.handle_mcp(env, authenticator)
+    def handle_mcp(env)
       # 1. Authenticate
-      auth_result = authenticator.authenticate!(env)
+      auth_result = @authenticator.authenticate!(env)
       unless auth_result.success?
         return json_response(401, error: 'unauthorized', message: auth_result.message)
       end
@@ -171,9 +168,11 @@ module KairosMcp
     # Helpers
     # -----------------------------------------------------------------------
 
-    def self.json_response(status, body_hash)
+    def json_response(status, body_hash)
       [status, JSON_HEADERS, [body_hash.to_json]]
     end
+
+    private
 
     def check_dependencies!
       begin
