@@ -1,0 +1,29 @@
+<%
+  idx = block.respond_to?(:index) ? block.index : (block['index'] || block[:index])
+  hash_val = block.respond_to?(:hash_value) ? block.hash_value : (block['hash'] || block[:hash])
+  prev_hash = block.respond_to?(:previous_hash) ? block.previous_hash : (block['previous_hash'] || block[:previous_hash])
+  merkle = block.respond_to?(:merkle_root) ? block.merkle_root : (block['merkle_root'] || block[:merkle_root])
+  ts = block.respond_to?(:timestamp) ? block.timestamp : (block['timestamp'] || block[:timestamp])
+  data = block.respond_to?(:data) ? block.data : (block['data'] || block[:data])
+%>
+
+<article>
+  <header>
+    Block #<%= idx %> Detail
+    <button class="outline secondary btn-sm" onclick="document.getElementById('block-detail').innerHTML=''" style="float:right">Close</button>
+  </header>
+  <div class="overflow-auto">
+    <table>
+      <tr><th>Index</th><td><%= idx %></td></tr>
+      <tr><th>Timestamp</th><td><%= h(ts) %></td></tr>
+      <tr><th>Hash</th><td><code class="hash"><%= h(hash_val) %></code></td></tr>
+      <tr><th>Previous Hash</th><td><code class="hash"><%= h(prev_hash) %></code></td></tr>
+      <% if merkle %>
+        <tr><th>Merkle Root</th><td><code class="hash"><%= h(merkle) %></code></td></tr>
+      <% end %>
+    </table>
+  </div>
+
+  <h4>Data (<%= data.is_a?(Array) ? data.size : 1 %> entries)</h4>
+  <pre class="block-data"><%= h(JSON.pretty_generate(data)) rescue h(data.to_s) %></pre>
+</article>

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KairosChain Admin</title>
+  <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@2/css/pico.min.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <link rel="stylesheet" href="/admin/static/admin.css">
+</head>
+<body>
+  <nav class="container-fluid">
+    <ul>
+      <li><strong>KairosChain Admin</strong></li>
+    </ul>
+    <ul>
+      <li><a href="/admin" <%= 'aria-current="page"' if @active_page == 'dashboard' %>>Dashboard</a></li>
+      <li><a href="/admin/tokens" <%= 'aria-current="page"' if @active_page == 'tokens' %>>Tokens</a></li>
+      <li><a href="/admin/chain" <%= 'aria-current="page"' if @active_page == 'chain' %>>Chain</a></li>
+      <li><a href="/admin/skills" <%= 'aria-current="page"' if @active_page == 'skills' %>>Skills</a></li>
+      <li><a href="/admin/knowledge" <%= 'aria-current="page"' if @active_page == 'knowledge' %>>Knowledge</a></li>
+      <li><a href="/admin/config" <%= 'aria-current="page"' if @active_page == 'config' %>>Config</a></li>
+      <li>
+        <small><%= h(@current_user[:user]) if @current_user %></small>
+        <a href="/admin/logout" role="button" class="outline secondary btn-sm">Logout</a>
+      </li>
+    </ul>
+  </nav>
+
+  <main class="container">
+    <%= @content %>
+  </main>
+
+  <footer class="container">
+    <small>KairosChain v<%= KairosMcp::VERSION %> &mdash; Admin UI</small>
+  </footer>
+</body>
+</html>

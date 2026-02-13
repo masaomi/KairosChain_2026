@@ -6,6 +6,7 @@ require_relative 'version'
 require_relative 'auth/token_store'
 require_relative 'auth/authenticator'
 require_relative 'skills_config'
+require_relative 'admin/router'
 
 module KairosMcp
   # HttpServer: Streamable HTTP transport for MCP
@@ -14,8 +15,10 @@ module KairosMcp
   # Uses Rack as the application interface and Puma as the web server.
   #
   # Endpoints:
-  #   POST /mcp     - MCP JSON-RPC endpoint (requires Bearer token)
-  #   GET  /health  - Health check (no auth required)
+  #   POST /mcp       - MCP JSON-RPC endpoint (requires Bearer token)
+  #   GET  /health    - Health check (no auth required)
+  #   GET  /admin/*   - Admin UI (requires owner Bearer token via session)
+  #   POST /admin/*   - Admin operations (htmx, requires owner session)
   #
   # Usage:
   #   HttpServer.run(port: 8080)
@@ -32,7 +35,7 @@ module KairosMcp
       'Cache-Control' => 'no-cache'
     }.freeze
 
-    attr_reader :port, :host, :token_store, :authenticator
+    attr_reader :port, :host, :token_store, :authenticator, :admin_router
 
     def initialize(port: nil, host: nil, token_store_path: nil)
       http_config = SkillsConfig.load['http'] || {}
@@ -41,6 +44,7 @@ module KairosMcp
       @host = host || http_config['host'] || DEFAULT_HOST
       @token_store = Auth::TokenStore.new(token_store_path || http_config['token_store'])
       @authenticator = Auth::Authenticator.new(@token_store)
+      @admin_router = Admin::Router.new(token_store: @token_store, authenticator: @authenticator)
     end
 
     # Start the HTTP server with Puma
@@ -55,6 +59,7 @@ module KairosMcp
       log "Listening on #{@host}:#{@port}"
       log "MCP endpoint: POST /mcp"
       log "Health check: GET /health"
+      log "Admin UI:     GET /admin"
 
       require 'puma'
       require 'puma/configuration'
@@ -86,12 +91,18 @@ module KairosMcp
     #
     # Captures self (HttpServer instance) via closure.
     # Each POST /mcp request creates a new Protocol instance for thread safety.
+    # Admin UI requests are delegated to Admin::Router.
     def build_rack_app
       server = self
 
       ->(env) do
         request_method = env['REQUEST_METHOD']
         path = env['PATH_INFO']
+
+        # Admin UI routes
+        if path.start_with?('/admin')
+          return server.admin_router.call(env)
+        end
 
         case [request_method, path]
         when ['GET', '/health']

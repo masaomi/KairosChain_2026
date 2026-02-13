@@ -1,0 +1,110 @@
+<% if defined?(flash) && flash %>
+  <div class="flash flash-info"><%= h(flash) %></div>
+<% end %>
+
+<% if defined?(new_token) && new_token %>
+  <article class="flash flash-success">
+    <p><strong>New token created for '<%= h(new_token_user) %>':</strong></p>
+    <pre class="token-display"><%= h(new_token) %></pre>
+    <p><small><strong>Copy this token now.</strong> It will NOT be shown again.</small></p>
+  </article>
+<% end %>
+
+<% active_tokens = tokens.select { |t| t[:status] == 'active' && !t[:expired] } %>
+<% expired_tokens = tokens.select { |t| t[:status] == 'active' && t[:expired] } %>
+<% revoked_tokens = tokens.select { |t| t[:status] == 'revoked' } %>
+
+<article>
+  <header>Active Tokens (<%= active_tokens.size %>)</header>
+  <% if active_tokens.empty? %>
+    <p>No active tokens.</p>
+  <% else %>
+    <div class="overflow-auto">
+      <table>
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Role</th>
+            <th>Issued</th>
+            <th>Expires</th>
+            <th>Issued By</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% active_tokens.each do |t| %>
+            <tr>
+              <td><strong><%= h(t[:user]) %></strong></td>
+              <td><span class="badge badge-<%= t[:role] %>"><%= h(t[:role]) %></span></td>
+              <td><small><%= h(t[:issued_at]) %></small></td>
+              <td><small><%= t[:expires_at] ? h(t[:expires_at]) : 'never' %></small></td>
+              <td><small><%= h(t[:issued_by]) %></small></td>
+              <td>
+                <form style="display:inline" hx-post="/admin/tokens/revoke"
+                      hx-target="#token-list" hx-swap="innerHTML"
+                      hx-confirm="Revoke all tokens for '<%= h(t[:user]) %>'?">
+                  <input type="hidden" name="_csrf" value="<%= h(@csrf_token) %>">
+                  <input type="hidden" name="user" value="<%= h(t[:user]) %>">
+                  <button type="submit" class="outline secondary btn-sm">Revoke</button>
+                </form>
+                <form style="display:inline" hx-post="/admin/tokens/rotate"
+                      hx-target="#token-list" hx-swap="innerHTML"
+                      hx-confirm="Rotate token for '<%= h(t[:user]) %>'? Old token will be revoked.">
+                  <input type="hidden" name="_csrf" value="<%= h(@csrf_token) %>">
+                  <input type="hidden" name="user" value="<%= h(t[:user]) %>">
+                  <button type="submit" class="outline btn-sm">Rotate</button>
+                </form>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% end %>
+</article>
+
+<% if expired_tokens.any? %>
+  <details>
+    <summary>Expired Tokens (<%= expired_tokens.size %>)</summary>
+    <div class="overflow-auto">
+      <table>
+        <thead>
+          <tr><th>User</th><th>Role</th><th>Expired At</th><th>Issued By</th></tr>
+        </thead>
+        <tbody>
+          <% expired_tokens.each do |t| %>
+            <tr class="muted">
+              <td><%= h(t[:user]) %></td>
+              <td><%= h(t[:role]) %></td>
+              <td><small><%= h(t[:expires_at]) %></small></td>
+              <td><small><%= h(t[:issued_by]) %></small></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  </details>
+<% end %>
+
+<% if revoked_tokens.any? %>
+  <details>
+    <summary>Revoked Tokens (<%= revoked_tokens.size %>)</summary>
+    <div class="overflow-auto">
+      <table>
+        <thead>
+          <tr><th>User</th><th>Role</th><th>Issued</th><th>Issued By</th></tr>
+        </thead>
+        <tbody>
+          <% revoked_tokens.each do |t| %>
+            <tr class="muted">
+              <td><%= h(t[:user]) %></td>
+              <td><%= h(t[:role]) %></td>
+              <td><small><%= h(t[:issued_at]) %></small></td>
+              <td><small><%= h(t[:issued_by]) %></small></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  </details>
+<% end %>

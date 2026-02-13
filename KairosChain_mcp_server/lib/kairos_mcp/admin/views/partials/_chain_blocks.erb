@@ -1,0 +1,63 @@
+<% if blocks.empty? %>
+  <p>No blocks found.</p>
+<% else %>
+  <div class="overflow-auto">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Hash</th>
+          <th>Timestamp</th>
+          <th>Data Entries</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% blocks.each do |block| %>
+          <%
+            idx = block.respond_to?(:index) ? block.index : block['index']
+            hash = block.respond_to?(:hash_value) ? block.hash_value : (block['hash'] || block[:hash])
+            ts = block.respond_to?(:timestamp) ? block.timestamp : (block['timestamp'] || block[:timestamp])
+            data = block.respond_to?(:data) ? block.data : (block['data'] || block[:data])
+            data_count = data.is_a?(Array) ? data.size : 1
+          %>
+          <tr>
+            <td><strong><%= idx %></strong></td>
+            <td><code class="hash"><%= h(hash.to_s[0, 12]) %>&hellip;</code></td>
+            <td><small><%= h(ts) %></small></td>
+            <td><%= data_count %></td>
+            <td>
+              <button class="outline btn-sm"
+                      hx-get="/admin/chain/block/<%= idx %>"
+                      hx-target="#block-detail"
+                      hx-swap="innerHTML">
+                Detail
+              </button>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+
+  <%# Pagination %>
+  <div class="pagination">
+    <% if offset > 0 %>
+      <button class="outline btn-sm"
+              hx-get="/admin/chain/history?limit=<%= limit %>&offset=<%= [offset - limit, 0].max %>"
+              hx-target="#chain-blocks"
+              hx-swap="innerHTML">
+        &larr; Newer
+      </button>
+    <% end %>
+    <small>Showing <%= offset + 1 %>&ndash;<%= [offset + blocks.size, total].min %> of <%= total %></small>
+    <% if offset + limit < total %>
+      <button class="outline btn-sm"
+              hx-get="/admin/chain/history?limit=<%= limit %>&offset=<%= offset + limit %>"
+              hx-target="#chain-blocks"
+              hx-swap="innerHTML">
+        Older &rarr;
+      </button>
+    <% end %>
+  </div>
+<% end %>

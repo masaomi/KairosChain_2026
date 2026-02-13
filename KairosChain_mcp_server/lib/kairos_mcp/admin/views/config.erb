@@ -1,0 +1,118 @@
+<%
+  @active_page = 'config'
+%>
+
+<h2>Configuration</h2>
+
+<%# General Settings %>
+<article>
+  <header>General</header>
+  <div class="overflow-auto">
+    <table>
+      <tr><th>KairosChain Enabled</th><td><%= config['enabled'] ? 'Yes' : 'No' %></td></tr>
+      <tr><th>Evolution Enabled</th><td><%= config['evolution_enabled'] ? 'Yes' : 'No' %></td></tr>
+      <tr><th>Max Evolutions/Session</th><td><%= config['max_evolutions_per_session'] || '-' %></td></tr>
+      <tr><th>Require Human Approval</th><td><%= config['require_human_approval'] ? 'Yes' : 'No' %></td></tr>
+      <tr><th>Skill Tools Enabled</th><td><%= config['skill_tools_enabled'] ? 'Yes' : 'No' %></td></tr>
+    </table>
+  </div>
+</article>
+
+<%# Storage %>
+<article>
+  <header>Storage</header>
+  <% storage = config['storage'] || {} %>
+  <div class="overflow-auto">
+    <table>
+      <tr><th>Backend</th><td><%= h(storage['backend'] || 'file') %></td></tr>
+      <% if storage['backend'] == 'sqlite' %>
+        <% sqlite = storage['sqlite'] || {} %>
+        <tr><th>SQLite Path</th><td><code><%= h(sqlite['path']) %></code></td></tr>
+        <tr><th>WAL Mode</th><td><%= sqlite['wal_mode'] ? 'Yes' : 'No' %></td></tr>
+      <% else %>
+        <% file_config = storage['file'] || {} %>
+        <tr><th>Storage Dir</th><td><code><%= h(file_config['storage_dir'] || 'storage') %></code></td></tr>
+        <tr><th>Blockchain File</th><td><code><%= h(file_config['blockchain_file'] || 'storage/blockchain.json') %></code></td></tr>
+      <% end %>
+    </table>
+  </div>
+</article>
+
+<%# Layers %>
+<article>
+  <header>Layer Configuration</header>
+  <% layers = config['layers'] || {} %>
+  <div class="overflow-auto">
+    <table>
+      <thead>
+        <tr>
+          <th>Layer</th>
+          <th>Enabled</th>
+          <th>Mutable</th>
+          <th>Blockchain</th>
+          <th>Human Approval</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% layers.each do |layer_name, layer_config| %>
+          <tr>
+            <td><strong><%= h(layer_name) %></strong></td>
+            <td><%= layer_config['enabled'] ? 'Yes' : 'No' %></td>
+            <td><%= layer_config['mutable'] ? 'Yes' : 'No' %></td>
+            <td><%= h(layer_config['require_blockchain'] || '-') %></td>
+            <td><%= layer_config['require_human_approval'] ? 'Yes' : 'No' %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+</article>
+
+<%# HTTP %>
+<article>
+  <header>HTTP Server</header>
+  <% http = config['http'] || {} %>
+  <div class="overflow-auto">
+    <table>
+      <tr><th>Enabled</th><td><%= http['enabled'] ? 'Yes' : 'No' %></td></tr>
+      <tr><th>Port</th><td><%= h(http['port'] || 8080) %></td></tr>
+      <tr><th>Host</th><td><%= h(http['host'] || '0.0.0.0') %></td></tr>
+      <tr><th>Token Expiry (default)</th><td><%= h(http['default_token_expiry_days'] || 90) %> days</td></tr>
+    </table>
+  </div>
+</article>
+
+<%# Vector Search %>
+<% vs = config['vector_search'] || {} %>
+<article>
+  <header>Vector Search</header>
+  <div class="overflow-auto">
+    <table>
+      <tr><th>Enabled</th><td><%= vs['enabled'] ? 'Yes' : 'No' %></td></tr>
+      <tr><th>Model</th><td><code><%= h(vs['model'] || '-') %></code></td></tr>
+      <tr><th>Dimension</th><td><%= vs['dimension'] || '-' %></td></tr>
+      <tr><th>Auto Index</th><td><%= vs['auto_index'] ? 'Yes' : 'No' %></td></tr>
+    </table>
+  </div>
+</article>
+
+<%# State Commit %>
+<article>
+  <header>State Commit</header>
+  <div class="overflow-auto">
+    <table>
+      <tr><th>Enabled</th><td><%= state[:enabled] ? 'Yes' : 'No' %></td></tr>
+      <tr><th>Has Changes</th><td><%= state[:has_changes] ? 'Yes' : 'No' %></td></tr>
+      <tr><th>Pending Changes</th><td><%= state.dig(:pending_changes, :total) || 0 %></td></tr>
+      <tr><th>Snapshots</th><td><%= state[:snapshot_count] || 0 %></td></tr>
+    </table>
+  </div>
+  <% if state[:last_commit] %>
+    <p>
+      <small>
+        Last commit: <%= h(state[:last_commit][:timestamp]) %>
+        &mdash; <%= h(state[:last_commit][:reason]) %>
+      </small>
+    </p>
+  <% end %>
+</article>

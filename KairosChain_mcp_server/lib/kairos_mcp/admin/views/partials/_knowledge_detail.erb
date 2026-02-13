@@ -1,0 +1,44 @@
+<article>
+  <header>
+    <code><%= h(entry[:name]) %></code>
+    <% if entry[:version] %>
+      <small>v<%= h(entry[:version]) %></small>
+    <% end %>
+  </header>
+
+  <% if entry[:description] %>
+    <p><strong>Description:</strong> <%= h(entry[:description]) %></p>
+  <% end %>
+
+  <% if entry[:tags] && !entry[:tags].empty? %>
+    <p>
+      <strong>Tags:</strong>
+      <% entry[:tags].each do |tag| %>
+        <span class="badge"><%= h(tag) %></span>
+      <% end %>
+    </p>
+  <% end %>
+
+  <% if entry[:layer] %>
+    <p><strong>Layer:</strong> <%= h(entry[:layer]) %></p>
+  <% end %>
+
+  <%# Content %>
+  <% if entry[:content] %>
+    <details open>
+      <summary>Content</summary>
+      <pre class="knowledge-content"><%= h(entry[:content]) %></pre>
+    </details>
+  <% end %>
+
+  <%# Subdirectories %>
+  <% if entry[:has_scripts] %>
+    <p><span class="badge badge-success">Scripts</span> available</p>
+  <% end %>
+  <% if entry[:has_assets] %>
+    <p><span class="badge badge-success">Assets</span> available</p>
+  <% end %>
+  <% if entry[:has_references] %>
+    <p><span class="badge badge-success">References</span> available</p>
+  <% end %>
+</article>

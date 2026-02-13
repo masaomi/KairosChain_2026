@@ -1,0 +1,109 @@
+<%
+  @active_page = 'dashboard'
+%>
+
+<h2>Dashboard</h2>
+
+<div class="grid">
+  <%# Chain Status Card %>
+  <article>
+    <header>Blockchain</header>
+    <p>
+      <% if chain[:valid] %>
+        <span class="badge badge-success">Valid</span>
+      <% else %>
+        <span class="badge badge-error">Invalid</span>
+      <% end %>
+    </p>
+    <p><strong><%= chain[:length] %></strong> blocks</p>
+    <p><small>Backend: <%= h(chain.dig(:storage, :backend) || 'unknown') %></small></p>
+    <footer><a href="/admin/chain">View Chain &rarr;</a></footer>
+  </article>
+
+  <%# Token Card %>
+  <article>
+    <header>Tokens</header>
+    <p><strong><%= tokens.size %></strong> active</p>
+    <p>
+      <small>
+        Roles:
+        <%= tokens.count { |t| t[:role] == 'owner' } %> owner,
+        <%= tokens.count { |t| t[:role] == 'member' } %> member,
+        <%= tokens.count { |t| t[:role] == 'guest' } %> guest
+      </small>
+    </p>
+    <footer><a href="/admin/tokens">Manage Tokens &rarr;</a></footer>
+  </article>
+
+  <%# Skills Card %>
+  <article>
+    <header>L0 Skills</header>
+    <p><strong><%= skills.size %></strong> DSL skills</p>
+    <footer><a href="/admin/skills">View Skills &rarr;</a></footer>
+  </article>
+
+  <%# Knowledge Card %>
+  <article>
+    <header>L1 Knowledge</header>
+    <p><strong><%= knowledge.size %></strong> entries</p>
+    <footer><a href="/admin/knowledge">View Knowledge &rarr;</a></footer>
+  </article>
+</div>
+
+<%# Latest Block %>
+<% if chain[:latest_block] && chain[:latest_block].is_a?(Hash) && !chain[:latest_block].empty? %>
+  <article>
+    <header>Latest Block</header>
+    <div class="overflow-auto">
+      <table>
+        <tr>
+          <th>Index</th>
+          <td>#<%= chain[:latest_block][:index] || chain[:latest_block]['index'] %></td>
+        </tr>
+        <tr>
+          <th>Hash</th>
+          <td><code class="hash"><%= h((chain[:latest_block][:hash] || chain[:latest_block]['hash']).to_s[0, 16]) %>&hellip;</code></td>
+        </tr>
+        <tr>
+          <th>Timestamp</th>
+          <td><%= h(chain[:latest_block][:timestamp] || chain[:latest_block]['timestamp']) %></td>
+        </tr>
+      </table>
+    </div>
+  </article>
+<% end %>
+
+<%# State Commit Status %>
+<article>
+  <header>State Commit</header>
+  <div class="grid">
+    <div>
+      <p>
+        <strong>Enabled:</strong>
+        <%= state[:enabled] ? 'Yes' : 'No' %>
+      </p>
+      <p>
+        <strong>Pending changes:</strong>
+        <%= state.dig(:pending_changes, :total) || 0 %>
+      </p>
+    </div>
+    <div>
+      <p>
+        <strong>Has changes:</strong>
+        <%= state[:has_changes] ? 'Yes' : 'No' %>
+      </p>
+      <p>
+        <strong>Snapshots:</strong>
+        <%= state[:snapshot_count] || 0 %>
+      </p>
+    </div>
+  </div>
+  <% if state[:last_commit] %>
+    <p>
+      <small>
+        Last commit: <%= h(state[:last_commit][:timestamp]) %>
+        (<%= h(state[:last_commit][:commit_type]) %>)
+      </small>
+    </p>
+  <% end %>
+</article>

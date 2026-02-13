@@ -1,0 +1,37 @@
+<article>
+  <header>
+    <code><%= h(skill.id) %></code>
+    <% if skill.respond_to?(:version) && skill.version %>
+      <small>v<%= h(skill.version) %></small>
+    <% end %>
+  </header>
+
+  <% if skill.respond_to?(:title) && skill.title %>
+    <h4><%= h(skill.title) %></h4>
+  <% end %>
+
+  <% if skill.respond_to?(:use_when) && skill.use_when %>
+    <p><strong>Use when:</strong> <%= h(skill.use_when) %></p>
+  <% end %>
+
+  <% if skill.respond_to?(:content) && skill.content && !skill.content.empty? %>
+    <details open>
+      <summary>Content</summary>
+      <pre class="skill-content"><%= h(skill.content) %></pre>
+    </details>
+  <% end %>
+
+  <% if skill.respond_to?(:guarantees_block) && skill.guarantees_block %>
+    <details>
+      <summary>Guarantees</summary>
+      <pre><%= h(skill.guarantees_block.to_s) %></pre>
+    </details>
+  <% end %>
+
+  <% if skill.respond_to?(:evolve_rules) && skill.evolve_rules %>
+    <details>
+      <summary>Evolution Rules</summary>
+      <pre><%= h(skill.evolve_rules.to_s) %></pre>
+    </details>
+  <% end %>
+</article>

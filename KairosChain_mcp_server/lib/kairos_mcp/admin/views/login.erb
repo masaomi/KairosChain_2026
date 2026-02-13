@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KairosChain Admin &mdash; Login</title>
+  <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@2/css/pico.min.css">
+  <link rel="stylesheet" href="/admin/static/admin.css">
+</head>
+<body>
+  <main class="container login-container">
+    <article>
+      <header>
+        <h2>KairosChain Admin</h2>
+        <p>Enter your owner Bearer token to access the admin panel.</p>
+      </header>
+
+      <% if defined?(flash) && flash %>
+        <div class="flash flash-error"><%= h(flash) %></div>
+      <% end %>
+
+      <form method="post" action="/admin/login">
+        <label for="token">Bearer Token</label>
+        <input type="password" id="token" name="token"
+               placeholder="kc_..."
+               required autofocus
+               autocomplete="off">
+        <button type="submit">Login</button>
+      </form>
+
+      <footer>
+        <small>Only <code>owner</code> role tokens can access the admin panel.</small>
+      </footer>
+    </article>
+  </main>
+</body>
+</html>

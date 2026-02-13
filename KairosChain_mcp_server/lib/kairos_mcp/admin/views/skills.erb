@@ -1,0 +1,50 @@
+<%
+  @active_page = 'skills'
+%>
+
+<h2>L0 Skills (DSL)</h2>
+
+<div class="grid">
+  <div>
+    <article>
+      <header>Skills (<%= skills.size %>)</header>
+      <% if skills.empty? %>
+        <p>No DSL skills found.</p>
+      <% else %>
+        <div class="overflow-auto">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Title</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% skills.each do |skill| %>
+                <tr>
+                  <td><code><%= h(skill[:id]) %></code></td>
+                  <td><%= h(skill[:title]) %></td>
+                  <td>
+                    <button class="outline btn-sm"
+                            hx-get="/admin/skills/dsl/<%= h(skill[:id]) %>"
+                            hx-target="#skill-detail"
+                            hx-swap="innerHTML">
+                      View
+                    </button>
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      <% end %>
+    </article>
+  </div>
+
+  <div id="skill-detail">
+    <article>
+      <p class="muted">Select a skill to view its details.</p>
+    </article>
+  </div>
+</div>

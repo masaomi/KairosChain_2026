@@ -1,0 +1,73 @@
+<%
+  @active_page = 'knowledge'
+%>
+
+<h2>L1 Knowledge</h2>
+
+<%# Search %>
+<form hx-get="/admin/knowledge"
+      hx-target="main"
+      hx-swap="innerHTML"
+      hx-push-url="true"
+      class="search-form">
+  <div class="grid">
+    <input type="search" name="q" placeholder="Search knowledge..."
+           value="<%= h(search) if defined?(search) && search %>">
+    <button type="submit">Search</button>
+    <% if defined?(search) && search %>
+      <a href="/admin/knowledge" role="button" class="outline secondary">Clear</a>
+    <% end %>
+  </div>
+</form>
+
+<div class="grid">
+  <div>
+    <article>
+      <header>
+        Knowledge Entries (<%= knowledge.size %>)
+        <% if defined?(search) && search %>
+          <small>filtered by "<%= h(search) %>"</small>
+        <% end %>
+      </header>
+      <% if knowledge.empty? %>
+        <p>No knowledge entries found.</p>
+      <% else %>
+        <div class="overflow-auto">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Description</th>
+                <th>Tags</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% knowledge.each do |entry| %>
+                <tr>
+                  <td><code><%= h(entry[:name]) %></code></td>
+                  <td><small><%= h(entry[:description] || '-') %></small></td>
+                  <td><small><%= (entry[:tags] || []).map { |t| h(t) }.join(', ') %></small></td>
+                  <td>
+                    <button class="outline btn-sm"
+                            hx-get="/admin/knowledge/<%= h(entry[:name]) %>"
+                            hx-target="#knowledge-detail"
+                            hx-swap="innerHTML">
+                      View
+                    </button>
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      <% end %>
+    </article>
+  </div>
+
+  <div id="knowledge-detail">
+    <article>
+      <p class="muted">Select a knowledge entry to view its content.</p>
+    </article>
+  </div>
+</div>

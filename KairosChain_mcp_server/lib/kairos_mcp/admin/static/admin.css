@@ -1,0 +1,209 @@
+/* KairosChain Admin UI - Custom Styles */
+/* Built on top of PicoCSS */
+
+/* -----------------------------------------------------------------------
+   Login Page
+   ----------------------------------------------------------------------- */
+
+.login-container {
+  max-width: 480px;
+  margin-top: 10vh;
+}
+
+.login-container article {
+  padding: 2rem;
+}
+
+/* -----------------------------------------------------------------------
+   Navigation
+   ----------------------------------------------------------------------- */
+
+nav ul li a[aria-current="page"] {
+  font-weight: bold;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+nav .btn-sm {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  margin-left: 0.5rem;
+}
+
+/* -----------------------------------------------------------------------
+   Flash Messages
+   ----------------------------------------------------------------------- */
+
+.flash {
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.flash-success {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.flash-error {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.flash-info {
+  background-color: #d1ecf1;
+  color: #0c5460;
+  border: 1px solid #bee5eb;
+}
+
+/* -----------------------------------------------------------------------
+   Badges
+   ----------------------------------------------------------------------- */
+
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.badge-success {
+  background-color: #28a745;
+  color: #fff;
+}
+
+.badge-error {
+  background-color: #dc3545;
+  color: #fff;
+}
+
+.badge-owner {
+  background-color: #6f42c1;
+  color: #fff;
+}
+
+.badge-member {
+  background-color: #007bff;
+  color: #fff;
+}
+
+.badge-guest {
+  background-color: #6c757d;
+  color: #fff;
+}
+
+/* -----------------------------------------------------------------------
+   Buttons
+   ----------------------------------------------------------------------- */
+
+.btn-sm {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8rem;
+}
+
+/* -----------------------------------------------------------------------
+   Code / Hash Display
+   ----------------------------------------------------------------------- */
+
+code.hash {
+  font-size: 0.8rem;
+  word-break: break-all;
+}
+
+.token-display {
+  background-color: #f8f9fa;
+  border: 2px dashed #28a745;
+  padding: 1rem;
+  font-family: monospace;
+  font-size: 0.85rem;
+  word-break: break-all;
+  user-select: all;
+  cursor: pointer;
+}
+
+/* -----------------------------------------------------------------------
+   Content Display
+   ----------------------------------------------------------------------- */
+
+.skill-content,
+.knowledge-content,
+.block-data {
+  max-height: 500px;
+  overflow-y: auto;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  background-color: #f8f9fa;
+  padding: 1rem;
+  border-radius: 4px;
+  border: 1px solid #dee2e6;
+}
+
+/* -----------------------------------------------------------------------
+   Tables
+   ----------------------------------------------------------------------- */
+
+.overflow-auto {
+  overflow-x: auto;
+}
+
+table th {
+  white-space: nowrap;
+}
+
+tr.muted td {
+  opacity: 0.6;
+}
+
+/* -----------------------------------------------------------------------
+   Pagination
+   ----------------------------------------------------------------------- */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+/* -----------------------------------------------------------------------
+   Search
+   ----------------------------------------------------------------------- */
+
+.search-form {
+  margin-bottom: 1rem;
+}
+
+/* -----------------------------------------------------------------------
+   Grid Layout Tweaks
+   ----------------------------------------------------------------------- */
+
+.grid > article {
+  margin-bottom: 0;
+}
+
+/* -----------------------------------------------------------------------
+   Footer
+   ----------------------------------------------------------------------- */
+
+footer.container {
+  text-align: center;
+  padding: 1rem 0;
+  margin-top: 2rem;
+  border-top: 1px solid #dee2e6;
+}
+
+/* -----------------------------------------------------------------------
+   Utility
+   ----------------------------------------------------------------------- */
+
+.muted {
+  color: #6c757d;
+}

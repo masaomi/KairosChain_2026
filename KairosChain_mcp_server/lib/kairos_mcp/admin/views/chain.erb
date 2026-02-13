@@ -1,0 +1,56 @@
+<%
+  @active_page = 'chain'
+%>
+
+<h2>Chain Explorer</h2>
+
+<%# Status Overview %>
+<article>
+  <header>Chain Status</header>
+  <div class="grid">
+    <div>
+      <p>
+        <strong>Status:</strong>
+        <% if chain[:valid] %>
+          <span class="badge badge-success">Valid</span>
+        <% else %>
+          <span class="badge badge-error">Invalid</span>
+        <% end %>
+      </p>
+      <p><strong>Length:</strong> <%= chain[:length] %> blocks</p>
+    </div>
+    <div>
+      <p><strong>Backend:</strong> <%= h(chain.dig(:storage, :backend) || 'unknown') %></p>
+      <form hx-post="/admin/chain/verify"
+            hx-target="#verify-result"
+            hx-swap="innerHTML">
+        <input type="hidden" name="_csrf" value="<%= h(@csrf_token) %>">
+        <button type="submit" class="outline">Verify Chain Integrity</button>
+      </form>
+    </div>
+  </div>
+  <div id="verify-result"></div>
+</article>
+
+<%# Block History %>
+<article>
+  <header>
+    Block History
+    <button class="outline btn-sm"
+            hx-get="/admin/chain/history?limit=20&offset=0"
+            hx-target="#chain-blocks"
+            hx-swap="innerHTML"
+            style="float:right">
+      Refresh
+    </button>
+  </header>
+  <div id="chain-blocks"
+       hx-get="/admin/chain/history?limit=20&offset=0"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <p aria-busy="true">Loading blocks...</p>
+  </div>
+</article>
+
+<%# Block Detail %>
+<div id="block-detail"></div>

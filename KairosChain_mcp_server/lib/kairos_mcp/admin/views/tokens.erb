@@ -1,0 +1,46 @@
+<%
+  @active_page = 'tokens'
+%>
+
+<h2>Token Management</h2>
+
+<%# Create Token Form %>
+<article>
+  <header>Create New Token</header>
+  <form hx-post="/admin/tokens/create"
+        hx-target="#token-list"
+        hx-swap="innerHTML">
+    <input type="hidden" name="_csrf" value="<%= h(@csrf_token) %>">
+    <div class="grid">
+      <label>
+        Username
+        <input type="text" name="user" placeholder="username" required
+               pattern="[a-zA-Z0-9_\-\.]+" title="Alphanumeric, underscore, hyphen, dot">
+      </label>
+      <label>
+        Role
+        <select name="role">
+          <option value="member">member</option>
+          <option value="guest">guest</option>
+          <option value="owner">owner</option>
+        </select>
+      </label>
+      <label>
+        Expiry
+        <select name="expires_in">
+          <option value="90d">90 days (default)</option>
+          <option value="30d">30 days</option>
+          <option value="7d">7 days</option>
+          <option value="24h">24 hours</option>
+          <option value="never">Never</option>
+        </select>
+      </label>
+    </div>
+    <button type="submit">Create Token</button>
+  </form>
+</article>
+
+<%# Token List %>
+<div id="token-list">
+  <%= render_partial('_token_list', tokens: tokens) %>
+</div>
