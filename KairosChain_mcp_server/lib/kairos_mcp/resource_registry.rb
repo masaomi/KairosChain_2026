@@ -4,6 +4,7 @@ require 'fileutils'
 require_relative 'knowledge_provider'
 require_relative 'context_manager'
 require_relative 'dsl_skills_provider'
+require_relative '../kairos_mcp'
 
 module KairosMcp
   # ResourceRegistry: Unified resource access layer for all layers (L0/L1/L2)
@@ -14,9 +15,6 @@ module KairosMcp
   # - context://{session}/{name}, context://{session}/{name}/scripts/{file} (L2)
   #
   class ResourceRegistry
-    SKILLS_DIR = File.expand_path('../../skills', __dir__)
-    KNOWLEDGE_DIR = File.expand_path('../../knowledge', __dir__)
-    CONTEXT_DIR = File.expand_path('../../context', __dir__)
 
     # MIME type mappings
     MIME_TYPES = {
@@ -42,8 +40,11 @@ module KairosMcp
     }.freeze
 
     def initialize
-      @knowledge_provider = KnowledgeProvider.new(KNOWLEDGE_DIR, vector_search_enabled: false)
-      @context_manager = ContextManager.new(CONTEXT_DIR)
+      @skills_dir = KairosMcp.skills_dir
+      @knowledge_dir = KairosMcp.knowledge_dir
+      @context_dir = KairosMcp.context_dir
+      @knowledge_provider = KnowledgeProvider.new(@knowledge_dir, vector_search_enabled: false)
+      @context_manager = ContextManager.new(@context_dir)
     end
 
     # List all resources with optional filtering
@@ -126,7 +127,7 @@ module KairosMcp
 
       if type == 'all' || type == 'md'
         # kairos.md (Constitution)
-        md_path = File.join(SKILLS_DIR, 'kairos.md')
+        md_path = File.join(@skills_dir, 'kairos.md')
         if File.exist?(md_path)
           resources << build_resource_info(
             uri: 'l0://kairos.md',
@@ -138,7 +139,7 @@ module KairosMcp
         end
 
         # kairos.rb (Law)
-        rb_path = File.join(SKILLS_DIR, 'kairos.rb')
+        rb_path = File.join(@skills_dir, 'kairos.rb')
         if File.exist?(rb_path)
           resources << build_resource_info(
             uri: 'l0://kairos.rb',
@@ -155,7 +156,7 @@ module KairosMcp
 
     def read_l0_resource(parsed)
       file = parsed[:file]
-      path = File.join(SKILLS_DIR, file)
+      path = File.join(@skills_dir, file)
 
       return nil unless File.exist?(path) && File.file?(path)
       # Security: only allow kairos.md and kairos.rb
@@ -211,7 +212,7 @@ module KairosMcp
       name = parsed[:name]
       return nil unless name
 
-      knowledge_dir = File.join(KNOWLEDGE_DIR, name)
+      knowledge_dir = File.join(@knowledge_dir, name)
       return nil unless File.directory?(knowledge_dir)
 
       if parsed[:subdir] && parsed[:file]
@@ -313,7 +314,7 @@ module KairosMcp
       name = parsed[:name]
       return nil unless session_id && name
 
-      context_dir = File.join(CONTEXT_DIR, session_id, name)
+      context_dir = File.join(@context_dir, session_id, name)
       return nil unless File.directory?(context_dir)
 
       if parsed[:subdir] && parsed[:file]
@@ -470,7 +471,7 @@ module KairosMcp
       return false if %w[l0 knowledge context].include?(filter)
 
       # Check if it's a knowledge name
-      File.directory?(File.join(KNOWLEDGE_DIR, filter))
+      File.directory?(File.join(@knowledge_dir, filter))
     end
 
     def context_filter?(filter)
@@ -488,11 +489,11 @@ module KairosMcp
     end
 
     def knowledge_dirs
-      Dir[File.join(KNOWLEDGE_DIR, '*')].select { |f| File.directory?(f) }
+      Dir[File.join(@knowledge_dir, '*')].select { |f| File.directory?(f) }
     end
 
     def session_dirs
-      Dir[File.join(CONTEXT_DIR, '*')].select { |f| File.directory?(f) }
+      Dir[File.join(@context_dir, '*')].select { |f| File.directory?(f) }
     end
 
     def context_dirs(session_dir)

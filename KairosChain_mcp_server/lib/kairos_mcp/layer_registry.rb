@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative '../kairos_mcp'
+
 module KairosMcp
   # LayerRegistry: Manages the layered architecture for skills and knowledge
   #
@@ -160,8 +162,8 @@ module KairosMcp
       private
 
       def normalize_path(path)
-        # Remove base directory prefix if present
-        base_dir = File.expand_path('../../', __dir__)
+        # Remove data directory prefix if present
+        base_dir = KairosMcp.data_dir
         path = path.sub(base_dir, '').sub(%r{^/}, '')
         path
       end

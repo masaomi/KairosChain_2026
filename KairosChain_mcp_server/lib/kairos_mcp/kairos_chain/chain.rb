@@ -2,19 +2,19 @@ require_relative 'block'
 require_relative 'merkle_tree'
 require 'json'
 require 'fileutils'
+require_relative '../../kairos_mcp'
 
 module KairosMcp
   module KairosChain
     class Chain
       attr_reader :chain
 
-      DEFAULT_CHAIN_FILE = File.expand_path('../../../storage/blockchain.json', __dir__)
-
       # Initialize the chain
       #
       # @param chain_file [String] Path to blockchain file (for backward compatibility)
       # @param storage_backend [Storage::Backend, nil] Storage backend to use
-      def initialize(chain_file: DEFAULT_CHAIN_FILE, storage_backend: nil)
+      def initialize(chain_file: nil, storage_backend: nil)
+        chain_file ||= KairosMcp.blockchain_path
         @chain_file = chain_file
         @storage_backend = storage_backend || default_storage_backend
         @chain = load_chain || [Block.genesis]

@@ -21,3 +21,10 @@ KairosChain_mcp_server/context/
 
 # Authentication tokens (sensitive - never commit)
 KairosChain_mcp_server/storage/tokens.json
+
+# Gem build artifacts
+KairosChain_mcp_server/*.gem
+KairosChain_mcp_server/pkg/
+
+# Runtime data directory (created by `kairos_mcp_server init`)
+.kairos/

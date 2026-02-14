@@ -6,6 +6,7 @@ require 'yaml'
 require_relative 'anthropic_skill_parser'
 require_relative 'kairos_chain/chain'
 require_relative 'vector_search/provider'
+require_relative '../kairos_mcp'
 
 module KairosMcp
   # KnowledgeProvider: Manages L1 (knowledge layer) skills in Anthropic format
@@ -22,8 +23,6 @@ module KairosMcp
   # - Blockchain: Uses the configured storage backend
   #
   class KnowledgeProvider
-    KNOWLEDGE_DIR = File.expand_path('../../knowledge', __dir__)
-    KNOWLEDGE_INDEX_PATH = File.expand_path('../../storage/embeddings/knowledge', __dir__)
     ARCHIVED_DIR = '.archived'
     ARCHIVE_META_FILE = '.archive_meta.yml'
 
@@ -32,7 +31,8 @@ module KairosMcp
     # @param knowledge_dir [String] Path to knowledge directory
     # @param vector_search_enabled [Boolean] Enable vector search
     # @param storage_backend [Storage::Backend, nil] Storage backend to use
-    def initialize(knowledge_dir = KNOWLEDGE_DIR, vector_search_enabled: true, storage_backend: nil)
+    def initialize(knowledge_dir = nil, vector_search_enabled: true, storage_backend: nil)
+      knowledge_dir ||= KairosMcp.knowledge_dir
       @knowledge_dir = knowledge_dir
       @vector_search_enabled = vector_search_enabled
       @storage_backend = storage_backend
@@ -451,7 +451,7 @@ module KairosMcp
     private
 
     def vector_search
-      @vector_search ||= VectorSearch.create(index_path: KNOWLEDGE_INDEX_PATH)
+      @vector_search ||= VectorSearch.create(index_path: KairosMcp.knowledge_index_path)
     end
 
     def ensure_index_built

@@ -81,7 +81,8 @@ module KairosMcp
       private
 
       def default_index_path
-        File.expand_path('../../../storage/embeddings', __dir__)
+        require_relative '../../kairos_mcp'
+        KairosMcp.embeddings_dir
       end
 
       def gem_version(gem_name)

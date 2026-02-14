@@ -175,7 +175,8 @@ module KairosMcp
       private
 
       def default_store_path
-        File.expand_path('../../../storage/tokens.json', __dir__)
+        require_relative '../../kairos_mcp'
+        KairosMcp.token_store_path
       end
 
       def generate_token

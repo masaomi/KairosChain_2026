@@ -194,7 +194,7 @@ module KairosMcp
           [ERROR] HTTP transport requires puma and rack gems.
 
           Install with:
-            cd #{File.expand_path('../..', __dir__)}
+            gem install puma rack
             bundle install --with http
 
           Or install individually:

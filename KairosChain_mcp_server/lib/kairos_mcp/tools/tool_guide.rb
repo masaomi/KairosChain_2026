@@ -18,7 +18,9 @@ module KairosMcp
     # - validate: Validate metadata structure
     #
     class ToolGuide < BaseTool
-      METADATA_FILE = File.expand_path('../../config/tool_metadata.yml', __dir__)
+      def self.metadata_file
+        KairosMcp.tool_metadata_path
+      end
 
       # Predefined workflow patterns
       WORKFLOWS = {
@@ -658,9 +660,9 @@ module KairosMcp
       end
 
       def load_stored_metadata
-        return {} unless File.exist?(METADATA_FILE)
+        return {} unless File.exist?(self.class.metadata_file)
 
-        YAML.load_file(METADATA_FILE) || {}
+        YAML.load_file(self.class.metadata_file) || {}
       rescue StandardError => e
         $stderr.puts "[WARN] Failed to load tool metadata: #{e.message}"
         {}
@@ -668,7 +670,7 @@ module KairosMcp
 
       def store_metadata(tool_name, metadata)
         # Ensure directory exists
-        dir = File.dirname(METADATA_FILE)
+        dir = File.dirname(self.class.metadata_file)
         FileUtils.mkdir_p(dir) unless File.directory?(dir)
 
         # Load existing
@@ -688,7 +690,7 @@ module KairosMcp
         existing[tool_name] = normalized
 
         # Save
-        File.write(METADATA_FILE, existing.to_yaml)
+        File.write(self.class.metadata_file, existing.to_yaml)
 
         { success: true }
       rescue StandardError => e

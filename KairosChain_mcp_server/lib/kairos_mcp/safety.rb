@@ -1,16 +1,14 @@
 require 'yaml'
 require 'pathname'
+require_relative '../kairos_mcp'
 
 module KairosMcp
   class Safety
-    CONFIG_PATH = File.expand_path('../../config/safety.yml', __dir__)
-    SERVER_ROOT = File.expand_path('../..', __dir__)
-
     attr_reader :workspace_root, :current_user
 
     def initialize
       @config = load_config
-      @default_root = File.expand_path(@config['safe_root'] || SERVER_ROOT)
+      @default_root = File.expand_path(@config['safe_root'] || KairosMcp.data_dir)
       @workspace_root = nil  # Set dynamically via set_workspace
       @current_user = nil    # Set dynamically via set_user (HTTP mode)
       @allowed_paths = @config['allowed_paths'] || []
@@ -110,8 +108,9 @@ module KairosMcp
     private
 
     def load_config
-      if File.exist?(CONFIG_PATH)
-        YAML.load_file(CONFIG_PATH)
+      config_path = KairosMcp.safety_config_path
+      if File.exist?(config_path)
+        YAML.load_file(config_path)
       else
         {}
       end

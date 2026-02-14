@@ -6,13 +6,12 @@ require_relative 'kairos'
 require_relative 'kairos_chain/chain'
 require_relative 'kairos_chain/skill_transition'
 require_relative 'layer_registry'
+require_relative '../kairos_mcp'
 
 module KairosMcp
   class SafeEvolver
     class EvolutionError < StandardError; end
     class LayerViolationError < EvolutionError; end
-    
-    DSL_PATH = File.expand_path('../../skills/kairos.rb', __dir__)
     
     # Session counter for evolution limits
     @@evolution_count = 0
@@ -123,12 +122,12 @@ module KairosMcp
       return validation unless validation[:success]
       
       snapshot = VersionManager.create_snapshot(reason: "before evolving #{skill_id}")
-      prev_content = File.read(DSL_PATH)
+      prev_content = File.read(KairosMcp.dsl_path)
       
       begin
         # Apply the change
         new_content = apply_change_to_content(prev_content, skill_id, new_definition)
-        File.write(DSL_PATH, new_content)
+        File.write(KairosMcp.dsl_path, new_content)
         
         # Record to Blockchain
         record_transition(skill_id, prev_content, new_content, snapshot)
@@ -181,14 +180,14 @@ module KairosMcp
       return validation unless validation[:success]
       
       snapshot = VersionManager.create_snapshot(reason: "before adding #{skill_id}")
-      prev_content = File.read(DSL_PATH)
+      prev_content = File.read(KairosMcp.dsl_path)
       
       begin
-        File.open(DSL_PATH, 'a') do |f|
+        File.open(KairosMcp.dsl_path, 'a') do |f|
           f.puts "\n#{full_definition}"
         end
         
-        new_content = File.read(DSL_PATH)
+        new_content = File.read(KairosMcp.dsl_path)
         record_transition(skill_id, prev_content, new_content, snapshot)
         
         @@evolution_count += 1

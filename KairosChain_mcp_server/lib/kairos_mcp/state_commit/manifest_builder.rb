@@ -2,6 +2,7 @@
 
 require 'digest'
 require 'json'
+require_relative '../../kairos_mcp'
 
 module KairosMcp
   module StateCommit
@@ -13,10 +14,6 @@ module KairosMcp
     # - Metadata about the layer state
     #
     class ManifestBuilder
-      DSL_PATH = File.expand_path('../../../../skills/kairos.rb', __dir__)
-      MD_PATH = File.expand_path('../../../../skills/kairos.md', __dir__)
-      KNOWLEDGE_DIR = File.expand_path('../../../../knowledge', __dir__)
-      CONTEXT_DIR = File.expand_path('../../../../context', __dir__)
 
       def initialize
         @knowledge_provider = nil
@@ -30,7 +27,7 @@ module KairosMcp
         skills = []
         
         # Parse skills from kairos.rb
-        if File.exist?(DSL_PATH)
+        if File.exist?(KairosMcp.dsl_path)
           require_relative '../kairos'
           Kairos.skills.each do |skill|
             skills << {
@@ -42,8 +39,8 @@ module KairosMcp
         end
 
         # Calculate file hashes
-        dsl_file_hash = file_hash(DSL_PATH)
-        md_file_hash = file_hash(MD_PATH)
+        dsl_file_hash = file_hash(KairosMcp.dsl_path)
+        md_file_hash = file_hash(KairosMcp.md_path)
 
         # Build manifest
         manifest = {
@@ -64,7 +61,7 @@ module KairosMcp
       def build_l1_manifest
         knowledge_items = []
 
-        if File.directory?(KNOWLEDGE_DIR)
+        if File.directory?(KairosMcp.knowledge_dir)
           knowledge_provider.list.each do |item|
             skill = knowledge_provider.get(item[:name])
             next unless skill
@@ -106,7 +103,7 @@ module KairosMcp
       def build_l2_manifest
         sessions = []
 
-        if File.directory?(CONTEXT_DIR)
+        if File.directory?(KairosMcp.context_dir)
           context_manager.list_sessions.each do |session|
             contexts = context_manager.list_contexts_in_session(session[:session_id])
             
@@ -168,14 +165,14 @@ module KairosMcp
       def knowledge_provider
         @knowledge_provider ||= begin
           require_relative '../knowledge_provider'
-          KnowledgeProvider.new(KNOWLEDGE_DIR, vector_search_enabled: false)
+          KnowledgeProvider.new(KairosMcp.knowledge_dir, vector_search_enabled: false)
         end
       end
 
       def context_manager
         @context_manager ||= begin
           require_relative '../context_manager'
-          ContextManager.new(CONTEXT_DIR)
+          ContextManager.new(KairosMcp.context_dir)
         end
       end
 

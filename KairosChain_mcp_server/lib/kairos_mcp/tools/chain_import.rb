@@ -133,7 +133,7 @@ module KairosMcp
       private
 
       def base_dir
-        File.expand_path('../../..', __dir__)
+        KairosMcp.data_dir
       end
 
       def preview_import(source, db_path, input_dir)

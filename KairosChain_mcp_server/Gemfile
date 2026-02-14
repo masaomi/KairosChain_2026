@@ -2,16 +2,8 @@
 
 source 'https://rubygems.org'
 
-# KairosChain MCP Server
-#
-# By default, KairosChain requires no external gems (Ruby standard library only).
-# The gems below are OPTIONAL and enable additional features.
-#
-# To install optional dependencies:
-#   bundle install
-#
-# Or install individually:
-#   gem install hnswlib informers
+# Load dependencies from gemspec
+gemspec
 
 # =============================================================================
 # Optional: RAG (Semantic Search) Support
@@ -90,8 +82,8 @@ end
 #   bundle install --with http sqlite
 #
 # Usage:
-#   ruby bin/kairos_mcp_server --http --port 8080
-#   ruby bin/kairos_mcp_server --init-admin  # Generate initial admin token
+#   kairos_mcp_server --http --port 8080
+#   kairos_mcp_server --init-admin  # Generate initial admin token
 #
 # For production HTTPS, use Caddy as reverse proxy:
 #   kairos.example.com { reverse_proxy localhost:8080 }
@@ -105,14 +97,4 @@ group :http, optional: true do
   # Rack: Modular Ruby web server interface
   # https://github.com/rack/rack
   gem 'rack', '~> 3.0'
-end
-
-# =============================================================================
-# Development Dependencies
-# =============================================================================
-
-group :development, :test do
-  # Testing
-  gem 'minitest', '~> 5.0'
-  gem 'rake', '~> 13.0'
 end

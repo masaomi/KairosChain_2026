@@ -4,6 +4,7 @@ require 'json'
 require 'fileutils'
 require 'time'
 require_relative 'backend'
+require_relative '../../kairos_mcp'
 
 module KairosMcp
   module Storage
@@ -18,14 +19,10 @@ module KairosMcp
     # - Knowledge metadata: extracted from *.md files (no separate storage)
     #
     class FileBackend < Backend
-      DEFAULT_STORAGE_DIR = File.expand_path('../../../storage', __dir__)
-      DEFAULT_BLOCKCHAIN_FILE = File.join(DEFAULT_STORAGE_DIR, 'blockchain.json')
-      DEFAULT_ACTION_LOG_FILE = File.expand_path('../../../skills/action_log.jsonl', __dir__)
-
       def initialize(config = {})
-        @storage_dir = config[:storage_dir] || DEFAULT_STORAGE_DIR
-        @blockchain_file = config[:blockchain_file] || DEFAULT_BLOCKCHAIN_FILE
-        @action_log_file = config[:action_log_file] || DEFAULT_ACTION_LOG_FILE
+        @storage_dir = config[:storage_dir] || KairosMcp.storage_dir
+        @blockchain_file = config[:blockchain_file] || KairosMcp.blockchain_path
+        @action_log_file = config[:action_log_file] || KairosMcp.action_log_path
 
         FileUtils.mkdir_p(@storage_dir)
         FileUtils.mkdir_p(File.dirname(@action_log_file))
