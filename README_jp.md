@@ -16,6 +16,7 @@ KairosChainは、AIの能力進化をプライベートブロックチェーン�
   - [オプション：RAGサポート](#オプションragセマンティック検索サポート)
   - [オプション：SQLite](#オプションsqliteストレージバックエンドチーム利用向け)
   - [オプション：Streamable HTTP](#オプションstreamable-httpトランスポートリモートチームアクセス)
+  - [管理者UI](#管理者uiブラウザベースの管理画面)
 - [クライアント設定](#クライアント設定)
 - [セットアップのテスト](#セットアップのテスト)
 - [使用のヒント](#使用のヒント)
@@ -1000,6 +1001,42 @@ rm -f Gemfile.lock              # ロックファイル
 
 ---
 
+### 管理者UI（ブラウザベースの管理画面）
+
+HTTPモードで実行中の場合、KairosChainは`/admin`に組み込みのブラウザベース管理UIを提供します。サーバー管理者向けの軽量な管理画面であり、追加のフレームワークやgemは不要です。
+
+#### 管理者UIへのアクセス
+
+1. HTTPサーバーを起動: `ruby bin/kairos_mcp_server --http`
+2. ブラウザで `http://localhost:8080/admin` を開く
+3. `owner`ロールのBearerトークンでログイン
+
+#### 利用可能な画面
+
+| 画面 | パス | 用途 |
+|------|------|------|
+| **ダッシュボード** | `/admin` | チェーン状態、トークン数、L0/L1概要、StateCommit状況 |
+| **トークン** | `/admin/tokens` | Bearerトークンの作成、一覧、失効、ローテーション |
+| **チェーン** | `/admin/chain` | ブロック履歴の閲覧、ブロック詳細、チェーン整合性の検証 |
+| **スキル** | `/admin/skills` | L0 DSLスキルとその定義の表示（読み取り専用） |
+| **ナレッジ** | `/admin/knowledge` | L1知識エントリの閲覧と検索（読み取り専用） |
+| **設定** | `/admin/config` | 設定、レイヤー設定、ストレージ情報の表示（読み取り専用） |
+
+#### 技術的な詳細
+
+- **技術**: htmx + PicoCSS + ERB（Ruby標準ライブラリ）— 新規gemは不要
+- **認証**: セッションCookie（HMAC-SHA256署名）で既存のBearerトークンをラップ
+- **認可**: `owner`ロールのみ — 他のロールはログイン画面にリダイレクト
+- **CSRF保護**: すべてのPOSTリクエストにトークンベースの保護
+- **データソース**: 既存のツールクラスを直接呼び出し（MCPプロトコルのオーバーヘッドなし）
+- **同一プロセス**: 既存のPuma/Rack HTTPサーバー内で動作
+
+#### 設計思想
+
+管理者UIは意図的にミニマルです。これは**Phase 1の管理ツール**です（[MCP-to-SaaS開発ワークフロー](KairosChain_mcp_server/knowledge/mcp_to_saas_development_workflow/mcp_to_saas_development_workflow.md)を参照）。より高機能なUIが必要な場合は、Backend APIとMCPツールを利用するカスタムSaaSフロントエンドを構築してください。
+
+---
+
 ## クライアント設定
 
 ### Claude Code設定（詳細）
@@ -1671,6 +1708,11 @@ KairosChain_mcp_server/
 │       ├── anthropic_skill_parser.rb  # YAMLフロントマター + MDパーサー
 │       ├── knowledge_provider.rb # L1知識管理
 │       ├── context_manager.rb    # L2コンテキスト管理
+│       ├── admin/                # 管理者UI（htmx + ERB）
+│       │   ├── router.rb        # ルーティングとコントローラー
+│       │   ├── helpers.rb       # ERBヘルパー、セッション、CSRF
+│       │   ├── views/           # ERBテンプレート（レイアウト、ページ、パーシャル）
+│       │   └── static/          # CSS（PicoCSS拡張）
 │       ├── auth/                 # 認証モジュール
 │       │   ├── token_store.rb    # トークンCRUD（SHA-256ハッシュ化）
 │       │   └── authenticator.rb  # Bearerトークン検証
@@ -3317,6 +3359,6 @@ ProjectA/                           ProjectB/
 ---
 
 **バージョン**: 0.9.0  
-**最終更新**: 2026-02-12
+**最終更新**: 2026-02-13
 
 > *「KairosChainは『この結果は正しいか？』ではなく『この知性はどのように形成されたか？』に答えます」*

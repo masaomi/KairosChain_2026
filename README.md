@@ -16,6 +16,7 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
   - [Optional: RAG Support](#optional-rag-semantic-search-support)
   - [Optional: SQLite](#optional-sqlite-storage-backend-team-use)
   - [Optional: Streamable HTTP](#optional-streamable-http-transport-remoteteam-access)
+  - [Admin UI](#admin-ui-browser-based-management)
 - [Client Configuration](#client-configuration)
 - [Testing the Setup](#testing-the-setup)
 - [Usage Tips](#usage-tips)
@@ -1016,6 +1017,42 @@ Verify clean state: `git status` should show `working tree clean`.
 
 ---
 
+### Admin UI (Browser-Based Management)
+
+When running in HTTP mode, KairosChain provides a built-in browser-based admin UI at `/admin`. This is a lightweight management interface for server operators — no additional frameworks or gems required.
+
+#### Accessing the Admin UI
+
+1. Start the HTTP server: `ruby bin/kairos_mcp_server --http`
+2. Open `http://localhost:8080/admin` in your browser
+3. Log in with an `owner` role Bearer token
+
+#### Available Screens
+
+| Screen | Path | Purpose |
+|--------|------|---------|
+| **Dashboard** | `/admin` | Chain status, token count, L0/L1 overview, state commit status |
+| **Tokens** | `/admin/tokens` | Create, list, revoke, and rotate Bearer tokens |
+| **Chain** | `/admin/chain` | Browse block history, view block details, verify chain integrity |
+| **Skills** | `/admin/skills` | View L0 DSL skills and their definitions (read-only) |
+| **Knowledge** | `/admin/knowledge` | Browse and search L1 knowledge entries (read-only) |
+| **Config** | `/admin/config` | View configuration, layer settings, storage info (read-only) |
+
+#### Technical Details
+
+- **Technology**: htmx + PicoCSS + ERB (Ruby stdlib) — no new gems required
+- **Authentication**: Session cookie (HMAC-SHA256 signed) wrapping existing Bearer tokens
+- **Authorization**: `owner` role only — other roles are redirected to login
+- **CSRF Protection**: Token-based protection on all POST requests
+- **Data Source**: Calls existing tool classes directly (no MCP protocol overhead)
+- **Same Process**: Runs inside the existing Puma/Rack HTTP server
+
+#### Design Philosophy
+
+The admin UI is intentionally minimal. It is a **Phase 1 management tool** (see [MCP-to-SaaS Development Workflow](KairosChain_mcp_server/knowledge/mcp_to_saas_development_workflow/mcp_to_saas_development_workflow.md)). For richer UIs, build a custom SaaS frontend that consumes the Backend API and MCP tools.
+
+---
+
 ## Client Configuration
 
 ### Claude Code Configuration (Detailed)
@@ -1687,6 +1724,11 @@ KairosChain_mcp_server/
 │       ├── anthropic_skill_parser.rb  # YAML frontmatter + MD parser
 │       ├── knowledge_provider.rb # L1 knowledge management
 │       ├── context_manager.rb    # L2 context management
+│       ├── admin/                # Admin UI (htmx + ERB)
+│       │   ├── router.rb        # Route matching and controllers
+│       │   ├── helpers.rb       # ERB helpers, session, CSRF
+│       │   ├── views/           # ERB templates (layout, pages, partials)
+│       │   └── static/          # CSS (PicoCSS overrides)
 │       ├── auth/                 # Authentication module
 │       │   ├── token_store.rb    # Token CRUD with SHA-256 hashing
 │       │   └── authenticator.rb  # Bearer token verification
@@ -3363,6 +3405,6 @@ See [LICENSE](../LICENSE) file.
 ---
 
 **Version**: 0.9.0  
-**Last Updated**: 2026-02-12
+**Last Updated**: 2026-02-13
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*
