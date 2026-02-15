@@ -131,7 +131,7 @@ module KairosMcp
         unless analyzer.has_meta
           output += "\n> **Warning**: No `.kairos_meta.yml` found.\n"
           output += "> All modified files will be treated as conflicts (safe fallback).\n"
-          output += "> Run `kairos_mcp_server init` to create the meta file for future upgrades.\n"
+          output += "> Run `kairos-chain init` to create the meta file for future upgrades.\n"
         end
 
         output += "\n## File Analysis\n\n"
@@ -298,7 +298,7 @@ module KairosMcp
           end
         else
           output += "No .kairos_meta.yml found.\n"
-          output += "Run `kairos_mcp_server init` to create one,\n"
+          output += "Run `kairos-chain init` to create one,\n"
           output += "or the next `system_upgrade apply` will create it.\n"
         end
 

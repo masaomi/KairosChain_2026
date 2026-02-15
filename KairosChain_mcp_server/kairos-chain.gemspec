@@ -5,19 +5,19 @@ $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 require 'kairos_mcp/version'
 
 Gem::Specification.new do |spec|
-  spec.name          = 'kairos_mcp'
+  spec.name          = 'kairos-chain'
   spec.version       = KairosMcp::VERSION
   spec.authors       = ['Masa Hatakeyama']
   spec.email         = ['masa@genomicschain.ch']
 
-  spec.summary       = 'KairosChain MCP Server - Memory-driven agent framework'
+  spec.summary       = 'KairosChain - Memory-driven agent framework with blockchain auditability'
   spec.description   = <<~DESC
     KairosChain is a memory-driven agent framework that implements a layered
     skill architecture (L0/L1/L2) with blockchain-backed auditability.
     It runs as an MCP (Model Context Protocol) server for AI IDE integration
     via stdio or Streamable HTTP transport.
   DESC
-  spec.homepage      = 'https://github.com/masahatakeyama/KairosChain_2026'
+  spec.homepage      = 'https://github.com/masaomi/KairosChain_2026'
   spec.license       = 'MIT'
 
   spec.required_ruby_version = '>= 3.0'
@@ -39,7 +39,7 @@ Gem::Specification.new do |spec|
   ]
 
   spec.bindir        = 'bin'
-  spec.executables   = ['kairos_mcp_server']
+  spec.executables   = ['kairos-chain', 'kairos_mcp_server']
   spec.require_paths = ['lib']
 
   # =========================================================================

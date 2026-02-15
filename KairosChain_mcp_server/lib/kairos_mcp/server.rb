@@ -60,7 +60,7 @@ module KairosMcp
       return if data_version == VERSION
 
       $stderr.puts "[KairosChain] Data directory was initialized with v#{data_version}, current gem is v#{VERSION}."
-      $stderr.puts "[KairosChain] Run 'system_upgrade command=\"check\"' or 'kairos_mcp_server upgrade' to see available updates."
+      $stderr.puts "[KairosChain] Run 'system_upgrade command=\"check\"' or 'kairos-chain upgrade' to see available updates."
     end
   end
 end

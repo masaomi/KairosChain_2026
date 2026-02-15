@@ -82,8 +82,8 @@ end
 #   bundle install --with http sqlite
 #
 # Usage:
-#   kairos_mcp_server --http --port 8080
-#   kairos_mcp_server --init-admin  # Generate initial admin token
+#   kairos-chain --http --port 8080
+#   kairos-chain --init-admin  # Generate initial admin token
 #
 # For production HTTPS, use Caddy as reverse proxy:
 #   kairos.example.com { reverse_proxy localhost:8080 }

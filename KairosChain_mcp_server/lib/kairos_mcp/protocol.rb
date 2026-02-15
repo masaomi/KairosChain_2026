@@ -68,7 +68,7 @@ module KairosMcp
           }
         },
         serverInfo: {
-          name: 'kairos-mcp-server',
+          name: 'kairos-chain',
           version: KairosMcp::VERSION
         }
       }

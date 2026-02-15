@@ -41,7 +41,7 @@ module KairosMcp
   #   2. Environment variable KAIROS_DATA_DIR
   #   3. Default: .kairos/ in the current working directory
   #
-  # Use `kairos_mcp_server init` to generate the initial data directory
+  # Use `kairos-chain init` to generate the initial data directory
   # with default templates.
   #
   class << self

@@ -130,7 +130,7 @@ module KairosMcp
     def handle_health
       body = {
         status: 'ok',
-        server: 'kairos-mcp-server',
+        server: 'kairos-chain',
         version: KairosMcp::VERSION,
         transport: 'streamable-http',
         tokens_configured: !@token_store.empty?
@@ -216,7 +216,7 @@ module KairosMcp
           No clients will be able to connect without a valid token.
 
           Generate an admin token with:
-            ruby bin/kairos_mcp_server --init-admin
+            kairos-chain --init-admin
 
         MSG
       end
@@ -238,7 +238,7 @@ module KairosMcp
       return if data_version == VERSION
 
       log "[KairosChain] Data directory was initialized with v#{data_version}, current gem is v#{VERSION}."
-      log "[KairosChain] Run 'system_upgrade command=\"check\"' or 'kairos_mcp_server upgrade' to see available updates."
+      log "[KairosChain] Run 'system_upgrade command=\"check\"' or 'kairos-chain upgrade' to see available updates."
     end
   end
 end
