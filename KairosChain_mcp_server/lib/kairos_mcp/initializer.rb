@@ -3,6 +3,7 @@
 require 'fileutils'
 require 'digest'
 require 'yaml'
+require 'time'
 require_relative '../kairos_mcp'
 
 module KairosMcp

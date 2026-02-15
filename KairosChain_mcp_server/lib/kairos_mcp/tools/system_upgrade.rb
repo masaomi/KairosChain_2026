@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'time'
 require_relative 'base_tool'
 require_relative '../upgrade_analyzer'
 require_relative '../config_merger'
