@@ -1,10 +1,11 @@
 <%
-  idx = block.respond_to?(:index) ? block.index : (block['index'] || block[:index])
-  hash_val = block.respond_to?(:hash_value) ? block.hash_value : (block['hash'] || block[:hash])
-  prev_hash = block.respond_to?(:previous_hash) ? block.previous_hash : (block['previous_hash'] || block[:previous_hash])
-  merkle = block.respond_to?(:merkle_root) ? block.merkle_root : (block['merkle_root'] || block[:merkle_root])
-  ts = block.respond_to?(:timestamp) ? block.timestamp : (block['timestamp'] || block[:timestamp])
-  data = block.respond_to?(:data) ? block.data : (block['data'] || block[:data])
+  b = block.respond_to?(:to_h) ? block.to_h : block
+  idx = b[:index] || b['index']
+  hash_val = b[:hash] || b['hash']
+  prev_hash = b[:previous_hash] || b['previous_hash']
+  merkle = b[:merkle_root] || b['merkle_root']
+  ts = b[:timestamp] || b['timestamp']
+  data = b[:data] || b['data']
 %>
 
 <article>
