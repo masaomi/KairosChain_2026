@@ -1,0 +1,43 @@
+<article>
+  <header>
+    <code><%= h(entry.name) %></code>
+    <% if entry.respond_to?(:version) && entry.version %>
+      <small>v<%= h(entry.version) %></small>
+    <% end %>
+  </header>
+
+  <% if entry.description %>
+    <p><strong>Description:</strong> <%= h(entry.description) %></p>
+  <% end %>
+
+  <% if entry.respond_to?(:tags) && entry.tags && !entry.tags.empty? %>
+    <p>
+      <strong>Tags:</strong>
+      <% entry.tags.each do |tag| %>
+        <span class="badge"><%= h(tag) %></span>
+      <% end %>
+    </p>
+  <% end %>
+
+  <p><strong>Layer:</strong> L2 (Context)</p>
+  <p><strong>Session:</strong> <code><%= h(session_id) %></code></p>
+
+  <%# Content %>
+  <% if entry.content %>
+    <details open>
+      <summary>Content</summary>
+      <pre class="knowledge-content"><%= h(entry.content) %></pre>
+    </details>
+  <% end %>
+
+  <%# Subdirectories %>
+  <% if entry.has_scripts? %>
+    <p><span class="badge badge-success">Scripts</span> available</p>
+  <% end %>
+  <% if entry.has_assets? %>
+    <p><span class="badge badge-success">Assets</span> available</p>
+  <% end %>
+  <% if entry.has_references? %>
+    <p><span class="badge badge-success">References</span> available</p>
+  <% end %>
+</article>

@@ -131,6 +131,8 @@ module KairosMcp
           handle_skills_page
         when ['GET', '/admin/knowledge']
           handle_knowledge_page(env)
+        when ['GET', '/admin/context']
+          handle_context_page
         when ['GET', '/admin/config']
           handle_config_page
         else
@@ -141,6 +143,12 @@ module KairosMcp
           elsif method == 'GET' && path.match?(%r{\A/admin/knowledge/.+\z})
             name = path.sub('/admin/knowledge/', '')
             handle_knowledge_detail_partial(name)
+          elsif method == 'GET' && path.match?(%r{\A/admin/context/session/[^/]+/[^/]+\z})
+            parts = path.sub('/admin/context/session/', '').split('/', 2)
+            handle_context_detail_partial(parts[0], parts[1])
+          elsif method == 'GET' && path.match?(%r{\A/admin/context/session/[^/]+\z})
+            session_id = path.sub('/admin/context/session/', '')
+            handle_context_list_partial(session_id)
           elsif method == 'GET' && path.match?(%r{\A/admin/chain/block/\d+\z})
             index = path.split('/').last.to_i
             handle_chain_block_detail_partial(index)
@@ -216,6 +224,7 @@ module KairosMcp
         knowledge_data = fetch_knowledge_list
         skills_data = fetch_skills_list
         state_data = fetch_state_status
+        context_data = fetch_context_sessions
 
         html_response(200, render('dashboard',
                                   chain: chain_data,
@@ -223,6 +232,7 @@ module KairosMcp
                                   knowledge: knowledge_data,
                                   skills: skills_data,
                                   state: state_data,
+                                  context_sessions: context_data,
                                   current_user: @current_user))
       end
 
@@ -408,6 +418,38 @@ module KairosMcp
       end
 
       # -----------------------------------------------------------------------
+      # Context Viewer (L2)
+      # -----------------------------------------------------------------------
+
+      def handle_context_page
+        sessions = fetch_context_sessions
+        html_response(200, render('context', sessions: sessions, current_user: @current_user))
+      end
+
+      def handle_context_list_partial(session_id)
+        require_relative '../context_manager'
+        manager = ContextManager.new
+        contexts = manager.list_contexts_in_session(session_id)
+        html_response(200, render_partial('_context_list',
+                                          session_id: session_id,
+                                          contexts: contexts))
+      end
+
+      def handle_context_detail_partial(session_id, name)
+        require_relative '../context_manager'
+        manager = ContextManager.new
+        entry = manager.get_context(session_id, name)
+
+        if entry
+          html_response(200, render_partial('_context_detail',
+                                            entry: entry,
+                                            session_id: session_id))
+        else
+          html_response(200, "<p>Context '#{h(name)}' not found in session '#{h(session_id)}'.</p>")
+        end
+      end
+
+      # -----------------------------------------------------------------------
       # Config Viewer
       # -----------------------------------------------------------------------
 
@@ -469,6 +511,14 @@ module KairosMcp
       rescue StandardError
         { enabled: false, has_changes: false,
           pending_changes: { total: 0 }, snapshot_count: 0 }
+      end
+
+      def fetch_context_sessions
+        require_relative '../context_manager'
+        manager = ContextManager.new
+        manager.list_sessions
+      rescue StandardError
+        []
       end
 
       # -----------------------------------------------------------------------
