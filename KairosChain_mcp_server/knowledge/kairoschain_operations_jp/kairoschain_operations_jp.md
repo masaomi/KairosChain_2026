@@ -239,7 +239,7 @@ echo "バックアップ作成: $BACKUP_DIR"
 
 ```bash
 # バックアップからリストア後、整合性を検証
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | kairos-chain
 ```
 
 ### ドキュメント管理

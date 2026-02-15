@@ -83,7 +83,7 @@ require_human_approval: true
 
 ```bash
 # Run daily/weekly
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | kairos-chain
 ```
 
 #### 3. Backups
@@ -105,7 +105,7 @@ Share the same data directory to synchronize evolution history across multiple A
 {
   "mcpServers": {
     "kairos-chain": {
-      "command": "kairos_mcp_server",
+      "command": "kairos-chain",
       "args": ["--data-dir", "/shared/kairos-data"],
       "env": {}
     }
@@ -119,7 +119,7 @@ Or using the environment variable:
 {
   "mcpServers": {
     "kairos-chain": {
-      "command": "kairos_mcp_server",
+      "command": "kairos-chain",
       "args": [],
       "env": {
         "KAIROS_DATA_DIR": "/shared/kairos-data"
@@ -334,19 +334,19 @@ Commands:
 ### List Available Skills
 
 ```bash
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"skills_dsl_list","arguments":{}}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"skills_dsl_list","arguments":{}}}' | kairos-chain
 ```
 
 ### Check Blockchain Status
 
 ```bash
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | kairos-chain
 ```
 
 ### Record a Skill Transition
 
 ```bash
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_record","arguments":{"logs":["Skill X modified","Reason: improved accuracy"]}}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_record","arguments":{"logs":["Skill X modified","Reason: improved accuracy"]}}}' | kairos-chain
 ```
 
 ## Self-Evolution Workflow

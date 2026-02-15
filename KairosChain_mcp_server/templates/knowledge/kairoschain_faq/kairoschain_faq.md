@@ -232,7 +232,7 @@ For teams on the same LAN, you can connect to a remote MCP server via SSH. This 
          "args": [
            "-o", "StrictHostKeyChecking=accept-new",
            "user@server.local",
-           "cd /path/to/KairosChain_mcp_server && ruby bin/kairos_mcp_server"
+           "cd /path/to/KairosChain_mcp_server && ruby bin/kairos-chain"
          ]
        }
      }
@@ -241,7 +241,7 @@ For teams on the same LAN, you can connect to a remote MCP server via SSH. This 
 
    **For Claude Code:**
    ```bash
-   claude mcp add kairos-chain ssh -- -o StrictHostKeyChecking=accept-new user@server.local "cd /path/to/KairosChain_mcp_server && ruby bin/kairos_mcp_server"
+   claude mcp add kairos-chain ssh -- -o StrictHostKeyChecking=accept-new user@server.local "cd /path/to/KairosChain_mcp_server && ruby bin/kairos-chain"
    ```
 
 3. (Optional) Use SSH key authentication for passwordless access:
@@ -1292,7 +1292,7 @@ KairosChain_2026 is designed to be embedded into other projects using `git subtr
 - Accumulate project-specific knowledge (L1) locally
 - Keep everything in a single repository with no extra clone steps
 
-> **Gem vs Subtree:** If you installed KairosChain as a gem (`gem install kairos_mcp`), you do NOT need subtree setup. The gem approach and the subtree approach are independent installation methods. The subtree approach is for users who want the full source code embedded in their project repository. See the [Installation](#installation-gem-or-repository) section for details on the gem approach.
+> **Gem vs Subtree:** If you installed KairosChain as a gem (`gem install kairos-chain`), you do NOT need subtree setup. The gem approach and the subtree approach are independent installation methods. The subtree approach is for users who want the full source code embedded in their project repository. See the [Installation](#installation-gem-or-repository) section for details on the gem approach.
 
 ### Why Subtree (Not Submodule)
 
@@ -1372,7 +1372,7 @@ Since the gemification update, KairosChain resolves data paths via `KairosMcp.da
 {
   "mcpServers": {
     "kairos-chain": {
-      "command": "server/KairosChain_mcp_server/bin/kairos_mcp_server",
+      "command": "server/KairosChain_mcp_server/bin/kairos-chain",
       "args": ["--data-dir", "server/KairosChain_mcp_server"]
     }
   }
@@ -1385,7 +1385,7 @@ Since the gemification update, KairosChain resolves data paths via `KairosMcp.da
 {
   "mcpServers": {
     "kairos-chain": {
-      "command": "server/KairosChain_mcp_server/bin/kairos_mcp_server",
+      "command": "server/KairosChain_mcp_server/bin/kairos-chain",
       "args": ["--data-dir", "server/KairosChain_mcp_server"]
     }
   }
@@ -1473,13 +1473,13 @@ Each project independently:
 
 When you pull upstream updates that include changes to template files (`kairos.rb`, `kairos.md`, `config.yml`, etc.), those changes are applied directly to the subtree directory since it contains the full source. However, if you have modified these files locally, you may encounter merge conflicts during `subtree pull`.
 
-For subtree users, the `system_upgrade` MCP tool and `kairos_mcp_server upgrade` CLI command are **not needed** — the subtree pull mechanism itself handles file updates. The upgrade tooling is designed for **gem-based installations** where template files are bundled inside the gem and need to be migrated to the user's data directory.
+For subtree users, the `system_upgrade` MCP tool and `kairos-chain upgrade` CLI command are **not needed** — the subtree pull mechanism itself handles file updates. The upgrade tooling is designed for **gem-based installations** where template files are bundled inside the gem and need to be migrated to the user's data directory.
 
 **Summary of update methods:**
 
 | Installation Method | How to Update | Template Handling |
 |---|---|---|
-| **Gem** (`gem install`) | `gem update kairos_mcp` + `system_upgrade` tool | 3-way hash merge via `.kairos_meta.yml` |
+| **Gem** (`gem install`) | `gem update kairos-chain` + `system_upgrade` tool | 3-way hash merge via `.kairos_meta.yml` |
 | **Subtree** (`git subtree`) | `git subtree pull` | Standard git merge (resolve conflicts manually) |
 | **Repository clone** | `git pull` | Standard git merge (resolve conflicts manually) |
 

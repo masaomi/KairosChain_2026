@@ -83,7 +83,7 @@ require_human_approval: true
 
 ```bash
 # 毎日/毎週実行
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | kairos-chain
 ```
 
 #### 3. バックアップ
@@ -105,7 +105,7 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
 {
   "mcpServers": {
     "kairos-chain": {
-      "command": "kairos_mcp_server",
+      "command": "kairos-chain",
       "args": ["--data-dir", "/shared/kairos-data"],
       "env": {}
     }
@@ -119,7 +119,7 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
 {
   "mcpServers": {
     "kairos-chain": {
-      "command": "kairos_mcp_server",
+      "command": "kairos-chain",
       "args": [],
       "env": {
         "KAIROS_DATA_DIR": "/shared/kairos-data"
@@ -334,19 +334,19 @@ KairosChainツールを発見し学ぶための動的ツールガイドシステ
 ### 利用可能なスキルを一覧表示
 
 ```bash
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"skills_dsl_list","arguments":{}}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"skills_dsl_list","arguments":{}}}' | kairos-chain
 ```
 
 ### ブロックチェーンステータスを確認
 
 ```bash
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | kairos-chain
 ```
 
 ### スキル遷移を記録
 
 ```bash
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_record","arguments":{"logs":["Skill X modified","Reason: improved accuracy"]}}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_record","arguments":{"logs":["Skill X modified","Reason: improved accuracy"]}}}' | kairos-chain
 ```
 
 ## 自己進化ワークフロー

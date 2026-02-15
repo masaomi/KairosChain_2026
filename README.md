@@ -36,6 +36,7 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
   - [Cursor IDE Configuration (Detailed)](#cursor-ide-configuration-detailed)
 - [Upgrading the Gem](#upgrading-the-gem)
   - [How It Works](#how-it-works)
+  - [L1 Knowledge Updates (v1.0.0+)](#l1-knowledge-updates-v100)
   - [Upgrade Commands](#upgrade-commands)
   - [Version Mismatch Warning](#version-mismatch-warning)
   - [Upgrade Workflow](#upgrade-workflow)
@@ -79,8 +80,8 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
   - [Example Skill Definition](#example-skill-definition)
   - [Self-Referential Introspection](#self-referential-introspection)
 - [Directory Structure](#directory-structure)
-  - [Gem Structure (installed via `gem install kairos_mcp`)](#gem-structure-installed-via-gem-install-kairos_mcp)
-  - [Data Directory (created by `kairos_mcp_server init`)](#data-directory-created-by-kairos_mcp_server-init)
+  - [Gem Structure (installed via `gem install kairos-chain`)](#gem-structure-installed-via-gem-install-kairos-chain)
+  - [Data Directory (created by `kairos-chain init`)](#data-directory-created-by-kairos-chain-init)
   - [Repository Structure (cloned from GitHub)](#repository-structure-cloned-from-github)
 - [Future Roadmap](#future-roadmap)
   - [Near-term](#near-term)
@@ -327,16 +328,16 @@ KairosChain can be installed either as a **Ruby gem** (recommended) or by **clon
 
 ```bash
 # Install the gem
-gem install kairos_mcp
+gem install kairos-chain
 
 # Initialize data directory (creates .kairos/ in current directory)
-kairos_mcp_server init
+kairos-chain init
 
 # Or initialize at a specific path
-kairos_mcp_server init --data-dir /path/to/my-kairos-data
+kairos-chain init --data-dir /path/to/my-kairos-data
 
 # Test basic execution
-echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | kairos-chain
 ```
 
 The gem ships with zero runtime dependencies. Optional features (SQLite, RAG, HTTP) can be added by installing additional gems — see the Optional sections below.
@@ -354,10 +355,10 @@ git clone https://github.com/masaomi/KairosChain_2026.git
 cd KairosChain_2026/KairosChain_mcp_server
 
 # Make executable
-chmod +x bin/kairos_mcp_server
+chmod +x bin/kairos-chain
 
 # Test basic execution
-echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | bin/kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | bin/kairos-chain
 ```
 
 > **Note**: When running from the repository, the data directory defaults to `.kairos/` in the current working directory. The server will auto-initialize on first run if the data directory doesn't exist.
@@ -438,10 +439,10 @@ If you install RAG gems after already using KairosChain:
 ruby -e "require 'hnswlib'; require 'informers'; puts 'RAG gems installed!'"
 
 # Test RAG with the gem (semantic search of L0 skills)
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"skills_dsl_list","arguments":{"query":"safety"}}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"skills_dsl_list","arguments":{"query":"safety"}}}' | kairos-chain
 
 # Test RAG from the repository
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"skills_dsl_list","arguments":{"query":"safety"}}}' | bin/kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"skills_dsl_list","arguments":{"query":"safety"}}}' | bin/kairos-chain
 ```
 
 > **Note**: The first RAG search will download the embedding model (~90MB) and build the vector index. Subsequent searches will be fast.
@@ -524,10 +525,10 @@ storage:
 ruby -e "require 'sqlite3'; puts 'SQLite3 gem installed!'"
 
 # Test with the gem
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | kairos-chain
 
 # Test from the repository
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | bin/kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | bin/kairos-chain
 ```
 
 #### Exporting Data from SQLite to Files
@@ -678,10 +679,10 @@ Restart Cursor/Claude Code or reconnect the MCP server.
 
 ```bash
 # Check chain status (gem or repository)
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | kairos_mcp_server 2>/dev/null | jq -r '.result.content[0].text'
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | kairos-chain 2>/dev/null | jq -r '.result.content[0].text'
 
 # Verify chain integrity
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | kairos_mcp_server 2>/dev/null | jq -r '.result.content[0].text'
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | kairos-chain 2>/dev/null | jq -r '.result.content[0].text'
 ```
 
 **Step 6: Keep original files as backup**
@@ -797,12 +798,12 @@ ruby -e "require 'puma'; require 'rack'; puts 'HTTP transport gems installed!'"
 
 ```bash
 # Using the gem:
-kairos_mcp_server --init-admin
-kairos_mcp_server --http --port 8080
+kairos-chain --init-admin
+kairos-chain --http --port 8080
 
 # Using the repository:
-ruby bin/kairos_mcp_server --init-admin
-ruby bin/kairos_mcp_server --http --port 8080
+ruby bin/kairos-chain --init-admin
+ruby bin/kairos-chain --http --port 8080
 
 # Test with curl (in another terminal)
 curl http://localhost:8080/health
@@ -814,10 +815,10 @@ curl http://localhost:8080/health
 
 ```bash
 # Using the gem:
-kairos_mcp_server --init-admin
+kairos-chain --init-admin
 
 # Using the repository:
-ruby bin/kairos_mcp_server --init-admin
+ruby bin/kairos-chain --init-admin
 ```
 
 Output:
@@ -840,14 +841,14 @@ Output:
 
 ```bash
 # Using the gem:
-kairos_mcp_server --http                                    # default port 8080
-kairos_mcp_server --http --port 9090                        # custom port
-kairos_mcp_server --http --port 8080 --data-dir /path/to/data  # custom data dir
+kairos-chain --http                                    # default port 8080
+kairos-chain --http --port 9090                        # custom port
+kairos-chain --http --port 8080 --data-dir /path/to/data  # custom data dir
 
 # Using the repository:
-ruby bin/kairos_mcp_server --http
-ruby bin/kairos_mcp_server --http --port 9090
-ruby bin/kairos_mcp_server --http --host 127.0.0.1 --port 8080
+ruby bin/kairos-chain --http
+ruby bin/kairos-chain --http --port 9090
+ruby bin/kairos-chain --http --host 127.0.0.1 --port 8080
 ```
 
 **Step 3: Configure Cursor to Connect**
@@ -946,7 +947,7 @@ token_manage command="revoke" user="alice"
 #### CLI Options
 
 ```
-Usage: kairos_mcp_server [command] [options]
+Usage: kairos-chain [command] [options]
 
 Commands:
     init              Initialize data directory with default templates
@@ -1174,7 +1175,7 @@ When running in HTTP mode, KairosChain provides a built-in browser-based admin U
 
 #### Accessing the Admin UI
 
-1. Start the HTTP server: `kairos_mcp_server --http` (gem) or `ruby bin/kairos_mcp_server --http` (repository)
+1. Start the HTTP server: `kairos-chain --http` (gem) or `ruby bin/kairos-chain --http` (repository)
 2. Open `http://localhost:8080/admin` in your browser
 3. Log in with an `owner` role Bearer token
 
@@ -1224,13 +1225,13 @@ claude --version
 
 ```bash
 # If using the gem (recommended):
-claude mcp add kairos-chain kairos_mcp_server
+claude mcp add kairos-chain kairos-chain
 
 # If using the repository:
-claude mcp add kairos-chain ruby /path/to/KairosChain_mcp_server/bin/kairos_mcp_server
+claude mcp add kairos-chain ruby /path/to/KairosChain_mcp_server/bin/kairos-chain
 
 # With a custom data directory:
-claude mcp add kairos-chain kairos_mcp_server -- --data-dir /path/to/my-kairos-data
+claude mcp add kairos-chain kairos-chain -- --data-dir /path/to/my-kairos-data
 ```
 
 #### Step 3: Verify Registration
@@ -1250,7 +1251,7 @@ The following configuration is added to `~/.claude.json`:
 {
   "mcpServers": {
     "kairos-chain": {
-      "command": "kairos_mcp_server",
+      "command": "kairos-chain",
       "args": ["--data-dir", "/path/to/my-kairos-data"],
       "env": {}
     }
@@ -1265,7 +1266,7 @@ For repository-based setup:
   "mcpServers": {
     "kairos-chain": {
       "command": "ruby",
-      "args": ["/path/to/KairosChain_mcp_server/bin/kairos_mcp_server"],
+      "args": ["/path/to/KairosChain_mcp_server/bin/kairos-chain"],
       "env": {}
     }
   }
@@ -1296,12 +1297,12 @@ Cursor is a VS Code-based AI coding IDE.
 4. Enter the server details:
    - **If using the gem:**
      - Name: `kairos-chain`
-     - Command: `kairos_mcp_server`
+     - Command: `kairos-chain`
      - Args: `--data-dir /path/to/my-kairos-data` (optional)
    - **If using the repository:**
      - Name: `kairos-chain`
      - Command: `ruby`
-     - Args: `/path/to/KairosChain_mcp_server/bin/kairos_mcp_server`
+     - Args: `/path/to/KairosChain_mcp_server/bin/kairos-chain`
 
 #### Option B: Via Configuration File
 
@@ -1333,7 +1334,7 @@ vim ~/.cursor/mcp.json
 {
   "mcpServers": {
     "kairos-chain": {
-      "command": "kairos_mcp_server",
+      "command": "kairos-chain",
       "args": ["--data-dir", "/path/to/my-kairos-data"],
       "env": {}
     }
@@ -1348,7 +1349,7 @@ vim ~/.cursor/mcp.json
   "mcpServers": {
     "kairos-chain": {
       "command": "ruby",
-      "args": ["/path/to/KairosChain_mcp_server/bin/kairos_mcp_server"],
+      "args": ["/path/to/KairosChain_mcp_server/bin/kairos-chain"],
       "env": {}
     }
   }
@@ -1361,7 +1362,7 @@ vim ~/.cursor/mcp.json
 {
   "mcpServers": {
     "kairos-chain": {
-      "command": "kairos_mcp_server",
+      "command": "kairos-chain",
       "args": ["--data-dir", "/Users/yourname/.kairos"],
       "env": {}
     },
@@ -1388,10 +1389,10 @@ After saving the configuration, **you must completely restart Cursor**.
 
 ## Upgrading the Gem
 
-When a new version of `kairos_mcp` is released (with new skills, config keys, bug fixes, etc.), updating the gem code is straightforward:
+When a new version of `kairos-chain` is released (with new skills, config keys, bug fixes, etc.), updating the gem code is straightforward:
 
 ```bash
-gem update kairos_mcp
+gem update kairos-chain
 ```
 
 However, your data directory (`.kairos/`) contains template files that were copied at `init` time and may have been customized. The built-in upgrade system uses **3-way hash comparison** to safely migrate these files.
@@ -1414,19 +1415,30 @@ Based on this comparison, each file is classified:
 
 For **config YAML files** (Pattern 3), a structural merge adds new keys while preserving your values. For **L0 kairos.rb** (Pattern 3), a `skills_evolve` proposal is generated, requiring human approval and blockchain recording.
 
+### L1 Knowledge Updates (v1.0.0+)
+
+Starting from v1.0.0, the gem also bundles **official L1 knowledge** (17 bundled templates) alongside the config and skills templates. When you run `system_upgrade` (or `kairos-chain upgrade --apply`):
+
+- **New knowledge**: Files that don't exist in your data directory are installed
+- **Unmodified knowledge**: Files unchanged since init are auto-updated to the latest bundled version
+- **User-modified knowledge**: Files you've edited are preserved (your changes are kept)
+- **Conflicts**: When both you and the gem have changed a file, the new version is saved to a `.new/` directory for manual review and merge
+
+The `.kairos_meta.yml` file now tracks both `template_hashes` (for config/skills) and `knowledge_hashes` for L1 knowledge files, enabling the same 3-way comparison logic for knowledge updates.
+
 ### Upgrade Commands
 
 #### Via CLI
 
 ```bash
 # Preview what would change (recommended first step)
-kairos_mcp_server upgrade
+kairos-chain upgrade
 
 # Apply the upgrade
-kairos_mcp_server upgrade --apply
+kairos-chain upgrade --apply
 
 # With custom data directory
-kairos_mcp_server upgrade --data-dir /path/to/data --apply
+kairos-chain upgrade --data-dir /path/to/data --apply
 ```
 
 #### Via MCP Tool (from within an AI session)
@@ -1443,16 +1455,16 @@ system_upgrade command="status"      # Show current meta status
 When the MCP server starts and detects a version mismatch between the gem and the data directory, it displays a warning:
 
 ```
-[KairosChain] Data directory was initialized with v0.9.0, current gem is v0.10.0.
-[KairosChain] Run 'system_upgrade command="check"' or 'kairos_mcp_server upgrade' to see available updates.
+[KairosChain] Data directory was initialized with v1.0.0, current gem is v1.1.0.
+[KairosChain] Run 'system_upgrade command="check"' or 'kairos-chain upgrade' to see available updates.
 ```
 
 ### Upgrade Workflow
 
-1. Update the gem: `gem update kairos_mcp`
-2. Preview changes: `kairos_mcp_server upgrade`
+1. Update the gem: `gem update kairos-chain`
+2. Preview changes: `kairos-chain upgrade`
 3. Review the output (especially any conflicts)
-4. Apply: `kairos_mcp_server upgrade --apply`
+4. Apply: `kairos-chain upgrade --apply`
 5. For L0 proposals, use `skills_evolve` to review and approve
 6. Restart the MCP server
 
@@ -1462,7 +1474,7 @@ All upgrade operations are recorded to the KairosChain blockchain for traceabili
 
 ## Testing the Setup
 
-> **Note**: The examples below show both the gem command (`kairos_mcp_server`) and the repository command (`bin/kairos_mcp_server`). Use whichever matches your installation.
+> **Note**: The examples below show both the gem command (`kairos-chain`) and the repository command (`bin/kairos-chain`). Use whichever matches your installation.
 
 ### 1. Basic Command Line Tests
 
@@ -1470,11 +1482,11 @@ All upgrade operations are recorded to the KairosChain blockchain for traceabili
 
 ```bash
 # Using the gem:
-echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | kairos-chain
 
 # Using the repository:
 cd /path/to/KairosChain_mcp_server
-echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | bin/kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | bin/kairos-chain
 
 # Expected response (excerpt):
 # {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26","capabilities":...}}
@@ -1484,17 +1496,17 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | bin/kairos_m
 
 ```bash
 # Get list of available tools
-echo '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | kairos-chain
 
 # If you have jq, display only tool names
-echo '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | kairos_mcp_server 2>/dev/null | jq '.result.tools[].name'
+echo '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | kairos-chain 2>/dev/null | jq '.result.tools[].name'
 ```
 
 #### Hello World Test
 
 ```bash
 # Call the hello_world tool
-echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"hello_world","arguments":{}}}' | kairos_mcp_server 2>/dev/null | jq -r '.result.content[0].text'
+echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"hello_world","arguments":{}}}' | kairos-chain 2>/dev/null | jq -r '.result.content[0].text'
 
 # Output: Hello from KairosChain MCP Server!
 ```
@@ -1503,20 +1515,20 @@ echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"hello_worl
 
 ```bash
 # Get skills list
-echo '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"skills_dsl_list","arguments":{}}}' | kairos_mcp_server 2>/dev/null | jq -r '.result.content[0].text'
+echo '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"skills_dsl_list","arguments":{}}}' | kairos-chain 2>/dev/null | jq -r '.result.content[0].text'
 
 # Get a specific skill
-echo '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"skills_dsl_get","arguments":{"skill_id":"core_safety"}}}' | kairos_mcp_server 2>/dev/null | jq -r '.result.content[0].text'
+echo '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"skills_dsl_get","arguments":{"skill_id":"core_safety"}}}' | kairos-chain 2>/dev/null | jq -r '.result.content[0].text'
 ```
 
 ### 3. Blockchain Tools Test
 
 ```bash
 # Check blockchain status
-echo '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | kairos_mcp_server 2>/dev/null | jq -r '.result.content[0].text'
+echo '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | kairos-chain 2>/dev/null | jq -r '.result.content[0].text'
 
 # Verify chain integrity
-echo '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | kairos_mcp_server 2>/dev/null | jq -r '.result.content[0].text'
+echo '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | kairos-chain 2>/dev/null | jq -r '.result.content[0].text'
 ```
 
 ### 4. Testing with SQLite Backend (Optional)
@@ -1529,12 +1541,12 @@ gem install sqlite3
 #    Change storage.backend from 'file' to 'sqlite' in <data-dir>/skills/config.yml
 
 # 3. Test chain_status (should show SQLite backend info)
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | kairos_mcp_server 2>/dev/null | jq -r '.result.content[0].text'
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | kairos-chain 2>/dev/null | jq -r '.result.content[0].text'
 
 # 4. Record and verify
-echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"chain_record","arguments":{"logs":["SQLite test record"]}}}' | kairos_mcp_server 2>/dev/null | jq -r '.result.content[0].text'
+echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"chain_record","arguments":{"logs":["SQLite test record"]}}}' | kairos-chain 2>/dev/null | jq -r '.result.content[0].text'
 
-echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | kairos_mcp_server 2>/dev/null | jq -r '.result.content[0].text'
+echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | kairos-chain 2>/dev/null | jq -r '.result.content[0].text'
 ```
 
 ### 5. Testing with RAG / Semantic Search (Optional)
@@ -1550,10 +1562,10 @@ ruby -e "require 'hnswlib'; require 'informers'; puts 'RAG gems installed!'"
 #    Set vector_search.enabled to true in <data-dir>/skills/config.yml
 
 # 4. Test semantic search (first run downloads ~90MB embedding model)
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"skills_dsl_list","arguments":{"query":"safety rules"}}}' | kairos_mcp_server 2>/dev/null | jq -r '.result.content[0].text'
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"skills_dsl_list","arguments":{"query":"safety rules"}}}' | kairos-chain 2>/dev/null | jq -r '.result.content[0].text'
 
 # 5. Test knowledge search
-echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"knowledge_list","arguments":{"query":"layer placement"}}}' | kairos_mcp_server 2>/dev/null | jq -r '.result.content[0].text'
+echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"knowledge_list","arguments":{"query":"layer placement"}}}' | kairos-chain 2>/dev/null | jq -r '.result.content[0].text'
 ```
 
 ### 6. Testing HTTP Mode (Optional)
@@ -1563,12 +1575,12 @@ echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"knowledge_
 gem install puma rack
 
 # 2. Initialize data and generate admin token
-kairos_mcp_server init --data-dir /tmp/kairos_test
-kairos_mcp_server --init-admin --data-dir /tmp/kairos_test
+kairos-chain init --data-dir /tmp/kairos_test
+kairos-chain --init-admin --data-dir /tmp/kairos_test
 # Save the displayed token!
 
 # 3. Start HTTP server
-kairos_mcp_server --http --port 9090 --data-dir /tmp/kairos_test
+kairos-chain --http --port 9090 --data-dir /tmp/kairos_test
 
 # 4. Test from another terminal
 curl http://localhost:9090/health
@@ -1609,18 +1621,18 @@ claude
 ruby --version  # Requires 3.0+
 
 # Check for syntax errors
-ruby -c bin/kairos_mcp_server
+ruby -c bin/kairos-chain
 
 # Verify executable permission
-ls -la bin/kairos_mcp_server
-chmod +x bin/kairos_mcp_server
+ls -la bin/kairos-chain
+chmod +x bin/kairos-chain
 ```
 
 #### JSON-RPC Errors
 
 ```bash
 # Check stderr for error messages
-echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | bin/kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | bin/kairos-chain
 
 # Run without suppressing stderr (remove 2>/dev/null)
 ```
@@ -1628,7 +1640,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | bin/kairos_m
 #### Gem Command Not Found
 
 ```bash
-# If kairos_mcp_server is not found after gem install
+# If kairos-chain is not found after gem install
 # Check if the gem bin directory is in your PATH
 gem environment gemdir
 # The executable should be in the bin/ directory under that path
@@ -1637,7 +1649,7 @@ gem environment gemdir
 rbenv rehash
 
 # Verify the correct Ruby version has the gem
-gem list kairos_mcp
+gem list kairos-chain
 ```
 
 #### Cursor Connection Issues
@@ -1725,7 +1737,7 @@ require_human_approval: true
 
 ```bash
 # Run daily/weekly
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | kairos-chain
 ```
 
 #### 3. Backups
@@ -1747,7 +1759,7 @@ Share the same data directory to synchronize evolution history across multiple A
 {
   "mcpServers": {
     "kairos-chain": {
-      "command": "kairos_mcp_server",
+      "command": "kairos-chain",
       "args": ["--data-dir", "/shared/kairos-data"],
       "env": {}
     }
@@ -1761,7 +1773,7 @@ Or using the environment variable:
 {
   "mcpServers": {
     "kairos-chain": {
-      "command": "kairos_mcp_server",
+      "command": "kairos-chain",
       "args": [],
       "env": {
         "KAIROS_DATA_DIR": "/shared/kairos-data"
@@ -1976,19 +1988,19 @@ Commands:
 ### List Available Skills
 
 ```bash
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"skills_dsl_list","arguments":{}}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"skills_dsl_list","arguments":{}}}' | kairos-chain
 ```
 
 ### Check Blockchain Status
 
 ```bash
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_status","arguments":{}}}' | kairos-chain
 ```
 
 ### Record a Skill Transition
 
 ```bash
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_record","arguments":{"logs":["Skill X modified","Reason: improved accuracy"]}}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_record","arguments":{"logs":["Skill X modified","Reason: improved accuracy"]}}}' | kairos-chain
 ```
 
 ## Self-Evolution Workflow
@@ -2081,12 +2093,12 @@ end
 
 ## Directory Structure
 
-### Gem Structure (installed via `gem install kairos_mcp`)
+### Gem Structure (installed via `gem install kairos-chain`)
 
 ```
-kairos_mcp (gem)
+kairos-chain (gem)
 ├── bin/
-│   └── kairos_mcp_server         # Executable (in PATH after gem install)
+│   └── kairos-chain         # Executable (in PATH after gem install)
 ├── lib/
 │   ├── kairos_mcp.rb             # Central module (data_dir management)
 │   └── kairos_mcp/
@@ -2104,10 +2116,10 @@ kairos_mcp (gem)
 │   └── config/
 │       ├── safety.yml            # Default security settings
 │       └── tool_metadata.yml     # Default tool metadata
-└── kairos_mcp.gemspec            # Gem specification
+└── kairos-chain.gemspec            # Gem specification
 ```
 
-### Data Directory (created by `kairos_mcp_server init`)
+### Data Directory (created by `kairos-chain init`)
 
 ```
 .kairos/                          # Default data directory (configurable)
@@ -2141,7 +2153,7 @@ kairos_mcp (gem)
 ```
 KairosChain_mcp_server/
 ├── bin/
-│   └── kairos_mcp_server         # Executable
+│   └── kairos-chain         # Executable
 ├── lib/
 │   ├── kairos_mcp.rb             # Central module (data_dir management)
 │   └── kairos_mcp/
@@ -2184,7 +2196,7 @@ KairosChain_mcp_server/
 ├── templates/                    # Default files for `init` command
 │   ├── skills/                   # Default skill templates
 │   └── config/                   # Default config templates
-├── kairos_mcp.gemspec            # Gem specification
+├── kairos-chain.gemspec            # Gem specification
 ├── Gemfile                       # Development dependencies
 ├── Rakefile                      # Build/test tasks
 ├── test_local.rb                 # Local test script
@@ -2385,7 +2397,7 @@ echo "Backup created: $BACKUP_DIR"
 
 ```bash
 # After restoring from backup, verify integrity
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | kairos-chain
 ```
 
 ### Documentation Management
@@ -2670,7 +2682,7 @@ For teams on the same LAN, you can connect to a remote MCP server via SSH. This 
          "args": [
            "-o", "StrictHostKeyChecking=accept-new",
            "user@server.local",
-           "cd /path/to/KairosChain_mcp_server && ruby bin/kairos_mcp_server"
+           "cd /path/to/KairosChain_mcp_server && ruby bin/kairos-chain"
          ]
        }
      }
@@ -2679,7 +2691,7 @@ For teams on the same LAN, you can connect to a remote MCP server via SSH. This 
 
    **For Claude Code:**
    ```bash
-   claude mcp add kairos-chain ssh -- -o StrictHostKeyChecking=accept-new user@server.local "cd /path/to/KairosChain_mcp_server && ruby bin/kairos_mcp_server"
+   claude mcp add kairos-chain ssh -- -o StrictHostKeyChecking=accept-new user@server.local "cd /path/to/KairosChain_mcp_server && ruby bin/kairos-chain"
    ```
 
 3. (Optional) Use SSH key authentication for passwordless access:
@@ -3730,7 +3742,7 @@ KairosChain_2026 is designed to be embedded into other projects using `git subtr
 - Accumulate project-specific knowledge (L1) locally
 - Keep everything in a single repository with no extra clone steps
 
-> **Gem vs Subtree:** If you installed KairosChain as a gem (`gem install kairos_mcp`), you do NOT need subtree setup. The gem approach and the subtree approach are independent installation methods. The subtree approach is for users who want the full source code embedded in their project repository. See the [Installation](#installation-gem-or-repository) section for details on the gem approach.
+> **Gem vs Subtree:** If you installed KairosChain as a gem (`gem install kairos-chain`), you do NOT need subtree setup. The gem approach and the subtree approach are independent installation methods. The subtree approach is for users who want the full source code embedded in their project repository. See the [Installation](#installation-gem-or-repository) section for details on the gem approach.
 
 ### Why Subtree (Not Submodule)
 
@@ -3810,7 +3822,7 @@ Since the gemification update, KairosChain resolves data paths via `KairosMcp.da
 {
   "mcpServers": {
     "kairos-chain": {
-      "command": "server/KairosChain_mcp_server/bin/kairos_mcp_server",
+      "command": "server/KairosChain_mcp_server/bin/kairos-chain",
       "args": ["--data-dir", "server/KairosChain_mcp_server"]
     }
   }
@@ -3823,7 +3835,7 @@ Since the gemification update, KairosChain resolves data paths via `KairosMcp.da
 {
   "mcpServers": {
     "kairos-chain": {
-      "command": "server/KairosChain_mcp_server/bin/kairos_mcp_server",
+      "command": "server/KairosChain_mcp_server/bin/kairos-chain",
       "args": ["--data-dir", "server/KairosChain_mcp_server"]
     }
   }
@@ -3911,13 +3923,13 @@ Each project independently:
 
 When you pull upstream updates that include changes to template files (`kairos.rb`, `kairos.md`, `config.yml`, etc.), those changes are applied directly to the subtree directory since it contains the full source. However, if you have modified these files locally, you may encounter merge conflicts during `subtree pull`.
 
-For subtree users, the `system_upgrade` MCP tool and `kairos_mcp_server upgrade` CLI command are **not needed** — the subtree pull mechanism itself handles file updates. The upgrade tooling is designed for **gem-based installations** where template files are bundled inside the gem and need to be migrated to the user's data directory.
+For subtree users, the `system_upgrade` MCP tool and `kairos-chain upgrade` CLI command are **not needed** — the subtree pull mechanism itself handles file updates. The upgrade tooling is designed for **gem-based installations** where template files are bundled inside the gem and need to be migrated to the user's data directory.
 
 **Summary of update methods:**
 
 | Installation Method | How to Update | Template Handling |
 |---|---|---|
-| **Gem** (`gem install`) | `gem update kairos_mcp` + `system_upgrade` tool | 3-way hash merge via `.kairos_meta.yml` |
+| **Gem** (`gem install`) | `gem update kairos-chain` + `system_upgrade` tool | 3-way hash merge via `.kairos_meta.yml` |
 | **Subtree** (`git subtree`) | `git subtree pull` | Standard git merge (resolve conflicts manually) |
 | **Repository clone** | `git pull` | Standard git merge (resolve conflicts manually) |
 
@@ -3935,7 +3947,7 @@ See [LICENSE](./LICENSE) file.
 
 ---
 
-**Version**: 0.9.0
+**Version**: 1.0.0
 **Last Updated**: 2026-02-15
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*

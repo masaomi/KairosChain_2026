@@ -232,7 +232,7 @@ assembly_defaults:
          "args": [
            "-o", "StrictHostKeyChecking=accept-new",
            "user@server.local",
-           "cd /path/to/KairosChain_mcp_server && ruby bin/kairos_mcp_server"
+           "cd /path/to/KairosChain_mcp_server && ruby bin/kairos-chain"
          ]
        }
      }
@@ -241,7 +241,7 @@ assembly_defaults:
 
    **Claude Codeの場合:**
    ```bash
-   claude mcp add kairos-chain ssh -- -o StrictHostKeyChecking=accept-new user@server.local "cd /path/to/KairosChain_mcp_server && ruby bin/kairos_mcp_server"
+   claude mcp add kairos-chain ssh -- -o StrictHostKeyChecking=accept-new user@server.local "cd /path/to/KairosChain_mcp_server && ruby bin/kairos-chain"
    ```
 
 3. （オプション）パスワードなしアクセスのためSSH鍵認証を設定：
@@ -1223,7 +1223,7 @@ KairosChain_2026は`git subtree`を使用して他のプロジェクトに組み
 - プロジェクト固有の知識（L1）をローカルに蓄積
 - 追加のクローン手順なしで、すべてを単一リポジトリに保持
 
-> **Gem方式 vs Subtree方式:** KairosChainをgem（`gem install kairos_mcp`）でインストールした場合、サブツリーの設定は**不要**です。gem方式とサブツリー方式は独立したインストール方法です。サブツリー方式は、プロジェクトリポジトリにソースコード全体を組み込みたいユーザー向けです。gem方式については[インストール](#インストールgemまたはリポジトリ)セクションを参照してください。
+> **Gem方式 vs Subtree方式:** KairosChainをgem（`gem install kairos-chain`）でインストールした場合、サブツリーの設定は**不要**です。gem方式とサブツリー方式は独立したインストール方法です。サブツリー方式は、プロジェクトリポジトリにソースコード全体を組み込みたいユーザー向けです。gem方式については[インストール](#インストールgemまたはリポジトリ)セクションを参照してください。
 
 ### なぜサブツリー（サブモジュールではなく）
 
@@ -1303,7 +1303,7 @@ gem化アップデート以降、KairosChainは`KairosMcp.data_dir`を通じて�
 {
   "mcpServers": {
     "kairos-chain": {
-      "command": "server/KairosChain_mcp_server/bin/kairos_mcp_server",
+      "command": "server/KairosChain_mcp_server/bin/kairos-chain",
       "args": ["--data-dir", "server/KairosChain_mcp_server"]
     }
   }
@@ -1316,7 +1316,7 @@ gem化アップデート以降、KairosChainは`KairosMcp.data_dir`を通じて�
 {
   "mcpServers": {
     "kairos-chain": {
-      "command": "server/KairosChain_mcp_server/bin/kairos_mcp_server",
+      "command": "server/KairosChain_mcp_server/bin/kairos-chain",
       "args": ["--data-dir", "server/KairosChain_mcp_server"]
     }
   }
@@ -1404,13 +1404,13 @@ ProjectA/                           ProjectB/
 
 テンプレートファイル（`kairos.rb`、`kairos.md`、`config.yml`など）の変更を含む上流の更新をプルした場合、サブツリーディレクトリには完全なソースコードが含まれているため、変更は直接適用されます。ただし、これらのファイルをローカルで変更している場合は、`subtree pull`時にマージコンフリクトが発生する可能性があります。
 
-サブツリーユーザーの場合、`system_upgrade` MCPツールや`kairos_mcp_server upgrade` CLIコマンドは**不要**です。ファイルの更新はサブツリープル自体が処理します。アップグレードツールは、テンプレートファイルがgem内にバンドルされており、ユーザーのデータディレクトリへの移行が必要な**gemベースのインストール**向けに設計されています。
+サブツリーユーザーの場合、`system_upgrade` MCPツールや`kairos-chain upgrade` CLIコマンドは**不要**です。ファイルの更新はサブツリープル自体が処理します。アップグレードツールは、テンプレートファイルがgem内にバンドルされており、ユーザーのデータディレクトリへの移行が必要な**gemベースのインストール**向けに設計されています。
 
 **更新方法のまとめ：**
 
 | インストール方法 | 更新方法 | テンプレートの扱い |
 |---|---|---|
-| **Gem**（`gem install`） | `gem update kairos_mcp` + `system_upgrade`ツール | `.kairos_meta.yml`による3wayハッシュマージ |
+| **Gem**（`gem install`） | `gem update kairos-chain` + `system_upgrade`ツール | `.kairos_meta.yml`による3wayハッシュマージ |
 | **Subtree**（`git subtree`） | `git subtree pull` | 標準のgitマージ（コンフリクトは手動解決） |
 | **リポジトリクローン** | `git pull` | 標準のgitマージ（コンフリクトは手動解決） |
 

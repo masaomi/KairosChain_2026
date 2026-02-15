@@ -65,12 +65,12 @@ end
 
 ## ディレクトリ構造
 
-### Gem構造（`gem install kairos_mcp` でインストール）
+### Gem構造（`gem install kairos-chain` でインストール）
 
 ```
-kairos_mcp (gem)
+kairos-chain (gem)
 ├── bin/
-│   └── kairos_mcp_server         # 実行ファイル（gem install後にPATHに追加）
+│   └── kairos-chain         # 実行ファイル（gem install後にPATHに追加）
 ├── lib/
 │   ├── kairos_mcp.rb             # 中央モジュール（data_dir管理）
 │   └── kairos_mcp/
@@ -88,10 +88,10 @@ kairos_mcp (gem)
 │   └── config/
 │       ├── safety.yml            # デフォルトセキュリティ設定
 │       └── tool_metadata.yml     # デフォルトツールメタデータ
-└── kairos_mcp.gemspec            # Gem仕様
+└── kairos-chain.gemspec            # Gem仕様
 ```
 
-### データディレクトリ（`kairos_mcp_server init` で作成）
+### データディレクトリ（`kairos-chain init` で作成）
 
 ```
 .kairos/                          # デフォルトデータディレクトリ（設定可能）
@@ -125,7 +125,7 @@ kairos_mcp (gem)
 ```
 KairosChain_mcp_server/
 ├── bin/
-│   └── kairos_mcp_server         # 実行ファイル
+│   └── kairos-chain         # 実行ファイル
 ├── lib/
 │   ├── kairos_mcp.rb             # 中央モジュール（data_dir管理）
 │   └── kairos_mcp/
@@ -168,7 +168,7 @@ KairosChain_mcp_server/
 ├── templates/                    # `init`コマンド用デフォルトファイル
 │   ├── skills/                   # デフォルトスキルテンプレート
 │   └── config/                   # デフォルト設定テンプレート
-├── kairos_mcp.gemspec            # Gem仕様
+├── kairos-chain.gemspec            # Gem仕様
 ├── Gemfile                       # 開発用依存関係
 ├── Rakefile                      # ビルド/テストタスク
 ├── test_local.rb                 # ローカルテストスクリプト

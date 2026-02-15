@@ -200,7 +200,7 @@ echo "Backup created: $BACKUP_DIR"
 
 ```bash
 # After restoring from backup, verify integrity
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | kairos_mcp_server
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | kairos-chain
 ```
 
 ### Documentation Management

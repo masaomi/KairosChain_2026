@@ -65,12 +65,12 @@ end
 
 ## Directory Structure
 
-### Gem Structure (installed via `gem install kairos_mcp`)
+### Gem Structure (installed via `gem install kairos-chain`)
 
 ```
-kairos_mcp (gem)
+kairos-chain (gem)
 ├── bin/
-│   └── kairos_mcp_server         # Executable (in PATH after gem install)
+│   └── kairos-chain         # Executable (in PATH after gem install)
 ├── lib/
 │   ├── kairos_mcp.rb             # Central module (data_dir management)
 │   └── kairos_mcp/
@@ -88,10 +88,10 @@ kairos_mcp (gem)
 │   └── config/
 │       ├── safety.yml            # Default security settings
 │       └── tool_metadata.yml     # Default tool metadata
-└── kairos_mcp.gemspec            # Gem specification
+└── kairos-chain.gemspec            # Gem specification
 ```
 
-### Data Directory (created by `kairos_mcp_server init`)
+### Data Directory (created by `kairos-chain init`)
 
 ```
 .kairos/                          # Default data directory (configurable)
@@ -125,7 +125,7 @@ kairos_mcp (gem)
 ```
 KairosChain_mcp_server/
 ├── bin/
-│   └── kairos_mcp_server         # Executable
+│   └── kairos-chain         # Executable
 ├── lib/
 │   ├── kairos_mcp.rb             # Central module (data_dir management)
 │   └── kairos_mcp/
@@ -168,7 +168,7 @@ KairosChain_mcp_server/
 ├── templates/                    # Default files for `init` command
 │   ├── skills/                   # Default skill templates
 │   └── config/                   # Default config templates
-├── kairos_mcp.gemspec            # Gem specification
+├── kairos-chain.gemspec            # Gem specification
 ├── Gemfile                       # Development dependencies
 ├── Rakefile                      # Build/test tasks
 ├── test_local.rb                 # Local test script
