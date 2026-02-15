@@ -69,6 +69,9 @@ module KairosMcp
       # Token management (HTTP authentication)
       register_if_defined('KairosMcp::Tools::TokenManage')
 
+      # System management tools (upgrade, migration)
+      register_if_defined('KairosMcp::Tools::SystemUpgrade')
+
       # Skill-based tools (from kairos.rb with tool block)
       register_skill_tools if skill_tools_enabled?
     end

@@ -4,6 +4,32 @@ require_relative 'kairos_mcp/version'
 
 module KairosMcp
   # =========================================================================
+  # Template Files Registry
+  # =========================================================================
+  #
+  # Centralized mapping of template files to their data directory destinations.
+  # Used by Initializer (for init) and UpgradeAnalyzer (for migration).
+  #
+  # Format: [template_relative_path, data_dir_accessor_symbol]
+  #
+  TEMPLATE_FILES = [
+    ['skills/kairos.rb',         :dsl_path],
+    ['skills/kairos.md',         :md_path],
+    ['skills/config.yml',        :skills_config_path],
+    ['config/safety.yml',        :safety_config_path],
+    ['config/tool_metadata.yml', :tool_metadata_path]
+  ].freeze
+
+  # File type classification for upgrade conflict resolution
+  TEMPLATE_FILE_TYPES = {
+    'skills/kairos.rb'         => :l0_dsl,
+    'skills/kairos.md'         => :l0_doc,
+    'skills/config.yml'        => :config_yaml,
+    'config/safety.yml'        => :config_yaml,
+    'config/tool_metadata.yml' => :config_yaml
+  }.freeze
+
+  # =========================================================================
   # Data Directory Management
   # =========================================================================
   #
@@ -142,6 +168,11 @@ module KairosMcp
     # Tool metadata file path
     def tool_metadata_path
       File.join(config_dir, 'tool_metadata.yml')
+    end
+
+    # Meta file path (.kairos_meta.yml for upgrade tracking)
+    def meta_path
+      File.join(data_dir, '.kairos_meta.yml')
     end
 
     # =========================================================================

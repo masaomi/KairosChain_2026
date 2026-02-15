@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require 'fileutils'
+require 'digest'
+require 'yaml'
 require_relative '../kairos_mcp'
 
 module KairosMcp
@@ -46,6 +48,7 @@ module KairosMcp
 
       create_directories
       copy_templates
+      write_meta
       
       log ""
       log "KairosChain data directory initialized successfully!"
@@ -91,15 +94,8 @@ module KairosMcp
     end
 
     def copy_templates
-      template_files = [
-        ['skills/kairos.rb',        KairosMcp.dsl_path],
-        ['skills/kairos.md',        KairosMcp.md_path],
-        ['skills/config.yml',       KairosMcp.skills_config_path],
-        ['config/safety.yml',       KairosMcp.safety_config_path],
-        ['config/tool_metadata.yml', KairosMcp.tool_metadata_path]
-      ]
-
-      template_files.each do |template_name, dest_path|
+      KairosMcp::TEMPLATE_FILES.each do |template_name, accessor|
+        dest_path = KairosMcp.send(accessor)
         template_path = File.join(@templates_dir, template_name)
 
         if File.exist?(dest_path)
@@ -111,6 +107,28 @@ module KairosMcp
           log "  Warning: Template not found: #{template_name}"
         end
       end
+    end
+
+    # Write .kairos_meta.yml with SHA-256 hashes of template files
+    # This enables 3-way comparison during gem upgrades
+    def write_meta
+      meta = {
+        'kairos_mcp_version' => KairosMcp::VERSION,
+        'initialized_at' => Time.now.utc.iso8601,
+        'template_hashes' => {}
+      }
+
+      KairosMcp::TEMPLATE_FILES.each do |template_name, _accessor|
+        template_path = File.join(@templates_dir, template_name)
+        if File.exist?(template_path)
+          meta['template_hashes'][template_name] =
+            "sha256:#{Digest::SHA256.file(template_path).hexdigest}"
+        end
+      end
+
+      meta_file = KairosMcp.meta_path
+      File.write(meta_file, YAML.dump(meta))
+      log "  Created: #{File.basename(meta_file)} (upgrade tracking)"
     end
 
     def relative_path(path)

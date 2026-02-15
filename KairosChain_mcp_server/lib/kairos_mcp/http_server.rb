@@ -1,8 +1,10 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'yaml'
 require_relative 'protocol'
 require_relative 'version'
+require_relative '../kairos_mcp'
 require_relative 'auth/token_store'
 require_relative 'auth/authenticator'
 require_relative 'skills_config'
@@ -51,6 +53,7 @@ module KairosMcp
     def run
       check_dependencies!
       check_tokens!
+      check_version_mismatch
 
       app = build_rack_app
       server = self
@@ -221,6 +224,21 @@ module KairosMcp
 
     def log(message)
       $stderr.puts "[INFO] #{message}"
+    end
+
+    # Check if data directory was initialized with a different gem version
+    def check_version_mismatch
+      meta_path = KairosMcp.meta_path
+      return unless File.exist?(meta_path)
+
+      meta = YAML.safe_load(File.read(meta_path)) rescue nil
+      return unless meta.is_a?(Hash) && meta['kairos_mcp_version']
+
+      data_version = meta['kairos_mcp_version']
+      return if data_version == VERSION
+
+      log "[KairosChain] Data directory was initialized with v#{data_version}, current gem is v#{VERSION}."
+      log "[KairosChain] Run 'system_upgrade command=\"check\"' or 'kairos_mcp_server upgrade' to see available updates."
     end
   end
 end

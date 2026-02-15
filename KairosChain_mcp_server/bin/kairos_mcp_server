@@ -10,6 +10,8 @@
 #   kairos_mcp_server --init-admin           # Generate initial admin token
 #   kairos_mcp_server init [DIR]             # Initialize data directory with templates
 #   kairos_mcp_server init --data-dir /path  # Initialize at specific path
+#   kairos_mcp_server upgrade                # Preview template migrations after gem update
+#   kairos_mcp_server upgrade --apply        # Apply template migrations
 #
 # Data directory resolution (priority order):
 #   1. --data-dir CLI option
@@ -20,8 +22,9 @@
 
 require 'optparse'
 
-# Check for 'init' subcommand first (before OptionParser)
-if ARGV[0] == 'init'
+# Check for subcommands first (before OptionParser)
+case ARGV[0]
+when 'init'
   ARGV.shift  # Remove 'init' from ARGV
 
   init_options = {}
@@ -52,6 +55,51 @@ if ARGV[0] == 'init'
 
   require 'kairos_mcp/initializer'
   KairosMcp::Initializer.run
+  exit
+
+when 'upgrade'
+  ARGV.shift  # Remove 'upgrade' from ARGV
+
+  upgrade_options = {}
+  OptionParser.new do |opts|
+    opts.banner = "Usage: kairos_mcp_server upgrade [options]"
+
+    opts.on('--data-dir DIR', 'Data directory path (default: .kairos/)') do |dir|
+      upgrade_options[:data_dir] = dir
+    end
+
+    opts.on('--apply', 'Apply the upgrade (default: preview only)') do
+      upgrade_options[:apply] = true
+    end
+
+    opts.on('-h', '--help', 'Show help') do
+      puts opts
+      exit
+    end
+  end.parse!
+
+  # Setup load path and require entry point
+  $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
+  require 'kairos_mcp'
+
+  # Set data_dir if specified
+  if upgrade_options[:data_dir]
+    KairosMcp.data_dir = File.expand_path(upgrade_options[:data_dir])
+  end
+
+  require 'kairos_mcp/upgrade_analyzer'
+  require 'kairos_mcp/config_merger'
+  require 'kairos_mcp/tools/system_upgrade'
+
+  # Create a minimal tool instance for CLI use
+  tool = KairosMcp::Tools::SystemUpgrade.new
+  command = upgrade_options[:apply] ? 'apply' : 'preview'
+  result = tool.call({ 'command' => command, 'approved' => upgrade_options[:apply] || false })
+
+  # Extract text from MCP response format
+  result.each do |content|
+    puts content[:text] if content[:type] == 'text'
+  end
   exit
 end
 
@@ -93,7 +141,8 @@ OptionParser.new do |opts|
     puts opts
     puts ""
     puts "Subcommands:"
-    puts "  init [DIR]    Initialize data directory with default templates"
+    puts "  init [DIR]          Initialize data directory with default templates"
+    puts "  upgrade [--apply]   Check/apply template migrations after gem update"
     exit
   end
 end.parse!

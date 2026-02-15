@@ -19,9 +19,10 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
   - [Optional: Streamable HTTP](#optional-streamable-http-transport-remoteteam-access)
   - [Admin UI](#admin-ui-browser-based-management)
 - [Client Configuration](#client-configuration)
+- [Upgrading the Gem](#upgrading-the-gem)
 - [Testing the Setup](#testing-the-setup)
 - [Usage Tips](#usage-tips)
-- [Available Tools](#available-tools-20-core--skill-tools)
+- [Available Tools](#available-tools-25-core--skill-tools)
 - [Usage Examples](#usage-examples)
 - [Self-Evolution Workflow](#self-evolution-workflow)
 - [Pure Skills Design](#pure-skills-design)
@@ -850,10 +851,12 @@ token_manage command="revoke" user="alice"
 #### CLI Options
 
 ```
-Usage: kairos_mcp_server [init] [options]
+Usage: kairos_mcp_server [command] [options]
 
 Commands:
-    init            Initialize data directory with default templates
+    init              Initialize data directory with default templates
+    upgrade           Preview template migrations after gem update
+    upgrade --apply   Apply template migrations
 
 Options:
     --data-dir DIR  Data directory path (default: .kairos/ in current dir)
@@ -1288,6 +1291,80 @@ After saving the configuration, **you must completely restart Cursor**.
 
 ---
 
+## Upgrading the Gem
+
+When a new version of `kairos_mcp` is released (with new skills, config keys, bug fixes, etc.), updating the gem code is straightforward:
+
+```bash
+gem update kairos_mcp
+```
+
+However, your data directory (`.kairos/`) contains template files that were copied at `init` time and may have been customized. The built-in upgrade system uses **3-way hash comparison** to safely migrate these files.
+
+### How It Works
+
+The upgrade system compares three versions of each template file:
+- **Original**: The template hash recorded in `.kairos_meta.yml` at init time
+- **Current**: Your version in the data directory (possibly customized)
+- **New**: The latest template shipped with the gem
+
+Based on this comparison, each file is classified:
+
+| Pattern | User Modified? | Template Changed? | Action |
+|---------|---------------|-------------------|--------|
+| 0 (unchanged) | No | No | No action needed |
+| 1 (auto-updatable) | No | Yes | Safe to auto-update |
+| 2 (user-modified) | Yes | No | Keep user version |
+| 3 (conflict) | Yes | Yes | Merge / review required |
+
+For **config YAML files** (Pattern 3), a structural merge adds new keys while preserving your values. For **L0 kairos.rb** (Pattern 3), a `skills_evolve` proposal is generated, requiring human approval and blockchain recording.
+
+### Upgrade Commands
+
+#### Via CLI
+
+```bash
+# Preview what would change (recommended first step)
+kairos_mcp_server upgrade
+
+# Apply the upgrade
+kairos_mcp_server upgrade --apply
+
+# With custom data directory
+kairos_mcp_server upgrade --data-dir /path/to/data --apply
+```
+
+#### Via MCP Tool (from within an AI session)
+
+```
+system_upgrade command="check"       # Quick version check
+system_upgrade command="preview"     # Detailed file-by-file analysis
+system_upgrade command="apply" approved=true   # Apply upgrade
+system_upgrade command="status"      # Show current meta status
+```
+
+### Version Mismatch Warning
+
+When the MCP server starts and detects a version mismatch between the gem and the data directory, it displays a warning:
+
+```
+[KairosChain] Data directory was initialized with v0.9.0, current gem is v0.10.0.
+[KairosChain] Run 'system_upgrade command="check"' or 'kairos_mcp_server upgrade' to see available updates.
+```
+
+### Upgrade Workflow
+
+1. Update the gem: `gem update kairos_mcp`
+2. Preview changes: `kairos_mcp_server upgrade`
+3. Review the output (especially any conflicts)
+4. Apply: `kairos_mcp_server upgrade --apply`
+5. For L0 proposals, use `skills_evolve` to review and approve
+6. Restart the MCP server
+
+All upgrade operations are recorded to the KairosChain blockchain for traceability.
+
+---
+
 ## Testing the Setup
 
 > **Note**: The examples below show both the gem command (`kairos_mcp_server`) and the repository command (`bin/kairos_mcp_server`). Use whichever matches your installation.
@@ -1660,7 +1737,7 @@ The `tool_guide` tool helps you discover and learn about KairosChain tools dynam
    - All operations are recorded in `action_log`
    - Review logs regularly
 
-## Available Tools (24 core + skill-tools)
+## Available Tools (25 core + skill-tools)
 
 The base installation provides 24 tools (23 + 1 HTTP-only). Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
 
@@ -1784,6 +1861,18 @@ Commands:
 - Snapshots stored off-chain (JSON files), hash references on-chain
 - Auto-commit triggers: L0 changes, promotions/demotions, threshold-based (5 L1 changes or 10 total)
 - Empty commit prevention: commits only when manifest hash actually changes
+
+### System Management Tools
+
+| Tool | Description |
+|------|-------------|
+| `system_upgrade` | Check for gem updates and safely migrate data directory templates |
+
+Commands:
+- `check`: Compare current and gem versions, show affected files
+- `preview`: Detailed file-by-file analysis with merge previews
+- `apply`: Execute upgrade (requires `approved=true`)
+- `status`: Show `.kairos_meta.yml` status
 
 ## Usage Examples
 
@@ -1987,7 +2076,7 @@ KairosChain_mcp_server/
 │       │   ├── diff_calculator.rb
 │       │   ├── pending_changes.rb
 │       │   └── commit_service.rb
-│       └── tools/                # MCP tools (24 core)
+│       └── tools/                # MCP tools (25 core)
 │           ├── skills_*.rb       # L0 tools
 │           ├── knowledge_*.rb    # L1 tools
 │           ├── context_*.rb      # L2 tools

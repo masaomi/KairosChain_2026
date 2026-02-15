@@ -1,6 +1,8 @@
 require 'json'
+require 'yaml'
 require_relative 'protocol'
 require_relative 'version'
+require_relative '../kairos_mcp'
 
 module KairosMcp
   class Server
@@ -14,6 +16,7 @@ module KairosMcp
 
     def run
       log "Starting KairosChain MCP Server v#{VERSION}..."
+      check_version_mismatch
       
       $stdout.sync = true
       
@@ -43,6 +46,21 @@ module KairosMcp
     def log_error(message, backtrace = nil)
       $stderr.puts "[ERROR] #{message}"
       backtrace&.each { |line| $stderr.puts "  #{line}" }
+    end
+
+    # Check if data directory was initialized with a different gem version
+    def check_version_mismatch
+      meta_path = KairosMcp.meta_path
+      return unless File.exist?(meta_path)
+
+      meta = YAML.safe_load(File.read(meta_path)) rescue nil
+      return unless meta.is_a?(Hash) && meta['kairos_mcp_version']
+
+      data_version = meta['kairos_mcp_version']
+      return if data_version == VERSION
+
+      $stderr.puts "[KairosChain] Data directory was initialized with v#{data_version}, current gem is v#{VERSION}."
+      $stderr.puts "[KairosChain] Run 'system_upgrade command=\"check\"' or 'kairos_mcp_server upgrade' to see available updates."
     end
   end
 end

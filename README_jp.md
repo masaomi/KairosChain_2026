@@ -19,9 +19,10 @@ KairosChainは、AIの能力進化をプライベートブロックチェーン�
   - [オプション：Streamable HTTP](#オプションstreamable-httpトランスポートリモートチームアクセス)
   - [管理者UI](#管理者uiブラウザベースの管理画面)
 - [クライアント設定](#クライアント設定)
+- [Gemのアップグレード](#gemのアップグレード)
 - [セットアップのテスト](#セットアップのテスト)
 - [使用のヒント](#使用のヒント)
-- [利用可能なツール](#利用可能なツールコア20個--スキルツール)
+- [利用可能なツール](#利用可能なツールコア25個--スキルツール)
 - [使用例](#使用例)
 - [自己進化ワークフロー](#自己進化ワークフロー)
 - [Pure Skills設計](#pure-skills設計)
@@ -834,10 +835,12 @@ token_manage command="revoke" user="alice"
 #### CLIオプション
 
 ```
-Usage: kairos_mcp_server [init] [options]
+Usage: kairos_mcp_server [command] [options]
 
 コマンド:
-    init            データディレクトリをデフォルトテンプレートで初期化
+    init              データディレクトリをデフォルトテンプレートで初期化
+    upgrade           gem更新後のテンプレートマイグレーションをプレビュー
+    upgrade --apply   テンプレートマイグレーションを適用
 
 オプション:
     --data-dir DIR  データディレクトリのパス（デフォルト: カレントディレクトリの .kairos/）
@@ -1272,6 +1275,80 @@ vim ~/.cursor/mcp.json
 
 ---
 
+## Gemのアップグレード
+
+`kairos_mcp`の新バージョンがリリースされた場合（新しいスキル、設定キー、バグ修正など）、gemコード自体の更新は簡単です：
+
+```bash
+gem update kairos_mcp
+```
+
+ただし、データディレクトリ（`.kairos/`）にはinit時にコピーされたテンプレートファイルが含まれており、ユーザーによってカスタマイズされている可能性があります。内蔵のアップグレードシステムは**3-way hash比較**を使用して、これらのファイルを安全にマイグレーションします。
+
+### 仕組み
+
+アップグレードシステムは各テンプレートファイルの3つのバージョンを比較します：
+- **オリジナル**: init時に`.kairos_meta.yml`に記録されたテンプレートハッシュ
+- **現在**: データディレクトリ内のユーザーバージョン（カスタマイズされている可能性）
+- **新規**: gemに同梱された最新テンプレート
+
+この比較に基づき、各ファイルを分類します：
+
+| パターン | ユーザー変更? | テンプレート変更? | アクション |
+|---------|-------------|-----------------|---------|
+| 0 (変更なし) | いいえ | いいえ | 何もしない |
+| 1 (自動更新可) | いいえ | はい | 安全に自動更新 |
+| 2 (ユーザー変更のみ) | はい | いいえ | ユーザー版を保持 |
+| 3 (コンフリクト) | はい | はい | マージ/レビューが必要 |
+
+**config系YAMLファイル**（パターン3）の場合、構造的マージにより新しいキーを追加しつつユーザーの値を保持します。**L0 kairos.rb**（パターン3）の場合、`skills_evolve`提案が生成され、人間による承認とブロックチェーン記録が必要です。
+
+### アップグレードコマンド
+
+#### CLI経由
+
+```bash
+# 変更内容のプレビュー（推奨される最初のステップ）
+kairos_mcp_server upgrade
+
+# アップグレードの適用
+kairos_mcp_server upgrade --apply
+
+# カスタムデータディレクトリの場合
+kairos_mcp_server upgrade --data-dir /path/to/data --apply
+```
+
+#### MCPツール経由（AIセッション内から）
+
+```
+system_upgrade command="check"       # クイックバージョンチェック
+system_upgrade command="preview"     # 詳細なファイル別分析
+system_upgrade command="apply" approved=true   # アップグレード適用
+system_upgrade command="status"      # 現在のメタ状態を表示
+```
+
+### バージョン不一致の警告
+
+MCPサーバーの起動時にgemとデータディレクトリのバージョン不一致を検出すると、警告が表示されます：
+
+```
+[KairosChain] Data directory was initialized with v0.9.0, current gem is v0.10.0.
+[KairosChain] Run 'system_upgrade command="check"' or 'kairos_mcp_server upgrade' to see available updates.
+```
+
+### アップグレードワークフロー
+
+1. gemを更新: `gem update kairos_mcp`
+2. 変更をプレビュー: `kairos_mcp_server upgrade`
+3. 出力を確認（特にコンフリクトに注意）
+4. 適用: `kairos_mcp_server upgrade --apply`
+5. L0提案については`skills_evolve`を使用してレビュー・承認
+6. MCPサーバーを再起動
+
+すべてのアップグレード操作はトレーサビリティのためKairosChainブロックチェーンに記録されます。
+
+---
+
 ## セットアップのテスト
 
 > **注意**: 以下の例ではgem版のコマンド（`kairos_mcp_server`）とリポジトリ版のコマンド（`bin/kairos_mcp_server`）の両方を示しています。インストール方法に応じて使い分けてください。
@@ -1644,7 +1721,7 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
    - すべての操作は`action_log`に記録される
    - 定期的にログをレビュー
 
-## 利用可能なツール（コア24個 + スキルツール）
+## 利用可能なツール（コア25個 + スキルツール）
 
 基本インストールでは24個のツール（23 + HTTP専用1個）が提供されます。`skill_tools_enabled: true`の場合、`kairos.rb`の`tool`ブロックで追加のツールを定義できます。
 
@@ -1768,6 +1845,18 @@ KairosChainツールを発見し学ぶための動的ツールガイドシステ
 - スナップショットはオフチェーン保存（JSONファイル）、ハッシュ参照のみオンチェーン
 - 自動コミットトリガー：L0変更、昇格/降格、閾値ベース（L1変更5件または合計10件）
 - 空コミット防止：マニフェストハッシュが実際に変更された場合のみコミット
+
+### システム管理ツール
+
+| ツール | 説明 |
+|--------|------|
+| `system_upgrade` | gemの更新を確認し、データディレクトリのテンプレートを安全にマイグレーション |
+
+コマンド:
+- `check`: 現在のバージョンとgemバージョンを比較、影響ファイルを表示
+- `preview`: ファイル別の詳細分析とマージプレビュー
+- `apply`: アップグレードを実行（`approved=true`が必要）
+- `status`: `.kairos_meta.yml`の状態を表示
 
 ## 使用例
 
@@ -1971,7 +2060,7 @@ KairosChain_mcp_server/
 │       │   ├── diff_calculator.rb
 │       │   ├── pending_changes.rb
 │       │   └── commit_service.rb
-│       └── tools/                # MCPツール（コア24個）
+│       └── tools/                # MCPツール（コア25個）
 │           ├── skills_*.rb       # L0ツール
 │           ├── knowledge_*.rb    # L1ツール
 │           ├── context_*.rb      # L2ツール
