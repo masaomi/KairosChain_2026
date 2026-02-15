@@ -26,7 +26,7 @@ module KairosMcp
       conflict: 'Both user and template changed (requires merge/review)'
     }.freeze
 
-    attr_reader :results, :meta, :has_meta
+    attr_reader :results, :knowledge_results, :meta, :has_meta
 
     def initialize
       @templates_dir = KairosMcp.templates_dir
@@ -34,17 +34,23 @@ module KairosMcp
       @meta = load_meta
       @has_meta = File.exist?(KairosMcp.meta_path)
       @results = {}
+      @knowledge_results = {}
     end
 
-    # Analyze all template files and classify each
+    # Analyze all template files and knowledge, classify each
     #
     # @return [Hash] analysis results keyed by template name
     def analyze
       @results = {}
+      @knowledge_results = {}
 
+      # Analyze L0 template files
       KairosMcp::TEMPLATE_FILES.each do |template_name, accessor|
         @results[template_name] = analyze_file(template_name, accessor)
       end
+
+      # Analyze L1 knowledge templates
+      analyze_knowledge
 
       @results
     end
@@ -65,10 +71,17 @@ module KairosMcp
       meta_version != gem_version
     end
 
-    # Summary counts by pattern
+    # Summary counts by pattern (L0 templates only)
     def summary
       counts = Hash.new(0)
       @results.each_value { |r| counts[r[:pattern]] += 1 }
+      counts
+    end
+
+    # Knowledge summary counts
+    def knowledge_summary
+      counts = { new: 0, updated: 0, unchanged: 0, user_modified: 0, conflict: 0 }
+      @knowledge_results.each_value { |r| counts[r[:status]] += 1 }
       counts
     end
 
@@ -78,6 +91,74 @@ module KairosMcp
     end
 
     private
+
+    # Analyze L1 knowledge templates for additions/updates
+    def analyze_knowledge
+      knowledge_templates_dir = File.join(@templates_dir, 'knowledge')
+      return unless File.directory?(knowledge_templates_dir)
+
+      knowledge_hashes = @meta['knowledge_hashes'] || {}
+
+      Dir.children(knowledge_templates_dir).sort.each do |name|
+        template_dir = File.join(knowledge_templates_dir, name)
+        next unless File.directory?(template_dir)
+
+        template_md = File.join(template_dir, "#{name}.md")
+        next unless File.exist?(template_md)
+
+        user_dir = File.join(KairosMcp.knowledge_dir, name)
+        user_md = File.join(user_dir, "#{name}.md")
+
+        new_hash = file_hash(template_md)
+        original_hash = knowledge_hashes[name]
+
+        result = {
+          name: name,
+          template_dir: template_dir,
+          user_dir: user_dir,
+          user_exists: File.exist?(user_md),
+          new_hash: new_hash,
+          original_hash: original_hash
+        }
+
+        if !result[:user_exists]
+          # Knowledge doesn't exist in user's data dir — new addition
+          result[:status] = :new
+          result[:action] = 'Install new knowledge (does not exist in data directory)'
+        elsif original_hash.nil?
+          # No tracking info — compare directly
+          current_hash = file_hash(user_md)
+          if current_hash == new_hash
+            result[:status] = :unchanged
+            result[:action] = 'No changes (files are identical)'
+          else
+            result[:status] = :user_modified
+            result[:action] = 'User has modified this knowledge (kept)'
+          end
+        else
+          # 3-way comparison
+          current_hash = file_hash(user_md)
+          user_modified = (current_hash != original_hash)
+          template_changed = (new_hash != original_hash)
+
+          if !user_modified && !template_changed
+            result[:status] = :unchanged
+            result[:action] = 'No changes needed'
+          elsif !user_modified && template_changed
+            result[:status] = :updated
+            result[:action] = 'Safe to auto-update (user has not modified)'
+          elsif user_modified && !template_changed
+            result[:status] = :user_modified
+            result[:action] = 'Keep user version (template unchanged)'
+          else
+            result[:status] = :conflict
+            result[:action] = 'Both user and template changed (user version kept, new template saved as .new)'
+          end
+        end
+
+        @knowledge_results[name] = result
+      end
+    end
 
     def load_meta
       path = KairosMcp.meta_path

@@ -101,13 +101,20 @@ module KairosMcp
         if analyzer.upgrade_needed?
           analyzer.analyze
           summary = analyzer.summary
+          k_summary = analyzer.knowledge_summary
 
           output += "**Upgrade available!**\n\n"
-          output += "Files to process:\n"
+          output += "### L0 Templates\n"
           output += "  - Auto-updatable: #{summary[:auto_updatable] || 0}\n"
           output += "  - User-modified (kept): #{summary[:user_modified] || 0}\n"
           output += "  - Conflicts (need review): #{summary[:conflict] || 0}\n"
           output += "  - Unchanged: #{summary[:unchanged] || 0}\n\n"
+          output += "### L1 Knowledge\n"
+          output += "  - New to install: #{k_summary[:new] || 0}\n"
+          output += "  - Updated: #{k_summary[:updated] || 0}\n"
+          output += "  - User-modified (kept): #{k_summary[:user_modified] || 0}\n"
+          output += "  - Conflicts: #{k_summary[:conflict] || 0}\n"
+          output += "  - Unchanged: #{k_summary[:unchanged] || 0}\n\n"
           output += "Run `system_upgrade command=\"preview\"` for detailed analysis.\n"
           output += "Run `system_upgrade command=\"apply\" approved=true` to apply.\n"
         else
@@ -157,15 +164,39 @@ module KairosMcp
           output += "\n"
         end
 
+        # L1 Knowledge analysis
+        if analyzer.knowledge_results.any?
+          output += "## L1 Knowledge Analysis\n\n"
+
+          analyzer.knowledge_results.each do |name, result|
+            icon = knowledge_status_icon(result[:status])
+            output += "### #{icon} #{name}\n"
+            output += "  Status: #{result[:status]}\n"
+            output += "  Action: #{result[:action]}\n\n"
+          end
+        end
+
         # Summary
         summary = analyzer.summary
-        output += "## Summary\n"
+        k_summary = analyzer.knowledge_summary
+        output += "## Summary\n\n"
+        output += "### L0 Templates\n"
         output += "  Auto-updatable: #{summary[:auto_updatable] || 0}\n"
         output += "  User-modified:  #{summary[:user_modified] || 0}\n"
         output += "  Conflicts:      #{summary[:conflict] || 0}\n"
         output += "  Unchanged:      #{summary[:unchanged] || 0}\n\n"
+        output += "### L1 Knowledge\n"
+        output += "  New:            #{k_summary[:new] || 0}\n"
+        output += "  Updated:        #{k_summary[:updated] || 0}\n"
+        output += "  User-modified:  #{k_summary[:user_modified] || 0}\n"
+        output += "  Conflicts:      #{k_summary[:conflict] || 0}\n"
+        output += "  Unchanged:      #{k_summary[:unchanged] || 0}\n\n"
 
-        if (summary[:auto_updatable] || 0) > 0 || (summary[:conflict] || 0) > 0
+        has_work = (summary[:auto_updatable] || 0) > 0 ||
+                   (summary[:conflict] || 0) > 0 ||
+                   (k_summary[:new] || 0) > 0 ||
+                   (k_summary[:updated] || 0) > 0
+        if has_work
           output += "Run `system_upgrade command=\"apply\" approved=true` to apply.\n"
         end
 
@@ -197,12 +228,18 @@ module KairosMcp
           l0_proposed: [],
           skipped: [],
           unchanged: [],
+          knowledge_installed: [],
+          knowledge_updated: [],
+          knowledge_kept: [],
+          knowledge_conflict: [],
           errors: []
         }
 
         output = "# Applying Upgrade\n\n"
         output += "From v#{analyzer.meta_version || 'unknown'} → v#{analyzer.gem_version}\n\n"
 
+        # Apply L0 template changes
+        output += "## L0 Templates\n\n"
         analyzer.results.each do |template_name, result|
           case result[:pattern]
           when :unchanged
@@ -242,6 +279,44 @@ module KairosMcp
           end
         end
 
+        # Apply L1 knowledge changes
+        if analyzer.knowledge_results.any?
+          output += "\n## L1 Knowledge\n\n"
+          analyzer.knowledge_results.each do |name, result|
+            begin
+              case result[:status]
+              when :new
+                FileUtils.cp_r(result[:template_dir], result[:user_dir])
+                actions[:knowledge_installed] << name
+                output += "  [INSTALLED] #{name}\n"
+              when :updated
+                # Backup then overwrite
+                backup_dir = "#{result[:user_dir]}.bak.#{Time.now.strftime('%Y%m%d%H%M%S')}"
+                FileUtils.cp_r(result[:user_dir], backup_dir)
+                FileUtils.rm_rf(result[:user_dir])
+                FileUtils.cp_r(result[:template_dir], result[:user_dir])
+                actions[:knowledge_updated] << name
+                output += "  [UPDATED] #{name}\n"
+              when :user_modified
+                actions[:knowledge_kept] << name
+                output += "  [KEPT] #{name} (user-modified)\n"
+              when :conflict
+                # Save new version alongside for manual review
+                new_dir = "#{result[:user_dir]}.new"
+                FileUtils.rm_rf(new_dir) if File.exist?(new_dir)
+                FileUtils.cp_r(result[:template_dir], new_dir)
+                actions[:knowledge_conflict] << name
+                output += "  [CONFLICT] #{name} (new version saved as #{name}.new/)\n"
+              when :unchanged
+                # Nothing to do
+              end
+            rescue => e
+              actions[:errors] << { file: "knowledge/#{name}", error: e.message }
+              output += "  [ERROR] #{name}: #{e.message}\n"
+            end
+          end
+        end
+
         # Update .kairos_meta.yml
         update_meta(analyzer.gem_version)
         output += "\n  [UPDATED] .kairos_meta.yml → v#{analyzer.gem_version}\n"
@@ -252,16 +327,27 @@ module KairosMcp
 
         # Summary
         output += "\n## Upgrade Complete\n\n"
+        output += "### L0 Templates\n"
         output += "  Auto-updated: #{actions[:auto_updated].length}\n"
         output += "  Merged:       #{actions[:merged].length}\n"
         output += "  L0 proposals: #{actions[:l0_proposed].length}\n"
         output += "  Kept/Skipped: #{actions[:skipped].length}\n"
         output += "  Unchanged:    #{actions[:unchanged].length}\n"
-        output += "  Errors:       #{actions[:errors].length}\n" if actions[:errors].any?
+        output += "\n### L1 Knowledge\n"
+        output += "  Installed:    #{actions[:knowledge_installed].length}\n"
+        output += "  Updated:      #{actions[:knowledge_updated].length}\n"
+        output += "  Kept:         #{actions[:knowledge_kept].length}\n"
+        output += "  Conflicts:    #{actions[:knowledge_conflict].length}\n"
+        output += "\n  Errors:       #{actions[:errors].length}\n" if actions[:errors].any?
 
         if actions[:l0_proposed].any?
           output += "\n**L0 changes require manual review.**\n"
           output += "Use `skills_evolve` to review and approve the proposals.\n"
+        end
+
+        if actions[:knowledge_conflict].any?
+          output += "\n**Knowledge conflicts detected.**\n"
+          output += "Review `.new/` directories and merge manually.\n"
         end
 
         output += "\n**Restart the MCP server to load updated configurations.**\n"
@@ -313,6 +399,17 @@ module KairosMcp
         case pattern
         when :unchanged then 'OK'
         when :auto_updatable then 'UP'
+        when :user_modified then 'USER'
+        when :conflict then 'CONFLICT'
+        else '?'
+        end
+      end
+
+      def knowledge_status_icon(status)
+        case status
+        when :new then 'NEW'
+        when :updated then 'UP'
+        when :unchanged then 'OK'
         when :user_modified then 'USER'
         when :conflict then 'CONFLICT'
         else '?'
@@ -487,13 +584,26 @@ module KairosMcp
 
         meta['kairos_mcp_version'] = new_version
         meta['template_hashes'] = {}
+        meta['knowledge_hashes'] = {}
 
-        # Record current state of all template files in data directory
+        # Record current state of all L0 template files in data directory
         KairosMcp::TEMPLATE_FILES.each do |template_name, accessor|
           path = KairosMcp.send(accessor)
           if File.exist?(path)
             meta['template_hashes'][template_name] =
               "sha256:#{Digest::SHA256.file(path).hexdigest}"
+          end
+        end
+
+        # Record current state of L1 knowledge (hash the main .md file)
+        knowledge_templates_dir = File.join(KairosMcp.templates_dir, 'knowledge')
+        if File.directory?(knowledge_templates_dir)
+          Dir.children(knowledge_templates_dir).sort.each do |name|
+            md_path = File.join(KairosMcp.knowledge_dir, name, "#{name}.md")
+            if File.exist?(md_path)
+              meta['knowledge_hashes'][name] =
+                "sha256:#{Digest::SHA256.file(md_path).hexdigest}"
+            end
           end
         end
 
@@ -519,7 +629,11 @@ module KairosMcp
             merged: actions[:merged],
             l0_proposed: actions[:l0_proposed],
             skipped: actions[:skipped],
-            unchanged: actions[:unchanged]
+            unchanged: actions[:unchanged],
+            knowledge_installed: actions[:knowledge_installed],
+            knowledge_updated: actions[:knowledge_updated],
+            knowledge_kept: actions[:knowledge_kept],
+            knowledge_conflict: actions[:knowledge_conflict]
           },
           timestamp: Time.now.utc.iso8601
         }.to_json

@@ -49,6 +49,7 @@ module KairosMcp
 
       create_directories
       copy_templates
+      copy_knowledge_templates
       write_meta
       
       log ""
@@ -110,20 +111,61 @@ module KairosMcp
       end
     end
 
+    # Copy bundled L1 knowledge templates to data directory
+    # Only copies knowledge that doesn't already exist (non-destructive)
+    def copy_knowledge_templates
+      knowledge_templates_dir = File.join(@templates_dir, 'knowledge')
+      return unless File.directory?(knowledge_templates_dir)
+
+      copied = 0
+      skipped = 0
+
+      Dir.children(knowledge_templates_dir).sort.each do |name|
+        src = File.join(knowledge_templates_dir, name)
+        next unless File.directory?(src)
+
+        dest = File.join(KairosMcp.knowledge_dir, name)
+        if File.exist?(dest)
+          skipped += 1
+        else
+          FileUtils.cp_r(src, dest)
+          copied += 1
+        end
+      end
+
+      if copied > 0 || skipped > 0
+        log "  Knowledge: #{copied} installed, #{skipped} already exist (skipped)"
+      end
+    end
+
     # Write .kairos_meta.yml with SHA-256 hashes of template files
     # This enables 3-way comparison during gem upgrades
     def write_meta
       meta = {
         'kairos_mcp_version' => KairosMcp::VERSION,
         'initialized_at' => Time.now.utc.iso8601,
-        'template_hashes' => {}
+        'template_hashes' => {},
+        'knowledge_hashes' => {}
       }
 
+      # Hash L0 template files
       KairosMcp::TEMPLATE_FILES.each do |template_name, _accessor|
         template_path = File.join(@templates_dir, template_name)
         if File.exist?(template_path)
           meta['template_hashes'][template_name] =
             "sha256:#{Digest::SHA256.file(template_path).hexdigest}"
+        end
+      end
+
+      # Hash L1 knowledge templates (hash the main .md file of each)
+      knowledge_templates_dir = File.join(@templates_dir, 'knowledge')
+      if File.directory?(knowledge_templates_dir)
+        Dir.children(knowledge_templates_dir).sort.each do |name|
+          md_path = File.join(knowledge_templates_dir, name, "#{name}.md")
+          if File.exist?(md_path)
+            meta['knowledge_hashes'][name] =
+              "sha256:#{Digest::SHA256.file(md_path).hexdigest}"
+          end
         end
       end
 
