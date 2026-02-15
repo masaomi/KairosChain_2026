@@ -156,7 +156,8 @@ module KairosMcp
       # Get the default storage configuration from config.yml
       # @return [Hash] Storage configuration
       def self.load_config
-        config_path = File.expand_path('../../../skills/config.yml', __dir__)
+        require_relative '../../kairos_mcp'
+        config_path = KairosMcp.skills_config_path
         return {} unless File.exist?(config_path)
 
         require 'yaml'

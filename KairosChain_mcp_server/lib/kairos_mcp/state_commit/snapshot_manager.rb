@@ -3,6 +3,7 @@
 require 'json'
 require 'fileutils'
 require 'time'
+require_relative '../../kairos_mcp'
 
 module KairosMcp
   module StateCommit
@@ -12,11 +13,10 @@ module KairosMcp
     # Each snapshot contains the full manifest and change history.
     #
     class SnapshotManager
-      DEFAULT_SNAPSHOT_DIR = File.expand_path('../../../../storage/snapshots', __dir__)
       DEFAULT_MAX_SNAPSHOTS = 100
 
       def initialize(snapshot_dir: nil, max_snapshots: nil)
-        @snapshot_dir = snapshot_dir || DEFAULT_SNAPSHOT_DIR
+        @snapshot_dir = snapshot_dir || KairosMcp.snapshots_dir
         @max_snapshots = max_snapshots || DEFAULT_MAX_SNAPSHOTS
         FileUtils.mkdir_p(@snapshot_dir)
       end

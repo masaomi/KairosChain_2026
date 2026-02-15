@@ -1,10 +1,9 @@
 require 'yaml'
 require 'fileutils'
+require_relative '../kairos_mcp'
 
 module KairosMcp
   class SkillsConfig
-    CONFIG_PATH = File.expand_path('../../skills/config.yml', __dir__)
-    
     DEFAULTS = {
       'enabled' => true,
       'evolution_enabled' => false,
@@ -20,17 +19,21 @@ module KairosMcp
       'kairos_meta_skills' => %w[core_safety evolution_rules self_inspection chain_awareness]
     }.freeze
     
+    def self.config_path
+      KairosMcp.skills_config_path
+    end
+
     def self.load
-      return DEFAULTS.dup unless File.exist?(CONFIG_PATH)
-      loaded = YAML.safe_load(File.read(CONFIG_PATH)) || {}
+      return DEFAULTS.dup unless File.exist?(config_path)
+      loaded = YAML.safe_load(File.read(config_path)) || {}
       DEFAULTS.merge(loaded)
     rescue StandardError
       DEFAULTS.dup
     end
     
     def self.save(config)
-      FileUtils.mkdir_p(File.dirname(CONFIG_PATH))
-      File.write(CONFIG_PATH, config.to_yaml)
+      FileUtils.mkdir_p(File.dirname(config_path))
+      File.write(config_path, config.to_yaml)
     end
     
     def self.enabled?

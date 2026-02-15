@@ -1,0 +1,207 @@
+# KairosChain Skills Configuration
+# This file defines the layered architecture settings
+
+# General settings
+enabled: true
+evolution_enabled: false
+max_evolutions_per_session: 3
+require_human_approval: true
+
+# Skill-tool unification
+# When enabled, skills with 'tool' block in kairos.rb are exposed as MCP tools
+# This allows adding/modifying tools by editing kairos.rb (subject to L0 constraints)
+skill_tools_enabled: false
+
+# =============================================================================
+# Storage Backend Configuration
+# =============================================================================
+#
+# KairosChain supports two storage backends:
+#   - file (default): File-based storage, suitable for individual use
+#   - sqlite: SQLite-based storage, suitable for team use with concurrent access
+#
+# For SQLite backend, install the sqlite3 gem:
+#   bundle install --with sqlite
+#   # or
+#   gem install sqlite3
+#
+storage:
+  backend: file                           # 'file' (default) or 'sqlite'
+
+  # File backend settings (used when backend: file)
+  file:
+    storage_dir: "storage"                # Directory for storage files
+    blockchain_file: "storage/blockchain.json"
+    action_log_file: "skills/action_log.jsonl"
+
+  # SQLite backend settings (used when backend: sqlite)
+  sqlite:
+    path: "storage/kairos.db"             # Path to SQLite database file
+    wal_mode: true                        # Enable WAL for better concurrency
+
+  # Export settings (SQLite mode only)
+  # Allows exporting data from SQLite to files for backup/inspection
+  export:
+    enabled: true                         # Enable export functionality
+    auto_export: false                    # Auto-export on every write (performance impact)
+    export_path: "storage/export"         # Directory for exported files
+
+# Vector Search (RAG) settings
+# Enables semantic search for skills and knowledge when optional gems are installed
+# Requires: gem install hnswlib informers (or bundle install with Gemfile)
+vector_search:
+  enabled: true                                      # Enable vector search if gems available
+  model: "sentence-transformers/all-MiniLM-L6-v2"    # Sentence transformer model
+  dimension: 384                                     # Embedding dimension (must match model)
+  index_path: "storage/embeddings"                   # Path to store index files
+  auto_index: true                                   # Auto-rebuild index on skill changes
+
+# =============================================================================
+# L0 Governance Settings (FALLBACK ONLY)
+# =============================================================================
+#
+# IMPORTANT: These settings are now FALLBACK values only.
+#
+# The canonical source for L0 governance is the `l0_governance` skill
+# in skills/kairos.rb. This implements the Pure Agent Skill principle:
+# all L0 rules must be defined within L0 itself.
+#
+# These fallback values are used only during:
+# - Initial bootstrapping (before kairos.rb is loaded)
+# - Error recovery (if l0_governance skill cannot be evaluated)
+#
+# To modify L0 governance rules, use `skills_evolve` to update the
+# l0_governance skill, NOT by editing this file.
+#
+# See: kairos.md SPEC-010 (Pure Agent Skill Specification)
+# =============================================================================
+
+# Fallback: Immutable skills (canonical source: l0_governance skill)
+immutable_skills:
+  - core_safety
+
+# Fallback: Allowed L0 skills (canonical source: l0_governance skill)
+kairos_meta_skills:
+  - core_safety
+  - l0_governance
+  - evolution_rules
+  - layer_awareness
+  - approval_workflow
+  - self_inspection
+  - chain_awareness
+  - audit_rules
+
+# Layer configuration
+layers:
+  L0_constitution:
+    enabled: true
+    mutable: false
+    description: "Kairos philosophy and principles (read-only)"
+
+  L0_law:
+    enabled: true
+    mutable: true
+    require_blockchain: full
+    require_human_approval: true
+    description: "Kairos meta-rules (self-modifying constraints)"
+
+  L1:
+    enabled: true
+    mutable: true
+    require_blockchain: hash_only
+    require_human_approval: false
+    description: "Project knowledge (Anthropic skills format)"
+
+  L2:
+    enabled: true
+    mutable: true
+    require_blockchain: none
+    require_human_approval: false
+    description: "Temporary context (free modification)"
+
+# L0 meta-skills (only these can be placed in skills/kairos.rb)
+kairos_meta_skills:
+  - core_safety
+  - evolution_rules
+  - layer_awareness
+  - approval_workflow
+  - self_inspection
+  - chain_awareness
+
+# =============================================================================
+# State Commit Configuration
+# =============================================================================
+#
+# State commits create snapshots of all layers (L0/L1/L2) for auditability.
+# Snapshots are stored off-chain in JSON files, with hash references on-chain.
+#
+state_commit:
+  enabled: true
+  snapshot_dir: "storage/snapshots"      # Directory for snapshot files
+  max_snapshots: 100                     # Maximum snapshots to keep
+
+  # Auto-commit settings
+  auto_commit:
+    enabled: true
+    skip_if_no_changes: true             # AND condition: only commit if hash changed
+
+    # Event-based triggers (OR conditions)
+    on_events:
+      l0_change: true                    # Commit after L0 changes
+      promotion: true                    # Commit after L2→L1 or L1→L0 promotion
+      demotion: true                     # Commit after demotion/archive
+      session_end: true                  # Commit when MCP server stops
+
+    # Threshold-based triggers (OR conditions)
+    change_threshold:
+      enabled: true
+      l1_changes: 5                      # Commit after 5 L1 changes
+      total_changes: 10                  # Commit after 10 total changes
+
+# =============================================================================
+# Streamable HTTP Transport (Optional, for Remote/Team Access)
+# =============================================================================
+#
+# Enables remote MCP access via Streamable HTTP transport.
+# Requires: bundle install --with http (installs puma + rack)
+#
+# Usage:
+#   ruby bin/kairos_mcp_server --http              # Start HTTP server
+#   ruby bin/kairos_mcp_server --http --port 9090  # Custom port
+#   ruby bin/kairos_mcp_server --init-admin        # Generate admin token
+#
+# For production HTTPS, use Caddy as reverse proxy:
+#   kairos.example.com { reverse_proxy localhost:8080 }
+#
+# Recommended: Use with SQLite backend for concurrent access safety.
+#
+http:
+  enabled: false                          # Set to true to enable (or use --http flag)
+  port: 8080                              # HTTP listen port
+  host: "0.0.0.0"                         # Bind address
+  token_store: "storage/tokens.json"      # Token storage path (uses SQLite if backend is sqlite)
+  default_token_expiry_days: 90           # Default token expiry (days)
+
+  # -----------------------------------------------------------------------
+  # Phase 2 (Future): Role-Based Authorization
+  # -----------------------------------------------------------------------
+  # Roles:
+  #   owner:  Full access (L0/L1/L2 read-write, token management)
+  #   member: L1/L2 read-write, L0 read-only
+  #   guest:  Read-only, own L2 context only
+  #
+  # role_authorization:
+  #   enabled: false
+  #   owner_permissions: [l0_rw, l1_rw, l2_rw, token_manage]
+  #   member_permissions: [l0_ro, l1_rw, l2_rw]
+  #   guest_permissions: [l0_ro, l1_ro, l2_own]
+  #
+  # -----------------------------------------------------------------------
+  # Phase 3 (Future): Wallet / JWT Integration (GenomicsChain)
+  # -----------------------------------------------------------------------
+  # jwt:
+  #   enabled: false
+  #   issuer: "genomicschain"
+  #   algorithm: "RS256"
+  #   public_key_path: "config/jwt_public.pem"
+  #   wallet_field: "wallet_address"

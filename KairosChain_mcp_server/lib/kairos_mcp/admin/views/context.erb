@@ -1,0 +1,59 @@
+<%
+  @active_page = 'context'
+%>
+
+<h2>L2 Context</h2>
+
+<%# Session selector %>
+<article>
+  <header>
+    Sessions (<%= sessions.size %>)
+  </header>
+  <% if sessions.empty? %>
+    <p>No context sessions found.</p>
+  <% else %>
+    <div class="overflow-auto">
+      <table>
+        <thead>
+          <tr>
+            <th>Session ID</th>
+            <th>Contexts</th>
+            <th>Last Modified</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% sessions.each do |s| %>
+            <tr>
+              <td><code><%= h(s[:session_id]) %></code></td>
+              <td><%= s[:context_count] %></td>
+              <td><small><%= h(s[:modified_at]) %></small></td>
+              <td>
+                <button class="outline btn-sm"
+                        hx-get="/admin/context/session/<%= h(s[:session_id]) %>"
+                        hx-target="#context-list"
+                        hx-swap="innerHTML">
+                  Browse
+                </button>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% end %>
+</article>
+
+<div class="grid">
+  <div id="context-list">
+    <article>
+      <p class="muted">Select a session to view its contexts.</p>
+    </article>
+  </div>
+
+  <div id="context-detail">
+    <article>
+      <p class="muted">Select a context to view its content.</p>
+    </article>
+  </div>
+</div>

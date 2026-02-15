@@ -21,9 +21,6 @@ module KairosMcp
     #   - Knowledge directory (for metadata extraction)
     #
     class Importer
-      DEFAULT_STORAGE_DIR = File.expand_path('../../../storage', __dir__)
-      DEFAULT_KNOWLEDGE_DIR = File.expand_path('../../../knowledge', __dir__)
-      DEFAULT_SKILLS_DIR = File.expand_path('../../../skills', __dir__)
 
       class << self
         # Import data from files to SQLite
@@ -85,9 +82,12 @@ module KairosMcp
         # @param knowledge_dir [String] Knowledge directory path
         # @param skills_dir [String] Skills directory path
         # @return [Hash] Import results
-        def rebuild_from_files(db_path:, storage_dir: DEFAULT_STORAGE_DIR, 
-                               knowledge_dir: DEFAULT_KNOWLEDGE_DIR,
-                               skills_dir: DEFAULT_SKILLS_DIR)
+        def rebuild_from_files(db_path:, storage_dir: nil, 
+                               knowledge_dir: nil,
+                               skills_dir: nil)
+          storage_dir ||= KairosMcp.storage_dir
+          knowledge_dir ||= KairosMcp.knowledge_dir
+          skills_dir ||= KairosMcp.skills_dir
           require 'sqlite3'
           require_relative 'sqlite_backend'
 

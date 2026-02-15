@@ -20,7 +20,6 @@ module KairosMcp
     #   └── knowledge_meta.json   # Knowledge metadata (content is in knowledge/*.md)
     #
     class Exporter
-      DEFAULT_EXPORT_PATH = File.expand_path('../../../storage/export', __dir__)
 
       class << self
         # Export all data from SQLite to files
@@ -28,7 +27,8 @@ module KairosMcp
         # @param db_path [String] Path to SQLite database
         # @param output_dir [String] Directory to export to
         # @return [Hash] Export results
-        def export(db_path:, output_dir: DEFAULT_EXPORT_PATH)
+        def export(db_path:, output_dir: nil)
+          output_dir ||= KairosMcp.export_dir
           require 'sqlite3'
 
           db = SQLite3::Database.new(db_path)

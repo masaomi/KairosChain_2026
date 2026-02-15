@@ -2,6 +2,7 @@
 
 require 'fileutils'
 require_relative 'anthropic_skill_parser'
+require_relative '../kairos_mcp'
 
 module KairosMcp
   # ContextManager: Manages L2 (context layer) skills in Anthropic format
@@ -12,9 +13,8 @@ module KairosMcp
   # - Session-based organization
   #
   class ContextManager
-    CONTEXT_DIR = File.expand_path('../../context', __dir__)
-
-    def initialize(context_dir = CONTEXT_DIR)
+    def initialize(context_dir = nil)
+      context_dir ||= KairosMcp.context_dir
       @context_dir = context_dir
       FileUtils.mkdir_p(@context_dir)
     end

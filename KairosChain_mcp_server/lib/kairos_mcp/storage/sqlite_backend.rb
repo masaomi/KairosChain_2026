@@ -4,6 +4,7 @@ require 'json'
 require 'fileutils'
 require 'time'
 require_relative 'backend'
+require_relative '../../kairos_mcp'
 
 module KairosMcp
   module Storage
@@ -22,7 +23,6 @@ module KairosMcp
     # - Knowledge metadata: knowledge_meta table (content still in files)
     #
     class SqliteBackend < Backend
-      DEFAULT_DB_PATH = File.expand_path('../../../storage/kairos.db', __dir__)
 
       SCHEMA = <<~SQL
         -- Blockchain blocks
@@ -74,7 +74,7 @@ module KairosMcp
       SQL
 
       def initialize(config = {})
-        @db_path = config[:path] || config['path'] || DEFAULT_DB_PATH
+        @db_path = config[:path] || config['path'] || KairosMcp.sqlite_path
         @wal_mode = config[:wal_mode] != false && config['wal_mode'] != false
 
         require 'sqlite3'

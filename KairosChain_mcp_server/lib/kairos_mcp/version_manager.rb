@@ -1,19 +1,25 @@
 require 'fileutils'
 require 'json'
 require 'time'
+require_relative '../kairos_mcp'
 
 module KairosMcp
   class VersionManager
-    VERSIONS_DIR = File.expand_path('../../skills/versions', __dir__)
-    DSL_PATH = File.expand_path('../../skills/kairos.rb', __dir__)
-    
+    def self.versions_dir
+      KairosMcp.versions_dir
+    end
+
+    def self.dsl_path
+      KairosMcp.dsl_path
+    end
+
     def self.create_snapshot(reason: nil)
-      FileUtils.mkdir_p(VERSIONS_DIR)
+      FileUtils.mkdir_p(versions_dir)
       timestamp = Time.now.strftime('%Y%m%d_%H%M%S')
       filename = "kairos_#{timestamp}.rb"
-      version_path = File.join(VERSIONS_DIR, filename)
+      version_path = File.join(versions_dir, filename)
       
-      FileUtils.cp(DSL_PATH, version_path)
+      FileUtils.cp(dsl_path, version_path)
       
       # Save metadata
       meta = {
@@ -22,16 +28,16 @@ module KairosMcp
         filename: filename,
         created_at: Time.now.iso8601
       }
-      meta_path = File.join(VERSIONS_DIR, "#{filename}.meta.json")
+      meta_path = File.join(versions_dir, "#{filename}.meta.json")
       File.write(meta_path, JSON.pretty_generate(meta))
       
       filename
     end
     
     def self.list_versions
-      FileUtils.mkdir_p(VERSIONS_DIR)
+      FileUtils.mkdir_p(versions_dir)
       
-      Dir[File.join(VERSIONS_DIR, '*.rb')].map do |f|
+      Dir[File.join(versions_dir, '*.rb')].map do |f|
         filename = File.basename(f)
         meta_path = "#{f}.meta.json"
         meta = if File.exist?(meta_path)
@@ -49,31 +55,31 @@ module KairosMcp
     end
     
     def self.rollback(version_filename)
-      version_path = File.join(VERSIONS_DIR, version_filename)
+      version_path = File.join(versions_dir, version_filename)
       raise "Version not found: #{version_filename}" unless File.exist?(version_path)
       
       # Backup current state before rollback
       create_snapshot(reason: "pre-rollback backup")
       
       # Perform rollback
-      FileUtils.cp(version_path, DSL_PATH)
+      FileUtils.cp(version_path, dsl_path)
       
       version_filename
     end
     
     def self.get_version_content(version_filename)
-      version_path = File.join(VERSIONS_DIR, version_filename)
+      version_path = File.join(versions_dir, version_filename)
       raise "Version not found: #{version_filename}" unless File.exist?(version_path)
       
       File.read(version_path)
     end
     
     def self.diff(version_filename)
-      version_path = File.join(VERSIONS_DIR, version_filename)
+      version_path = File.join(versions_dir, version_filename)
       raise "Version not found: #{version_filename}" unless File.exist?(version_path)
       
       old_content = File.read(version_path)
-      current_content = File.read(DSL_PATH)
+      current_content = File.read(dsl_path)
       
       # Simple line-by-line diff
       old_lines = old_content.lines

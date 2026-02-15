@@ -1,0 +1,37 @@
+<article>
+  <header>
+    <code><%= h(session_id) %></code>
+    <small>&mdash; <%= contexts.size %> context(s)</small>
+  </header>
+  <% if contexts.empty? %>
+    <p>No contexts in this session.</p>
+  <% else %>
+    <div class="overflow-auto">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Description</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% contexts.each do |ctx| %>
+            <tr>
+              <td><code><%= h(ctx[:name]) %></code></td>
+              <td><small><%= h(ctx[:description] || '-') %></small></td>
+              <td>
+                <button class="outline btn-sm"
+                        hx-get="/admin/context/session/<%= h(session_id) %>/<%= h(ctx[:name]) %>"
+                        hx-target="#context-detail"
+                        hx-swap="innerHTML">
+                  View
+                </button>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% end %>
+</article>

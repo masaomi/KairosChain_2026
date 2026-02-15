@@ -1,14 +1,12 @@
 require_relative 'skills_dsl'
 require_relative 'skills_ast'
 require_relative 'vector_search/provider'
+require_relative '../kairos_mcp'
 
 module KairosMcp
   class DslSkillsProvider
-    DSL_PATH = File.expand_path('../../skills/kairos.rb', __dir__)
-    SKILLS_INDEX_PATH = File.expand_path('../../storage/embeddings/skills', __dir__)
-    
-    def initialize(dsl_path = DSL_PATH, vector_search_enabled: true)
-      @dsl_path = dsl_path
+    def initialize(dsl_path = nil, vector_search_enabled: true)
+      @dsl_path = dsl_path || KairosMcp.dsl_path
       @skills = nil
       @vector_search_enabled = vector_search_enabled
       @vector_search = nil
@@ -85,7 +83,7 @@ module KairosMcp
     private
 
     def vector_search
-      @vector_search ||= VectorSearch.create(index_path: SKILLS_INDEX_PATH)
+      @vector_search ||= VectorSearch.create(index_path: KairosMcp.skills_index_path)
     end
 
     def ensure_index_built

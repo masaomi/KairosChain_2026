@@ -1,10 +1,11 @@
+require_relative '../kairos_mcp'
+
 module KairosMcp
   class SkillsParser
-    SKILLS_PATH = File.expand_path('../../skills/kairos.md', __dir__)
-
     Section = Struct.new(:id, :title, :content, :use_when, keyword_init: true)
 
-    def initialize(skills_path = SKILLS_PATH)
+    def initialize(skills_path = nil)
+      skills_path ||= KairosMcp.md_path
       @skills_path = skills_path
       @sections = nil
     end

@@ -1,0 +1,13 @@
+safe_root: "."
+allowed_paths:
+  - "skills"
+  - "storage"
+  - "lib/kairos_mcp"
+blocklist:
+  - ".env*"
+  - "*.key"
+  - "*.pem"
+limits:
+  max_read_bytes: 100000
+  max_search_lines: 500
+  max_tree_depth: 5

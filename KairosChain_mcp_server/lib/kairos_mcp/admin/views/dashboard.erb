@@ -48,6 +48,14 @@
     <p><strong><%= knowledge.size %></strong> entries</p>
     <footer><a href="/admin/knowledge">View Knowledge &rarr;</a></footer>
   </article>
+
+  <%# Context Card %>
+  <article>
+    <header>L2 Context</header>
+    <p><strong><%= context_sessions.size %></strong> sessions</p>
+    <p><small><%= context_sessions.sum { |s| s[:context_count] } %> total contexts</small></p>
+    <footer><a href="/admin/context">View Context &rarr;</a></footer>
+  </article>
 </div>
 
 <%# Latest Block %>

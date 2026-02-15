@@ -12,7 +12,6 @@ module KairosMcp
   # When SQLite is enabled, it uses SqliteBackend.
   #
   class ActionLog
-    LOG_PATH = File.expand_path('../../skills/action_log.jsonl', __dir__)
 
     class << self
       # Record an action to the log
