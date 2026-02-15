@@ -48,7 +48,7 @@ This section reviews the major development methodologies that have emerged in re
 
 ### 2.1 Unstructured Approaches: Vibe Coding and Signal Coding
 
-Karpathy [3] introduced "vibe coding" in February 2025 as a conversational AI programming paradigm where developers rely on AI agents to generate code through iterative prompting, prioritizing speed and application results over code quality. While effective for rapid prototyping, empirical studies revealed significant limitations. Sarkar et al. [4] surveyed the vibe coding landscape and documented pain points including unclear specification requirements, debugging challenges, and collaboration difficulties. Industry analyses reported that developers could be significantly slower on complex codebases and generate substantially more code per task when relying on unstructured AI code generation [5].
+Karpathy [3] introduced "vibe coding" in February 2025 as a conversational AI programming paradigm where developers rely on AI agents to generate code through iterative prompting, prioritizing speed and application results over code quality. While effective for rapid prototyping, empirical studies revealed significant limitations. Ge et al. [4] surveyed the vibe coding landscape and documented pain points including unclear specification requirements, debugging challenges, and collaboration difficulties. Industry analyses reported that developers could be significantly slower on complex codebases and generate substantially more code per task when relying on unstructured AI code generation [5].
 
 The "entropy loop" problem proved particularly damaging: initial rapid progress gives way to a brittle, incoherent codebase where each fix introduces new bugs [5]. This led to Signal Coding [12], which proposed combining rapid AI iteration with structured development practices—code structure, patterns, and tests—to improve AI agent performance. While an improvement, Signal Coding remains a refinement of vibe coding rather than a fundamentally new paradigm.
 
@@ -68,7 +68,7 @@ Notably, Jansen later acknowledged the conceptual convergence between ADD and SD
 
 ### 2.4 AI-Native Software Engineering (SE 3.0)
 
-Liu et al. [9] proposed SE 3.0 as a vision for intent-centric, conversation-oriented development where AI systems evolve beyond task-driven copilots into intelligent collaborators capable of reasoning about software engineering principles. This academic vision paper anticipated infrastructure changes including AI-native version control, prompts as source code, and AI-native IDEs.
+Hassan et al. [9] proposed SE 3.0 as a vision for intent-centric, conversation-oriented development where AI systems evolve beyond task-driven copilots into intelligent collaborators capable of reasoning about software engineering principles. This academic vision paper anticipated infrastructure changes including AI-native version control, prompts as source code, and AI-native IDEs.
 
 The DORA 2025 report [14] provided empirical grounding, finding that AI primarily functions as an amplifier—magnifying both the strengths of high-performing organizations and the dysfunctions of struggling ones. Andreessen Horowitz [15] identified nine emerging developer patterns for the AI era, including the Model Context Protocol (MCP) as a step toward deeper AI integration.
 
@@ -433,7 +433,7 @@ As AI agents become ubiquitous development partners and end-user interfaces, the
 
 [3] A. Karpathy, "Vibe coding," X post, February 2025. [Online]. Available: https://x.com/karpathy/status/1886192184808149383
 
-[4] A. Sarkar et al., "Vibe-coding with Large Language Models," arXiv preprint arXiv:2510.12399, 2025.
+[4] Y. Ge et al., "A Survey of Vibe Coding with Large Language Models," arXiv preprint arXiv:2510.12399, 2025.
 
 [5] "The Vibe Coding Trap: Why Unstructured AI Code Generation Fails," Strategy Radar AI, 2025. [Online]. Available: https://www.strategyradar.ai/blog/vibe-coding-trap
 
@@ -443,9 +443,9 @@ As AI agents become ubiquitous development partners and end-user interfaces, the
 
 [8] R. H. Jansen, "Agent Driven Development (ADD): The Next Paradigm Shift in Software Engineering," DEV Community, July 2025. [Online]. Available: https://dev.to/remojansen/agent-driven-development-add-the-next-paradigm-shift-in-software-engineering-1jfg
 
-[9] J. Liu et al., "Towards AI-Native Software Engineering (SE 3.0): A Vision and a Challenge Roadmap," arXiv preprint arXiv:2410.06107, 2024.
+[9] A. E. Hassan, G. A. Oliva, D. Lin, B. Chen, and Z. M. Jiang, "Towards AI-Native Software Engineering (SE 3.0): A Vision and a Challenge Roadmap," arXiv preprint arXiv:2410.06107, 2024.
 
-[10] M. Jobanputra et al., "TDFlow: Agentic Workflows for Test Driven Development," arXiv preprint arXiv:2510.23761, 2025.
+[10] K. Han, S. Maddikayala, T. Knappe, O. Patel, A. Liao, and A. B. Farimani, "TDFlow: Agentic Workflows for Test Driven Development," arXiv preprint arXiv:2510.23761, 2025.
 
 [11] M. Hatakeyama, "KairosChain: Pure Agent Skills with Self-Amendment for Auditable AI Evolution," Technical Note, Zenodo, January 2026. DOI: 10.5281/zenodo.18289164
 
@@ -457,7 +457,7 @@ As AI agents become ubiquitous development partners and end-user interfaces, the
 
 [15] Andreessen Horowitz, "Emerging Developer Patterns for the AI Era," a16z.com, 2025. [Online]. Available: https://a16z.com/nine-emerging-developer-patterns-for-the-ai-era
 
-[16] W. Zhang et al., "The Rise of Agentic Testing: Multi-Agent Systems for Robust Software Quality Assurance," arXiv preprint arXiv:2601.02454, 2026.
+[16] S. Naqvi, M. Baqar, and N. A. Mohammad, "The Rise of Agentic Testing: Multi-Agent Systems for Robust Software Quality Assurance," arXiv preprint arXiv:2601.02454, 2026.
 
 [17] Tweag, "Test-Driven Development," Agentic Coding Handbook, 2025. [Online]. Available: https://tweag.github.io/agentic-coding-handbook/WORKFLOW_TDD/
 
@@ -479,8 +479,8 @@ This paper is available on Zenodo.
 
 **Recommended citation:**
 
-Hatakeyama, M. (2026). Agent-first Driven Development: A Bottom-Up Methodology for Building Software in the Age of AI Agents. Technical Note. Zenodo. https://doi.org/10.5281/zenodo.18649254
+Hatakeyama, M. (2026). Agent-first Driven Development: A Bottom-Up Methodology for Building Software in the Age of AI Agents. Preprint. Zenodo. https://doi.org/10.5281/zenodo.18649254
 
 ---
 
-*Version 1.0 — 14 February 2026*
+*Version 1.1 — 15 February 2026 (reference corrections)*

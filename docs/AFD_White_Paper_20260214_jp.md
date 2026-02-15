@@ -48,7 +48,7 @@ AIコーディングアシスタントとエージェントフレームワーク
 
 ### 2.1 非構造的アプローチ：バイブコーディングとシグナルコーディング
 
-Karpathy [3] は2025年2月に「バイブコーディング」を、AIエージェントに依存して反復的なプロンプティングを通じてコードを生成する会話型AIプログラミングパラダイムとして紹介した。速度とアプリケーションの結果をコード品質よりも優先する。迅速なプロトタイピングには効果的だったが、実証研究は重大な限界を明らかにした。Sarkar ら [4] はバイブコーディングの全体像を調査し、不明確な仕様要件、デバッグの困難さ、コラボレーションの困難さを含む課題を文書化した。業界分析では、非構造的なAIコード生成に依存する場合、複雑なコードベースでの開発者の生産性が大幅に低下し、タスクあたりのコード量が大幅に増加する可能性があることが報告された [5]。
+Karpathy [3] は2025年2月に「バイブコーディング」を、AIエージェントに依存して反復的なプロンプティングを通じてコードを生成する会話型AIプログラミングパラダイムとして紹介した。速度とアプリケーションの結果をコード品質よりも優先する。迅速なプロトタイピングには効果的だったが、実証研究は重大な限界を明らかにした。Ge ら [4] はバイブコーディングの全体像を調査し、不明確な仕様要件、デバッグの困難さ、コラボレーションの困難さを含む課題を文書化した。業界分析では、非構造的なAIコード生成に依存する場合、複雑なコードベースでの開発者の生産性が大幅に低下し、タスクあたりのコード量が大幅に増加する可能性があることが報告された [5]。
 
 「エントロピーループ」問題は特に深刻であった：初期の急速な進捗が脆弱で一貫性のないコードベースに変わり、各修正が新たなバグを導入する [5]。これがSignal Coding [12] につながった。Signal CodingはAIの迅速な反復に構造化された開発プラクティス（コード構造、パターン、テスト）を組み合わせてAIエージェントのパフォーマンスを向上させることを提案した。改善ではあったが、Signal Codingは根本的に新しいパラダイムというよりもバイブコーディングの改良にとどまる。
 
@@ -68,7 +68,7 @@ Jansen [8] は、AIエージェントと人間の開発者が定義されたプ�
 
 ### 2.4 AI-Native Software Engineering (SE 3.0)
 
-Liu ら [9] は、AIシステムがタスク駆動型コパイロットを超えて、ソフトウェアエンジニアリングの原則について推論できるインテリジェントな協力者に進化する、意図中心の会話型開発のビジョンとしてSE 3.0を提案した。このアカデミックなビジョンペーパーは、AI固有のバージョン管理、ソースコードとしてのプロンプト、AI固有のIDEを含むインフラストラクチャの変更を予見した。
+Hassan ら [9] は、AIシステムがタスク駆動型コパイロットを超えて、ソフトウェアエンジニアリングの原則について推論できるインテリジェントな協力者に進化する、意図中心の会話型開発のビジョンとしてSE 3.0を提案した。このアカデミックなビジョンペーパーは、AI固有のバージョン管理、ソースコードとしてのプロンプト、AI固有のIDEを含むインフラストラクチャの変更を予見した。
 
 DORA 2025レポート [14] は実証的な基盤を提供し、AIが主に増幅器として機能すること——高パフォーマンス組織の強みと苦戦する組織の機能不全の双方を拡大すること——を発見した。Andreessen Horowitz [15] はAI時代の9つの新興開発者パターンを特定し、その中にModel Context Protocol（MCP）をより深いAI統合へのステップとして含めた。
 
@@ -433,7 +433,7 @@ AIエージェントがユビキタスな開発パートナーおよびエンド
 
 [3] A. Karpathy, "Vibe coding," X post, February 2025. [Online]. Available: https://x.com/karpathy/status/1886192184808149383
 
-[4] A. Sarkar et al., "Vibe-coding with Large Language Models," arXiv preprint arXiv:2510.12399, 2025.
+[4] Y. Ge et al., "A Survey of Vibe Coding with Large Language Models," arXiv preprint arXiv:2510.12399, 2025.
 
 [5] "The Vibe Coding Trap: Why Unstructured AI Code Generation Fails," Strategy Radar AI, 2025. [Online]. Available: https://www.strategyradar.ai/blog/vibe-coding-trap
 
@@ -443,9 +443,9 @@ AIエージェントがユビキタスな開発パートナーおよびエンド
 
 [8] R. H. Jansen, "Agent Driven Development (ADD): The Next Paradigm Shift in Software Engineering," DEV Community, July 2025. [Online]. Available: https://dev.to/remojansen/agent-driven-development-add-the-next-paradigm-shift-in-software-engineering-1jfg
 
-[9] J. Liu et al., "Towards AI-Native Software Engineering (SE 3.0): A Vision and a Challenge Roadmap," arXiv preprint arXiv:2410.06107, 2024.
+[9] A. E. Hassan, G. A. Oliva, D. Lin, B. Chen, and Z. M. Jiang, "Towards AI-Native Software Engineering (SE 3.0): A Vision and a Challenge Roadmap," arXiv preprint arXiv:2410.06107, 2024.
 
-[10] M. Jobanputra et al., "TDFlow: Agentic Workflows for Test Driven Development," arXiv preprint arXiv:2510.23761, 2025.
+[10] K. Han, S. Maddikayala, T. Knappe, O. Patel, A. Liao, and A. B. Farimani, "TDFlow: Agentic Workflows for Test Driven Development," arXiv preprint arXiv:2510.23761, 2025.
 
 [11] M. Hatakeyama, "KairosChain: Pure Agent Skills with Self-Amendment for Auditable AI Evolution," Technical Note, Zenodo, January 2026. DOI: 10.5281/zenodo.18289164
 
@@ -457,7 +457,7 @@ AIエージェントがユビキタスな開発パートナーおよびエンド
 
 [15] Andreessen Horowitz, "Emerging Developer Patterns for the AI Era," a16z.com, 2025. [Online]. Available: https://a16z.com/nine-emerging-developer-patterns-for-the-ai-era
 
-[16] W. Zhang et al., "The Rise of Agentic Testing: Multi-Agent Systems for Robust Software Quality Assurance," arXiv preprint arXiv:2601.02454, 2026.
+[16] S. Naqvi, M. Baqar, and N. A. Mohammad, "The Rise of Agentic Testing: Multi-Agent Systems for Robust Software Quality Assurance," arXiv preprint arXiv:2601.02454, 2026.
 
 [17] Tweag, "Test-Driven Development," Agentic Coding Handbook, 2025. [Online]. Available: https://tweag.github.io/agentic-coding-handbook/WORKFLOW_TDD/
 
@@ -479,8 +479,8 @@ AIエージェントがユビキタスな開発パートナーおよびエンド
 
 **推奨引用形式：**
 
-Hatakeyama, M. (2026). Agent-first Driven Development: A Bottom-Up Methodology for Building Software in the Age of AI Agents. Technical Note. Zenodo. https://doi.org/10.5281/zenodo.18649254
+Hatakeyama, M. (2026). Agent-first Driven Development: A Bottom-Up Methodology for Building Software in the Age of AI Agents. Preprint. Zenodo. https://doi.org/10.5281/zenodo.18649254
 
 ---
 
-*Version 1.0 — 2026年2月14日*
+*Version 1.1 — 2026年2月15日（引用修正）*
