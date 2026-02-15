@@ -3527,6 +3527,8 @@ KairosChain_2026は`git subtree`を使用して他のプロジェクトに組み
 - プロジェクト固有の知識（L1）をローカルに蓄積
 - 追加のクローン手順なしで、すべてを単一リポジトリに保持
 
+> **Gem方式 vs Subtree方式:** KairosChainをgem（`gem install kairos_mcp`）でインストールした場合、サブツリーの設定は**不要**です。gem方式とサブツリー方式は独立したインストール方法です。サブツリー方式は、プロジェクトリポジトリにソースコード全体を組み込みたいユーザー向けです。gem方式については[インストール](#インストールgemまたはリポジトリ)セクションを参照してください。
+
 ### なぜサブツリー（サブモジュールではなく）
 
 | 観点 | subtree | submodule |
@@ -3594,6 +3596,44 @@ KairosChain_mcp_server/storage/embeddings/**/*.json
 # アクションログ
 KairosChain_mcp_server/skills/action_log.jsonl
 ```
+
+### 重要：サブツリー使用時のデータディレクトリ設定
+
+gem化アップデート以降、KairosChainは`KairosMcp.data_dir`を通じてデータパスを解決するようになりました。デフォルトではカレントディレクトリの`.kairos/`を参照します。サブツリー方式で運用している場合、**必ず`--data-dir`でサブツリー内の既存データの場所を指定**してください。指定しないと、新しい空の`.kairos/`ディレクトリが作成され、既存の`skills/`、`knowledge/`、`storage/`のデータが参照されません。
+
+**Cursor IDE（`mcp.json`）：**
+
+```json
+{
+  "mcpServers": {
+    "kairos-chain": {
+      "command": "server/KairosChain_mcp_server/bin/kairos_mcp_server",
+      "args": ["--data-dir", "server/KairosChain_mcp_server"]
+    }
+  }
+}
+```
+
+**Claude Code（`.mcp.json`）：**
+
+```json
+{
+  "mcpServers": {
+    "kairos-chain": {
+      "command": "server/KairosChain_mcp_server/bin/kairos_mcp_server",
+      "args": ["--data-dir", "server/KairosChain_mcp_server"]
+    }
+  }
+}
+```
+
+環境変数を使用する方法もあります：
+
+```bash
+export KAIROS_DATA_DIR=server/KairosChain_mcp_server
+```
+
+> **注意：** 以前に`--data-dir`を指定せずに実行し、`.kairos/`ディレクトリが自動生成されてしまった場合は、安全に削除できます。実際のデータは`server/KairosChain_mcp_server/`内にそのまま残っています。
 
 ### 日常の操作
 
@@ -3663,6 +3703,20 @@ ProjectA/                           ProjectB/
 - 同じ上流からフレームワーク更新をプル
 - 独自のL1知識を蓄積
 - 独自のブロックチェーン状態を管理
+
+### サブツリープル後：テンプレートの更新
+
+テンプレートファイル（`kairos.rb`、`kairos.md`、`config.yml`など）の変更を含む上流の更新をプルした場合、サブツリーディレクトリには完全なソースコードが含まれているため、変更は直接適用されます。ただし、これらのファイルをローカルで変更している場合は、`subtree pull`時にマージコンフリクトが発生する可能性があります。
+
+サブツリーユーザーの場合、`system_upgrade` MCPツールや`kairos_mcp_server upgrade` CLIコマンドは**不要**です。ファイルの更新はサブツリープル自体が処理します。アップグレードツールは、テンプレートファイルがgem内にバンドルされており、ユーザーのデータディレクトリへの移行が必要な**gemベースのインストール**向けに設計されています。
+
+**更新方法のまとめ：**
+
+| インストール方法 | 更新方法 | テンプレートの扱い |
+|---|---|---|
+| **Gem**（`gem install`） | `gem update kairos_mcp` + `system_upgrade`ツール | `.kairos_meta.yml`による3wayハッシュマージ |
+| **Subtree**（`git subtree`） | `git subtree pull` | 標準のgitマージ（コンフリクトは手動解決） |
+| **リポジトリクローン** | `git pull` | 標準のgitマージ（コンフリクトは手動解決） |
 
 ### リファレンス
 
