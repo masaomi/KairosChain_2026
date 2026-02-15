@@ -14,6 +14,12 @@ The rapid proliferation of AI coding assistants and agent frameworks has produce
 
 ---
 
+![Figure 1: Agent-first Driven Development overview — six principles, four phases, and the Cognitive Classification Pattern](afd_diagram.png)
+
+*Figure 1: Agent-first Driven Development (AFD) overview. Existing approaches (SDD, ADD, TDD+Agents) flow top-down from human specifications to AI implementation. AFD inverts this: agent tools are built first, validated through interaction, then progressively extracted into APIs and UIs.*
+
+---
+
 ## 1. Introduction
 
 Software development methodologies have historically evolved by redefining the primary artifact around which the development process revolves. Object-Oriented Programming (OOP) placed objects at the center. Test-Driven Development (TDD) made tests the first artifact written [1]. Behavior-Driven Development (BDD) elevated user stories and acceptance criteria. Domain-Driven Design (DDD) organized systems around bounded contexts and ubiquitous language [2]. Each paradigm shift was, in essence, a declaration of a new "first thing to build."
@@ -469,9 +475,11 @@ As AI agents become ubiquitous development partners and end-user interfaces, the
 
 This paper is available on Zenodo.
 
+**DOI:** [10.5281/zenodo.18649254](https://doi.org/10.5281/zenodo.18649254)
+
 **Recommended citation:**
 
-Hatakeyama, M. (2026). Agent-first Driven Development: A Bottom-Up Methodology for Building Software in the Age of AI Agents. Technical Note. Zenodo.
+Hatakeyama, M. (2026). Agent-first Driven Development: A Bottom-Up Methodology for Building Software in the Age of AI Agents. Technical Note. Zenodo. https://doi.org/10.5281/zenodo.18649254
 
 ---
 

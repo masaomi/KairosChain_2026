@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent-first Driven Development (AFD)</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 40px;
+    }
+    .container {
+      background: white;
+      border-radius: 20px;
+      padding: 40px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      max-width: 1000px;
+      width: 100%;
+    }
+    .title {
+      text-align: center;
+      margin-bottom: 6px;
+    }
+    .title h1 {
+      font-size: 2.2rem;
+      color: #1a1a2e;
+      font-weight: 700;
+    }
+    .title .subtitle {
+      color: #666;
+      font-size: 1.05rem;
+      margin-top: 4px;
+    }
+    .tagline {
+      text-align: center;
+      color: #0066cc;
+      font-size: 1rem;
+      margin-bottom: 28px;
+      font-style: italic;
+    }
+
+    /* === Comparison Row === */
+    .comparison-row {
+      display: grid;
+      grid-template-columns: 1fr 60px 1fr;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 30px;
+    }
+    .approach-box {
+      border-radius: 14px;
+      padding: 18px 22px;
+    }
+    .approach-box h3 {
+      font-size: 1rem;
+      margin-bottom: 10px;
+    }
+    .approach-box .flow {
+      font-size: 0.95rem;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+    .approach-box .desc {
+      font-size: 0.82rem;
+      color: #555;
+      margin-top: 6px;
+      line-height: 1.4;
+    }
+    .old-approach {
+      background: linear-gradient(135deg, #f5f0ff 0%, #ede5ff 100%);
+      border: 2px solid #b8a9e0;
+    }
+    .old-approach h3 { color: #6c4eb0; }
+    .old-approach .flow { color: #6c4eb0; }
+
+    .new-approach {
+      background: linear-gradient(135deg, #e5f7ff 0%, #d4f0ff 100%);
+      border: 2px solid #3ba4d9;
+    }
+    .new-approach h3 { color: #1a7ab5; }
+    .new-approach .flow { color: #1a7ab5; }
+
+    .vs-col {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: #999;
+    }
+
+    /* === Four Phases === */
+    .phases-title {
+      text-align: center;
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #333;
+      margin-bottom: 16px;
+    }
+    .phases {
+      display: grid;
+      grid-template-columns: 1fr 40px 1fr 40px 1fr 40px 1fr;
+      gap: 0;
+      align-items: stretch;
+      margin-bottom: 28px;
+    }
+    .phase {
+      border-radius: 12px;
+      padding: 16px 14px;
+      text-align: center;
+      position: relative;
+    }
+    .phase .phase-num {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 6px;
+    }
+    .phase h4 {
+      font-size: 0.95rem;
+      margin-bottom: 6px;
+    }
+    .phase p {
+      font-size: 0.78rem;
+      color: #555;
+      line-height: 1.35;
+    }
+    .phase .icon {
+      font-size: 1.8rem;
+      margin-bottom: 8px;
+    }
+    .phase-arrow {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 1.5rem;
+      color: #aaa;
+      font-weight: 700;
+    }
+
+    .p1 {
+      background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+      border: 2px solid #4caf50;
+    }
+    .p1 .phase-num { color: #2e7d32; }
+    .p1 h4 { color: #2e7d32; }
+
+    .p2 {
+      background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%);
+      border: 2px solid #ff9800;
+    }
+    .p2 .phase-num { color: #e65100; }
+    .p2 h4 { color: #e65100; }
+
+    .p3 {
+      background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+      border: 2px solid #2196f3;
+    }
+    .p3 .phase-num { color: #0d47a1; }
+    .p3 h4 { color: #0d47a1; }
+
+    .p4 {
+      background: linear-gradient(135deg, #f3e5f5 0%, #e1bee7 100%);
+      border: 2px solid #9c27b0;
+    }
+    .p4 .phase-num { color: #6a1b9a; }
+    .p4 h4 { color: #6a1b9a; }
+
+    /* === Six Principles === */
+    .principles {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+    .principle {
+      background: #f8f9fa;
+      border-radius: 10px;
+      padding: 12px 14px;
+      border-left: 4px solid #0066cc;
+    }
+    .principle .num {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: #0066cc;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .principle .name {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: #222;
+      margin: 3px 0;
+    }
+    .principle .explain {
+      font-size: 0.75rem;
+      color: #666;
+      line-height: 1.35;
+    }
+
+    /* === Classification === */
+    .classification {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .class-title {
+      text-align: center;
+      font-size: 1rem;
+      font-weight: 700;
+      color: #333;
+      margin-bottom: 12px;
+    }
+    .class-box {
+      border-radius: 10px;
+      padding: 14px;
+      text-align: center;
+    }
+    .class-box h5 {
+      font-size: 0.9rem;
+      margin-bottom: 4px;
+    }
+    .class-box p {
+      font-size: 0.78rem;
+      color: #555;
+      line-height: 1.3;
+    }
+    .class-api {
+      background: #e8f5e9;
+      border: 2px solid #4caf50;
+    }
+    .class-api h5 { color: #2e7d32; }
+    .class-partial {
+      background: #fff8e1;
+      border: 2px solid #ff9800;
+    }
+    .class-partial h5 { color: #e65100; }
+    .class-native {
+      background: #fce4ec;
+      border: 2px solid #e91e63;
+    }
+    .class-native h5 { color: #c2185b; }
+
+    /* === Key Insight Box === */
+    .insight-box {
+      text-align: center;
+      padding: 16px;
+      background: #f0f4ff;
+      border-radius: 12px;
+      border: 1px solid #ccd9ff;
+      margin-bottom: 20px;
+    }
+    .insight-box p {
+      color: #0044aa;
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+    .insight-box .icon {
+      font-size: 1.4rem;
+      margin-right: 6px;
+    }
+
+    .footer {
+      text-align: center;
+      color: #888;
+      font-size: 0.82rem;
+    }
+    .footer a {
+      color: #0066cc;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="title">
+      <h1>Agent-first Driven Development</h1>
+      <div class="subtitle">A Bottom-Up Methodology for the Age of AI Agents</div>
+    </div>
+    <div class="tagline">"Build the agent tool first." — Where agents are the first consumer, not the last.</div>
+
+    <!-- Comparison: Existing vs AFD -->
+    <div class="comparison-row">
+      <div class="approach-box old-approach">
+        <h3>Existing Approaches (SDD / ADD / TDD+Agents)</h3>
+        <div class="flow">Human writes Spec/Test → AI implements → Deploy</div>
+        <div class="desc">Design origin is human. AI is the implementer.<br>Top-down: from human intent to AI execution.</div>
+      </div>
+      <div class="vs-col">vs</div>
+      <div class="approach-box new-approach">
+        <h3>AFD (Agent-first Driven Development)</h3>
+        <div class="flow">Build Agent Tool → Agent validates → Extract API → Add UI</div>
+        <div class="desc">Design origin is agent interaction. AI is the first consumer.<br>Bottom-up: from working tools to APIs to UIs.</div>
+      </div>
+    </div>
+
+    <!-- Four Phases -->
+    <div class="phases-title">The Four Phases</div>
+    <div class="phases">
+      <div class="phase p1">
+        <div class="icon">🔧</div>
+        <div class="phase-num">Phase 1</div>
+        <h4>Tool-First MVP</h4>
+        <p>All logic in agent tools. Zero-Gap: implement = deploy via MCP.</p>
+      </div>
+      <div class="phase-arrow">→</div>
+      <div class="phase p2">
+        <div class="icon">🔀</div>
+        <div class="phase-num">Phase 2</div>
+        <h4>API Extraction</h4>
+        <p>Deterministic ops → API. AI-native ops stay as agent tools.</p>
+      </div>
+      <div class="phase-arrow">→</div>
+      <div class="phase p3">
+        <div class="icon">🖥️</div>
+        <div class="phase-num">Phase 3</div>
+        <h4>Dual Interface</h4>
+        <p>UI uses API (routine) + MCP (AI-assisted). Two first-class interfaces.</p>
+      </div>
+      <div class="phase-arrow">→</div>
+      <div class="phase p4">
+        <div class="icon">⚡</div>
+        <div class="phase-num">Phase 4</div>
+        <h4>Integration</h4>
+        <p>Unified architecture. Optimized for both agents and humans.</p>
+      </div>
+    </div>
+
+    <!-- Cognitive Classification -->
+    <div class="class-title">Classify by Cognition: The Architectural Decision</div>
+    <div class="classification">
+      <div class="class-box class-api">
+        <h5>API-able</h5>
+        <p>Deterministic CRUD, queries, config management → Extract to REST API</p>
+      </div>
+      <div class="class-box class-partial">
+        <h5>Partially API-able</h5>
+        <p>CRUD core + optional AI modes → Split: API path + Agent path</p>
+      </div>
+      <div class="class-box class-native">
+        <h5>Agent-native</h5>
+        <p>Requires LLM reasoning, multi-perspective analysis → Keep as MCP tool</p>
+      </div>
+    </div>
+
+    <!-- Six Principles -->
+    <div class="principles">
+      <div class="principle">
+        <div class="num">Principle 1</div>
+        <div class="name">Agent-First</div>
+        <div class="explain">Design agent tools as the system's first interface</div>
+      </div>
+      <div class="principle">
+        <div class="num">Principle 2</div>
+        <div class="name">Validate through Interaction</div>
+        <div class="explain">Business logic validated by agent usage, not UI prototypes</div>
+      </div>
+      <div class="principle">
+        <div class="num">Principle 3</div>
+        <div class="name">Extract, Don't Design</div>
+        <div class="explain">APIs extracted from validated tools, not designed in isolation</div>
+      </div>
+      <div class="principle">
+        <div class="num">Principle 4</div>
+        <div class="name">Dual Interface</div>
+        <div class="explain">Final system serves both AI agents and human users</div>
+      </div>
+      <div class="principle">
+        <div class="num">Principle 5</div>
+        <div class="name">Classify by Cognition</div>
+        <div class="explain">Separate API-able (deterministic) from Agent-native (LLM) ops</div>
+      </div>
+      <div class="principle">
+        <div class="num">Principle 6</div>
+        <div class="name">Zero-Gap Deployment</div>
+        <div class="explain">Tool implementation = deployment. No staging needed.</div>
+      </div>
+    </div>
+
+    <!-- Key Insight -->
+    <div class="insight-box">
+      <p><span class="icon">💡</span><strong>The Dual Direction:</strong> Brownfield (existing API → Agent Tool) is top-down. <strong>AFD</strong> provides the missing bottom-up direction (Agent Tool → API → UI) for greenfield development.</p>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>Hatakeyama, M. (2026) | Built on <a href="https://doi.org/10.5281/zenodo.18289164">KairosChain</a> | GitHub: <a href="https://github.com/masaomi/KairosChain_2026">masaomi/KairosChain_2026</a></p>
+    </div>
+  </div>
+</body>
+</html>

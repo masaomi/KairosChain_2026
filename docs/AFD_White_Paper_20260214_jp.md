@@ -14,6 +14,12 @@ AIコーディングアシスタントとエージェントフレームワーク
 
 ---
 
+![図1: Agent-first Driven Development 概要図 — 6つの原則、4つのフェーズ、認知的分類パターン](afd_diagram.png)
+
+*図1: Agent-first Driven Development（AFD）概要。既存アプローチ（SDD、ADD、TDD+Agents）は人間の仕様からAI実装へとトップダウンに流れる。AFDはこれを反転させる：エージェントツールを最初に構築し、インタラクションで検証した後、APIとUIに段階的に抽出する。*
+
+---
+
 ## 1. はじめに
 
 ソフトウェア開発方法論は歴史的に、開発プロセスの中心となる主要な成果物を再定義することで進化してきた。オブジェクト指向プログラミング（OOP）はオブジェクトを中心に据えた。テスト駆動開発（TDD）はテストを最初に書く成果物とした [1]。振る舞い駆動開発（BDD）はユーザーストーリーと受け入れ基準を前面に出した。ドメイン駆動設計（DDD）は境界づけられたコンテキストとユビキタス言語を中心にシステムを構成した [2]。各パラダイムシフトは本質的に、新しい「最初に作るもの」の宣言であった。
@@ -467,11 +473,13 @@ AIエージェントがユビキタスな開発パートナーおよびエンド
 
 ## DOI and Citation
 
-本論文はZenodoで公開予定。
+本論文はZenodoで公開。
+
+**DOI:** [10.5281/zenodo.18649254](https://doi.org/10.5281/zenodo.18649254)
 
 **推奨引用形式：**
 
-Hatakeyama, M. (2026). Agent-first Driven Development: A Bottom-Up Methodology for Building Software in the Age of AI Agents. Technical Note. Zenodo.
+Hatakeyama, M. (2026). Agent-first Driven Development: A Bottom-Up Methodology for Building Software in the Age of AI Agents. Technical Note. Zenodo. https://doi.org/10.5281/zenodo.18649254
 
 ---
 
