@@ -1,7 +1,3 @@
-<!-- AUTO-GENERATED FROM L1 KNOWLEDGE. DO NOT EDIT DIRECTLY. -->
-<!-- To update: edit L1 knowledge files in KairosChain_mcp_server/knowledge/ -->
-<!-- Then run: ruby scripts/build_readme.rb (or: rake build_readme) -->
-
 # KairosChain MCP Server
 
 **A Meta Ledger for Recording AI Skill Evolution**
@@ -13,118 +9,29 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
 ## Table of Contents
 
 - [Philosophy](#philosophy)
-  - [The Problem](#the-problem)
-  - [The Solution: KairosChain](#the-solution-kairoschain)
-  - [Minimum-Nomic Principle](#minimum-nomic-principle)
 - [Architecture](#architecture)
-  - [System Overview](#system-overview)
 - [Layered Skills Architecture](#layered-skills-architecture)
-  - [L0: Kairos Core (`skills/`)](#l0-kairos-core-skills)
-  - [L1: Knowledge Layer (`knowledge/`)](#l1-knowledge-layer-knowledge)
-  - [L2: Context Layer (`context/`)](#l2-context-layer-context)
-  - [Why Layered Architecture?](#why-layered-architecture)
 - [Data Model: SkillStateTransition](#data-model-skillstatetransition)
 - [Setup](#setup)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-  - [Optional: RAG (Semantic Search) Support](#optional-rag-semantic-search-support)
-  - [Optional: SQLite Storage Backend (Team Use)](#optional-sqlite-storage-backend-team-use)
-  - [Optional: Streamable HTTP Transport (Remote/Team Access)](#optional-streamable-http-transport-remoteteam-access)
-  - [Admin UI (Browser-Based Management)](#admin-ui-browser-based-management)
+  - [Installation (Gem or Repository)](#installation)
+  - [Optional: RAG Support](#optional-rag-semantic-search-support)
+  - [Optional: SQLite](#optional-sqlite-storage-backend-team-use)
+  - [Optional: Streamable HTTP](#optional-streamable-http-transport-remoteteam-access)
+  - [Admin UI](#admin-ui-browser-based-management)
 - [Client Configuration](#client-configuration)
-  - [Claude Code Configuration (Detailed)](#claude-code-configuration-detailed)
-  - [Cursor IDE Configuration (Detailed)](#cursor-ide-configuration-detailed)
 - [Upgrading the Gem](#upgrading-the-gem)
-  - [How It Works](#how-it-works)
-  - [Upgrade Commands](#upgrade-commands)
-  - [Version Mismatch Warning](#version-mismatch-warning)
-  - [Upgrade Workflow](#upgrade-workflow)
 - [Testing the Setup](#testing-the-setup)
-  - [1. Basic Command Line Tests](#1-basic-command-line-tests)
-  - [2. Skills Tools Test](#2-skills-tools-test)
-  - [3. Blockchain Tools Test](#3-blockchain-tools-test)
-  - [4. Testing with SQLite Backend (Optional)](#4-testing-with-sqlite-backend-optional)
-  - [5. Testing with RAG / Semantic Search (Optional)](#5-testing-with-rag-semantic-search-optional)
-  - [6. Testing HTTP Mode (Optional)](#6-testing-http-mode-optional)
-  - [7. Testing with Claude Code](#7-testing-with-claude-code)
-  - [8. Testing with Cursor](#8-testing-with-cursor)
-  - [Troubleshooting](#troubleshooting)
 - [Usage Tips](#usage-tips)
-  - [Basic Usage](#basic-usage)
-  - [Practical Usage Patterns](#practical-usage-patterns)
-  - [Best Practices](#best-practices)
-  - [Tool Discovery with tool_guide](#tool-discovery-with-tool_guide)
-  - [Common Commands Reference](#common-commands-reference)
-  - [Security Considerations](#security-considerations)
-- [Available Tools (25 core + skill-tools)](#available-tools-25-core-skill-tools)
-  - [L0-A: Skills Tools (Markdown) - Read-only](#l0-a-skills-tools-markdown-read-only)
-  - [L0-B: Skills Tools (DSL) - Full Blockchain Record](#l0-b-skills-tools-dsl-full-blockchain-record)
-  - [Cross-Layer Promotion Tools](#cross-layer-promotion-tools)
-  - [Audit Tools - Knowledge Lifecycle Management](#audit-tools-knowledge-lifecycle-management)
-  - [Resource Tools - Unified Access](#resource-tools-unified-access)
-  - [L1: Knowledge Tools - Hash Reference Record](#l1-knowledge-tools-hash-reference-record)
-  - [L2: Context Tools - No Blockchain Record](#l2-context-tools-no-blockchain-record)
-  - [Blockchain Tools](#blockchain-tools)
-  - [State Commit Tools (Auditability)](#state-commit-tools-auditability)
-  - [Authentication Tools (HTTP Mode Only)](#authentication-tools-http-mode-only)
-  - [Guide Tools (Tool Discovery)](#guide-tools-tool-discovery)
-  - [System Management Tools](#system-management-tools)
+- [Available Tools](#available-tools-25-core--skill-tools)
 - [Usage Examples](#usage-examples)
-  - [List Available Skills](#list-available-skills)
-  - [Check Blockchain Status](#check-blockchain-status)
-  - [Record a Skill Transition](#record-a-skill-transition)
 - [Self-Evolution Workflow](#self-evolution-workflow)
 - [Pure Skills Design](#pure-skills-design)
-  - [skills.md vs skills.rb](#skillsmd-vs-skillsrb)
-  - [Example Skill Definition](#example-skill-definition)
-  - [Self-Referential Introspection](#self-referential-introspection)
 - [Directory Structure](#directory-structure)
-  - [Gem Structure (installed via `gem install kairos_mcp`)](#gem-structure-installed-via-gem-install-kairos_mcp)
-  - [Data Directory (created by `kairos_mcp_server init`)](#data-directory-created-by-kairos_mcp_server-init)
-  - [Repository Structure (cloned from GitHub)](#repository-structure-cloned-from-github)
 - [Future Roadmap](#future-roadmap)
-  - [Near-term](#near-term)
-  - [Long-term Vision: Distributed KairosChain Network](#long-term-vision-distributed-kairoschain-network)
 - [Deployment and Operation](#deployment-and-operation)
-  - [Data Storage Overview](#data-storage-overview)
-  - [Blockchain Storage Format](#blockchain-storage-format)
-  - [Recommended Operation Patterns](#recommended-operation-patterns)
-  - [Backup Strategy](#backup-strategy)
-  - [Documentation Management](#documentation-management)
 - [FAQ](#faq)
-  - [Q: Can LLMs automatically modify L1/L2?](#q-can-llms-automatically-modify-l1l2)
-  - [Q: How do I decide which layer to store knowledge in?](#q-how-do-i-decide-which-layer-to-store-knowledge-in)
-  - [Q: How do I maintain L1 knowledge health? How do I prevent L1 bloat?](#q-how-do-i-maintain-l1-knowledge-health-how-do-i-prevent-l1-bloat)
-  - [Q: What is Persona Assembly and when should I use it?](#q-what-is-persona-assembly-and-when-should-i-use-it)
-  - [Q: Is API extension needed for team usage?](#q-is-api-extension-needed-for-team-usage)
-  - [Q: Is a voting system needed for changes to kairos.rb or kairos.md in team settings?](#q-is-a-voting-system-needed-for-changes-to-kairosrb-or-kairosmd-in-team-settings)
-  - [Q: How do I run local tests?](#q-how-do-i-run-local-tests)
-  - [Q: What meta-skills are included in kairos.rb?](#q-what-meta-skills-are-included-in-kairosrb)
-  - [Q: How do I modify L0 skills? What is the procedure?](#q-how-do-i-modify-l0-skills-what-is-the-procedure)
-  - [Q: What is L0 Auto-Check? How does it help with the 15-item checklist?](#q-what-is-l0-auto-check-how-does-it-help-with-the-15-item-checklist)
-  - [Q: How does KairosChain decide when to evolve its own skills? Is there a meta-skill for this?](#q-how-does-kairoschain-decide-when-to-evolve-its-own-skills-is-there-a-meta-skill-for-this)
-  - [Q: What is Skill-Tool Unification? Can I add MCP tools without editing Ruby files?](#q-what-is-skill-tool-unification-can-i-add-mcp-tools-without-editing-ruby-files)
-  - [Q: What is the difference between adding tools via kairos.rb vs tools/ directory?](#q-what-is-the-difference-between-adding-tools-via-kairosrb-vs-tools-directory)
-  - [Q: Should KairosChain proactively recommend skill creation to the LLM?](#q-should-kairoschain-proactively-recommend-skill-creation-to-the-llm)
-  - [Q: What happens when skills or knowledge contradict each other?](#q-what-happens-when-skills-or-knowledge-contradict-each-other)
-  - [Q: What is StateCommit and how does it improve auditability?](#q-what-is-statecommit-and-how-does-it-improve-auditability)
-  - [Q: What happens when too many skills accumulate? Is there a cleanup mechanism?](#q-what-happens-when-too-many-skills-accumulate-is-there-a-cleanup-mechanism)
-  - [Q: How do I fix a skill when it provides incorrect or outdated information?](#q-how-do-i-fix-a-skill-when-it-provides-incorrect-or-outdated-information)
-  - [Q: What are the advantages and disadvantages of using SQLite?](#q-what-are-the-advantages-and-disadvantages-of-using-sqlite)
-  - [Q: How do I inspect SQLite data without SQL commands?](#q-how-do-i-inspect-sqlite-data-without-sql-commands)
-  - [Q: What is Pure Agent Skill and why does it matter?](#q-what-is-pure-agent-skill-and-why-does-it-matter)
-  - [Q: Why does KairosChain use Ruby, specifically DSL and AST?](#q-why-does-kairoschain-use-ruby-specifically-dsl-and-ast)
-  - [Q: What's the difference between using local skills vs. KairosChain?](#q-whats-the-difference-between-using-local-skills-vs-kairoschain)
 - [Subtree Integration Guide](#subtree-integration-guide)
-  - [Why Subtree (Not Submodule)](#why-subtree-not-submodule)
-  - [How It Works with KairosChain Layers](#how-it-works-with-kairoschain-layers)
-  - [Setup: Adding KairosChain to a New Project](#setup-adding-kairoschain-to-a-new-project)
-  - [Important: Data Directory Configuration for Subtree](#important-data-directory-configuration-for-subtree)
-  - [Daily Operations](#daily-operations)
-  - [Conflict Resolution](#conflict-resolution)
-  - [Multi-Project Deployment Example](#multi-project-deployment-example)
-  - [After Subtree Pull: Template Updates](#after-subtree-pull-template-updates)
-  - [Reference](#reference)
+- [License](#license)
 
 ## Philosophy
 
@@ -309,8 +216,6 @@ Every skill change is recorded as a `SkillStateTransition`:
   reason_ref: String       # Off-chain reason reference
 }
 ```
-
----
 
 ## Setup
 
@@ -1648,8 +1553,6 @@ gem list kairos_mcp
 
 ---
 
----
-
 ## Usage Tips
 
 ### Basic Usage
@@ -2022,8 +1925,6 @@ KairosChain supports **Safe Self-Evolution**:
    chain_history # Shows the transition record
    ```
 
----
-
 ## Pure Skills Design
 
 ### skills.md vs skills.rb
@@ -2190,8 +2091,6 @@ KairosChain_mcp_server/
 ├── test_local.rb                 # Local test script
 └── README.md
 ```
-
----
 
 ## Future Roadmap
 
@@ -2387,62 +2286,6 @@ echo "Backup created: $BACKUP_DIR"
 # After restoring from backup, verify integrity
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_verify","arguments":{}}}' | kairos_mcp_server
 ```
-
-### Documentation Management
-
-README.md and README_jp.md are **auto-generated** from L1 knowledge files. Do not edit them directly.
-
-#### Single Source of Truth
-
-The documentation content lives in L1 knowledge files under `KairosChain_mcp_server/knowledge/`:
-
-| L1 Knowledge | Contents |
-|---|---|
-| `kairoschain_philosophy` / `_jp` | Philosophy, architecture, layered design |
-| `kairoschain_setup` / `_jp` | Installation, configuration, testing |
-| `kairoschain_usage` / `_jp` | Tools reference, usage patterns |
-| `kairoschain_design` / `_jp` | Pure Skills design, directory structure |
-| `kairoschain_operations` / `_jp` | Roadmap, deployment, operations |
-| `kairoschain_faq` / `_jp` | FAQ, subtree integration |
-
-Header/footer templates are in `scripts/readme_templates/`.
-
-#### Updating Documentation
-
-1. Edit the relevant L1 knowledge file in `KairosChain_mcp_server/knowledge/`
-2. Regenerate READMEs:
-
-```bash
-# Generate README.md and README_jp.md from L1 knowledge
-rake build_readme
-
-# Or run the script directly
-ruby scripts/build_readme.rb
-```
-
-3. Commit both the L1 knowledge change and the regenerated README
-
-#### Other Commands
-
-```bash
-# Check if READMEs are up to date (useful in CI)
-rake check_readme
-
-# Preview what would be generated without writing files
-rake preview_readme
-
-# Show help and options
-ruby scripts/build_readme.rb --help
-```
-
-#### Why Auto-Generated?
-
-- **Single Source of Truth**: L1 knowledge is the only place to edit documentation
-- **MCP Accessible**: LLMs can query documentation via `knowledge_get` / `knowledge_list`
-- **Auditable**: Documentation changes are tracked as L1 knowledge updates (hash recorded on blockchain)
-- **Semantic Search**: RAG-enabled search across all documentation via MCP
-
----
 
 ---
 
@@ -3931,11 +3774,11 @@ For subtree users, the `system_upgrade` MCP tool and `kairos_mcp_server upgrade`
 
 ## License
 
-See [LICENSE](./LICENSE) file.
+See [LICENSE](../LICENSE) file.
 
 ---
 
-**Version**: 0.9.0
-**Last Updated**: 2026-02-15
+**Version**: 0.9.0  
+**Last Updated**: 2026-02-14
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*
