@@ -29,6 +29,7 @@ Gem::Specification.new do |spec|
   # Include library code, executable, templates, and config
   spec.files = Dir[
     'lib/**/*.rb',
+    'lib/**/*.erb',     # Admin UI ERB templates
     'bin/*',
     'templates/**/*',
     'templates/**/.*',  # Include .gitkeep files
