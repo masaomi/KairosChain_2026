@@ -1,0 +1,23 @@
+{
+  "name": "kairos-chain",
+  "description": "Self-amendment MCP server framework with layered skill architecture (L0/L1/L2) and blockchain-backed auditability. Skills can evolve, promote, and audit themselves through 29+ MCP tools. Prerequisites: Ruby 3.0+ and 'gem install kairos-chain' are required for MCP server functionality. Without Ruby, only the Agent Skill (knowledge reference) is available.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Masaomi Hatakeyama",
+    "email": "masaomi.hatakeyama@genomicschain.ch"
+  },
+  "homepage": "https://github.com/masaomi/KairosChain_2026",
+  "repository": "https://github.com/masaomi/KairosChain_2026",
+  "license": "MIT",
+  "keywords": [
+    "self-amendment",
+    "agent-framework",
+    "blockchain",
+    "skills",
+    "mcp",
+    "knowledge-management",
+    "auditability",
+    "layered-architecture",
+    "ruby"
+  ]
+}

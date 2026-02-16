@@ -1,0 +1,46 @@
+{
+  "name": "kairos-chain",
+  "owner": {
+    "name": "Masaomi Hatakeyama",
+    "email": "masaomi.hatakeyama@genomicschain.ch"
+  },
+  "metadata": {
+    "description": "KairosChain - Self-amendment MCP server framework with blockchain auditability for AI IDE integration",
+    "version": "1.0.0",
+    "pluginRoot": "."
+  },
+  "plugins": [
+    {
+      "name": "kairos-chain",
+      "source": ".",
+      "description": "Self-amendment MCP server framework with layered skill architecture (L0/L1/L2) and blockchain-backed auditability. Skills can evolve, promote, and audit themselves through 29+ MCP tools. Prerequisites: Ruby 3.0+ and 'gem install kairos-chain' required for MCP server functionality.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Masaomi Hatakeyama",
+        "email": "masaomi.hatakeyama@genomicschain.ch"
+      },
+      "homepage": "https://github.com/masaomi/KairosChain_2026",
+      "repository": "https://github.com/masaomi/KairosChain_2026",
+      "license": "MIT",
+      "keywords": [
+        "memory",
+        "agent",
+        "blockchain",
+        "skills",
+        "mcp",
+        "knowledge-management",
+        "auditability",
+        "layered-architecture",
+        "persona-assembly",
+        "skill-evolution"
+      ],
+      "category": "productivity",
+      "tags": [
+        "agent-framework",
+        "knowledge-management",
+        "blockchain",
+        "mcp-server"
+      ]
+    }
+  ]
+}

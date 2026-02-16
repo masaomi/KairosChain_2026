@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "kairos-chain": {
+      "command": "kairos-chain",
+      "args": [],
+      "env": {
+        "KAIROS_DATA_DIR": "${CLAUDE_PLUGIN_ROOT}/.kairos"
+      }
+    }
+  }
+}
