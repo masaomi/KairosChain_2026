@@ -916,6 +916,44 @@ claude --version
 # https://docs.anthropic.com/claude-code
 ```
 
+#### Option A: Install as a Plugin (Recommended)
+
+KairosChain is available as a Claude Code plugin. This method provides both MCP server integration and Agent Skills.
+
+> **Claude Code only**: The `/plugin` command is a Claude Code CLI-specific feature. For Cursor, Antigravity, and other MCP-compatible editors, use [Option B: Register MCP Server Directly](#option-b-register-mcp-server-directly) or the [Cursor IDE Configuration](#cursor-ide-configuration-detailed) section below.
+
+**Prerequisites:** Ruby 3.0+ and `gem install kairos-chain`
+
+```bash
+# Step 1: Add the KairosChain marketplace
+/plugin marketplace add https://github.com/masaomi/KairosChain_2026.git
+
+# Step 2: Install the plugin
+/plugin install kairos-chain
+
+# Step 3: Restart Claude Code to load the plugin
+# After restart, verify the connection:
+# - The Agent Skill loads automatically
+# - MCP tools (29+) become available
+# - Run chain_status to confirm blockchain connectivity
+```
+
+After restart, you can verify with:
+```
+# Check the Skill is loaded
+/kairos-chain:kairos-chain
+
+# Test MCP server connection
+"Run hello_world"
+"Check chain_status"
+```
+
+> **Note**: Without Ruby/gem installed, only the Agent Skill (knowledge reference) is available. MCP server tools require `gem install kairos-chain`.
+
+#### Option B: Register MCP Server Directly
+
+If you prefer not to use the plugin system, you can register the MCP server directly:
+
 #### Step 2: Register the MCP Server
 
 ```bash

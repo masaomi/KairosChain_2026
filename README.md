@@ -1221,6 +1221,44 @@ claude --version
 # https://docs.anthropic.com/claude-code
 ```
 
+#### Option A: Install as a Plugin (Recommended)
+
+KairosChain is available as a Claude Code plugin. This method provides both MCP server integration and Agent Skills.
+
+> **Claude Code only**: The `/plugin` command is a Claude Code CLI-specific feature. For Cursor, Antigravity, and other MCP-compatible editors, use [Option B: Register MCP Server Directly](#option-b-register-mcp-server-directly) or the [Cursor IDE Configuration](#cursor-ide-configuration-detailed) section below.
+
+**Prerequisites:** Ruby 3.0+ and `gem install kairos-chain`
+
+```bash
+# Step 1: Add the KairosChain marketplace
+/plugin marketplace add https://github.com/masaomi/KairosChain_2026.git
+
+# Step 2: Install the plugin
+/plugin install kairos-chain
+
+# Step 3: Restart Claude Code to load the plugin
+# After restart, verify the connection:
+# - The Agent Skill loads automatically
+# - MCP tools (29+) become available
+# - Run chain_status to confirm blockchain connectivity
+```
+
+After restart, you can verify with:
+```
+# Check the Skill is loaded
+/kairos-chain:kairos-chain
+
+# Test MCP server connection
+"Run hello_world"
+"Check chain_status"
+```
+
+> **Note**: Without Ruby/gem installed, only the Agent Skill (knowledge reference) is available. MCP server tools require `gem install kairos-chain`.
+
+#### Option B: Register MCP Server Directly
+
+If you prefer not to use the plugin system, you can register the MCP server directly:
+
 #### Step 2: Register the MCP Server
 
 ```bash
@@ -3732,6 +3770,26 @@ You can use both simultaneously:
 
 KairosChain doesn't replace local skills — it provides an additional layer of auditability and governance when needed.
 
+**Read Compatibility: Using L1 Knowledge as Claude Code Skills**
+
+KairosChain L1 knowledge files use YAML frontmatter + Markdown, which is compatible with Claude Code Skills format. Claude Code ignores unknown frontmatter fields (`version`, `layer`, `tags`), so L1 files can be read as-is.
+
+To use L1 knowledge as Claude Code Skills, create a symlink:
+
+```bash
+# Single knowledge item
+mkdir -p ~/.claude/skills/layer-placement-guide
+ln -s /path/to/.kairos/knowledge/layer_placement_guide/layer_placement_guide.md \
+      ~/.claude/skills/layer-placement-guide/SKILL.md
+
+# Or link the entire knowledge directory for a project
+ln -s /path/to/.kairos/knowledge ~/.claude/skills/kairos-knowledge
+```
+
+This provides **read-only compatibility** — Claude Code can reference L1 knowledge, but all modifications should still go through KairosChain's `knowledge_update` tool to maintain blockchain audit trails. Direct file edits bypass the audit mechanism.
+
+This is useful for sharing mature L1 knowledge via GitHub with users who may not have KairosChain installed.
+
 ---
 
 ## Subtree Integration Guide
@@ -3948,6 +4006,6 @@ See [LICENSE](./LICENSE) file.
 ---
 
 **Version**: 1.0.0
-**Last Updated**: 2026-02-15
+**Last Updated**: 2026-02-17
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*

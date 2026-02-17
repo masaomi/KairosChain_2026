@@ -900,6 +900,44 @@ claude --version
 # https://docs.anthropic.com/claude-code
 ```
 
+#### オプションA：プラグインとしてインストール（推奨）
+
+KairosChainはClaude Codeプラグインとして利用可能です。この方法ではMCPサーバー統合とAgent Skillsの両方が提供されます。
+
+> **Claude Code専用**: `/plugin` コマンドはClaude Code CLI固有の機能です。Cursor、Antigravity、その他のMCP対応エディタでは、[オプションB：MCPサーバーを直接登録](#オプションbmcpサーバーを直接登録) または下の [Cursor IDE設定](#cursor-ide設定詳細) セクションを参照してください。
+
+**前提条件：** Ruby 3.0+ と `gem install kairos-chain`
+
+```bash
+# ステップ1：KairosChainマーケットプレイスを追加
+/plugin marketplace add https://github.com/masaomi/KairosChain_2026.git
+
+# ステップ2：プラグインをインストール
+/plugin install kairos-chain
+
+# ステップ3：Claude Codeを再起動してプラグインを読み込み
+# 再起動後、以下を確認：
+# - Agent Skillが自動的に読み込まれる
+# - MCPツール（29+）が利用可能になる
+# - chain_statusでブロックチェーン接続を確認可能
+```
+
+再起動後、以下で確認できます：
+```
+# Skillが読み込まれているか確認
+/kairos-chain:kairos-chain
+
+# MCPサーバー接続テスト
+「hello_worldを実行して」
+「chain_statusを確認して」
+```
+
+> **注意**: Ruby/gemがインストールされていない場合、Agent Skill（知識参照）のみ利用可能です。MCPサーバーツールには `gem install kairos-chain` が必要です。
+
+#### オプションB：MCPサーバーを直接登録
+
+プラグインシステムを使わない場合は、MCPサーバーを直接登録できます：
+
 #### ステップ2：MCPサーバーを登録
 
 ```bash

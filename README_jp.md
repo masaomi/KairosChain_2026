@@ -1204,6 +1204,44 @@ claude --version
 # https://docs.anthropic.com/claude-code
 ```
 
+#### オプションA：プラグインとしてインストール（推奨）
+
+KairosChainはClaude Codeプラグインとして利用可能です。この方法ではMCPサーバー統合とAgent Skillsの両方が提供されます。
+
+> **Claude Code専用**: `/plugin` コマンドはClaude Code CLI固有の機能です。Cursor、Antigravity、その他のMCP対応エディタでは、[オプションB：MCPサーバーを直接登録](#オプションbmcpサーバーを直接登録) または下の [Cursor IDE設定](#cursor-ide設定詳細) セクションを参照してください。
+
+**前提条件：** Ruby 3.0+ と `gem install kairos-chain`
+
+```bash
+# ステップ1：KairosChainマーケットプレイスを追加
+/plugin marketplace add https://github.com/masaomi/KairosChain_2026.git
+
+# ステップ2：プラグインをインストール
+/plugin install kairos-chain
+
+# ステップ3：Claude Codeを再起動してプラグインを読み込み
+# 再起動後、以下を確認：
+# - Agent Skillが自動的に読み込まれる
+# - MCPツール（29+）が利用可能になる
+# - chain_statusでブロックチェーン接続を確認可能
+```
+
+再起動後、以下で確認できます：
+```
+# Skillが読み込まれているか確認
+/kairos-chain:kairos-chain
+
+# MCPサーバー接続テスト
+「hello_worldを実行して」
+「chain_statusを確認して」
+```
+
+> **注意**: Ruby/gemがインストールされていない場合、Agent Skill（知識参照）のみ利用可能です。MCPサーバーツールには `gem install kairos-chain` が必要です。
+
+#### オプションB：MCPサーバーを直接登録
+
+プラグインシステムを使わない場合は、MCPサーバーを直接登録できます：
+
 #### ステップ2：MCPサーバーを登録
 
 ```bash
@@ -3685,6 +3723,26 @@ KairosChainの哲学：
 
 KairosChainはローカルスキルを置き換えるものではありません。必要な場合に監査可能性とガバナンスの追加レイヤーを提供するものです。
 
+**読み取り互換性：L1知識をClaude Code Skillsとして使用**
+
+KairosChainのL1知識ファイルはYAML frontmatter + Markdown形式を使用しており、Claude Code Skills形式と互換性があります。Claude Codeは未知のfrontmatterフィールド（`version`、`layer`、`tags`）を無視するため、L1ファイルはそのまま読み取れます。
+
+L1知識をClaude Code Skillsとして使用するには、シンボリックリンクを作成します：
+
+```bash
+# 単一の知識項目
+mkdir -p ~/.claude/skills/layer-placement-guide
+ln -s /path/to/.kairos/knowledge/layer_placement_guide/layer_placement_guide.md \
+      ~/.claude/skills/layer-placement-guide/SKILL.md
+
+# またはプロジェクトの知識ディレクトリ全体をリンク
+ln -s /path/to/.kairos/knowledge ~/.claude/skills/kairos-knowledge
+```
+
+これは**読み取り専用の互換性**を提供します。Claude CodeがL1知識を参照できますが、すべての変更はKairosChainの`knowledge_update`ツール経由で行い、ブロックチェーンの監査証跡を維持する必要があります。直接のファイル編集は監査メカニズムをバイパスします。
+
+KairosChainをインストールしていないユーザーとGitHub経由で成熟したL1知識を共有する場合に特に有用です。
+
 ---
 
 ## サブツリー統合ガイド
@@ -3901,6 +3959,6 @@ ProjectA/                           ProjectB/
 ---
 
 **バージョン**: 1.0.0
-**最終更新**: 2026-02-15
+**最終更新**: 2026-02-17
 
 > *「KairosChainは『この結果は正しいか？』ではなく『この知性はどのように形成されたか？』に答えます」*
