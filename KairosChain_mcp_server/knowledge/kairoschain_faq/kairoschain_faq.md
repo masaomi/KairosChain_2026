@@ -1282,6 +1282,26 @@ You can use both simultaneously:
 
 KairosChain doesn't replace local skills — it provides an additional layer of auditability and governance when needed.
 
+**Read Compatibility: Using L1 Knowledge as Claude Code Skills**
+
+KairosChain L1 knowledge files use YAML frontmatter + Markdown, which is compatible with Claude Code Skills format. Claude Code ignores unknown frontmatter fields (`version`, `layer`, `tags`), so L1 files can be read as-is.
+
+To use L1 knowledge as Claude Code Skills, create a symlink:
+
+```bash
+# Single knowledge item
+mkdir -p ~/.claude/skills/layer-placement-guide
+ln -s /path/to/.kairos/knowledge/layer_placement_guide/layer_placement_guide.md \
+      ~/.claude/skills/layer-placement-guide/SKILL.md
+
+# Or link the entire knowledge directory for a project
+ln -s /path/to/.kairos/knowledge ~/.claude/skills/kairos-knowledge
+```
+
+This provides **read-only compatibility** — Claude Code can reference L1 knowledge, but all modifications should still go through KairosChain's `knowledge_update` tool to maintain blockchain audit trails. Direct file edits bypass the audit mechanism.
+
+This is useful for sharing mature L1 knowledge via GitHub with users who may not have KairosChain installed.
+
 ---
 
 ## Subtree Integration Guide

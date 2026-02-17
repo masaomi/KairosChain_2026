@@ -1213,6 +1213,26 @@ KairosChainの哲学：
 
 KairosChainはローカルスキルを置き換えるものではありません。必要な場合に監査可能性とガバナンスの追加レイヤーを提供するものです。
 
+**読み取り互換性：L1知識をClaude Code Skillsとして使用**
+
+KairosChainのL1知識ファイルはYAML frontmatter + Markdown形式を使用しており、Claude Code Skills形式と互換性があります。Claude Codeは未知のfrontmatterフィールド（`version`、`layer`、`tags`）を無視するため、L1ファイルはそのまま読み取れます。
+
+L1知識をClaude Code Skillsとして使用するには、シンボリックリンクを作成します：
+
+```bash
+# 単一の知識項目
+mkdir -p ~/.claude/skills/layer-placement-guide
+ln -s /path/to/.kairos/knowledge/layer_placement_guide/layer_placement_guide.md \
+      ~/.claude/skills/layer-placement-guide/SKILL.md
+
+# またはプロジェクトの知識ディレクトリ全体をリンク
+ln -s /path/to/.kairos/knowledge ~/.claude/skills/kairos-knowledge
+```
+
+これは**読み取り専用の互換性**を提供します。Claude CodeがL1知識を参照できますが、すべての変更はKairosChainの`knowledge_update`ツール経由で行い、ブロックチェーンの監査証跡を維持する必要があります。直接のファイル編集は監査メカニズムをバイパスします。
+
+KairosChainをインストールしていないユーザーとGitHub経由で成熟したL1知識を共有する場合に特に有用です。
+
 ---
 
 ## サブツリー統合ガイド
