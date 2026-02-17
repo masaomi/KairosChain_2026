@@ -58,18 +58,10 @@ module KairosMcp
       log "Data directory: #{@data_dir}"
       log ""
       log "To start the MCP server:"
-      log "  kairos-chain                          # stdio mode (for Cursor)"
+      log "  kairos-chain                          # stdio mode (for Claude Code / Cursor)"
       log "  kairos-chain --http                   # HTTP mode (for remote)"
       log ""
-      log "To configure in Cursor (mcp.json):"
-      log "  {"
-      log "    \"mcpServers\": {"
-      log "      \"kairos\": {"
-      log "        \"command\": \"kairos-chain\","
-      log "        \"args\": [\"--data-dir\", \"#{@data_dir}\"]"
-      log "      }"
-      log "    }"
-      log "  }"
+      print_mcp_config
     end
 
     private
@@ -172,6 +164,30 @@ module KairosMcp
       meta_file = KairosMcp.meta_path
       File.write(meta_file, YAML.dump(meta))
       log "  Created: #{File.basename(meta_file)} (upgrade tracking)"
+    end
+
+    # Print MCP configuration examples for both Claude Code and Cursor
+    def print_mcp_config
+      log "To configure in Claude Code (.mcp.json):"
+      log "  {"
+      log "    \"mcpServers\": {"
+      log "      \"kairos\": {"
+      log "        \"command\": \"kairos-chain\","
+      log "        \"args\": [\"--data-dir\", \"#{@data_dir}\"]"
+      log "      }"
+      log "    }"
+      log "  }"
+      log ""
+      log "To configure in Cursor (.cursor/mcp.json):"
+      log "  {"
+      log "    \"mcpServers\": {"
+      log "      \"kairos\": {"
+      log "        \"command\": \"kairos-chain\","
+      log "        \"args\": [\"--data-dir\", \"#{@data_dir}\"],"
+      log "        \"env\": {}"
+      log "      }"
+      log "    }"
+      log "  }"
     end
 
     def relative_path(path)
