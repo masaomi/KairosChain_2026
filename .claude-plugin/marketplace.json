@@ -12,7 +12,7 @@
   "plugins": [
     {
       "name": "kairos-chain",
-      "source": ".",
+      "source": "./",
       "description": "Self-amendment MCP server framework with layered skill architecture (L0/L1/L2) and blockchain-backed auditability. Skills can evolve, promote, and audit themselves through 29+ MCP tools. Prerequisites: Ruby 3.0+ and 'gem install kairos-chain' required for MCP server functionality.",
       "version": "1.0.0",
       "author": {
