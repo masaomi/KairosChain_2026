@@ -44,7 +44,14 @@ module KairosMcp
 
       @port = port || http_config['port'] || DEFAULT_PORT
       @host = host || http_config['host'] || DEFAULT_HOST
-      @token_store = Auth::TokenStore.new(token_store_path || http_config['token_store'])
+      # Resolve token store path: CLI option > config.yml > default.
+      # Relative paths in config.yml are resolved against the data directory,
+      # not the current working directory, to match --init-admin behavior.
+      store_path = token_store_path || http_config['token_store']
+      if store_path && !File.absolute_path?(store_path)
+        store_path = File.join(KairosMcp.data_dir, store_path)
+      end
+      @token_store = Auth::TokenStore.new(store_path)
       @authenticator = Auth::Authenticator.new(@token_store)
       @admin_router = Admin::Router.new(token_store: @token_store, authenticator: @authenticator)
     end
