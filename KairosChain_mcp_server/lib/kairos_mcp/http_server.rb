@@ -9,6 +9,7 @@ require_relative 'auth/token_store'
 require_relative 'auth/authenticator'
 require_relative 'skills_config'
 require_relative 'admin/router'
+require_relative 'meeting_router'
 
 module KairosMcp
   # HttpServer: Streamable HTTP transport for MCP
@@ -37,16 +38,13 @@ module KairosMcp
       'Cache-Control' => 'no-cache'
     }.freeze
 
-    attr_reader :port, :host, :token_store, :authenticator, :admin_router
+    attr_reader :port, :host, :token_store, :authenticator, :admin_router, :meeting_router
 
     def initialize(port: nil, host: nil, token_store_path: nil)
       http_config = SkillsConfig.load['http'] || {}
 
       @port = port || http_config['port'] || DEFAULT_PORT
       @host = host || http_config['host'] || DEFAULT_HOST
-      # Resolve token store path: CLI option > config.yml > default.
-      # Relative paths in config.yml are resolved against the data directory,
-      # not the current working directory, to match --init-admin behavior.
       store_path = token_store_path || http_config['token_store']
       if store_path && !File.absolute_path?(store_path)
         store_path = File.join(KairosMcp.data_dir, store_path)
@@ -54,6 +52,7 @@ module KairosMcp
       @token_store = Auth::TokenStore.new(store_path)
       @authenticator = Auth::Authenticator.new(@token_store)
       @admin_router = Admin::Router.new(token_store: @token_store, authenticator: @authenticator)
+      @meeting_router = MeetingRouter.new
     end
 
     # Start the HTTP server with Puma
@@ -70,6 +69,7 @@ module KairosMcp
       log "MCP endpoint: POST /mcp"
       log "Health check: GET /health"
       log "Admin UI:     GET /admin"
+      log "MMP P2P:      /meeting/v1/*"
 
       require 'puma'
       require 'puma/configuration'
@@ -112,6 +112,11 @@ module KairosMcp
         # Admin UI routes
         if path.start_with?('/admin')
           return server.admin_router.call(env)
+        end
+
+        # MMP (Meeting Protocol) P2P endpoints
+        if path.start_with?('/meeting/')
+          return server.meeting_router.call(env)
         end
 
         case [request_method, path]
