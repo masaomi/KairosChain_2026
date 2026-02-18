@@ -6,7 +6,10 @@ module MMP
   SKILLSET_ROOT = File.expand_path('..', __dir__)
   VERSION = '1.0.0'
 
-  autoload :ChainAdapter, File.join(__dir__, 'mmp/chain_adapter')
+  # ChainAdapter and its implementations must be eagerly loaded
+  # since NullChainAdapter/KairosChainAdapter are referenced as MMP::*
+  require_relative 'mmp/chain_adapter'
+
   autoload :Protocol, File.join(__dir__, 'mmp/protocol')
   autoload :Identity, File.join(__dir__, 'mmp/identity')
   autoload :PeerManager, File.join(__dir__, 'mmp/peer_manager')
@@ -18,14 +21,21 @@ module MMP
   autoload :Compatibility, File.join(__dir__, 'mmp/compatibility')
   autoload :PlaceClient, File.join(__dir__, 'mmp/place_client')
 
+  # Resolve config path dynamically: prefer the installed SkillSet config
+  # in the current data directory, fall back to the bundled template config.
   def self.config_path
+    if defined?(KairosMcp)
+      installed = File.join(KairosMcp.skillsets_dir, 'mmp', 'config', 'meeting.yml')
+      return installed if File.exist?(installed)
+    end
     File.join(SKILLSET_ROOT, 'config', 'meeting.yml')
   end
 
   def self.load_config
-    return default_config unless File.exist?(config_path)
+    path = config_path
+    return default_config unless File.exist?(path)
     require 'yaml'
-    YAML.load_file(config_path) || default_config
+    YAML.load_file(path) || default_config
   rescue StandardError
     default_config
   end
