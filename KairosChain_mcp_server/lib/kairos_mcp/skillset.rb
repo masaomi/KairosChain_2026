@@ -89,6 +89,9 @@ module KairosMcp
       entry_point = Dir[File.join(lib_dir, '*.rb')].first
       require entry_point if entry_point
 
+      # Ensure BaseTool is available before loading SkillSet tools
+      require_relative 'tools/base_tool'
+
       # Require all tool files
       tools_dir = File.join(@path, 'tools')
       if File.directory?(tools_dir)
