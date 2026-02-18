@@ -170,6 +170,16 @@ module KairosMcp
       File.join(config_dir, 'tool_metadata.yml')
     end
 
+    # SkillSets directory (plugin-based extensions)
+    def skillsets_dir
+      path_for('skillsets')
+    end
+
+    # SkillSets config file (enabled/disabled state, layer overrides)
+    def skillsets_config_path
+      File.join(skillsets_dir, 'config.yml')
+    end
+
     # Meta file path (.kairos_meta.yml for upgrade tracking)
     def meta_path
       File.join(data_dir, '.kairos_meta.yml')
