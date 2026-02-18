@@ -43,6 +43,12 @@ module KairosMcp
         handle_request_skill(env)
       when ['POST', '/meeting/v1/reflect']
         handle_reflect(env)
+      when ['GET', '/meeting/v1/skillsets']
+        handle_list_skillsets
+      when ['GET', '/meeting/v1/skillset_details']
+        handle_skillset_details(env)
+      when ['POST', '/meeting/v1/skillset_content']
+        handle_skillset_content(env)
       else
         json_response(404, { error: 'not_found', message: "Unknown meeting endpoint: #{path}" })
       end
@@ -229,6 +235,110 @@ module KairosMcp
       })
 
       json_response(200, result)
+    end
+
+    # GET /meeting/v1/skillsets - List exchangeable SkillSets
+    def handle_list_skillsets
+      return skillset_exchange_disabled_response unless skillset_exchange_enabled?
+
+      manager = skillset_manager
+      exchangeable = manager.all_skillsets.select(&:exchangeable?)
+
+      skillsets = exchangeable.map do |ss|
+        {
+          name: ss.name,
+          version: ss.version,
+          layer: ss.layer.to_s,
+          description: ss.description,
+          knowledge_only: true,
+          content_hash: ss.content_hash,
+          file_count: ss.file_list.size
+        }
+      end
+
+      json_response(200, { skillsets: skillsets, count: skillsets.size })
+    end
+
+    # GET /meeting/v1/skillset_details?name=xxx
+    def handle_skillset_details(env)
+      return skillset_exchange_disabled_response unless skillset_exchange_enabled?
+
+      params = parse_query(env)
+      name = params['name']
+
+      unless name
+        return json_response(400, { error: 'missing_param', message: 'name is required' })
+      end
+
+      manager = skillset_manager
+      skillset = manager.find_skillset(name)
+
+      unless skillset
+        return json_response(404, { error: 'not_found', message: "SkillSet not found: #{name}" })
+      end
+
+      unless skillset.exchangeable?
+        return json_response(403, { error: 'not_exchangeable',
+                                    message: "SkillSet '#{name}' contains executable code and cannot be exchanged" })
+      end
+
+      json_response(200, {
+        metadata: {
+          name: skillset.name,
+          version: skillset.version,
+          layer: skillset.layer.to_s,
+          description: skillset.description,
+          author: skillset.author,
+          depends_on: skillset.depends_on,
+          provides: skillset.provides,
+          content_hash: skillset.content_hash,
+          file_list: skillset.file_list,
+          knowledge_only: true,
+          exchangeable: true
+        }
+      })
+    end
+
+    # POST /meeting/v1/skillset_content - Send a packaged SkillSet archive
+    def handle_skillset_content(env)
+      return skillset_exchange_disabled_response unless skillset_exchange_enabled?
+
+      body = parse_body(env)
+      name = body['name'] || body[:name]
+
+      unless name
+        return json_response(400, { error: 'missing_param', message: 'name is required' })
+      end
+
+      manager = skillset_manager
+      begin
+        pkg = manager.package(name)
+        json_response(200, { skillset_package: pkg })
+      rescue SecurityError => e
+        json_response(403, { error: 'not_exchangeable', message: e.message })
+      rescue ArgumentError => e
+        json_response(404, { error: 'not_found', message: e.message })
+      end
+    end
+
+    def skillset_manager
+      require_relative 'skillset_manager'
+      KairosMcp::SkillSetManager.new
+    end
+
+    def skillset_exchange_enabled?
+      config = ::MMP.load_config
+      ss_config = config['skillset_exchange'] || {}
+      ss_config['enabled'] != false
+    rescue StandardError
+      false
+    end
+
+    def skillset_exchange_disabled_response
+      json_response(403, {
+        error: 'skillset_exchange_disabled',
+        message: 'SkillSet exchange is not enabled in MMP configuration'
+      })
     end
 
     # Helpers

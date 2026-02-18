@@ -25,6 +25,11 @@ skill_exchange:
   allow_executable: false
   public_by_default: false
 
+skillset_exchange:
+  enabled: true
+  knowledge_only: true
+  auto_install: false
+
 constraints:
   max_skill_size_bytes: 100000
   rate_limit_per_minute: 10

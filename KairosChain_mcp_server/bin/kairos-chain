@@ -142,16 +142,59 @@ when 'skillset'
       exit 1
     end
 
+  when 'package'
+    name = ARGV.shift
+    unless name
+      $stderr.puts "Usage: kairos-chain skillset package <name>"
+      exit 1
+    end
+    begin
+      pkg = manager.package(name)
+      require 'json'
+      puts JSON.pretty_generate(pkg)
+    rescue SecurityError => e
+      $stderr.puts "Error: #{e.message}"
+      exit 1
+    end
+
+  when 'install-archive'
+    source = ARGV.shift
+    archive_json = if source && source != '-'
+                     File.read(source)
+                   else
+                     $stdin.read
+                   end
+
+    require 'json'
+    archive_data = JSON.parse(archive_json)
+
+    layer_override = nil
+    if (idx = ARGV.index('--layer'))
+      layer_override = ARGV[idx + 1]&.to_sym
+    end
+
+    begin
+      result = manager.install_from_archive(archive_data, layer_override: layer_override)
+      puts "Installed SkillSet '#{result[:name]}' v#{result[:version]} [#{result[:layer]}] from archive"
+      puts "Path: #{result[:path]}"
+      puts "Content hash: #{result[:content_hash]}"
+    rescue SecurityError => e
+      $stderr.puts "Security error: #{e.message}"
+      exit 1
+    end
+
   else
     puts "Usage: kairos-chain skillset <command>"
     puts ""
     puts "Commands:"
-    puts "  list                           List installed SkillSets"
+    puts "  list                               List installed SkillSets"
     puts "  install <path> [--layer L0|L1|L2]  Install a SkillSet from path"
-    puts "  enable <name>                  Enable a SkillSet"
-    puts "  disable <name>                 Disable a SkillSet"
-    puts "  remove <name>                  Remove a SkillSet"
-    puts "  info <name>                    Show SkillSet details"
+    puts "  enable <name>                      Enable a SkillSet"
+    puts "  disable <name>                     Disable a SkillSet"
+    puts "  remove <name>                      Remove a SkillSet"
+    puts "  info <name>                        Show SkillSet details"
+    puts "  package <name>                     Package a knowledge-only SkillSet as JSON archive"
+    puts "  install-archive <file|->           Install a SkillSet from JSON archive"
   end
   exit
 

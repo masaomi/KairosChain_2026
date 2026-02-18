@@ -5,7 +5,7 @@
   "author": "Dr. Masa Hatakeyama",
   "layer": "L1",
   "depends_on": [],
-  "provides": ["p2p_communication", "skill_exchange"],
+  "provides": ["p2p_communication", "skill_exchange", "skillset_exchange"],
   "tool_classes": [
     "KairosMcp::SkillSets::MMP::Tools::MeetingConnect",
     "KairosMcp::SkillSets::MMP::Tools::MeetingDisconnect",
@@ -13,5 +13,5 @@
     "KairosMcp::SkillSets::MMP::Tools::MeetingGetSkillDetails"
   ],
   "config_files": ["config/meeting.yml"],
-  "knowledge_dirs": ["knowledge/meeting_protocol_core"]
+  "knowledge_dirs": ["knowledge/meeting_protocol_core", "knowledge/meeting_protocol_skillset_exchange"]
 }

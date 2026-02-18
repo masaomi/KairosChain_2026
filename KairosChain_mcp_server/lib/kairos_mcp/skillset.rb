@@ -129,6 +129,28 @@ module KairosMcp
       hashes
     end
 
+    # True if the SkillSet contains no executable code (tools/ or lib/ with .rb files)
+    def knowledge_only?
+      tools_dir = File.join(@path, 'tools')
+      lib_dir = File.join(@path, 'lib')
+      no_tools = !File.directory?(tools_dir) || Dir[File.join(tools_dir, '*.rb')].empty?
+      no_lib = !File.directory?(lib_dir) || Dir[File.join(lib_dir, '**', '*.rb')].empty?
+      no_tools && no_lib
+    end
+
+    # Only knowledge-only SkillSets are safe to exchange over the network
+    def exchangeable?
+      knowledge_only? && valid?
+    end
+
+    # Sorted list of relative file paths within the SkillSet
+    def file_list
+      Dir[File.join(@path, '**', '*')]
+        .select { |f| File.file?(f) }
+        .map { |f| f.sub("#{@path}/", '') }
+        .sort
+    end
+
     def to_h
       {
         name: @name,
@@ -139,6 +161,8 @@ module KairosMcp
         depends_on: depends_on,
         provides: provides,
         tool_classes: tool_class_names,
+        knowledge_only: knowledge_only?,
+        exchangeable: exchangeable?,
         path: @path,
         loaded: @loaded
       }

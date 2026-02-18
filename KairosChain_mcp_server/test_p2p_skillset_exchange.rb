@@ -427,6 +427,226 @@ section('4. SkillSet Exchange Integration') do
 end
 
 # ============================================================================
+# Section 5: SkillSet Exchange via MMP
+# ============================================================================
+section('5. SkillSet Exchange via MMP') do
+  # Create a knowledge-only SkillSet for Agent Alpha
+  KairosMcp.data_dir = dir_a
+  test_ss_dir = File.join(KairosMcp.skillsets_dir, 'test_knowledge_pack')
+  FileUtils.mkdir_p(File.join(test_ss_dir, 'knowledge', 'test_topic'))
+  File.write(File.join(test_ss_dir, 'skillset.json'), JSON.generate({
+    'name' => 'test_knowledge_pack',
+    'version' => '1.0.0',
+    'description' => 'A test knowledge-only SkillSet for exchange testing',
+    'author' => 'Test Author',
+    'layer' => 'L2',
+    'depends_on' => [],
+    'provides' => ['test_knowledge'],
+    'tool_classes' => [],
+    'config_files' => [],
+    'knowledge_dirs' => ['knowledge/test_topic']
+  }))
+  File.write(File.join(test_ss_dir, 'knowledge', 'test_topic', 'test_topic.md'), <<~MD)
+    ---
+    name: test_topic
+    description: A test knowledge file for SkillSet exchange
+    version: 1.0.0
+    tags:
+      - test
+      - knowledge
+    public: true
+    ---
+
+    # Test Topic
+
+    This is a test knowledge file used to verify SkillSet exchange functionality.
+
+    ## Content
+    - Item 1: Knowledge exchange works
+    - Item 2: Content hash verification
+    - Item 3: Archive packaging
+  MD
+
+  # Enable the test SkillSet
+  manager_a = KairosMcp::SkillSetManager.new
+  manager_a.enable('test_knowledge_pack')
+
+  # 5.1 Verify knowledge_only? and exchangeable?
+  test_ss = manager_a.find_skillset('test_knowledge_pack')
+  assert('test_knowledge_pack is valid') { test_ss.valid? }
+  assert('test_knowledge_pack is knowledge_only') { test_ss.knowledge_only? }
+  assert('test_knowledge_pack is exchangeable') { test_ss.exchangeable? }
+
+  # MMP SkillSet should NOT be knowledge_only
+  mmp_ss = manager_a.find_skillset('mmp')
+  assert('MMP is NOT knowledge_only') { !mmp_ss.knowledge_only? }
+  assert('MMP is NOT exchangeable') { !mmp_ss.exchangeable? }
+
+  # 5.2 Test packaging
+  pkg = manager_a.package('test_knowledge_pack')
+  assert('package returns name') { pkg[:name] == 'test_knowledge_pack' }
+  assert('package returns version') { pkg[:version] == '1.0.0' }
+  assert('package returns content_hash') { !pkg[:content_hash].nil? && !pkg[:content_hash].empty? }
+  assert('package returns archive_base64') { !pkg[:archive_base64].nil? && !pkg[:archive_base64].empty? }
+  assert('package returns file_list') { pkg[:file_list].is_a?(Array) && pkg[:file_list].size > 0 }
+  assert('package file_list contains skillset.json') { pkg[:file_list].include?('skillset.json') }
+
+  # 5.3 Verify MMP packaging is refused
+  begin
+    manager_a.package('mmp')
+    assert('MMP packaging should be refused') { false }
+  rescue SecurityError => e
+    assert('MMP packaging raises SecurityError') { e.message.include?('knowledge-only') }
+  end
+
+  # 5.4 Test MeetingRouter SkillSet endpoints
+  ::MMP.instance_variable_set(:@config, nil) if ::MMP.respond_to?(:instance_variable_set)
+  router_a = KairosMcp::MeetingRouter.new
+
+  # GET /meeting/v1/skillsets
+  status, _headers, body = router_a.call(mock_env('GET', '/meeting/v1/skillsets'))
+  ss_list = JSON.parse(body.first, symbolize_names: true)
+  assert('GET skillsets returns 200') { status == 200 }
+  assert('skillsets list is array') { ss_list[:skillsets].is_a?(Array) }
+  assert('test_knowledge_pack in skillsets list') {
+    ss_list[:skillsets].any? { |s| s[:name] == 'test_knowledge_pack' }
+  }
+  assert('MMP NOT in skillsets list (has executable code)') {
+    ss_list[:skillsets].none? { |s| s[:name] == 'mmp' }
+  }
+
+  # GET /meeting/v1/skillset_details
+  status, _headers, body = router_a.call(mock_env('GET', '/meeting/v1/skillset_details',
+    query: 'name=test_knowledge_pack'
+  ))
+  ss_details = JSON.parse(body.first, symbolize_names: true)
+  assert('GET skillset_details returns 200') { status == 200 }
+  assert('skillset_details has metadata') { ss_details[:metadata].is_a?(Hash) }
+  assert('skillset_details name matches') { ss_details[:metadata][:name] == 'test_knowledge_pack' }
+  assert('skillset_details has file_list') { ss_details[:metadata][:file_list].is_a?(Array) }
+  assert('skillset_details has content_hash') { !ss_details[:metadata][:content_hash].nil? }
+  assert('skillset_details exchangeable is true') { ss_details[:metadata][:exchangeable] == true }
+
+  # GET /meeting/v1/skillset_details for non-exchangeable (MMP)
+  status, _headers, _body = router_a.call(mock_env('GET', '/meeting/v1/skillset_details',
+    query: 'name=mmp'
+  ))
+  assert('MMP skillset_details returns 403') { status == 403 }
+
+  # POST /meeting/v1/skillset_content
+  status, _headers, body = router_a.call(mock_env('POST', '/meeting/v1/skillset_content',
+    body: { name: 'test_knowledge_pack' }
+  ))
+  ss_content = JSON.parse(body.first, symbolize_names: true)
+  assert('POST skillset_content returns 200') { status == 200 }
+  assert('skillset_content has package') { ss_content[:skillset_package].is_a?(Hash) }
+  assert('skillset_content has archive_base64') { !ss_content[:skillset_package][:archive_base64].nil? }
+  received_pkg = ss_content[:skillset_package]
+
+  # POST /meeting/v1/skillset_content for MMP (should be refused)
+  status, _headers, _body = router_a.call(mock_env('POST', '/meeting/v1/skillset_content',
+    body: { name: 'mmp' }
+  ))
+  assert('MMP skillset_content returns 403') { status == 403 }
+
+  # 5.5 Agent B installs the received SkillSet archive
+  KairosMcp.data_dir = dir_b
+  manager_b = KairosMcp::SkillSetManager.new
+
+  # Verify test_knowledge_pack doesn't exist on B yet
+  assert('test_knowledge_pack not on Agent B yet') {
+    manager_b.find_skillset('test_knowledge_pack').nil?
+  }
+
+  result = manager_b.install_from_archive(received_pkg)
+  assert('install_from_archive succeeds') { result[:success] }
+  assert('installed name matches') { result[:name] == 'test_knowledge_pack' }
+  assert('installed version matches') { result[:version] == '1.0.0' }
+  assert('content_hash matches') { result[:content_hash] == received_pkg[:content_hash] }
+
+  # Verify it's now discoverable
+  installed_ss = manager_b.find_skillset('test_knowledge_pack')
+  assert('test_knowledge_pack now on Agent B') { !installed_ss.nil? }
+  assert('installed SkillSet is valid') { installed_ss.valid? }
+  assert('installed SkillSet is knowledge_only') { installed_ss.knowledge_only? }
+  assert('installed SkillSet has correct version') { installed_ss.version == '1.0.0' }
+
+  # Verify file contents match
+  original_content = File.read(File.join(test_ss_dir, 'knowledge', 'test_topic', 'test_topic.md'))
+  installed_content = File.read(File.join(installed_ss.path, 'knowledge', 'test_topic', 'test_topic.md'))
+  assert('knowledge content matches after transfer') { original_content == installed_content }
+
+  # 5.6 Verify install of non-knowledge-only archive is refused
+  # Craft a fake archive with a tools/ directory containing .rb files
+  fake_ss_dir = File.join(Dir.tmpdir, 'fake_executable_ss')
+  FileUtils.mkdir_p(File.join(fake_ss_dir, 'tools'))
+  File.write(File.join(fake_ss_dir, 'skillset.json'), JSON.generate({
+    'name' => 'fake_executable',
+    'version' => '1.0.0',
+    'description' => 'Fake SkillSet with executable code',
+    'layer' => 'L2',
+    'tool_classes' => ['FakeTool']
+  }))
+  File.write(File.join(fake_ss_dir, 'tools', 'fake_tool.rb'), 'class FakeTool; end')
+
+  # Manually create the archive (bypassing the package method which would refuse)
+  fake_tar_gz = StringIO.new
+  Zlib::GzipWriter.wrap(fake_tar_gz) do |gz|
+    Gem::Package::TarWriter.new(gz) do |tar|
+      Dir[File.join(fake_ss_dir, '**', '*')].sort.each do |full_path|
+        relative = full_path.sub("#{fake_ss_dir}/", '')
+        stat = File.stat(full_path)
+        if File.directory?(full_path)
+          tar.mkdir("fake_executable/#{relative}", stat.mode)
+        else
+          content = File.binread(full_path)
+          tar.add_file_simple("fake_executable/#{relative}", stat.mode, content.bytesize) { |tio| tio.write(content) }
+        end
+      end
+    end
+  end
+
+  require 'base64'
+  fake_archive_data = {
+    name: 'fake_executable',
+    version: '1.0.0',
+    archive_base64: Base64.strict_encode64(fake_tar_gz.string)
+  }
+
+  begin
+    manager_b.install_from_archive(fake_archive_data)
+    assert('executable archive install should be refused') { false }
+  rescue SecurityError => e
+    assert('executable archive raises SecurityError') { e.message.include?('executable code') }
+  end
+
+  FileUtils.rm_rf(fake_ss_dir)
+
+  # 5.7 Verify introduce now includes exchangeable_skillsets
+  KairosMcp.data_dir = dir_a
+  ::MMP.instance_variable_set(:@config, nil) if ::MMP.respond_to?(:instance_variable_set)
+
+  identity_a = ::MMP::Identity.new(workspace_root: dir_a, config: ::MMP.load_config)
+  intro = identity_a.introduce
+  assert('introduce has exchangeable_skillsets') { intro[:exchangeable_skillsets].is_a?(Array) }
+  assert('exchangeable_skillsets includes test_knowledge_pack') {
+    intro[:exchangeable_skillsets].any? { |s| s[:name] == 'test_knowledge_pack' }
+  }
+  assert('exchangeable_skillsets excludes MMP') {
+    intro[:exchangeable_skillsets].none? { |s| s[:name] == 'mmp' }
+  }
+
+  # 5.8 Duplicate install should fail
+  KairosMcp.data_dir = dir_b
+  begin
+    manager_b.install_from_archive(received_pkg)
+    assert('duplicate install should fail') { false }
+  rescue ArgumentError => e
+    assert('duplicate install raises ArgumentError') { e.message.include?('already installed') }
+  end
+end
+
+# ============================================================================
 # Cleanup
 # ============================================================================
 FileUtils.rm_rf(dir_a)

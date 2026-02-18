@@ -1,19 +1,28 @@
 ---
 name: SkillSet Plugin P2P Exchange
-overview: KairosChainにSkillSet Plugin機構を実装し、MMPをSkillSetとしてパッケージングし、KairosChain間のP2P SkillSet交換をローカルでテスト可能にする。
+overview: KairosChainにSkillSet Plugin機構を実装し、MMPをSkillSetとしてパッケージングし、KairosChain間のP2P SkillSet交換をローカルでテスト可能にする。knowledge-only SkillSetのパッケージング・交換機能を含む。
 todos:
   - id: phase1-skillset-infra
     content: "Phase 1: SkillSet Plugin Infrastructure (SkillSetManager, ToolRegistry拡張, path helpers, CLI)"
-    status: pending
+    status: completed
   - id: phase2-mmp-skillset
     content: "Phase 2: MMP SkillSetパッケージング (feature/meeting-protocol から移植・再構成、KairosChain依存除去、ChainAdapter)"
-    status: pending
+    status: completed
   - id: phase2-p2p-direct
     content: "Phase 2: P2P Direct Mode実装 (HTTP server上のMMP endpoints, introduce/exchange/disconnect)"
-    status: pending
+    status: completed
   - id: phase2-5-test
     content: "Phase 2.5: P2Pローカルテスト (SkillSet基盤テスト、MMP SkillSetロードテスト、P2P通信テスト、SkillSet統合テスト)"
-    status: pending
+    status: completed
+  - id: phase3a-package
+    content: "Phase 3A: Skillset に knowledge_only?/exchangeable?/file_list 追加、SkillSetManager に package/install_from_archive 追加、CLI に package/install-archive コマンド追加"
+    status: completed
+  - id: phase3b-endpoints
+    content: "Phase 3B: MeetingRouter に skillsets/skillset_details/skillset_content エンドポイント追加、Identity に exchangeable_skillsets 追加、Protocol Extension MD作成、meeting.yml/skillset.json 更新"
+    status: completed
+  - id: phase3c-test
+    content: "Phase 3C: test_p2p_skillset_exchange.rb に Section 5 (SkillSet Exchange via MMP) 追加、全テスト実行・確認"
+    status: completed
 isProject: false
 ---
 
@@ -442,38 +451,123 @@ sequenceDiagram
 ruby test_p2p_skillset_exchange.rb
 ```
 
+## Phase 3: SkillSet Exchange Minimal
+
+### Background
+
+Phase 2.5完了時点で個別Skill（Markdownファイル）の交換のみ可能だったが、SkillSet単位での交換手段がなかった。Phase 3では knowledge-only SkillSet に限定した安全な SkillSet 交換を実装。
+
+### 3A: SkillSetManager のパッケージング拡張
+
+**Skillset クラス拡張** — [lib/kairos_mcp/skillset.rb](KairosChain_mcp_server/lib/kairos_mcp/skillset.rb):
+
+- `knowledge_only?`: `tools/` と `lib/` に `.rb` ファイルがないことを判定
+- `exchangeable?`: `knowledge_only? && valid?`
+- `file_list`: SkillSet内全ファイルの相対パスリスト
+
+**SkillSetManager 拡張** — [lib/kairos_mcp/skillset_manager.rb](KairosChain_mcp_server/lib/kairos_mcp/skillset_manager.rb):
+
+- `package(name)`: knowledge-only SkillSetをtar.gz→Base64 JSONにパッケージング
+- `install_from_archive(archive_data)`: Base64 JSONアーカイブからSkillSetをインストール
+  - content_hash検証、knowledge-only制約チェック、重複インストール防止
+- `rubygems/package` + `zlib` を使用（外部依存なし）
+
+**CLI 拡張** — [bin/kairos-chain](KairosChain_mcp_server/bin/kairos-chain):
+
+- `kairos-chain skillset package <name>` — JSON archiveをstdoutに出力
+- `kairos-chain skillset install-archive <file|->` — アーカイブからインストール
+
+### 3B: MMP P2P SkillSet交換エンドポイント
+
+**MeetingRouter 拡張** — [lib/kairos_mcp/meeting_router.rb](KairosChain_mcp_server/lib/kairos_mcp/meeting_router.rb):
+
+- `GET /meeting/v1/skillsets` — 交換可能なSkillSet一覧
+- `GET /meeting/v1/skillset_details?name=xxx` — SkillSet詳細情報
+- `POST /meeting/v1/skillset_content` — SkillSetアーカイブの送信
+
+**MMP Identity 拡張** — [templates/skillsets/mmp/lib/mmp/identity.rb](KairosChain_mcp_server/templates/skillsets/mmp/lib/mmp/identity.rb):
+
+- `introduce` に `exchangeable_skillsets` フィールドを追加
+
+**Protocol Extension** — NEW: `templates/skillsets/mmp/knowledge/meeting_protocol_skillset_exchange/meeting_protocol_skillset_exchange.md`
+
+- `offer_skillset`, `request_skillset`, `skillset_content`, `list_skillsets` アクション定義
+
+**Config 更新** — [templates/skillsets/mmp/config/meeting.yml](KairosChain_mcp_server/templates/skillsets/mmp/config/meeting.yml):
+
+- `skillset_exchange` セクション追加 (`enabled`, `knowledge_only`, `auto_install`)
+
+**skillset.json 更新** — `provides` に `skillset_exchange` 追加、`knowledge_dirs` に新プロトコル拡張追加
+
+### 3C: テスト (Section 5)
+
+**test_p2p_skillset_exchange.rb** に Section 5 (42 assertions) を追加:
+
+1. knowledge-only SkillSet の作成・判定テスト
+2. MMP (executable) の packaging 拒否テスト
+3. `GET /meeting/v1/skillsets` エンドポイントテスト
+4. `GET /meeting/v1/skillset_details` エンドポイントテスト
+5. `POST /meeting/v1/skillset_content` アーカイブ取得テスト
+6. Agent B での `install_from_archive` テスト
+7. content_hash一致、ファイル内容一致の検証
+8. executable archive のインストール拒否テスト
+9. `introduce` の `exchangeable_skillsets` フィールドテスト
+10. 重複インストール拒否テスト
+
+**テスト結果: 114 passed, 0 failed** (既存72 + 新規42)
+
 ## Scope Boundary (ここで一旦停止)
 
-Phase 2.5 完了時点で以下が動作確認可能:
+Phase 3C 完了時点で以下が動作確認可能:
 
 - KairosChainのSkillSet plugin機構
 - MMP SkillSetのinstall/enable/disable
-- KairosChain P2P direct modeでのskill交換
+- KairosChain P2P direct modeでの個別skill交換
+- knowledge-only SkillSetのパッケージング/アンパッケージング
+- MMP P2P エンドポイント経由でのSkillSet一覧取得・詳細取得・アーカイブ交換
+- 受信SkillSetのcontent_hash検証とインストール
+- tools/lib含むSkillSetの交換ブロック（セキュリティ）
 - Blockchain provenance記録
 
 以下は**次フェーズ** (別プラン):
 
 - HestiaChain SkillSet
-- Meeting Place Server
+- Meeting Place Server経由のSkillSet交換
 - Meeting Place間通信
 - Public chain anchoring
 
 ## Files to Create/Modify Summary
 
-**New files:**
+**New files (Phase 1-2):**
 
 - `lib/kairos_mcp/skillset_manager.rb` — SkillSet管理コア
 - `lib/kairos_mcp/skillset.rb` — SkillSetクラス（個別SkillSet表現）
+- `lib/kairos_mcp/meeting_router.rb` — MMP P2Pエンドポイントルーター
 - `templates/skillsets/mmp/` — MMP SkillSet一式（上記2.1の構成）
 - `test_p2p_skillset_exchange.rb` — P2Pテストスクリプト
 
-**Modified files:**
+**New files (Phase 3):**
+
+- `templates/skillsets/mmp/knowledge/meeting_protocol_skillset_exchange/meeting_protocol_skillset_exchange.md` — SkillSet交換Protocol Extension
+
+**Modified files (Phase 1-2):**
 
 - `lib/kairos_mcp.rb` — skillsets_dir等のpath helpers追加
 - `lib/kairos_mcp/tool_registry.rb` — register_skillset_tools追加
-- `lib/kairos_mcp/knowledge_provider.rb` — add_external_dir追加、list/get/search/skill_dirs/rebuild_indexを外部dir対応に拡張
+- `lib/kairos_mcp/knowledge_provider.rb` — add_external_dir追加、外部dir対応に拡張
 - `lib/kairos_mcp/layer_registry.rb` — SkillSetレイヤー(:L0/:L1/:L2)をクエリ可能に拡張
 - `bin/kairos-chain` — skillsetサブコマンド追加
+
+**Modified files (Phase 3):**
+
+- `lib/kairos_mcp/skillset.rb` — knowledge_only?, exchangeable?, file_list 追加
+- `lib/kairos_mcp/skillset_manager.rb` — package, install_from_archive, tar.gz helpers 追加
+- `lib/kairos_mcp/meeting_router.rb` — SkillSet交換エンドポイント3つ追加
+- `templates/skillsets/mmp/lib/mmp/identity.rb` — exchangeable_skillsets 追加
+- `templates/skillsets/mmp/config/meeting.yml` — skillset_exchange セクション追加
+- `templates/skillsets/mmp/skillset.json` — provides, knowledge_dirs 更新
+- `bin/kairos-chain` — package, install-archive サブコマンド追加
+- `test_p2p_skillset_exchange.rb` — Section 5 追加
 
 **Referenced from feature/meeting-protocol (移植・再構成):**
 

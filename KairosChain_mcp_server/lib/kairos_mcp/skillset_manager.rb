@@ -3,6 +3,9 @@
 require 'yaml'
 require 'fileutils'
 require 'set'
+require 'base64'
+require 'zlib'
+require 'rubygems/package'
 require_relative 'skillset'
 require_relative '../kairos_mcp'
 
@@ -115,6 +118,71 @@ module KairosMcp
       { success: true, name: name }
     end
 
+    # Package a knowledge-only SkillSet as a Base64-encoded tar.gz archive
+    def package(name)
+      skillset = find_skillset(name)
+      raise ArgumentError, "SkillSet '#{name}' not found" unless skillset
+      raise SecurityError, "Only knowledge-only SkillSets can be packaged for exchange" unless skillset.knowledge_only?
+
+      tar_gz = create_tar_gz(skillset.path, skillset.name)
+      {
+        name: skillset.name,
+        version: skillset.version,
+        layer: skillset.layer.to_s,
+        description: skillset.description,
+        content_hash: skillset.content_hash,
+        file_list: skillset.file_list,
+        archive_base64: Base64.strict_encode64(tar_gz),
+        packaged_at: Time.now.utc.iso8601
+      }
+    end
+
+    # Install a SkillSet from a Base64-encoded tar.gz archive
+    def install_from_archive(archive_data, layer_override: nil)
+      archive_data = symbolize_keys(archive_data)
+      name = archive_data[:name]
+      raise ArgumentError, "Archive missing 'name'" unless name
+      raise ArgumentError, "Archive missing 'archive_base64'" unless archive_data[:archive_base64]
+
+      dest = File.join(@skillsets_dir, name)
+      raise ArgumentError, "SkillSet '#{name}' already installed at #{dest}" if File.directory?(dest)
+
+      Dir.mktmpdir('kairos_ss_install') do |tmpdir|
+        tar_gz_data = Base64.strict_decode64(archive_data[:archive_base64])
+        extract_tar_gz(tar_gz_data, tmpdir)
+
+        extracted = File.join(tmpdir, name)
+        raise ArgumentError, "Archive does not contain expected directory '#{name}'" unless File.directory?(extracted)
+
+        temp_skillset = Skillset.new(extracted)
+        raise ArgumentError, "Invalid SkillSet: missing required fields" unless temp_skillset.valid?
+
+        unless temp_skillset.knowledge_only?
+          raise SecurityError, "Refusing to install SkillSet with executable code (tools/ or lib/) from archive"
+        end
+
+        if archive_data[:content_hash]
+          actual_hash = temp_skillset.content_hash
+          unless actual_hash == archive_data[:content_hash]
+            raise SecurityError, "Content hash mismatch: expected #{archive_data[:content_hash]}, got #{actual_hash}"
+          end
+        end
+
+        FileUtils.mkdir_p(@skillsets_dir)
+        FileUtils.cp_r(extracted, dest)
+
+        installed = Skillset.new(dest)
+        installed.layer = layer_override if layer_override
+
+        set_config(installed.name, 'layer_override', layer_override.to_s) if layer_override
+        set_config(installed.name, 'enabled', true)
+        record_skillset_event(installed, 'install_from_archive')
+
+        { success: true, name: installed.name, version: installed.version,
+          layer: installed.layer, path: dest, content_hash: installed.content_hash }
+      end
+    end
+
     # Get info about a specific SkillSet
     def info(name)
       skillset = find_skillset(name)
@@ -220,6 +288,55 @@ module KairosMcp
       when :L1 then :hash_only
       when :L2 then :none
       else :none
+      end
+    end
+
+    # Create a tar.gz archive from a directory, wrapping contents in a named folder
+    def create_tar_gz(source_dir, archive_name)
+      io = StringIO.new
+      Zlib::GzipWriter.wrap(io) do |gz|
+        Gem::Package::TarWriter.new(gz) do |tar|
+          Dir[File.join(source_dir, '**', '*')].sort.each do |full_path|
+            relative = full_path.sub("#{source_dir}/", '')
+            stat = File.stat(full_path)
+
+            if File.directory?(full_path)
+              tar.mkdir("#{archive_name}/#{relative}", stat.mode)
+            else
+              content = File.binread(full_path)
+              tar.add_file_simple("#{archive_name}/#{relative}", stat.mode, content.bytesize) do |tio|
+                tio.write(content)
+              end
+            end
+          end
+        end
+      end
+      io.string
+    end
+
+    # Extract a tar.gz archive into target_dir
+    def extract_tar_gz(tar_gz_data, target_dir)
+      io = StringIO.new(tar_gz_data)
+      Zlib::GzipReader.wrap(io) do |gz|
+        Gem::Package::TarReader.new(gz) do |tar|
+          tar.each do |entry|
+            dest = File.join(target_dir, entry.full_name)
+            if entry.directory?
+              FileUtils.mkdir_p(dest)
+            elsif entry.file?
+              FileUtils.mkdir_p(File.dirname(dest))
+              File.binwrite(dest, entry.read)
+            end
+          end
+        end
+      end
+    end
+
+    def symbolize_keys(hash)
+      return hash unless hash.is_a?(Hash)
+
+      hash.each_with_object({}) do |(k, v), result|
+        result[k.to_sym] = v
       end
     end
 

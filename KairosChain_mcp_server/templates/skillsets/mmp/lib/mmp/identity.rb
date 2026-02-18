@@ -17,6 +17,7 @@ module MMP
         identity: identity_info,
         capabilities: capabilities_info,
         skills: available_skills,
+        exchangeable_skillsets: exchangeable_skillset_info,
         constraints: constraints_info,
         exchange_policy: exchange_policy,
         timestamp: Time.now.utc.iso8601
@@ -137,6 +138,19 @@ module MMP
     def generate_instance_id
       seed = [@workspace_root, @config.to_s].join(':')
       Digest::SHA256.hexdigest(seed)[0, 16]
+    end
+
+    def exchangeable_skillset_info
+      return [] unless defined?(KairosMcp)
+
+      require 'kairos_mcp/skillset_manager'
+      manager = KairosMcp::SkillSetManager.new
+      manager.all_skillsets.select(&:exchangeable?).map do |ss|
+        { name: ss.name, version: ss.version, layer: ss.layer.to_s,
+          description: ss.description, content_hash: ss.content_hash }
+      end
+    rescue StandardError
+      []
     end
 
     def knowledge_path
