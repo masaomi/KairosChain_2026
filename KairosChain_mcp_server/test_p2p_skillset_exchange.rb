@@ -647,6 +647,171 @@ section('5. SkillSet Exchange via MMP') do
 end
 
 # ============================================================================
+# Section 6: Security & Wire Protocol Spec
+# ============================================================================
+section('6. Security & Wire Protocol Spec') do
+  # --- H4: SkillSet name sanitization ---
+  KairosMcp.data_dir = dir_a
+  manager_sec = KairosMcp::SkillSetManager.new
+
+  # Path traversal name
+  begin
+    manager_sec.install_from_archive({ name: '../../evil', archive_base64: Base64.strict_encode64('x') })
+    assert('name "../../evil" should be rejected') { false }
+  rescue ArgumentError => e
+    assert('name "../../evil" raises ArgumentError') { e.message.include?('Invalid SkillSet name') }
+  end
+
+  # Slash in name
+  begin
+    manager_sec.install_from_archive({ name: 'foo/bar', archive_base64: Base64.strict_encode64('x') })
+    assert('name "foo/bar" should be rejected') { false }
+  rescue ArgumentError => e
+    assert('name "foo/bar" raises ArgumentError') { e.message.include?('Invalid SkillSet name') }
+  end
+
+  # Empty name
+  begin
+    manager_sec.install_from_archive({ name: '', archive_base64: Base64.strict_encode64('x') })
+    assert('empty name should be rejected') { false }
+  rescue ArgumentError => e
+    assert('empty name raises ArgumentError') { e.message.include?('cannot be empty') }
+  end
+
+  # Valid name passes validation (will fail later for other reasons, but name check passes)
+  begin
+    manager_sec.install_from_archive({ name: 'my-skillset_v2', archive_base64: Base64.strict_encode64('x') })
+    assert('valid name should pass validation') { false } # will fail on decode
+  rescue ArgumentError => e
+    # If error is about name, that's a fail; if about archive content, name passed
+    assert('valid name "my-skillset_v2" passes name validation') { !e.message.include?('Invalid SkillSet name') }
+  rescue Zlib::GzipFile::Error
+    # Archive decode failed = name validation passed
+    assert('valid name "my-skillset_v2" passes name validation') { true }
+  end
+
+  # --- H1: tar.gz Path Traversal ---
+  # Create a malicious archive with path traversal entry
+  malicious_tar_gz = StringIO.new
+  Zlib::GzipWriter.wrap(malicious_tar_gz) do |gz|
+    Gem::Package::TarWriter.new(gz) do |tar|
+      tar.add_file_simple('../../evil.txt', 0o644, 10) { |tio| tio.write('evil data!') }
+    end
+  end
+
+  Dir.mktmpdir('tar_traversal_test') do |tmpdir|
+    begin
+      manager_sec.send(:extract_tar_gz, malicious_tar_gz.string, tmpdir)
+      assert('path traversal tar.gz should raise SecurityError') { false }
+    rescue SecurityError => e
+      assert('path traversal in tar.gz raises SecurityError') { e.message.include?('Path traversal') }
+    end
+  end
+
+  # Create archive with symlink entry - should be silently skipped
+  # Note: TarWriter doesn't easily create symlinks, so we test that normal archives work
+  # as a regression test (symlink handling is a next/skip in the code)
+  normal_tar_gz = StringIO.new
+  Zlib::GzipWriter.wrap(normal_tar_gz) do |gz|
+    Gem::Package::TarWriter.new(gz) do |tar|
+      tar.mkdir('safe_dir', 0o755)
+      tar.add_file_simple('safe_dir/file.txt', 0o644, 5) { |tio| tio.write('hello') }
+    end
+  end
+
+  Dir.mktmpdir('tar_normal_test') do |tmpdir|
+    manager_sec.send(:extract_tar_gz, normal_tar_gz.string, tmpdir)
+    assert('normal archive extracts successfully') {
+      File.exist?(File.join(tmpdir, 'safe_dir', 'file.txt'))
+    }
+    assert('normal archive content is correct') {
+      File.read(File.join(tmpdir, 'safe_dir', 'file.txt')) == 'hello'
+    }
+  end
+
+  # --- H5: knowledge_only? extension ---
+  # SkillSet with .py in tools/
+  Dir.mktmpdir('ko_test') do |tmpdir|
+    ss_dir = File.join(tmpdir, 'py_ss')
+    FileUtils.mkdir_p(File.join(ss_dir, 'tools'))
+    File.write(File.join(ss_dir, 'skillset.json'), JSON.generate({
+      'name' => 'py_ss', 'version' => '1.0.0'
+    }))
+    File.write(File.join(ss_dir, 'tools', 'script.py'), 'print("hello")')
+    ss = KairosMcp::Skillset.new(ss_dir)
+    assert('tools/script.py => knowledge_only? is false') { !ss.knowledge_only? }
+  end
+
+  # SkillSet with .sh in lib/
+  Dir.mktmpdir('ko_test') do |tmpdir|
+    ss_dir = File.join(tmpdir, 'sh_ss')
+    FileUtils.mkdir_p(File.join(ss_dir, 'lib'))
+    File.write(File.join(ss_dir, 'skillset.json'), JSON.generate({
+      'name' => 'sh_ss', 'version' => '1.0.0'
+    }))
+    File.write(File.join(ss_dir, 'lib', 'run.sh'), '#!/bin/bash\necho hi')
+    ss = KairosMcp::Skillset.new(ss_dir)
+    assert('lib/run.sh => knowledge_only? is false') { !ss.knowledge_only? }
+  end
+
+  # SkillSet with shebang but no known extension
+  Dir.mktmpdir('ko_test') do |tmpdir|
+    ss_dir = File.join(tmpdir, 'shebang_ss')
+    FileUtils.mkdir_p(File.join(ss_dir, 'tools'))
+    File.write(File.join(ss_dir, 'skillset.json'), JSON.generate({
+      'name' => 'shebang_ss', 'version' => '1.0.0'
+    }))
+    File.write(File.join(ss_dir, 'tools', 'runner'), "#!/usr/bin/env python3\nprint('hi')")
+    ss = KairosMcp::Skillset.new(ss_dir)
+    assert('shebang file => knowledge_only? is false') { !ss.knowledge_only? }
+  end
+
+  # SkillSet with only .md and .yml files
+  Dir.mktmpdir('ko_test') do |tmpdir|
+    ss_dir = File.join(tmpdir, 'md_ss')
+    FileUtils.mkdir_p(File.join(ss_dir, 'tools'))
+    FileUtils.mkdir_p(File.join(ss_dir, 'lib'))
+    File.write(File.join(ss_dir, 'skillset.json'), JSON.generate({
+      'name' => 'md_ss', 'version' => '1.0.0'
+    }))
+    File.write(File.join(ss_dir, 'tools', 'readme.md'), '# Tools readme')
+    File.write(File.join(ss_dir, 'lib', 'config.yml'), 'key: value')
+    ss = KairosMcp::Skillset.new(ss_dir)
+    assert('.md/.yml only => knowledge_only? is true') { ss.knowledge_only? }
+  end
+
+  # --- Wire Protocol Spec tests ---
+  KairosMcp.data_dir = dir_a
+  ::MMP.instance_variable_set(:@config, nil) if ::MMP.respond_to?(:instance_variable_set)
+
+  wire_spec_path = File.join(
+    KairosMcp.skillsets_dir, 'mmp', 'knowledge',
+    'meeting_protocol_wire_spec', 'meeting_protocol_wire_spec.md'
+  )
+
+  assert('wire spec file exists in MMP knowledge') { File.exist?(wire_spec_path) }
+
+  if File.exist?(wire_spec_path)
+    wire_content = File.read(wire_spec_path)
+
+    # Check frontmatter
+    assert('wire spec has type: protocol_specification') {
+      wire_content.include?('type: protocol_specification')
+    }
+    assert('wire spec has public: true') {
+      wire_content.include?('public: true')
+    }
+
+    # Check it is discoverable as MMP SkillSet knowledge via KnowledgeProvider
+    mmp_knowledge_dir = File.join(KairosMcp.skillsets_dir, 'mmp', 'knowledge')
+    wire_spec_files = Dir[File.join(mmp_knowledge_dir, '**', '*.md')].select { |f|
+      f.include?('wire_spec')
+    }
+    assert('wire spec discoverable in MMP knowledge dirs') { wire_spec_files.size > 0 }
+  end
+end
+
+# ============================================================================
 # Cleanup
 # ============================================================================
 FileUtils.rm_rf(dir_a)

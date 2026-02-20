@@ -15,6 +15,9 @@ module KairosMcp
   # Handles discovery, loading, dependency resolution, enable/disable state,
   # and layer-aware governance (blockchain recording, RAG indexing).
   class SkillSetManager
+    SAFE_NAME_PATTERN = /\A[a-zA-Z0-9][a-zA-Z0-9_-]*\z/
+    MAX_NAME_LENGTH = 64
+
     attr_reader :skillsets_dir
 
     def initialize(skillsets_dir: nil)
@@ -78,6 +81,7 @@ module KairosMcp
 
       temp_skillset = Skillset.new(source_path)
       raise ArgumentError, "Invalid SkillSet: missing required fields" unless temp_skillset.valid?
+      validate_skillset_name!(temp_skillset.name)
 
       dest = File.join(@skillsets_dir, temp_skillset.name)
       if File.directory?(dest)
@@ -142,6 +146,7 @@ module KairosMcp
       archive_data = symbolize_keys(archive_data)
       name = archive_data[:name]
       raise ArgumentError, "Archive missing 'name'" unless name
+      validate_skillset_name!(name)
       raise ArgumentError, "Archive missing 'archive_base64'" unless archive_data[:archive_base64]
 
       dest = File.join(@skillsets_dir, name)
@@ -156,6 +161,10 @@ module KairosMcp
 
         temp_skillset = Skillset.new(extracted)
         raise ArgumentError, "Invalid SkillSet: missing required fields" unless temp_skillset.valid?
+
+        unless temp_skillset.name == name
+          raise ArgumentError, "Archive name mismatch: declared '#{name}' but skillset.json contains '#{temp_skillset.name}'"
+        end
 
         unless temp_skillset.knowledge_only?
           raise SecurityError, "Refusing to install SkillSet with executable code (tools/ or lib/) from archive"
@@ -197,6 +206,15 @@ module KairosMcp
     end
 
     private
+
+    # Validate SkillSet name against safe pattern
+    def validate_skillset_name!(name)
+      raise ArgumentError, "SkillSet name cannot be empty" if name.nil? || name.to_s.strip.empty?
+      raise ArgumentError, "SkillSet name too long (max #{MAX_NAME_LENGTH}): #{name}" if name.length > MAX_NAME_LENGTH
+      unless SAFE_NAME_PATTERN.match?(name)
+        raise ArgumentError, "Invalid SkillSet name '#{name}': must match #{SAFE_NAME_PATTERN.source}"
+      end
+    end
 
     # Discover all SkillSets in the skillsets directory
     def discover_skillsets
@@ -314,13 +332,22 @@ module KairosMcp
       io.string
     end
 
-    # Extract a tar.gz archive into target_dir
+    # Extract a tar.gz archive into target_dir with path traversal protection
     def extract_tar_gz(tar_gz_data, target_dir)
+      target_dir = File.expand_path(target_dir)
       io = StringIO.new(tar_gz_data)
       Zlib::GzipReader.wrap(io) do |gz|
         Gem::Package::TarReader.new(gz) do |tar|
           tar.each do |entry|
-            dest = File.join(target_dir, entry.full_name)
+            # Reject symlinks and hard links
+            next if entry.header.typeflag == '2' # symlink
+            next if entry.header.typeflag == '1' # hard link
+
+            dest = File.expand_path(File.join(target_dir, entry.full_name))
+            unless dest.start_with?(target_dir + '/') || dest == target_dir
+              raise SecurityError, "Path traversal detected in archive: #{entry.full_name}"
+            end
+
             if entry.directory?
               FileUtils.mkdir_p(dest)
             elsif entry.file?

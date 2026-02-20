@@ -12,6 +12,7 @@ module KairosMcp
   class Skillset
     REQUIRED_FIELDS = %w[name version].freeze
     VALID_LAYERS = %i[L0 L1 L2].freeze
+    EXECUTABLE_EXTENSIONS = %w[.rb .py .sh .js .ts .pl .lua .exe .so .dylib .dll .class .jar .wasm].freeze
 
     attr_reader :name, :path, :metadata
 
@@ -129,12 +130,19 @@ module KairosMcp
       hashes
     end
 
-    # True if the SkillSet contains no executable code (tools/ or lib/ with .rb files)
+    # True if the SkillSet contains no executable code (tools/ or lib/)
+    # Checks for executable extensions (.rb, .py, .sh, etc.) and shebang lines
     def knowledge_only?
       tools_dir = File.join(@path, 'tools')
       lib_dir = File.join(@path, 'lib')
-      no_tools = !File.directory?(tools_dir) || Dir[File.join(tools_dir, '*.rb')].empty?
-      no_lib = !File.directory?(lib_dir) || Dir[File.join(lib_dir, '**', '*.rb')].empty?
+      no_tools = !File.directory?(tools_dir) ||
+        Dir[File.join(tools_dir, '**', '*')].none? { |f|
+          File.file?(f) && (executable_extension?(f) || has_shebang?(f))
+        }
+      no_lib = !File.directory?(lib_dir) ||
+        Dir[File.join(lib_dir, '**', '*')].none? { |f|
+          File.file?(f) && (executable_extension?(f) || has_shebang?(f))
+        }
       no_tools && no_lib
     end
 
@@ -175,6 +183,16 @@ module KairosMcp
     end
 
     private
+
+    def executable_extension?(filepath)
+      EXECUTABLE_EXTENSIONS.include?(File.extname(filepath).downcase)
+    end
+
+    def has_shebang?(filepath)
+      File.binread(filepath, 2) == '#!'
+    rescue StandardError
+      false
+    end
 
     def load_metadata
       json_path = File.join(@path, 'skillset.json')

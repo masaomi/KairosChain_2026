@@ -13,5 +13,5 @@
     "KairosMcp::SkillSets::MMP::Tools::MeetingGetSkillDetails"
   ],
   "config_files": ["config/meeting.yml"],
-  "knowledge_dirs": ["knowledge/meeting_protocol_core", "knowledge/meeting_protocol_skillset_exchange"]
+  "knowledge_dirs": ["knowledge/meeting_protocol_core", "knowledge/meeting_protocol_skillset_exchange", "knowledge/meeting_protocol_wire_spec"]
 }
