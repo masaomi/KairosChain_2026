@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-20
 **Version**: 1.0.0
-**Author**: Dr. Masa Hatakeyama
+**Author**: Masaomi Hatakeyama
 **Branch**: `feature/skillset-plugin`
 
 ---

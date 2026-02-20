@@ -2,7 +2,7 @@
 
 **日付**: 2026-02-20
 **バージョン**: 1.0.0
-**著者**: 畠山 正 博士
+**著者**: Masaomi Hatakeyama
 **ブランチ**: `feature/skillset-plugin`
 
 ---
