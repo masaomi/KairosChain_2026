@@ -53,7 +53,13 @@ module KairosMcp
     end
 
     def depends_on
-      @metadata['depends_on'] || []
+      parsed_depends_on.map { |d| d[:name] }
+    end
+
+    # Detailed dependency info with version constraints
+    # Each element: { name: String, version: String|nil }
+    def depends_on_with_versions
+      parsed_depends_on
     end
 
     def provides
@@ -186,6 +192,24 @@ module KairosMcp
 
     def executable_extension?(filepath)
       EXECUTABLE_EXTENSIONS.include?(File.extname(filepath).downcase)
+    end
+
+    # Normalize depends_on entries to { name:, version: } format
+    # Supports: ["mmp"]  (old format, no version constraint)
+    #           [{ "name": "mmp", "version": ">= 1.0.0" }]  (new format)
+    #           Mixed arrays of both formats
+    def parsed_depends_on
+      raw = @metadata['depends_on'] || []
+      raw.map do |dep|
+        case dep
+        when String
+          { name: dep, version: nil }
+        when Hash
+          { name: dep['name'], version: dep['version'] }
+        else
+          raise ArgumentError, "Invalid depends_on entry: #{dep.inspect}"
+        end
+      end
     end
 
     def has_shebang?(filepath)

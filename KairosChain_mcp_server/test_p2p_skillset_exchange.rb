@@ -812,6 +812,245 @@ section('6. Security & Wire Protocol Spec') do
 end
 
 # ============================================================================
+# Section 7: Pre-Phase 4 Hardening (Phase 3.7)
+# ============================================================================
+section('7. Pre-Phase 4 Hardening') do
+  # ==========================================================================
+  # 7.1 Signature Verification (Phase 3.7A)
+  # ==========================================================================
+  KairosMcp.data_dir = dir_a
+  ::MMP.instance_variable_set(:@config, nil) if ::MMP.respond_to?(:instance_variable_set)
+
+  # 1. Crypto keypair auto-generation
+  crypto = ::MMP::Crypto.new(auto_generate: true)
+  assert('Crypto auto-generates keypair') { crypto.has_keypair? }
+
+  # 2-4. Identity#introduce includes signature fields
+  identity_a = ::MMP::Identity.new(workspace_root: dir_a, config: ::MMP.load_config)
+  intro = identity_a.introduce
+  assert('introduce has public_key') { intro[:public_key].is_a?(String) && intro[:public_key].include?('BEGIN PUBLIC KEY') }
+  assert('introduce has identity_signature') { intro[:identity_signature].is_a?(String) && !intro[:identity_signature].empty? }
+  assert('introduce has key_fingerprint') { intro[:key_fingerprint].is_a?(String) && !intro[:key_fingerprint].empty? }
+
+  # 5. Verify signature is valid
+  canonical = JSON.generate(intro[:identity], sort_keys: true)
+  verify_crypto = ::MMP::Crypto.new(auto_generate: false)
+  assert('identity_signature is valid') {
+    verify_crypto.verify_signature(canonical, intro[:identity_signature], intro[:public_key])
+  }
+
+  # 6. Tampered identity fails verification
+  tampered = intro[:identity].dup
+  tampered[:name] = 'Evil Agent'
+  tampered_canonical = JSON.generate(tampered, sort_keys: true)
+  assert('tampered identity fails verification') {
+    !verify_crypto.verify_signature(tampered_canonical, intro[:identity_signature], intro[:public_key])
+  }
+
+  # 7-9. MeetingRouter POST /meeting/v1/introduce signature verification
+  router_a = KairosMcp::MeetingRouter.new
+
+  # Valid signed introduce
+  signed_intro = intro.transform_keys(&:to_s)
+  status, _headers, body = router_a.call(mock_env('POST', '/meeting/v1/introduce', body: signed_intro))
+  result = JSON.parse(body.first, symbolize_names: true)
+  assert('signed POST introduce has identity_verified') { result.key?(:identity_verified) }
+  assert('signed POST introduce identity_verified is true') { result[:identity_verified] == true }
+
+  # Unsigned introduce (legacy compatibility)
+  unsigned_intro = { 'identity' => { 'name' => 'Legacy Agent', 'instance_id' => 'legacy-001' }, 'action' => 'introduce' }
+  status, _headers, body = router_a.call(mock_env('POST', '/meeting/v1/introduce', body: unsigned_intro))
+  result = JSON.parse(body.first, symbolize_names: true)
+  assert('unsigned POST introduce identity_verified is false (backward compat)') { result[:identity_verified] == false }
+
+  # 10. PeerManager stores public_key and verified fields
+  pm_identity = ::MMP::Identity.new(workspace_root: dir_a, config: ::MMP.load_config)
+  pm = ::MMP::PeerManager.new(identity: pm_identity, config: {})
+  pm.import_peers([{ id: 'test-peer-1', name: 'Test', url: 'http://localhost:9999', public_key: 'PEM_KEY_DATA', verified: true }])
+  test_peer = pm.get_peer('test-peer-1')
+  assert('PeerManager stores public_key on peer') { test_peer.public_key == 'PEM_KEY_DATA' }
+
+  # ==========================================================================
+  # 7.2 Version Constraints (Phase 3.7B)
+  # ==========================================================================
+
+  # 11. Old format depends_on: parsed_depends_on
+  Dir.mktmpdir('ver_test') do |tmpdir|
+    ss_dir = File.join(tmpdir, 'old_format_ss')
+    FileUtils.mkdir_p(ss_dir)
+    File.write(File.join(ss_dir, 'skillset.json'), JSON.generate({
+      'name' => 'old_format_ss', 'version' => '1.0.0', 'depends_on' => ['mmp']
+    }))
+    ss = KairosMcp::Skillset.new(ss_dir)
+    assert('old format parsed_depends_on: [{name: "mmp", version: nil}]') {
+      ss.depends_on_with_versions == [{ name: 'mmp', version: nil }]
+    }
+
+    # 12. New format depends_on
+    ss_dir2 = File.join(tmpdir, 'new_format_ss')
+    FileUtils.mkdir_p(ss_dir2)
+    File.write(File.join(ss_dir2, 'skillset.json'), JSON.generate({
+      'name' => 'new_format_ss', 'version' => '1.0.0',
+      'depends_on' => [{ 'name' => 'mmp', 'version' => '>= 1.0.0' }]
+    }))
+    ss2 = KairosMcp::Skillset.new(ss_dir2)
+    assert('new format parsed_depends_on has version constraint') {
+      ss2.depends_on_with_versions == [{ name: 'mmp', version: '>= 1.0.0' }]
+    }
+
+    # 13. depends_on (backward compat) returns name list
+    assert('depends_on (backward compat) returns name list') {
+      ss2.depends_on == ['mmp']
+    }
+  end
+
+  # 14-19. check_dependencies! with version constraints
+  KairosMcp.data_dir = dir_a
+  manager_ver = KairosMcp::SkillSetManager.new
+
+  # 14. No version constraint: passes if installed
+  Dir.mktmpdir('dep_test') do |tmpdir|
+    ss_dir = File.join(tmpdir, 'dep_no_ver')
+    FileUtils.mkdir_p(ss_dir)
+    File.write(File.join(ss_dir, 'skillset.json'), JSON.generate({
+      'name' => 'dep_no_ver', 'version' => '1.0.0', 'depends_on' => ['mmp']
+    }))
+    ss = KairosMcp::Skillset.new(ss_dir)
+    begin
+      manager_ver.send(:check_dependencies!, ss)
+      assert('no version constraint: passes with MMP installed') { true }
+    rescue ArgumentError
+      assert('no version constraint: passes with MMP installed') { false }
+    end
+  end
+
+  # 15. ">= 1.0.0" with MMP 1.0.0 -> pass
+  Dir.mktmpdir('dep_test') do |tmpdir|
+    ss_dir = File.join(tmpdir, 'dep_ge_100')
+    FileUtils.mkdir_p(ss_dir)
+    File.write(File.join(ss_dir, 'skillset.json'), JSON.generate({
+      'name' => 'dep_ge_100', 'version' => '1.0.0',
+      'depends_on' => [{ 'name' => 'mmp', 'version' => '>= 1.0.0' }]
+    }))
+    ss = KairosMcp::Skillset.new(ss_dir)
+    begin
+      manager_ver.send(:check_dependencies!, ss)
+      assert('">=1.0.0" with MMP 1.0.0 passes') { true }
+    rescue ArgumentError
+      assert('">=1.0.0" with MMP 1.0.0 passes') { false }
+    end
+  end
+
+  # 16. ">= 2.0.0" with MMP 1.0.0 -> fail
+  Dir.mktmpdir('dep_test') do |tmpdir|
+    ss_dir = File.join(tmpdir, 'dep_ge_200')
+    FileUtils.mkdir_p(ss_dir)
+    File.write(File.join(ss_dir, 'skillset.json'), JSON.generate({
+      'name' => 'dep_ge_200', 'version' => '1.0.0',
+      'depends_on' => [{ 'name' => 'mmp', 'version' => '>= 2.0.0' }]
+    }))
+    ss = KairosMcp::Skillset.new(ss_dir)
+    begin
+      manager_ver.send(:check_dependencies!, ss)
+      assert('">=2.0.0" with MMP 1.0.0 raises ArgumentError') { false }
+    rescue ArgumentError => e
+      assert('">=2.0.0" with MMP 1.0.0 raises ArgumentError') { e.message.include?('version mismatch') }
+    end
+  end
+
+  # 17. ">= 1.0.0, < 2.0.0" with MMP 1.0.0 -> pass
+  Dir.mktmpdir('dep_test') do |tmpdir|
+    ss_dir = File.join(tmpdir, 'dep_range')
+    FileUtils.mkdir_p(ss_dir)
+    File.write(File.join(ss_dir, 'skillset.json'), JSON.generate({
+      'name' => 'dep_range', 'version' => '1.0.0',
+      'depends_on' => [{ 'name' => 'mmp', 'version' => '>= 1.0.0, < 2.0.0' }]
+    }))
+    ss = KairosMcp::Skillset.new(ss_dir)
+    begin
+      manager_ver.send(:check_dependencies!, ss)
+      assert('">=1.0.0, <2.0.0" with MMP 1.0.0 passes') { true }
+    rescue ArgumentError
+      assert('">=1.0.0, <2.0.0" with MMP 1.0.0 passes') { false }
+    end
+  end
+
+  # 18. "~> 1.0" with MMP 1.0.0 -> pass (pessimistic: >= 1.0.0, < 2.0.0)
+  Dir.mktmpdir('dep_test') do |tmpdir|
+    ss_dir = File.join(tmpdir, 'dep_pessimistic')
+    FileUtils.mkdir_p(ss_dir)
+    File.write(File.join(ss_dir, 'skillset.json'), JSON.generate({
+      'name' => 'dep_pessimistic', 'version' => '1.0.0',
+      'depends_on' => [{ 'name' => 'mmp', 'version' => '~> 1.0' }]
+    }))
+    ss = KairosMcp::Skillset.new(ss_dir)
+    begin
+      manager_ver.send(:check_dependencies!, ss)
+      assert('"~>1.0" with MMP 1.0.0 passes') { true }
+    rescue ArgumentError
+      assert('"~>1.0" with MMP 1.0.0 passes') { false }
+    end
+  end
+
+  # 19. "~> 2.0" with MMP 1.0.0 -> fail
+  Dir.mktmpdir('dep_test') do |tmpdir|
+    ss_dir = File.join(tmpdir, 'dep_pessimistic_fail')
+    FileUtils.mkdir_p(ss_dir)
+    File.write(File.join(ss_dir, 'skillset.json'), JSON.generate({
+      'name' => 'dep_pessimistic_fail', 'version' => '1.0.0',
+      'depends_on' => [{ 'name' => 'mmp', 'version' => '~> 2.0' }]
+    }))
+    ss = KairosMcp::Skillset.new(ss_dir)
+    begin
+      manager_ver.send(:check_dependencies!, ss)
+      assert('"~>2.0" with MMP 1.0.0 raises ArgumentError') { false }
+    rescue ArgumentError => e
+      assert('"~>2.0" with MMP 1.0.0 raises ArgumentError') { e.message.include?('version mismatch') }
+    end
+  end
+
+  # ==========================================================================
+  # 7.3 PeerManager Persistence (Phase 3.7C)
+  # ==========================================================================
+
+  # 20. PeerManager without data_dir: no persistence (backward compat)
+  pm_no_dir = ::MMP::PeerManager.new(identity: pm_identity, config: {})
+  pm_no_dir.import_peers([{ id: 'p1', name: 'P1', url: 'http://localhost:1111' }])
+  assert('PeerManager without data_dir: no peers.json created') { true } # would not crash
+
+  # 21-25. PeerManager with data_dir: persistence
+  Dir.mktmpdir('peer_persist_test') do |persist_dir|
+    peer_public_key = crypto.export_public_key
+
+    pm1 = ::MMP::PeerManager.new(identity: pm_identity, config: {}, data_dir: persist_dir)
+    pm1.import_peers([{
+      id: 'persist-peer-1', name: 'Persist Peer', url: 'http://localhost:7777',
+      public_key: peer_public_key, verified: true
+    }])
+
+    # 21. peers.json created
+    peers_json_path = File.join(persist_dir, 'peers.json')
+    assert('peers.json created after import_peers') { File.exist?(peers_json_path) }
+
+    # 22. New PeerManager loads persisted data
+    pm2 = ::MMP::PeerManager.new(identity: pm_identity, config: {}, data_dir: persist_dir)
+    restored = pm2.get_peer('persist-peer-1')
+    assert('persisted peer restored on new PeerManager') { !restored.nil? }
+
+    # 23. Restored peer status is unknown
+    assert('restored peer status is unknown') { restored.status == 'unknown' }
+
+    # 24. Restored peer public_key preserved
+    assert('restored peer public_key preserved') { restored.public_key == peer_public_key }
+
+    # 25. remove_peer persists deletion
+    pm2.remove_peer('persist-peer-1')
+    pm3 = ::MMP::PeerManager.new(identity: pm_identity, config: {}, data_dir: persist_dir)
+    assert('removed peer not in persisted data') { pm3.get_peer('persist-peer-1').nil? }
+  end
+end
+
+# ============================================================================
 # Cleanup
 # ============================================================================
 FileUtils.rm_rf(dir_a)

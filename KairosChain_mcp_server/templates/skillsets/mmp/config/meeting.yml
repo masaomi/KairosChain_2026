@@ -46,6 +46,12 @@ encryption:
   keypair_path: "config/meeting_keypair.pem"
   auto_generate: true
 
+# Identity signing keypair (H2 fix: for introduce handshake verification)
+# Separate from encryption keypair above (which is for E2E content encryption)
+crypto:
+  keypair_path: "keys/mmp_keypair.pem"
+  auto_generate: true
+
 meeting_place:
   connection_mode: "manual"
   max_session_minutes: 60

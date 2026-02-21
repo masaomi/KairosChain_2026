@@ -113,11 +113,25 @@ module KairosMcp
     # POST /meeting/v1/introduce - Receive introduction from peer
     def handle_post_introduce(env)
       body = parse_body(env)
-      result = protocol.process_message(body.merge(action: 'introduce'))
+
+      # Signature verification (H2 fix: verify identity if signed)
+      verified = false
+      if body['public_key'] && body['identity_signature'] && body['identity']
+        begin
+          canonical = JSON.generate(body['identity'], sort_keys: true)
+          crypto = MMP::Crypto.new(auto_generate: false)
+          verified = crypto.verify_signature(canonical, body['identity_signature'], body['public_key'])
+        rescue StandardError => e
+          $stderr.puts "[MeetingRouter] Signature verification failed: #{e.message}"
+        end
+      end
+
+      result = protocol.process_message(body.merge('action' => 'introduce'))
 
       json_response(200, {
         status: 'received',
         peer_identity: identity.introduce,
+        identity_verified: verified,
         result: result
       })
     end

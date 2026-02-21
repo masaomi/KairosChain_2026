@@ -2,6 +2,8 @@
 
 require 'yaml'
 require 'digest'
+require 'json'
+require 'fileutils'
 
 module MMP
   class Identity
@@ -10,10 +12,11 @@ module MMP
     def initialize(workspace_root: nil, config: nil)
       @workspace_root = workspace_root
       @config = config || MMP.load_config
+      @crypto = nil
     end
 
     def introduce
-      {
+      intro_data = {
         identity: identity_info,
         capabilities: capabilities_info,
         skills: available_skills,
@@ -22,6 +25,17 @@ module MMP
         exchange_policy: exchange_policy,
         timestamp: Time.now.utc.iso8601
       }
+
+      # Signed introduce (H2 fix: attach public key and identity signature)
+      if crypto_available?
+        intro_data[:public_key] = crypto.export_public_key
+        intro_data[:key_fingerprint] = crypto.key_fingerprint
+        # Sign canonical identity_info so receiver can verify
+        canonical = JSON.generate(intro_data[:identity], sort_keys: true)
+        intro_data[:identity_signature] = crypto.sign(canonical)
+      end
+
+      intro_data
     end
 
     def capabilities
@@ -157,6 +171,32 @@ module MMP
       return nil unless @workspace_root
       path = File.join(@workspace_root, 'knowledge')
       File.directory?(path) ? path : nil
+    end
+
+    # Crypto key management for identity signing (H2 fix)
+    def crypto_available?
+      return !@crypto.nil? if @crypto_checked
+
+      @crypto_checked = true
+      @crypto = begin
+        keypair_dir = File.join(@workspace_root || '.', 'keys')
+        keypair_path = File.join(keypair_dir, 'mmp_keypair.pem')
+        c = MMP::Crypto.new(keypair_path: keypair_path, auto_generate: true)
+        unless File.exist?(keypair_path)
+          FileUtils.mkdir_p(keypair_dir)
+          c.save_keypair(keypair_path)
+        end
+        c
+      rescue StandardError => e
+        $stderr.puts "[Identity] Crypto initialization failed: #{e.message}"
+        nil
+      end
+      !@crypto.nil?
+    end
+
+    def crypto
+      crypto_available?
+      @crypto
     end
   end
 end

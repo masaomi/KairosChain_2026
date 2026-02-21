@@ -6,6 +6,8 @@ require 'set'
 require 'base64'
 require 'zlib'
 require 'rubygems/package'
+require 'rubygems/requirement'
+require 'rubygems/version'
 require_relative 'skillset'
 require_relative '../kairos_mcp'
 
@@ -256,11 +258,24 @@ module KairosMcp
     end
 
     # Verify all dependencies of a SkillSet are installed and enabled
+    # Supports version constraints via depends_on_with_versions
     def check_dependencies!(skillset)
-      missing = skillset.depends_on.reject { |dep| find_skillset(dep) && enabled?(dep) }
-      return if missing.empty?
+      skillset.depends_on_with_versions.each do |dep|
+        installed = find_skillset(dep[:name])
+        raise ArgumentError, "Missing dependency: #{dep[:name]}" unless installed
+        raise ArgumentError, "Dependency not enabled: #{dep[:name]}" unless enabled?(dep[:name])
 
-      raise ArgumentError, "Missing or disabled dependencies: #{missing.join(', ')}"
+        # Version constraint check (Gem::Requirement compatible)
+        if dep[:version]
+          requirement = Gem::Requirement.new(*dep[:version].split(',').map(&:strip))
+          installed_ver = Gem::Version.new(installed.version)
+          unless requirement.satisfied_by?(installed_ver)
+            raise ArgumentError,
+              "Dependency version mismatch: #{dep[:name]} #{installed.version} " \
+              "does not satisfy \"#{dep[:version]}\""
+          end
+        end
+      end
     end
 
     # Verify no other enabled SkillSet depends on this one
