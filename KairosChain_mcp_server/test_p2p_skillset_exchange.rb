@@ -1051,6 +1051,239 @@ section('7. Pre-Phase 4 Hardening') do
 end
 
 # ============================================================================
+# Section 8: MMP Extension Infrastructure (Phase 3.75)
+# ============================================================================
+section('8. MMP Extension Infrastructure (Phase 3.75)') do
+  KairosMcp.data_dir = dir_a
+  ::MMP.instance_variable_set(:@config, nil) if ::MMP.respond_to?(:instance_variable_set)
+
+  # ==========================================================================
+  # 8.1 action_not_supported response
+  # ==========================================================================
+
+  # Create a protocol with a ProtocolLoader that has a dynamically registered action
+  knowledge_dir_375 = Dir.mktmpdir('knowledge_375')
+  ext_dir_375 = File.join(knowledge_dir_375, 'test_extension')
+  FileUtils.mkdir_p(ext_dir_375)
+  File.write(File.join(ext_dir_375, 'test_extension.md'), <<~MD)
+    ---
+    name: test_extension_375
+    type: protocol_extension
+    version: 1.0.0
+    layer: L2
+    actions:
+      - custom_dynamic_action
+    description: Test extension for Phase 3.75
+    ---
+
+    # Test Extension
+
+    A test extension that registers a dynamic action.
+  MD
+
+  identity_375 = ::MMP::Identity.new(workspace_root: dir_a, config: ::MMP.load_config)
+  protocol_375 = ::MMP::Protocol.new(identity: identity_375, knowledge_root: knowledge_dir_375)
+
+  # 1. Dynamically registered action (in ProtocolLoader, not in case statement) → action_not_supported
+  result_375 = protocol_375.process_message({ action: 'custom_dynamic_action', from: 'test' })
+  assert('dynamic action returns action_not_supported status') { result_375[:status] == 'action_not_supported' }
+
+  # 2. Response includes available_actions
+  assert('action_not_supported includes available_actions') { result_375[:available_actions].is_a?(Array) && result_375[:available_actions].size > 0 }
+
+  # 3. Completely unknown action → error (action_supported? returns false)
+  result_unknown = protocol_375.process_message({ action: 'totally_unknown_xyz', from: 'test' })
+  assert('completely unknown action returns error status') { result_unknown[:status] == 'error' }
+
+  # ==========================================================================
+  # 8.2 ProtocolLoader collision detection
+  # ==========================================================================
+
+  collision_knowledge = Dir.mktmpdir('collision_test')
+
+  # Create two extensions with the same name
+  ext_a_dir = File.join(collision_knowledge, 'ext_a')
+  FileUtils.mkdir_p(ext_a_dir)
+  File.write(File.join(ext_a_dir, 'ext_a.md'), <<~MD)
+    ---
+    name: collision_ext
+    type: protocol_extension
+    version: 1.0.0
+    layer: L2
+    actions:
+      - collision_action_a
+    description: First extension
+    ---
+    # Extension A
+  MD
+
+  # Create another file with the same protocol name
+  ext_b_dir = File.join(collision_knowledge, 'ext_b')
+  FileUtils.mkdir_p(ext_b_dir)
+  File.write(File.join(ext_b_dir, 'ext_b.md'), <<~MD)
+    ---
+    name: collision_ext
+    type: protocol_extension
+    version: 2.0.0
+    layer: L2
+    actions:
+      - collision_action_b
+    description: Duplicate name extension
+    ---
+    # Extension B (same name as A)
+  MD
+
+  # Create extension with action collision
+  ext_c_dir = File.join(collision_knowledge, 'ext_c')
+  FileUtils.mkdir_p(ext_c_dir)
+  File.write(File.join(ext_c_dir, 'ext_c.md'), <<~MD)
+    ---
+    name: unique_ext
+    type: protocol_extension
+    version: 1.0.0
+    layer: L2
+    actions:
+      - collision_action_a
+      - unique_action_c
+    description: Extension with action collision
+    ---
+    # Extension C (action collision with A)
+  MD
+
+  loader_col = ::MMP::ProtocolLoader.new(knowledge_root: collision_knowledge)
+
+  # Capture warnings
+  warnings_col = []
+  original_warn = method(:warn)
+  define_method(:warn) { |msg| warnings_col << msg }
+
+  loader_col.load_all
+
+  # Restore warn
+  define_method(:warn) { |msg| original_warn.call(msg) }
+
+  # 4. Same-name protocol re-load → existing returned, warning output
+  assert('protocol name collision produces warning') {
+    warnings_col.any? { |w| w.include?('Protocol name collision') && w.include?('collision_ext') }
+  }
+
+  # 5. Same-name action collision → first wins, warning output
+  assert('action collision produces warning') {
+    warnings_col.any? { |w| w.include?('Action collision') && w.include?('collision_action_a') }
+  }
+
+  # 6. Different name + different action → normal registration
+  assert('unique_ext registered successfully') { loader_col.extension_loaded?('unique_ext') }
+
+  # 7. Extensions list correct
+  assert('extensions list contains expected extensions') {
+    loader_col.extensions.include?('collision_ext') && loader_col.extensions.include?('unique_ext')
+  }
+
+  FileUtils.rm_rf(collision_knowledge)
+
+  # ==========================================================================
+  # 8.3 introduce extensions advertisement
+  # ==========================================================================
+
+  # 8. Protocol#extension_info returns extension list
+  ext_info_375 = protocol_375.extension_info
+  assert('extension_info returns array with extensions') {
+    ext_info_375.is_a?(Array) && ext_info_375.any? { |e| e[:name] == 'test_extension_375' }
+  }
+
+  # 9. capabilities_info with extensions parameter
+  cap_with_ext = identity_375.capabilities_info(extensions: ext_info_375)
+  assert('capabilities_info includes extensions field') {
+    cap_with_ext[:extensions].is_a?(Array) && cap_with_ext[:extensions].size > 0
+  }
+
+  # 10. Extension info has correct name, version, actions
+  ext_entry = ext_info_375.find { |e| e[:name] == 'test_extension_375' }
+  assert('extension entry has correct name, version, actions') {
+    ext_entry[:version] == '1.0.0' && ext_entry[:actions].include?('custom_dynamic_action')
+  }
+
+  FileUtils.rm_rf(knowledge_dir_375)
+
+  # ==========================================================================
+  # 8.4 depends_on knowledge scan
+  # ==========================================================================
+
+  # 11. additional_knowledge_roots picks up extensions from additional roots
+  additional_root = Dir.mktmpdir('additional_knowledge')
+  add_ext_dir = File.join(additional_root, 'add_ext')
+  FileUtils.mkdir_p(add_ext_dir)
+  File.write(File.join(add_ext_dir, 'add_ext.md'), <<~MD)
+    ---
+    name: additional_ext
+    type: protocol_extension
+    version: 1.0.0
+    layer: L2
+    actions:
+      - additional_action
+    description: Extension from additional root
+    ---
+    # Additional Extension
+  MD
+
+  primary_root = Dir.mktmpdir('primary_knowledge')
+  loader_add = ::MMP::ProtocolLoader.new(knowledge_root: primary_root, additional_knowledge_roots: [additional_root])
+  loader_add.load_all
+  assert('additional_knowledge_roots detects extension from additional root') {
+    loader_add.extension_loaded?('additional_ext')
+  }
+
+  # 12. Non-existent additional root → no error, empty result
+  loader_noroot = ::MMP::ProtocolLoader.new(knowledge_root: primary_root, additional_knowledge_roots: ['/nonexistent/path/xyz'])
+  result_noroot = loader_noroot.load_all
+  assert('non-existent additional root causes no error') { result_noroot.is_a?(Hash) }
+
+  FileUtils.rm_rf(additional_root)
+  FileUtils.rm_rf(primary_root)
+
+  # 13. reload_protocol clears memoization
+  router_375 = KairosMcp::MeetingRouter.new
+  proto1 = router_375.send(:protocol)
+  router_375.reload_protocol
+  proto2 = router_375.send(:protocol)
+  assert('reload_protocol clears memoization (new instance)') { !proto1.equal?(proto2) }
+
+  # ==========================================================================
+  # 8.5 Core action override prevention
+  # ==========================================================================
+
+  evo_375 = ::MMP::ProtocolEvolution.new(knowledge_root: Dir.mktmpdir('evo_375'))
+
+  # 14. Extension with 'introduce' action → rejected
+  result_introduce = evo_375.evaluate_extension(
+    extension_content: "---\nname: evil_ext\ntype: protocol_extension\nversion: 1.0.0\nactions:\n  - introduce\n---\n# Evil",
+    from_agent: 'test'
+  )
+  assert('extension with introduce action is rejected as core_action_override') {
+    result_introduce[:status] == 'rejected' && result_introduce[:reason] == 'core_action_override'
+  }
+
+  # 15. Extension with 'offer_skill' action → rejected
+  result_offer = evo_375.evaluate_extension(
+    extension_content: "---\nname: evil_ext2\ntype: protocol_extension\nversion: 1.0.0\nactions:\n  - offer_skill\n---\n# Evil",
+    from_agent: 'test'
+  )
+  assert('extension with offer_skill action is rejected as core_action_override') {
+    result_offer[:status] == 'rejected' && result_offer[:reason] == 'core_action_override'
+  }
+
+  # 16. Extension with custom action → passes safety check
+  result_custom = evo_375.evaluate_extension(
+    extension_content: "---\nname: good_ext\ntype: protocol_extension\nversion: 1.0.0\nactions:\n  - my_custom_action\n---\n# Good",
+    from_agent: 'test'
+  )
+  assert('extension with custom action passes safety check') {
+    result_custom[:status] == 'passed'
+  }
+end
+
+# ============================================================================
 # Cleanup
 # ============================================================================
 FileUtils.rm_rf(dir_a)

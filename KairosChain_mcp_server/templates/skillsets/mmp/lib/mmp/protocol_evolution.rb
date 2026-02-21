@@ -6,6 +6,11 @@ require 'fileutils'
 
 module MMP
   class ProtocolEvolution
+    CORE_PROTOCOL_ACTIONS = %w[
+      introduce goodbye error
+      offer_skill request_skill accept decline reflect skill_content
+    ].freeze
+
     DEFAULT_CONFIG = { auto_evaluate: true, evaluation_period_days: 7, auto_promote: false, blocked_actions: %w[execute_code system_command file_write shell_exec eval], max_actions_per_extension: 20, require_human_approval_for_l1: true }.freeze
 
     attr_reader :config, :extensions_registry
@@ -73,6 +78,8 @@ module MMP
 
     def check_safety(metadata)
       actions = metadata['actions'] || []
+      core_overrides = actions & CORE_PROTOCOL_ACTIONS
+      return { safe: false, reason: 'core_action_override', blocked_actions: core_overrides } if core_overrides.any?
       blocked = actions & @config[:blocked_actions]
       return { safe: false, reason: 'blocked_actions', blocked_actions: blocked } if blocked.any?
       return { safe: false, reason: 'too_many_actions' } if actions.size > @config[:max_actions_per_extension]

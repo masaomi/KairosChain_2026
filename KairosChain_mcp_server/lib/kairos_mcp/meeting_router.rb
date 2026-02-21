@@ -57,6 +57,10 @@ module KairosMcp
       json_response(500, { error: 'internal_error', message: e.message })
     end
 
+    def reload_protocol
+      @protocol = nil
+    end
+
     private
 
     def mmp_available?
@@ -85,8 +89,23 @@ module KairosMcp
     def protocol
       @protocol ||= ::MMP::Protocol.new(
         identity: identity,
-        knowledge_root: mmp_knowledge_root
+        knowledge_root: mmp_knowledge_root,
+        additional_knowledge_roots: depends_on_knowledge_roots
       )
+    end
+
+    def depends_on_knowledge_roots
+      mmp_dir = File.join(KairosMcp.skillsets_dir, 'mmp')
+      return [] unless File.exist?(File.join(mmp_dir, 'skillset.json'))
+      config = JSON.parse(File.read(File.join(mmp_dir, 'skillset.json')))
+      deps = config['depends_on'] || []
+      deps.filter_map do |dep|
+        dep_name = dep.is_a?(Hash) ? dep['name'] : dep
+        dep_knowledge = File.join(KairosMcp.skillsets_dir, dep_name, 'knowledge')
+        dep_knowledge if File.directory?(dep_knowledge)
+      end
+    rescue StandardError
+      []
     end
 
     def exchange
@@ -107,6 +126,12 @@ module KairosMcp
     # GET /meeting/v1/introduce - Return self-introduction
     def handle_get_introduce
       intro = identity.introduce
+      # Inject protocol extension information from ProtocolLoader
+      ext_info = protocol.extension_info
+      if ext_info.any?
+        intro[:capabilities] = identity.capabilities_info(extensions: ext_info)
+        intro[:capabilities][:supported_actions] = protocol.supported_actions
+      end
       json_response(200, intro)
     end
 

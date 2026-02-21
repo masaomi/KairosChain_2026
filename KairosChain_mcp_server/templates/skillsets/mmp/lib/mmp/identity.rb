@@ -42,6 +42,17 @@ module MMP
       capabilities_info
     end
 
+    def capabilities_info(extensions: nil)
+      cap_config = @config['capabilities'] || {}
+      info = {
+        meeting_protocol_version: cap_config['meeting_protocol_version'] || '1.0.0',
+        supported_actions: cap_config['supported_actions'] || %w[introduce offer_skill request_skill],
+        skill_formats: allowed_formats
+      }
+      info[:extensions] = extensions if extensions && !extensions.empty?
+      info
+    end
+
     def public_skills
       available_skills.select { |s| s[:public] }
     end
@@ -56,15 +67,6 @@ module MMP
         scope: id_config['scope'] || 'general',
         version: MMP::VERSION,
         instance_id: generate_instance_id
-      }
-    end
-
-    def capabilities_info
-      cap_config = @config['capabilities'] || {}
-      {
-        meeting_protocol_version: cap_config['meeting_protocol_version'] || '1.0.0',
-        supported_actions: cap_config['supported_actions'] || %w[introduce offer_skill request_skill],
-        skill_formats: allowed_formats
       }
     end
 

@@ -25,7 +25,7 @@ module MMP
       def to_json(*args) = to_h.to_json(*args)
     end
 
-    def initialize(identity:, knowledge_root: nil, evolution_config: {})
+    def initialize(identity:, knowledge_root: nil, additional_knowledge_roots: [], evolution_config: {})
       @identity = identity
       @pending_offers = {}
       @pending_requests = {}
@@ -33,7 +33,7 @@ module MMP
       @supported_extensions = []
 
       if @knowledge_root && File.directory?(@knowledge_root.to_s)
-        @protocol_loader = ProtocolLoader.new(knowledge_root: @knowledge_root)
+        @protocol_loader = ProtocolLoader.new(knowledge_root: @knowledge_root, additional_knowledge_roots: additional_knowledge_roots)
         load_protocols
         @evolution = ProtocolEvolution.new(knowledge_root: @knowledge_root, config: evolution_config)
       end
@@ -65,6 +65,15 @@ module MMP
 
     def action_supported?(action) = supported_actions.include?(action)
     def core_actions = @protocol_loader&.core_actions&.any? ? @protocol_loader.core_actions : CORE_ACTIONS
+
+    def extension_info
+      return [] unless @protocol_loader
+      @protocol_loader.extensions.map do |ext_name|
+        proto = @protocol_loader.loaded_protocols[ext_name]
+        next unless proto
+        { name: ext_name, version: proto[:version], actions: proto[:actions] }
+      end.compact
+    end
 
     def create_introduce
       intro = @identity.introduce
@@ -128,7 +137,10 @@ module MMP
       when 'decline' then process_decline(msg_data)
       when 'skill_content' then process_skill_content(msg_data)
       when 'reflect' then process_reflect(msg_data)
-      else { status: 'unhandled', action: action }
+      else
+        { status: 'action_not_supported', action: action,
+          message: "Action '#{action}' is registered but has no handler. Available handled actions: #{ACTIONS.join(', ')}",
+          available_actions: supported_actions }
       end
     end
 

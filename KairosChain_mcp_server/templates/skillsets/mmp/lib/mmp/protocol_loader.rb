@@ -12,8 +12,9 @@ module MMP
 
     attr_reader :loaded_protocols, :available_actions, :extensions
 
-    def initialize(knowledge_root:)
+    def initialize(knowledge_root:, additional_knowledge_roots: [])
       @knowledge_root = knowledge_root
+      @additional_knowledge_roots = additional_knowledge_roots
       @loaded_protocols = {}
       @available_actions = []
       @extensions = []
@@ -65,7 +66,14 @@ module MMP
     private
 
     def find_protocol_files
-      Dir.glob(File.join(@knowledge_root, '*', '*.md')).select { |f| m = parse_frontmatter(f); m && [PROTOCOL_TYPE, EXTENSION_TYPE].include?(m['type']) }
+      roots = [@knowledge_root] + @additional_knowledge_roots
+      roots.flat_map do |root|
+        next [] unless File.directory?(root.to_s)
+        Dir.glob(File.join(root, '*', '*.md')).select do |f|
+          m = parse_frontmatter(f)
+          m && [PROTOCOL_TYPE, EXTENSION_TYPE].include?(m['type'])
+        end
+      end.uniq
     end
 
     def parse_frontmatter(file_path)
@@ -82,8 +90,21 @@ module MMP
       content = File.read(file_path); metadata = parse_frontmatter(file_path); return nil unless metadata
       name = metadata['name']; return nil unless name
       protocol = { name: name, file_path: file_path, layer: metadata['layer'] || 'L2', type: metadata['type'], version: metadata['version'] || '1.0.0', bootstrap: metadata['bootstrap'] == true, immutable: metadata['immutable'] == true, actions: metadata['actions'] || [], extends: metadata['extends'], requires: metadata['requires'] || [], description: metadata['description'], content_hash: Digest::SHA256.hexdigest(content), loaded_at: Time.now.utc.iso8601 }
+      if @loaded_protocols.key?(name)
+        existing = @loaded_protocols[name]
+        warn "[MMP::ProtocolLoader] Protocol name collision: '#{name}' already loaded from #{existing[:file_path]}, skipping #{file_path}"
+        return existing
+      end
       @loaded_protocols[name] = protocol
-      protocol[:actions].each { |a| unless @available_actions.include?(a); @available_actions << a; @action_handlers[a] = { protocol: name, layer: protocol[:layer], immutable: protocol[:immutable] }; end }
+      protocol[:actions].each do |a|
+        if @available_actions.include?(a)
+          existing_handler = @action_handlers[a]
+          warn "[MMP::ProtocolLoader] Action collision: '#{a}' already defined by #{existing_handler[:protocol]}, skipping from #{name}"
+        else
+          @available_actions << a
+          @action_handlers[a] = { protocol: name, layer: protocol[:layer], immutable: protocol[:immutable] }
+        end
+      end
       @extensions << name if protocol[:type] == EXTENSION_TYPE && !@extensions.include?(name)
       protocol
     end
