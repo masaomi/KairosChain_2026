@@ -18,6 +18,7 @@ KairosChainは、AIの能力進化をプライベートブロックチェーン�
   - [Minimum-Nomicの原則](#minimum-nomicの原則)
 - [アーキテクチャ](#アーキテクチャ)
   - [システム概要](#システム概要)
+  - [P2P知識交換](#p2p知識交換)
 - [レイヤー化されたスキルアーキテクチャ](#レイヤー化されたスキルアーキテクチャ)
   - [L0：Kairosコア（`skills/`）](#l0：kairosコア（skills）)
   - [L1：知識レイヤー（`knowledge/`）](#l1：知識レイヤー（knowledge）)
@@ -40,6 +41,11 @@ KairosChainは、AIの能力進化をプライベートブロックチェーン�
   - [アップグレードコマンド](#アップグレードコマンド)
   - [バージョン不一致の警告](#バージョン不一致の警告)
   - [アップグレードワークフロー](#アップグレードワークフロー)
+- [MMP SkillSetセットアップ（P2P通信）](#mmp-skillsetセットアップ（p2p通信）)
+  - [MMP SkillSetのインストール](#mmp-skillsetのインストール)
+  - [meeting.ymlの設定](#meetingymlの設定)
+  - [P2P HTTPサーバーの起動](#p2p-httpサーバーの起動)
+  - [P2P接続テスト](#p2p接続テスト)
 - [セットアップのテスト](#セットアップのテスト)
   - [1. 基本的なコマンドラインテスト](#1-基本的なコマンドラインテスト)
   - [2. スキルツールテスト](#2-スキルツールテスト)
@@ -70,20 +76,28 @@ KairosChainは、AIの能力進化をプライベートブロックチェーン�
   - [認証ツール（HTTPモード専用）](#認証ツール（httpモード専用）)
   - [ガイドツール（ツール発見）](#ガイドツール（ツール発見）)
   - [システム管理ツール](#システム管理ツール)
+  - [MMP Meetingツール（SkillSet: mmp）](#mmp-meetingツール（skillset-mmp）)
 - [使用例](#使用例)
   - [利用可能なスキルを一覧表示](#利用可能なスキルを一覧表示)
   - [ブロックチェーンステータスを確認](#ブロックチェーンステータスを確認)
   - [スキル遷移を記録](#スキル遷移を記録)
+  - [P2P SkillSet交換](#p2p-skillset交換)
 - [自己進化ワークフロー](#自己進化ワークフロー)
 - [Pure Skills設計](#pure-skills設計)
   - [skills.md vs skills.rb](#skillsmd-vs-skillsrb)
   - [スキル定義の例](#スキル定義の例)
   - [自己参照的内省](#自己参照的内省)
+- [SkillSetプラグインアーキテクチャ](#skillsetプラグインアーキテクチャ)
+  - [SkillSet構造](#skillset構造)
+  - [skillset.jsonスキーマ](#skillsetjsonスキーマ)
+  - [レイヤーベースガバナンス](#レイヤーベースガバナンス)
+  - [MMP SkillSet（Model Meeting Protocol）](#mmp-skillset（model-meeting-protocol）)
 - [ディレクトリ構造](#ディレクトリ構造)
   - [Gem構造（`gem install kairos-chain` でインストール）](#gem構造（gem-install-kairos-chain-でインストール）)
   - [データディレクトリ（`kairos-chain init` で作成）](#データディレクトリ（kairos-chain-init-で作成）)
   - [リポジトリ構造（GitHubからクローン）](#リポジトリ構造（githubからクローン）)
 - [将来のロードマップ](#将来のロードマップ)
+  - [完了済みフェーズ](#完了済みフェーズ)
   - [近期](#近期)
   - [長期ビジョン：分散KairosChainネットワーク](#長期ビジョン：分散kairoschainネットワーク)
 - [デプロイと運用](#デプロイと運用)
@@ -115,6 +129,10 @@ KairosChainは、AIの能力進化をプライベートブロックチェーン�
   - [Q: Pure Agent Skillとは何ですか？なぜ重要ですか？](#q-pure-agent-skillとは何ですか？なぜ重要ですか？)
   - [Q: なぜKairosChainはRuby、特にDSLとASTを使うのですか？](#q-なぜkairoschainはruby、特にdslとastを使うのですか？)
   - [Q: ローカルスキルとKairosChainの違いは何ですか？](#q-ローカルスキルとkairoschainの違いは何ですか？)
+- [サブツリー統合ガイド](#サブツリー統合ガイド)
+  - [Q: P2Pスキル交換はどのように機能しますか？](#q-p2pスキル交換はどのように機能しますか？)
+  - [Q: Knowledge-only制約とは何ですか？](#q-knowledge-only制約とは何ですか？)
+  - [Q: 他のKairosChainインスタンスに接続するには？](#q-他のkairoschainインスタンスに接続するには？)
 - [サブツリー統合ガイド](#サブツリー統合ガイド)
   - [なぜサブツリー（サブモジュールではなく）](#なぜサブツリー（サブモジュールではなく）)
   - [KairosChainレイヤーとの連携](#kairoschainレイヤーとの連携)
@@ -207,6 +225,18 @@ KairosChainは**Minimum-Nomic**を実装します — 以下のようなシス�
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### P2P知識交換
+
+KairosChainはModel Meeting Protocol（MMP）を通じてインスタンス間のピアツーピア知識交換をサポートしています。この機能はいくつかの重要な設計原則を体現しています：
+
+**Knowledge-Only制約**：P2P経由で交換できるのは非実行コンテンツ（Markdown、YAML）のみです。実行可能コードは信頼されたチャネル経由でインストールする必要があります。この分離により、共有される知識の安全性と監査可能性を確保しつつ、コード実行のセキュリティ境界を維持します。
+
+**プロトコル進化**：MMPは`ProtocolEvolution`を通じた動的プロトコル拡張をサポートし、コアプロトコルを変更せずに新しいメッセージタイプや機能を追加できます。拡張はコアアクションとの衝突を防ぐために検証され、プロトコルの整合性を維持します。
+
+**ワイヤープロトコル標準化**：標準化されたメッセージフォーマット（tar.gz + Base64アーカイブ、SHA-256コンテンツハッシュ付き）により、内部構成に関係なくKairosChainインスタンス間の相互運用性を確保します。
+
+**トラストモデル**：TOFU（Trust on First Use）とRSA-2048署名検証を組み合わせることで、中央認証局を必要とせずにID保証を提供し、KairosChainの分散型哲学に沿った設計となっています。
 
 ## レイヤー化されたスキルアーキテクチャ
 
@@ -1493,6 +1523,98 @@ MCPサーバーの起動時にgemとデータディレクトリのバージョ�
 
 ---
 
+## MMP SkillSetセットアップ（P2P通信）
+
+MMP（Model Meeting Protocol）は、KairosChainインスタンス間のP2P通信と知識交換を可能にするオプションのSkillSetです。
+
+### MMP SkillSetのインストール
+
+MMPはテンプレートSkillSetとしてバンドルされています。CLIを使用してインストールします：
+
+```bash
+# MMP SkillSetをインストール（gemにバンドル済み）
+kairos-chain skillset install templates/skillsets/mmp
+
+# リポジトリクローンから
+cd /path/to/KairosChain_mcp_server
+bin/kairos-chain skillset install templates/skillsets/mmp
+
+# インストールを確認
+kairos-chain skillset list
+# 表示例: mmp (L1, enabled)
+```
+
+### meeting.ymlの設定
+
+インストール後、`<data-dir>/skillsets/mmp/config/meeting.yml`を編集してMMP SkillSetを設定します：
+
+```yaml
+# マスタースイッチ
+enabled: true
+
+# エージェントID
+identity:
+  name: "My Agent"
+  description: "マイプロジェクトのKairosChainインスタンス"
+  scope: "general"
+
+# 個別スキル交換設定
+skill_exchange:
+  allowed_formats: [markdown, yaml_frontmatter]
+  allow_executable: false              # P2Pではtrueに設定しないでください
+  public_by_default: false
+
+# SkillSetパッケージ交換設定
+skillset_exchange:
+  enabled: true
+  knowledge_only: true                 # knowledge-onlyパッケージのみ交換
+  auto_install: false                  # 手動承認が必要
+
+# レート制限
+constraints:
+  max_skill_size_bytes: 100000
+  rate_limit_per_minute: 10
+
+# P2P用HTTPサーバー
+http_server:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8080
+  timeout: 10
+
+# ID署名（Phase 3.7以降）
+crypto:
+  keypair_path: "keys/mmp_keypair.pem"
+  auto_generate: true
+```
+
+### P2P HTTPサーバーの起動
+
+```bash
+# P2P用にHTTPトランスポートでKairosChainを起動
+kairos-chain --http --port 8080
+
+# Bearerトークン認証付き
+kairos-chain --http --port 8080 --bearer-token YOUR_TOKEN
+```
+
+### P2P接続テスト
+
+```bash
+# 自己紹介エンドポイントをテスト
+curl http://localhost:8080/meeting/v1/introduce
+
+# 利用可能なスキルを一覧表示
+curl http://localhost:8080/meeting/v1/skills
+
+# 別のエージェントから接続
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"meeting_connect","arguments":{"url":"http://localhost:8080","mode":"direct"}}}' | kairos-chain
+```
+
+P2Pの詳細な使い方は[MMP P2Pユーザーガイド](docs/KairosChain_MMP_P2P_UserGuide_20260220_jp.md)を参照してください。
+
+---
+
 ## セットアップのテスト
 
 > **注意**: 以下の例ではgem版のコマンド（`kairos-chain`）とリポジトリ版のコマンド（`bin/kairos-chain`）の両方を示しています。インストール方法に応じて使い分けてください。
@@ -2004,6 +2126,35 @@ KairosChainツールを発見し学ぶための動的ツールガイドシステ
 - `apply`: アップグレードを実行（`approved=true`が必要）
 - `status`: `.kairos_meta.yml`の状態を表示
 
+### MMP Meetingツール（SkillSet: mmp）
+
+MMP（Model Meeting Protocol）SkillSetがインストール・有効化されている場合に利用可能なツールです。MMPはKairosChainインスタンス間のP2P通信と知識交換を実現します。
+
+| ツール | 説明 |
+|--------|------|
+| `meeting_connect` | MMP経由でリモートのKairosChainピアに接続 |
+| `meeting_disconnect` | ピアセッションから切断 |
+| `meeting_acquire_skill` | 接続先のピアからスキルまたはSkillSetを取得 |
+| `meeting_get_skill_details` | ピアの利用可能なスキルのメタデータを取得 |
+
+MMP SkillSetはMeetingRouter経由でHTTPエンドポイント（`/meeting/v1/*`）も公開します：
+
+| エンドポイント | メソッド | 説明 |
+|---------------|---------|------|
+| `/meeting/v1/introduce` | GET | 自己紹介（ID、capabilities） |
+| `/meeting/v1/introduce` | POST | ピアの紹介を受信 |
+| `/meeting/v1/skills` | GET | 公開スキル一覧 |
+| `/meeting/v1/skill_details` | GET | スキルメタデータ取得（`?skill_id=X`） |
+| `/meeting/v1/skill_content` | POST | スキルコンテンツを要求 |
+| `/meeting/v1/request_skill` | POST | スキルリクエストを送信 |
+| `/meeting/v1/reflect` | POST | リフレクションを送信 |
+| `/meeting/v1/message` | POST | 汎用MMPメッセージ |
+| `/meeting/v1/skillsets` | GET | 交換可能なSkillSet一覧 |
+| `/meeting/v1/skillset_details` | GET | SkillSetメタデータ取得（`?name=X`） |
+| `/meeting/v1/skillset_content` | POST | SkillSetアーカイブをダウンロード |
+
+> **Knowledge-only制約**: P2P経由で交換できるのは非実行コンテンツ（Markdown, YAML）のみです。実行可能コード（`tools/`, `lib/`内の.rb, .py, .sh等）を含むSkillSetは信頼されたチャネル経由でインストールする必要があります。詳細は[MMP P2Pユーザーガイド](docs/KairosChain_MMP_P2P_UserGuide_20260220_jp.md)を参照してください。
+
 ## 使用例
 
 ### 利用可能なスキルを一覧表示
@@ -2022,6 +2173,30 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_stat
 
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_record","arguments":{"logs":["Skill X modified","Reason: improved accuracy"]}}}' | kairos-chain
+```
+
+### P2P SkillSet交換
+
+```bash
+# 1. P2P用HTTPサーバーを起動（エージェントA側）
+kairos-chain --http --port 8080
+
+# 2. エージェントBから接続
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"meeting_connect","arguments":{"url":"http://localhost:8080","mode":"direct"}}}' | kairos-chain
+
+# 3. ピアの利用可能なスキルを一覧表示
+curl http://localhost:8080/meeting/v1/skills
+
+# 4. SkillSetの詳細を取得
+curl "http://localhost:8080/meeting/v1/skillset_details?name=my_knowledge_set"
+
+# 5. SkillSetアーカイブをダウンロード
+curl -X POST http://localhost:8080/meeting/v1/skillset_content \
+  -H "Content-Type: application/json" \
+  -d '{"name":"my_knowledge_set"}'
+
+# 6. 受信したアーカイブをインストール
+kairos-chain skillset install-archive received_package.json
 ```
 
 ## 自己進化ワークフロー
@@ -2111,6 +2286,70 @@ skill :self_inspection do
   end
 end
 ```
+
+## SkillSetプラグインアーキテクチャ
+
+SkillSetはKairosChainを拡張するモジュール型の自己完結型機能パッケージです。SkillSetManagerによって管理され、レイヤーベースのガバナンスに従います。
+
+### SkillSet構造
+
+```
+.kairos/skillsets/{name}/
+├── skillset.json              # 必須：メタデータとレイヤー宣言
+├── tools/                     # MCPツールクラス（Ruby）
+├── lib/                       # 内部ライブラリ
+├── knowledge/                 # 知識ファイル（Markdown + YAMLフロントマター）
+├── config/                    # 設定テンプレート
+└── references/                # 参考資料
+```
+
+### skillset.jsonスキーマ
+
+```json
+{
+  "name": "my_skillset",
+  "version": "1.0.0",
+  "description": "SkillSetの説明",
+  "author": "作者名",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": ["capability_name"],
+  "tool_classes": ["MyTool"],
+  "config_files": ["config/my_config.yml"],
+  "knowledge_dirs": ["knowledge/my_topic"]
+}
+```
+
+### レイヤーベースガバナンス
+
+| レイヤー | ブロックチェーン記録 | 承認 | 一般的な用途 |
+|---------|---------------------|------|-------------|
+| **L0** | 完全（全ファイルハッシュ） | 人間の承認が必要 | コアプロトコル |
+| **L1** | ハッシュのみ | 標準的な有効/無効化 | 標準SkillSet |
+| **L2** | なし | 自由に有効/無効化 | コミュニティ/実験的 |
+
+### MMP SkillSet（Model Meeting Protocol）
+
+MMPはKairosChainインスタンス間のP2P通信を可能にするリファレンスSkillSet実装です。
+
+**主要クラス：**
+- `MMP::Protocol` — コアプロトコルロジック
+- `MMP::Identity` — エージェントIDと紹介
+- `MMP::SkillExchange` — スキル取得ワークフロー
+- `MMP::PeerManager` — ピアトラッキング（永続化とTOFUトラスト付き）
+- `MMP::ProtocolLoader` — 動的プロトコルローディング
+- `MMP::ProtocolEvolution` — プロトコル拡張メカニズム
+- `MeetingRouter` — Rack互換HTTPルーター（11エンドポイント）
+- `MMP::Crypto` — RSA-2048署名検証
+
+**セキュリティ機能：**
+- Knowledge-only制約：14の実行可能拡張子 + シバン検出
+- 名前サニタイズ：`[a-zA-Z0-9][a-zA-Z0-9_-]*`、最大64文字
+- パストラバーサルガード：`expand_path` + `start_with?`検証
+- コンテンツハッシュ検証：パッケージとインストール時のSHA-256
+- RSA署名検証とTOFUキーキャッシュ
+
+詳細な使い方は[MMP P2Pユーザーガイド](docs/KairosChain_MMP_P2P_UserGuide_20260220_jp.md)を参照してください。
 
 ## ディレクトリ構造
 
@@ -2228,13 +2467,30 @@ KairosChain_mcp_server/
 
 ## 将来のロードマップ
 
+### 完了済みフェーズ
+
+以下の開発フェーズが`feature/skillset-plugin`ブランチで完了しています：
+
+| フェーズ | 説明 | 主な成果物 |
+|---------|------|-----------|
+| **Phase 1** | SkillSetプラグイン基盤 | SkillSetManager、ToolRegistry拡張、CLIサブコマンド、レイヤーベースガバナンス |
+| **Phase 2** | MMP as SkillSet + P2Pダイレクトモード | MMPをスタンドアロンSkillSetとしてパッケージ化、MeetingRouter（8 HTTPエンドポイント）、4 MCPツール |
+| **Phase 2.5** | P2Pローカルテスト | 4テストセクション、72アサーション |
+| **Phase 3** | Knowledge-only SkillSet交換 | `knowledge_only?`/`exchangeable?`チェック、tar.gzアーカイブパッケージング、3つの新SkillSetエンドポイント |
+| **Phase 3.5** | セキュリティ修正 + ワイヤープロトコル仕様 | 名前サニタイズ（H4）、パストラバーサルガード（H1）、拡張実行可能ファイル検出（H5）、ワイヤープロトコル仕様書 |
+| **Phase 3.7** | Phase 4前の堅牢化 | RSA-2048署名検証、セマンティックバージョン制約、PeerManager永続化、TOFUトラストモデル |
+| **Phase 3.75** | MMP拡張基盤 | コアアクション衝突検出、拡張オーバーライドガード、Phase 4準備 |
+
+テスト結果: 154テスト通過、0失敗。
+
 ### 近期
 
-1. **Ethereumアンカー**：公開チェーンへの定期的なハッシュアンカリング
-2. **マルチエージェントサポート**：`agent_id`で複数のAIエージェントを追跡
-3. **ゼロ知識証明**：プライバシーを保護した検証
-4. **Webダッシュボード**：スキル進化履歴の可視化
-5. **チームガバナンス**：L0変更のための投票システム（FAQを参照）
+1. **Phase 4: HestiaChain Meeting Placeサーバー**：P2Pピアマッチングのための集中型ディスカバリーサーバー
+2. **Ethereumアンカー**：公開チェーンへの定期的なハッシュアンカリング
+3. **マルチエージェントサポート**：`agent_id`で複数のAIエージェントを追跡
+4. **ゼロ知識証明**：プライバシーを保護した検証
+5. **Webダッシュボード**：スキル進化履歴の可視化
+6. **チームガバナンス**：L0変更のための投票システム（FAQを参照）
 
 ### 長期ビジョン：分散KairosChainネットワーク
 
@@ -2248,10 +2504,12 @@ KairosChainの将来構想：複数のKairosChain MCPサーバーがインター
 
 **実装フェーズ**：
 1. Docker化（デプロイメント基盤）
-2. ~~HTTP/WebSocket API（リモートアクセス）~~ ✅ Streamable HTTPトランスポート（Phase 1 完了）
-3. サーバー間通信プロトコル
-4. 分散合意メカニズム
-5. L0分散ガバナンス
+2. ~~HTTP/WebSocket API（リモートアクセス）~~ ✅ Streamable HTTPトランスポート（完了）
+3. ~~サーバー間通信プロトコル~~ ✅ MMP（Model Meeting Protocol）P2Pダイレクトモード（完了）
+4. ~~SkillSetプラグイン基盤~~ ✅ レイヤーベースガバナンス、knowledge-only P2P交換（完了）
+5. HestiaChain Meeting Placeサーバー（Phase 4、計画中）
+6. 分散合意メカニズム
+7. L0分散ガバナンス
 
 詳細なビジョンドキュメント: [分散KairosChainネットワーク構想](docs/distributed_kairoschain_vision_20260128_jp.md)
 
@@ -3747,6 +4005,51 @@ KairosChainをインストールしていないユーザーとGitHub経由で成
 
 ## サブツリー統合ガイド
 
+### Q: P2Pスキル交換はどのように機能しますか？
+
+**A:** KairosChainはP2P通信にModel Meeting Protocol（MMP）を使用します。一方のエージェントがHTTPサーバーを起動し、もう一方が直接接続します。フローは以下の通りです：
+
+1. エージェントAがHTTPサーバーを起動：`kairos-chain --http --port 8080`
+2. エージェントBが接続：`meeting_connect(url: "http://localhost:8080", mode: "direct")`
+3. エージェント間でイントロダクション（ID、機能、利用可能なスキル）を交換
+4. エージェントBがエージェントAからスキルやSkillSetを発見・取得
+
+すべての交換は来歴追跡のためにブロックチェーンに記録されます。
+
+### Q: Knowledge-only制約とは何ですか？
+
+**A:** P2P経由でSkillSetを交換する際、**knowledge-only**パッケージのみが転送可能です。具体的には：
+
+- **許可**：Markdownファイル、YAMLファイル、設定テンプレート
+- **ブロック**：Ruby（.rb）、Python（.py）、Shell（.sh）、JavaScript（.js）、およびその他10種類の実行可能拡張子、加えてシバン行（`#!`）を含むファイル
+
+`tools/`や`lib/`ディレクトリに実行可能コードを含むSkillSetは、信頼されたチャネル（gem install、git clone、手動コピー）経由でインストールする必要があります。この分離により、P2P知識共有の安全性を確保しつつ、コード実行のセキュリティ境界を維持します。
+
+### Q: 他のKairosChainインスタンスに接続するには？
+
+**A:** MMPツールを使用します：
+
+```bash
+# 1. MMP SkillSetがインストールされていることを確認
+kairos-chain skillset list
+
+# 2. HTTPサーバーを起動（リモートエージェントの接続先）
+kairos-chain --http --port 8080
+
+# 3. ピアに接続
+# MCPツール経由：
+meeting_connect url="http://peer-address:8080" mode="direct"
+
+# curl経由（テスト用）：
+curl http://peer-address:8080/meeting/v1/introduce
+```
+
+`meeting.yml`でID、レート制限、暗号オプションなどの接続設定を構成します。詳細な手順は[MMP P2Pユーザーガイド](docs/KairosChain_MMP_P2P_UserGuide_20260220_jp.md)を参照してください。
+
+---
+
+## サブツリー統合ガイド
+
 KairosChain_2026は`git subtree`を使用して他のプロジェクトに組み込むことができるよう設計されています。これにより各プロジェクトで以下が可能になります：
 
 - 上流のKairosChain_2026リポジトリからフレームワーク更新を受信
@@ -3959,6 +4262,6 @@ ProjectA/                           ProjectB/
 ---
 
 **バージョン**: 1.0.0
-**最終更新**: 2026-02-17
+**最終更新**: 2026-02-21
 
 > *「KairosChainは『この結果は正しいか？』ではなく『この知性はどのように形成されたか？』に答えます」*

@@ -1,7 +1,7 @@
 ---
 name: kairoschain_setup_jp
 description: KairosChainのインストール、設定、テスト手順
-version: 1.0
+version: 1.1
 layer: L1
 tags: [documentation, readme, setup, installation, configuration, testing]
 readme_order: 2
@@ -1186,6 +1186,98 @@ MCPサーバーの起動時にgemとデータディレクトリのバージョ�
 6. MCPサーバーを再起動
 
 すべてのアップグレード操作はトレーサビリティのためKairosChainブロックチェーンに記録されます。
+
+---
+
+## MMP SkillSetセットアップ（P2P通信）
+
+MMP（Model Meeting Protocol）は、KairosChainインスタンス間のP2P通信と知識交換を可能にするオプションのSkillSetです。
+
+### MMP SkillSetのインストール
+
+MMPはテンプレートSkillSetとしてバンドルされています。CLIを使用してインストールします：
+
+```bash
+# MMP SkillSetをインストール（gemにバンドル済み）
+kairos-chain skillset install templates/skillsets/mmp
+
+# リポジトリクローンから
+cd /path/to/KairosChain_mcp_server
+bin/kairos-chain skillset install templates/skillsets/mmp
+
+# インストールを確認
+kairos-chain skillset list
+# 表示例: mmp (L1, enabled)
+```
+
+### meeting.ymlの設定
+
+インストール後、`<data-dir>/skillsets/mmp/config/meeting.yml`を編集してMMP SkillSetを設定します：
+
+```yaml
+# マスタースイッチ
+enabled: true
+
+# エージェントID
+identity:
+  name: "My Agent"
+  description: "マイプロジェクトのKairosChainインスタンス"
+  scope: "general"
+
+# 個別スキル交換設定
+skill_exchange:
+  allowed_formats: [markdown, yaml_frontmatter]
+  allow_executable: false              # P2Pではtrueに設定しないでください
+  public_by_default: false
+
+# SkillSetパッケージ交換設定
+skillset_exchange:
+  enabled: true
+  knowledge_only: true                 # knowledge-onlyパッケージのみ交換
+  auto_install: false                  # 手動承認が必要
+
+# レート制限
+constraints:
+  max_skill_size_bytes: 100000
+  rate_limit_per_minute: 10
+
+# P2P用HTTPサーバー
+http_server:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8080
+  timeout: 10
+
+# ID署名（Phase 3.7以降）
+crypto:
+  keypair_path: "keys/mmp_keypair.pem"
+  auto_generate: true
+```
+
+### P2P HTTPサーバーの起動
+
+```bash
+# P2P用にHTTPトランスポートでKairosChainを起動
+kairos-chain --http --port 8080
+
+# Bearerトークン認証付き
+kairos-chain --http --port 8080 --bearer-token YOUR_TOKEN
+```
+
+### P2P接続テスト
+
+```bash
+# 自己紹介エンドポイントをテスト
+curl http://localhost:8080/meeting/v1/introduce
+
+# 利用可能なスキルを一覧表示
+curl http://localhost:8080/meeting/v1/skills
+
+# 別のエージェントから接続
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"meeting_connect","arguments":{"url":"http://localhost:8080","mode":"direct"}}}' | kairos-chain
+```
+
+P2Pの詳細な使い方は[MMP P2Pユーザーガイド](docs/KairosChain_MMP_P2P_UserGuide_20260220_jp.md)を参照してください。
 
 ---
 

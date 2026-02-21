@@ -1,7 +1,7 @@
 ---
 name: kairoschain_faq
 description: Frequently asked questions and subtree integration guide
-version: 1.0
+version: 1.1
 layer: L1
 tags: [documentation, readme, faq, subtree, integration]
 readme_order: 6
@@ -1301,6 +1301,49 @@ ln -s /path/to/.kairos/knowledge ~/.claude/skills/kairos-knowledge
 This provides **read-only compatibility** — Claude Code can reference L1 knowledge, but all modifications should still go through KairosChain's `knowledge_update` tool to maintain blockchain audit trails. Direct file edits bypass the audit mechanism.
 
 This is useful for sharing mature L1 knowledge via GitHub with users who may not have KairosChain installed.
+
+---
+
+### Q: How does P2P skill exchange work?
+
+**A:** KairosChain uses the Model Meeting Protocol (MMP) for P2P communication. One agent runs an HTTP server, and another connects directly to it. The flow is:
+
+1. Agent A starts HTTP server: `kairos-chain --http --port 8080`
+2. Agent B connects: `meeting_connect(url: "http://localhost:8080", mode: "direct")`
+3. Agents exchange introductions (identity, capabilities, available skills)
+4. Agent B discovers and acquires skills or SkillSets from Agent A
+
+All exchanges are recorded on the blockchain for provenance tracking.
+
+### Q: What is the knowledge-only constraint?
+
+**A:** When exchanging SkillSets over P2P, only **knowledge-only** packages can be transferred. This means:
+
+- **Allowed**: Markdown files, YAML files, configuration templates
+- **Blocked**: Ruby (.rb), Python (.py), Shell (.sh), JavaScript (.js), and 10 other executable extensions, plus files with shebang lines (`#!`)
+
+SkillSets containing executable code in `tools/` or `lib/` directories must be installed via trusted channels (gem install, git clone, manual copy). This separation ensures that P2P knowledge sharing remains safe while maintaining security boundaries for code execution.
+
+### Q: How do I connect to another KairosChain instance?
+
+**A:** Use the MMP tools:
+
+```bash
+# 1. Ensure MMP SkillSet is installed
+kairos-chain skillset list
+
+# 2. Start your HTTP server (for the remote agent to connect back)
+kairos-chain --http --port 8080
+
+# 3. Connect to a peer
+# Via MCP tool:
+meeting_connect url="http://peer-address:8080" mode="direct"
+
+# Via curl (for testing):
+curl http://peer-address:8080/meeting/v1/introduce
+```
+
+Configure connection settings in `meeting.yml` including identity, rate limits, and crypto options. See the [MMP P2P User Guide](docs/KairosChain_MMP_P2P_UserGuide_20260220_en.md) for detailed instructions.
 
 ---
 

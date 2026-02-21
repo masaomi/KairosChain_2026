@@ -1,7 +1,7 @@
 ---
 name: kairoschain_faq_jp
 description: よくある質問とサブツリー統合ガイド
-version: 1.0
+version: 1.1
 layer: L1
 tags: [documentation, readme, faq, subtree, integration]
 readme_order: 6
@@ -1232,6 +1232,51 @@ ln -s /path/to/.kairos/knowledge ~/.claude/skills/kairos-knowledge
 これは**読み取り専用の互換性**を提供します。Claude CodeがL1知識を参照できますが、すべての変更はKairosChainの`knowledge_update`ツール経由で行い、ブロックチェーンの監査証跡を維持する必要があります。直接のファイル編集は監査メカニズムをバイパスします。
 
 KairosChainをインストールしていないユーザーとGitHub経由で成熟したL1知識を共有する場合に特に有用です。
+
+---
+
+## サブツリー統合ガイド
+
+### Q: P2Pスキル交換はどのように機能しますか？
+
+**A:** KairosChainはP2P通信にModel Meeting Protocol（MMP）を使用します。一方のエージェントがHTTPサーバーを起動し、もう一方が直接接続します。フローは以下の通りです：
+
+1. エージェントAがHTTPサーバーを起動：`kairos-chain --http --port 8080`
+2. エージェントBが接続：`meeting_connect(url: "http://localhost:8080", mode: "direct")`
+3. エージェント間でイントロダクション（ID、機能、利用可能なスキル）を交換
+4. エージェントBがエージェントAからスキルやSkillSetを発見・取得
+
+すべての交換は来歴追跡のためにブロックチェーンに記録されます。
+
+### Q: Knowledge-only制約とは何ですか？
+
+**A:** P2P経由でSkillSetを交換する際、**knowledge-only**パッケージのみが転送可能です。具体的には：
+
+- **許可**：Markdownファイル、YAMLファイル、設定テンプレート
+- **ブロック**：Ruby（.rb）、Python（.py）、Shell（.sh）、JavaScript（.js）、およびその他10種類の実行可能拡張子、加えてシバン行（`#!`）を含むファイル
+
+`tools/`や`lib/`ディレクトリに実行可能コードを含むSkillSetは、信頼されたチャネル（gem install、git clone、手動コピー）経由でインストールする必要があります。この分離により、P2P知識共有の安全性を確保しつつ、コード実行のセキュリティ境界を維持します。
+
+### Q: 他のKairosChainインスタンスに接続するには？
+
+**A:** MMPツールを使用します：
+
+```bash
+# 1. MMP SkillSetがインストールされていることを確認
+kairos-chain skillset list
+
+# 2. HTTPサーバーを起動（リモートエージェントの接続先）
+kairos-chain --http --port 8080
+
+# 3. ピアに接続
+# MCPツール経由：
+meeting_connect url="http://peer-address:8080" mode="direct"
+
+# curl経由（テスト用）：
+curl http://peer-address:8080/meeting/v1/introduce
+```
+
+`meeting.yml`でID、レート制限、暗号オプションなどの接続設定を構成します。詳細な手順は[MMP P2Pユーザーガイド](docs/KairosChain_MMP_P2P_UserGuide_20260220_jp.md)を参照してください。
 
 ---
 
