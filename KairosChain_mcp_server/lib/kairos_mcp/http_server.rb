@@ -31,7 +31,7 @@ module KairosMcp
   #
   class HttpServer
     DEFAULT_PORT = 8080
-    DEFAULT_HOST = '0.0.0.0'
+    DEFAULT_HOST = '127.0.0.1'
 
     JSON_HEADERS = {
       'Content-Type' => 'application/json',

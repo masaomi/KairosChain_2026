@@ -54,7 +54,8 @@ module KairosMcp
       end
     rescue StandardError => e
       $stderr.puts "[MeetingRouter] Error: #{e.message}"
-      json_response(500, { error: 'internal_error', message: e.message })
+      $stderr.puts e.backtrace&.first(3)&.join("\n")
+      json_response(500, { error: 'internal_error', message: 'An internal error occurred while processing the request' })
     end
 
     def reload_protocol
