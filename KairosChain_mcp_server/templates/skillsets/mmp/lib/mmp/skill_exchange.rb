@@ -9,6 +9,7 @@ module MMP
     SAFE_FORMATS = %w[markdown yaml_frontmatter].freeze
     DANGEROUS_FORMATS = %w[ruby ruby_dsl ast executable].freeze
     DEFAULT_MAX_SIZE = 100_000
+    MAX_HOP_COUNT = 3
 
     attr_reader :chain_adapter
 
@@ -34,6 +35,9 @@ module MMP
       content = skill_data[:content] || skill_data['content']
       format = skill_data[:format] || skill_data['format']
       content_hash = skill_data[:content_hash] || skill_data['content_hash']
+      # hop_count enforcement
+      hop_count = skill_data.dig(:provenance, :hop_count) || skill_data.dig('provenance', 'hop_count') || 0
+      errors << "hop_count limit exceeded (#{hop_count} >= #{MAX_HOP_COUNT})" if hop_count.to_i >= MAX_HOP_COUNT
       errors << "Format '#{format}' is not allowed" unless can_receive_format?(format)
       if content && content_hash
         calculated = Digest::SHA256.hexdigest(content)

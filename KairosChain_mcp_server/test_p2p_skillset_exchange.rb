@@ -267,19 +267,39 @@ section('3. P2P Communication (MeetingRouter)') do
   router = KairosMcp::MeetingRouter.new
 
   # Helper to create mock Rack env
-  def mock_env(method, path, body: nil, query: nil)
+  def mock_env(method, path, body: nil, query: nil, bearer_token: nil)
     env = {
       'REQUEST_METHOD' => method,
       'PATH_INFO' => path,
       'QUERY_STRING' => query || '',
       'CONTENT_TYPE' => 'application/json'
     }
+    env['HTTP_AUTHORIZATION'] = "Bearer #{bearer_token}" if bearer_token
     if body
       env['rack.input'] = StringIO.new(body.is_a?(String) ? body : JSON.generate(body))
     else
       env['rack.input'] = StringIO.new('')
     end
     env
+  end
+
+  # Helper to obtain a session token via signed introduce
+  def obtain_session_token(router, data_dir)
+    identity = ::MMP::Identity.new(
+      workspace_root: data_dir,
+      config: ::MMP.load_config
+    )
+    intro = identity.introduce
+
+    body = {
+      'action' => 'introduce',
+      'identity' => intro[:identity],
+      'identity_signature' => intro[:identity_signature],
+      'public_key' => intro[:public_key]
+    }
+    _, _, resp_body = router.call(mock_env('POST', '/meeting/v1/introduce', body: body))
+    result = JSON.parse(resp_body.first, symbolize_names: true)
+    result[:session_token]
   end
 
   # GET /meeting/v1/introduce
@@ -302,8 +322,12 @@ section('3. P2P Communication (MeetingRouter)') do
   assert('POST introduce has status received') { result[:status] == 'received' }
   assert('POST introduce returns our identity') { result[:peer_identity].is_a?(Hash) }
 
-  # GET /meeting/v1/skills
-  status, _headers, body = router.call(mock_env('GET', '/meeting/v1/skills'))
+  # Obtain session token for authenticated requests
+  token_a = obtain_session_token(router, dir_a)
+  assert('session token obtained') { !token_a.nil? && !token_a.empty? }
+
+  # GET /meeting/v1/skills (requires auth)
+  status, _headers, body = router.call(mock_env('GET', '/meeting/v1/skills', bearer_token: token_a))
   skills_data = JSON.parse(body.first, symbolize_names: true)
   assert('GET skills returns 200') { status == 200 }
   assert('GET skills returns array') { skills_data[:skills].is_a?(Array) }
@@ -315,7 +339,7 @@ section('3. P2P Communication (MeetingRouter)') do
 
   # GET /meeting/v1/skill_details
   status, _headers, body = router.call(mock_env('GET', '/meeting/v1/skill_details',
-    query: "skill_id=#{skill[:id]}"
+    query: "skill_id=#{skill[:id]}", bearer_token: token_a
   ))
   details = JSON.parse(body.first, symbolize_names: true)
   assert('GET skill_details returns 200') { status == 200 }
@@ -324,7 +348,8 @@ section('3. P2P Communication (MeetingRouter)') do
 
   # POST /meeting/v1/skill_content
   status, _headers, body = router.call(mock_env('POST', '/meeting/v1/skill_content',
-    body: { skill_id: skill[:id], to: 'requester', in_reply_to: 'req-001' }
+    body: { skill_id: skill[:id], to: 'requester', in_reply_to: 'req-001' },
+    bearer_token: token_a
   ))
   content_data = JSON.parse(body.first, symbolize_names: true)
   assert('POST skill_content returns 200') { status == 200 }
@@ -335,14 +360,19 @@ section('3. P2P Communication (MeetingRouter)') do
 
   # POST /meeting/v1/message (generic)
   status, _headers, body = router.call(mock_env('POST', '/meeting/v1/message',
-    body: { action: 'reflect', from: 'peer-001', payload: { reflection: 'Great exchange!' } }
+    body: { action: 'reflect', from: 'peer-001', payload: { reflection: 'Great exchange!' } },
+    bearer_token: token_a
   ))
   msg_result = JSON.parse(body.first, symbolize_names: true)
   assert('POST message returns 200') { status == 200 }
   assert('message processed') { msg_result[:status] == 'received' }
 
-  # 404 for unknown endpoint
-  status, _headers, _body = router.call(mock_env('GET', '/meeting/v1/unknown'))
+  # Unauthenticated request to authenticated endpoint
+  status, _headers, body = router.call(mock_env('GET', '/meeting/v1/skills'))
+  assert('unauthenticated skills returns 401') { status == 401 }
+
+  # 404 for unknown endpoint (with auth)
+  status, _headers, _body = router.call(mock_env('GET', '/meeting/v1/unknown', bearer_token: token_a))
   assert('unknown endpoint returns 404') { status == 404 }
 end
 
@@ -356,8 +386,11 @@ section('4. SkillSet Exchange Integration') do
   KairosMcp.data_dir = dir_a
   router_a = KairosMcp::MeetingRouter.new
 
+  # Obtain session token
+  token_a = obtain_session_token(router_a, dir_a)
+
   # Get Agent Alpha's skills
-  _, _, body = router_a.call(mock_env('GET', '/meeting/v1/skills'))
+  _, _, body = router_a.call(mock_env('GET', '/meeting/v1/skills', bearer_token: token_a))
   alpha_skills = JSON.parse(body.first, symbolize_names: true)[:skills]
   assert('Agent Alpha has skills to offer') { alpha_skills.size > 0 }
 
@@ -367,7 +400,8 @@ section('4. SkillSet Exchange Integration') do
 
   # Agent Beta requests skill content from Alpha
   _, _, body = router_a.call(mock_env('POST', '/meeting/v1/skill_content',
-    body: { skill_id: skill_to_acquire[:id], to: 'agent-beta', in_reply_to: 'req-beta-001' }
+    body: { skill_id: skill_to_acquire[:id], to: 'agent-beta', in_reply_to: 'req-beta-001' },
+    bearer_token: token_a
   ))
   response = JSON.parse(body.first, symbolize_names: true)
   packaged = response[:packaged_skill]
@@ -503,8 +537,9 @@ section('5. SkillSet Exchange via MMP') do
   ::MMP.instance_variable_set(:@config, nil) if ::MMP.respond_to?(:instance_variable_set)
   router_a = KairosMcp::MeetingRouter.new
 
-  # GET /meeting/v1/skillsets
-  status, _headers, body = router_a.call(mock_env('GET', '/meeting/v1/skillsets'))
+  # GET /meeting/v1/skillsets (requires auth)
+  token_skillset = obtain_session_token(router_a, dir_a)
+  status, _headers, body = router_a.call(mock_env('GET', '/meeting/v1/skillsets', bearer_token: token_skillset))
   ss_list = JSON.parse(body.first, symbolize_names: true)
   assert('GET skillsets returns 200') { status == 200 }
   assert('skillsets list is array') { ss_list[:skillsets].is_a?(Array) }
@@ -517,7 +552,7 @@ section('5. SkillSet Exchange via MMP') do
 
   # GET /meeting/v1/skillset_details
   status, _headers, body = router_a.call(mock_env('GET', '/meeting/v1/skillset_details',
-    query: 'name=test_knowledge_pack'
+    query: 'name=test_knowledge_pack', bearer_token: token_skillset
   ))
   ss_details = JSON.parse(body.first, symbolize_names: true)
   assert('GET skillset_details returns 200') { status == 200 }
@@ -529,13 +564,13 @@ section('5. SkillSet Exchange via MMP') do
 
   # GET /meeting/v1/skillset_details for non-exchangeable (MMP)
   status, _headers, _body = router_a.call(mock_env('GET', '/meeting/v1/skillset_details',
-    query: 'name=mmp'
+    query: 'name=mmp', bearer_token: token_skillset
   ))
   assert('MMP skillset_details returns 403') { status == 403 }
 
   # POST /meeting/v1/skillset_content
   status, _headers, body = router_a.call(mock_env('POST', '/meeting/v1/skillset_content',
-    body: { name: 'test_knowledge_pack' }
+    body: { name: 'test_knowledge_pack' }, bearer_token: token_skillset
   ))
   ss_content = JSON.parse(body.first, symbolize_names: true)
   assert('POST skillset_content returns 200') { status == 200 }
@@ -545,7 +580,7 @@ section('5. SkillSet Exchange via MMP') do
 
   # POST /meeting/v1/skillset_content for MMP (should be refused)
   status, _headers, _body = router_a.call(mock_env('POST', '/meeting/v1/skillset_content',
-    body: { name: 'mmp' }
+    body: { name: 'mmp' }, bearer_token: token_skillset
   ))
   assert('MMP skillset_content returns 403') { status == 403 }
 

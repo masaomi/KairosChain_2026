@@ -18,6 +18,7 @@ module KairosMcp
       @protocol = nil
       @identity = nil
       @exchange = nil
+      @session_store = nil
     end
 
     def call(env)
@@ -26,11 +27,21 @@ module KairosMcp
       request_method = env['REQUEST_METHOD']
       path = env['PATH_INFO']
 
+      # Unauthenticated endpoints
       case [request_method, path]
       when ['GET', '/meeting/v1/introduce']
-        handle_get_introduce
+        return handle_get_introduce
       when ['POST', '/meeting/v1/introduce']
-        handle_post_introduce(env)
+        return handle_post_introduce(env)
+      when ['POST', '/meeting/v1/goodbye']
+        return handle_goodbye(env)
+      end
+
+      # All other endpoints require Bearer token authentication
+      auth_result = authenticate_meeting_request!(env)
+      return auth_result unless auth_result.nil?
+
+      case [request_method, path]
       when ['POST', '/meeting/v1/message']
         handle_message(env)
       when ['GET', '/meeting/v1/skills']
@@ -60,6 +71,14 @@ module KairosMcp
 
     def reload_protocol
       @protocol = nil
+    end
+
+    # Public accessor for session store (testing)
+    def session_store
+      @session_store ||= begin
+        require_relative '../../templates/skillsets/mmp/lib/mmp/meeting_session_store'
+        MMP::MeetingSessionStore.new
+      end
     end
 
     private
@@ -137,16 +156,20 @@ module KairosMcp
     end
 
     # POST /meeting/v1/introduce - Receive introduction from peer
+    # If RSA signature verification succeeds, a session token is issued.
     def handle_post_introduce(env)
       body = parse_body(env)
 
       # Signature verification (H2 fix: verify identity if signed)
       verified = false
-      if body['public_key'] && body['identity_signature'] && body['identity']
+      peer_id = body.dig('identity', 'instance_id')
+      public_key = body['public_key']
+
+      if public_key && body['identity_signature'] && body['identity']
         begin
           canonical = JSON.generate(body['identity'], sort_keys: true)
           crypto = MMP::Crypto.new(auto_generate: false)
-          verified = crypto.verify_signature(canonical, body['identity_signature'], body['public_key'])
+          verified = crypto.verify_signature(canonical, body['identity_signature'], public_key)
         rescue StandardError => e
           $stderr.puts "[MeetingRouter] Signature verification failed: #{e.message}"
         end
@@ -154,12 +177,31 @@ module KairosMcp
 
       result = protocol.process_message(body.merge('action' => 'introduce'))
 
-      json_response(200, {
+      response = {
         status: 'received',
         peer_identity: identity.introduce,
         identity_verified: verified,
         result: result
-      })
+      }
+
+      # Issue session token if signature was verified
+      if verified && peer_id
+        token = session_store.create_session(peer_id, public_key)
+        response[:session_token] = token
+      end
+
+      json_response(200, response)
+    end
+
+    # POST /meeting/v1/goodbye - Revoke session token
+    def handle_goodbye(env)
+      token = extract_bearer_token(env)
+      if token
+        session_store.revoke(token)
+        json_response(200, { status: 'goodbye', message: 'Session ended' })
+      else
+        json_response(400, { error: 'no_token', message: 'No session token provided' })
+      end
     end
 
     # POST /meeting/v1/message - Generic MMP message handler
@@ -381,7 +423,46 @@ module KairosMcp
       })
     end
 
-    # Helpers
+    # --- Authentication ---
+
+    # Authenticate a meeting request via Bearer token.
+    # Returns nil if authenticated, or an error response triple if not.
+    def authenticate_meeting_request!(env)
+      token = extract_bearer_token(env)
+
+      unless token
+        return json_response(401, {
+          error: 'authentication_required',
+          message: 'Bearer token required. Use POST /meeting/v1/introduce to obtain a session token.'
+        })
+      end
+
+      peer_id = session_store.validate(token)
+      unless peer_id
+        return json_response(401, {
+          error: 'invalid_or_expired_token',
+          message: 'Session token is invalid or has expired. Re-introduce to obtain a new token.'
+        })
+      end
+
+      unless session_store.check_rate_limit(token)
+        return json_response(429, {
+          error: 'rate_limited',
+          message: 'Too many requests. Please wait before retrying.'
+        })
+      end
+
+      nil # Authentication passed
+    end
+
+    def extract_bearer_token(env)
+      auth_header = env['HTTP_AUTHORIZATION'] || ''
+      return nil unless auth_header.start_with?('Bearer ')
+
+      auth_header.sub('Bearer ', '').strip
+    end
+
+    # --- Helpers ---
 
     def parse_body(env)
       body = env['rack.input']&.read
