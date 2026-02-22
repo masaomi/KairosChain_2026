@@ -1,7 +1,7 @@
 ---
 name: kairoschain_philosophy
 description: "KairosChain philosophy, architecture, and layered skill design"
-version: 1.0
+version: 1.1
 layer: L1
 tags: [documentation, readme, philosophy, architecture, layers, data-model]
 readme_order: 1
@@ -89,6 +89,18 @@ Instead, we achieve: **Evolvable but not gameable systems**.
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### P2P Knowledge Exchange
+
+KairosChain supports peer-to-peer knowledge exchange between instances via the Model Meeting Protocol (MMP). This capability embodies several key design principles:
+
+**Knowledge-Only Constraint**: Only non-executable content (Markdown, YAML) can be exchanged over P2P. Executable code must be installed via trusted channels. This separation ensures that shared knowledge remains safe and auditable, while maintaining security boundaries for code execution.
+
+**Protocol Evolution**: MMP supports dynamic protocol extension through `ProtocolEvolution`, allowing new message types and capabilities to be added without modifying the core protocol. Extensions are validated against core actions to prevent collision, maintaining protocol integrity.
+
+**Wire Protocol Standardization**: A standardized message format (tar.gz + Base64 archives with SHA-256 content hashing) ensures interoperability between KairosChain instances regardless of their internal configuration.
+
+**Trust Model**: TOFU (Trust on First Use) with RSA-2048 signature verification provides identity assurance without requiring a central certificate authority, aligning with KairosChain's decentralized philosophy.
 
 ## Layered Skills Architecture
 

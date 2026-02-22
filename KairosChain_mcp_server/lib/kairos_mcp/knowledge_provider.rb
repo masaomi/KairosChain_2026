@@ -38,7 +38,22 @@ module KairosMcp
       @storage_backend = storage_backend
       @vector_search = nil
       @index_built = false
+      @external_dirs = []
       FileUtils.mkdir_p(@knowledge_dir)
+    end
+
+    # Register an external knowledge directory (e.g. from a SkillSet)
+    # Knowledge is read-only from external dirs; no merge into the main dir.
+    #
+    # @param dir [String] Absolute path to the knowledge directory
+    # @param source [String] Identifier for the source (e.g. "skillset:mmp")
+    # @param layer [Symbol] Layer governance (:L0, :L1, :L2)
+    # @param index [Boolean] Whether to include in vector search index
+    def add_external_dir(dir, source:, layer: :L1, index: true)
+      return unless File.directory?(dir)
+
+      @external_dirs << { dir: dir, source: source, layer: layer, index: index }
+      @index_built = false if index # Invalidate index when new indexed dir added
     end
 
     # Get the storage backend type
@@ -47,11 +62,11 @@ module KairosMcp
       storage_backend.backend_type
     end
 
-    # List all knowledge skills
+    # List all knowledge skills (including those from external SkillSet dirs)
     #
     # @return [Array<Hash>] List of knowledge skill summaries
     def list
-      skill_dirs.map do |dir|
+      results = skill_dirs.map do |dir|
         skill = AnthropicSkillParser.parse(dir)
         next unless skill
 
@@ -65,17 +80,46 @@ module KairosMcp
           has_references: skill.has_references?
         }
       end.compact
+
+      # Include knowledge from external directories (SkillSets)
+      @external_dirs.each do |ext|
+        external_skill_dirs(ext[:dir]).each do |dir|
+          skill = AnthropicSkillParser.parse(dir)
+          next unless skill
+
+          results << {
+            name: skill.name,
+            description: skill.description,
+            version: skill.version,
+            tags: skill.tags,
+            has_scripts: skill.has_scripts?,
+            has_assets: skill.has_assets?,
+            has_references: skill.has_references?,
+            source: ext[:source],
+            layer: ext[:layer]
+          }
+        end
+      end
+
+      results
     end
 
     # Get a specific knowledge skill by name
+    # Searches main knowledge dir first, then external SkillSet dirs
     #
     # @param name [String] Skill name
     # @return [AnthropicSkillParser::SkillEntry, nil] The skill entry or nil
     def get(name)
       skill_dir = File.join(@knowledge_dir, name)
-      return nil unless File.directory?(skill_dir)
+      return AnthropicSkillParser.parse(skill_dir) if File.directory?(skill_dir)
 
-      AnthropicSkillParser.parse(skill_dir)
+      # Search external directories
+      @external_dirs.each do |ext|
+        ext_skill_dir = File.join(ext[:dir], name)
+        return AnthropicSkillParser.parse(ext_skill_dir) if File.directory?(ext_skill_dir)
+      end
+
+      nil
     end
 
     # Create a new knowledge skill
@@ -252,7 +296,7 @@ module KairosMcp
       }
     end
 
-    # Rebuild the vector search index
+    # Rebuild the vector search index (includes indexed external dirs)
     #
     # @return [Boolean] Success status
     def rebuild_index
@@ -270,6 +314,26 @@ module KairosMcp
             version: skill.version
           }
         }
+      end
+
+      # Include external dirs that have indexing enabled
+      @external_dirs.select { |ext| ext[:index] }.each do |ext|
+        external_skill_dirs(ext[:dir]).each do |dir|
+          skill = AnthropicSkillParser.parse(dir)
+          next unless skill
+
+          content = File.read(skill.md_file_path) rescue ''
+          documents << {
+            id: "#{ext[:source]}:#{skill.name}",
+            text: build_searchable_text(skill, content),
+            metadata: {
+              description: skill.description,
+              tags: skill.tags,
+              version: skill.version,
+              source: ext[:source]
+            }
+          }
+        end
       end
 
       result = vector_search.rebuild(documents)
@@ -531,6 +595,13 @@ module KairosMcp
       Dir[File.join(@knowledge_dir, '*')].select do |f|
         File.directory?(f) && File.basename(f) != ARCHIVED_DIR
       end
+    end
+
+    # List subdirectories in an external knowledge dir
+    def external_skill_dirs(dir)
+      return [] unless File.directory?(dir)
+
+      Dir[File.join(dir, '*')].select { |f| File.directory?(f) }
     end
 
     def record_hash_reference(name:, action:, prev_hash:, next_hash:, reason:)

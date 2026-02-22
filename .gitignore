@@ -23,6 +23,11 @@ KairosChain_mcp_server/context/
 # Authentication tokens (sensitive - never commit)
 KairosChain_mcp_server/storage/tokens.json
 
+# RSA keypairs (auto-generated, never commit)
+*.pem
+*.pem.pub
+KairosChain_mcp_server/keys/
+
 # Gem build artifacts
 KairosChain_mcp_server/*.gem
 KairosChain_mcp_server/pkg/

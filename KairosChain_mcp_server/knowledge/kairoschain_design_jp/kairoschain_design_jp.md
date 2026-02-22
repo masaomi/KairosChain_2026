@@ -1,7 +1,7 @@
 ---
 name: kairoschain_design_jp
 description: Pure Skills設計とディレクトリ構造
-version: 1.0
+version: 1.1
 layer: L1
 tags: [documentation, readme, design, architecture, directory-structure]
 readme_order: 4
@@ -62,6 +62,70 @@ skill :self_inspection do
   end
 end
 ```
+
+## SkillSetプラグインアーキテクチャ
+
+SkillSetはKairosChainを拡張するモジュール型の自己完結型機能パッケージです。SkillSetManagerによって管理され、レイヤーベースのガバナンスに従います。
+
+### SkillSet構造
+
+```
+.kairos/skillsets/{name}/
+├── skillset.json              # 必須：メタデータとレイヤー宣言
+├── tools/                     # MCPツールクラス（Ruby）
+├── lib/                       # 内部ライブラリ
+├── knowledge/                 # 知識ファイル（Markdown + YAMLフロントマター）
+├── config/                    # 設定テンプレート
+└── references/                # 参考資料
+```
+
+### skillset.jsonスキーマ
+
+```json
+{
+  "name": "my_skillset",
+  "version": "1.0.0",
+  "description": "SkillSetの説明",
+  "author": "作者名",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": ["capability_name"],
+  "tool_classes": ["MyTool"],
+  "config_files": ["config/my_config.yml"],
+  "knowledge_dirs": ["knowledge/my_topic"]
+}
+```
+
+### レイヤーベースガバナンス
+
+| レイヤー | ブロックチェーン記録 | 承認 | 一般的な用途 |
+|---------|---------------------|------|-------------|
+| **L0** | 完全（全ファイルハッシュ） | 人間の承認が必要 | コアプロトコル |
+| **L1** | ハッシュのみ | 標準的な有効/無効化 | 標準SkillSet |
+| **L2** | なし | 自由に有効/無効化 | コミュニティ/実験的 |
+
+### MMP SkillSet（Model Meeting Protocol）
+
+MMPはKairosChainインスタンス間のP2P通信を可能にするリファレンスSkillSet実装です。
+
+**主要クラス：**
+- `MMP::Protocol` — コアプロトコルロジック
+- `MMP::Identity` — エージェントIDと紹介
+- `MMP::SkillExchange` — スキル取得ワークフロー
+- `MMP::PeerManager` — ピアトラッキング（永続化とTOFUトラスト付き）
+- `MMP::ProtocolLoader` — 動的プロトコルローディング
+- `MMP::ProtocolEvolution` — プロトコル拡張メカニズム
+- `MeetingRouter` — Rack互換HTTPルーター（11エンドポイント）
+- `MMP::Crypto` — RSA-2048署名検証
+
+**セキュリティ機能：**
+- Knowledge-only制約：14の実行可能拡張子 + シバン検出
+- 名前サニタイズ：`[a-zA-Z0-9][a-zA-Z0-9_-]*`、最大64文字
+- パストラバーサルガード：`expand_path` + `start_with?`検証
+- コンテンツハッシュ検証：パッケージとインストール時のSHA-256
+- RSA署名検証とTOFUキーキャッシュ
+
+詳細な使い方は[MMP P2Pユーザーガイド](docs/KairosChain_MMP_P2P_UserGuide_20260220_jp.md)を参照してください。
 
 ## ディレクトリ構造
 

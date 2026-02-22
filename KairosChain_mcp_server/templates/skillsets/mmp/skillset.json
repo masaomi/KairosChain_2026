@@ -1,0 +1,17 @@
+{
+  "name": "mmp",
+  "version": "1.0.0",
+  "description": "Model Meeting Protocol for P2P agent communication and skill exchange",
+  "author": "Dr. Masa Hatakeyama",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": ["p2p_communication", "skill_exchange", "skillset_exchange"],
+  "tool_classes": [
+    "KairosMcp::SkillSets::MMP::Tools::MeetingConnect",
+    "KairosMcp::SkillSets::MMP::Tools::MeetingDisconnect",
+    "KairosMcp::SkillSets::MMP::Tools::MeetingAcquireSkill",
+    "KairosMcp::SkillSets::MMP::Tools::MeetingGetSkillDetails"
+  ],
+  "config_files": ["config/meeting.yml"],
+  "knowledge_dirs": ["knowledge/meeting_protocol_core", "knowledge/meeting_protocol_skillset_exchange", "knowledge/meeting_protocol_wire_spec"]
+}

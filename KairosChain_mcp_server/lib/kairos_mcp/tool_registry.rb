@@ -72,8 +72,26 @@ module KairosMcp
       # System management tools (upgrade, migration)
       register_if_defined('KairosMcp::Tools::SystemUpgrade')
 
+      # SkillSet-based tools (opt-in plugins from .kairos/skillsets/)
+      register_skillset_tools
+
       # Skill-based tools (from kairos.rb with tool block)
       register_skill_tools if skill_tools_enabled?
+    end
+
+    # Register tools from enabled SkillSets
+    def register_skillset_tools
+      require_relative 'skillset_manager'
+
+      manager = SkillSetManager.new
+      manager.enabled_skillsets.each do |skillset|
+        skillset.load!
+        skillset.tool_class_names.each do |cls|
+          register_if_defined(cls)
+        end
+      end
+    rescue StandardError => e
+      warn "[ToolRegistry] Failed to load SkillSet tools: #{e.message}"
     end
 
     # Register tools defined in kairos.rb via tool block

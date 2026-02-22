@@ -1,7 +1,7 @@
 ---
 name: kairoschain_design
 description: Pure Skills design and directory structure
-version: 1.0
+version: 1.1
 layer: L1
 tags: [documentation, readme, design, architecture, directory-structure]
 readme_order: 4
@@ -62,6 +62,70 @@ skill :self_inspection do
   end
 end
 ```
+
+## SkillSet Plugin Architecture
+
+SkillSets are modular, self-contained capability packages that extend KairosChain. They are managed by the SkillSetManager and follow layer-based governance.
+
+### SkillSet Structure
+
+```
+.kairos/skillsets/{name}/
+├── skillset.json              # Required: metadata and layer declaration
+├── tools/                     # MCP Tool classes (Ruby)
+├── lib/                       # Internal libraries
+├── knowledge/                 # Knowledge files (Markdown + YAML frontmatter)
+├── config/                    # Configuration templates
+└── references/                # Reference materials
+```
+
+### skillset.json Schema
+
+```json
+{
+  "name": "my_skillset",
+  "version": "1.0.0",
+  "description": "Description of the SkillSet",
+  "author": "Author Name",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": ["capability_name"],
+  "tool_classes": ["MyTool"],
+  "config_files": ["config/my_config.yml"],
+  "knowledge_dirs": ["knowledge/my_topic"]
+}
+```
+
+### Layer-Based Governance
+
+| Layer | Blockchain Recording | Approval | Typical Use |
+|-------|---------------------|----------|-------------|
+| **L0** | Full (all file hashes) | Human approval required | Core protocols |
+| **L1** | Hash-only | Standard enable/disable | Standard SkillSets |
+| **L2** | None | Free enable/disable | Community/experimental |
+
+### MMP SkillSet (Model Meeting Protocol)
+
+MMP is the reference SkillSet implementation that enables P2P communication between KairosChain instances.
+
+**Key classes:**
+- `MMP::Protocol` — Core protocol logic
+- `MMP::Identity` — Agent identity and introduction
+- `MMP::SkillExchange` — Skill acquisition workflow
+- `MMP::PeerManager` — Peer tracking with persistence and TOFU trust
+- `MMP::ProtocolLoader` — Dynamic protocol loading
+- `MMP::ProtocolEvolution` — Protocol extension mechanism
+- `MeetingRouter` — Rack-compatible HTTP router (11 endpoints)
+- `MMP::Crypto` — RSA-2048 signature verification
+
+**Security features:**
+- Knowledge-only constraint: 14 executable extensions + shebang detection
+- Name sanitization: `[a-zA-Z0-9][a-zA-Z0-9_-]*`, max 64 chars
+- Path traversal guard: `expand_path` + `start_with?` verification
+- Content hash verification: SHA-256 on package and install
+- RSA signature verification with TOFU key caching
+
+For detailed usage, see the [MMP P2P User Guide](docs/KairosChain_MMP_P2P_UserGuide_20260220_en.md).
 
 ## Directory Structure
 

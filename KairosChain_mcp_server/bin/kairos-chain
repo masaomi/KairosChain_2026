@@ -24,6 +24,180 @@ require 'optparse'
 
 # Check for subcommands first (before OptionParser)
 case ARGV[0]
+when 'skillset'
+  ARGV.shift # Remove 'skillset' from ARGV
+
+  $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
+  require 'kairos_mcp'
+
+  # Handle --data-dir before subcommand
+  if (idx = ARGV.index('--data-dir'))
+    KairosMcp.data_dir = File.expand_path(ARGV[idx + 1])
+    ARGV.delete_at(idx + 1)
+    ARGV.delete_at(idx)
+  end
+
+  require 'kairos_mcp/skillset_manager'
+
+  action = ARGV.shift
+  manager = KairosMcp::SkillSetManager.new
+
+  case action
+  when 'list'
+    skillsets = manager.all_skillsets
+    if skillsets.empty?
+      puts "No SkillSets installed."
+      puts "Install with: kairos-chain skillset install <path>"
+    else
+      puts "Installed SkillSets:"
+      puts ""
+      skillsets.each do |ss|
+        status = manager.enabled?(ss.name) ? "enabled" : "disabled"
+        puts "  #{ss.name} v#{ss.version} [#{ss.layer}] (#{status})"
+        puts "    #{ss.description}" unless ss.description.empty?
+        puts "    Tools: #{ss.tool_class_names.size}, Deps: #{ss.depends_on.join(', ') || 'none'}"
+        puts ""
+      end
+    end
+
+  when 'install'
+    source = ARGV.shift
+    unless source
+      $stderr.puts "Usage: kairos-chain skillset install <path> [--layer L0|L1|L2]"
+      exit 1
+    end
+
+    layer_override = nil
+    if (idx = ARGV.index('--layer'))
+      layer_override = ARGV[idx + 1]&.to_sym
+      ARGV.delete_at(idx + 1)
+      ARGV.delete_at(idx)
+    end
+
+    result = manager.install(source, layer_override: layer_override)
+    puts "Installed SkillSet '#{result[:name]}' v#{result[:version]} [#{result[:layer]}]"
+    puts "Path: #{result[:path]}"
+
+  when 'enable'
+    name = ARGV.shift
+    unless name
+      $stderr.puts "Usage: kairos-chain skillset enable <name>"
+      exit 1
+    end
+    result = manager.enable(name)
+    if result[:success]
+      puts "Enabled SkillSet '#{name}'"
+    else
+      $stderr.puts "Error: #{result[:error]}"
+      exit 1
+    end
+
+  when 'disable'
+    name = ARGV.shift
+    unless name
+      $stderr.puts "Usage: kairos-chain skillset disable <name>"
+      exit 1
+    end
+    result = manager.disable(name)
+    if result[:success]
+      puts "Disabled SkillSet '#{name}'"
+    else
+      $stderr.puts "Error: #{result[:error]}"
+      exit 1
+    end
+
+  when 'remove'
+    name = ARGV.shift
+    unless name
+      $stderr.puts "Usage: kairos-chain skillset remove <name>"
+      exit 1
+    end
+    result = manager.remove(name)
+    if result[:success]
+      puts "Removed SkillSet '#{name}'"
+    else
+      $stderr.puts "Error: #{result[:error]}"
+      exit 1
+    end
+
+  when 'info'
+    name = ARGV.shift
+    unless name
+      $stderr.puts "Usage: kairos-chain skillset info <name>"
+      exit 1
+    end
+    info = manager.info(name)
+    if info
+      puts "SkillSet: #{info[:name]} v#{info[:version]}"
+      puts "  Description: #{info[:description]}"
+      puts "  Author: #{info[:author]}"
+      puts "  Layer: #{info[:layer]}"
+      puts "  Enabled: #{info[:enabled]}"
+      puts "  Dependencies: #{info[:depends_on].empty? ? 'none' : info[:depends_on].join(', ')}"
+      puts "  Provides: #{info[:provides].join(', ')}"
+      puts "  Tools: #{info[:tool_classes].join(', ')}"
+      puts "  Path: #{info[:path]}"
+    else
+      $stderr.puts "SkillSet '#{name}' not found."
+      exit 1
+    end
+
+  when 'package'
+    name = ARGV.shift
+    unless name
+      $stderr.puts "Usage: kairos-chain skillset package <name>"
+      exit 1
+    end
+    begin
+      pkg = manager.package(name)
+      require 'json'
+      puts JSON.pretty_generate(pkg)
+    rescue SecurityError => e
+      $stderr.puts "Error: #{e.message}"
+      exit 1
+    end
+
+  when 'install-archive'
+    source = ARGV.shift
+    archive_json = if source && source != '-'
+                     File.read(source)
+                   else
+                     $stdin.read
+                   end
+
+    require 'json'
+    archive_data = JSON.parse(archive_json)
+
+    layer_override = nil
+    if (idx = ARGV.index('--layer'))
+      layer_override = ARGV[idx + 1]&.to_sym
+    end
+
+    begin
+      result = manager.install_from_archive(archive_data, layer_override: layer_override)
+      puts "Installed SkillSet '#{result[:name]}' v#{result[:version]} [#{result[:layer]}] from archive"
+      puts "Path: #{result[:path]}"
+      puts "Content hash: #{result[:content_hash]}"
+    rescue SecurityError => e
+      $stderr.puts "Security error: #{e.message}"
+      exit 1
+    end
+
+  else
+    puts "Usage: kairos-chain skillset <command>"
+    puts ""
+    puts "Commands:"
+    puts "  list                               List installed SkillSets"
+    puts "  install <path> [--layer L0|L1|L2]  Install a SkillSet from path"
+    puts "  enable <name>                      Enable a SkillSet"
+    puts "  disable <name>                     Disable a SkillSet"
+    puts "  remove <name>                      Remove a SkillSet"
+    puts "  info <name>                        Show SkillSet details"
+    puts "  package <name>                     Package a knowledge-only SkillSet as JSON archive"
+    puts "  install-archive <file|->           Install a SkillSet from JSON archive"
+  end
+  exit
+
 when 'init'
   ARGV.shift  # Remove 'init' from ARGV
 
@@ -143,6 +317,7 @@ OptionParser.new do |opts|
     puts "Subcommands:"
     puts "  init [DIR]          Initialize data directory with default templates"
     puts "  upgrade [--apply]   Check/apply template migrations after gem update"
+    puts "  skillset <cmd>      Manage SkillSet plugins (list/install/enable/disable/remove/info)"
     exit
   end
 end.parse!

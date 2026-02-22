@@ -1,7 +1,7 @@
 ---
 name: kairoschain_setup
 description: "KairosChain installation, configuration, and testing guide"
-version: 1.0
+version: 1.1
 layer: L1
 tags: [documentation, readme, setup, installation, configuration, testing]
 readme_order: 2
@@ -1202,6 +1202,98 @@ When the MCP server starts and detects a version mismatch between the gem and th
 6. Restart the MCP server
 
 All upgrade operations are recorded to the KairosChain blockchain for traceability.
+
+---
+
+## MMP SkillSet Setup (P2P Communication)
+
+MMP (Model Meeting Protocol) is an optional SkillSet that enables P2P communication and knowledge exchange between KairosChain instances.
+
+### Installing the MMP SkillSet
+
+MMP is bundled as a template SkillSet. Install it using the CLI:
+
+```bash
+# Install the MMP SkillSet (bundled with the gem)
+kairos-chain skillset install templates/skillsets/mmp
+
+# Or from a repository clone
+cd /path/to/KairosChain_mcp_server
+bin/kairos-chain skillset install templates/skillsets/mmp
+
+# Verify installation
+kairos-chain skillset list
+# Should show: mmp (L1, enabled)
+```
+
+### Configuring meeting.yml
+
+After installation, configure the MMP SkillSet by editing `<data-dir>/skillsets/mmp/config/meeting.yml`:
+
+```yaml
+# Master switch
+enabled: true
+
+# Agent identity
+identity:
+  name: "My Agent"
+  description: "KairosChain instance for my project"
+  scope: "general"
+
+# Individual skill exchange settings
+skill_exchange:
+  allowed_formats: [markdown, yaml_frontmatter]
+  allow_executable: false              # NEVER set to true for P2P
+  public_by_default: false
+
+# SkillSet package exchange settings
+skillset_exchange:
+  enabled: true
+  knowledge_only: true                 # Only exchange knowledge-only packages
+  auto_install: false                  # Require manual approval
+
+# Rate limiting
+constraints:
+  max_skill_size_bytes: 100000
+  rate_limit_per_minute: 10
+
+# HTTP server for P2P
+http_server:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8080
+  timeout: 10
+
+# Identity signing (Phase 3.7+)
+crypto:
+  keypair_path: "keys/mmp_keypair.pem"
+  auto_generate: true
+```
+
+### Starting the P2P HTTP Server
+
+```bash
+# Start KairosChain with HTTP transport for P2P
+kairos-chain --http --port 8080
+
+# With Bearer token authentication
+kairos-chain --http --port 8080 --bearer-token YOUR_TOKEN
+```
+
+### Testing P2P Connectivity
+
+```bash
+# Test self-introduction endpoint
+curl http://localhost:8080/meeting/v1/introduce
+
+# List available skills
+curl http://localhost:8080/meeting/v1/skills
+
+# Connect from another agent
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"meeting_connect","arguments":{"url":"http://localhost:8080","mode":"direct"}}}' | kairos-chain
+```
+
+For detailed P2P usage, see the [MMP P2P User Guide](docs/KairosChain_MMP_P2P_UserGuide_20260220_en.md).
 
 ---
 

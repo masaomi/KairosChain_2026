@@ -70,13 +70,17 @@ module KairosMcp
       end
 
       # Check if a layer requires blockchain recording
+      # Supports both internal layer keys and SkillSet layer symbols
       def requires_blockchain?(layer)
-        mode = LAYERS[layer]&.[](:blockchain)
+        mode = blockchain_mode(layer)
         mode && mode != :none
       end
 
       # Get blockchain recording mode for a layer
+      # Supports both internal layer keys (L0_constitution, L0_law) and
+      # SkillSet layer symbols (:L0, :L1, :L2)
       def blockchain_mode(layer)
+        layer = normalize_layer(layer)
         LAYERS[layer]&.[](:blockchain) || :none
       end
 
@@ -159,7 +163,24 @@ module KairosMcp
         { valid: true }
       end
 
+      # Map SkillSet layer symbols to internal layer keys
+      SKILLSET_LAYER_MAP = {
+        L0: :L0_law,
+        L1: :L1,
+        L2: :L2
+      }.freeze
+
       private
+
+      # Normalize a layer identifier: accept both internal keys (L0_constitution,
+      # L0_law, L1, L2) and SkillSet shorthand symbols (:L0, :L1, :L2)
+      def normalize_layer(layer)
+        mapped = SKILLSET_LAYER_MAP[layer.to_sym]
+        return mapped if mapped
+        return layer if LAYERS.key?(layer)
+
+        layer
+      end
 
       def normalize_path(path)
         # Remove data directory prefix if present

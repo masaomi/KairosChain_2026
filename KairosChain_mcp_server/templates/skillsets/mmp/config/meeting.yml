@@ -1,0 +1,71 @@
+# MMP SkillSet Configuration
+# Model Meeting Protocol for P2P agent communication
+
+enabled: false
+
+identity:
+  name: "KairosChain Instance"
+  description: "A memory-capable, evolvable agent framework"
+  scope: "general"
+
+capabilities:
+  meeting_protocol_version: "1.0.0"
+  supported_actions:
+    - introduce
+    - offer_skill
+    - request_skill
+    - accept
+    - decline
+    - reflect
+
+skill_exchange:
+  allowed_formats:
+    - markdown
+    - yaml_frontmatter
+  allow_executable: false
+  public_by_default: false
+
+skillset_exchange:
+  enabled: true
+  knowledge_only: true
+  auto_install: false
+
+constraints:
+  max_skill_size_bytes: 100000
+  rate_limit_per_minute: 10
+
+http_server:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8080
+  timeout: 10
+
+encryption:
+  enabled: true
+  algorithm: "RSA-2048+AES-256-GCM"
+  keypair_path: "config/meeting_keypair.pem"
+  auto_generate: true
+
+# Identity signing keypair (H2 fix: for introduce handshake verification)
+# Separate from encryption keypair above (which is for E2E content encryption)
+crypto:
+  keypair_path: "keys/mmp_keypair.pem"
+  auto_generate: true
+
+meeting_place:
+  connection_mode: "manual"
+  max_session_minutes: 60
+  warn_after_interactions: 50
+
+protocol_evolution:
+  auto_evaluate: true
+  evaluation_period_days: 7
+  auto_promote: false
+  require_human_approval_for_l1: true
+  blocked_actions:
+    - execute_code
+    - system_command
+    - file_write
+    - shell_exec
+    - eval
+  max_actions_per_extension: 20
