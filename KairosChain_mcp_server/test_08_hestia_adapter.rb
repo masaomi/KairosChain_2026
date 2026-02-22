@@ -362,7 +362,7 @@ section('5. SkillSet Discovery & Tool Schema') do
   assert('SkillSet depends on mmp') {
     skillset['depends_on'].any? { |d| d.is_a?(Hash) ? d['name'] == 'mmp' : d == 'mmp' }
   }
-  assert('SkillSet has 4 tool classes') { skillset['tool_classes'].size == 4 }
+  assert('SkillSet has 6 tool classes') { skillset['tool_classes'].size == 6 }
 
   # Require tool base class and tool files (normally done by SkillSetManager.load!)
   require_relative 'lib/kairos_mcp/tools/base_tool'

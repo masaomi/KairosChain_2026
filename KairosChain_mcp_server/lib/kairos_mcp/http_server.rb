@@ -38,7 +38,7 @@ module KairosMcp
       'Cache-Control' => 'no-cache'
     }.freeze
 
-    attr_reader :port, :host, :token_store, :authenticator, :admin_router, :meeting_router
+    attr_reader :port, :host, :token_store, :authenticator, :admin_router, :meeting_router, :place_router
 
     def initialize(port: nil, host: nil, token_store_path: nil)
       http_config = SkillsConfig.load['http'] || {}
@@ -53,6 +53,7 @@ module KairosMcp
       @authenticator = Auth::Authenticator.new(@token_store)
       @admin_router = Admin::Router.new(token_store: @token_store, authenticator: @authenticator)
       @meeting_router = MeetingRouter.new
+      @place_router = nil  # Initialized lazily via meeting_place_start tool
     end
 
     # Start the HTTP server with Puma
@@ -117,6 +118,11 @@ module KairosMcp
         # MMP (Meeting Protocol) P2P endpoints
         if path.start_with?('/meeting/')
           return server.meeting_router.call(env)
+        end
+
+        # Hestia Meeting Place endpoints
+        if path.start_with?('/place/')
+          return server.handle_place(env)
         end
 
         case [request_method, path]
@@ -188,6 +194,26 @@ module KairosMcp
       $stderr.puts e.backtrace.first(5).join("\n")
       json_response(500, error: 'internal_error',
                          message: "Internal server error: #{e.message}")
+    end
+
+    # Handle /place/* routes via Hestia PlaceRouter
+    def handle_place(env)
+      unless @place_router
+        return json_response(503, error: 'place_not_started',
+                                  message: 'Meeting Place is not started. Use meeting_place_start tool first.')
+      end
+      @place_router.call(env)
+    end
+
+    # Start the Meeting Place (called by meeting_place_start tool)
+    def start_place(identity:, trust_anchor_client: nil)
+      require 'hestia'
+      @place_router = ::Hestia::PlaceRouter.new
+      @place_router.start(
+        identity: identity,
+        session_store: @meeting_router.session_store,
+        trust_anchor_client: trust_anchor_client
+      )
     end
 
     # -----------------------------------------------------------------------

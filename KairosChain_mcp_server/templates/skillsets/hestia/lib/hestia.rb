@@ -22,6 +22,12 @@ module Hestia
   require_relative 'hestia/hestia_chain_adapter'
   require_relative 'hestia/chain_migrator'
 
+  # Meeting Place components (Phase 4B)
+  require_relative 'hestia/agent_registry'
+  require_relative 'hestia/skill_board'
+  require_relative 'hestia/heartbeat_manager'
+  require_relative 'hestia/place_router'
+
   # Config resolution (supports both installed & template locations)
   def self.config_path
     if defined?(KairosMcp)
