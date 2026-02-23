@@ -17,6 +17,7 @@ module MMP
       @timeout = timeout
       @agent_id = nil
       @connected = false
+      @bearer_token = nil
       @session_start_time = nil
       @interaction_count = 0
       @max_session_minutes = config[:max_session_minutes] || DEFAULT_MAX_SESSION_MINUTES
@@ -29,6 +30,7 @@ module MMP
       result = register
       if result && result[:agent_id]
         @agent_id = result[:agent_id]
+        @bearer_token = result[:session_token]
         @connected = true
         @session_start_time = Time.now
         @interaction_count = 0
@@ -56,7 +58,22 @@ module MMP
 
     def register
       intro = @identity.introduce
-      post('/place/v1/register', { id: intro.dig(:identity, :instance_id), name: intro.dig(:identity, :name), capabilities: intro[:capabilities] })
+      body = {
+        id: intro.dig(:identity, :instance_id),
+        name: intro.dig(:identity, :name),
+        capabilities: intro[:capabilities],
+        public_key: intro[:public_key]
+      }
+
+      # Add RSA signature for server-side verification
+      if intro[:identity] && @crypto&.has_keypair?
+        identity_data = intro[:identity]
+        canonical = JSON.generate(identity_data, sort_keys: true)
+        body[:identity] = identity_data
+        body[:identity_signature] = @crypto.sign(canonical)
+      end
+
+      post('/place/v1/register', body)
     end
 
     def unregister
@@ -110,7 +127,10 @@ module MMP
       uri = URI.parse("#{@place_url}#{path}")
       uri.query = URI.encode_www_form(params) unless params.empty?
       http = Net::HTTP.new(uri.host, uri.port); http.open_timeout = @timeout; http.read_timeout = @timeout
-      response = http.request(Net::HTTP::Get.new(uri))
+      req = Net::HTTP::Get.new(uri)
+      req['Authorization'] = "Bearer #{@bearer_token}" if @bearer_token
+      response = http.request(req)
+      @interaction_count += 1
       parse_response(response)
     rescue Errno::ECONNREFUSED, Net::OpenTimeout => e
       { error: "Connection failed: #{e.message}" }
@@ -119,7 +139,11 @@ module MMP
     def post(path, body)
       uri = URI.parse("#{@place_url}#{path}")
       http = Net::HTTP.new(uri.host, uri.port); http.open_timeout = @timeout; http.read_timeout = @timeout
-      req = Net::HTTP::Post.new(uri.path); req['Content-Type'] = 'application/json'; req.body = JSON.generate(body)
+      req = Net::HTTP::Post.new(uri.path)
+      req['Content-Type'] = 'application/json'
+      req['Authorization'] = "Bearer #{@bearer_token}" if @bearer_token
+      req.body = JSON.generate(body)
+      @interaction_count += 1
       parse_response(http.request(req))
     rescue Errno::ECONNREFUSED, Net::OpenTimeout => e
       { error: "Connection failed: #{e.message}" }

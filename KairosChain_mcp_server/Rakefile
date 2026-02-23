@@ -9,4 +9,21 @@ Rake::TestTask.new(:test) do |t|
   t.test_files = FileList['test/**/*_test.rb']
 end
 
+desc 'Run all tests including Phase 4A/4B integration tests'
+task :test_all do
+  %w[
+    test_local.rb
+    test_skillset_manager.rb
+    test_p2p_skillset_exchange.rb
+    test_08_hestia_adapter.rb
+    test_09_meeting_place.rb
+  ].each do |f|
+    path = File.expand_path(f, __dir__)
+    next unless File.exist?(path)
+
+    puts "\n#{'=' * 60}\nRunning #{f}\n#{'=' * 60}"
+    sh "ruby #{path}"
+  end
+end
+
 task default: :test

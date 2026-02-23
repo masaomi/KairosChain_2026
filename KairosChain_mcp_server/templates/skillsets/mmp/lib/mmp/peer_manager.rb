@@ -21,6 +21,7 @@ module MMP
       @data_dir = data_dir
       @peers = {}
       @timeout = config['timeout'] || 10
+      @mutex = Mutex.new
       load_peers if @data_dir
     end
 
@@ -45,28 +46,32 @@ module MMP
         end
       end
 
-      # TOFU: detect public key change for known peers
-      existing = @peers[peer_id]
-      if existing&.public_key && public_key && existing.public_key != public_key
-        $stderr.puts "[PeerManager] WARNING: Public key changed for peer #{peer_id}! Possible MITM."
-        verified = false
-      end
+      @mutex.synchronize do
+        # TOFU: detect public key change for known peers
+        existing = @peers[peer_id]
+        if existing&.public_key && public_key && existing.public_key != public_key
+          $stderr.puts "[PeerManager] WARNING: Public key changed for peer #{peer_id}! Possible MITM."
+          verified = false
+        end
 
-      peer = Peer.new(
-        id: peer_id, name: intro.dig(:identity, :name) || intro.dig('identity', 'name'),
-        url: url.chomp('/'), status: PEER_STATUS[:online], last_seen: Time.now.utc,
-        introduction: intro, extensions: extract_extensions(intro), added_at: Time.now.utc,
-        public_key: public_key, verified: verified
-      )
-      @peers[peer_id] = peer
-      save_peers
-      peer
+        peer = Peer.new(
+          id: peer_id, name: intro.dig(:identity, :name) || intro.dig('identity', 'name'),
+          url: url.chomp('/'), status: PEER_STATUS[:online], last_seen: Time.now.utc,
+          introduction: intro, extensions: extract_extensions(intro), added_at: Time.now.utc,
+          public_key: public_key, verified: verified
+        )
+        @peers[peer_id] = peer
+        save_peers
+        peer
+      end
     end
 
     def remove_peer(peer_id)
-      result = @peers.delete(peer_id)
-      save_peers
-      result
+      @mutex.synchronize do
+        result = @peers.delete(peer_id)
+        save_peers
+        result
+      end
     end
 
     def get_peer(peer_id) = @peers[peer_id]
@@ -124,11 +129,13 @@ module MMP
     end
 
     def import_peers(peers_data)
-      peers_data.each do |data|
-        peer = Peer.new(id: data['id']||data[:id], name: data['name']||data[:name], url: data['url']||data[:url], status: PEER_STATUS[:unknown], last_seen: nil, introduction: nil, extensions: data['extensions']||data[:extensions]||[], added_at: parse_time(data['added_at']||data[:added_at]), public_key: data['public_key']||data[:public_key], verified: data['verified']||data[:verified]||false)
-        @peers[peer.id] = peer
+      @mutex.synchronize do
+        peers_data.each do |data|
+          peer = Peer.new(id: data['id']||data[:id], name: data['name']||data[:name], url: data['url']||data[:url], status: PEER_STATUS[:unknown], last_seen: nil, introduction: nil, extensions: data['extensions']||data[:extensions]||[], added_at: parse_time(data['added_at']||data[:added_at]), public_key: data['public_key']||data[:public_key], verified: data['verified']||data[:verified]||false)
+          @peers[peer.id] = peer
+        end
+        save_peers
       end
-      save_peers
     end
 
     private
