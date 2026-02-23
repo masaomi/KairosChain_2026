@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'uri'
 
 module KairosMcp
   # MeetingRouter handles MMP (Model Meeting Protocol) HTTP endpoints
