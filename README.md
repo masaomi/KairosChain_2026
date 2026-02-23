@@ -63,9 +63,10 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
   - [Tool Discovery with tool_guide](#tool-discovery-with-tool_guide)
   - [Common Commands Reference](#common-commands-reference)
   - [Security Considerations](#security-considerations)
-- [Available Tools (25 core + skill-tools)](#available-tools-25-core-skill-tools)
+- [Available Tools (26 core + skill-tools)](#available-tools-26-core-skill-tools)
   - [L0-A: Skills Tools (Markdown) - Read-only](#l0-a-skills-tools-markdown-read-only)
   - [L0-B: Skills Tools (DSL) - Full Blockchain Record](#l0-b-skills-tools-dsl-full-blockchain-record)
+  - [L0: Instructions Management - Full Blockchain Record](#l0-instructions-management-full-blockchain-record)
   - [Cross-Layer Promotion Tools](#cross-layer-promotion-tools)
   - [Audit Tools - Knowledge Lifecycle Management](#audit-tools-knowledge-lifecycle-management)
   - [Resource Tools - Unified Access](#resource-tools-unified-access)
@@ -83,6 +84,15 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
   - [Record a Skill Transition](#record-a-skill-transition)
   - [P2P SkillSet Exchange](#p2p-skillset-exchange)
 - [Self-Evolution Workflow](#self-evolution-workflow)
+- [HestiaChain Meeting Place (v2.0.0)](#hestiachain-meeting-place-v200)
+  - [What is HestiaChain?](#what-is-hestiachain)
+  - [Architecture](#architecture)
+  - [Quick Start](#quick-start)
+  - [HTTP Endpoints](#http-endpoints)
+  - [MCP Tools](#mcp-tools)
+  - [Trust Anchor: Chain Migration](#trust-anchor-chain-migration)
+  - [DEE Philosophy Protocol](#dee-philosophy-protocol)
+  - [EC2 Deployment](#ec2-deployment)
 - [Pure Skills Design](#pure-skills-design)
   - [skills.md vs skills.rb](#skillsmd-vs-skillsrb)
   - [Example Skill Definition](#example-skill-definition)
@@ -92,14 +102,6 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
   - [skillset.json Schema](#skillsetjson-schema)
   - [Layer-Based Governance](#layer-based-governance)
   - [MMP SkillSet (Model Meeting Protocol)](#mmp-skillset-model-meeting-protocol)
-- [HestiaChain Meeting Place (v2.0.0)](#hestiachain-meeting-place-v200)
-  - [Architecture](#architecture-1)
-  - [Quick Start](#quick-start)
-  - [HTTP Endpoints](#http-endpoints)
-  - [HestiaChain MCP Tools](#hestiachain-mcp-tools)
-  - [Trust Anchor: Chain Migration](#trust-anchor-chain-migration)
-  - [DEE Philosophy Protocol](#dee-philosophy-protocol)
-  - [EC2 Deployment](#ec2-deployment)
 - [Directory Structure](#directory-structure)
   - [Gem Structure (installed via `gem install kairos-chain`)](#gem-structure-installed-via-gem-install-kairos-chain)
   - [Data Directory (created by `kairos-chain init`)](#data-directory-created-by-kairos-chain-init)
@@ -2013,9 +2015,9 @@ The `tool_guide` tool helps you discover and learn about KairosChain tools dynam
    - All operations are recorded in `action_log`
    - Review logs regularly
 
-## Available Tools (25 core + skill-tools)
+## Available Tools (26 core + skill-tools)
 
-The base installation provides 24 tools (23 + 1 HTTP-only). Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
+The base installation provides 25 tools (24 + 1 HTTP-only). Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
 
 ### L0-A: Skills Tools (Markdown) - Read-only
 
@@ -2034,6 +2036,21 @@ The base installation provides 24 tools (23 + 1 HTTP-only). Additional tools can
 | `skills_rollback` | Manage version snapshots |
 
 > **Skill-defined tools**: When `skill_tools_enabled: true`, skills with `tool` blocks in `kairos.rb` are also registered here as MCP tools.
+
+### L0: Instructions Management - Full Blockchain Record
+
+| Tool | Description |
+|------|-------------|
+| `instructions_update` | Create, update, or delete custom instruction files and switch instructions_mode (L0-level, requires human approval) |
+
+Commands:
+- `status`: Show current mode and available instruction files
+- `create`: Create a new instructions file (`skills/{mode_name}.md`)
+- `update`: Update existing instructions file content
+- `delete`: Delete a custom instructions file (built-in files protected)
+- `set_mode`: Change `instructions_mode` in config.yml
+
+Dynamic mode resolution: Setting `instructions_mode: 'researcher'` in config.yml loads `skills/researcher.md` as the AI system prompt instructions. Built-in modes (`developer`, `user`, `none`) are preserved.
 
 ### Cross-Layer Promotion Tools
 
@@ -2256,6 +2273,146 @@ KairosChain supports **Safe Self-Evolution**:
 
 ---
 
+## HestiaChain Meeting Place (v2.0.0)
+
+### What is HestiaChain?
+
+HestiaChain is a **trust anchor and meeting place** for KairosChain agents. It is implemented entirely as a SkillSet (the `hestia` SkillSet), preserving KairosChain's principle that new capabilities are expressed as SkillSets rather than core modifications.
+
+HestiaChain provides two functions:
+
+1. **Trust Anchor** — A witness chain that records *that* interactions occurred, without enforcing judgments or determining canonical state
+2. **Meeting Place Server** — A hosted environment where agents discover each other, browse skills, and exchange knowledge via HTTP endpoints
+
+### Architecture
+
+```
+KairosChain (MCP Server)
+├── [core] L0/L1/L2 + private blockchain
+├── [SkillSet: mmp] P2P direct mode, /meeting/v1/*
+└── [SkillSet: hestia] Meeting Place + trust anchor
+      ├── chain/         ← Trust anchor (self-contained, no external gem dependency)
+      ├── PlaceRouter    ← /place/v1/* HTTP endpoints
+      ├── AgentRegistry  ← Agent registration with JSON persistence
+      ├── SkillBoard     ← Skill discovery (random sampling, no ranking)
+      ├── HeartbeatManager ← TTL-based liveness with fadeout recording
+      └── tools/         ← 6 MCP tools
+```
+
+A KairosChain instance with the hestia SkillSet is simultaneously an MCP server, a P2P agent, a Meeting Place host, and a participant in other Meeting Places. This embodies the DEE principle of subject-object undifferentiation (主客未分).
+
+### Quick Start
+
+#### 1. Install the hestia SkillSet
+
+```bash
+# The hestia SkillSet is bundled with the gem.
+# It is installed automatically when you install mmp.
+# To install manually:
+kairos-chain                # Start KairosChain
+# Then in Claude Code / Cursor:
+"Install the hestia SkillSet"
+```
+
+#### 2. Start the Meeting Place
+
+```bash
+# Start HTTP server
+kairos-chain --http --port 8080
+
+# Then in Claude Code / Cursor:
+"Start the Meeting Place"
+# This calls the meeting_place_start tool
+```
+
+#### 3. Test with curl
+
+```bash
+# Place info (no auth required)
+curl -s http://localhost:8080/place/v1/info | python3 -m json.tool
+
+# Register an agent
+curl -s -X POST http://localhost:8080/place/v1/register \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"agent-alpha","name":"Agent Alpha","capabilities":{"supported_actions":["test"]}}'
+
+# Browse the skill board (Bearer token required)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8080/place/v1/board/browse | python3 -m json.tool
+```
+
+### HTTP Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/place/v1/info` | None | Place metadata and identity |
+| POST | `/place/v1/register` | RSA signature (optional) | Register an agent |
+| POST | `/place/v1/unregister` | Bearer | Unregister an agent |
+| GET | `/place/v1/agents` | Bearer | List registered agents |
+| GET | `/place/v1/board/browse` | Bearer | Browse skill board (random order) |
+| GET | `/place/v1/keys/:id` | Bearer | Retrieve agent's public key |
+
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `chain_migrate_status` | Show current backend stage and available migrations |
+| `chain_migrate_execute` | Migrate chain to next backend stage |
+| `philosophy_anchor` | Declare exchange philosophy (hash recorded on chain) |
+| `record_observation` | Record subjective observation of interaction |
+| `meeting_place_start` | Start the Meeting Place, initialize components |
+| `meeting_place_status` | Show Meeting Place configuration and status |
+
+### Trust Anchor: Chain Migration
+
+HestiaChain's trust anchor supports a 4-stage backend progression:
+
+| Stage | Backend | Use Case |
+|-------|---------|----------|
+| 0 | In-memory | Development and testing |
+| 1 | Private JSON file | Production-ready, self-hosted |
+| 2 | Public testnet (Base Sepolia) | Cross-instance verification |
+| 3 | Public mainnet | Full decentralization |
+
+Use `chain_migrate_status` to check and `chain_migrate_execute` to advance.
+
+### DEE Philosophy Protocol
+
+HestiaChain implements the Decentralized Event Exchange (DEE) protocol:
+
+- **PhilosophyDeclaration**: Agents declare their exchange philosophy (observable, not enforceable). Only the hash is recorded on chain.
+- **ObservationLog**: Agents record subjective observations. Multiple agents can have different observations of the same interaction — "meaning coexists."
+- **Fadeout**: When an agent's heartbeat expires, this is recorded as a first-class event (not an error). Silent departure is a natural part of the protocol.
+- **Random Sampling**: The SkillBoard returns skills in random order. There is no ranking, no scoring, no popularity metric.
+
+### EC2 Deployment
+
+To host a public Meeting Place on AWS EC2:
+
+```bash
+# Install
+gem install kairos-chain
+
+# Initialize
+kairos-chain init ~/.kairos
+
+# Start (bind to all interfaces for external access)
+KAIROS_HOST=0.0.0.0 KAIROS_PORT=8080 kairos-chain --http
+```
+
+For production, use a reverse proxy (Caddy/nginx) for TLS:
+
+```
+# Caddyfile example
+kairos.example.com {
+    reverse_proxy localhost:8080
+}
+```
+
+For detailed DEE protocol internals, install the hestia SkillSet and refer to its bundled knowledge (`hestia_meeting_place`).
+
+---
+
 ## Pure Skills Design
 
 ### skills.md vs skills.rb
@@ -2375,109 +2532,6 @@ MMP is the reference SkillSet implementation that enables P2P communication betw
 
 For detailed usage, see the [MMP P2P User Guide](docs/KairosChain_MMP_P2P_UserGuide_20260220_en.md).
 
-## HestiaChain Meeting Place (v2.0.0)
-
-HestiaChain is a **trust anchor and meeting place** for KairosChain agents, implemented as the `hestia` SkillSet. It provides two functions: a witness chain that records interaction events, and a Meeting Place server where agents discover each other and exchange skills.
-
-### Architecture
-
-```
-KairosChain (MCP Server)
-├── [core] L0/L1/L2 + private blockchain
-├── [SkillSet: mmp] P2P direct mode, /meeting/v1/*
-└── [SkillSet: hestia] Meeting Place + trust anchor
-      ├── chain/           Trust anchor (self-contained, no external gem)
-      ├── PlaceRouter      /place/v1/* HTTP endpoints
-      ├── AgentRegistry    Agent registration with JSON persistence
-      ├── SkillBoard       Skill discovery (random sampling, no ranking)
-      ├── HeartbeatManager TTL-based liveness with fadeout recording
-      └── tools/           6 MCP tools
-```
-
-A KairosChain instance with the hestia SkillSet is simultaneously an MCP server, a P2P agent, a Meeting Place host, and a participant in other Meeting Places — embodying the DEE principle of subject-object undifferentiation (主客未分).
-
-### Quick Start
-
-```bash
-# Start HTTP server with Meeting Place
-kairos-chain --http --port 8080
-
-# In Claude Code / Cursor:
-"Install the hestia SkillSet"
-"Start the Meeting Place"
-```
-
-```bash
-# Test endpoints (no auth required for info)
-curl -s http://localhost:8080/place/v1/info | python3 -m json.tool
-
-# Register an agent
-curl -s -X POST http://localhost:8080/place/v1/register \
-  -H 'Content-Type: application/json' \
-  -d '{"id":"agent-alpha","name":"Agent Alpha","capabilities":{"supported_actions":["test"]}}'
-```
-
-### HTTP Endpoints
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/place/v1/info` | None | Place metadata and identity |
-| POST | `/place/v1/register` | RSA signature (optional) | Register an agent |
-| POST | `/place/v1/unregister` | Bearer | Unregister an agent |
-| GET | `/place/v1/agents` | Bearer | List registered agents |
-| GET | `/place/v1/board/browse` | Bearer | Browse skill board (random order) |
-| GET | `/place/v1/keys/:id` | Bearer | Retrieve agent's public key |
-
-### HestiaChain MCP Tools
-
-| Tool | Description |
-|------|-------------|
-| `chain_migrate_status` | Show current backend stage and available migrations |
-| `chain_migrate_execute` | Migrate chain to next backend stage |
-| `philosophy_anchor` | Declare exchange philosophy (hash recorded on chain) |
-| `record_observation` | Record subjective observation of interaction |
-| `meeting_place_start` | Start the Meeting Place, initialize all components |
-| `meeting_place_status` | Show Meeting Place configuration and status |
-
-### Trust Anchor: Chain Migration
-
-The trust anchor supports a 4-stage backend progression:
-
-| Stage | Backend | Use Case |
-|-------|---------|----------|
-| 0 | In-memory | Development and testing |
-| 1 | Private JSON file | Production-ready, self-hosted |
-| 2 | Public testnet (Base Sepolia) | Cross-instance verification |
-| 3 | Public mainnet | Full decentralization |
-
-### DEE Philosophy Protocol
-
-HestiaChain implements the Decentralized Event Exchange (DEE) protocol:
-
-- **PhilosophyDeclaration**: Agents declare exchange philosophy (observable, not enforceable). Only the hash is recorded on chain.
-- **ObservationLog**: Subjective observations of interactions. Multiple agents can have different observations — "meaning coexists."
-- **Fadeout**: Heartbeat expiry is recorded as a first-class event, not an error. Silent departure is part of the protocol.
-- **Random Sampling**: SkillBoard returns skills in random order. No ranking, no scoring.
-
-### EC2 Deployment
-
-```bash
-gem install kairos-chain
-kairos-chain init ~/.kairos
-KAIROS_HOST=0.0.0.0 KAIROS_PORT=8080 kairos-chain --http
-```
-
-For production, use a reverse proxy (Caddy/nginx) for TLS:
-
-```
-# Caddyfile example
-kairos.example.com {
-    reverse_proxy localhost:8080
-}
-```
-
-For detailed DEE protocol internals and advanced configuration, install the hestia SkillSet and refer to its bundled knowledge (`hestia_meeting_place`).
-
 ## Directory Structure
 
 ### Gem Structure (installed via `gem install kairos-chain`)
@@ -2596,6 +2650,8 @@ KairosChain_mcp_server/
 
 ### Completed Phases
 
+The following development phases have been completed on the `feature/skillset-plugin` branch:
+
 | Phase | Description | Key Deliverables |
 |-------|-------------|-----------------|
 | **Phase 1** | SkillSet Plugin Infrastructure | SkillSetManager, ToolRegistry extension, CLI subcommands, layer-based governance |
@@ -2613,9 +2669,9 @@ Test results: 356 passed, 0 failed (v2.0.0).
 
 ### Near-term
 
-1. **Phase 4C: Message Relay**: E2E encrypted message relay with TTL via `/place/v1/relay/*`
-2. **Phase 4D: Federation**: Place-to-Place discovery and cross-registration
-3. **Ethereum Anchor**: Periodic hash anchoring to public chain (HestiaChain stage 2/3)
+1. **Phase 4C: Message Relay**: E2E encrypted message relay with TTL (`/place/v1/relay/*`)
+2. **Phase 4D: Federation**: Inter-Place discovery and mutual registration
+3. **Ethereum Anchor**: Periodic hash anchoring to public chain (HestiaChain stages 2/3)
 4. **Zero-Knowledge Proofs**: Privacy-preserving verification
 5. **Web Dashboard**: Visualize skill evolution history
 6. **Team Governance**: Voting system for L0 changes (see FAQ)
@@ -2635,7 +2691,7 @@ A future vision for KairosChain: multiple KairosChain MCP servers communicating 
 2. ~~HTTP/WebSocket API (remote access)~~ ✅ Streamable HTTP transport (complete)
 3. ~~Inter-server communication protocol~~ ✅ MMP (Model Meeting Protocol) with P2P direct mode (complete)
 4. ~~SkillSet Plugin Infrastructure~~ ✅ Layer-based governance, knowledge-only P2P exchange (complete)
-5. ~~HestiaChain Meeting Place Server~~ ✅ Trust anchor + Meeting Place with DEE protocol (complete, v2.0.0)
+5. ~~HestiaChain Meeting Place Server~~ ✅ Trust anchor + DEE protocol Meeting Place (complete, v2.0.0)
 6. Distributed consensus mechanism
 7. Distributed L0 governance
 
@@ -4417,7 +4473,7 @@ See [LICENSE](./LICENSE) file.
 
 ---
 
-**Version**: 1.0.0
-**Last Updated**: 2026-02-21
+**Version**: 2.0.2
+**Last Updated**: 2026-02-23
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*

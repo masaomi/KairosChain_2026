@@ -1,7 +1,7 @@
 ---
 name: kairoschain_usage_jp
 description: KairosChainのツール一覧、使用方法、進化ワークフロー
-version: 1.0
+version: 1.1
 layer: L1
 tags: [documentation, readme, usage, tools, workflow, examples]
 readme_order: 3
@@ -192,9 +192,9 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
    - すべての操作は`action_log`に記録される
    - 定期的にログをレビュー
 
-## 利用可能なツール（コア25個 + スキルツール）
+## 利用可能なツール（コア26個 + スキルツール）
 
-基本インストールでは24個のツール（23 + HTTP専用1個）が提供されます。`skill_tools_enabled: true`の場合、`kairos.rb`の`tool`ブロックで追加のツールを定義できます。
+基本インストールでは25個のツール（24 + HTTP専用1個）が提供されます。`skill_tools_enabled: true`の場合、`kairos.rb`の`tool`ブロックで追加のツールを定義できます。
 
 ### L0-A：スキルツール（Markdown） - 読み取り専用
 
@@ -213,6 +213,21 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
 | `skills_rollback` | バージョンスナップショットを管理 |
 
 > **スキル定義ツール**：`skill_tools_enabled: true`の場合、`kairos.rb`内の`tool`ブロックを持つスキルもここにMCPツールとして登録されます。
+
+### L0：インストラクション管理 - 完全なブロックチェーン記録
+
+| ツール | 説明 |
+|--------|------|
+| `instructions_update` | カスタムインストラクションファイルの作成/更新/削除とinstructions_modeの切り替え（L0レベル、人間の承認が必要） |
+
+コマンド:
+- `status`: 現在のmodeと利用可能なインストラクションファイル一覧を表示
+- `create`: 新規インストラクションファイル（`skills/{mode_name}.md`）を作成
+- `update`: 既存インストラクションファイルの内容を更新
+- `delete`: カスタムインストラクションファイルを削除（built-inファイルは保護）
+- `set_mode`: config.ymlの`instructions_mode`を変更
+
+動的モード解決: config.ymlで`instructions_mode: 'researcher'`を設定すると、`skills/researcher.md`がAIシステムプロンプトのinstructionsとしてロードされます。組み込みモード（`developer`、`user`、`none`）は従来通り維持されます。
 
 ### クロスレイヤー昇格ツール
 
@@ -329,6 +344,35 @@ KairosChainツールを発見し学ぶための動的ツールガイドシステ
 - `apply`: アップグレードを実行（`approved=true`が必要）
 - `status`: `.kairos_meta.yml`の状態を表示
 
+### MMP Meetingツール（SkillSet: mmp）
+
+MMP（Model Meeting Protocol）SkillSetがインストール・有効化されている場合に利用可能なツールです。MMPはKairosChainインスタンス間のP2P通信と知識交換を実現します。
+
+| ツール | 説明 |
+|--------|------|
+| `meeting_connect` | MMP経由でリモートのKairosChainピアに接続 |
+| `meeting_disconnect` | ピアセッションから切断 |
+| `meeting_acquire_skill` | 接続先のピアからスキルまたはSkillSetを取得 |
+| `meeting_get_skill_details` | ピアの利用可能なスキルのメタデータを取得 |
+
+MMP SkillSetはMeetingRouter経由でHTTPエンドポイント（`/meeting/v1/*`）も公開します：
+
+| エンドポイント | メソッド | 説明 |
+|---------------|---------|------|
+| `/meeting/v1/introduce` | GET | 自己紹介（ID、capabilities） |
+| `/meeting/v1/introduce` | POST | ピアの紹介を受信 |
+| `/meeting/v1/skills` | GET | 公開スキル一覧 |
+| `/meeting/v1/skill_details` | GET | スキルメタデータ取得（`?skill_id=X`） |
+| `/meeting/v1/skill_content` | POST | スキルコンテンツを要求 |
+| `/meeting/v1/request_skill` | POST | スキルリクエストを送信 |
+| `/meeting/v1/reflect` | POST | リフレクションを送信 |
+| `/meeting/v1/message` | POST | 汎用MMPメッセージ |
+| `/meeting/v1/skillsets` | GET | 交換可能なSkillSet一覧 |
+| `/meeting/v1/skillset_details` | GET | SkillSetメタデータ取得（`?name=X`） |
+| `/meeting/v1/skillset_content` | POST | SkillSetアーカイブをダウンロード |
+
+> **Knowledge-only制約**: P2P経由で交換できるのは非実行コンテンツ（Markdown, YAML）のみです。実行可能コード（`tools/`, `lib/`内の.rb, .py, .sh等）を含むSkillSetは信頼されたチャネル経由でインストールする必要があります。詳細は[MMP P2Pユーザーガイド](docs/KairosChain_MMP_P2P_UserGuide_20260220_jp.md)を参照してください。
+
 ## 使用例
 
 ### 利用可能なスキルを一覧表示
@@ -347,6 +391,30 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_stat
 
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chain_record","arguments":{"logs":["Skill X modified","Reason: improved accuracy"]}}}' | kairos-chain
+```
+
+### P2P SkillSet交換
+
+```bash
+# 1. P2P用HTTPサーバーを起動（エージェントA側）
+kairos-chain --http --port 8080
+
+# 2. エージェントBから接続
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"meeting_connect","arguments":{"url":"http://localhost:8080","mode":"direct"}}}' | kairos-chain
+
+# 3. ピアの利用可能なスキルを一覧表示
+curl http://localhost:8080/meeting/v1/skills
+
+# 4. SkillSetの詳細を取得
+curl "http://localhost:8080/meeting/v1/skillset_details?name=my_knowledge_set"
+
+# 5. SkillSetアーカイブをダウンロード
+curl -X POST http://localhost:8080/meeting/v1/skillset_content \
+  -H "Content-Type: application/json" \
+  -d '{"name":"my_knowledge_set"}'
+
+# 6. 受信したアーカイブをインストール
+kairos-chain skillset install-archive received_package.json
 ```
 
 ## 自己進化ワークフロー

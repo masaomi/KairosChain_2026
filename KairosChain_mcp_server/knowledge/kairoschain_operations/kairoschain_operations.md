@@ -23,14 +23,17 @@ The following development phases have been completed on the `feature/skillset-pl
 | **Phase 3.5** | Security Fixes + Wire Protocol Spec | Name sanitization (H4), path traversal guard (H1), extended executable detection (H5), wire protocol specification |
 | **Phase 3.7** | Pre-Phase 4 Hardening | RSA-2048 signature verification, semantic version constraints, PeerManager persistence, TOFU trust model |
 | **Phase 3.75** | MMP Extension Infrastructure | Collision detection for core actions, extension override guards, pre-Phase 4 preparation |
+| **Phase 4.pre** | Authentication + Hardening | Admin token rotation, session-based auth for P2P endpoints |
+| **Phase 4A** | HestiaChain Foundation | Self-contained trust anchor SkillSet, DEE protocol (PhilosophyDeclaration, ObservationLog), chain migration (4 stages), 4 MCP tools, 77 test assertions |
+| **Phase 4B** | Meeting Place Server | PlaceRouter, AgentRegistry, SkillBoard, HeartbeatManager, 6 HTTP endpoints, 2 MCP tools, 70 test assertions |
 
-Test results: 154 passed, 0 failed.
+Test results: 356 passed, 0 failed (v2.0.0).
 
 ### Near-term
 
-1. **Phase 4: HestiaChain Meeting Place Server**: Centralized discovery server for P2P peer matching
-2. **Ethereum Anchor**: Periodic hash anchoring to public chain
-3. **Multi-Agent Support**: Track multiple AI agents via `agent_id`
+1. **Phase 4C: Message Relay**: E2E encrypted message relay with TTL (`/place/v1/relay/*`)
+2. **Phase 4D: Federation**: Inter-Place discovery and mutual registration
+3. **Ethereum Anchor**: Periodic hash anchoring to public chain (HestiaChain stages 2/3)
 4. **Zero-Knowledge Proofs**: Privacy-preserving verification
 5. **Web Dashboard**: Visualize skill evolution history
 6. **Team Governance**: Voting system for L0 changes (see FAQ)
@@ -50,7 +53,7 @@ A future vision for KairosChain: multiple KairosChain MCP servers communicating 
 2. ~~HTTP/WebSocket API (remote access)~~ ✅ Streamable HTTP transport (complete)
 3. ~~Inter-server communication protocol~~ ✅ MMP (Model Meeting Protocol) with P2P direct mode (complete)
 4. ~~SkillSet Plugin Infrastructure~~ ✅ Layer-based governance, knowledge-only P2P exchange (complete)
-5. HestiaChain Meeting Place Server (Phase 4, planned)
+5. ~~HestiaChain Meeting Place Server~~ ✅ Trust anchor + DEE protocol Meeting Place (complete, v2.0.0)
 6. Distributed consensus mechanism
 7. Distributed L0 governance
 

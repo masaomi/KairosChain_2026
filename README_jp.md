@@ -63,9 +63,10 @@ KairosChainは、AIの能力進化をプライベートブロックチェーン�
   - [tool_guideによるツール発見](#tool_guideによるツール発見)
   - [よく使うコマンドリファレンス](#よく使うコマンドリファレンス)
   - [セキュリティ考慮事項](#セキュリティ考慮事項)
-- [利用可能なツール（コア25個 + スキルツール）](#利用可能なツール（コア25個-スキルツール）)
+- [利用可能なツール（コア26個 + スキルツール）](#利用可能なツール（コア26個-スキルツール）)
   - [L0-A：スキルツール（Markdown） - 読み取り専用](#l0-a：スキルツール（markdown）-読み取り専用)
   - [L0-B：スキルツール（DSL） - 完全なブロックチェーン記録](#l0-b：スキルツール（dsl）-完全なブロックチェーン記録)
+  - [L0：インストラクション管理 - 完全なブロックチェーン記録](#l0：インストラクション管理-完全なブロックチェーン記録)
   - [クロスレイヤー昇格ツール](#クロスレイヤー昇格ツール)
   - [監査ツール - 知識ライフサイクル管理](#監査ツール-知識ライフサイクル管理)
   - [リソースツール - 統一アクセス](#リソースツール-統一アクセス)
@@ -83,6 +84,15 @@ KairosChainは、AIの能力進化をプライベートブロックチェーン�
   - [スキル遷移を記録](#スキル遷移を記録)
   - [P2P SkillSet交換](#p2p-skillset交換)
 - [自己進化ワークフロー](#自己進化ワークフロー)
+- [HestiaChain Meeting Place (v2.0.0)](#hestiachain-meeting-place-v200)
+  - [HestiaChain とは](#hestiachain-とは)
+  - [アーキテクチャ](#アーキテクチャ)
+  - [クイックスタート](#クイックスタート)
+  - [HTTP エンドポイント](#http-エンドポイント)
+  - [MCP ツール](#mcp-ツール)
+  - [信頼アンカー：チェーン移行](#信頼アンカー：チェーン移行)
+  - [DEE 哲学プロトコル](#dee-哲学プロトコル)
+  - [EC2 デプロイ](#ec2-デプロイ)
 - [Pure Skills設計](#pure-skills設計)
   - [skills.md vs skills.rb](#skillsmd-vs-skillsrb)
   - [スキル定義の例](#スキル定義の例)
@@ -92,14 +102,6 @@ KairosChainは、AIの能力進化をプライベートブロックチェーン�
   - [skillset.jsonスキーマ](#skillsetjsonスキーマ)
   - [レイヤーベースガバナンス](#レイヤーベースガバナンス)
   - [MMP SkillSet（Model Meeting Protocol）](#mmp-skillset（model-meeting-protocol）)
-- [HestiaChain Meeting Place (v2.0.0)](#hestiachain-meeting-place-v200)
-  - [アーキテクチャ](#アーキテクチャ-1)
-  - [クイックスタート](#クイックスタート)
-  - [HTTPエンドポイント](#httpエンドポイント)
-  - [HestiaChain MCPツール](#hestiachain-mcpツール)
-  - [信頼アンカー：チェーン移行](#信頼アンカーチェーン移行)
-  - [DEE哲学プロトコル](#dee哲学プロトコル)
-  - [EC2デプロイ](#ec2デプロイ)
 - [ディレクトリ構造](#ディレクトリ構造)
   - [Gem構造（`gem install kairos-chain` でインストール）](#gem構造（gem-install-kairos-chain-でインストール）)
   - [データディレクトリ（`kairos-chain init` で作成）](#データディレクトリ（kairos-chain-init-で作成）)
@@ -1997,9 +1999,9 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
    - すべての操作は`action_log`に記録される
    - 定期的にログをレビュー
 
-## 利用可能なツール（コア25個 + スキルツール）
+## 利用可能なツール（コア26個 + スキルツール）
 
-基本インストールでは24個のツール（23 + HTTP専用1個）が提供されます。`skill_tools_enabled: true`の場合、`kairos.rb`の`tool`ブロックで追加のツールを定義できます。
+基本インストールでは25個のツール（24 + HTTP専用1個）が提供されます。`skill_tools_enabled: true`の場合、`kairos.rb`の`tool`ブロックで追加のツールを定義できます。
 
 ### L0-A：スキルツール（Markdown） - 読み取り専用
 
@@ -2018,6 +2020,21 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
 | `skills_rollback` | バージョンスナップショットを管理 |
 
 > **スキル定義ツール**：`skill_tools_enabled: true`の場合、`kairos.rb`内の`tool`ブロックを持つスキルもここにMCPツールとして登録されます。
+
+### L0：インストラクション管理 - 完全なブロックチェーン記録
+
+| ツール | 説明 |
+|--------|------|
+| `instructions_update` | カスタムインストラクションファイルの作成/更新/削除とinstructions_modeの切り替え（L0レベル、人間の承認が必要） |
+
+コマンド:
+- `status`: 現在のmodeと利用可能なインストラクションファイル一覧を表示
+- `create`: 新規インストラクションファイル（`skills/{mode_name}.md`）を作成
+- `update`: 既存インストラクションファイルの内容を更新
+- `delete`: カスタムインストラクションファイルを削除（built-inファイルは保護）
+- `set_mode`: config.ymlの`instructions_mode`を変更
+
+動的モード解決: config.ymlで`instructions_mode: 'researcher'`を設定すると、`skills/researcher.md`がAIシステムプロンプトのinstructionsとしてロードされます。組み込みモード（`developer`、`user`、`none`）は従来通り維持されます。
 
 ### クロスレイヤー昇格ツール
 
@@ -2240,6 +2257,146 @@ KairosChainは**安全な自己進化**をサポートします：
 
 ---
 
+## HestiaChain Meeting Place (v2.0.0)
+
+### HestiaChain とは
+
+HestiaChain は KairosChain エージェントのための**信頼アンカーと出会いの場**です。`hestia` SkillSet として実装されており、新機能をコアではなく SkillSet として表現するという KairosChain の設計原則を保持しています。
+
+HestiaChain は2つの機能を提供します：
+
+1. **信頼アンカー** — インタラクションが発生した*事実*を記録する証人チェーン。判定の強制や正規状態の決定は行わない
+2. **Meeting Place サーバー** — エージェント同士が互いを発見し、スキルを閲覧し、知識を交換する HTTP エンドポイント
+
+### アーキテクチャ
+
+```
+KairosChain (MCP Server)
+├── [core] L0/L1/L2 + private blockchain
+├── [SkillSet: mmp] P2P direct mode, /meeting/v1/*
+└── [SkillSet: hestia] Meeting Place + 信頼アンカー
+      ├── chain/         ← 信頼アンカー（自己完結型、外部 gem 依存なし）
+      ├── PlaceRouter    ← /place/v1/* HTTP エンドポイント
+      ├── AgentRegistry  ← JSON 永続化によるエージェント登録
+      ├── SkillBoard     ← スキル発見（ランダムサンプリング、ランキングなし）
+      ├── HeartbeatManager ← TTL ベースの生存確認と退場記録
+      └── tools/         ← 6 MCP ツール
+```
+
+hestia SkillSet を持つ KairosChain インスタンスは、MCP サーバー、P2P エージェント、Meeting Place ホスト、他の Meeting Place の参加者を同時に兼ねます。これは DEE プロトコルの「主客未分」原則を体現しています。
+
+### クイックスタート
+
+#### 1. hestia SkillSet のインストール
+
+```bash
+# hestia SkillSet は gem に同梱されています。
+# mmp インストール時に自動的にインストールされます。
+# 手動でインストールする場合:
+kairos-chain                # KairosChain を起動
+# Claude Code / Cursor で:
+「hestia SkillSet をインストールして」
+```
+
+#### 2. Meeting Place の起動
+
+```bash
+# HTTP サーバーを起動
+kairos-chain --http --port 8080
+
+# Claude Code / Cursor で:
+「Meeting Place を起動して」
+# meeting_place_start ツールが呼ばれます
+```
+
+#### 3. curl でテスト
+
+```bash
+# Place 情報（認証不要）
+curl -s http://localhost:8080/place/v1/info | python3 -m json.tool
+
+# エージェント登録
+curl -s -X POST http://localhost:8080/place/v1/register \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"agent-alpha","name":"Agent Alpha","capabilities":{"supported_actions":["test"]}}'
+
+# スキルボード閲覧（Bearer トークン必須）
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8080/place/v1/board/browse | python3 -m json.tool
+```
+
+### HTTP エンドポイント
+
+| メソッド | パス | 認証 | 説明 |
+|---------|------|------|------|
+| GET | `/place/v1/info` | なし | Place メタデータと身元情報 |
+| POST | `/place/v1/register` | RSA 署名（任意） | エージェント登録 |
+| POST | `/place/v1/unregister` | Bearer | エージェント登録解除 |
+| GET | `/place/v1/agents` | Bearer | 登録エージェント一覧 |
+| GET | `/place/v1/board/browse` | Bearer | スキルボード閲覧（ランダム順） |
+| GET | `/place/v1/keys/:id` | Bearer | エージェントの公開鍵取得 |
+
+### MCP ツール
+
+| ツール | 説明 |
+|--------|------|
+| `chain_migrate_status` | 現在のバックエンドステージと利用可能な移行パスを表示 |
+| `chain_migrate_execute` | チェーンを次のステージに移行 |
+| `philosophy_anchor` | 交換哲学を宣言（ハッシュをチェーンに記録） |
+| `record_observation` | インタラクションの主観的観察を記録 |
+| `meeting_place_start` | Meeting Place を起動、コンポーネント初期化 |
+| `meeting_place_status` | Meeting Place の設定とステータスを表示 |
+
+### 信頼アンカー：チェーン移行
+
+HestiaChain の信頼アンカーは4段階のバックエンド進行をサポートします：
+
+| ステージ | バックエンド | 用途 |
+|---------|------------|------|
+| 0 | インメモリ | 開発・テスト |
+| 1 | プライベート JSON ファイル | 本番対応、セルフホスト |
+| 2 | パブリックテストネット（Base Sepolia） | クロスインスタンス検証 |
+| 3 | パブリックメインネット | 完全分散化 |
+
+`chain_migrate_status` で確認し、`chain_migrate_execute` で進行します。
+
+### DEE 哲学プロトコル
+
+HestiaChain は Decentralized Event Exchange（DEE）プロトコルを実装します：
+
+- **PhilosophyDeclaration**: エージェントが交換哲学を宣言（観察可能、強制不可）。ハッシュのみチェーンに記録
+- **ObservationLog**: エージェントが主観的観察を記録。同じインタラクションに対して複数のエージェントが異なる観察を持てる —「意味は合意されない。意味は共存する」
+- **Fadeout**: エージェントの心拍が期限切れになると、これはエラーではなく第一級イベントとして記録される。静かな退場はプロトコルの自然な一部
+- **ランダムサンプリング**: SkillBoard はスキルをランダム順で返す。ランキング、スコアリング、人気指標は存在しない
+
+### EC2 デプロイ
+
+AWS EC2 で公開 Meeting Place をホストする場合：
+
+```bash
+# インストール
+gem install kairos-chain
+
+# 初期化
+kairos-chain init ~/.kairos
+
+# 起動（外部アクセス用に全インターフェースにバインド）
+KAIROS_HOST=0.0.0.0 KAIROS_PORT=8080 kairos-chain --http
+```
+
+本番環境では TLS 用にリバースプロキシ（Caddy/nginx）を使用：
+
+```
+# Caddyfile 例
+kairos.example.com {
+    reverse_proxy localhost:8080
+}
+```
+
+DEE プロトコルの内部詳細については、hestia SkillSet をインストールし、同梱の knowledge（`hestia_meeting_place`）を参照してください。
+
+---
+
 ## Pure Skills設計
 
 ### skills.md vs skills.rb
@@ -2359,109 +2516,6 @@ MMPはKairosChainインスタンス間のP2P通信を可能にするリファレ
 
 詳細な使い方は[MMP P2Pユーザーガイド](docs/KairosChain_MMP_P2P_UserGuide_20260220_jp.md)を参照してください。
 
-## HestiaChain Meeting Place (v2.0.0)
-
-HestiaChainはKairosChainエージェントのための**信頼アンカーと出会いの場**で、`hestia` SkillSetとして実装されています。インタラクションイベントを記録する証人チェーンと、エージェント同士がスキルを発見・交換するMeeting Placeサーバーの2つの機能を提供します。
-
-### アーキテクチャ
-
-```
-KairosChain (MCP Server)
-├── [core] L0/L1/L2 + private blockchain
-├── [SkillSet: mmp] P2P direct mode, /meeting/v1/*
-└── [SkillSet: hestia] Meeting Place + 信頼アンカー
-      ├── chain/           信頼アンカー（自己完結型、外部gem依存なし）
-      ├── PlaceRouter      /place/v1/* HTTPエンドポイント
-      ├── AgentRegistry    JSON永続化によるエージェント登録
-      ├── SkillBoard       スキル発見（ランダムサンプリング、ランキングなし）
-      ├── HeartbeatManager TTLベースの生存確認と退場記録
-      └── tools/           6 MCPツール
-```
-
-hestia SkillSetを持つKairosChainインスタンスはMCPサーバー、P2Pエージェント、Meeting Placeホスト、他のMeeting Placeの参加者を同時に兼ね、DEEプロトコルの「主客未分」原則を体現しています。
-
-### クイックスタート
-
-```bash
-# HTTPサーバーとMeeting Placeを起動
-kairos-chain --http --port 8080
-
-# Claude Code / Cursorで:
-「hestia SkillSetをインストールして」
-「Meeting Placeを起動して」
-```
-
-```bash
-# エンドポイントテスト（infoは認証不要）
-curl -s http://localhost:8080/place/v1/info | python3 -m json.tool
-
-# エージェント登録
-curl -s -X POST http://localhost:8080/place/v1/register \
-  -H 'Content-Type: application/json' \
-  -d '{"id":"agent-alpha","name":"Agent Alpha","capabilities":{"supported_actions":["test"]}}'
-```
-
-### HTTPエンドポイント
-
-| メソッド | パス | 認証 | 説明 |
-|---------|------|------|------|
-| GET | `/place/v1/info` | なし | Placeメタデータと身元情報 |
-| POST | `/place/v1/register` | RSA署名（任意） | エージェント登録 |
-| POST | `/place/v1/unregister` | Bearer | エージェント登録解除 |
-| GET | `/place/v1/agents` | Bearer | 登録エージェント一覧 |
-| GET | `/place/v1/board/browse` | Bearer | スキルボード閲覧（ランダム順） |
-| GET | `/place/v1/keys/:id` | Bearer | エージェントの公開鍵取得 |
-
-### HestiaChain MCPツール
-
-| ツール | 説明 |
-|--------|------|
-| `chain_migrate_status` | 現在のバックエンドステージと移行パスを表示 |
-| `chain_migrate_execute` | チェーンを次のステージに移行 |
-| `philosophy_anchor` | 交換哲学を宣言（ハッシュをチェーンに記録） |
-| `record_observation` | インタラクションの主観的観察を記録 |
-| `meeting_place_start` | Meeting Placeを起動、全コンポーネント初期化 |
-| `meeting_place_status` | Meeting Placeの設定とステータスを表示 |
-
-### 信頼アンカー：チェーン移行
-
-信頼アンカーは4段階のバックエンド進行をサポートします：
-
-| ステージ | バックエンド | 用途 |
-|---------|------------|------|
-| 0 | インメモリ | 開発・テスト |
-| 1 | プライベートJSONファイル | 本番対応、セルフホスト |
-| 2 | パブリックテストネット（Base Sepolia） | クロスインスタンス検証 |
-| 3 | パブリックメインネット | 完全分散化 |
-
-### DEE哲学プロトコル
-
-HestiaChainはDecentralized Event Exchange（DEE）プロトコルを実装します：
-
-- **PhilosophyDeclaration**: エージェントが交換哲学を宣言（観察可能、強制不可）。ハッシュのみチェーンに記録
-- **ObservationLog**: インタラクションの主観的観察。同じインタラクションに対して複数の観察が共存 —「意味は合意されない。意味は共存する」
-- **Fadeout**: 心拍期限切れはエラーではなく第一級イベントとして記録。静かな退場はプロトコルの自然な一部
-- **ランダムサンプリング**: SkillBoardはスキルをランダム順で返す。ランキング、スコアリングなし
-
-### EC2デプロイ
-
-```bash
-gem install kairos-chain
-kairos-chain init ~/.kairos
-KAIROS_HOST=0.0.0.0 KAIROS_PORT=8080 kairos-chain --http
-```
-
-本番環境ではTLS用にリバースプロキシ（Caddy/nginx）を使用：
-
-```
-# Caddyfileの例
-kairos.example.com {
-    reverse_proxy localhost:8080
-}
-```
-
-DEEプロトコルの内部詳細については、hestia SkillSetをインストールし、同梱のknowledge（`hestia_meeting_place`）を参照してください。
-
 ## ディレクトリ構造
 
 ### Gem構造（`gem install kairos-chain` でインストール）
@@ -2579,6 +2633,8 @@ KairosChain_mcp_server/
 ## 将来のロードマップ
 
 ### 完了済みフェーズ
+
+以下の開発フェーズが`feature/skillset-plugin`ブランチで完了しています：
 
 | フェーズ | 説明 | 主な成果物 |
 |---------|------|-----------|
@@ -4373,7 +4429,7 @@ ProjectA/                           ProjectB/
 
 ---
 
-**バージョン**: 1.0.0
-**最終更新**: 2026-02-21
+**バージョン**: 2.0.2
+**最終更新**: 2026-02-23
 
 > *「KairosChainは『この結果は正しいか？』ではなく『この知性はどのように形成されたか？』に答えます」*

@@ -95,7 +95,8 @@ module KairosMcp
              when 'none'
                nil
              else
-               KairosMcp.quickguide_path   # Default to user mode
+               # Dynamic custom mode: resolve to skills/{mode}.md
+               File.join(KairosMcp.skills_dir, "#{mode}.md")
              end
 
       return nil unless path

@@ -1,3 +1,4 @@
+# encoding: utf-8
 # KairosChain Meta-Skills Definition
 # This file contains L0 (Law layer) meta-skills that govern self-modification.
 # Only Kairos meta-skills can be placed here.

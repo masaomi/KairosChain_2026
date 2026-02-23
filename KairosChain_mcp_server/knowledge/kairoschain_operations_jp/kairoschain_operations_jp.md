@@ -23,14 +23,17 @@ readme_lang: jp
 | **Phase 3.5** | セキュリティ修正 + ワイヤープロトコル仕様 | 名前サニタイズ（H4）、パストラバーサルガード（H1）、拡張実行可能ファイル検出（H5）、ワイヤープロトコル仕様書 |
 | **Phase 3.7** | Phase 4前の堅牢化 | RSA-2048署名検証、セマンティックバージョン制約、PeerManager永続化、TOFUトラストモデル |
 | **Phase 3.75** | MMP拡張基盤 | コアアクション衝突検出、拡張オーバーライドガード、Phase 4準備 |
+| **Phase 4.pre** | 認証 + 堅牢化 | Admin トークンローテーション、P2Pエンドポイントのセッションベース認証 |
+| **Phase 4A** | HestiaChain Foundation | 自己完結型信頼アンカーSkillSet、DEEプロトコル（PhilosophyDeclaration、ObservationLog）、チェーン移行（4ステージ）、4 MCPツール、77テストアサーション |
+| **Phase 4B** | Meeting Placeサーバー | PlaceRouter、AgentRegistry、SkillBoard、HeartbeatManager、6 HTTPエンドポイント、2 MCPツール、70テストアサーション |
 
-テスト結果: 154テスト通過、0失敗。
+テスト結果: 356テスト通過、0失敗（v2.0.0）。
 
 ### 近期
 
-1. **Phase 4: HestiaChain Meeting Placeサーバー**：P2Pピアマッチングのための集中型ディスカバリーサーバー
-2. **Ethereumアンカー**：公開チェーンへの定期的なハッシュアンカリング
-3. **マルチエージェントサポート**：`agent_id`で複数のAIエージェントを追跡
+1. **Phase 4C: メッセージリレー**：TTL付きE2E暗号化メッセージリレー（`/place/v1/relay/*`）
+2. **Phase 4D: フェデレーション**：Place間の発見と相互登録
+3. **Ethereumアンカー**：公開チェーンへの定期的なハッシュアンカリング（HestiaChainステージ2/3）
 4. **ゼロ知識証明**：プライバシーを保護した検証
 5. **Webダッシュボード**：スキル進化履歴の可視化
 6. **チームガバナンス**：L0変更のための投票システム（FAQを参照）
@@ -50,7 +53,7 @@ KairosChainの将来構想：複数のKairosChain MCPサーバーがインター
 2. ~~HTTP/WebSocket API（リモートアクセス）~~ ✅ Streamable HTTPトランスポート（完了）
 3. ~~サーバー間通信プロトコル~~ ✅ MMP（Model Meeting Protocol）P2Pダイレクトモード（完了）
 4. ~~SkillSetプラグイン基盤~~ ✅ レイヤーベースガバナンス、knowledge-only P2P交換（完了）
-5. HestiaChain Meeting Placeサーバー（Phase 4、計画中）
+5. ~~HestiaChain Meeting Placeサーバー~~ ✅ 信頼アンカー + DEEプロトコルによるMeeting Place（完了、v2.0.0）
 6. 分散合意メカニズム
 7. L0分散ガバナンス
 

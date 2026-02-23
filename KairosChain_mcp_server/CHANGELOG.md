@@ -4,6 +4,34 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.0.2] - 2026-02-23
+
+### Added
+
+- **Dynamic `instructions_mode`**: Custom mode resolution for MCP instructions
+  - `instructions_mode: 'researcher'` now resolves to `skills/researcher.md`
+  - Any `.md` file in `skills/` can serve as an instruction source
+  - Built-in modes (`developer`, `user`, `none`) unchanged
+- **`instructions_update` tool**: L0-level instructions management with 5 commands
+  - `status`: Show current mode and available instruction files
+  - `create`: Create new instruction file (requires human approval)
+  - `update`: Update existing instruction file (requires human approval)
+  - `delete`: Delete custom instruction file (built-in protected)
+  - `set_mode`: Switch `instructions_mode` in config.yml (requires human approval)
+  - All changes recorded to blockchain (full recording, L0_law level)
+  - Path traversal protection, reserved mode name guard, active mode deletion prevention
+- **L1 Knowledge**: HestiaChain Meeting Place knowledge added to active knowledge directory
+- **L1 Knowledge**: Updated operations roadmap with Phase 4A/4B completion info
+
+### Fixed
+
+- **Encoding**: Added `# encoding: utf-8` to `kairos.rb` DSL files (fixes multibyte char errors with arrows/emojis)
+- **Encoding**: Added UTF-8 encoding to `build_readme.rb` file reads (fixes README generation on non-UTF-8 locales)
+- **L1 Knowledge**: Updated tool count from 25 to 26 in usage documentation (EN + JP)
+- **L1 Knowledge**: Restored Phase 4.pre/4A/4B progress info in operations knowledge (EN + JP)
+
+---
+
 ## [2.0.1] - 2026-02-23
 
 ### Added
@@ -139,6 +167,8 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Skill promotion with Persona Assembly
 - Tool guide and metadata system
 
+[2.0.2]: https://github.com/masaomi/KairosChain_2026/compare/v2.0.1...v2.0.2
+[2.0.1]: https://github.com/masaomi/KairosChain_2026/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/masaomi/KairosChain_2026/compare/v1.2.0...v2.0.0
 [1.2.0]: https://github.com/masaomi/KairosChain_2026/compare/v1.0.0...v1.2.0
 [1.0.0]: https://github.com/masaomi/KairosChain_2026/compare/v0.9.0...v1.0.0

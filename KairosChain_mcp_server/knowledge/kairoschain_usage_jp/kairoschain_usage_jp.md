@@ -192,9 +192,9 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
    - すべての操作は`action_log`に記録される
    - 定期的にログをレビュー
 
-## 利用可能なツール（コア25個 + スキルツール）
+## 利用可能なツール（コア26個 + スキルツール）
 
-基本インストールでは24個のツール（23 + HTTP専用1個）が提供されます。`skill_tools_enabled: true`の場合、`kairos.rb`の`tool`ブロックで追加のツールを定義できます。
+基本インストールでは25個のツール（24 + HTTP専用1個）が提供されます。`skill_tools_enabled: true`の場合、`kairos.rb`の`tool`ブロックで追加のツールを定義できます。
 
 ### L0-A：スキルツール（Markdown） - 読み取り専用
 
@@ -213,6 +213,21 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
 | `skills_rollback` | バージョンスナップショットを管理 |
 
 > **スキル定義ツール**：`skill_tools_enabled: true`の場合、`kairos.rb`内の`tool`ブロックを持つスキルもここにMCPツールとして登録されます。
+
+### L0：インストラクション管理 - 完全なブロックチェーン記録
+
+| ツール | 説明 |
+|--------|------|
+| `instructions_update` | カスタムインストラクションファイルの作成/更新/削除とinstructions_modeの切り替え（L0レベル、人間の承認が必要） |
+
+コマンド:
+- `status`: 現在のmodeと利用可能なインストラクションファイル一覧を表示
+- `create`: 新規インストラクションファイル（`skills/{mode_name}.md`）を作成
+- `update`: 既存インストラクションファイルの内容を更新
+- `delete`: カスタムインストラクションファイルを削除（built-inファイルは保護）
+- `set_mode`: config.ymlの`instructions_mode`を変更
+
+動的モード解決: config.ymlで`instructions_mode: 'researcher'`を設定すると、`skills/researcher.md`がAIシステムプロンプトのinstructionsとしてロードされます。組み込みモード（`developer`、`user`、`none`）は従来通り維持されます。
 
 ### クロスレイヤー昇格ツール
 

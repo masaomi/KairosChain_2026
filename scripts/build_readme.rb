@@ -1,4 +1,5 @@
 #!/usr/bin/env ruby
+# encoding: utf-8
 # frozen_string_literal: true
 
 # build_readme.rb - Generate README.md and README_jp.md from L1 knowledge files
@@ -76,7 +77,7 @@ class ReadmeBuilder
     files = []
 
     Dir.glob(File.join(KNOWLEDGE_DIR, "*", "*.md")).each do |path|
-      content = File.read(path)
+      content = File.read(path, encoding: 'UTF-8')
       frontmatter = parse_frontmatter(content)
       next unless frontmatter && frontmatter["readme_order"] && frontmatter["readme_lang"]
 
@@ -120,8 +121,8 @@ class ReadmeBuilder
 
   # Build a single README from template + knowledge files
   def build_readme(files, config, version, date)
-    header = File.read(config[:header])
-    footer = File.read(config[:footer])
+    header = File.read(config[:header], encoding: 'UTF-8')
+    footer = File.read(config[:footer], encoding: 'UTF-8')
 
     # Combine all L1 knowledge bodies
     body_parts = files.map { |f| f[:body].rstrip }

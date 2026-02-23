@@ -1,7 +1,7 @@
 ---
 name: kairoschain_operations
 description: "Future roadmap, deployment, and operations guide"
-version: 1.0
+version: 1.1
 layer: L1
 tags: [documentation, readme, operations, deployment, roadmap, backup]
 readme_order: 5
@@ -10,13 +10,33 @@ readme_lang: en
 
 ## Future Roadmap
 
+### Completed Phases
+
+The following development phases have been completed on the `feature/skillset-plugin` branch:
+
+| Phase | Description | Key Deliverables |
+|-------|-------------|-----------------|
+| **Phase 1** | SkillSet Plugin Infrastructure | SkillSetManager, ToolRegistry extension, CLI subcommands, layer-based governance |
+| **Phase 2** | MMP as SkillSet + P2P Direct Mode | MMP packaged as standalone SkillSet, MeetingRouter with 8 HTTP endpoints, 4 MCP tools |
+| **Phase 2.5** | P2P Local Tests | 72 assertions across 4 test sections |
+| **Phase 3** | Knowledge-only SkillSet Exchange | `knowledge_only?`/`exchangeable?` checks, tar.gz archive packaging, 3 new SkillSet endpoints |
+| **Phase 3.5** | Security Fixes + Wire Protocol Spec | Name sanitization (H4), path traversal guard (H1), extended executable detection (H5), wire protocol specification |
+| **Phase 3.7** | Pre-Phase 4 Hardening | RSA-2048 signature verification, semantic version constraints, PeerManager persistence, TOFU trust model |
+| **Phase 3.75** | MMP Extension Infrastructure | Collision detection for core actions, extension override guards, pre-Phase 4 preparation |
+| **Phase 4.pre** | Authentication + Hardening | Admin token rotation, session-based auth for P2P endpoints |
+| **Phase 4A** | HestiaChain Foundation | Self-contained trust anchor SkillSet, DEE protocol (PhilosophyDeclaration, ObservationLog), chain migration (4 stages), 4 MCP tools, 77 test assertions |
+| **Phase 4B** | Meeting Place Server | PlaceRouter, AgentRegistry, SkillBoard, HeartbeatManager, 6 HTTP endpoints, 2 MCP tools, 70 test assertions |
+
+Test results: 356 passed, 0 failed (v2.0.0).
+
 ### Near-term
 
-1. **Ethereum Anchor**: Periodic hash anchoring to public chain
-2. **Multi-Agent Support**: Track multiple AI agents via `agent_id`
-3. **Zero-Knowledge Proofs**: Privacy-preserving verification
-4. **Web Dashboard**: Visualize skill evolution history
-5. **Team Governance**: Voting system for L0 changes (see FAQ)
+1. **Phase 4C: Message Relay**: E2E encrypted message relay with TTL (`/place/v1/relay/*`)
+2. **Phase 4D: Federation**: Inter-Place discovery and mutual registration
+3. **Ethereum Anchor**: Periodic hash anchoring to public chain (HestiaChain stages 2/3)
+4. **Zero-Knowledge Proofs**: Privacy-preserving verification
+5. **Web Dashboard**: Visualize skill evolution history
+6. **Team Governance**: Voting system for L0 changes (see FAQ)
 
 ### Long-term Vision: Distributed KairosChain Network
 
@@ -30,10 +50,12 @@ A future vision for KairosChain: multiple KairosChain MCP servers communicating 
 
 **Implementation phases**:
 1. Dockerization (deployment foundation)
-2. ~~HTTP/WebSocket API (remote access)~~ ✅ Streamable HTTP transport (Phase 1 complete)
-3. Inter-server communication protocol
-4. Distributed consensus mechanism
-5. Distributed L0 governance
+2. ~~HTTP/WebSocket API (remote access)~~ ✅ Streamable HTTP transport (complete)
+3. ~~Inter-server communication protocol~~ ✅ MMP (Model Meeting Protocol) with P2P direct mode (complete)
+4. ~~SkillSet Plugin Infrastructure~~ ✅ Layer-based governance, knowledge-only P2P exchange (complete)
+5. ~~HestiaChain Meeting Place Server~~ ✅ Trust anchor + DEE protocol Meeting Place (complete, v2.0.0)
+6. Distributed consensus mechanism
+7. Distributed L0 governance
 
 For detailed vision document, see: [Distributed KairosChain Network Vision](docs/distributed_kairoschain_vision_20260128_en.md)
 

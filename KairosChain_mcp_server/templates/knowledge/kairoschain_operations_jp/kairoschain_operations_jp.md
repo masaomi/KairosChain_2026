@@ -1,7 +1,7 @@
 ---
 name: kairoschain_operations_jp
 description: 将来のロードマップ、デプロイ、運用ガイド
-version: 1.0
+version: 1.1
 layer: L1
 tags: [documentation, readme, operations, deployment, roadmap, backup]
 readme_order: 5
@@ -10,13 +10,33 @@ readme_lang: jp
 
 ## 将来のロードマップ
 
+### 完了済みフェーズ
+
+以下の開発フェーズが`feature/skillset-plugin`ブランチで完了しています：
+
+| フェーズ | 説明 | 主な成果物 |
+|---------|------|-----------|
+| **Phase 1** | SkillSetプラグイン基盤 | SkillSetManager、ToolRegistry拡張、CLIサブコマンド、レイヤーベースガバナンス |
+| **Phase 2** | MMP as SkillSet + P2Pダイレクトモード | MMPをスタンドアロンSkillSetとしてパッケージ化、MeetingRouter（8 HTTPエンドポイント）、4 MCPツール |
+| **Phase 2.5** | P2Pローカルテスト | 4テストセクション、72アサーション |
+| **Phase 3** | Knowledge-only SkillSet交換 | `knowledge_only?`/`exchangeable?`チェック、tar.gzアーカイブパッケージング、3つの新SkillSetエンドポイント |
+| **Phase 3.5** | セキュリティ修正 + ワイヤープロトコル仕様 | 名前サニタイズ（H4）、パストラバーサルガード（H1）、拡張実行可能ファイル検出（H5）、ワイヤープロトコル仕様書 |
+| **Phase 3.7** | Phase 4前の堅牢化 | RSA-2048署名検証、セマンティックバージョン制約、PeerManager永続化、TOFUトラストモデル |
+| **Phase 3.75** | MMP拡張基盤 | コアアクション衝突検出、拡張オーバーライドガード、Phase 4準備 |
+| **Phase 4.pre** | 認証 + 堅牢化 | Admin トークンローテーション、P2Pエンドポイントのセッションベース認証 |
+| **Phase 4A** | HestiaChain Foundation | 自己完結型信頼アンカーSkillSet、DEEプロトコル（PhilosophyDeclaration、ObservationLog）、チェーン移行（4ステージ）、4 MCPツール、77テストアサーション |
+| **Phase 4B** | Meeting Placeサーバー | PlaceRouter、AgentRegistry、SkillBoard、HeartbeatManager、6 HTTPエンドポイント、2 MCPツール、70テストアサーション |
+
+テスト結果: 356テスト通過、0失敗（v2.0.0）。
+
 ### 近期
 
-1. **Ethereumアンカー**：公開チェーンへの定期的なハッシュアンカリング
-2. **マルチエージェントサポート**：`agent_id`で複数のAIエージェントを追跡
-3. **ゼロ知識証明**：プライバシーを保護した検証
-4. **Webダッシュボード**：スキル進化履歴の可視化
-5. **チームガバナンス**：L0変更のための投票システム（FAQを参照）
+1. **Phase 4C: メッセージリレー**：TTL付きE2E暗号化メッセージリレー（`/place/v1/relay/*`）
+2. **Phase 4D: フェデレーション**：Place間の発見と相互登録
+3. **Ethereumアンカー**：公開チェーンへの定期的なハッシュアンカリング（HestiaChainステージ2/3）
+4. **ゼロ知識証明**：プライバシーを保護した検証
+5. **Webダッシュボード**：スキル進化履歴の可視化
+6. **チームガバナンス**：L0変更のための投票システム（FAQを参照）
 
 ### 長期ビジョン：分散KairosChainネットワーク
 
@@ -30,10 +50,12 @@ KairosChainの将来構想：複数のKairosChain MCPサーバーがインター
 
 **実装フェーズ**：
 1. Docker化（デプロイメント基盤）
-2. ~~HTTP/WebSocket API（リモートアクセス）~~ ✅ Streamable HTTPトランスポート（Phase 1 完了）
-3. サーバー間通信プロトコル
-4. 分散合意メカニズム
-5. L0分散ガバナンス
+2. ~~HTTP/WebSocket API（リモートアクセス）~~ ✅ Streamable HTTPトランスポート（完了）
+3. ~~サーバー間通信プロトコル~~ ✅ MMP（Model Meeting Protocol）P2Pダイレクトモード（完了）
+4. ~~SkillSetプラグイン基盤~~ ✅ レイヤーベースガバナンス、knowledge-only P2P交換（完了）
+5. ~~HestiaChain Meeting Placeサーバー~~ ✅ 信頼アンカー + DEEプロトコルによるMeeting Place（完了、v2.0.0）
+6. 分散合意メカニズム
+7. L0分散ガバナンス
 
 詳細なビジョンドキュメント: [分散KairosChainネットワーク構想](docs/distributed_kairoschain_vision_20260128_jp.md)
 

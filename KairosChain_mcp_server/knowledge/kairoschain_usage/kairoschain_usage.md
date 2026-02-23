@@ -192,9 +192,9 @@ The `tool_guide` tool helps you discover and learn about KairosChain tools dynam
    - All operations are recorded in `action_log`
    - Review logs regularly
 
-## Available Tools (25 core + skill-tools)
+## Available Tools (26 core + skill-tools)
 
-The base installation provides 24 tools (23 + 1 HTTP-only). Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
+The base installation provides 25 tools (24 + 1 HTTP-only). Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
 
 ### L0-A: Skills Tools (Markdown) - Read-only
 
@@ -213,6 +213,21 @@ The base installation provides 24 tools (23 + 1 HTTP-only). Additional tools can
 | `skills_rollback` | Manage version snapshots |
 
 > **Skill-defined tools**: When `skill_tools_enabled: true`, skills with `tool` blocks in `kairos.rb` are also registered here as MCP tools.
+
+### L0: Instructions Management - Full Blockchain Record
+
+| Tool | Description |
+|------|-------------|
+| `instructions_update` | Create, update, or delete custom instruction files and switch instructions_mode (L0-level, requires human approval) |
+
+Commands:
+- `status`: Show current mode and available instruction files
+- `create`: Create a new instructions file (`skills/{mode_name}.md`)
+- `update`: Update existing instructions file content
+- `delete`: Delete a custom instructions file (built-in files protected)
+- `set_mode`: Change `instructions_mode` in config.yml
+
+Dynamic mode resolution: Setting `instructions_mode: 'researcher'` in config.yml loads `skills/researcher.md` as the AI system prompt instructions. Built-in modes (`developer`, `user`, `none`) are preserved.
 
 ### Cross-Layer Promotion Tools
 

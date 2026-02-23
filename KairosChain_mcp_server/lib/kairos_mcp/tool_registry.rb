@@ -36,6 +36,9 @@ module KairosMcp
       
       # Audit tools (health checks, archive management, recommendations)
       register_if_defined('KairosMcp::Tools::SkillsAudit')
+
+      # L0: Instructions management (system prompt control with full blockchain record)
+      register_if_defined('KairosMcp::Tools::InstructionsUpdate')
       
       # Resource tools (unified access to L0/L1/L2 resources)
       register_if_defined('KairosMcp::Tools::ResourceList')
