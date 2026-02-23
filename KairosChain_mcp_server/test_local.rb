@@ -8,6 +8,7 @@ $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 
 require 'json'
 require 'kairos_mcp/protocol'
+require 'kairos_mcp/skills_config'
 require 'kairos_mcp/layer_registry'
 require 'kairos_mcp/knowledge_provider'
 require 'kairos_mcp/context_manager'
@@ -33,6 +34,38 @@ protocol = KairosMcp::Protocol.new
 
 puts "KairosChain MCP Server - Local Test"
 puts "Ruby version: #{RUBY_VERSION}"
+
+# Test 0: Initialize with instructions
+test_section("Initialize - Instructions in Response") do
+  request = {
+    jsonrpc: '2.0',
+    id: 0,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2024-11-05',
+      capabilities: {}
+    }
+  }
+
+  response = protocol.handle_message(request.to_json)
+  result = response[:result]
+
+  has_instructions = !result[:instructions].nil?
+  instructions_length = result[:instructions]&.length || 0
+  mode = KairosMcp::SkillsConfig.load['instructions_mode'] || 'user'
+
+  puts "  instructions_mode: #{mode}"
+  puts "  instructions present: #{has_instructions}"
+  puts "  instructions length: #{instructions_length} chars"
+
+  if has_instructions
+    preview = result[:instructions].lines.first(3).map(&:chomp).join("\n")
+    puts "  preview (first 3 lines):\n    #{preview.gsub("\n", "\n    ")}"
+  end
+
+  puts "  protocolVersion: #{result[:protocolVersion]}"
+  puts "  serverInfo: #{result[:serverInfo]}"
+end
 
 # Test 1: Layer Registry
 test_section("Layer Registry") do

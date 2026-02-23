@@ -4,6 +4,20 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.0.1] - 2026-02-23
+
+### Added
+
+- **MCP Instructions**: `instructions` field in `initialize` response delivers
+  KairosChain philosophy or quick guide to LLM on connection
+  - `instructions_mode` config: `developer` (full kairos.md), `user` (quick guide), `none`
+  - New template: `kairos_quickguide.md` — concise user-facing operational guide
+- **L0-A Philosophy**: Added PHILOSOPHY-001 (Generative Principle) and
+  PHILOSOPHY-005 (Five Propositions) to `kairos.md`
+- **Agent Instruction Sync**: `scripts/sync_agent_instructions.sh` syncs CLAUDE.md
+  to `.cursor/rules/kairos.mdc` for Cursor IDE support
+- **Test**: Initialize instructions test (Test 0) in `test_local.rb`
+
 ## [2.0.0] - 2026-02-23
 
 ### Breaking Changes

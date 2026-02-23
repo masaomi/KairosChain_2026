@@ -4,6 +4,12 @@
 # General settings
 enabled: true
 evolution_enabled: false
+
+# Instructions mode: Controls what context is sent to LLM on MCP connection
+#   developer: Full philosophy (kairos.md) - for KairosChain contributors
+#   user: Quick guide only (kairos_quickguide.md) - for general users (default)
+#   none: No instructions - minimal context window usage
+instructions_mode: user
 max_evolutions_per_session: 3
 require_human_approval: true
 

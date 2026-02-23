@@ -1,5 +1,6 @@
 require 'json'
 require_relative 'tool_registry'
+require_relative 'skills_config'
 require_relative 'version'
 
 module KairosMcp
@@ -59,7 +60,7 @@ module KairosMcp
       @tool_registry.set_workspace(roots)
       @initialized = true
 
-      {
+      result = {
         protocolVersion: protocol_version,
         capabilities: {
           tools: {
@@ -72,6 +73,42 @@ module KairosMcp
           version: KairosMcp::VERSION
         }
       }
+
+      # Add instructions based on config mode (developer/user/none)
+      instructions = load_instructions
+      result[:instructions] = instructions if instructions
+
+      result
+    end
+
+    # Load instructions based on instructions_mode in config.yml
+    #
+    # @return [String, nil] Instructions text or nil
+    def load_instructions
+      mode = SkillsConfig.load['instructions_mode'] || 'user'
+
+      path = case mode
+             when 'developer'
+               KairosMcp.md_path           # Full philosophy (kairos.md)
+             when 'user'
+               KairosMcp.quickguide_path   # Quick guide (kairos_quickguide.md)
+             when 'none'
+               nil
+             else
+               KairosMcp.quickguide_path   # Default to user mode
+             end
+
+      return nil unless path
+
+      read_if_exists(path)
+    end
+
+    # Read file content if it exists
+    #
+    # @param path [String] File path
+    # @return [String, nil] File content or nil
+    def read_if_exists(path)
+      File.exist?(path) ? File.read(path) : nil
     end
 
     def handle_tools_list

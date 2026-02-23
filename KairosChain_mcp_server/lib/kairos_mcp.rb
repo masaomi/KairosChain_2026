@@ -13,20 +13,22 @@ module KairosMcp
   # Format: [template_relative_path, data_dir_accessor_symbol]
   #
   TEMPLATE_FILES = [
-    ['skills/kairos.rb',         :dsl_path],
-    ['skills/kairos.md',         :md_path],
-    ['skills/config.yml',        :skills_config_path],
-    ['config/safety.yml',        :safety_config_path],
-    ['config/tool_metadata.yml', :tool_metadata_path]
+    ['skills/kairos.rb',              :dsl_path],
+    ['skills/kairos.md',              :md_path],
+    ['skills/kairos_quickguide.md',   :quickguide_path],
+    ['skills/config.yml',             :skills_config_path],
+    ['config/safety.yml',             :safety_config_path],
+    ['config/tool_metadata.yml',      :tool_metadata_path]
   ].freeze
 
   # File type classification for upgrade conflict resolution
   TEMPLATE_FILE_TYPES = {
-    'skills/kairos.rb'         => :l0_dsl,
-    'skills/kairos.md'         => :l0_doc,
-    'skills/config.yml'        => :config_yaml,
-    'config/safety.yml'        => :config_yaml,
-    'config/tool_metadata.yml' => :config_yaml
+    'skills/kairos.rb'              => :l0_dsl,
+    'skills/kairos.md'              => :l0_doc,
+    'skills/kairos_quickguide.md'   => :l0_doc,
+    'skills/config.yml'             => :config_yaml,
+    'config/safety.yml'             => :config_yaml,
+    'config/tool_metadata.yml'      => :config_yaml
   }.freeze
 
   # =========================================================================
@@ -83,6 +85,11 @@ module KairosMcp
     # L0 skills philosophy file path
     def md_path
       File.join(skills_dir, 'kairos.md')
+    end
+
+    # L0 skills quick guide file path (user-facing instructions)
+    def quickguide_path
+      File.join(skills_dir, 'kairos_quickguide.md')
     end
 
     # L0 skills config file path

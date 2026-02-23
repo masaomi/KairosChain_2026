@@ -2,12 +2,42 @@
 
 | Section ID | Title | Use When |
 |------------|-------|----------|
+| PHILOSOPHY-001 | Generative Principle | Understanding the single principle from which KairosChain's architecture flows |
+| PHILOSOPHY-005 | Five Propositions | Understanding the core propositions that summarize KairosChain's design |
 | PHILOSOPHY-010 | Core Philosophy | Understanding Kairos's fundamental vision |
 | PHILOSOPHY-020 | Minimum-Nomic | Understanding the change constraint principle |
 | PRINCIPLE-010 | Safety Principles | Understanding safety invariants |
 | PRINCIPLE-020 | Evolution Principles | Understanding how skills evolve |
 | LAYER-010 | Layer Architecture | Understanding L0/L1/L2 structure |
 | LAYER-020 | Layer Constraints | Understanding constraints per layer |
+
+---
+
+## [PHILOSOPHY-001] Generative Principle: Structural Self-Referentiality
+
+KairosChain's entire architecture flows from one principle:
+
+> **Meta-level operations are expressed in the same structure as base-level operations.**
+
+This is why Ruby (DSL/AST) was chosen. "Defining a Skill" and "defining the evolution rules for a Skill" use the same language, syntax, and runtime. This structural correspondence is the foundation of self-referentiality, and all other properties of KairosChain germinate from it.
+
+Self-referentiality is not a design choice but an existential condition: without definitional closure at L0, the system would be "a program following configuration" rather than "an entity that defines its own conditions of existence."
+
+---
+
+## [PHILOSOPHY-005] Five Propositions
+
+The following five propositions summarize the philosophical structure of KairosChain. They are not axioms from which everything is derived, but patterns whose recursive application at different levels produces different properties.
+
+1. **Self-referentiality and metacognition as generative seed** — A pattern whose recursive application at different levels produces different properties. Intentionally asymmetric: strongest at L0 governance core, pragmatically open at infrastructure level ("sufficient self-referentiality"). Self-referentiality is structural (L0 defining itself); metacognition is cognitive (self_inspection evaluating the system's own state). Both dimensions are core.
+
+2. **Dual integrity guarantee** — Prevention (approval_workflow's 5-layer validation) + structural impossibility (a contradictory self-referential system cannot operate). The latter holds within legitimate operation paths only.
+
+3. **Structure opens possibility space; design realizes it** — Self-referential structure automatically enables recursive extension. Individual SkillSets (MMP, HestiaChain) are engineered, but the *possibility* of expressing meta-capabilities as SkillSets is a structural consequence, not a design decision.
+
+4. **Circular integration of process and result** — Operation, evolution, and recording are functionally separated but ontologically unified through the same Skill structure. Time is Kairos (qualitative moment), not Chronos (quantitative flow).
+
+5. **Partial autopoiesis** — Self-production loop closes at the governance/capability-definition level; depends on external substrates (Ruby VM, filesystem) at the execution level. The question is "at which abstraction level does the loop close?" — not "is it complete?"
 
 ---
 
