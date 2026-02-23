@@ -6,11 +6,11 @@ KairosChain's entire architecture flows from one principle:
 
 > **Meta-level operations are expressed in the same structure as base-level operations.**
 
-This is why Ruby (DSL/AST) was chosen. "Defining a Skill" and "defining the evolution rules for a Skill" use the same language, syntax, and runtime. This structural isomorphism is the foundation of self-referentiality, and all other properties of KairosChain germinate from it.
+This is why Ruby (DSL/AST) was chosen. "Defining a Skill" and "defining the evolution rules for a Skill" use the same language, syntax, and runtime. This structural correspondence is the foundation of self-referentiality, and all other properties of KairosChain germinate from it. Self-referentiality is not a design choice but an existential condition: without definitional closure at L0, the system would be "a program following configuration" rather than "an entity that defines its own conditions of existence."
 
 ## Five Propositions (Summary)
 
-1. **Self-referentiality as generative seed** — Not an axiom deriving everything, but a pattern whose recursive application at different levels produces different properties. Intentionally asymmetric: strongest at L0 governance core, pragmatically open at infrastructure level ("sufficient self-referentiality").
+1. **Self-referentiality and metacognition as generative seed** — Not an axiom deriving everything, but a pattern whose recursive application at different levels produces different properties. Intentionally asymmetric: strongest at L0 governance core, pragmatically open at infrastructure level ("sufficient self-referentiality"). Self-referentiality is structural (L0 defining itself); metacognition is cognitive (self_inspection evaluating the system's own state). Both dimensions are core.
 
 2. **Dual integrity guarantee** — Prevention (approval_workflow's 5-layer validation) + structural impossibility (a contradictory self-referential system cannot operate). The latter holds within legitimate operation paths only.
 
@@ -74,4 +74,5 @@ This CLAUDE.md follows KairosChain's own philosophy:
 For the full philosophical analysis including biophilosophical foundations (autopoiesis, intersubjectivity, process philosophy, dissipative structures), critical evaluation methodology, and open questions:
 
 - **L1 Knowledge**: `knowledge/kairoschain_philosophy/kairoschain_meta_philosophy.md`
-- **Full Document**: `docs/kairoschain_philosophy_claude_opus4.6_agent_team_20260223.md`
+- **First Meta-Level**: `docs/kairoschain_philosophy_claude_opus4.6_agent_team_20260223.md`
+- **Second Meta-Level**: `docs/kairoschain_philosophy2_claude_opus4.6_agent_team_20260223.md`

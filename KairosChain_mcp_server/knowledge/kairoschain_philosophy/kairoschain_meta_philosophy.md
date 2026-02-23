@@ -58,3 +58,4 @@ The relationship with biological philosophy is not metaphorical but structural:
 ---
 
 *Full analysis: `docs/kairoschain_philosophy_claude_opus4.6_agent_team_20260223.md`*
+*Second meta-level: `knowledge/kairoschain_philosophy/kairoschain_meta_philosophy2.md`*

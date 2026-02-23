@@ -58,3 +58,4 @@ KairosChainはガバナンスと能力定義のレベルで自己産出のルー
 ---
 
 *全文分析：`docs/kairoschain_philosophy_claude_opus4.6_agent_team_20260223.md`*
+*第二メタレベル：`knowledge/kairoschain_philosophy_jp/kairoschain_meta_philosophy2_jp.md`*
