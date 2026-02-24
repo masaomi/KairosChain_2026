@@ -61,6 +61,10 @@ module KairosMcp
       register_if_defined('KairosMcp::Tools::ChainExport')
       register_if_defined('KairosMcp::Tools::ChainImport')
 
+      # Formalization tools (DSL/AST partial formalization records)
+      register_if_defined('KairosMcp::Tools::FormalizationRecord')
+      register_if_defined('KairosMcp::Tools::FormalizationHistory')
+
       # State commit tools (auditability)
       register_if_defined('KairosMcp::Tools::StateCommit')
       register_if_defined('KairosMcp::Tools::StateStatus')

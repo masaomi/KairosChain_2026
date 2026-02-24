@@ -105,6 +105,83 @@ module KairosMcp
     end
   end
 
+  # Minimal AST node structure for partial formalization
+  AstNode = Struct.new(:type, :name, :options, :source_span, keyword_init: true) do
+    def to_h
+      {
+        type: type,
+        name: name,
+        options: options,
+        source_span: source_span
+      }
+    end
+  end
+
+  # Definition block context — collects partially-formalized AST nodes
+  # Used in the structural layer (definition block) of dual-representation Skills.
+  # Nodes represent the subset of content that has been formalized into AST form.
+  class DefinitionContext
+    attr_reader :nodes
+
+    def initialize
+      @nodes = []
+    end
+
+    # Deterministic constraint (binary, measurable criteria)
+    def constraint(name, **opts)
+      @nodes << AstNode.new(
+        type: :Constraint,
+        name: name,
+        options: opts,
+        source_span: nil
+      )
+    end
+
+    # Semantic reasoning node (delegates to LLM — formal expression of non-formalization)
+    def node(name, type:, prompt:, source_span: nil)
+      @nodes << AstNode.new(
+        type: type.to_sym,
+        name: name,
+        options: { prompt: prompt },
+        source_span: source_span
+      )
+    end
+
+    # Execution step sequence (deterministic, order-dependent procedures)
+    def plan(name, steps:)
+      @nodes << AstNode.new(
+        type: :Plan,
+        name: name,
+        options: { steps: steps },
+        source_span: nil
+      )
+    end
+
+    # External tool/command execution (strict parameter precision required)
+    def tool_call(name, command:, **opts)
+      @nodes << AstNode.new(
+        type: :ToolCall,
+        name: name,
+        options: opts.merge(command: command),
+        source_span: nil
+      )
+    end
+
+    # Condition check (clear success/failure criteria)
+    def check(name, condition:, **opts)
+      @nodes << AstNode.new(
+        type: :Check,
+        name: name,
+        options: opts.merge(condition: condition),
+        source_span: nil
+      )
+    end
+
+    def to_h
+      { nodes: @nodes.map(&:to_h) }
+    end
+  end
+
   # Evolve block context
   class EvolveContext
     attr_reader :skill_id, :allowed, :denied, :conditions
