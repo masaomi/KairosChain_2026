@@ -4,6 +4,8 @@ log/
 .DS_Store
 KairosChain_mcp_server/skills/action_log.jsonl
 HestiaChain_2026/
+Who_read_this_story_2025/
+who_read_this_story_2026/
 
 # Vector search index files (auto-generated)
 KairosChain_mcp_server/storage/embeddings/**/*.ann
@@ -34,3 +36,15 @@ KairosChain_mcp_server/pkg/
 
 # Runtime data directory (created by `kairos_mcp_server init`)
 .kairos/
+
+# Echoria
+Echoria/echoria-api/tmp/
+Echoria/echoria-api/log/
+Echoria/echoria-api/.env
+Echoria/echoria-api/vendor/
+Echoria/echoria-web/node_modules/
+Echoria/echoria-web/.next/
+Echoria/echoria-web/out/
+Echoria/echoria-web/.env.local
+Echoria/echoria-api/Gemfile.lock
+Echoria/echoria-api/db/schema.rb

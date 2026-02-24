@@ -1,0 +1,31 @@
+# Development-only: just DB and Redis
+# Usage: docker compose -f docker/docker-compose.dev.yml up -d
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: echoria-db-dev
+    environment:
+      POSTGRES_USER: echoria
+      POSTGRES_PASSWORD: echoria_dev
+      POSTGRES_DB: echoria_development
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U echoria"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: echoria-redis-dev
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata-dev:/data
+
+volumes:
+  pgdata-dev:
+  redisdata-dev:

@@ -1,0 +1,50 @@
+# Multi-stage build for Rails API
+FROM ruby:3.3-slim as builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Gemfile and Gemfile.lock
+COPY Gemfile Gemfile.lock ./
+
+# Install gems
+RUN bundle install --jobs 4 --retry 3
+
+# Final stage
+FROM ruby:3.3-slim
+
+WORKDIR /app
+
+# Install only runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -u 1000 rails
+
+# Copy gems from builder
+COPY --from=builder /usr/local/bundle /usr/local/bundle
+
+# Copy application code
+COPY --chown=rails:rails . .
+
+# Switch to non-root user
+USER rails
+
+# Expose port
+EXPOSE 3000
+
+# Health check endpoint
+HEALTHCHECK --interval=10s --timeout=5s --retries=5 \
+    CMD curl -f http://localhost:3000/health || exit 1
+
+# Start Rails server
+CMD ["bundle", "exec", "rails", "server", "-b", "0.0.0.0"]

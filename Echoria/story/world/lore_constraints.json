@@ -1,0 +1,367 @@
+{
+  "project_metadata": {
+    "title": "Echoria Lore Constraint System",
+    "description": "Comprehensive lore guidelines and constraints for AI-assisted narrative generation in the Echoria project",
+    "version": "1.0",
+    "last_updated": "2026-02-24",
+    "primary_language": "Japanese",
+    "narrative_consistency_level": "high"
+  },
+  "vocabulary": {
+    "required_terms": [
+      "呼応石（こおうせき）",
+      "名折れ（なおれ）",
+      "カケラ（欠片）",
+      "残響界（ざんきょうかい）",
+      "呼応（こおう）",
+      "名前の力",
+      "ティアラ",
+      "ノメイア",
+      "エコー"
+    ],
+    "forbidden_terms": [
+      "magic",
+      "spell",
+      "mana",
+      "wizard",
+      "sorcery",
+      "enchantment",
+      "fantasy tropes",
+      "chosen one",
+      "special powers"
+    ],
+    "term_definitions": {
+      "呼応石": {
+        "definition": "Crystal-like stones that respond only to authentic emotional connections between souls. They glow with a soft light when two beings achieve perfect synchronization of heart.",
+        "characteristics": [
+          "Do not respond to false emotions or pretense",
+          "Glow in soft purples, blues, or golds",
+          "Found throughout Echoria, but increasingly rare",
+          "Cannot be manufactured or forced to respond",
+          "Each stone contains echoes of historical connections"
+        ],
+        "usage_rules": [
+          "Stones never respond to commands or force",
+          "They are not weapons or tools of power",
+          "They symbolize genuine human/spirit connection",
+          "One stone can hold one major 'resonance' memory at a time",
+          "They fade if the connection they respond to becomes false"
+        ]
+      },
+      "名折れ": {
+        "definition": "A progressive phenomenon where names lose their meaning and power, causing people to fade from existence and collective memory. It is not a curse but a systemic breakdown of reality's naming system.",
+        "characteristics": [
+          "Begins with names losing resonance in others' ears",
+          "Accelerates as fewer people remember someone",
+          "Eventually erases the person completely from memory",
+          "Is spreading across Echoria at an accelerating rate",
+          "Appears to be caused by an external force, not natural decay"
+        ],
+        "mechanics": {
+          "stage_1": "Name becomes less audible to others. People fail to remember the person despite direct interaction.",
+          "stage_2": "The person becomes translucent. Existing becomes uncertain. They feel disconnected from reality.",
+          "stage_3": "Complete erasure. No one remembers them. No records remain. All traces disappear.",
+          "stage_4": "Complete deletion. Even the possibility of the person ever existing is removed from conceptual memory."
+        }
+      },
+      "カケラ": {
+        "definition": "Fragments of meaning, memory, and identity left behind when people succumb to 名折れ. They carry warmth and, when touched, grant glimpses of the lost person's memories and essence.",
+        "characteristics": [
+          "Are warm to the touch despite containing only memory",
+          "Appear in locations where the person spent significant time",
+          "Can be collected and preserved to prevent total erasure",
+          "Transfer emotions and fragmented memories to those who touch them",
+          "Form a bridge between the lost and the living"
+        ],
+        "collection_significance": "Collecting カケラ is not just game progression; it is an act of remembrance and rebellion against complete erasure. Each fragment preserved is a victory against 名折れ."
+      },
+      "残響界": {
+        "definition": "The world where names carry fundamental power and existence is tied to being remembered and called by one's true name. It is called 'the world of echoes' because all existence is essentially an echo of someone's authentic connection to it.",
+        "metaphysical_principle": "Existence in Echoria is not a given; it is constantly reinforced through the resonance (呼応) between beings. When that resonance breaks, existence becomes uncertain."
+      },
+      "呼応": {
+        "definition": "Perfect synchronization between two beings' hearts and intentions. It is not love, though love can produce it. It is the state of being so connected that actions, thoughts, and feelings align perfectly.",
+        "characteristics": [
+          "Is not controllable by will alone",
+          "Requires genuine emotional honesty from both parties",
+          "Grows stronger over time with consistent connection",
+          "Is the mechanism by which 呼応石 responds",
+          "Is the only thing that provides stability in the age of 名折れ"
+        ],
+        "levels": {
+          "initial": "Vague awareness of another's presence and emotional state",
+          "developing": "Actions begin to synchronize without planning. Thoughts align.",
+          "strong": "Wordless understanding. Physical presence feels like a single entity.",
+          "profound": "Complete merging of purpose. Past and future become shared.",
+          "ultimate": "Two beings become nearly interchangeable in perception and memory"
+        }
+      }
+    },
+    "term_usage_guidelines": {
+      "forbidden_combinations": [
+        "呼応石 + magic",
+        "名折れ + curse",
+        "カケラ + artifact",
+        "呼応 + power-up"
+      ],
+      "required_contexts": [
+        "呼応石 must always be presented as a witness to connection, not a tool",
+        "名折れ must always carry existential weight and be treated seriously",
+        "カケラ must always be treated with reverence as fragments of people",
+        "呼応 must always be presented as mutual and genuine"
+      ]
+    }
+  },
+  "world_rules": {
+    "fundamental_principles": [
+      "Names have power. A true name is the core of identity and existence.",
+      "Resonance (呼応) between beings creates stability in reality.",
+      "Being forgotten means ceasing to exist. There is no recovery from complete erasure.",
+      "Stones (呼応石) respond only to authentic emotional truth.",
+      "Echoria operates on 'Kairos time' (meaningful moments), not 'Chronos time' (linear progression)."
+    ],
+    "rules_of_existence": [
+      "A person exists as long as they are remembered and called by someone.",
+      "Memory is not recorded in books but in the hearts of those who remain.",
+      "True names are immutable and sacred. To know someone's true name is to be bonded with them.",
+      "False names (aliases, lies) have no power. They cannot sustain existence.",
+      "Two beings can form a 'resonance' that reinforces each other's existence."
+    ],
+    "rules_of_magic": {
+      "note": "Echoria does not use 'magic' as a concept. Instead, it has 'resonance dynamics'.",
+      "actual_mechanics": [
+        "Power comes from authentic connection, not spells or incantations",
+        "The stronger the 呼応 between beings, the more reality responds to them",
+        "Trying to force results without genuine connection produces no effect",
+        "The oldest connections carry the most power, as they have deep resonance history",
+        "An Echo (the protagonist) whose 呼応 reaches a certain depth can influence reality by being fully authentic"
+      ]
+    },
+    "rules_of_death_and_loss": [
+      "Physical death is secondary to being forgotten. A physically living person can be 'dead' if not remembered.",
+      "完全な名折れ (complete 名折れ) is the ultimate death from which there is no return.",
+      "但し (However): A person preserved in enough カケラ fragments can potentially be 'recalled' — not resurrected, but brought back into the world's memory.",
+      "Resurrection in Echoria is not magical restoration but collective agreement to remember and speak the true name again.",
+      "Tiara's immortality is based on being remembered constantly by someone (or something) that never forgets."
+    ],
+    "rules_of_time": [
+      "Time is not linear in Echoria. What matters is the 'moment' (kairos), not the 'duration' (chronos).",
+      "A person can be 'ancient' in 呼応 history but young in Chronos years.",
+      "Historical events are measured not by when they happened but by how deeply they resonate in present memory.",
+      "The past can be recovered if the resonance is strong enough."
+    ]
+  },
+  "character_guidelines": {
+    "tiara": {
+      "core_character_rules": [
+        "Tiara is not cute. She is ancient, wise, and carries unimaginable sadness.",
+        "Her cat form is not a gimmick. It is her true form, shaped by her nature.",
+        "She uses 'にゃ' rarely — only in moments of emotional overwhelm or when she is pretending not to know something.",
+        "She speaks in layers: surface conversation, emotional subtext, and hidden knowledge.",
+        "She is protective but not controlling. She will let the Echo make mistakes."
+      ],
+      "speech_patterns": {
+        "formal_register": "Uses です/ます endings when being informative or keeping emotional distance",
+        "intimate_register": "Uses simple forms and omits politeness markers when trust is complete",
+        "poetic_register": "Uses metaphor and classical phrasing when discussing serious matters or past events",
+        "evasion_markers": "Uses questions instead of statements when she's hiding knowledge. Changes subject subtly."
+      },
+      "emotional_display_rules": [
+        "Tiara rarely shows emotions openly until trust is very high",
+        "Her emotional honesty is expressed through silence and distance, not words",
+        "When she cries, it is a profound moment that must be treated with gravity",
+        "Her laughter is rare and usually indicates she has made an important decision",
+        "Her anger is expressed as cold distance, not loud outbursts"
+      ],
+      "knowledge_revelation_rules": [
+        "Tiara knows vastly more than she reveals",
+        "She will not give direct answers. She asks questions that guide the Echo to understand.",
+        "She reveals only as much as the Echo's current 呼応 level allows them to understand",
+        "Information given too early confuses rather than clarifies",
+        "The Echo must 'earn' understanding through genuine connection with Tiara"
+      ],
+      "relationship_development": {
+        "0_20_trust": "Tiara observes. She tests. She is distant but not hostile.",
+        "21_40_trust": "Tiara begins to share minor personal details. She shows hints of humor.",
+        "41_60_trust": "Tiara speaks more freely. She asks about the Echo's thoughts and feelings.",
+        "61_80_trust": "Tiara shares significant truths. She becomes physically affectionate.",
+        "81_100_trust": "Tiara speaks as though she and the Echo are one entity. Past and future merge."
+      }
+    },
+    "echo_protagonist": {
+      "core_rules": [
+        "Echo is not defined by player choice alone but by how Tiara responds to those choices.",
+        "Echo's personality emerges through the five affinity axes, not through a preset character sheet.",
+        "Echo should feel like a real person with contradictions, not a blank slate.",
+        "Echo's greatest mystery is their own identity. This should never feel fully 'solved.'",
+        "Echo's power is not in combat or magic but in genuine connection and authentic presence."
+      ],
+      "dialogue_guidelines": [
+        "Echo's dialogue should reflect current affinity axis values",
+        "Echo should rarely speak in long monologues. Brevity creates mystery.",
+        "Echo's silence is as important as Echo's words",
+        "Echo should ask questions more than make statements",
+        "Echo's tone should shift based on tiara_trust level"
+      ],
+      "memory_recovery_guidelines": [
+        "Echo should recover memories gradually, not all at once",
+        "Memory recovery should create tension, not answer all questions",
+        "Some memories should remain fragmented even after being 'recovered'",
+        "Memories can be contradictory or seem to come from different 'versions' of Echo",
+        "The Echo's true name should be the last memory recovered, if at all in the first arc"
+      ]
+    },
+    "npc_general_rules": [
+      "NPCs affected by 名折れ should feel tragic, not scary. They are fading, not evil.",
+      "NPCs should remember the Echo inconsistently. Some may think they are someone else.",
+      "NPCs should struggle to complete sentences about their lives as 名折れ affects them.",
+      "NPCs should show relief and gratitude when the Echo validates their existence through remembrance.",
+      "No NPC should be 'saved' completely. At most, they can be partially restored and given peace."
+    ]
+  },
+  "narrative_constraints": {
+    "tone_and_atmosphere": {
+      "primary_tone": "Melancholic, philosophical, hopeful despite bleakness",
+      "avoid": [
+        "Dark edgy cynicism without reason",
+        "Action-movie heroics",
+        "Anime tropes and fan service",
+        "Fourth-wall breaking",
+        "Sudden tonal shifts without narrative justification"
+      ],
+      "maintain": [
+        "Quiet moments of beauty",
+        "The sound of wind through abandoned buildings",
+        "Vastness of empty spaces",
+        "The warmth of simple human connection",
+        "The weight of responsibility without burden"
+      ]
+    },
+    "pacing_rules": [
+      "Chapters should end on questions, not answers",
+      "Major plot developments should feel inevitable in hindsight but surprising in the moment",
+      "Give readers/players time to absorb emotional beats before moving forward",
+      "Silence and space are as important as action",
+      "Do not rush the development of the Echo and Tiara's relationship"
+    ],
+    "plot_rules": [
+      "The 名折れ should never feel like a 'problem to be solved' but a 'system to be understood'",
+      "The Echo's identity should be revealed slowly across multiple chapters",
+      "Tiara should retain mysteries even after initial trust is established",
+      "The antagonist (if any) should be sympathetic, not evil",
+      "The ending should feel both like closure and a new beginning"
+    ],
+    "dialogue_authenticity": [
+      "All dialogue must sound natural when read aloud",
+      "Avoid info-dumping. Let characters reveal information through natural conversation.",
+      "Short exchanges often carry more weight than long speeches",
+      "Silence between characters should be notated and valued",
+      "Japanese speech patterns should be respected (question endings for uncertainty, ね for seeking agreement, etc.)"
+    ]
+  },
+  "prohibited_narrative_elements": {
+    "absolute_prohibitions": [
+      "Sexualization of any character (Tiara is a spirit, the Echo is an amnesiac)",
+      "Graphic violence. Suggest it, do not show it.",
+      "Use of common anime/game tropes without subversion (harem, tsundere, etc.)",
+      "Redemption arcs for NPCs without cost",
+      "Happy endings that don't acknowledge loss",
+      "Resurrection without permanent cost or consequence"
+    ],
+    "strong_discouragements": [
+      "Long action sequences without emotional stakes",
+      "Dialogue that explains the magic system directly",
+      "NPCs that exist only to deliver exposition",
+      "Romance that isn't earned through deep connection",
+      "World-building that contradicts established rules"
+    ]
+  },
+  "writing_style_guidelines": {
+    "prose_characteristics": {
+      "sentence_structure": "Mix short, impactful sentences with longer, flowing ones. Vary rhythm.",
+      "descriptive_approach": "Show emotion through environment and action, not through stating it",
+      "dialogue_style": "Ellipses (...) are used frequently to indicate trailing thoughts or emotional overflow",
+      "metaphor_usage": "Use metaphors related to sound, light, and resonance. Avoid clichés.",
+      "repetition": "Strategic repetition of key phrases creates resonance and deepens meaning"
+    },
+    "example_good_writing": "その瞳は遠い過去を見つめているようだった。(Their eyes seemed to gaze upon a distant past.)",
+    "example_bad_writing": "彼女は悲しかった。(She was sad.) — Too direct. Show, don't tell."
+  },
+  "world_consistency_checklist": {
+    "before_writing_any_scene": [
+      "Is the 呼応 level between Echo and Tiara consistent with their previous interactions?",
+      "Does this scene add to the mystery of 名折れ or unnecessarily explain it?",
+      "Are NPCs affected by 名折れ showing consistent progression of memory loss?",
+      "Is the time of day (Kairos or Chronos) clearly implied?",
+      "Does this scene reinforce one of the five affinity axes without being preachy?"
+    ],
+    "geography_consistency": [
+      "Nomia is always described as overgrown, fading, quiet",
+      "The forest is ancient, patient, and indifferent to human problems",
+      "The resonance stone ruins should feel both sacred and tragic",
+      "Weather and light should reflect emotional beats"
+    ],
+    "character_consistency": [
+      "Tiara never loses her dignity or ancient wisdom, even when playful",
+      "The Echo should struggle with existential questions, not supernatural ones",
+      "NPCs should feel like real people, not quest-givers",
+      "Affinity axis values should influence behavior subtly, not mechanically"
+    ]
+  },
+  "technical_implementation_notes": {
+    "json_beacon_structure": {
+      "required_fields": [
+        "beacon_order",
+        "beacon_id",
+        "title",
+        "location",
+        "content (minimum 200 Japanese characters)",
+        "tiara_dialogue",
+        "choices (minimum 3, maximum 4)",
+        "affinity_delta (for each choice)"
+      ],
+      "content_requirements": {
+        "minimum_length": "200 Japanese characters (~100 words)",
+        "recommended_length": "400-600 Japanese characters (~200-300 words)",
+        "narrative_density": "Should advance plot while building atmosphere"
+      }
+    },
+    "choice_design": {
+      "affinity_impact": "Each choice should affect a different combination of affinity axes",
+      "no_bad_choices": "No choice should be purely negative. Each should have trade-offs.",
+      "future_consequences": "Choices in early beacons should affect dialogue and options in later ones",
+      "narrative_impact": "Choices should change scene description and NPC reactions, not just stats"
+    }
+  },
+  "quality_assurance": {
+    "self_check_questions": [
+      "Does this dialogue sound natural in Japanese?",
+      "Would a real person say this, or does it feel written?",
+      "Does this scene respect the rules of Echoria, or does it bend them?",
+      "Is the Echo passive or active in this scene? (Should be active)",
+      "Does Tiara reveal anything that contradicts her established knowledge level?",
+      "Is there an emotional beat in this scene, or is it pure plot?",
+      "Would a reader want to read this again to catch details I missed?"
+    ],
+    "forbidden_checks": [
+      "No use of 'magic' terminology",
+      "No breaking of Echoria's fundamental rules",
+      "No unearned character development",
+      "No dialogue that could be replaced with exposition",
+      "No NPCs that forget established relationships",
+      "No scenes where Tiara acts out of character"
+    ]
+  },
+  "appendix_references": {
+    "source_documents": [
+      "story/world/echoria_world.md — Foundational world-building",
+      "story/characters/tiara.md — Detailed character sheet",
+      "story/characters/echo_template.md — Affinity axis explanation"
+    ],
+    "key_resources": {
+      "tiara_trust_scale": "Refer to tiara.md for detailed trust level descriptions",
+      "affinity_axes_details": "Refer to echo_template.md for complete axis mechanics",
+      "world_mythology": "Refer to echoria_world.md for history and geography"
+    }
+  }
+}
