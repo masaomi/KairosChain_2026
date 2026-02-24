@@ -68,7 +68,7 @@ module KairosMcp
         md_file = find_md_file(skill_dir)
         return nil unless md_file
 
-        content = File.read(md_file)
+        content = File.read(md_file, encoding: 'UTF-8')
         frontmatter, body = extract_frontmatter(content)
 
         skill_name = File.basename(skill_dir)

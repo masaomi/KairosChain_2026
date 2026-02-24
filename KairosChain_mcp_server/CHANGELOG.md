@@ -4,6 +4,17 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.0.3] - 2026-02-24
+
+### Fixed
+
+- **Bug#1**: `SafeEvolver::DSL_PATH` undefined constant in `approval_workflow` skill behavior — changed to `KairosMcp.dsl_path` (L0 evolution was completely broken)
+- **Bug#3a**: `ContextManager#get` undefined method in `skills_promote` — corrected to `get_context` (L2→L1 promotion was broken)
+- **Bug#3b**: `SkillEntry#raw_content` undefined attribute in `skills_promote` — replaced with `File.read(context.md_file_path)` for L2 content loading
+- **Bug#3c**: UTF-8 encoding errors on non-UTF-8 locales — added `Encoding.default_external/internal` in `bin/kairos-chain` and explicit `encoding: 'UTF-8'` to `File.read` calls in `anthropic_skill_parser.rb` and `skills_promote.rb`
+
+---
+
 ## [2.0.2] - 2026-02-23
 
 ### Added
@@ -167,6 +178,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Skill promotion with Persona Assembly
 - Tool guide and metadata system
 
+[2.0.3]: https://github.com/masaomi/KairosChain_2026/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/masaomi/KairosChain_2026/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/masaomi/KairosChain_2026/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/masaomi/KairosChain_2026/compare/v1.2.0...v2.0.0

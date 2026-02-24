@@ -340,8 +340,8 @@ skill :approval_workflow do
       # === 3. SCOPE CHECKS (Mechanical) ===
       
       # 3.1 Rollback possible (versions directory exists)
-      # Derive path from SafeEvolver::DSL_PATH which points to skills/kairos.rb
-      dsl_dir = File.dirname(KairosMcp::SafeEvolver::DSL_PATH)
+      # Derive path from KairosMcp.dsl_path which points to skills/kairos.rb
+      dsl_dir = File.dirname(KairosMcp.dsl_path)
       versions_dir = File.join(dsl_dir, 'versions')
       rollback_possible = Dir.exist?(versions_dir)
       checks << {

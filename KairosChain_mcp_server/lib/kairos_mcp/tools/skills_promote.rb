@@ -255,14 +255,15 @@ module KairosMcp
         when 'L2'
           session_id = args['session_id']
           manager = ContextManager.new
-          context = manager.get(session_id, source_name)
+          context = manager.get_context(session_id, source_name)
           return { error: "Context '#{source_name}' not found in session '#{session_id}'" } unless context
-          { content: context.raw_content, metadata: context.to_h }
+          content = File.read(context.md_file_path, encoding: 'UTF-8')
+          { content: content, metadata: context.to_h }
         when 'L1'
           provider = KnowledgeProvider.new
           knowledge = provider.get(source_name)
           return { error: "Knowledge '#{source_name}' not found" } unless knowledge
-          content = File.read(knowledge.md_file_path)
+          content = File.read(knowledge.md_file_path, encoding: 'UTF-8')
           { content: content, metadata: knowledge.to_h }
         else
           { error: "Unknown source layer: #{from_layer}" }
@@ -280,7 +281,7 @@ module KairosMcp
           }
         end
 
-        content = File.read(knowledge.md_file_path)
+        content = File.read(knowledge.md_file_path, encoding: 'UTF-8')
         { definitions: content }
       rescue StandardError => e
         {
