@@ -16,7 +16,7 @@ module KairosMcp
       DEFAULT_MAX_SNAPSHOTS = 100
 
       def initialize(snapshot_dir: nil, max_snapshots: nil)
-        @snapshot_dir = snapshot_dir || KairosMcp.snapshots_dir
+        @snapshot_dir = resolve_snapshot_dir(snapshot_dir)
         @max_snapshots = max_snapshots || DEFAULT_MAX_SNAPSHOTS
         FileUtils.mkdir_p(@snapshot_dir)
       end
@@ -182,6 +182,16 @@ module KairosMcp
       def snapshot_files
         pattern = File.join(@snapshot_dir, 'snapshot_*.json')
         Dir[pattern].sort_by { |f| File.mtime(f) }.reverse
+      end
+
+      # Resolve snapshot directory path relative to KairosMcp.data_dir
+      # Config values are relative paths (e.g. "storage/snapshots") that must
+      # be resolved against the data directory, not Dir.pwd.
+      def resolve_snapshot_dir(dir)
+        return KairosMcp.snapshots_dir if dir.nil?
+        return dir if File.absolute_path?(dir)
+
+        File.join(KairosMcp.data_dir, dir)
       end
 
       # Load and parse a snapshot file
