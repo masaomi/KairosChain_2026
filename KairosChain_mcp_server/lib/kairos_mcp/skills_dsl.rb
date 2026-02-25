@@ -19,6 +19,8 @@ module KairosMcp
       :evolution_rules,   # EvolveContext
       :created_at,        # Creation timestamp
       :tool_config,       # ToolContext - MCP tool definition
+      :definition,        # DefinitionContext - partial formalization (structural layer)
+      :formalization_notes, # String - provenance of formalization decisions
       keyword_init: true
     ) do
       # Check if a field can be evolved based on evolution_rules
@@ -43,6 +45,8 @@ module KairosMcp
         h[:effects] = effects.transform_values(&:to_h) if effects
         h[:evolution_rules] = evolution_rules.to_h if evolution_rules
         h[:tool_config] = tool_config.to_h if tool_config
+        h[:definition] = definition.to_h if definition
+        h[:formalization_notes] = formalization_notes if formalization_notes
         h
       end
     end
@@ -50,7 +54,7 @@ module KairosMcp
     def self.load(path)
       dsl = new
       if File.exist?(path)
-        dsl.instance_eval(File.read(path), path)
+        dsl.instance_eval(File.read(path, encoding: 'UTF-8'), path)
       end
       dsl.skills
     end
@@ -127,6 +131,18 @@ module KairosMcp
       ctx = EvolveContext.new(@id)
       ctx.instance_eval(&block) if block_given?
       @data[:evolution_rules] = ctx
+    end
+
+    # Define structural layer (partial formalization as AST nodes)
+    def definition(&block)
+      ctx = DefinitionContext.new
+      ctx.instance_eval(&block) if block_given?
+      @data[:definition] = ctx
+    end
+
+    # Record provenance of formalization decisions (Markdown string)
+    def formalization_notes(value)
+      @data[:formalization_notes] = value
     end
 
     # Define MCP tool interface and implementation

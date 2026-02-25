@@ -1,3 +1,6 @@
+# frozen_string_literal: true
+# encoding: utf-8
+
 # KairosChain Meta-Skills Definition
 # This file contains L0 (Law layer) meta-skills that govern self-modification.
 # Only Kairos meta-skills can be placed here.
@@ -102,10 +105,45 @@ skill :core_safety do
     always_enforced
   end
   
+  definition do
+    constraint :explicit_enablement,
+      required: true,
+      condition: "evolution_enabled == true",
+      timing: :before_any_evolution
+
+    constraint :human_approval,
+      required: true,
+      scope: :l0_changes,
+      approver: :human
+
+    constraint :blockchain_recording,
+      required: true,
+      fields: [:skill_id, :prev_ast_hash, :next_ast_hash, :timestamp, :reason_ref]
+
+    constraint :immutability,
+      target: :core_safety,
+      condition: "evolve deny :all"
+  end
+
+  formalization_notes <<~MD
+    ## Formalization Decisions for core_safety
+
+    **All content was formalized** as Constraint nodes because:
+    - Each rule is binary (enabled/disabled, required/not required)
+    - No ambiguity is acceptable in safety invariants
+    - Mechanical verification is both possible and preferred
+
+    **Nothing was left as natural language** in the structural layer.
+    The content layer is retained as the human-readable source of truth.
+
+    **Judgment**: human (Masa)
+    **Date**: 2026-02-24
+  MD
+
   evolve do
     deny :all
   end
-  
+
   content <<~MD
     ## Core Safety Invariants
     
@@ -136,9 +174,51 @@ end
 skill :evolution_rules do
   version "1.0"
   title "Evolution Rules"
-  
+
+  definition do
+    constraint :evolution_enabled,
+      required: true,
+      config_key: "evolution_enabled",
+      value: true
+
+    constraint :session_limit,
+      condition: "evolution_count < max_evolutions_per_session"
+
+    constraint :not_immutable,
+      condition: "skill not in immutable_skills"
+
+    check :evolve_rules_permit,
+      condition: "skill.can_evolve?(field)"
+
+    plan :evolution_workflow,
+      steps: [:propose, :review, :apply, :record, :reload]
+
+    node :review_judgment,
+      type: :SemanticReasoning,
+      prompt: "Human reviews the proposal for correctness and intent alignment",
+      source_span: "Human reviews (if require_human_approval)"
+  end
+
+  formalization_notes <<~MD
+    ## Formalization Decisions for evolution_rules
+
+    **Formalized**:
+    - `evolution_enabled`: Binary config check. No ambiguity.
+    - `session_limit`: Numeric comparison. Fully deterministic.
+    - `not_immutable`: List membership check. Mechanical.
+    - `evolve_rules_permit`: Method call returning boolean. Deterministic.
+    - `evolution_workflow`: Fixed 5-step sequence. Order matters.
+
+    **Left as natural language**:
+    - `review_judgment`: "Human reviews" -- what constitutes adequate review
+      is context-dependent and cannot be reduced to a checklist.
+
+    **Judgment**: human (Masa)
+    **Date**: 2026-02-24
+  MD
+
   evolve do
-    allow :content
+    allow :content, :definition, :formalization_notes
     deny :guarantees, :evolve, :behavior
   end
   

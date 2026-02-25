@@ -59,12 +59,49 @@ module KairosMcp
         end
 
         output = "## [#{skill.id}] #{skill.title}\n"
+        output += "**Version:** #{skill.version}\n" if skill.version
         output += "**Use When:** #{skill.use_when}\n" if skill.use_when
         output += "**Requires:** #{skill.requires}\n" if skill.requires
         output += "**Guarantees:** #{skill.guarantees}\n" if skill.guarantees
         output += "**Depends On:** #{skill.depends_on}\n" if skill.depends_on
         output += "\n---\n\n"
+        output += "### Content (Natural Language Layer)\n\n"
         output += skill.content || "(No content)"
+
+        # Structural layer (definition)
+        if skill.definition
+          output += "\n\n---\n\n### Definition (Structural Layer)\n\n"
+          skill.definition.nodes.each do |node|
+            output += "- **#{node.type}** `:#{node.name}`"
+            if node.options && !node.options.empty?
+              opts = node.options.map { |k, v| "#{k}: #{v}" }.join(', ')
+              output += " — #{opts}"
+            end
+            output += "\n"
+          end
+        end
+
+        # Provenance layer (formalization_notes)
+        if skill.formalization_notes
+          output += "\n---\n\n### Formalization Notes (Provenance Layer)\n\n"
+          output += skill.formalization_notes
+        end
+
+        # Verification status (Phase 2: requires dsl_ast module)
+        if skill.definition
+          begin
+            require_relative '../dsl_ast/ast_engine'
+            report = DslAst::AstEngine.verify(skill)
+            if report
+              s = report.summary
+              output += "\n---\n\n### Verification Status\n\n"
+              status = report.all_deterministic_passed? ? "PASS" : "ISSUES"
+              output += "**#{status}**: #{s[:passed]} passed, #{s[:failed]} failed, #{s[:unknown]} unknown, #{s[:human_required]} human-required\n"
+            end
+          rescue LoadError, NameError
+            # dsl_ast module not loaded — skip verification section
+          end
+        end
 
         text_content(output)
       end
