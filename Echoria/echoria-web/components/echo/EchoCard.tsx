@@ -21,6 +21,10 @@ export default function EchoCard({ echo }: EchoCardProps) {
     crystallized: 'bg-purple-500/20 text-purple-200 border-purple-500/30',
   };
 
+  const affinities = echo.personality?.affinities;
+  const tiaraTrust = affinities?.tiara_trust ?? 50;
+  const fragments = affinities?.fragment_count ?? 0;
+
   return (
     <Link href={`/echo/${echo.id}`} className="group">
       <div className="glass-morphism rounded-2xl p-6 sm:p-8 min-h-96 flex flex-col hover:bg-white/10 transition-all duration-200 h-full">
@@ -41,17 +45,19 @@ export default function EchoCard({ echo }: EchoCardProps) {
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4 mb-6 text-center">
           <div>
-            <p className="text-xs text-[#b0b0b0] mb-1">進捗</p>
-            <p className="text-lg font-bold text-[#50c878]">{echo.storyProgress || 0}%</p>
-          </div>
-          <div>
-            <p className="text-xs text-[#b0b0b0] mb-1">モーメント</p>
-            <p className="text-lg font-bold text-[#d4af37]">{echo.keyMoments?.length || 0}</p>
-          </div>
-          <div>
             <p className="text-xs text-[#b0b0b0] mb-1">ティアラ</p>
-            <p className="text-lg font-bold text-[#50c878]">
-              {Math.round((echo.affinity?.tiaraAffinity || 0) * 100)}%
+            <p className="text-lg font-bold text-[#50c878]">{tiaraTrust}%</p>
+          </div>
+          <div>
+            <p className="text-xs text-[#b0b0b0] mb-1">カケラ</p>
+            <p className="text-lg font-bold text-[#d4af37]">{fragments}</p>
+          </div>
+          <div>
+            <p className="text-xs text-[#b0b0b0] mb-1">原型</p>
+            <p className="text-sm font-bold text-[#f5f5f5] truncate">
+              {echo.personality?.primary_archetype
+                ? echo.personality.primary_archetype.split('（')[0]
+                : '—'}
             </p>
           </div>
         </div>
@@ -59,7 +65,7 @@ export default function EchoCard({ echo }: EchoCardProps) {
         {/* Personality Radar */}
         <div className="mb-6 flex justify-center">
           <div className="w-40 h-40">
-            <PersonalityRadar affinity={echo.affinity} size="sm" />
+            <PersonalityRadar affinity={affinities} size="sm" />
           </div>
         </div>
 

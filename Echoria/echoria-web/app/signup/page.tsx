@@ -35,7 +35,7 @@ export default function SignupPage() {
     setLoading(true);
 
     try {
-      const response = await signup(name, email, password);
+      const response = await signup(name, email, password, confirmPassword);
       setToken(response.token);
       router.push('/home');
     } catch (err: any) {

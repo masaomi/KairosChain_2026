@@ -1,30 +1,49 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Sparkles } from 'lucide-react';
+import { Affinity } from '@/types';
+
+const AXIS_LABELS: Record<string, string> = {
+  tiara_trust: '信頼',
+  logic_empathy_balance: '共感',
+  name_memory_stability: '記憶',
+  authority_resistance: '反抗',
+  fragment_count: 'カケラ',
+};
 
 interface AffinityIndicatorProps {
-  axis: string;
-  change: number;
+  delta: Partial<Affinity>;
 }
 
-export default function AffinityIndicator({ axis, change }: AffinityIndicatorProps) {
-  const [show, setShow] = useState(true);
+export default function AffinityIndicator({ delta }: AffinityIndicatorProps) {
+  if (!delta) return null;
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setShow(false);
-    }, 2000);
+  const entries = Object.entries(delta).filter(
+    ([, val]) => typeof val === 'number' && val !== 0
+  );
 
-    return () => clearTimeout(timer);
-  }, []);
-
-  if (!show) return null;
+  if (entries.length === 0) return null;
 
   return (
-    <div className="animate-sparkle absolute top-0 right-0 pointer-events-none">
-      <span className={`text-sm font-bold ${change > 0 ? 'text-[#50c878]' : 'text-red-400'}`}>
-        {change > 0 ? '+' : ''}{change}
-      </span>
+    <div className="bg-[#d4af37]/10 border-t border-[#d4af37]/30 px-4 py-3">
+      <div className="flex items-center justify-center gap-3 flex-wrap">
+        <Sparkles className="w-3.5 h-3.5 text-[#d4af37]" />
+        {entries.map(([key, val]) => {
+          const label = AXIS_LABELS[key] || key;
+          const isPositive = (val as number) > 0;
+          return (
+            <span
+              key={key}
+              className={`text-xs font-medium ${
+                isPositive ? 'text-[#50c878]' : 'text-red-300'
+              }`}
+            >
+              {label} {isPositive ? '+' : ''}
+              {val}
+            </span>
+          );
+        })}
+      </div>
     </div>
   );
 }

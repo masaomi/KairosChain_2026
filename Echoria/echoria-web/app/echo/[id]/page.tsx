@@ -147,21 +147,23 @@ function EchoProfileContent() {
               {/* Stats */}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <div>
-                  <p className="text-xs text-[#b0b0b0] mb-1">進捗</p>
-                  <p className="text-xl sm:text-2xl font-semibold text-[#50c878]">
-                    {echo.storyProgress || 0}%
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-[#b0b0b0] mb-1">キーモーメント</p>
-                  <p className="text-xl sm:text-2xl font-semibold text-[#d4af37]">
-                    {echo.keyMoments?.length || 0}
-                  </p>
-                </div>
-                <div>
                   <p className="text-xs text-[#b0b0b0] mb-1">ティアラの絆</p>
                   <p className="text-xl sm:text-2xl font-semibold text-[#50c878]">
-                    {Math.round((echo.affinity?.tiaraAffinity || 0) * 100)}%
+                    {echo.personality?.affinities?.tiara_trust ?? 50}%
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-[#b0b0b0] mb-1">カケラ</p>
+                  <p className="text-xl sm:text-2xl font-semibold text-[#d4af37]">
+                    {echo.personality?.affinities?.fragment_count ?? 0}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-[#b0b0b0] mb-1">原型</p>
+                  <p className="text-lg sm:text-xl font-semibold text-[#f5f5f5] truncate">
+                    {echo.personality?.primary_archetype
+                      ? echo.personality.primary_archetype.split('（')[0]
+                      : '—'}
                   </p>
                 </div>
               </div>
@@ -175,29 +177,31 @@ function EchoProfileContent() {
             人格の軌跡
           </h2>
           <div className="flex justify-center">
-            <PersonalityRadar affinity={echo.affinity} />
+            <PersonalityRadar affinity={echo.personality?.affinities} />
           </div>
         </div>
 
-        {/* Key Moments */}
-        {echo.keyMoments && echo.keyMoments.length > 0 && (
+        {/* Character Description (post-crystallization) */}
+        {echo.personality?.character_description && (
           <div className="glass-morphism rounded-2xl p-6 sm:p-8">
             <h2 className="text-2xl font-serif font-bold text-[#d4af37] mb-6">
-              重要な瞬間
+              人格の結晶
             </h2>
-            <div className="space-y-4">
-              {echo.keyMoments.map((moment, idx) => (
-                <div
-                  key={idx}
-                  className="border-l-2 border-[#d4af37] pl-4 py-2"
-                >
-                  <p className="text-sm text-[#b0b0b0] mb-1">
-                    {new Date(moment.timestamp).toLocaleString('ja-JP')}
-                  </p>
-                  <p className="text-[#f5f5f5]">{moment.description}</p>
-                </div>
-              ))}
-            </div>
+            <p className="text-[#f5f5f5] leading-relaxed whitespace-pre-wrap">
+              {echo.personality.character_description}
+            </p>
+            {echo.personality.secondary_traits && echo.personality.secondary_traits.length > 0 && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {echo.personality.secondary_traits.map((trait, idx) => (
+                  <span
+                    key={idx}
+                    className="text-xs px-3 py-1 rounded-full bg-[#d4af37]/20 text-[#d4af37] border border-[#d4af37]/30"
+                  >
+                    {trait}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </main>

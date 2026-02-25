@@ -1,90 +1,150 @@
+// === Auth ===
 export interface User {
   id: string;
   name: string;
   email: string;
-  createdAt: string;
-  updatedAt: string;
+  avatar_url?: string;
+  subscription_status: 'free' | 'premium' | 'enterprise';
+  created_at: string;
+  updated_at: string;
 }
 
+// === Echoria 5-Axis Affinity System ===
 export interface Affinity {
-  courage: number;
-  wisdom: number;
-  compassion: number;
-  ambition: number;
-  curiosity: number;
-  tiaraAffinity: number;
+  tiara_trust: number;           // 0-100: Bond with Tiara
+  logic_empathy_balance: number; // -50 to +50: Analytical ↔ Empathetic
+  name_memory_stability: number; // 0-100: Identity coherence
+  authority_resistance: number;  // -50 to +50: Compliant ↔ Resistant
+  fragment_count: number;        // 0+: Collected カケラ
   [key: string]: number;
 }
 
-export interface KeyMoment {
-  id: string;
-  description: string;
-  timestamp: string;
-  affinityChanges: Record<string, number>;
+export interface AffinitySummary {
+  tiara_relationship: 'distant' | 'cautious' | 'open' | 'intimate' | 'merged';
+  thinking_style: 'analytical' | 'empathetic';
+  identity_stability: 'fragmented' | 'uncertain' | 'forming' | 'stable';
+  authority_stance: 'compliant' | 'resistant';
+  fragments_collected: number;
+  total_resonance: number;
 }
 
+// === Echo ===
 export interface Echo {
   id: string;
-  userId: string;
+  user_id: string;
   name: string;
   status: 'embryo' | 'growing' | 'crystallized';
-  affinity: Affinity;
-  storyProgress: number;
-  keyMoments?: KeyMoment[];
-  createdAt: string;
-  updatedAt: string;
+  personality: EchoPersonality;
+  avatar_url?: string;
+  created_at: string;
+  updated_at: string;
 }
 
-export interface Choice {
-  id: string;
-  text: string;
-  consequence?: string;
-  affinityImpact?: Record<string, number>;
+export interface EchoPersonality {
+  traits?: Record<string, unknown>;
+  affinities?: Partial<Affinity>;
+  memories?: string[];
+  skills?: string[];
+  primary_archetype?: string;
+  secondary_traits?: string[];
+  character_description?: string;
+  crystallized_at?: string;
+  strengths?: string[];
+  growth_areas?: string[];
+  story_arc?: {
+    chapter: string;
+    scenes_experienced: number;
+    journey_completion: number;
+    resonance_score?: number;
+  };
 }
 
-export interface StoryScene {
-  id: string;
-  title?: string;
-  narrative: string;
-  tiaraDialogue?: string;
-  echoAction?: string;
-  choices: Choice[];
-  mood?: 'dark' | 'peaceful' | 'tense' | 'mystical';
-  affinityChanges?: Record<string, number>;
-  timestamp: string;
+// === Story Beacons ===
+export interface StoryBeacon {
+  id: number;
+  chapter: string;
+  order: number;
+  title: string;
+  content: string;
+  tiara_dialogue?: string;
+  choices: BeaconChoice[];
+  metadata?: {
+    location?: string;
+    beacon_id?: string;
+    is_chapter_end?: boolean;
+  };
 }
 
+export interface BeaconChoice {
+  choice_id: string;
+  choice_text: string;
+  narrative_result?: string;
+  affinity_delta: Partial<Affinity>;
+  next_beacon_id?: number;
+}
+
+// === Story Sessions ===
 export interface StorySession {
   id: string;
-  echoId: string;
-  currentSceneId: string;
-  visitedScenes: string[];
-  decisions: Array<{
-    sceneId: string;
-    choiceId: string;
-    timestamp: string;
-  }>;
-  createdAt: string;
-  updatedAt: string;
+  chapter: string;
+  scene_count: number;
+  affinity: Affinity;
+  status: 'active' | 'paused' | 'completed';
+  created_at: string;
+  current_beacon?: StoryBeacon;
+  recent_scenes?: StoryScene[];
+  affinity_summary?: AffinitySummary;
 }
 
+// === Story Scenes ===
+export interface StoryScene {
+  id: number;
+  order: number;
+  type: 'beacon' | 'generated' | 'fallback';
+  narrative: string;
+  echo_action?: string;
+  user_choice?: string;
+  decision_actor?: 'player' | 'echo' | 'system';
+  affinity_impact?: Partial<Affinity>;
+  created_at: string;
+}
+
+// === Choice Response (after making a choice) ===
+export interface ChoiceResponse {
+  scene: StoryScene;
+  session: {
+    id: string;
+    chapter: string;
+    scene_count: number;
+    affinity: Affinity;
+    status: string;
+    affinity_summary: AffinitySummary;
+  };
+  next_choices: BeaconChoice[];
+  chapter_end?: boolean;
+  crystallization_available?: boolean;
+  beacon_progress?: number;
+}
+
+// === Chat (post-crystallization) ===
 export interface EchoMessage {
   id: string;
-  role: 'user' | 'echo' | 'tiara';
+  role: 'user' | 'assistant';
   content: string;
-  timestamp: string;
+  created_at: string;
 }
 
 export interface EchoConversation {
   id: string;
-  echoId: string;
+  echo_id: string;
   messages: EchoMessage[];
-  createdAt: string;
-  updatedAt: string;
+  created_at: string;
+  updated_at: string;
 }
 
-export interface ApiResponse<T> {
-  success: boolean;
-  data: T;
-  message?: string;
+// === API Error ===
+export interface ApiError {
+  error: string;
+  details?: string;
+  session_id?: string;
 }

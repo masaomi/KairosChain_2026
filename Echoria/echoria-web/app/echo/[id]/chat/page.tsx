@@ -8,7 +8,7 @@ import ChatMessage from '@/components/chat/ChatMessage';
 import ChatInput from '@/components/chat/ChatInput';
 import EchoAvatar from '@/components/echo/EchoAvatar';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
-import { getEcho, getConversations, sendMessage } from '@/lib/api';
+import { getEcho, getConversations, createConversation, getMessages, sendMessage } from '@/lib/api';
 import { Echo, EchoMessage } from '@/types';
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
@@ -17,6 +17,7 @@ function ChatPageContent() {
   const { id } = useParams() as { id: string };
   const router = useRouter();
   const [echo, setEcho] = useState<Echo | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<EchoMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -47,9 +48,18 @@ function ChatPageContent() {
 
       setEcho(echoData);
 
-      // Get conversation history
-      const conversationData = await getConversations(id);
-      setMessages(conversationData.messages || []);
+      // Get or create conversation
+      const conversations = await getConversations(id);
+      let convId: string;
+      if (conversations.length > 0) {
+        convId = conversations[0].id;
+        const msgs = await getMessages(convId);
+        setMessages(msgs);
+      } else {
+        const newConv = await createConversation(id);
+        convId = newConv.id;
+      }
+      setConversationId(convId);
     } catch (err: any) {
       setError('チャットの読み込みに失敗しました');
       console.error(err);
@@ -62,11 +72,13 @@ function ChatPageContent() {
     if (!content.trim()) return;
 
     // Add user message immediately
+    if (!conversationId) return;
+
     const userMessage: EchoMessage = {
       id: `temp-${Date.now()}`,
       role: 'user',
       content,
-      timestamp: new Date().toISOString(),
+      created_at: new Date().toISOString(),
     };
 
     setMessages((prev) => [...prev, userMessage]);
@@ -74,7 +86,7 @@ function ChatPageContent() {
     setError('');
 
     try {
-      const response = await sendMessage(id, content);
+      const response = await sendMessage(conversationId, content);
 
       // Add Echo's response
       setMessages((prev) => [...prev, response]);

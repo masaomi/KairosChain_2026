@@ -4,25 +4,42 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
-import StoryScene from '@/components/story/StoryScene';
 import ChoicePanel from '@/components/story/ChoicePanel';
 import TiaraAvatar from '@/components/story/TiaraAvatar';
+import AffinityIndicator from '@/components/story/AffinityIndicator';
+import PersonalityRadar from '@/components/echo/PersonalityRadar';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
-import { getEcho, startStory, submitChoice, generateScene } from '@/lib/api';
-import { Echo, StoryScene as StorySceneType, Choice } from '@/types';
-import { ArrowLeft, Sparkles } from 'lucide-react';
+import {
+  getEcho,
+  createStorySession,
+  getStorySession,
+  submitChoice,
+  generateScene,
+} from '@/lib/api';
+import {
+  Echo,
+  StorySession,
+  StoryScene,
+  BeaconChoice,
+  Affinity,
+} from '@/types';
+import { ArrowLeft, Sparkles, BookOpen } from 'lucide-react';
 import Link from 'next/link';
 
 function StoryPageContent() {
   const { id } = useParams() as { id: string };
   const router = useRouter();
   const [echo, setEcho] = useState<Echo | null>(null);
-  const [scene, setScene] = useState<StorySceneType | null>(null);
+  const [session, setSession] = useState<StorySession | null>(null);
+  const [currentScene, setCurrentScene] = useState<StoryScene | null>(null);
+  const [choices, setChoices] = useState<BeaconChoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [generatingScene, setGeneratingScene] = useState(false);
   const [displayedText, setDisplayedText] = useState('');
   const [typewriterActive, setTypewriterActive] = useState(true);
   const [error, setError] = useState('');
+  const [chapterEnd, setChapterEnd] = useState(false);
+  const [beaconProgress, setBeaconProgress] = useState(0);
   const storyContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -34,62 +51,101 @@ function StoryPageContent() {
       const echoData = await getEcho(id);
       setEcho(echoData);
 
-      // Get or start story session
+      // Try to create a new session, or use existing one on conflict
       try {
-        const sceneData = await startStory(id);
-        setScene(sceneData);
-        setDisplayedText('');
-      } catch (err) {
-        console.error('Error starting story:', err);
-        setError('物語の読み込みに失敗しました');
+        const sessionData = await createStorySession(id, 'chapter_1');
+        setSession(sessionData);
+        loadSessionState(sessionData);
+      } catch (err: unknown) {
+        // If session already exists (409), load it
+        if (err instanceof Error && (err as Error & { session_id?: string }).session_id) {
+          const existingId = (err as Error & { session_id?: string }).session_id!;
+          const sessionData = await getStorySession(existingId);
+          setSession(sessionData);
+          loadSessionState(sessionData);
+        } else {
+          throw err;
+        }
       }
-    } catch (err: any) {
-      setError('エコーの読み込みに失敗しました');
+    } catch (err) {
+      setError('物語の読み込みに失敗しました');
       console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
+  const loadSessionState = (sessionData: StorySession) => {
+    // Set the latest scene
+    if (sessionData.recent_scenes && sessionData.recent_scenes.length > 0) {
+      const latest = sessionData.recent_scenes[sessionData.recent_scenes.length - 1];
+      setCurrentScene(latest);
+      setDisplayedText('');
+      setTypewriterActive(true);
+    }
+
+    // Set choices from current beacon
+    if (sessionData.current_beacon?.choices) {
+      setChoices(sessionData.current_beacon.choices);
+    }
+  };
+
   // Typewriter effect
   useEffect(() => {
-    if (!typewriterActive || !scene) return;
+    if (!typewriterActive || !currentScene) return;
 
-    if (displayedText.length < (scene.narrative || '').length) {
+    const text = currentScene.narrative || '';
+    if (displayedText.length < text.length) {
       const timer = setTimeout(() => {
-        setDisplayedText((prev) => prev + (scene.narrative || '')[prev.length]);
+        setDisplayedText((prev) => prev + text[prev.length]);
       }, 30);
-
       return () => clearTimeout(timer);
     }
-  }, [displayedText, typewriterActive, scene]);
+  }, [displayedText, typewriterActive, currentScene]);
 
   const skipTypewriter = () => {
-    if (scene) {
-      setDisplayedText(scene.narrative || '');
+    if (currentScene) {
+      setDisplayedText(currentScene.narrative || '');
       setTypewriterActive(false);
     }
   };
 
   const handleChoiceSelect = async (choiceIndex: number) => {
-    if (!scene || !scene.choices || choiceIndex >= scene.choices.length) return;
+    if (!session) return;
 
     setGeneratingScene(true);
     setError('');
 
     try {
-      const choice = scene.choices[choiceIndex];
-      const nextScene = await submitChoice(id, scene.id, choice.id);
+      const result = await submitChoice(session.id, choiceIndex);
 
-      setScene(nextScene);
+      // Update session state
+      setSession((prev) =>
+        prev
+          ? {
+              ...prev,
+              ...result.session,
+              status: result.session.status as StorySession['status'],
+              affinity: result.session.affinity,
+            }
+          : prev
+      );
+
+      // Display the AI-generated scene
+      setCurrentScene(result.scene);
       setDisplayedText('');
       setTypewriterActive(true);
 
-      // Scroll to story content
+      // Update choices and progress
+      setChoices(result.next_choices || []);
+      setChapterEnd(result.chapter_end || false);
+      setBeaconProgress(result.beacon_progress || 0);
+
+      // Scroll to new content
       setTimeout(() => {
         storyContentRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 100);
-    } catch (err: any) {
+    } catch (err) {
       setError('選択の処理に失敗しました');
       console.error(err);
     } finally {
@@ -98,23 +154,29 @@ function StoryPageContent() {
   };
 
   const handleLetEchoDecide = async () => {
-    if (!scene) return;
+    if (!session) return;
 
     setGeneratingScene(true);
     setError('');
 
     try {
-      // Call an API that lets Echo make the decision
-      const nextScene = await generateScene(id, 'auto');
+      const result = await generateScene(session.id);
 
-      setScene(nextScene);
+      setCurrentScene(result.scene);
       setDisplayedText('');
       setTypewriterActive(true);
+
+      // Refresh session state
+      const refreshed = await getStorySession(session.id);
+      setSession(refreshed);
+      if (refreshed.current_beacon?.choices) {
+        setChoices(refreshed.current_beacon.choices);
+      }
 
       setTimeout(() => {
         storyContentRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 100);
-    } catch (err: any) {
+    } catch (err) {
       setError('エコーの決定に失敗しました');
       console.error(err);
     } finally {
@@ -130,7 +192,7 @@ function StoryPageContent() {
     );
   }
 
-  if (!echo || !scene) {
+  if (!echo || !session) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-[#1a0a2e] via-[#16213e] to-[#0f3460]">
         <Header />
@@ -143,11 +205,10 @@ function StoryPageContent() {
             戻る
           </Link>
           <div className="glass-morphism rounded-2xl p-8 text-center">
-            <p className="text-[#b0b0b0] mb-6">物語を読み込むことができません</p>
-            <button
-              onClick={initializeStory}
-              className="button-primary px-6 py-3"
-            >
+            <p className="text-[#b0b0b0] mb-6">
+              {error || '物語を読み込むことができません'}
+            </p>
+            <button onClick={initializeStory} className="button-primary px-6 py-3">
               もう一度試す
             </button>
           </div>
@@ -158,20 +219,7 @@ function StoryPageContent() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#1a0a2e] via-[#16213e] to-[#0f3460] relative">
-      {/* Atmospheric background based on scene mood */}
-      <div
-        className="fixed inset-0 pointer-events-none transition-colors duration-1000"
-        style={{
-          background:
-            scene.mood === 'dark'
-              ? 'radial-gradient(ellipse at center, #1a0a2e 0%, #0a0a1a 100%)'
-              : scene.mood === 'peaceful'
-                ? 'radial-gradient(ellipse at center, #1a0a2e 0%, #16213e 100%)'
-                : 'radial-gradient(ellipse at center, #1a0a2e 0%, #1a1033 100%)',
-        }}
-      />
-
-      {/* Accent lights */}
+      {/* Atmospheric background */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute top-20 right-20 w-72 h-72 bg-[#50c878]/5 rounded-full blur-3xl" />
         <div className="absolute bottom-20 left-20 w-96 h-96 bg-[#d4af37]/5 rounded-full blur-3xl" />
@@ -179,125 +227,176 @@ function StoryPageContent() {
 
       <Header />
 
-      {/* Main Content */}
       <main className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        {/* Back Button */}
-        <Link
-          href={`/echo/${id}`}
-          className="inline-flex items-center gap-2 text-[#d4af37] hover:text-[#e8c547] mb-6 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span className="text-sm sm:text-base">{echo.name}</span>
-        </Link>
+        {/* Top bar: back + progress */}
+        <div className="flex items-center justify-between mb-6">
+          <Link
+            href={`/echo/${id}`}
+            className="inline-flex items-center gap-2 text-[#d4af37] hover:text-[#e8c547] transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span className="text-sm sm:text-base">{echo.name}</span>
+          </Link>
 
-        {/* Story Title */}
-        {scene.title && (
-          <h1 className="text-3xl sm:text-4xl font-serif font-bold text-[#d4af37] mb-8 text-center">
-            {scene.title}
+          {/* Beacon progress bar */}
+          <div className="flex items-center gap-2">
+            <BookOpen className="w-4 h-4 text-[#b0b0b0]" />
+            <div className="w-24 sm:w-32 h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[#d4af37] rounded-full transition-all duration-500"
+                style={{ width: `${(beaconProgress || 0) * 100}%` }}
+              />
+            </div>
+            <span className="text-xs text-[#b0b0b0]">
+              {session.scene_count}シーン
+            </span>
+          </div>
+        </div>
+
+        {/* Beacon title */}
+        {session.current_beacon?.title && (
+          <h1 className="text-2xl sm:text-3xl font-serif font-bold text-[#d4af37] mb-6 text-center">
+            {session.current_beacon.title}
           </h1>
         )}
 
-        {/* Error Message */}
+        {/* Location indicator */}
+        {session.current_beacon?.metadata?.location && (
+          <p className="text-xs text-[#b0b0b0] text-center mb-6">
+            📍 {session.current_beacon.metadata.location}
+          </p>
+        )}
+
+        {/* Error */}
         {error && (
           <div className="mb-6 p-4 rounded-lg bg-red-900/20 border border-red-500/30">
             <p className="text-sm text-red-200">{error}</p>
           </div>
         )}
 
-        {/* Story Content Area */}
+        {/* Story Content */}
         <div
           ref={storyContentRef}
           className="glass-morphism rounded-2xl overflow-hidden mb-8"
         >
-          {/* Scene Narrative */}
           <div
             className="p-6 sm:p-10 min-h-80 flex flex-col justify-between"
             onClick={skipTypewriter}
           >
             <div>
-              {/* Main Story Text */}
+              {/* Narrative text with typewriter */}
               <div className="story-text text-[#f5f5f5] mb-8 leading-relaxed text-lg sm:text-xl whitespace-pre-wrap">
                 {displayedText}
-                {typewriterActive && displayedText.length < (scene.narrative || '').length && (
-                  <span className="animate-pulse">▌</span>
-                )}
+                {typewriterActive &&
+                  displayedText.length < (currentScene?.narrative || '').length && (
+                    <span className="animate-pulse">▌</span>
+                  )}
               </div>
 
-              {/* Tiara's Dialogue */}
-              {scene.tiaraDialogue && (
-                <div className="bg-[#50c878]/10 border-l-4 border-[#50c878] rounded-r-lg p-4 mb-8 mt-8">
-                  <div className="flex items-start gap-3">
-                    <TiaraAvatar trust={echo.affinity?.tiaraAffinity || 0.5} />
-                    <div>
-                      <p className="text-[#50c878] font-semibold text-sm mb-2">ティアラ</p>
-                      <p className="text-[#f5f5f5] text-sm sm:text-base leading-relaxed">
-                        {scene.tiaraDialogue}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Echo's Reaction */}
-              {scene.echoAction && (
+              {/* Echo's internal reaction */}
+              {currentScene?.echo_action && (
                 <p className="text-[#b0b0b0] italic text-sm sm:text-base mb-8 border-l-2 border-[#d4af37]/50 pl-4">
-                  {scene.echoAction}
+                  {currentScene.echo_action}
                 </p>
               )}
             </div>
 
-            {/* Click to continue hint */}
-            {!generatingScene && typewriterActive && displayedText.length < (scene.narrative || '').length && (
-              <p className="text-xs text-[#606060] text-center mt-4">
-                クリックしてスキップ
-              </p>
-            )}
+            {/* Click to skip hint */}
+            {typewriterActive &&
+              displayedText.length < (currentScene?.narrative || '').length && (
+                <p className="text-xs text-[#606060] text-center mt-4">
+                  クリックしてスキップ
+                </p>
+              )}
           </div>
 
-          {/* Affinity Change Indicator */}
-          {scene.affinityChanges && Object.keys(scene.affinityChanges).length > 0 && (
-            <div className="bg-[#d4af37]/10 border-t border-[#d4af37]/30 p-4 text-center">
-              <div className="flex items-center justify-center gap-2">
-                <Sparkles className="w-4 h-4 text-[#d4af37]" />
-                <span className="text-sm text-[#d4af37]">
-                  {Object.entries(scene.affinityChanges)
-                    .map(([key, val]) => `${key}: ${val > 0 ? '+' : ''}${val}`)
-                    .join(', ')}
-                </span>
-              </div>
-            </div>
-          )}
+          {/* Affinity change indicator */}
+          {currentScene?.affinity_impact &&
+            Object.keys(currentScene.affinity_impact).length > 0 && (
+              <AffinityIndicator delta={currentScene.affinity_impact} />
+            )}
         </div>
 
-        {/* Choice Panel */}
-        <ChoicePanel
-          choices={scene.choices || []}
-          onSelect={handleChoiceSelect}
-          disabled={generatingScene}
-        />
+        {/* Chapter End State */}
+        {chapterEnd ? (
+          <div className="glass-morphism rounded-2xl p-8 text-center mb-8">
+            <Sparkles className="w-8 h-8 text-[#d4af37] mx-auto mb-4" />
+            <h2 className="text-2xl font-serif text-[#d4af37] mb-4">
+              第一章 完
+            </h2>
+            <p className="text-[#b0b0b0] mb-6">
+              あなたの選択が、一つのエコーを生み出しました。
+            </p>
 
-        {/* Let Echo Decide Button */}
-        {scene.choices && scene.choices.length > 0 && (
-          <div className="mt-6 text-center">
+            {/* Show final affinity radar */}
+            <div className="flex justify-center mb-6">
+              <PersonalityRadar affinity={session.affinity} size="md" />
+            </div>
+
             <button
-              onClick={handleLetEchoDecide}
-              disabled={generatingScene}
-              className="text-[#50c878] hover:text-[#6ae089] font-semibold text-sm sm:text-base transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => router.push(`/echo/${id}`)}
+              className="button-primary px-8 py-3"
             >
-              エコーに任せる
+              エコーの誕生を見届ける
             </button>
           </div>
+        ) : (
+          <>
+            {/* Choice Panel */}
+            <ChoicePanel
+              choices={choices}
+              onSelect={handleChoiceSelect}
+              disabled={generatingScene}
+            />
+
+            {/* Let Echo Decide */}
+            {choices.length > 0 && (
+              <div className="mt-6 text-center">
+                <button
+                  onClick={handleLetEchoDecide}
+                  disabled={generatingScene}
+                  className="text-[#50c878] hover:text-[#6ae089] font-semibold text-sm sm:text-base transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  エコーに任せる
+                </button>
+              </div>
+            )}
+          </>
         )}
 
-        {/* Loading State */}
+        {/* Loading overlay */}
         {generatingScene && (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 rounded-2xl">
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
             <div className="glass-morphism rounded-2xl p-8 text-center">
               <LoadingSpinner />
               <p className="text-[#b0b0b0] mt-4">物語を生成中...</p>
             </div>
           </div>
         )}
+
+        {/* Mini affinity sidebar (mobile: bottom, desktop: side) */}
+        <div className="mt-8 glass-morphism rounded-2xl p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <TiaraAvatar trust={(session.affinity?.tiara_trust || 50) / 100} size="sm" />
+              <div>
+                <p className="text-xs text-[#b0b0b0]">ティアラとの絆</p>
+                <div className="w-20 h-1.5 bg-white/10 rounded-full overflow-hidden mt-1">
+                  <div
+                    className="h-full bg-[#50c878] rounded-full transition-all duration-500"
+                    style={{ width: `${session.affinity?.tiara_trust || 50}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-[#b0b0b0]">カケラ</p>
+              <p className="text-sm text-[#d4af37] font-bold">
+                {session.affinity?.fragment_count || 0}
+              </p>
+            </div>
+          </div>
+        </div>
       </main>
     </div>
   );

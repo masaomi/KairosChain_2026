@@ -7,7 +7,7 @@ class StoryBeacon < ApplicationRecord
   validates :content, presence: true
   validates :choices, presence: true
 
-  validates :chapter, :beacon_order, uniqueness: { scope: [:chapter] }
+  validates :beacon_order, uniqueness: { scope: :chapter }
 
   scope :in_chapter, ->(chapter) { where(chapter: chapter) }
   scope :ordered, -> { order(:beacon_order) }
