@@ -11,6 +11,9 @@ module Echoria
     # API-only application
     config.api_only = true
 
+    # Autoload lib/ for Echoria::KairosBridge
+    config.autoload_lib(ignore: %w[tasks])
+
     # Generators configuration
     config.generators do |g|
       g.orm :active_record

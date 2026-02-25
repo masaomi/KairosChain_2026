@@ -4,13 +4,14 @@ module KairosMcp
   module Storage
     # Abstract base class for storage backends
     #
-    # KairosChain supports two storage backends:
+    # KairosChain supports three storage backends:
     # - FileBackend (default): File-based storage for individual use
     # - SqliteBackend (optional): SQLite-based storage for team use
+    # - PostgresqlBackend (optional): PostgreSQL-based storage for multi-tenant apps
     #
     # The backend is selected via config.yml:
     #   storage:
-    #     backend: file  # or 'sqlite'
+    #     backend: file  # or 'sqlite' or 'postgresql'
     #
     class Backend
       # ===========================================================================
@@ -121,7 +122,7 @@ module KairosMcp
       end
 
       # Get backend type
-      # @return [Symbol] :file or :sqlite
+      # @return [Symbol] :file, :sqlite, or :postgresql
       def backend_type
         raise NotImplementedError, "#{self.class}#backend_type must be implemented"
       end
@@ -132,11 +133,21 @@ module KairosMcp
 
       # Create a storage backend based on configuration
       # @param config [Hash] Configuration hash with :backend key
-      # @return [Backend] A FileBackend or SqliteBackend instance
+      # @return [Backend] A FileBackend, SqliteBackend, or PostgresqlBackend instance
       def self.create(config = {})
         backend = config[:backend]&.to_s || 'file'
 
         case backend
+        when 'postgresql'
+          begin
+            require_relative 'postgresql_backend'
+            PostgresqlBackend.new(config[:postgresql] || {})
+          rescue LoadError => e
+            warn "[KairosChain] PostgreSQL backend requested but pg gem not available: #{e.message}"
+            warn "[KairosChain] Falling back to file backend"
+            require_relative 'file_backend'
+            FileBackend.new(config[:file] || {})
+          end
         when 'sqlite'
           begin
             require_relative 'sqlite_backend'

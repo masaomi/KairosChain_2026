@@ -5,7 +5,7 @@ Rails.application.routes.draw do
       get "health", to: "health#check"
 
       # Authentication
-      namespace :auth do
+      scope :auth do
         post "signup", to: "auth#signup"
         post "login", to: "auth#login"
         post "google", to: "auth#google"

@@ -1,189 +1,167 @@
+# frozen_string_literal: true
+
+require 'kairos_mcp/storage/postgresql_backend'
+
 module Echoria
+  # Adapter layer between Echoria (Rails) and KairosChain core.
+  #
+  # Uses KairosMcp::Storage::PostgresqlBackend with tenant_id = echo.id
+  # for blockchain operations and action logging. Echoria-specific data
+  # (conversations, story sessions) remains in ActiveRecord models.
+  #
   class KairosBridge
+    attr_reader :echo, :backend
+
     def initialize(echo)
       @echo = echo
-      @chain = initialize_chain
-      @knowledge_provider = initialize_knowledge_provider
+      @backend = self.class.backend_for(echo.id)
+    rescue StandardError => e
+      Rails.logger.error("[KairosBridge] Failed to initialize: #{e.message}")
+      @backend = nil
     end
 
+    # Add data to the blockchain for this Echo
     def add_to_chain(data)
-      block_data = {
-        type: data[:type],
-        echo_id: @echo.id,
-        timestamp: Time.current.iso8601,
-        payload: data
-      }
+      return false unless @backend
 
-      @chain.add_block(block_data)
-      record_action("add_block", block_data)
+      blocks = @backend.all_blocks
+      previous = blocks.last
+
+      block_data = build_block(data, previous, blocks.length)
+      @backend.save_block(block_data)
+
+      record_action("add_block", details: { type: data[:type] })
+      block_data
     end
 
+    # Record a skill evolution on the blockchain
     def record_skill(skill_id, content, layer)
-      skill_data = {
+      add_to_chain(
         type: "skill_record",
         skill_id: skill_id,
         content: content,
-        layer: layer,
-        timestamp: Time.current.iso8601
-      }
-
-      @chain.add_block(skill_data)
-      record_action("record_skill", skill_data)
+        layer: layer
+      )
+      record_action("record_skill", skill_id: skill_id, layer: layer)
     end
 
-    def get_knowledge(name)
-      knowledge = EchoKnowledge.find_by(echo_id: @echo.id, name: name, is_archived: false)
-      knowledge&.content
-    end
+    # Record an action in the KairosChain action log
+    def record_action(action, skill_id: nil, layer: nil, details: {})
+      return false unless @backend
 
-    def search_knowledge(query)
-      EchoKnowledge.where(echo_id: @echo.id, is_archived: false)
-                    .where("content ILIKE ?", "%#{query}%")
-                    .pluck(:name, :content)
-                    .map { |name, content| { name: name, content: content } }
-    end
-
-    def save_knowledge(name, content, description: nil, tags: [])
-      EchoKnowledge.find_or_create_by!(echo_id: @echo.id, name: name) do |knowledge|
-        knowledge.content = content
-        knowledge.description = description
-        knowledge.tags = tags
-      end
-
-      record_action("save_knowledge", { name: name, tags: tags })
-    end
-
-    def get_action_history(limit: 100)
-      EchoActionLog.where(echo_id: @echo.id)
-                    .order(timestamp: :desc)
-                    .limit(limit)
-                    .map { |log| { action: log.action, skill_id: log.skill_id, details: log.details, timestamp: log.timestamp } }
-    end
-
-    def chain_blocks
-      @chain.blocks
-    end
-
-    private
-
-    def initialize_chain
-      storage_backend = KairosChain::PostgresBackend.new(@echo.id)
-      KairosMcp::KairosChain::Chain.new(storage_backend)
-    rescue StandardError => e
-      Rails.logger.error("Failed to initialize KairosChain: #{e.message}")
-      # Return a mock chain that doesn't fail
-      MockChain.new
-    end
-
-    def initialize_knowledge_provider
-      KairosMcp::KnowledgeProvider.new(storage_backend: KairosChain::PostgresBackend.new(@echo.id))
-    rescue StandardError => e
-      Rails.logger.error("Failed to initialize KnowledgeProvider: #{e.message}")
-      MockKnowledgeProvider.new
-    end
-
-    def record_action(action, details = {})
-      EchoActionLog.create(
-        echo_id: @echo.id,
-        timestamp: Time.current,
+      @backend.record_action(
+        timestamp: Time.current.iso8601,
         action: action,
-        details: details
+        skill_id: skill_id,
+        layer: layer,
+        details: details.merge(echo_id: @echo.id)
       )
     end
-  end
 
-  # Mock classes for graceful fallback if KairosChain unavailable
-  class MockChain
-    def add_block(data)
-      Rails.logger.warn("MockChain: add_block called with #{data.inspect}")
-      true
+    # Get action history from KairosChain
+    def action_history(limit: 100)
+      return [] unless @backend
+      @backend.action_history(limit: limit)
     end
 
-    def blocks
-      []
-    end
-  end
-
-  class MockKnowledgeProvider
-    def search(query)
-      []
-    end
-  end
-
-  # PostgreSQL Storage Backend for KairosChain
-  class PostgresBackend
-    def initialize(echo_id)
-      @echo_id = echo_id
+    # Get all blockchain blocks for this Echo
+    def chain_blocks
+      return [] unless @backend
+      @backend.all_blocks
     end
 
-    def load_blocks
-      EchoBlock.where(echo_id: @echo_id).order(:block_index).map do |block|
+    # Save knowledge metadata via KairosChain
+    def save_knowledge(name, content_hash:, description: nil, tags: [])
+      return false unless @backend
+
+      @backend.save_knowledge_meta(name,
+        content_hash: content_hash,
+        description: description,
+        tags: tags
+      )
+      record_action("save_knowledge", details: { name: name, tags: tags })
+    end
+
+    # Get knowledge metadata
+    def get_knowledge(name)
+      return nil unless @backend
+      @backend.get_knowledge_meta(name)
+    end
+
+    # List all knowledge for this Echo
+    def list_knowledge
+      return [] unless @backend
+      @backend.list_knowledge_meta
+    end
+
+    # Verify blockchain integrity for this Echo
+    def verify_chain
+      blocks = chain_blocks
+      return true if blocks.empty?
+
+      blocks.each_cons(2).all? do |prev_block, block|
+        block[:previous_hash] == prev_block[:hash]
+      end
+    end
+
+    # Whether the KairosChain backend is available
+    def available?
+      @backend&.ready? || false
+    end
+
+    # Create a backend instance scoped to a specific echo_id
+    def self.backend_for(echo_id)
+      KairosMcp::Storage::PostgresqlBackend.new(
+        host: db_config[:host],
+        port: db_config[:port],
+        dbname: db_config[:database],
+        user: db_config[:username],
+        password: db_config[:password],
+        tenant_id: echo_id.to_s
+      )
+    end
+
+    # Extract DB connection params from Rails config
+    def self.db_config
+      @db_config ||= begin
+        config = ActiveRecord::Base.connection_db_config.configuration_hash
         {
-          index: block.block_index,
-          timestamp: block.timestamp,
-          data: block.data,
-          previous_hash: block.previous_hash,
-          hash: block.hash,
-          merkle_root: block.merkle_root
+          host: config[:host] || 'localhost',
+          port: config[:port] || 5432,
+          database: config[:database],
+          username: config[:username],
+          password: config[:password]
         }
       end
     end
 
-    def save_block(block_data)
-      EchoBlock.create!(
-        echo_id: @echo_id,
-        block_index: block_data[:index],
-        timestamp: block_data[:timestamp],
-        data: block_data[:data],
-        previous_hash: block_data[:previous_hash],
-        hash: block_data[:hash],
-        merkle_root: block_data[:merkle_root]
-      )
-      true
-    rescue ActiveRecord::RecordNotUnique
-      false
+    private
+
+    def build_block(data, previous_block, index)
+      timestamp = Time.current.iso8601
+      payload = data.merge(echo_id: @echo.id, timestamp: timestamp)
+      previous_hash = previous_block ? previous_block[:hash] : "0" * 64
+      merkle_root = compute_merkle_root(payload)
+      hash = compute_hash(index, timestamp, payload, previous_hash, merkle_root)
+
+      {
+        index: index,
+        timestamp: timestamp,
+        data: payload,
+        previous_hash: previous_hash,
+        merkle_root: merkle_root,
+        hash: hash
+      }
     end
 
-    def record_action(action, skill_id, layer, details)
-      EchoActionLog.create!(
-        echo_id: @echo_id,
-        timestamp: Time.current,
-        action: action,
-        skill_id: skill_id,
-        layer: layer,
-        details: details
-      )
+    def compute_merkle_root(data)
+      require 'digest'
+      Digest::SHA256.hexdigest(data.to_json)
     end
 
-    def action_history(limit = 100)
-      EchoActionLog.where(echo_id: @echo_id)
-                    .order(timestamp: :desc)
-                    .limit(limit)
-    end
-
-    def save_knowledge_meta(name, metadata)
-      EchoKnowledge.find_or_create_by!(echo_id: @echo_id, name: name) do |knowledge|
-        knowledge.description = metadata[:description]
-        knowledge.tags = metadata[:tags]
-        knowledge.content = metadata[:content] || ""
-      end
-    end
-
-    def get_knowledge_meta(name)
-      knowledge = EchoKnowledge.find_by(echo_id: @echo_id, name: name)
-      knowledge ? knowledge.slice(:name, :description, :tags, :content_hash, :version) : nil
-    end
-
-    def list_knowledge_meta
-      EchoKnowledge.where(echo_id: @echo_id, is_archived: false).map do |knowledge|
-        { name: knowledge.name, description: knowledge.description, tags: knowledge.tags }
-      end
-    end
-
-    def delete_knowledge_meta(name)
-      knowledge = EchoKnowledge.find_by(echo_id: @echo_id, name: name)
-      knowledge&.archive!
-      true
+    def compute_hash(index, timestamp, data, previous_hash, merkle_root)
+      require 'digest'
+      Digest::SHA256.hexdigest("#{index}#{timestamp}#{data.to_json}#{previous_hash}#{merkle_root}")
     end
   end
 end

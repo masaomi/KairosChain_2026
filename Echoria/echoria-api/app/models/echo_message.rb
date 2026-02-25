@@ -7,7 +7,7 @@ class EchoMessage < ApplicationRecord
   validates :role, presence: true
   validates :content, presence: true
 
-  enum role: { user: "user", assistant: "assistant" }
+  enum :role, { user: "user", assistant: "assistant" }
 
   scope :recent, -> { order(created_at: :desc) }
 end
