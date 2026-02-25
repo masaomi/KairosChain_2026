@@ -87,6 +87,22 @@ module KairosMcp
           output += skill.formalization_notes
         end
 
+        # Verification status (Phase 2: requires dsl_ast module)
+        if skill.definition
+          begin
+            require_relative '../dsl_ast/ast_engine'
+            report = DslAst::AstEngine.verify(skill)
+            if report
+              s = report.summary
+              output += "\n---\n\n### Verification Status\n\n"
+              status = report.all_deterministic_passed? ? "PASS" : "ISSUES"
+              output += "**#{status}**: #{s[:passed]} passed, #{s[:failed]} failed, #{s[:unknown]} unknown, #{s[:human_required]} human-required\n"
+            end
+          rescue LoadError, NameError
+            # dsl_ast module not loaded — skip verification section
+          end
+        end
+
         text_content(output)
       end
     end

@@ -65,6 +65,11 @@ module KairosMcp
       register_if_defined('KairosMcp::Tools::FormalizationRecord')
       register_if_defined('KairosMcp::Tools::FormalizationHistory')
 
+      # Definition analysis tools (Phase 2: verification, decompilation, drift detection)
+      register_if_defined('KairosMcp::Tools::DefinitionVerify')
+      register_if_defined('KairosMcp::Tools::DefinitionDecompile')
+      register_if_defined('KairosMcp::Tools::DefinitionDrift')
+
       # State commit tools (auditability)
       register_if_defined('KairosMcp::Tools::StateCommit')
       register_if_defined('KairosMcp::Tools::StateStatus')
