@@ -63,9 +63,10 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
   - [Tool Discovery with tool_guide](#tool-discovery-with-tool_guide)
   - [Common Commands Reference](#common-commands-reference)
   - [Security Considerations](#security-considerations)
-- [Available Tools (26 core + skill-tools)](#available-tools-26-core-skill-tools)
+- [Available Tools (31 core + skill-tools)](#available-tools-31-core-skill-tools)
   - [L0-A: Skills Tools (Markdown) - Read-only](#l0-a-skills-tools-markdown-read-only)
   - [L0-B: Skills Tools (DSL) - Full Blockchain Record](#l0-b-skills-tools-dsl-full-blockchain-record)
+  - [L0-C: DSL/AST Formalization Tools](#l0-c-dslast-formalization-tools)
   - [L0: Instructions Management - Full Blockchain Record](#l0-instructions-management-full-blockchain-record)
   - [Cross-Layer Promotion Tools](#cross-layer-promotion-tools)
   - [Audit Tools - Knowledge Lifecycle Management](#audit-tools-knowledge-lifecycle-management)
@@ -97,6 +98,13 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
   - [skills.md vs skills.rb](#skillsmd-vs-skillsrb)
   - [Example Skill Definition](#example-skill-definition)
   - [Self-Referential Introspection](#self-referential-introspection)
+- [DSL/AST Skill Formalization](#dslast-skill-formalization)
+  - [Motivation](#motivation)
+  - [Three Layers of a Skill](#three-layers-of-a-skill)
+  - [Node Types](#node-types)
+  - [Example Definition Block](#example-definition-block)
+  - [Formalization Tools](#formalization-tools)
+  - [Source of Truth Policy](#source-of-truth-policy)
 - [SkillSet Plugin Architecture](#skillset-plugin-architecture)
   - [SkillSet Structure](#skillset-structure)
   - [skillset.json Schema](#skillsetjson-schema)
@@ -2015,9 +2023,9 @@ The `tool_guide` tool helps you discover and learn about KairosChain tools dynam
    - All operations are recorded in `action_log`
    - Review logs regularly
 
-## Available Tools (26 core + skill-tools)
+## Available Tools (31 core + skill-tools)
 
-The base installation provides 25 tools (24 + 1 HTTP-only). Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
+The base installation provides 31 tools (30 + 1 HTTP-only). Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
 
 ### L0-A: Skills Tools (Markdown) - Read-only
 
@@ -2031,9 +2039,21 @@ The base installation provides 25 tools (24 + 1 HTTP-only). Additional tools can
 | Tool | Description |
 |------|-------------|
 | `skills_dsl_list` | List all skills from kairos.rb |
-| `skills_dsl_get` | Get skill definition by ID |
+| `skills_dsl_get` | Get skill definition by ID (includes Definition, Formalization Notes, and Verification Status sections) |
 | `skills_evolve` | Propose/apply skill changes |
 | `skills_rollback` | Manage version snapshots |
+
+### L0-C: DSL/AST Formalization Tools
+
+These tools operate on the structural definition layer of skills, enabling verification, decompilation, and drift detection without LLM evaluation.
+
+| Tool | Description |
+|------|-------------|
+| `definition_verify` | Verify a skill's AST constraints structurally (pattern-matched, eval-free) — reports each node as satisfied/unknown/unsatisfied |
+| `definition_decompile` | Reconstruct a human-readable Markdown description from a skill's AST definition |
+| `definition_drift` | Detect divergence between a skill's natural-language content and its formal definition layer |
+| `formalization_record` | Record a formalization decision to the blockchain (skill_id, rationale, confidence, ambiguity levels) |
+| `formalization_history` | Query past formalization decisions stored on-chain for a skill or across all skills |
 
 > **Skill-defined tools**: When `skill_tools_enabled: true`, skills with `tool` blocks in `kairos.rb` are also registered here as MCP tools.
 
@@ -2468,6 +2488,93 @@ skill :self_inspection do
 end
 ```
 
+## DSL/AST Skill Formalization
+
+KairosChain v2.1.0 introduces a **partial formalization layer** that bridges natural-language skill content and machine-verifiable structural definitions — without replacing human judgment or requiring LLM evaluation.
+
+### Motivation
+
+Skill content (natural language in `content` blocks) and skill behavior (Ruby code in `behavior` blocks) are semantically rich but opaque to structural analysis. The formalization layer adds an explicit **definition** layer that captures constraints, plans, tool calls, and semantic reasoning nodes in a diffable, verifiable AST.
+
+### Three Layers of a Skill
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Content Layer      (natural language, human-readable)  │
+│  content <<~MD ... MD                                   │
+├─────────────────────────────────────────────────────────┤
+│  Definition Layer   (AST, machine-verifiable)           │
+│  definition do                                          │
+│    constraint :ethics_approval, required: true          │
+│    node :review, type: :SemanticReasoning               │
+│  end                                                    │
+├─────────────────────────────────────────────────────────┤
+│  Behavior Layer     (Ruby code, executable)             │
+│  behavior do ... end                                    │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Node Types
+
+| Node Type | Meaning | Machine-Verifiable? |
+|-----------|---------|---------------------|
+| `Constraint` | Invariant that must hold | ✅ Structural check |
+| `Check` | Assertion to evaluate | ✅ Pattern-matched |
+| `Plan` | Sequence of named steps | ✅ Step presence |
+| `ToolCall` | MCP tool invocation | ✅ Command presence |
+| `SemanticReasoning` | Requires human/LLM judgment | ❌ Marked as `human_required` |
+
+### Example Definition Block
+
+```ruby
+skill :core_safety do
+  version "3.0"
+  title "Core Safety Rules"
+
+  definition do
+    constraint :no_destructive_ops,
+      condition: "evolution_enabled == false",
+      description: "Destructive operations require explicit evolution mode"
+    constraint :human_approval_required,
+      condition: "require_human_approval == true",
+      description: "All evolution changes require human sign-off"
+    node :safety_review,
+      type: :SemanticReasoning,
+      prompt: "Does this change maintain core safety invariants?"
+  end
+
+  content <<~MD
+    ## Core Safety Invariants
+    1. Evolution requires explicit enablement
+    2. Human approval required by default
+  MD
+end
+```
+
+### Formalization Tools
+
+| Tool | Description |
+|------|-------------|
+| `definition_verify` | Verify constraints against a context — reports satisfied/unknown/unsatisfied per node |
+| `definition_decompile` | Reconstruct human-readable Markdown from the AST |
+| `definition_drift` | Detect divergence between content and definition layers |
+| `formalization_record` | Record a formalization decision on-chain (provenance) |
+| `formalization_history` | Query past formalization decisions |
+
+### Source of Truth Policy
+
+**Ruby DSL (`.rb`) is the single authoritative source.** JSON representations are derived outputs for transport (MCP, blockchain). The direction of truth is always:
+
+```
+Ruby DSL (.rb) → AstEngine → JSON → Blockchain record
+                           ↗
+              Decompiler (reverse, advisory only)
+```
+
+See `docs/KairosChain_dsl_ast_source_of_truth_policy_20260225.md` for the full policy.
+
+---
+
 ## SkillSet Plugin Architecture
 
 SkillSets are modular, self-contained capability packages that extend KairosChain. They are managed by the SkillSetManager and follow layer-based governance.
@@ -2650,7 +2757,7 @@ KairosChain_mcp_server/
 
 ### Completed Phases
 
-The following development phases have been completed on the `feature/skillset-plugin` branch:
+The following development phases have been completed and merged to main:
 
 | Phase | Description | Key Deliverables |
 |-------|-------------|-----------------|
@@ -2664,8 +2771,10 @@ The following development phases have been completed on the `feature/skillset-pl
 | **Phase 4.pre** | Authentication + Hardening | Admin token rotation, session-based auth for P2P endpoints |
 | **Phase 4A** | HestiaChain Foundation | Self-contained trust anchor SkillSet, DEE protocol (PhilosophyDeclaration, ObservationLog), chain migration (4 stages), 4 MCP tools, 77 test assertions |
 | **Phase 4B** | Meeting Place Server | PlaceRouter, AgentRegistry, SkillBoard, HeartbeatManager, 6 HTTP endpoints, 2 MCP tools, 70 test assertions |
+| **DSL/AST Phase 1** | Partial Formalization Layer | `AstNode`/`DefinitionContext` DSL with 5 node types, `FormalizationDecision` on-chain provenance, `formalization_record` + `formalization_history` MCP tools, `core_safety`/`evolution_rules` annotated with definition blocks; 68 tests |
+| **DSL/AST Phase 2** | AST Verification Engine | `AstEngine` (eval-free, pattern-matched), `Decompiler` (AST→Markdown), `DriftDetector` (content/definition divergence); `definition_verify` + `definition_decompile` + `definition_drift` MCP tools; security: ALLOWED_METHODS whitelist; 91 tests |
 
-Test results: 356 passed, 0 failed (v2.0.0).
+Test results: 515 passed, 0 failed (v2.1.0).
 
 ### Near-term
 
@@ -4473,7 +4582,7 @@ See [LICENSE](./LICENSE) file.
 
 ---
 
-**Version**: 2.0.2
-**Last Updated**: 2026-02-23
+**Version**: 2.1.0
+**Last Updated**: 2026-02-25
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*

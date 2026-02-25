@@ -1,7 +1,7 @@
 ---
 name: kairoschain_usage
 description: "KairosChain tools reference, usage patterns, and evolution workflow"
-version: 1.1
+version: 1.2
 layer: L1
 tags: [documentation, readme, usage, tools, workflow, examples]
 readme_order: 3
@@ -192,9 +192,9 @@ The `tool_guide` tool helps you discover and learn about KairosChain tools dynam
    - All operations are recorded in `action_log`
    - Review logs regularly
 
-## Available Tools (26 core + skill-tools)
+## Available Tools (31 core + skill-tools)
 
-The base installation provides 25 tools (24 + 1 HTTP-only). Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
+The base installation provides 31 tools (30 + 1 HTTP-only). Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
 
 ### L0-A: Skills Tools (Markdown) - Read-only
 
@@ -208,9 +208,21 @@ The base installation provides 25 tools (24 + 1 HTTP-only). Additional tools can
 | Tool | Description |
 |------|-------------|
 | `skills_dsl_list` | List all skills from kairos.rb |
-| `skills_dsl_get` | Get skill definition by ID |
+| `skills_dsl_get` | Get skill definition by ID (includes Definition, Formalization Notes, and Verification Status sections) |
 | `skills_evolve` | Propose/apply skill changes |
 | `skills_rollback` | Manage version snapshots |
+
+### L0-C: DSL/AST Formalization Tools
+
+These tools operate on the structural definition layer of skills, enabling verification, decompilation, and drift detection without LLM evaluation.
+
+| Tool | Description |
+|------|-------------|
+| `definition_verify` | Verify a skill's AST constraints structurally (pattern-matched, eval-free) — reports each node as satisfied/unknown/unsatisfied |
+| `definition_decompile` | Reconstruct a human-readable Markdown description from a skill's AST definition |
+| `definition_drift` | Detect divergence between a skill's natural-language content and its formal definition layer |
+| `formalization_record` | Record a formalization decision to the blockchain (skill_id, rationale, confidence, ambiguity levels) |
+| `formalization_history` | Query past formalization decisions stored on-chain for a skill or across all skills |
 
 > **Skill-defined tools**: When `skill_tools_enabled: true`, skills with `tool` blocks in `kairos.rb` are also registered here as MCP tools.
 

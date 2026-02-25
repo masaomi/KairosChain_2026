@@ -63,9 +63,10 @@ KairosChainは、AIの能力進化をプライベートブロックチェーン�
   - [tool_guideによるツール発見](#tool_guideによるツール発見)
   - [よく使うコマンドリファレンス](#よく使うコマンドリファレンス)
   - [セキュリティ考慮事項](#セキュリティ考慮事項)
-- [利用可能なツール（コア26個 + スキルツール）](#利用可能なツール（コア26個-スキルツール）)
+- [利用可能なツール（コア31個 + スキルツール）](#利用可能なツール（コア31個-スキルツール）)
   - [L0-A：スキルツール（Markdown） - 読み取り専用](#l0-a：スキルツール（markdown）-読み取り専用)
   - [L0-B：スキルツール（DSL） - 完全なブロックチェーン記録](#l0-b：スキルツール（dsl）-完全なブロックチェーン記録)
+  - [L0-C：DSL/ASTフォーマライゼーションツール](#l0-c：dslastフォーマライゼーションツール)
   - [L0：インストラクション管理 - 完全なブロックチェーン記録](#l0：インストラクション管理-完全なブロックチェーン記録)
   - [クロスレイヤー昇格ツール](#クロスレイヤー昇格ツール)
   - [監査ツール - 知識ライフサイクル管理](#監査ツール-知識ライフサイクル管理)
@@ -97,6 +98,13 @@ KairosChainは、AIの能力進化をプライベートブロックチェーン�
   - [skills.md vs skills.rb](#skillsmd-vs-skillsrb)
   - [スキル定義の例](#スキル定義の例)
   - [自己参照的内省](#自己参照的内省)
+- [DSL/ASTスキルフォーマライゼーション](#dslastスキルフォーマライゼーション)
+  - [動機](#動機)
+  - [スキルの3層構造](#スキルの3層構造)
+  - [ノード型](#ノード型)
+  - [definitionブロックの例](#definitionブロックの例)
+  - [フォーマライゼーションツール](#フォーマライゼーションツール)
+  - [真実のソースポリシー](#真実のソースポリシー)
 - [SkillSetプラグインアーキテクチャ](#skillsetプラグインアーキテクチャ)
   - [SkillSet構造](#skillset構造)
   - [skillset.jsonスキーマ](#skillsetjsonスキーマ)
@@ -1999,9 +2007,9 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
    - すべての操作は`action_log`に記録される
    - 定期的にログをレビュー
 
-## 利用可能なツール（コア26個 + スキルツール）
+## 利用可能なツール（コア31個 + スキルツール）
 
-基本インストールでは25個のツール（24 + HTTP専用1個）が提供されます。`skill_tools_enabled: true`の場合、`kairos.rb`の`tool`ブロックで追加のツールを定義できます。
+基本インストールでは31個のツール（30 + HTTP専用1個）が提供されます。`skill_tools_enabled: true`の場合、`kairos.rb`の`tool`ブロックで追加のツールを定義できます。
 
 ### L0-A：スキルツール（Markdown） - 読み取り専用
 
@@ -2015,9 +2023,21 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
 | ツール | 説明 |
 |--------|------|
 | `skills_dsl_list` | kairos.rbからすべてのスキルを一覧表示 |
-| `skills_dsl_get` | IDでスキル定義を取得 |
+| `skills_dsl_get` | IDでスキル定義を取得（Definition、Formalization Notes、Verification Statusセクションを含む） |
 | `skills_evolve` | スキル変更を提案/適用 |
 | `skills_rollback` | バージョンスナップショットを管理 |
+
+### L0-C：DSL/ASTフォーマライゼーションツール
+
+スキルの構造的定義層に対して操作するツール群。LLM評価なしで検証・逆コンパイル・乖離検出を行います。
+
+| ツール | 説明 |
+|--------|------|
+| `definition_verify` | スキルのAST制約を構造的に検証（パターンマッチ、eval不使用）— 各ノードをsatisfied/unknown/unsatisfiedとして報告 |
+| `definition_decompile` | スキルのAST定義から人間が読めるMarkdown記述を再構築 |
+| `definition_drift` | スキルの自然言語コンテンツと形式的定義層の乖離を検出 |
+| `formalization_record` | フォーマライゼーション決定をブロックチェーンに記録（skill_id、根拠、信頼度、曖昧度） |
+| `formalization_history` | 特定のスキルまたは全スキルについてオンチェーンに保存されたフォーマライゼーション決定を照会 |
 
 > **スキル定義ツール**：`skill_tools_enabled: true`の場合、`kairos.rb`内の`tool`ブロックを持つスキルもここにMCPツールとして登録されます。
 
@@ -2452,6 +2472,93 @@ skill :self_inspection do
 end
 ```
 
+## DSL/ASTスキルフォーマライゼーション
+
+KairosChain v2.1.0では、自然言語のスキルコンテンツと機械検証可能な構造定義を橋渡しする**部分形式化レイヤー**を導入しました。人間の判断を置き換えることなく、LLM評価なしで動作します。
+
+### 動機
+
+スキルの`content`ブロック（自然言語）と`behavior`ブロック（Rubyコード）は意味的に豊かですが、構造分析に対して不透明です。形式化レイヤーは、制約・計画・ツール呼び出し・意味的推論ノードを差分可能・検証可能なASTとして明示的に表現する**definition**レイヤーを追加します。
+
+### スキルの3層構造
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  コンテンツ層（自然言語、人間が読める）                 │
+│  content <<~MD ... MD                                   │
+├─────────────────────────────────────────────────────────┤
+│  定義層（AST、機械検証可能）                            │
+│  definition do                                          │
+│    constraint :ethics_approval, required: true          │
+│    node :review, type: :SemanticReasoning               │
+│  end                                                    │
+├─────────────────────────────────────────────────────────┤
+│  ビヘイビア層（Rubyコード、実行可能）                   │
+│  behavior do ... end                                    │
+└─────────────────────────────────────────────────────────┘
+```
+
+### ノード型
+
+| ノード型 | 意味 | 機械検証可能？ |
+|---------|------|-------------|
+| `Constraint` | 成立しなければならない不変条件 | ✅ 構造チェック |
+| `Check` | 評価するアサーション | ✅ パターンマッチ |
+| `Plan` | 名前付きステップのシーケンス | ✅ ステップ存在確認 |
+| `ToolCall` | MCPツール呼び出し | ✅ コマンド存在確認 |
+| `SemanticReasoning` | 人間/LLMの判断が必要 | ❌ `human_required`として記録 |
+
+### definitionブロックの例
+
+```ruby
+skill :core_safety do
+  version "3.0"
+  title "Core Safety Rules"
+
+  definition do
+    constraint :no_destructive_ops,
+      condition: "evolution_enabled == false",
+      description: "破壊的操作には進化モードの明示的有効化が必要"
+    constraint :human_approval_required,
+      condition: "require_human_approval == true",
+      description: "すべての進化変更には人間のサインオフが必要"
+    node :safety_review,
+      type: :SemanticReasoning,
+      prompt: "この変更はコア安全性不変条件を維持しているか？"
+  end
+
+  content <<~MD
+    ## コア安全性不変条件
+    1. 進化には明示的な有効化が必要
+    2. デフォルトで人間の承認が必要
+  MD
+end
+```
+
+### フォーマライゼーションツール
+
+| ツール | 説明 |
+|--------|------|
+| `definition_verify` | コンテキストに対して制約を検証 — ノードごとにsatisfied/unknown/unsatisfiedを報告 |
+| `definition_decompile` | ASTから人間が読めるMarkdownを再構築 |
+| `definition_drift` | コンテンツ層と定義層の乖離を検出 |
+| `formalization_record` | フォーマライゼーション決定をオンチェーンに記録（来歴） |
+| `formalization_history` | 過去のフォーマライゼーション決定を照会 |
+
+### 真実のソースポリシー
+
+**Ruby DSL（`.rb`）が唯一の権威あるソース**です。JSON表現はトランスポート（MCP、ブロックチェーン）のための派生出力です。真実の方向は常に：
+
+```
+Ruby DSL (.rb) → AstEngine → JSON → ブロックチェーン記録
+                           ↗
+              Decompiler（逆変換、参考のみ）
+```
+
+完全なポリシーは`docs/KairosChain_dsl_ast_source_of_truth_policy_20260225.md`を参照。
+
+---
+
 ## SkillSetプラグインアーキテクチャ
 
 SkillSetはKairosChainを拡張するモジュール型の自己完結型機能パッケージです。SkillSetManagerによって管理され、レイヤーベースのガバナンスに従います。
@@ -2634,7 +2741,7 @@ KairosChain_mcp_server/
 
 ### 完了済みフェーズ
 
-以下の開発フェーズが`feature/skillset-plugin`ブランチで完了しています：
+以下の開発フェーズが完了し、mainにマージ済みです：
 
 | フェーズ | 説明 | 主な成果物 |
 |---------|------|-----------|
@@ -2648,8 +2755,10 @@ KairosChain_mcp_server/
 | **Phase 4.pre** | 認証 + 堅牢化 | Admin トークンローテーション、P2Pエンドポイントのセッションベース認証 |
 | **Phase 4A** | HestiaChain Foundation | 自己完結型信頼アンカーSkillSet、DEEプロトコル（PhilosophyDeclaration、ObservationLog）、チェーン移行（4ステージ）、4 MCPツール、77テストアサーション |
 | **Phase 4B** | Meeting Placeサーバー | PlaceRouter、AgentRegistry、SkillBoard、HeartbeatManager、6 HTTPエンドポイント、2 MCPツール、70テストアサーション |
+| **DSL/AST Phase 1** | 部分形式化レイヤー | `AstNode`/`DefinitionContext` DSL（5ノード型）、`FormalizationDecision`オンチェーン来歴記録、`formalization_record` + `formalization_history` MCPツール、`core_safety`/`evolution_rules`にdefinitionブロック追加；68テスト |
+| **DSL/AST Phase 2** | AST検証エンジン | `AstEngine`（eval不使用・パターンマッチ）、`Decompiler`（AST→Markdown）、`DriftDetector`（コンテンツ/定義層の乖離検出）；`definition_verify` + `definition_decompile` + `definition_drift` MCPツール；ALLOWED_METHODSホワイトリスト；91テスト |
 
-テスト結果: 356テスト通過、0失敗（v2.0.0）。
+テスト結果: 515テスト通過、0失敗（v2.1.0）。
 
 ### 近期
 
@@ -4429,7 +4538,7 @@ ProjectA/                           ProjectB/
 
 ---
 
-**バージョン**: 2.0.2
-**最終更新**: 2026-02-23
+**バージョン**: 2.1.0
+**最終更新**: 2026-02-25
 
 > *「KairosChainは『この結果は正しいか？』ではなく『この知性はどのように形成されたか？』に答えます」*

@@ -1,7 +1,7 @@
 ---
 name: kairoschain_usage_jp
 description: KairosChainのツール一覧、使用方法、進化ワークフロー
-version: 1.1
+version: 1.2
 layer: L1
 tags: [documentation, readme, usage, tools, workflow, examples]
 readme_order: 3
@@ -192,9 +192,9 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
    - すべての操作は`action_log`に記録される
    - 定期的にログをレビュー
 
-## 利用可能なツール（コア26個 + スキルツール）
+## 利用可能なツール（コア31個 + スキルツール）
 
-基本インストールでは25個のツール（24 + HTTP専用1個）が提供されます。`skill_tools_enabled: true`の場合、`kairos.rb`の`tool`ブロックで追加のツールを定義できます。
+基本インストールでは31個のツール（30 + HTTP専用1個）が提供されます。`skill_tools_enabled: true`の場合、`kairos.rb`の`tool`ブロックで追加のツールを定義できます。
 
 ### L0-A：スキルツール（Markdown） - 読み取り専用
 
@@ -208,9 +208,21 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
 | ツール | 説明 |
 |--------|------|
 | `skills_dsl_list` | kairos.rbからすべてのスキルを一覧表示 |
-| `skills_dsl_get` | IDでスキル定義を取得 |
+| `skills_dsl_get` | IDでスキル定義を取得（Definition、Formalization Notes、Verification Statusセクションを含む） |
 | `skills_evolve` | スキル変更を提案/適用 |
 | `skills_rollback` | バージョンスナップショットを管理 |
+
+### L0-C：DSL/ASTフォーマライゼーションツール
+
+スキルの構造的定義層に対して操作するツール群。LLM評価なしで検証・逆コンパイル・乖離検出を行います。
+
+| ツール | 説明 |
+|--------|------|
+| `definition_verify` | スキルのAST制約を構造的に検証（パターンマッチ、eval不使用）— 各ノードをsatisfied/unknown/unsatisfiedとして報告 |
+| `definition_decompile` | スキルのAST定義から人間が読めるMarkdown記述を再構築 |
+| `definition_drift` | スキルの自然言語コンテンツと形式的定義層の乖離を検出 |
+| `formalization_record` | フォーマライゼーション決定をブロックチェーンに記録（skill_id、根拠、信頼度、曖昧度） |
+| `formalization_history` | 特定のスキルまたは全スキルについてオンチェーンに保存されたフォーマライゼーション決定を照会 |
 
 > **スキル定義ツール**：`skill_tools_enabled: true`の場合、`kairos.rb`内の`tool`ブロックを持つスキルもここにMCPツールとして登録されます。
 

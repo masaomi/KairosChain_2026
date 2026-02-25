@@ -1,7 +1,7 @@
 ---
 name: kairoschain_design_jp
 description: Pure Skills設計とディレクトリ構造
-version: 1.1
+version: 1.2
 layer: L1
 tags: [documentation, readme, design, architecture, directory-structure]
 readme_order: 4
@@ -62,6 +62,93 @@ skill :self_inspection do
   end
 end
 ```
+
+## DSL/ASTスキルフォーマライゼーション
+
+KairosChain v2.1.0では、自然言語のスキルコンテンツと機械検証可能な構造定義を橋渡しする**部分形式化レイヤー**を導入しました。人間の判断を置き換えることなく、LLM評価なしで動作します。
+
+### 動機
+
+スキルの`content`ブロック（自然言語）と`behavior`ブロック（Rubyコード）は意味的に豊かですが、構造分析に対して不透明です。形式化レイヤーは、制約・計画・ツール呼び出し・意味的推論ノードを差分可能・検証可能なASTとして明示的に表現する**definition**レイヤーを追加します。
+
+### スキルの3層構造
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  コンテンツ層（自然言語、人間が読める）                 │
+│  content <<~MD ... MD                                   │
+├─────────────────────────────────────────────────────────┤
+│  定義層（AST、機械検証可能）                            │
+│  definition do                                          │
+│    constraint :ethics_approval, required: true          │
+│    node :review, type: :SemanticReasoning               │
+│  end                                                    │
+├─────────────────────────────────────────────────────────┤
+│  ビヘイビア層（Rubyコード、実行可能）                   │
+│  behavior do ... end                                    │
+└─────────────────────────────────────────────────────────┘
+```
+
+### ノード型
+
+| ノード型 | 意味 | 機械検証可能？ |
+|---------|------|-------------|
+| `Constraint` | 成立しなければならない不変条件 | ✅ 構造チェック |
+| `Check` | 評価するアサーション | ✅ パターンマッチ |
+| `Plan` | 名前付きステップのシーケンス | ✅ ステップ存在確認 |
+| `ToolCall` | MCPツール呼び出し | ✅ コマンド存在確認 |
+| `SemanticReasoning` | 人間/LLMの判断が必要 | ❌ `human_required`として記録 |
+
+### definitionブロックの例
+
+```ruby
+skill :core_safety do
+  version "3.0"
+  title "Core Safety Rules"
+
+  definition do
+    constraint :no_destructive_ops,
+      condition: "evolution_enabled == false",
+      description: "破壊的操作には進化モードの明示的有効化が必要"
+    constraint :human_approval_required,
+      condition: "require_human_approval == true",
+      description: "すべての進化変更には人間のサインオフが必要"
+    node :safety_review,
+      type: :SemanticReasoning,
+      prompt: "この変更はコア安全性不変条件を維持しているか？"
+  end
+
+  content <<~MD
+    ## コア安全性不変条件
+    1. 進化には明示的な有効化が必要
+    2. デフォルトで人間の承認が必要
+  MD
+end
+```
+
+### フォーマライゼーションツール
+
+| ツール | 説明 |
+|--------|------|
+| `definition_verify` | コンテキストに対して制約を検証 — ノードごとにsatisfied/unknown/unsatisfiedを報告 |
+| `definition_decompile` | ASTから人間が読めるMarkdownを再構築 |
+| `definition_drift` | コンテンツ層と定義層の乖離を検出 |
+| `formalization_record` | フォーマライゼーション決定をオンチェーンに記録（来歴） |
+| `formalization_history` | 過去のフォーマライゼーション決定を照会 |
+
+### 真実のソースポリシー
+
+**Ruby DSL（`.rb`）が唯一の権威あるソース**です。JSON表現はトランスポート（MCP、ブロックチェーン）のための派生出力です。真実の方向は常に：
+
+```
+Ruby DSL (.rb) → AstEngine → JSON → ブロックチェーン記録
+                           ↗
+              Decompiler（逆変換、参考のみ）
+```
+
+完全なポリシーは`docs/KairosChain_dsl_ast_source_of_truth_policy_20260225.md`を参照。
+
+---
 
 ## SkillSetプラグインアーキテクチャ
 

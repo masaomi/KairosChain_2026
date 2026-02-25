@@ -1,7 +1,7 @@
 ---
 name: kairoschain_design
 description: Pure Skills design and directory structure
-version: 1.1
+version: 1.2
 layer: L1
 tags: [documentation, readme, design, architecture, directory-structure]
 readme_order: 4
@@ -62,6 +62,93 @@ skill :self_inspection do
   end
 end
 ```
+
+## DSL/AST Skill Formalization
+
+KairosChain v2.1.0 introduces a **partial formalization layer** that bridges natural-language skill content and machine-verifiable structural definitions — without replacing human judgment or requiring LLM evaluation.
+
+### Motivation
+
+Skill content (natural language in `content` blocks) and skill behavior (Ruby code in `behavior` blocks) are semantically rich but opaque to structural analysis. The formalization layer adds an explicit **definition** layer that captures constraints, plans, tool calls, and semantic reasoning nodes in a diffable, verifiable AST.
+
+### Three Layers of a Skill
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Content Layer      (natural language, human-readable)  │
+│  content <<~MD ... MD                                   │
+├─────────────────────────────────────────────────────────┤
+│  Definition Layer   (AST, machine-verifiable)           │
+│  definition do                                          │
+│    constraint :ethics_approval, required: true          │
+│    node :review, type: :SemanticReasoning               │
+│  end                                                    │
+├─────────────────────────────────────────────────────────┤
+│  Behavior Layer     (Ruby code, executable)             │
+│  behavior do ... end                                    │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Node Types
+
+| Node Type | Meaning | Machine-Verifiable? |
+|-----------|---------|---------------------|
+| `Constraint` | Invariant that must hold | ✅ Structural check |
+| `Check` | Assertion to evaluate | ✅ Pattern-matched |
+| `Plan` | Sequence of named steps | ✅ Step presence |
+| `ToolCall` | MCP tool invocation | ✅ Command presence |
+| `SemanticReasoning` | Requires human/LLM judgment | ❌ Marked as `human_required` |
+
+### Example Definition Block
+
+```ruby
+skill :core_safety do
+  version "3.0"
+  title "Core Safety Rules"
+
+  definition do
+    constraint :no_destructive_ops,
+      condition: "evolution_enabled == false",
+      description: "Destructive operations require explicit evolution mode"
+    constraint :human_approval_required,
+      condition: "require_human_approval == true",
+      description: "All evolution changes require human sign-off"
+    node :safety_review,
+      type: :SemanticReasoning,
+      prompt: "Does this change maintain core safety invariants?"
+  end
+
+  content <<~MD
+    ## Core Safety Invariants
+    1. Evolution requires explicit enablement
+    2. Human approval required by default
+  MD
+end
+```
+
+### Formalization Tools
+
+| Tool | Description |
+|------|-------------|
+| `definition_verify` | Verify constraints against a context — reports satisfied/unknown/unsatisfied per node |
+| `definition_decompile` | Reconstruct human-readable Markdown from the AST |
+| `definition_drift` | Detect divergence between content and definition layers |
+| `formalization_record` | Record a formalization decision on-chain (provenance) |
+| `formalization_history` | Query past formalization decisions |
+
+### Source of Truth Policy
+
+**Ruby DSL (`.rb`) is the single authoritative source.** JSON representations are derived outputs for transport (MCP, blockchain). The direction of truth is always:
+
+```
+Ruby DSL (.rb) → AstEngine → JSON → Blockchain record
+                           ↗
+              Decompiler (reverse, advisory only)
+```
+
+See `docs/KairosChain_dsl_ast_source_of_truth_policy_20260225.md` for the full policy.
+
+---
 
 ## SkillSet Plugin Architecture
 

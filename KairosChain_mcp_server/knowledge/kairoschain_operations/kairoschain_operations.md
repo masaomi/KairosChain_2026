@@ -1,7 +1,7 @@
 ---
 name: kairoschain_operations
 description: "Future roadmap, deployment, and operations guide"
-version: 1.1
+version: 1.2
 layer: L1
 tags: [documentation, readme, operations, deployment, roadmap, backup]
 readme_order: 5
@@ -12,7 +12,7 @@ readme_lang: en
 
 ### Completed Phases
 
-The following development phases have been completed on the `feature/skillset-plugin` branch:
+The following development phases have been completed and merged to main:
 
 | Phase | Description | Key Deliverables |
 |-------|-------------|-----------------|
@@ -26,8 +26,10 @@ The following development phases have been completed on the `feature/skillset-pl
 | **Phase 4.pre** | Authentication + Hardening | Admin token rotation, session-based auth for P2P endpoints |
 | **Phase 4A** | HestiaChain Foundation | Self-contained trust anchor SkillSet, DEE protocol (PhilosophyDeclaration, ObservationLog), chain migration (4 stages), 4 MCP tools, 77 test assertions |
 | **Phase 4B** | Meeting Place Server | PlaceRouter, AgentRegistry, SkillBoard, HeartbeatManager, 6 HTTP endpoints, 2 MCP tools, 70 test assertions |
+| **DSL/AST Phase 1** | Partial Formalization Layer | `AstNode`/`DefinitionContext` DSL with 5 node types, `FormalizationDecision` on-chain provenance, `formalization_record` + `formalization_history` MCP tools, `core_safety`/`evolution_rules` annotated with definition blocks; 68 tests |
+| **DSL/AST Phase 2** | AST Verification Engine | `AstEngine` (eval-free, pattern-matched), `Decompiler` (AST→Markdown), `DriftDetector` (content/definition divergence); `definition_verify` + `definition_decompile` + `definition_drift` MCP tools; security: ALLOWED_METHODS whitelist; 91 tests |
 
-Test results: 356 passed, 0 failed (v2.0.0).
+Test results: 515 passed, 0 failed (v2.1.0).
 
 ### Near-term
 
