@@ -31,6 +31,8 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 - **DSL/AST Source of Truth Policy**: Ruby DSL (.rb) is authoritative; JSON representations are derived outputs
 
+- **Upgrade notification at MCP session start**: `Protocol#handle_initialize` checks gem vs. data version via `UpgradeAnalyzer` and returns a `notifications` entry when an upgrade is available, so LLM clients are informed at session start without disrupting normal operation
+
 ### Fixed
 
 - **Deadlock in PendingChanges#summary**: Recursive locking when summary calls constraint check methods within already-held @mutex synchronize block. Separated lock acquisition (public API) from logic (private methods). Made check_trigger_conditions atomic.
