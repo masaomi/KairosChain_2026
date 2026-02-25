@@ -4,6 +4,27 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.2.0] - 2026-02-25
+
+### Changed
+
+- **Unified L1 Meta-Philosophy (v2.0)**: Integrated three meta-level philosophical analyses into a single L1 knowledge entry with 9 propositions organized in 4 thematic groups (Ontological Foundations, Integrity, Possibility and Time, Cognition and Relations). Each proposition carries [ML1/ML2/ML3] provenance labels. Structure marked as provisional per Persona Assembly consensus (6 personas, 2 rounds).
+  - New: `knowledge/kairoschain_meta_philosophy/kairoschain_meta_philosophy.md` (EN, v2.0)
+  - New: `knowledge/kairoschain_meta_philosophy_jp/kairoschain_meta_philosophy_jp.md` (JP, v2.0)
+  - Removed: `kairoschain_philosophy/kairoschain_meta_philosophy.md` (v1.0, superseded)
+  - Removed: `kairoschain_philosophy/kairoschain_meta_philosophy2.md` (v1.0, superseded)
+  - Removed: `kairoschain_philosophy_jp/kairoschain_meta_philosophy_jp.md` (v1.0, superseded)
+  - Removed: `kairoschain_philosophy_jp/kairoschain_meta_philosophy2_jp.md` (v1.0, superseded)
+
+- **CLAUDE.md**: Updated Five Propositions → Nine Propositions with thematic groups and provenance labels. Updated Deep Reference to include third meta-level and case study.
+
+### Added
+
+- **Third Meta-Level Philosophy (docs/)**: Full analysis of metacognitive dynamic process, human-system composite cognition, and incompleteness as evolutionary driver (EN/JP)
+- **Self-Referential Metacognition Case Study (docs/)**: Developer experience record documenting L1 registration triggering metacognitive reflection — classified as generative example, not L1 knowledge (EN/JP)
+
+---
+
 ## [2.1.0] - 2026-02-25
 
 ### Added
@@ -221,6 +242,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Skill promotion with Persona Assembly
 - Tool guide and metadata system
 
+[2.2.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.1.0...v2.2.0
 [2.0.5]: https://github.com/masaomi/KairosChain_2026/compare/v2.0.4...v2.0.5
 [2.0.4]: https://github.com/masaomi/KairosChain_2026/compare/v2.0.3...v2.0.4
 [2.0.3]: https://github.com/masaomi/KairosChain_2026/compare/v2.0.2...v2.0.3

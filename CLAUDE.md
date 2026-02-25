@@ -8,17 +8,35 @@ KairosChain's entire architecture flows from one principle:
 
 This is why Ruby (DSL/AST) was chosen. "Defining a Skill" and "defining the evolution rules for a Skill" use the same language, syntax, and runtime. This structural correspondence is the foundation of self-referentiality, and all other properties of KairosChain germinate from it. Self-referentiality is not a design choice but an existential condition: without definitional closure at L0, the system would be "a program following configuration" rather than "an entity that defines its own conditions of existence."
 
-## Five Propositions (Summary)
+## Nine Propositions (Summary)
 
-1. **Self-referentiality and metacognition as generative seed** — Not an axiom deriving everything, but a pattern whose recursive application at different levels produces different properties. Intentionally asymmetric: strongest at L0 governance core, pragmatically open at infrastructure level ("sufficient self-referentiality"). Self-referentiality is structural (L0 defining itself); metacognition is cognitive (self_inspection evaluating the system's own state). Both dimensions are core.
+Organized in four thematic groups. Each proposition carries a provenance label [ML1/ML2/ML3] indicating which meta-level of analysis it originates from. This structure is provisional.
 
-2. **Dual integrity guarantee** — Prevention (approval_workflow's 5-layer validation) + structural impossibility (a contradictory self-referential system cannot operate). The latter holds within legitimate operation paths only.
+### A. Ontological Foundations
 
-3. **Structure opens possibility space; design realizes it** — Self-referential structure automatically enables recursive extension. Individual SkillSets (MMP, HestiaChain) are engineered, but the *possibility* of expressing meta-capabilities as SkillSets is a structural consequence, not a design decision.
+1. **[ML1+ML2] Self-referentiality as generative principle and existential condition** — Not just a generative seed but an existential condition: without definitional closure at L0, the system is "a program following configuration" not "an entity that defines its own conditions of existence." Intentionally asymmetric ("sufficient self-referentiality").
 
-4. **Circular integration of process and result** — Operation, evolution, and recording are functionally separated but ontologically unified through the same Skill structure. Time is Kairos (qualitative moment), not Chronos (quantitative flow).
+2. **[ML1] Partial autopoiesis** — Self-production loop closes at governance/capability-definition level; depends on external substrates (Ruby VM, filesystem) at execution level. The question is "at which abstraction level does the loop close?"
 
-5. **Partial autopoiesis** — Self-production loop closes at the governance/capability-definition level; depends on external substrates (Ruby VM, filesystem) at the execution level. The question is "at which abstraction level does the loop close?" — not "is it complete?"
+### B. Integrity
+
+3. **[ML1+ML2] Dual guarantee and active maintenance** — Prevention (approval_workflow's 5-layer validation) + structural impossibility + immune-system-like active recognition and exclusion of inconsistency.
+
+### C. Possibility and Time
+
+4. **[ML1] Structure opens possibility space; design realizes it** — Self-referential structure automatically enables recursive extension. The *possibility* of expressing meta-capabilities as SkillSets is a structural consequence.
+
+5. **[ML1+ML2] Constitutive recording and Kairotic temporality** — Recording is constitutive, not evidential. Time is Kairos (qualitative decisive moment), not Chronos. Each transformation irreversibly reconstitutes the system's being.
+
+6. **[ML3] Incompleteness as driving force** — Complete self-description is Gödelian-impossible, but this incompleteness drives perpetual evolution. The L2→L1→L0 promotion path institutionalizes the internalization of external analysis.
+
+### D. Cognition and Relations
+
+7. **[ML2] Metacognitive self-referentiality and design-implementation closure** — Self-referentiality is structural; metacognition is cognitive. Both are core. Designing/describing the system becomes an operation within the system.
+
+8. **[ML2] Co-dependent ontology** — Relations and individuals are co-dependently co-constituted (pratītyasamutpāda). Grounded in Nishida's basho, Huayan's shishi wu'ai, and Daoist wu-wei.
+
+9. **[ML3] Metacognitive dynamic process and human-system composite** — The third meta-level is a dynamic process, not a static state. The human is on the boundary — cognitive acts constitute the system's boundary. Reached through structuring human-system metacognitive dialogue, not by excluding the human.
 
 ## Development Guidelines
 
@@ -73,6 +91,8 @@ This CLAUDE.md follows KairosChain's own philosophy:
 
 For the full philosophical analysis including biophilosophical foundations (autopoiesis, intersubjectivity, process philosophy, dissipative structures), critical evaluation methodology, and open questions:
 
-- **L1 Knowledge**: `knowledge/kairoschain_philosophy/kairoschain_meta_philosophy.md`
+- **L1 Knowledge (Unified)**: `knowledge/kairoschain_meta_philosophy/kairoschain_meta_philosophy.md`
 - **First Meta-Level**: `docs/kairoschain_philosophy_claude_opus4.6_agent_team_20260223.md`
 - **Second Meta-Level**: `docs/kairoschain_philosophy2_claude_opus4.6_agent_team_20260223.md`
+- **Third Meta-Level**: `docs/kairoschain_philosophy3_claude_opus4.6_agent_team_20260225.md`
+- **Case Study**: `docs/kairoschain_self_referential_metacognition_case_study_20260225.md`
