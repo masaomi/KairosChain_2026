@@ -4,6 +4,39 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.1.0] - 2026-02-25
+
+### Added
+
+- **Phase 1: DSL/AST Partial Formalization Layer**
+  - `AstNode` Struct and `DefinitionContext` with 5 node types (Constraint, SemanticReasoning, Plan, ToolCall, Check)
+  - `Skill` Struct extended with `:definition` and `:formalization_notes` fields
+  - `FormalizationDecision` class for on-chain provenance records
+  - `formalization_record` MCP tool: record formalization decisions to blockchain
+  - `formalization_history` MCP tool: query accumulated formalization decisions
+  - `skills_dsl_get` enhanced with Definition (Structural Layer) and Formalization Notes (Provenance Layer) sections
+  - `core_safety` and `evolution_rules` L0 skills annotated with definition blocks
+  - 68 tests (test_dsl_ast_phase1.rb)
+
+- **Phase 2: AST Verification Engine, Decompiler, and Drift Detection**
+  - `AstEngine`: Pattern-matched structural verification (no eval) with condition evaluation (==, <, >=, .method?(), not in)
+  - `Decompiler`: AST to human-readable Markdown reconstruction
+  - `DriftDetector`: Content/definition layer divergence detection with coverage_ratio and keyword matching (no LLM)
+  - `definition_verify` MCP tool: structural constraint verification report
+  - `definition_decompile` MCP tool: reverse AST to human-readable form
+  - `definition_drift` MCP tool: detect content/definition layer misalignment
+  - `skills_dsl_get` enhanced with Verification Status section (with fallback)
+  - Security: method call whitelist for condition evaluation, type-safe numeric comparisons
+  - 91 tests (test_dsl_ast_phase2.rb), full backward compatibility with Phase 1
+
+- **DSL/AST Source of Truth Policy**: Ruby DSL (.rb) is authoritative; JSON representations are derived outputs
+
+### Fixed
+
+- **Deadlock in PendingChanges#summary**: Recursive locking when summary calls constraint check methods within already-held @mutex synchronize block. Separated lock acquisition (public API) from logic (private methods). Made check_trigger_conditions atomic.
+
+---
+
 ## [2.0.4] - 2026-02-25
 
 ### Fixed

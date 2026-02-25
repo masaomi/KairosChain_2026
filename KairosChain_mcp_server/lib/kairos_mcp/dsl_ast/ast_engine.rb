@@ -36,6 +36,13 @@ module KairosMcp
     # NOTE: The engine itself is infrastructure in Phase 2.
     # Policy aspects (drift thresholds, etc.) may become a SkillSet in Phase 3.
     class AstEngine
+      # Allowed methods for condition evaluation via send().
+      # Only query methods (no side effects) are permitted.
+      ALLOWED_METHODS = %i[
+        can_evolve? has_tool? include? key? empty? nil?
+        is_a? respond_to? size length count
+      ].freeze
+
       # Verify all definition nodes for a skill
       # @param skill [KairosMcp::SkillsDsl::Skill] the skill to verify
       # @param binding_context [Hash] runtime values for condition evaluation
@@ -257,18 +264,26 @@ module KairosMcp
             }
           end
 
-          result = case op
-                   when '<'  then left_val < right_val
-                   when '>'  then left_val > right_val
-                   when '<=' then left_val <= right_val
-                   when '>=' then left_val >= right_val
-                   end
+          begin
+            result = case op
+                     when '<'  then left_val < right_val
+                     when '>'  then left_val > right_val
+                     when '<=' then left_val <= right_val
+                     when '>=' then left_val >= right_val
+                     end
 
-          return {
-            satisfied: result,
-            detail: "#{left_name}(#{left_val}) #{op} #{right_name}(#{right_val}) = #{result}",
-            evaluable: true
-          }
+            return {
+              satisfied: result,
+              detail: "#{left_name}(#{left_val}) #{op} #{right_name}(#{right_val}) = #{result}",
+              evaluable: true
+            }
+          rescue TypeError, ArgumentError => e
+            return {
+              satisfied: :unknown,
+              detail: "Type error in comparison: #{e.message}",
+              evaluable: false
+            }
+          end
         end
 
         # Pattern: "X.method?(arg)"
@@ -280,8 +295,16 @@ module KairosMcp
           if binding_context.key?(obj_name)
             obj = binding_context[obj_name]
             if obj.respond_to?(method_name)
+              # Security: only allow whitelisted query methods (no side effects)
+              unless ALLOWED_METHODS.include?(method_name)
+                return {
+                  satisfied: :unknown,
+                  detail: "Method '#{method_name}' not in allowed list",
+                  evaluable: false
+                }
+              end
               # Parse argument: try symbol, then string
-              arg = arg_str.start_with?(':') ? arg_str[1..].to_sym : arg_str
+              arg = arg_str.start_with?(':') ? arg_str[1..-1].to_sym : arg_str
               begin
                 result = obj.send(method_name, arg)
                 return {
