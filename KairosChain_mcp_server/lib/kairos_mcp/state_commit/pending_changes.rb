@@ -57,36 +57,28 @@ module KairosMcp
         #
         # @return [Boolean] True if L0 changes exist
         def includes_l0_change?
-          @mutex.synchronize do
-            @changes.any? { |c| c[:layer] == 'L0' }
-          end
+          @mutex.synchronize { _includes_l0_change? }
         end
 
         # Check if there are any promotions
         #
         # @return [Boolean] True if promotions exist
         def includes_promotion?
-          @mutex.synchronize do
-            @changes.any? { |c| c[:action] == 'promote' }
-          end
+          @mutex.synchronize { _includes_promotion? }
         end
 
         # Check if there are any demotions
         #
         # @return [Boolean] True if demotions exist
         def includes_demotion?
-          @mutex.synchronize do
-            @changes.any? { |c| c[:action] == 'demote' || c[:action] == 'archive' }
-          end
+          @mutex.synchronize { _includes_demotion? }
         end
 
         # Get L1 changes count
         #
         # @return [Integer] Number of L1 changes
         def l1_changes_count
-          @mutex.synchronize do
-            @changes.count { |c| c[:layer] == 'L1' }
-          end
+          @mutex.synchronize { _l1_changes_count }
         end
 
         # Get L2 changes count
@@ -127,28 +119,7 @@ module KairosMcp
         #
         # @return [Hash] Summary with counts per layer and action
         def summary
-          @mutex.synchronize do
-            {
-              total: @changes.size,
-              by_layer: {
-                L0: @changes.count { |c| c[:layer] == 'L0' },
-                L1: @changes.count { |c| c[:layer] == 'L1' },
-                L2: @changes.count { |c| c[:layer] == 'L2' }
-              },
-              by_action: {
-                create: @changes.count { |c| c[:action] == 'create' },
-                update: @changes.count { |c| c[:action] == 'update' },
-                delete: @changes.count { |c| c[:action] == 'delete' },
-                promote: @changes.count { |c| c[:action] == 'promote' },
-                demote: @changes.count { |c| c[:action] == 'demote' },
-                archive: @changes.count { |c| c[:action] == 'archive' },
-                unarchive: @changes.count { |c| c[:action] == 'unarchive' }
-              },
-              has_l0_change: includes_l0_change?,
-              has_promotion: includes_promotion?,
-              has_demotion: includes_demotion?
-            }
-          end
+          @mutex.synchronize { _build_summary }
         end
 
         # Check trigger conditions for auto-commit
@@ -158,28 +129,71 @@ module KairosMcp
         def check_trigger_conditions(config)
           return { should_commit: false, trigger: nil } unless config
 
-          # Check event-based triggers
-          if config.dig('on_events', 'l0_change') && includes_l0_change?
+          @mutex.synchronize { _check_trigger_conditions(config) }
+        end
+
+        private
+
+        def _includes_l0_change?
+          @changes.any? { |c| c[:layer] == 'L0' }
+        end
+
+        def _includes_promotion?
+          @changes.any? { |c| c[:action] == 'promote' }
+        end
+
+        def _includes_demotion?
+          @changes.any? { |c| c[:action] == 'demote' || c[:action] == 'archive' }
+        end
+
+        def _l1_changes_count
+          @changes.count { |c| c[:layer] == 'L1' }
+        end
+
+        def _build_summary
+          {
+            total: @changes.size,
+            by_layer: {
+              L0: @changes.count { |c| c[:layer] == 'L0' },
+              L1: @changes.count { |c| c[:layer] == 'L1' },
+              L2: @changes.count { |c| c[:layer] == 'L2' }
+            },
+            by_action: {
+              create: @changes.count { |c| c[:action] == 'create' },
+              update: @changes.count { |c| c[:action] == 'update' },
+              delete: @changes.count { |c| c[:action] == 'delete' },
+              promote: @changes.count { |c| c[:action] == 'promote' },
+              demote: @changes.count { |c| c[:action] == 'demote' },
+              archive: @changes.count { |c| c[:action] == 'archive' },
+              unarchive: @changes.count { |c| c[:action] == 'unarchive' }
+            },
+            has_l0_change: _includes_l0_change?,
+            has_promotion: _includes_promotion?,
+            has_demotion: _includes_demotion?
+          }
+        end
+
+        def _check_trigger_conditions(config)
+          if config.dig('on_events', 'l0_change') && _includes_l0_change?
             return { should_commit: true, trigger: 'l0_change' }
           end
 
-          if config.dig('on_events', 'promotion') && includes_promotion?
+          if config.dig('on_events', 'promotion') && _includes_promotion?
             return { should_commit: true, trigger: 'promotion' }
           end
 
-          if config.dig('on_events', 'demotion') && includes_demotion?
+          if config.dig('on_events', 'demotion') && _includes_demotion?
             return { should_commit: true, trigger: 'demotion' }
           end
 
-          # Check threshold-based triggers
           if config.dig('change_threshold', 'enabled')
             l1_threshold = config.dig('change_threshold', 'l1_changes') || 5
-            if l1_changes_count >= l1_threshold
+            if _l1_changes_count >= l1_threshold
               return { should_commit: true, trigger: 'l1_threshold' }
             end
 
             total_threshold = config.dig('change_threshold', 'total_changes') || 10
-            if total_changes_count >= total_threshold
+            if @changes.size >= total_threshold
               return { should_commit: true, trigger: 'total_threshold' }
             end
           end

@@ -4,6 +4,14 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.0.4] - 2026-02-25
+
+### Fixed
+
+- **Storage path inconsistency**: `SnapshotManager` resolved `snapshot_dir` relative to `Dir.pwd` (project root) instead of `.kairos/` data directory — snapshots were written to `./storage/snapshots/` instead of `.kairos/storage/snapshots/`. Added `resolve_snapshot_dir()` to ensure all storage paths use consistent base directory resolution.
+
+---
+
 ## [2.0.3] - 2026-02-24
 
 ### Fixed
