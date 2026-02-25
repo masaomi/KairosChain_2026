@@ -1,6 +1,7 @@
 require 'json'
 require_relative 'tool_registry'
 require_relative 'skills_config'
+require_relative 'upgrade_analyzer'
 require_relative 'version'
 
 module KairosMcp
@@ -78,6 +79,10 @@ module KairosMcp
       instructions = load_instructions
       result[:instructions] = instructions if instructions
 
+      # One-time upgrade notification at session start
+      notification = check_upgrade_available
+      result[:notifications] = [notification] if notification
+
       result
     end
 
@@ -110,6 +115,23 @@ module KairosMcp
     # @return [String, nil] File content or nil
     def read_if_exists(path)
       File.exist?(path) ? File.read(path) : nil
+    end
+
+    # Check if gem version differs from initialized data version
+    #
+    # @return [Hash, nil] Notification hash or nil
+    def check_upgrade_available
+      analyzer = UpgradeAnalyzer.new
+      return nil unless analyzer.has_meta
+      return nil unless analyzer.upgrade_needed?
+
+      {
+        type: 'upgrade_available',
+        message: "KairosChain upgrade available: v#{analyzer.meta_version} → v#{analyzer.gem_version}. " \
+                 "Run 'kairos-chain upgrade' to update your project files."
+      }
+    rescue StandardError
+      nil
     end
 
     def handle_tools_list
