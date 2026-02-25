@@ -1,13 +1,22 @@
+# Echoria — Docker Compose for local production-like deployment
+#
+# Usage:
+#   cd Echoria/docker
+#   docker compose up --build
+#
+# The build context is the repository root (../) so both
+# KairosChain_mcp_server and Echoria are accessible.
+#
 services:
   db:
     image: postgres:16-alpine
     container_name: echoria-db
     environment:
       POSTGRES_USER: echoria
-      POSTGRES_PASSWORD: echoria_dev
-      POSTGRES_DB: echoria_development
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-echoria_dev}
+      POSTGRES_DB: echoria_production
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5434}:5432"  # 5434 to avoid conflict with dev PG on 5433
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
@@ -21,8 +30,9 @@ services:
   redis:
     image: redis:7-alpine
     container_name: echoria-redis
+    command: redis-server --appendonly yes
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6380}:6379"  # 6380 to avoid conflict with dev Redis
     volumes:
       - redisdata:/data
     networks:
@@ -36,23 +46,24 @@ services:
   api:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.api
+      dockerfile: Echoria/docker/Dockerfile.api
     container_name: echoria-api
-    ports:
-      - "3001:3000"
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://echoria:echoria_dev@db:5432/echoria_development
+      DATABASE_URL: postgresql://echoria:${DB_PASSWORD:-echoria_dev}@db:5432/echoria_production
       REDIS_URL: redis://redis:6379/0
       RAILS_ENV: production
-      SECRET_KEY_BASE: ${SECRET_KEY_BASE:-development-secret-key-change-in-production}
-      JWT_SECRET: ${JWT_SECRET:-development-jwt-secret-change-in-production}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:-change-me-in-production-$(openssl rand -hex 32)}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-jwt-secret}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       RAILS_LOG_TO_STDOUT: "1"
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost,http://localhost:80}
+      DAILY_SCENE_LIMIT: ${DAILY_SCENE_LIMIT:-50}
+      DAILY_CHAT_LIMIT: ${DAILY_CHAT_LIMIT:-100}
     networks:
       - echoria-network
     healthcheck:
@@ -60,28 +71,51 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
+
+  api-setup:
+    build:
+      context: ..
+      dockerfile: Echoria/docker/Dockerfile.api
+    container_name: echoria-api-setup
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://echoria:${DB_PASSWORD:-echoria_dev}@db:5432/echoria_production
+      RAILS_ENV: production
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:-change-me-in-production}
+    command: >
+      sh -c "bundle exec rails db:create 2>/dev/null || true &&
+             bundle exec rails db:migrate &&
+             bundle exec rails db:seed &&
+             echo '=== Database setup complete ==='"
+    networks:
+      - echoria-network
+    restart: "no"
 
   web:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.web
+      dockerfile: Echoria/docker/Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_URL: /api/v1
     container_name: echoria-web
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:3001
     networks:
       - echoria-network
     volumes:
-      - web-build:/app/out
+      - web-build:/usr/share/nginx/html
 
   nginx:
     image: nginx:alpine
     container_name: echoria-nginx
     ports:
-      - "80:80"
-      - "443:443"
+      - "${HTTP_PORT:-80}:80"
     depends_on:
-      - api
-      - web
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - web-build:/usr/share/nginx/html:ro

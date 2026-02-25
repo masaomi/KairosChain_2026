@@ -1,5 +1,6 @@
-# Multi-stage build for Rails API
-FROM ruby:3.3-slim as builder
+# Multi-stage build for Echoria Rails API
+# Build context: repository root (KairosChain_2026/)
+FROM ruby:3.3-slim AS builder
 
 WORKDIR /app
 
@@ -10,11 +11,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Gemfile and Gemfile.lock
-COPY Gemfile Gemfile.lock ./
+# Copy KairosChain gem source (local path dependency)
+COPY KairosChain_mcp_server/ /kairos-chain/
 
-# Install gems
-RUN bundle install --jobs 4 --retry 3
+# Copy Gemfile with adjusted gem path for Docker context
+COPY Echoria/echoria-api/Gemfile /app/Gemfile
+
+# Rewrite kairos-chain gem path for Docker build
+RUN sed -i 's|path: "../../KairosChain_mcp_server"|path: "/kairos-chain"|' /app/Gemfile
+
+# Install gems (without dev/test to keep image small)
+RUN bundle config set --local without 'development test' \
+    && bundle install --jobs 4 --retry 3
 
 # Final stage
 FROM ruby:3.3-slim
@@ -32,19 +40,25 @@ RUN useradd -m -u 1000 rails
 
 # Copy gems from builder
 COPY --from=builder /usr/local/bundle /usr/local/bundle
+COPY --from=builder /kairos-chain /kairos-chain
 
 # Copy application code
-COPY --chown=rails:rails . .
+COPY --chown=rails:rails Echoria/echoria-api/ /app/
+
+# Precompile bootsnap (faster boot)
+RUN bundle exec bootsnap precompile --gemfile app/ lib/ 2>/dev/null || true
+
+# Create necessary directories
+RUN mkdir -p tmp/pids tmp/cache log \
+    && chown -R rails:rails tmp log
 
 # Switch to non-root user
 USER rails
 
-# Expose port
 EXPOSE 3000
 
-# Health check endpoint
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 \
-    CMD curl -f http://localhost:3000/health || exit 1
+    CMD curl -f http://localhost:3000/api/v1/health || exit 1
 
 # Start Rails server
 CMD ["bundle", "exec", "rails", "server", "-b", "0.0.0.0"]
