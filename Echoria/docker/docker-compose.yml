@@ -49,8 +49,8 @@ services:
       dockerfile: Echoria/docker/Dockerfile.api
     container_name: echoria-api
     depends_on:
-      db:
-        condition: service_healthy
+      api-setup:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     environment:

@@ -148,20 +148,24 @@ chapter1_beacons = [
   }
 ]
 
-# Reset sequence and clear existing beacons to avoid PK conflicts
-StoryBeacon.where(chapter: "chapter_1").delete_all
-ActiveRecord::Base.connection.execute("SELECT setval('story_beacons_id_seq', COALESCE((SELECT MAX(id) FROM story_beacons), 0) + 1, false)")
+# Idempotent: truncate table and reset PK sequence to avoid id conflicts
+ActiveRecord::Base.connection.execute("TRUNCATE story_beacons RESTART IDENTITY CASCADE")
 
-chapter1_beacons.each do |beacon_data|
-  StoryBeacon.create!(
-    chapter: beacon_data[:chapter],
-    beacon_order: beacon_data[:beacon_order],
-    title: beacon_data[:title],
-    content: beacon_data[:content],
-    tiara_dialogue: beacon_data[:tiara_dialogue],
-    choices: beacon_data[:choices],
-    metadata: beacon_data[:metadata]
-  )
+conn = ActiveRecord::Base.connection
+chapter1_beacons.each do |bd|
+  conn.execute(<<~SQL)
+    INSERT INTO story_beacons (chapter, beacon_order, title, content, tiara_dialogue, choices, metadata, created_at, updated_at)
+    VALUES (
+      #{conn.quote(bd[:chapter])},
+      #{bd[:beacon_order]},
+      #{conn.quote(bd[:title])},
+      #{conn.quote(bd[:content])},
+      #{conn.quote(bd[:tiara_dialogue])},
+      #{conn.quote(bd[:choices].to_json)}::jsonb,
+      #{conn.quote((bd[:metadata] || {}).to_json)}::jsonb,
+      NOW(), NOW()
+    )
+  SQL
 end
 
 puts "  Created #{StoryBeacon.in_chapter('chapter_1').count} beacons for Chapter 1"
