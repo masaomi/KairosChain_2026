@@ -4,6 +4,15 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.0.5] - 2026-02-25
+
+### Fixed
+
+- **Deadlock**: `PendingChanges#summary` caused `deadlock; recursive locking` by calling `includes_l0_change?`, `includes_promotion?`, `includes_demotion?` from within a `@mutex.synchronize` block. Separated lock acquisition (public API) from logic (private `_`-prefixed methods).
+- **Atomicity**: `check_trigger_conditions` now executes within a single lock, preventing race conditions between individual predicate checks.
+
+---
+
 ## [2.0.4] - 2026-02-25
 
 ### Fixed
@@ -186,6 +195,8 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Skill promotion with Persona Assembly
 - Tool guide and metadata system
 
+[2.0.5]: https://github.com/masaomi/KairosChain_2026/compare/v2.0.4...v2.0.5
+[2.0.4]: https://github.com/masaomi/KairosChain_2026/compare/v2.0.3...v2.0.4
 [2.0.3]: https://github.com/masaomi/KairosChain_2026/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/masaomi/KairosChain_2026/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/masaomi/KairosChain_2026/compare/v2.0.0...v2.0.1
