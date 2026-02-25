@@ -8,6 +8,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
+    libyaml-dev \
     git \
     && rm -rf /var/lib/apt/lists/*
 
@@ -32,6 +33,7 @@ WORKDIR /app
 # Install only runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
+    libyaml-0-2 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
@@ -42,8 +44,16 @@ RUN useradd -m -u 1000 rails
 COPY --from=builder /usr/local/bundle /usr/local/bundle
 COPY --from=builder /kairos-chain /kairos-chain
 
+# Ensure kairos-chain files are readable by all users
+RUN chmod -R a+r /kairos-chain
+
 # Copy application code
 COPY --chown=rails:rails Echoria/echoria-api/ /app/
+
+# Re-apply gem path fix and copy Gemfile.lock from builder
+# (COPY above overwrites the modified Gemfile with original, and has no Gemfile.lock)
+COPY --from=builder /app/Gemfile /app/Gemfile
+COPY --from=builder /app/Gemfile.lock /app/Gemfile.lock
 
 # Precompile bootsnap (faster boot)
 RUN bundle exec bootsnap precompile --gemfile app/ lib/ 2>/dev/null || true

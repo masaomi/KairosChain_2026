@@ -148,14 +148,20 @@ chapter1_beacons = [
   }
 ]
 
+# Reset sequence and clear existing beacons to avoid PK conflicts
+StoryBeacon.where(chapter: "chapter_1").delete_all
+ActiveRecord::Base.connection.execute("SELECT setval('story_beacons_id_seq', COALESCE((SELECT MAX(id) FROM story_beacons), 0) + 1, false)")
+
 chapter1_beacons.each do |beacon_data|
-  StoryBeacon.find_or_create_by!(chapter: beacon_data[:chapter], beacon_order: beacon_data[:beacon_order]) do |beacon|
-    beacon.title = beacon_data[:title]
-    beacon.content = beacon_data[:content]
-    beacon.tiara_dialogue = beacon_data[:tiara_dialogue]
-    beacon.choices = beacon_data[:choices]
-    beacon.metadata = beacon_data[:metadata]
-  end
+  StoryBeacon.create!(
+    chapter: beacon_data[:chapter],
+    beacon_order: beacon_data[:beacon_order],
+    title: beacon_data[:title],
+    content: beacon_data[:content],
+    tiara_dialogue: beacon_data[:tiara_dialogue],
+    choices: beacon_data[:choices],
+    metadata: beacon_data[:metadata]
+  )
 end
 
 puts "  Created #{StoryBeacon.in_chapter('chapter_1').count} beacons for Chapter 1"

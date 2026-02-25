@@ -4,7 +4,7 @@
 #   cd Echoria/docker
 #   docker compose up --build
 #
-# The build context is the repository root (../) so both
+# The build context is the repository root (../../) so both
 # KairosChain_mcp_server and Echoria are accessible.
 #
 services:
@@ -45,7 +45,7 @@ services:
 
   api:
     build:
-      context: ..
+      context: ../..
       dockerfile: Echoria/docker/Dockerfile.api
     container_name: echoria-api
     depends_on:
@@ -64,6 +64,7 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost,http://localhost:80}
       DAILY_SCENE_LIMIT: ${DAILY_SCENE_LIMIT:-50}
       DAILY_CHAT_LIMIT: ${DAILY_CHAT_LIMIT:-100}
+      DISABLE_SSL: "1"
     networks:
       - echoria-network
     healthcheck:
@@ -75,7 +76,7 @@ services:
 
   api-setup:
     build:
-      context: ..
+      context: ../..
       dockerfile: Echoria/docker/Dockerfile.api
     container_name: echoria-api-setup
     depends_on:
@@ -85,6 +86,7 @@ services:
       DATABASE_URL: postgresql://echoria:${DB_PASSWORD:-echoria_dev}@db:5432/echoria_production
       RAILS_ENV: production
       SECRET_KEY_BASE: ${SECRET_KEY_BASE:-change-me-in-production}
+      DISABLE_SSL: "1"
     command: >
       sh -c "bundle exec rails db:create 2>/dev/null || true &&
              bundle exec rails db:migrate &&
@@ -96,15 +98,21 @@ services:
 
   web:
     build:
-      context: ..
+      context: ../..
       dockerfile: Echoria/docker/Dockerfile.web
       args:
         NEXT_PUBLIC_API_URL: /api/v1
     container_name: echoria-web
+    environment:
+      HOSTNAME: "0.0.0.0"
     networks:
       - echoria-network
-    volumes:
-      - web-build:/usr/share/nginx/html
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   nginx:
     image: nginx:alpine
@@ -118,7 +126,6 @@ services:
         condition: service_started
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - web-build:/usr/share/nginx/html:ro
     networks:
       - echoria-network
     healthcheck:
@@ -134,4 +141,3 @@ networks:
 volumes:
   pgdata:
   redisdata:
-  web-build:

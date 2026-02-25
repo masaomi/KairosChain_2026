@@ -1,4 +1,5 @@
 require "active_support/core_ext/integer/time"
+require "active_support/core_ext/numeric/bytes"
 
 Rails.application.configure do
   config.enable_reloading = false
@@ -18,8 +19,8 @@ Rails.application.configure do
     config.logger = ActiveSupport::TaggedLogging.new(logger)
   end
 
-  # SSL
-  config.force_ssl = true
+  # SSL (disable with DISABLE_SSL=1 for local Docker testing)
+  config.force_ssl = ENV["DISABLE_SSL"] != "1"
   config.ssl_options = { hsts: { subdomains: true } }
 
   # Active Record
