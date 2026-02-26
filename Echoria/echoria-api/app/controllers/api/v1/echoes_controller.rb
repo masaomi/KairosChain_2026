@@ -73,4 +73,7 @@ class EchoDetailSerializer
   attribute :story_sessions do |echo|
     echo.story_sessions.map { |s| { id: s.id, chapter: s.chapter, status: s.status } }
   end
+  attribute :chapter_1_completed do |echo|
+    echo.story_sessions.where(chapter: "chapter_1", status: "completed").exists?
+  end
 end

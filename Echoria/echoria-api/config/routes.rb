@@ -19,6 +19,9 @@ Rails.application.routes.draw do
         member do
           post "choose", to: "story_sessions#choose"
           post "generate_scene", to: "story_sessions#generate_scene"
+          post "pause", to: "story_sessions#pause"
+          post "resume", to: "story_sessions#resume"
+          get "story_log", to: "story_sessions#story_log"
         end
       end
 

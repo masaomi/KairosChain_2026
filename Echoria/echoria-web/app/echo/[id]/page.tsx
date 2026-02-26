@@ -10,7 +10,7 @@ import EchoAvatar from '@/components/echo/EchoAvatar';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import { getEcho } from '@/lib/api';
 import { Echo } from '@/types';
-import { ArrowLeft, MessageCircle, BookOpen } from 'lucide-react';
+import { ArrowLeft, MessageCircle, BookOpen, Lock, Cat, ScrollText, Play, Pause } from 'lucide-react';
 
 function EchoProfileContent() {
   const { id } = useParams() as { id: string };
@@ -74,6 +74,8 @@ function EchoProfileContent() {
     crystallized: 'bg-purple-500/20 text-purple-200 border-purple-500/30',
   };
 
+  const chapter1Done = echo.chapter_1_completed ?? false;
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#1a0a2e] via-[#16213e] to-[#0f3460] relative">
       {/* Background decoration */}
@@ -122,26 +124,6 @@ function EchoProfileContent() {
                     </span>
                   </div>
                 </div>
-
-                {/* Action Buttons */}
-                <div className="flex flex-col gap-3 sm:w-auto">
-                  {echo.status === 'crystallized' && (
-                    <Link
-                      href={`/echo/${id}/chat`}
-                      className="button-primary inline-flex items-center justify-center gap-2 px-6 py-3 text-sm sm:text-base"
-                    >
-                      <MessageCircle className="w-4 h-4" />
-                      チャット
-                    </Link>
-                  )}
-                  <Link
-                    href={`/echo/${id}/story`}
-                    className="button-secondary inline-flex items-center justify-center gap-2 px-6 py-3 text-sm sm:text-base"
-                  >
-                    <BookOpen className="w-4 h-4" />
-                    物語を続ける
-                  </Link>
-                </div>
               </div>
 
               {/* Stats */}
@@ -169,6 +151,134 @@ function EchoProfileContent() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Action Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">
+          {/* Story Button — shows status */}
+          {(() => {
+            const sessions = echo.story_sessions || [];
+            const activeSession = sessions.find(s => s.status === 'active');
+            const pausedSession = sessions.find(s => s.status === 'paused');
+            const completedSession = sessions.find(s => s.status === 'completed');
+            const currentSession = activeSession || pausedSession;
+            const isPaused = !!pausedSession && !activeSession;
+
+            return (
+              <Link
+                href={`/echo/${id}/story`}
+                className="glass-morphism rounded-2xl p-6 hover:bg-white/10 transition-all duration-200 group"
+              >
+                <div className="flex items-center gap-4 mb-3">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#d4af37] to-[#50c878] flex items-center justify-center group-hover:scale-110 transition-transform relative">
+                    {isPaused ? (
+                      <Play className="w-6 h-6 text-[#1a0a2e]" />
+                    ) : (
+                      <BookOpen className="w-6 h-6 text-[#1a0a2e]" />
+                    )}
+                    {isPaused && (
+                      <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-yellow-500 flex items-center justify-center">
+                        <Pause className="w-2.5 h-2.5 text-[#1a0a2e]" />
+                      </div>
+                    )}
+                  </div>
+                  <h3 className="text-lg font-serif font-bold text-[#d4af37]">
+                    {isPaused ? '続きから再開' : completedSession ? '物語を読む' : '物語を始める'}
+                  </h3>
+                </div>
+                <p className="text-sm text-[#b0b0b0]">
+                  {isPaused
+                    ? 'セーブデータがあります — タップで再開'
+                    : completedSession
+                      ? '第一章の冒険を振り返る'
+                      : 'ティアラとともに残響界の冒険を進める'}
+                </p>
+              </Link>
+            );
+          })()}
+
+          {/* Story Log Button */}
+          {(() => {
+            const sessions = echo.story_sessions || [];
+            const anySession = sessions.find(s => s.status === 'active' || s.status === 'paused' || s.status === 'completed');
+            if (!anySession) return null;
+
+            return (
+              <Link
+                href={`/echo/${id}/story-log?session=${anySession.id}`}
+                className="glass-morphism rounded-2xl p-6 hover:bg-white/10 transition-all duration-200 group"
+              >
+                <div className="flex items-center gap-4 mb-3">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#8b7355] to-[#d4af37] flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <ScrollText className="w-6 h-6 text-[#1a0a2e]" />
+                  </div>
+                  <h3 className="text-lg font-serif font-bold text-[#d4af37]">物語ログ</h3>
+                </div>
+                <p className="text-sm text-[#b0b0b0]">
+                  これまでの冒険を小説として読む
+                </p>
+              </Link>
+            );
+          })()}
+
+          {/* Echo Chat Button */}
+          <Link
+            href={`/echo/${id}/chat?partner=echo`}
+            className="glass-morphism rounded-2xl p-6 hover:bg-white/10 transition-all duration-200 group"
+          >
+            <div className="flex items-center gap-4 mb-3">
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#d4af37] to-[#f0e68c] flex items-center justify-center group-hover:scale-110 transition-transform">
+                <MessageCircle className="w-6 h-6 text-[#1a0a2e]" />
+              </div>
+              <h3 className="text-lg font-serif font-bold text-[#d4af37]">
+                {echo.name}と会話
+              </h3>
+            </div>
+            <p className="text-sm text-[#b0b0b0]">
+              あなたのエコーと自由に対話する
+            </p>
+          </Link>
+
+          {/* Tiara Chat Button */}
+          {chapter1Done ? (
+            <Link
+              href={`/echo/${id}/chat?partner=tiara`}
+              className="glass-morphism rounded-2xl p-6 hover:bg-white/10 transition-all duration-200 group border border-purple-500/20"
+            >
+              <div className="flex items-center gap-4 mb-3">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#9b59b6] to-[#c0a0d0] flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Cat className="w-6 h-6 text-white" />
+                </div>
+                <h3 className="text-lg font-serif font-bold text-[#c0a0d0]">
+                  ティアラと会話
+                </h3>
+              </div>
+              <p className="text-sm text-[#b0b0b0]">
+                紫の導き手と物語の外で語り合う
+              </p>
+            </Link>
+          ) : (
+            <div className="glass-morphism rounded-2xl p-6 opacity-60 cursor-not-allowed relative overflow-hidden border border-purple-500/10">
+              <div className="flex items-center gap-4 mb-3">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#9b59b6]/40 to-[#c0a0d0]/40 flex items-center justify-center relative">
+                  <Cat className="w-6 h-6 text-white/50" />
+                  <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-[#1a0a2e] flex items-center justify-center">
+                    <Lock className="w-3 h-3 text-[#b0b0b0]" />
+                  </div>
+                </div>
+                <h3 className="text-lg font-serif font-bold text-[#c0a0d0]/50">
+                  ティアラと会話
+                </h3>
+              </div>
+              <p className="text-sm text-[#b0b0b0]/60">
+                第一章を完了すると解放されます
+              </p>
+              {/* Decorative lock overlay */}
+              <div className="absolute top-3 right-3">
+                <Lock className="w-4 h-4 text-[#b0b0b0]/30" />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Personality Radar */}

@@ -1,24 +1,34 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import EchoCard from '@/components/echo/EchoCard';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import { getEchoes, createEcho } from '@/lib/api';
+import { removeToken } from '@/lib/auth';
 import { Echo } from '@/types';
-import { Plus } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 
 function HomePageContent() {
   const [echoes, setEchoes] = useState<Echo[]>([]);
   const [loading, setLoading] = useState(true);
   const [creatingEcho, setCreatingEcho] = useState(false);
+  const [showNameDialog, setShowNameDialog] = useState(false);
+  const [echoName, setEchoName] = useState('');
   const [error, setError] = useState('');
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchEchoes();
   }, []);
+
+  useEffect(() => {
+    if (showNameDialog && nameInputRef.current) {
+      nameInputRef.current.focus();
+    }
+  }, [showNameDialog]);
 
   const fetchEchoes = async () => {
     try {
@@ -32,16 +42,34 @@ function HomePageContent() {
     }
   };
 
+  const openNameDialog = () => {
+    setEchoName('');
+    setShowNameDialog(true);
+  };
+
   const handleCreateEcho = async () => {
+    const name = echoName.trim();
+    if (!name) return;
+
     setCreatingEcho(true);
+    setShowNameDialog(false);
     try {
-      const newEcho = await createEcho('新しいエコー');
+      const newEcho = await createEcho(name);
       setEchoes([...echoes, newEcho]);
     } catch (err: any) {
       setError('エコーの作成に失敗しました');
       console.error(err);
     } finally {
       setCreatingEcho(false);
+    }
+  };
+
+  const handleNameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && echoName.trim()) {
+      handleCreateEcho();
+    }
+    if (e.key === 'Escape') {
+      setShowNameDialog(false);
     }
   };
 
@@ -62,6 +90,46 @@ function HomePageContent() {
       </div>
 
       <Header />
+
+      {/* Name Input Dialog */}
+      {showNameDialog && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4">
+          <div className="glass-morphism rounded-2xl p-8 sm:p-10 max-w-md w-full relative">
+            <button
+              onClick={() => setShowNameDialog(false)}
+              className="absolute top-4 right-4 text-[#b0b0b0] hover:text-[#f5f5f5] transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h2 className="text-2xl sm:text-3xl font-serif font-bold text-[#d4af37] mb-3 text-center">
+              エコーの名前
+            </h2>
+            <p className="text-[#b0b0b0] text-sm sm:text-base mb-6 text-center">
+              この名前が物語の中であなたの呼び名になります
+            </p>
+
+            <input
+              ref={nameInputRef}
+              type="text"
+              value={echoName}
+              onChange={(e) => setEchoName(e.target.value)}
+              onKeyDown={handleNameKeyDown}
+              placeholder="名前を入力..."
+              maxLength={20}
+              className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-[#f5f5f5] placeholder-[#606060] focus:outline-none focus:border-[#d4af37]/50 focus:ring-1 focus:ring-[#d4af37]/20 transition-all text-center text-lg"
+            />
+
+            <button
+              onClick={handleCreateEcho}
+              disabled={!echoName.trim()}
+              className="w-full mt-6 button-primary py-3 text-base disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              物語を始める
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       <main className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
@@ -91,7 +159,7 @@ function HomePageContent() {
 
             {/* Create New Echo Card */}
             <button
-              onClick={handleCreateEcho}
+              onClick={openNameDialog}
               disabled={creatingEcho}
               className="group glass-morphism rounded-2xl p-8 min-h-80 flex flex-col items-center justify-center gap-4 hover:bg-white/10 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -124,7 +192,7 @@ function HomePageContent() {
             </p>
 
             <button
-              onClick={handleCreateEcho}
+              onClick={openNameDialog}
               disabled={creatingEcho}
               className="button-primary inline-block px-8 py-4 text-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -143,7 +211,7 @@ function HomePageContent() {
           </Link>
           <button
             onClick={() => {
-              localStorage.removeItem('token');
+              removeToken();
               window.location.href = '/';
             }}
             className="glass-morphism rounded-lg p-4 text-center hover:bg-white/10 transition-colors text-[#d4af37] font-semibold cursor-pointer"

@@ -71,8 +71,8 @@ class DialogueService
 
   def generate_with_claude(prompt)
     response = @client.messages(
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 512,
+      model: "claude-sonnet-4-6",
+      max_tokens: 1024,
       system: "あなたは残響界（Echoria）で結晶化したエコーです。自然な日本語で、あなたの人格に忠実に応答してください。",
       messages: [{ role: "user", content: prompt }]
     )

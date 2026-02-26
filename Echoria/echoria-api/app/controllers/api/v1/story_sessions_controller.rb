@@ -2,7 +2,7 @@ module Api
   module V1
     class StorySessionsController < ApplicationController
       before_action :authenticate_user!
-      before_action :set_story_session, only: %i[show choose generate_scene]
+      before_action :set_story_session, only: %i[show choose generate_scene pause resume story_log]
       before_action :set_echo, only: [:create]
 
       # POST /api/v1/story_sessions
@@ -21,6 +21,16 @@ module Api
           return render json: {
             error: "Active session already exists for this chapter",
             session_id: existing.id
+          }, status: :conflict
+        end
+
+        # Also check for paused sessions — offer to resume
+        paused = @echo.story_sessions.where(status: :paused).by_chapter(chapter).first
+        if paused
+          return render json: {
+            error: "Paused session exists for this chapter",
+            session_id: paused.id,
+            paused: true
           }, status: :conflict
         end
 
@@ -68,16 +78,20 @@ module Api
         lore_check = LoreConstraintLayer.validate!(result[:narrative], @session)
         narrative_text = lore_check[:valid] ? result[:narrative] : lore_check[:sanitized]
 
-        # Create the scene
+        # Create the scene with dialogue and inner monologues
         scene = @session.story_scenes.create!(
           scene_order: @session.scene_count + 1,
           scene_type: result[:scene_type],
           beacon_id: @session.current_beacon_id,
           narrative: narrative_text,
-          echo_action: result[:echo_action],
+          echo_action: result[:echo_inner] || result[:echo_action],
           user_choice: selected_choice["choice_text"] || selected_choice["text"],
           decision_actor: :player,
-          affinity_delta: result[:affinity_delta]
+          affinity_delta: result[:affinity_delta],
+          generation_metadata: {
+            dialogue: result[:dialogue] || [],
+            tiara_inner: result[:tiara_inner]
+          }.compact
         )
 
         @session.update!(scene_count: @session.scene_count + 1)
@@ -129,9 +143,13 @@ module Api
           scene_type: result[:scene_type],
           beacon_id: @session.current_beacon_id,
           narrative: narrative_text,
-          echo_action: result[:echo_action],
+          echo_action: result[:echo_inner] || result[:echo_action],
           decision_actor: :system,
-          affinity_delta: result[:affinity_delta]
+          affinity_delta: result[:affinity_delta],
+          generation_metadata: {
+            dialogue: result[:dialogue] || [],
+            tiara_inner: result[:tiara_inner]
+          }.compact
         )
 
         @session.update!(scene_count: @session.scene_count + 1)
@@ -144,6 +162,51 @@ module Api
           scene: scene_response(scene),
           session: session_summary(@session)
         }, status: :created
+      end
+
+      # POST /api/v1/story_sessions/:id/pause
+      # Saves and pauses the current story session.
+      def pause
+        unless @session.active?
+          return render json: { error: "Session is not active" }, status: :unprocessable_entity
+        end
+
+        @session.update!(status: :paused)
+        render json: {
+          message: "物語を保存しました",
+          session: session_summary(@session)
+        }, status: :ok
+      end
+
+      # POST /api/v1/story_sessions/:id/resume
+      # Resumes a paused story session.
+      def resume
+        unless @session.paused?
+          return render json: { error: "Session is not paused" }, status: :unprocessable_entity
+        end
+
+        @session.update!(status: :active)
+        render json: session_detail_response(@session), status: :ok
+      end
+
+      # GET /api/v1/story_sessions/:id/story_log
+      # Returns all scenes in order for novel-reading view.
+      def story_log
+        scenes = @session.story_scenes.ordered.includes(:beacon)
+
+        render json: {
+          session: {
+            id: @session.id,
+            chapter: @session.chapter,
+            status: @session.status,
+            scene_count: @session.scene_count,
+            affinity: @session.affinity,
+            created_at: @session.created_at,
+            updated_at: @session.updated_at,
+            echo_name: @session.echo.name
+          },
+          scenes: scenes.map { |s| story_log_scene(s) }
+        }, status: :ok
       end
 
       private
@@ -186,17 +249,43 @@ module Api
       end
 
       def scene_response(scene)
+        metadata = scene.generation_metadata || {}
         {
           id: scene.id,
           order: scene.scene_order,
           type: scene.scene_type,
           narrative: scene.narrative,
-          echo_action: scene.echo_action,
+          dialogue: metadata["dialogue"] || [],
+          echo_inner: scene.echo_action,
+          tiara_inner: metadata["tiara_inner"],
           user_choice: scene.user_choice,
           decision_actor: scene.decision_actor,
-          affinity_impact: scene.affinity_delta,
           created_at: scene.created_at
         }
+      end
+
+      def story_log_scene(scene)
+        metadata = scene.generation_metadata || {}
+        result = {
+          id: scene.id,
+          order: scene.scene_order,
+          type: scene.scene_type,
+          narrative: scene.narrative,
+          dialogue: metadata["dialogue"] || [],
+          echo_inner: scene.echo_action,
+          tiara_inner: metadata["tiara_inner"],
+          user_choice: scene.user_choice,
+          decision_actor: scene.decision_actor,
+          created_at: scene.created_at
+        }
+
+        # Include beacon title for section headers
+        if scene.beacon.present?
+          result[:beacon_title] = scene.beacon.title
+          result[:location] = scene.beacon.metadata&.dig("location")
+        end
+
+        result
       end
     end
   end

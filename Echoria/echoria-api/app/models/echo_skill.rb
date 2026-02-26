@@ -9,7 +9,7 @@ class EchoSkill < ApplicationRecord
   validates :content, presence: true
   validates :layer, presence: true
 
-  validates :echo_id, :skill_id, uniqueness: true
+  validates :skill_id, uniqueness: { scope: :echo_id, message: "has already been assigned to this Echo" }
 
   scope :by_layer, ->(layer) { where(layer: layer) }
   scope :recent, -> { order(created_at: :desc) }

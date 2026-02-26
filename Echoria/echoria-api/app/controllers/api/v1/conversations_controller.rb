@@ -5,7 +5,10 @@ module Api
       before_action :set_conversation, only: %i[show]
 
       def index
-        @conversations = current_user.conversations.order(created_at: :desc)
+        echo = Echo.find(params[:echo_id]) if params[:echo_id]
+        scope = echo ? echo.conversations : current_user.conversations
+        scope = scope.with_partner(params[:partner]) if params[:partner].present?
+        @conversations = scope.order(created_at: :desc)
         render json: @conversations, each_serializer: ConversationSerializer
       end
 
@@ -13,7 +16,18 @@ module Api
         echo = Echo.find(params.require(:echo_id))
         authorize_echo_owner!(echo)
 
-        @conversation = echo.conversations.build
+        partner = params[:partner] || "echo"
+
+        # Validate partner access
+        if partner == "tiara"
+          unless echo.story_sessions.where(chapter: "chapter_1", status: "completed").exists?
+            return render json: {
+              error: "第一章を完了するとティアラとの会話が解放されます"
+            }, status: :forbidden
+          end
+        end
+
+        @conversation = echo.conversations.build(partner: partner)
 
         if @conversation.save
           render json: @conversation, serializer: ConversationDetailSerializer, status: :created
@@ -40,6 +54,7 @@ class ConversationSerializer
   include JSONAPI::Serializer
 
   attribute :echo_id
+  attribute :partner
   attribute :created_at
   attribute :updated_at
   attribute :message_count do |conversation|
@@ -51,6 +66,7 @@ class ConversationDetailSerializer
   include JSONAPI::Serializer
 
   attribute :echo_id
+  attribute :partner
   attribute :created_at
   attribute :updated_at
   attribute :messages do |conversation|

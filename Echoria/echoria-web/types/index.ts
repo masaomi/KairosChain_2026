@@ -36,6 +36,8 @@ export interface Echo {
   status: 'embryo' | 'growing' | 'crystallized';
   personality: EchoPersonality;
   avatar_url?: string;
+  chapter_1_completed?: boolean;
+  story_sessions?: { id: string; chapter: string; status: string }[];
   created_at: string;
   updated_at: string;
 }
@@ -96,12 +98,22 @@ export interface StorySession {
   affinity_summary?: AffinitySummary;
 }
 
+// === Dialogue Line ===
+export interface DialogueLine {
+  speaker: string;
+  text: string;
+  tone?: string;
+}
+
 // === Story Scenes ===
 export interface StoryScene {
   id: number;
   order: number;
   type: 'beacon' | 'generated' | 'fallback';
   narrative: string;
+  dialogue?: DialogueLine[];
+  echo_inner?: string;
+  tiara_inner?: string;
   echo_action?: string;
   user_choice?: string;
   decision_actor?: 'player' | 'echo' | 'system';
@@ -134,12 +146,35 @@ export interface EchoMessage {
   created_at: string;
 }
 
+export type ChatPartner = 'echo' | 'tiara';
+
 export interface EchoConversation {
   id: string;
   echo_id: string;
+  partner: ChatPartner;
   messages: EchoMessage[];
   created_at: string;
   updated_at: string;
+}
+
+// === Story Log (novel reading view) ===
+export interface StoryLogScene extends StoryScene {
+  beacon_title?: string;
+  location?: string;
+}
+
+export interface StoryLogResponse {
+  session: {
+    id: string;
+    chapter: string;
+    status: string;
+    scene_count: number;
+    affinity: Affinity;
+    created_at: string;
+    updated_at: string;
+    echo_name: string;
+  };
+  scenes: StoryLogScene[];
 }
 
 // === API Error ===

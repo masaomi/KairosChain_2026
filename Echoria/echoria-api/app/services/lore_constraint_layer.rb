@@ -171,9 +171,10 @@ class LoreConstraintLayer
       end
 
       # Prevent rushed pacing — check narrative density
+      # Allow rich, immersive narratives up to 20 sentences
       sentences = content.split(/[。！？\n]/).reject(&:blank?)
-      if sentences.length > 8
-        violations << "[Timeline] Scene too dense (#{sentences.length} sentences, max 8)"
+      if sentences.length > 20
+        violations << "[Timeline] Scene too dense (#{sentences.length} sentences, max 20)"
       end
 
       { violations: violations }

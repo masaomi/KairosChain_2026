@@ -5,8 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import ChoicePanel from '@/components/story/ChoicePanel';
+import DialogueDisplay from '@/components/story/DialogueDisplay';
 import TiaraAvatar from '@/components/story/TiaraAvatar';
-import AffinityIndicator from '@/components/story/AffinityIndicator';
 import PersonalityRadar from '@/components/echo/PersonalityRadar';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import {
@@ -15,6 +15,8 @@ import {
   getStorySession,
   submitChoice,
   generateScene,
+  pauseStorySession,
+  resumeStorySession,
 } from '@/lib/api';
 import {
   Echo,
@@ -23,7 +25,7 @@ import {
   BeaconChoice,
   Affinity,
 } from '@/types';
-import { ArrowLeft, Sparkles, BookOpen } from 'lucide-react';
+import { ArrowLeft, Sparkles, BookOpen, Save, ScrollText, Check } from 'lucide-react';
 import Link from 'next/link';
 
 function StoryPageContent() {
@@ -37,9 +39,12 @@ function StoryPageContent() {
   const [generatingScene, setGeneratingScene] = useState(false);
   const [displayedText, setDisplayedText] = useState('');
   const [typewriterActive, setTypewriterActive] = useState(true);
+  const [typewriterDone, setTypewriterDone] = useState(false);
   const [error, setError] = useState('');
   const [chapterEnd, setChapterEnd] = useState(false);
   const [beaconProgress, setBeaconProgress] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [saveConfirmed, setSaveConfirmed] = useState(false);
   const storyContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -57,9 +62,15 @@ function StoryPageContent() {
         setSession(sessionData);
         loadSessionState(sessionData);
       } catch (err: unknown) {
-        // If session already exists (409), load it
+        // If session already exists (409), load it — auto-resume if paused
         if (err instanceof Error && (err as Error & { session_id?: string }).session_id) {
           const existingId = (err as Error & { session_id?: string }).session_id!;
+          // Auto-resume paused sessions
+          try {
+            await resumeStorySession(existingId);
+          } catch {
+            // Ignore if not paused (already active)
+          }
           const sessionData = await getStorySession(existingId);
           setSession(sessionData);
           loadSessionState(sessionData);
@@ -82,6 +93,7 @@ function StoryPageContent() {
       setCurrentScene(latest);
       setDisplayedText('');
       setTypewriterActive(true);
+      setTypewriterDone(false);
     }
 
     // Set choices from current beacon
@@ -100,6 +112,10 @@ function StoryPageContent() {
         setDisplayedText((prev) => prev + text[prev.length]);
       }, 30);
       return () => clearTimeout(timer);
+    } else {
+      // Typewriter complete — show dialogue and inner monologues
+      setTypewriterDone(true);
+      setTypewriterActive(false);
     }
   }, [displayedText, typewriterActive, currentScene]);
 
@@ -107,6 +123,7 @@ function StoryPageContent() {
     if (currentScene) {
       setDisplayedText(currentScene.narrative || '');
       setTypewriterActive(false);
+      setTypewriterDone(true);
     }
   };
 
@@ -135,6 +152,7 @@ function StoryPageContent() {
       setCurrentScene(result.scene);
       setDisplayedText('');
       setTypewriterActive(true);
+      setTypewriterDone(false);
 
       // Update choices and progress
       setChoices(result.next_choices || []);
@@ -165,6 +183,7 @@ function StoryPageContent() {
       setCurrentScene(result.scene);
       setDisplayedText('');
       setTypewriterActive(true);
+      setTypewriterDone(false);
 
       // Refresh session state
       const refreshed = await getStorySession(session.id);
@@ -181,6 +200,32 @@ function StoryPageContent() {
       console.error(err);
     } finally {
       setGeneratingScene(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!session || saving) return;
+    setSaving(true);
+    try {
+      await pauseStorySession(session.id);
+      setSaveConfirmed(true);
+      setTimeout(() => setSaveConfirmed(false), 2500);
+    } catch (err) {
+      console.error('Save failed:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveAndExit = async () => {
+    if (!session) return;
+    setSaving(true);
+    try {
+      await pauseStorySession(session.id);
+      router.push(`/echo/${id}`);
+    } catch (err) {
+      console.error('Save failed:', err);
+      setSaving(false);
     }
   };
 
@@ -228,7 +273,7 @@ function StoryPageContent() {
       <Header />
 
       <main className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        {/* Top bar: back + progress */}
+        {/* Top bar: back + actions + progress */}
         <div className="flex items-center justify-between mb-6">
           <Link
             href={`/echo/${id}`}
@@ -238,18 +283,65 @@ function StoryPageContent() {
             <span className="text-sm sm:text-base">{echo.name}</span>
           </Link>
 
-          {/* Beacon progress bar */}
-          <div className="flex items-center gap-2">
-            <BookOpen className="w-4 h-4 text-[#b0b0b0]" />
-            <div className="w-24 sm:w-32 h-1.5 bg-white/10 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-[#d4af37] rounded-full transition-all duration-500"
-                style={{ width: `${(beaconProgress || 0) * 100}%` }}
-              />
+          <div className="flex items-center gap-3">
+            {/* Story log button */}
+            {session.scene_count > 0 && (
+              <Link
+                href={`/echo/${id}/story-log?session=${session.id}`}
+                className="inline-flex items-center gap-1.5 text-[#b0b0b0] hover:text-[#d4af37] transition-colors text-xs sm:text-sm"
+                title="物語ログを読む"
+              >
+                <ScrollText className="w-4 h-4" />
+                <span className="hidden sm:inline">ログ</span>
+              </Link>
+            )}
+
+            {/* Save button */}
+            {!chapterEnd && (
+              <button
+                onClick={handleSave}
+                disabled={saving || generatingScene}
+                className="inline-flex items-center gap-1.5 text-[#b0b0b0] hover:text-[#50c878] transition-colors text-xs sm:text-sm disabled:opacity-50"
+                title="セーブ"
+              >
+                {saveConfirmed ? (
+                  <>
+                    <Check className="w-4 h-4 text-[#50c878]" />
+                    <span className="text-[#50c878] hidden sm:inline">保存済み</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span className="hidden sm:inline">セーブ</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            {/* Save & Exit */}
+            {!chapterEnd && (
+              <button
+                onClick={handleSaveAndExit}
+                disabled={saving || generatingScene}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-[#b0b0b0] hover:text-[#d4af37] hover:border-[#d4af37]/30 transition-all text-xs disabled:opacity-50"
+              >
+                中断する
+              </button>
+            )}
+
+            {/* Progress */}
+            <div className="flex items-center gap-2 ml-2">
+              <BookOpen className="w-4 h-4 text-[#b0b0b0]" />
+              <div className="w-16 sm:w-24 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[#d4af37] rounded-full transition-all duration-500"
+                  style={{ width: `${(beaconProgress || 0) * 100}%` }}
+                />
+              </div>
+              <span className="text-xs text-[#b0b0b0]">
+                {session.scene_count}
+              </span>
             </div>
-            <span className="text-xs text-[#b0b0b0]">
-              {session.scene_count}シーン
-            </span>
           </div>
         </div>
 
@@ -280,26 +372,43 @@ function StoryPageContent() {
           className="glass-morphism rounded-2xl overflow-hidden mb-8"
         >
           <div
-            className="p-6 sm:p-10 min-h-80 flex flex-col justify-between"
+            className="p-6 sm:p-10 min-h-80 flex flex-col"
             onClick={skipTypewriter}
           >
-            <div>
-              {/* Narrative text with typewriter */}
-              <div className="story-text text-[#f5f5f5] mb-8 leading-relaxed text-lg sm:text-xl whitespace-pre-wrap">
-                {displayedText}
-                {typewriterActive &&
-                  displayedText.length < (currentScene?.narrative || '').length && (
-                    <span className="animate-pulse">▌</span>
-                  )}
-              </div>
-
-              {/* Echo's internal reaction */}
-              {currentScene?.echo_action && (
-                <p className="text-[#b0b0b0] italic text-sm sm:text-base mb-8 border-l-2 border-[#d4af37]/50 pl-4">
-                  {currentScene.echo_action}
-                </p>
-              )}
+            {/* Narrative text with typewriter */}
+            <div className="story-text text-[#f5f5f5] mb-6 leading-relaxed text-lg sm:text-xl whitespace-pre-wrap">
+              {displayedText}
+              {typewriterActive &&
+                displayedText.length < (currentScene?.narrative || '').length && (
+                  <span className="animate-pulse">▌</span>
+                )}
             </div>
+
+            {/* Dialogue — appears after typewriter completes */}
+            {typewriterDone && currentScene?.dialogue && currentScene.dialogue.length > 0 && (
+              <DialogueDisplay
+                dialogue={currentScene.dialogue}
+                visible={typewriterDone}
+              />
+            )}
+
+            {/* Echo's inner voice — appears after dialogue */}
+            {typewriterDone && currentScene?.echo_inner && (
+              <div className="mt-6 border-l-2 border-[#d4af37]/50 pl-4">
+                <p className="text-[#b0b0b0] italic text-sm sm:text-base leading-relaxed">
+                  {currentScene.echo_inner}
+                </p>
+              </div>
+            )}
+
+            {/* Tiara's hidden thoughts — subtle, appears last */}
+            {typewriterDone && currentScene?.tiara_inner && (
+              <div className="mt-4 border-l-2 border-[#c0a0d0]/30 pl-4">
+                <p className="text-[#806090] italic text-xs sm:text-sm leading-relaxed">
+                  {currentScene.tiara_inner}
+                </p>
+              </div>
+            )}
 
             {/* Click to skip hint */}
             {typewriterActive &&
@@ -309,12 +418,6 @@ function StoryPageContent() {
                 </p>
               )}
           </div>
-
-          {/* Affinity change indicator */}
-          {currentScene?.affinity_impact &&
-            Object.keys(currentScene.affinity_impact).length > 0 && (
-              <AffinityIndicator delta={currentScene.affinity_impact} />
-            )}
         </div>
 
         {/* Chapter End State */}

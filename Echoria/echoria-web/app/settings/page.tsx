@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
+import { removeToken } from '@/lib/auth';
 import { ArrowLeft } from 'lucide-react';
 
 function SettingsPageContent() {
@@ -12,7 +13,7 @@ function SettingsPageContent() {
   const [language, setLanguage] = useState('ja');
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
+    removeToken();
     window.location.href = '/';
   };
 

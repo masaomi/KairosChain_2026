@@ -6,9 +6,10 @@ import { Send } from 'lucide-react';
 interface ChatInputProps {
   onSendMessage: (message: string) => void;
   disabled?: boolean;
+  placeholder?: string;
 }
 
-export default function ChatInput({ onSendMessage, disabled }: ChatInputProps) {
+export default function ChatInput({ onSendMessage, disabled, placeholder }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -49,7 +50,7 @@ export default function ChatInput({ onSendMessage, disabled }: ChatInputProps) {
         value={message}
         onChange={(e) => setMessage(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="ここに入力... (Enterで送信、Shift+Enterで改行)"
+        placeholder={placeholder || "ここに入力... (Enterで送信、Shift+Enterで改行)"}
         disabled={disabled}
         className="flex-1 px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-[#f5f5f5] placeholder-[#606060] focus:outline-none focus:border-[#d4af37]/50 focus:ring-1 focus:ring-[#d4af37]/20 transition-all resize-none min-h-12 max-h-48"
         rows={1}

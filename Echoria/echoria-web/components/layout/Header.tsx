@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Menu, X, Settings, LogOut } from 'lucide-react';
+import { removeToken } from '@/lib/auth';
 
 export default function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -17,7 +18,7 @@ export default function Header() {
   }
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
+    removeToken();
     window.location.href = '/';
   };
 

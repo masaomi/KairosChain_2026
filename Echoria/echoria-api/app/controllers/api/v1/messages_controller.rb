@@ -16,8 +16,12 @@ module Api
         # Add user message
         user_message = @conversation.add_message("user", message_params[:content])
 
-        # Generate AI response
-        response = DialogueService.new(@conversation.echo, @conversation).call(message_params[:content])
+        # Route to appropriate dialogue service based on partner
+        response = if @conversation.tiara_conversation?
+          TiaraDialogueService.new(@conversation.echo, @conversation).call(message_params[:content])
+        else
+          DialogueService.new(@conversation.echo, @conversation).call(message_params[:content])
+        end
 
         # Add assistant message
         assistant_message = @conversation.add_message("assistant", response)

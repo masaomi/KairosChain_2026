@@ -7,6 +7,8 @@ import {
   ChoiceResponse,
   EchoConversation,
   EchoMessage,
+  ChatPartner,
+  StoryLogResponse,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1';
@@ -81,7 +83,7 @@ class ApiClient {
   ): Promise<{ token: string; user: User }> {
     return this.request('/auth/signup', {
       method: 'POST',
-      body: JSON.stringify({ name, email, password, password_confirmation }),
+      body: JSON.stringify({ user: { name, email, password, password_confirmation } }),
     });
   }
 
@@ -133,15 +135,31 @@ class ApiClient {
     });
   }
 
-  // === Conversations (post-crystallization chat) ===
-  async getConversations(echoId: string): Promise<EchoConversation[]> {
-    return this.request(`/conversations?echo_id=${echoId}`);
+  async pauseStorySession(sessionId: string): Promise<{ message: string; session: StorySession }> {
+    return this.request(`/story_sessions/${sessionId}/pause`, {
+      method: 'POST',
+    });
   }
 
-  async createConversation(echoId: string): Promise<EchoConversation> {
+  async resumeStorySession(sessionId: string): Promise<StorySession> {
+    return this.request(`/story_sessions/${sessionId}/resume`, {
+      method: 'POST',
+    });
+  }
+
+  async getStoryLog(sessionId: string): Promise<StoryLogResponse> {
+    return this.request(`/story_sessions/${sessionId}/story_log`);
+  }
+
+  // === Conversations (chat with Echo or Tiara) ===
+  async getConversations(echoId: string, partner: ChatPartner = 'echo'): Promise<EchoConversation[]> {
+    return this.request(`/conversations?echo_id=${echoId}&partner=${partner}`);
+  }
+
+  async createConversation(echoId: string, partner: ChatPartner = 'echo'): Promise<EchoConversation> {
     return this.request('/conversations', {
       method: 'POST',
-      body: JSON.stringify({ echo_id: echoId }),
+      body: JSON.stringify({ echo_id: echoId, partner }),
     });
   }
 
@@ -150,10 +168,14 @@ class ApiClient {
   }
 
   async sendMessage(conversationId: string, content: string): Promise<EchoMessage> {
-    return this.request(`/conversations/${conversationId}/messages`, {
-      method: 'POST',
-      body: JSON.stringify({ content }),
-    });
+    const response = await this.request<{ user_message: EchoMessage; assistant_message: EchoMessage }>(
+      `/conversations/${conversationId}/messages`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ message: { content } }),
+      }
+    );
+    return response.assistant_message;
   }
 }
 
@@ -181,12 +203,18 @@ export const submitChoice = (sessionId: string, choiceIndex: number) =>
   apiClient.submitChoice(sessionId, choiceIndex);
 export const generateScene = (sessionId: string) =>
   apiClient.generateScene(sessionId);
+export const pauseStorySession = (sessionId: string) =>
+  apiClient.pauseStorySession(sessionId);
+export const resumeStorySession = (sessionId: string) =>
+  apiClient.resumeStorySession(sessionId);
+export const getStoryLog = (sessionId: string) =>
+  apiClient.getStoryLog(sessionId);
 
 // Chat exports
-export const getConversations = (echoId: string) =>
-  apiClient.getConversations(echoId);
-export const createConversation = (echoId: string) =>
-  apiClient.createConversation(echoId);
+export const getConversations = (echoId: string, partner: ChatPartner = 'echo') =>
+  apiClient.getConversations(echoId, partner);
+export const createConversation = (echoId: string, partner: ChatPartner = 'echo') =>
+  apiClient.createConversation(echoId, partner);
 export const getMessages = (conversationId: string) =>
   apiClient.getMessages(conversationId);
 export const sendMessage = (conversationId: string, content: string) =>
