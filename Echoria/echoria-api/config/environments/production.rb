@@ -33,11 +33,19 @@ Rails.application.configure do
   config.active_record.query_log_tags = [:request_id]
 
   # Sentry (conditional — only if gem loaded)
-  if defined?(Sentry) && ENV["SENTRY_DSN"].present?
-    Sentry.init do |sentry_config|
-      sentry_config.dsn = ENV["SENTRY_DSN"]
-      sentry_config.environment = "production"
-      sentry_config.traces_sample_rate = 0.1
+  if defined?(Sentry)
+    if ENV["SENTRY_DSN"].present?
+      Sentry.init do |sentry_config|
+        sentry_config.dsn = ENV["SENTRY_DSN"]
+        sentry_config.environment = "production"
+        sentry_config.traces_sample_rate = 0.1
+        sentry_config.breadcrumbs_logger = [:active_support_logger]
+      end
+    else
+      Rails.logger.warn(
+        "[Echoria] SENTRY_DSN is not set. Error tracking is DISABLED in production. " \
+        "Set SENTRY_DSN environment variable to enable Sentry error reporting."
+      )
     end
   end
 end

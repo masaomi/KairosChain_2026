@@ -85,6 +85,7 @@ services:
       DB_POOL: ${DB_POOL:-15}
       DAILY_SCENE_LIMIT: ${DAILY_SCENE_LIMIT:-50}
       DAILY_CHAT_LIMIT: ${DAILY_CHAT_LIMIT:-100}
+      SENTRY_DSN: ${SENTRY_DSN:-}  # Optional: set to enable error tracking
       # DISABLE_SSL: "1"  # Uncomment only for initial setup before SSL cert provisioning
     networks:
       - echoria-network
