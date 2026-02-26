@@ -40,6 +40,8 @@ class User < ApplicationRecord
   private
 
   def password_required?
-    provider.blank?
+    return false if provider.present?
+
+    new_record? || password.present?
   end
 end

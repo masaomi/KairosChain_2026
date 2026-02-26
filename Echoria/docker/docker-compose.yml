@@ -28,7 +28,7 @@ services:
     networks:
       - echoria-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U echoria"]
+      test: ["CMD-SHELL", "pg_isready -U echoria -d echoria_production"]
       interval: 10s
       timeout: 5s
       retries: 5

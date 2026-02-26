@@ -138,27 +138,31 @@ module Api
         end
 
         # Check for chapter end
-        if navigator.chapter_end? && affinity_calc.crystallization_ready?
-          @session.reload
-          render json: {
-            scene: scene_response(scene),
-            session: session_summary(@session),
-            next_choices: next_beacon&.choices || [],
-            chapter_end: true,
-            crystallization_available: true,
-            evolved_skills: evolved
-          }, status: :ok
-        else
-          @session.reload
-          render json: {
-            scene: scene_response(scene),
-            session: session_summary(@session),
-            next_choices: next_beacon&.choices || @session.current_beacon&.choices || [],
-            chapter_end: navigator.chapter_end?,
-            beacon_progress: navigator.beacon_progress,
-            evolved_skills: evolved
-          }, status: :ok
+        is_chapter_end = navigator.chapter_end?
+
+        # Auto-complete session when chapter ends
+        if is_chapter_end
+          @session.update!(status: :completed)
         end
+
+        @session.reload
+
+        response = {
+          scene: scene_response(scene),
+          session: session_summary(@session),
+          next_choices: is_chapter_end ? [] : (next_beacon&.choices || @session.current_beacon&.choices || []),
+          chapter_end: is_chapter_end,
+          beacon_progress: navigator.beacon_progress,
+          evolved_skills: evolved,
+          chapter: @session.chapter
+        }
+
+        if is_chapter_end
+          response[:crystallization_available] = affinity_calc.crystallization_ready?
+          response[:next_chapter] = next_chapter_for(@session.chapter)
+        end
+
+        render json: response, status: :ok
       end
 
       # POST /api/v1/story_sessions/:id/generate_scene
@@ -255,6 +259,14 @@ module Api
       def set_echo
         @echo = Echo.find(params.require(:echo_id))
         authorize_echo_owner!(@echo)
+      end
+
+      CHAPTER_ORDER = %w[prologue chapter_1 chapter_2 chapter_3].freeze
+
+      def next_chapter_for(current_chapter)
+        idx = CHAPTER_ORDER.index(current_chapter)
+        return nil unless idx
+        CHAPTER_ORDER[idx + 1]
       end
 
       # --- Response Helpers ---

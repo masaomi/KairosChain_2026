@@ -51,7 +51,18 @@ function StoryPageContent() {
   const [evolvedSkills, setEvolvedSkills] = useState<EvolvedSkill[]>([]);
   const [onboardingDone, setOnboardingDone] = useState(false);
   const [pendingAffinityDelta, setPendingAffinityDelta] = useState<Partial<Affinity> | null>(null);
+  const [nextChapter, setNextChapter] = useState<string | null>(null);
   const storyContentRef = useRef<HTMLDivElement>(null);
+
+  const chapterTitle = (chapter: string): string => {
+    const titles: Record<string, string> = {
+      prologue: '序章',
+      chapter_1: '第一章',
+      chapter_2: '第二章',
+      chapter_3: '第三章',
+    };
+    return titles[chapter] || chapter;
+  };
 
   useEffect(() => {
     initializeStory();
@@ -191,6 +202,9 @@ function StoryPageContent() {
       setChoices(result.next_choices || []);
       setChapterEnd(result.chapter_end || false);
       setBeaconProgress(result.beacon_progress || 0);
+      if (result.next_chapter) {
+        setNextChapter(result.next_chapter);
+      }
 
       // Show skill evolution notification
       if (result.evolved_skills && result.evolved_skills.length > 0) {
@@ -240,6 +254,18 @@ function StoryPageContent() {
     } finally {
       setGeneratingScene(false);
     }
+  };
+
+  const handleNextChapter = async () => {
+    // Reset state and reinitialize — determineNextChapter will pick up the completed session
+    setLoading(true);
+    setChapterEnd(false);
+    setNextChapter(null);
+    setChoices([]);
+    setCurrentScene(null);
+    setDisplayedText('');
+    setError('');
+    await initializeStory();
   };
 
   const handleSave = async () => {
@@ -515,10 +541,12 @@ function StoryPageContent() {
           <div className="glass-morphism rounded-2xl p-8 text-center mb-8">
             <Sparkles className="w-8 h-8 text-[#d4af37] mx-auto mb-4" />
             <h2 className="text-2xl font-serif text-[#d4af37] mb-4">
-              第一章 完
+              {nextChapter ? chapterTitle(session.chapter) + ' 完' : '物語の終わり'}
             </h2>
             <p className="text-[#b0b0b0] mb-6">
-              あなたの選択が、一つのエコーを生み出しました。
+              {nextChapter
+                ? 'あなたの選択が、物語を紡ぎました。'
+                : 'あなたの選択が、一つのエコーを生み出しました。'}
             </p>
 
             {/* Show final affinity radar */}
@@ -526,12 +554,21 @@ function StoryPageContent() {
               <PersonalityRadar affinity={session.affinity} size="md" />
             </div>
 
-            <button
-              onClick={() => router.push(`/echo/${id}`)}
-              className="button-primary px-8 py-3"
-            >
-              エコーの誕生を見届ける
-            </button>
+            {nextChapter ? (
+              <button
+                onClick={handleNextChapter}
+                className="button-primary px-8 py-3"
+              >
+                次の章へ進む
+              </button>
+            ) : (
+              <button
+                onClick={() => router.push(`/echo/${id}`)}
+                className="button-primary px-8 py-3"
+              >
+                エコーの誕生を見届ける
+              </button>
+            )}
           </div>
         ) : (
           <>

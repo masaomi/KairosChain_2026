@@ -14,15 +14,16 @@ class EchoInitializerService
 
   def seed_base_skills
     BASE_SKILLS.each do |skill_data|
-      EchoSkill.find_or_create_by!(
-        echo_id: @echo.id,
-        skill_id: skill_data[:skill_id]
-      ) do |skill|
-        skill.title = skill_data[:title]
-        skill.content = skill_data[:content]
-        skill.layer = skill_data[:layer]
-      end
+      @echo.echo_skills.create!(
+        skill_id: skill_data[:skill_id],
+        title: skill_data[:title],
+        content: skill_data[:content],
+        layer: skill_data[:layer]
+      )
     end
+  rescue ActiveRecord::RecordNotUnique
+    # Idempotency: skills already exist (concurrent request)
+    Rails.logger.info("[EchoInitializer] Base skills already seeded for Echo #{@echo.id}")
   end
 
   def record_genesis_on_chain

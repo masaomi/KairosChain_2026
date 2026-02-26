@@ -13,7 +13,11 @@ module Api
         @echo = current_user.echoes.build(echo_params)
 
         if @echo.save
-          EchoInitializerService.new(@echo).call
+          begin
+            EchoInitializerService.new(@echo).call
+          rescue StandardError => e
+            Rails.logger.error("[EchoesController] Initializer failed but Echo created: #{e.message}")
+          end
           render json: @echo, serializer: EchoDetailSerializer, status: :created
         else
           render json: { errors: @echo.errors.full_messages }, status: :unprocessable_entity

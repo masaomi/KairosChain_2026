@@ -150,6 +150,8 @@ export interface ChoiceResponse {
   crystallization_available?: boolean;
   beacon_progress?: number;
   evolved_skills?: EvolvedSkill[];
+  next_chapter?: string;
+  chapter?: string;
 }
 
 // === Chat (post-crystallization) ===
