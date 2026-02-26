@@ -160,7 +160,7 @@ function ChatPageInner() {
           <div className="flex items-center gap-4">
             <Link
               href={`/echo/${id}`}
-              className="hover:opacity-80 transition-opacity"
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center hover:opacity-80 transition-opacity"
               style={{ color: themeColor }}
             >
               <ArrowLeft className="w-5 h-5" />
@@ -186,7 +186,7 @@ function ChatPageInner() {
           <div className="flex gap-2">
             <Link
               href={`/echo/${id}/chat?partner=echo`}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+              className={`px-3 py-1.5 min-h-[44px] flex items-center rounded-full text-xs font-semibold transition-colors ${
                 !isTiara
                   ? 'bg-[#d4af37]/20 text-[#d4af37] border border-[#d4af37]/30'
                   : 'text-[#b0b0b0] hover:text-[#d4af37]'
@@ -197,7 +197,7 @@ function ChatPageInner() {
             {echo.chapter_1_completed && (
               <Link
                 href={`/echo/${id}/chat?partner=tiara`}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                className={`px-3 py-1.5 min-h-[44px] flex items-center rounded-full text-xs font-semibold transition-colors ${
                   isTiara
                     ? 'bg-[#9b59b6]/20 text-[#c0a0d0] border border-[#9b59b6]/30'
                     : 'text-[#b0b0b0] hover:text-[#c0a0d0]'

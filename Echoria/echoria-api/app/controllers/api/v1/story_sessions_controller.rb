@@ -43,14 +43,28 @@ module Api
           status: :active
         )
 
-        if @session.save
-          # Create the first beacon scene automatically
-          navigator = BeaconNavigatorService.new(@session)
-          navigator.create_beacon_scene!
+        begin
+          if @session.save
+            # Create the first beacon scene automatically
+            navigator = BeaconNavigatorService.new(@session)
+            navigator.create_beacon_scene!
 
-          render json: session_detail_response(@session.reload), status: :created
-        else
-          render json: { errors: @session.errors.full_messages }, status: :unprocessable_entity
+            render json: session_detail_response(@session.reload), status: :created
+          else
+            render json: { errors: @session.errors.full_messages }, status: :unprocessable_entity
+          end
+        rescue ActiveRecord::RecordNotUnique
+          # Race condition: another request created a session between our check and INSERT.
+          # The partial unique index (active/paused) caught the duplicate — return the winner.
+          existing = @echo.story_sessions
+                         .where(status: %i[active paused])
+                         .by_chapter(chapter)
+                         .first
+
+          render json: {
+            error: "Active session already exists for this chapter",
+            session_id: existing&.id
+          }, status: :conflict
         end
       end
 

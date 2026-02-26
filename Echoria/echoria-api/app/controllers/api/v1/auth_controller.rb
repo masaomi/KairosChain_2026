@@ -36,6 +36,43 @@ module Api
         render json: { user: user_response(user), token: token }, status: :ok
       end
 
+      def forgot_password
+        user = User.find_by(email: params[:email])
+
+        if user
+          token = SecureRandom.urlsafe_base64(32)
+          user.update!(password_reset_token: token, password_reset_sent_at: Time.current)
+          # MVP: return token directly since no email service yet
+          render json: { message: "パスワードリセットトークンを生成しました", token: token }, status: :ok
+        else
+          # Prevent email enumeration by returning the same success message
+          render json: { message: "パスワードリセットトークンを生成しました" }, status: :ok
+        end
+      end
+
+      def reset_password
+        user = User.find_by(password_reset_token: params[:token])
+
+        unless user
+          return render json: { error: "無効なトークンです" }, status: :unprocessable_entity
+        end
+
+        if user.password_reset_sent_at < 2.hours.ago
+          return render json: { error: "トークンの有効期限が切れています" }, status: :unprocessable_entity
+        end
+
+        unless params[:password] == params[:password_confirmation]
+          return render json: { error: "パスワードが一致しません" }, status: :unprocessable_entity
+        end
+
+        if user.update(password: params[:password], password_confirmation: params[:password_confirmation],
+                       password_reset_token: nil, password_reset_sent_at: nil)
+          render json: { message: "パスワードを更新しました" }, status: :ok
+        else
+          render json: { errors: user.errors.full_messages }, status: :unprocessable_entity
+        end
+      end
+
       private
 
       def user_params

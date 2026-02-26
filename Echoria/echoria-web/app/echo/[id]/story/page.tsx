@@ -316,7 +316,7 @@ function StoryPageContent() {
         <div className="flex items-center justify-between mb-6">
           <Link
             href={`/echo/${id}`}
-            className="inline-flex items-center gap-2 text-[#d4af37] hover:text-[#e8c547] transition-colors"
+            className="inline-flex items-center gap-2 min-h-[44px] text-[#d4af37] hover:text-[#e8c547] transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
             <span className="text-sm sm:text-base">{echo.name}</span>
@@ -327,7 +327,7 @@ function StoryPageContent() {
             {session.scene_count > 0 && (
               <Link
                 href={`/echo/${id}/story-log?session=${session.id}`}
-                className="inline-flex items-center gap-1.5 text-[#b0b0b0] hover:text-[#d4af37] transition-colors text-xs sm:text-sm"
+                className="inline-flex items-center justify-center gap-1.5 min-h-[44px] min-w-[44px] text-[#b0b0b0] hover:text-[#d4af37] transition-colors text-xs sm:text-sm"
                 title="物語ログを読む"
               >
                 <ScrollText className="w-4 h-4" />
@@ -340,7 +340,7 @@ function StoryPageContent() {
               <button
                 onClick={handleSave}
                 disabled={saving || generatingScene}
-                className="inline-flex items-center gap-1.5 text-[#b0b0b0] hover:text-[#50c878] transition-colors text-xs sm:text-sm disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-1.5 min-h-[44px] min-w-[44px] text-[#b0b0b0] hover:text-[#50c878] transition-colors text-xs sm:text-sm disabled:opacity-50"
                 title="セーブ"
               >
                 {saveConfirmed ? (
@@ -362,7 +362,7 @@ function StoryPageContent() {
               <button
                 onClick={handleSaveAndExit}
                 disabled={saving || generatingScene}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-[#b0b0b0] hover:text-[#d4af37] hover:border-[#d4af37]/30 transition-all text-xs disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 min-h-[44px] rounded-full bg-white/5 border border-white/10 text-[#b0b0b0] hover:text-[#d4af37] hover:border-[#d4af37]/30 transition-all text-xs disabled:opacity-50"
               >
                 中断する
               </button>
@@ -527,7 +527,7 @@ function StoryPageContent() {
                 <button
                   onClick={handleLetEchoDecide}
                   disabled={generatingScene}
-                  className="text-[#50c878] hover:text-[#6ae089] font-semibold text-sm sm:text-base transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="text-[#50c878] hover:text-[#6ae089] font-semibold text-sm sm:text-base transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] inline-flex items-center"
                 >
                   エコーに任せる
                 </button>

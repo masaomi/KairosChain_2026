@@ -188,7 +188,7 @@ class StoryGeneratorService
     client = Anthropic::Client.new(api_key: Rails.configuration.x.anthropic.api_key)
 
     response = client.messages(
-      model: "claude-sonnet-4-6",
+      model: ENV.fetch("CLAUDE_MODEL", "claude-sonnet-4-5-20250514"),
       max_tokens: 2048,
       system: system_message,
       messages: [{ role: "user", content: prompt }]

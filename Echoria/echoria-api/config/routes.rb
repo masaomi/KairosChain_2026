@@ -9,6 +9,8 @@ Rails.application.routes.draw do
         post "signup", to: "auth#signup"
         post "login", to: "auth#login"
         post "google", to: "auth#google"
+        post "forgot_password", to: "auth#forgot_password"
+        post "reset_password", to: "auth#reset_password"
       end
 
       # Echoes

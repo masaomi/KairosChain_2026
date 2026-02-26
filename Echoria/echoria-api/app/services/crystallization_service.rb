@@ -76,7 +76,7 @@ class CrystallizationService
     PROMPT
 
     response = @client.messages(
-      model: "claude-sonnet-4-20250514",
+      model: ENV.fetch("CLAUDE_MODEL", "claude-sonnet-4-5-20250514"),
       max_tokens: 300,
       system: "あなたは残響界のエコー結晶化AIです。詩的で哲学的な人格描写を生成してください。",
       messages: [{ role: "user", content: prompt }]

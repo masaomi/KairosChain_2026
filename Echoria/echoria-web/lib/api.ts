@@ -95,6 +95,25 @@ class ApiClient {
     });
   }
 
+  // Password reset
+  async forgotPassword(email: string): Promise<{ message: string; token?: string }> {
+    return this.request('/auth/forgot_password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async resetPassword(
+    token: string,
+    password: string,
+    password_confirmation: string
+  ): Promise<{ message: string }> {
+    return this.request('/auth/reset_password', {
+      method: 'POST',
+      body: JSON.stringify({ token, password, password_confirmation }),
+    });
+  }
+
   // === Echoes ===
   async getEchoes(): Promise<Echo[]> {
     return this.request('/echoes');
@@ -197,6 +216,10 @@ export const signup = (name: string, email: string, password: string, password_c
   apiClient.signup(name, email, password, password_confirmation);
 export const googleAuth = (token: string) =>
   apiClient.googleAuth(token);
+export const forgotPassword = (email: string) =>
+  apiClient.forgotPassword(email);
+export const resetPassword = (token: string, password: string, password_confirmation: string) =>
+  apiClient.resetPassword(token, password, password_confirmation);
 
 // Echo exports
 export const getEchoes = () => apiClient.getEchoes();

@@ -148,9 +148,6 @@ chapter1_beacons = [
   }
 ]
 
-# Idempotent: truncate table and reset PK sequence to avoid id conflicts
-ActiveRecord::Base.connection.execute("TRUNCATE story_beacons RESTART IDENTITY CASCADE")
-
 conn = ActiveRecord::Base.connection
 chapter1_beacons.each do |bd|
   conn.execute(<<~SQL)
@@ -165,6 +162,13 @@ chapter1_beacons.each do |bd|
       #{conn.quote((bd[:metadata] || {}).to_json)}::jsonb,
       NOW(), NOW()
     )
+    ON CONFLICT (chapter, beacon_order) DO UPDATE SET
+      title = EXCLUDED.title,
+      content = EXCLUDED.content,
+      tiara_dialogue = EXCLUDED.tiara_dialogue,
+      choices = EXCLUDED.choices,
+      metadata = EXCLUDED.metadata,
+      updated_at = NOW()
   SQL
 end
 

@@ -104,7 +104,7 @@ class TiaraDialogueService
 
   def generate_with_claude(prompt)
     response = @client.messages(
-      model: "claude-sonnet-4-6",
+      model: ENV.fetch("CLAUDE_MODEL", "claude-sonnet-4-5-20250514"),
       max_tokens: 1024,
       system: "あなたは残響界（Echoria）のティアラです。紫色の毛並みの猫のような存在で、知的でいたずら好き。ユーモアと温かさを持って応答してください。",
       messages: [{ role: "user", content: prompt }]

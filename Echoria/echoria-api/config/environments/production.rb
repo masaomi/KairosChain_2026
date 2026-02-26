@@ -6,8 +6,11 @@ Rails.application.configure do
   config.eager_load = true
   config.consider_all_requests_local = false
 
-  # Cache
-  config.cache_store = :memory_store, { size: 64.megabytes }
+  # Cache — use Redis to avoid unbounded memory growth
+  config.cache_store = :redis_cache_store, {
+    url: ENV.fetch("REDIS_URL", "redis://localhost:6379/1"),
+    expires_in: 1.hour
+  }
 
   # Logging
   config.log_level = ENV.fetch("RAILS_LOG_LEVEL", "info").to_sym
@@ -19,7 +22,8 @@ Rails.application.configure do
     config.logger = ActiveSupport::TaggedLogging.new(logger)
   end
 
-  # SSL (disable with DISABLE_SSL=1 for local Docker testing)
+  # SSL — enforced in production. For local Docker testing, use RAILS_ENV=development.
+  # DISABLE_SSL is honored as an escape hatch for initial EC2 setup before cert provisioning.
   config.force_ssl = ENV["DISABLE_SSL"] != "1"
   config.ssl_options = { hsts: { subdomains: true } }
 

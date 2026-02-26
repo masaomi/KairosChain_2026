@@ -21,10 +21,10 @@ export default function ChoicePanel({ choices, onSelect, disabled }: ChoicePanel
             key={choice.choice_id || idx}
             onClick={() => onSelect(idx)}
             disabled={disabled}
-            className="w-full p-4 text-left rounded-lg border border-[#d4af37]/40 hover:border-[#d4af37] hover:bg-[#d4af37]/10 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group"
+            className="w-full p-4 min-h-[44px] text-left rounded-lg border border-[#d4af37]/40 hover:border-[#d4af37] hover:bg-[#d4af37]/10 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group"
           >
             <div className="flex items-start gap-3">
-              <span className="flex-shrink-0 w-6 h-6 rounded-full border-2 border-[#d4af37] flex items-center justify-center text-xs text-[#d4af37] group-hover:bg-[#d4af37]/20 transition-colors">
+              <span className="flex-shrink-0 w-8 h-8 rounded-full border-2 border-[#d4af37] flex items-center justify-center text-xs text-[#d4af37] group-hover:bg-[#d4af37]/20 transition-colors">
                 {idx + 1}
               </span>
               <span className="text-[#f5f5f5] group-hover:text-[#d4af37] transition-colors">

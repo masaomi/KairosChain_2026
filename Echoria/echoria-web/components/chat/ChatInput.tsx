@@ -58,7 +58,7 @@ export default function ChatInput({ onSendMessage, disabled, placeholder }: Chat
       <button
         type="submit"
         disabled={disabled || !message.trim()}
-        className="px-4 py-3 rounded-lg bg-[#d4af37] text-[#1a0a2e] hover:bg-[#e8c547] transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-semibold flex items-center gap-2 flex-shrink-0"
+        className="px-4 py-3 min-h-[44px] min-w-[44px] rounded-lg bg-[#d4af37] text-[#1a0a2e] hover:bg-[#e8c547] transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-semibold flex items-center justify-center gap-2 flex-shrink-0"
       >
         <Send className="w-4 h-4" />
         <span className="hidden sm:inline">送信</span>
