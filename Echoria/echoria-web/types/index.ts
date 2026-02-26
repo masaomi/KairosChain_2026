@@ -191,6 +191,20 @@ export interface StoryLogResponse {
   scenes: StoryLogScene[];
 }
 
+// === KairosChain Status ===
+export interface ChainAction {
+  action: string;
+  timestamp: string;
+  details?: Record<string, unknown>;
+}
+
+export interface ChainStatus {
+  available: boolean;
+  blocks: number;
+  integrity?: boolean;
+  recent_actions: ChainAction[];
+}
+
 // === API Error ===
 export interface ApiError {
   error: string;

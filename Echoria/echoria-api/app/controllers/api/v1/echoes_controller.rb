@@ -2,7 +2,7 @@ module Api
   module V1
     class EchoesController < ApplicationController
       before_action :authenticate_user!
-      before_action :set_echo, only: %i[show update destroy]
+      before_action :set_echo, only: %i[show update destroy export_skills chain_status]
 
       def index
         @echoes = current_user.echoes.includes(:story_sessions).order(created_at: :desc)
@@ -35,6 +35,52 @@ module Api
       def destroy
         @echo.destroy
         render json: { message: "Echo destroyed" }, status: :ok
+      end
+
+      # GET /api/v1/echoes/:id/chain_status
+      # Returns KairosChain blockchain summary for this Echo.
+      def chain_status
+        bridge = @echo.kairos_chain
+
+        unless bridge&.available?
+          return render json: {
+            available: false,
+            blocks: 0,
+            recent_actions: []
+          }, status: :ok
+        end
+
+        blocks = bridge.chain_blocks
+        actions = bridge.action_history(limit: 10)
+
+        render json: {
+          available: true,
+          blocks: blocks.length,
+          integrity: bridge.verify_chain,
+          recent_actions: actions.map { |a|
+            {
+              action: a[:action],
+              timestamp: a[:timestamp],
+              details: a[:details]
+            }
+          }
+        }, status: :ok
+      rescue StandardError => e
+        Rails.logger.warn("[ChainStatus] #{e.message}")
+        render json: { available: false, blocks: 0, recent_actions: [] }, status: :ok
+      end
+
+      # GET /api/v1/echoes/:id/export_skills
+      # Downloads the Echo's SkillSet in KairosChain-compatible format.
+      def export_skills
+        unless @echo.crystallized?
+          return render json: {
+            error: "結晶化が完了していないエコーはエクスポートできません"
+          }, status: :unprocessable_entity
+        end
+
+        export_data = SkillExportService.new(@echo).call
+        render json: export_data, status: :ok
       end
 
       private

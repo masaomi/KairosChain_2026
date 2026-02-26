@@ -56,14 +56,34 @@ function StoryPageContent() {
     initializeStory();
   }, [id]);
 
+  // Determine next chapter based on completed sessions
+  const determineNextChapter = (echoData: Echo): string => {
+    const sessions = echoData.story_sessions || [];
+    const completedChapters = sessions
+      .filter((s) => s.status === 'completed')
+      .map((s) => s.chapter);
+
+    // Chapter progression: prologue → chapter_1 → chapter_2 → ...
+    const chapterOrder = ['prologue', 'chapter_1', 'chapter_2', 'chapter_3'];
+    for (const chapter of chapterOrder) {
+      if (!completedChapters.includes(chapter)) {
+        return chapter;
+      }
+    }
+    // All done — replay last
+    return chapterOrder[chapterOrder.length - 1];
+  };
+
   const initializeStory = async () => {
     try {
       const echoData = await getEcho(id);
       setEcho(echoData);
 
+      const nextChapter = determineNextChapter(echoData);
+
       // Try to create a new session, or use existing one on conflict
       try {
-        const sessionData = await createStorySession(id, 'chapter_1');
+        const sessionData = await createStorySession(id, nextChapter);
         setSession(sessionData);
         loadSessionState(sessionData);
       } catch (err: unknown) {
@@ -516,12 +536,21 @@ function StoryPageContent() {
           </>
         )}
 
-        {/* Loading overlay */}
+        {/* Loading overlay — story-themed */}
         {generatingScene && (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-            <div className="glass-morphism rounded-2xl p-8 text-center">
-              <LoadingSpinner />
-              <p className="text-[#b0b0b0] mt-4">物語を生成中...</p>
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+            <div className="glass-morphism rounded-2xl p-8 sm:p-10 text-center max-w-sm">
+              <div className="w-12 h-12 mx-auto mb-4 relative">
+                <div className="absolute inset-0 rounded-full border-2 border-[#d4af37]/30 animate-ping" />
+                <div className="absolute inset-2 rounded-full border-2 border-[#50c878]/40 animate-pulse" />
+                <div className="absolute inset-4 rounded-full bg-[#c0a0d0]/20" />
+              </div>
+              <p className="text-[#d4af37] font-serif text-base mb-2">
+                呼応石が脈打っている...
+              </p>
+              <p className="text-[#606060] text-xs">
+                物語が紡がれています
+              </p>
             </div>
           </div>
         )}
@@ -547,6 +576,13 @@ function StoryPageContent() {
                 {session.affinity?.fragment_count || 0}
               </p>
             </div>
+          </div>
+          {/* KairosChain recording indicator */}
+          <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-white/5">
+            <div className="w-1.5 h-1.5 rounded-full bg-[#50c878] animate-pulse" />
+            <p className="text-[10px] text-[#606060]">
+              あなたの選択はKairosChainに記録されています
+            </p>
           </div>
         </div>
       </main>

@@ -144,11 +144,11 @@ class StoryGeneratorService
       #{scenes_summary}
 
       ## 生成要件（重要）
-      **十分な長さの、没入感のある物語を生成してください。**
+      **没入感のある物語を簡潔に生成してください。**
 
       以下のJSON形式で応答してください:
       {
-        "narrative": "情景描写と心理描写を含む地の文（日本語、8-15文程度。環境・空気・光・音を詩的に描写し、キャラクターの内面を行動や仕草で表現する）",
+        "narrative": "情景描写と心理描写を含む地の文（日本語、5-10文程度。環境・空気・光・音を詩的に描写し、キャラクターの内面を行動や仕草で表現する）",
         "dialogue": [
           {"speaker": "ティアラ", "text": "台詞", "tone": "感情のトーン（例: playful, gentle, teasing, solemn, whisper, humorous）"},
           {"speaker": "#{echo_name}", "text": "台詞（短く、問いかけが多い。沈黙は「...」で表現）", "tone": "感情のトーン"},
@@ -189,7 +189,7 @@ class StoryGeneratorService
 
     response = client.messages(
       model: "claude-sonnet-4-6",
-      max_tokens: 4096,
+      max_tokens: 2048,
       system: system_message,
       messages: [{ role: "user", content: prompt }]
     )

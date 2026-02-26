@@ -8,14 +8,16 @@ import AuthGuard from '@/components/layout/AuthGuard';
 import PersonalityRadar from '@/components/echo/PersonalityRadar';
 import EchoAvatar from '@/components/echo/EchoAvatar';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
-import { getEcho } from '@/lib/api';
-import { Echo } from '@/types';
-import { ArrowLeft, MessageCircle, BookOpen, Lock, Cat, ScrollText, Play, Pause } from 'lucide-react';
+import { getEcho, exportSkills, getChainStatus } from '@/lib/api';
+import { Echo, ChainStatus } from '@/types';
+import { ArrowLeft, MessageCircle, BookOpen, Lock, Cat, ScrollText, Play, Pause, Download, Link2 } from 'lucide-react';
 
 function EchoProfileContent() {
   const { id } = useParams() as { id: string };
   const [echo, setEcho] = useState<Echo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [chainStatus, setChainStatus] = useState<ChainStatus | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -26,11 +28,35 @@ function EchoProfileContent() {
     try {
       const data = await getEcho(id);
       setEcho(data);
+      // Fetch chain status in background
+      getChainStatus(id).then(setChainStatus).catch(() => {});
     } catch (err: any) {
       setError('エコーの読み込みに失敗しました');
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleExportSkills = async () => {
+    if (!echo || exporting) return;
+    setExporting(true);
+    try {
+      const data = await exportSkills(echo.id);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${echo.name}_skillset.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed:', err);
+      setError('スキルのエクスポートに失敗しました');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -291,6 +317,45 @@ function EchoProfileContent() {
           </div>
         </div>
 
+        {/* KairosChain Status */}
+        {chainStatus && chainStatus.available && chainStatus.blocks > 0 && (
+          <div className="glass-morphism rounded-2xl p-6 sm:p-8 mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <Link2 className="w-5 h-5 text-[#50c878]" />
+              <h2 className="text-lg font-serif font-bold text-[#50c878]">
+                KairosChain
+              </h2>
+              {chainStatus.integrity && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#50c878]/20 text-[#50c878] border border-[#50c878]/30">
+                  verified
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-6 mb-4 text-sm">
+              <div>
+                <span className="text-[#b0b0b0]">ブロック数: </span>
+                <span className="text-[#f5f5f5] font-semibold">{chainStatus.blocks}</span>
+              </div>
+            </div>
+            {chainStatus.recent_actions.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs text-[#808080] mb-2">最近の記録</p>
+                {chainStatus.recent_actions.slice(0, 5).map((action, idx) => (
+                  <div key={idx} className="flex items-center gap-2 text-xs">
+                    <div className="w-1 h-1 rounded-full bg-[#50c878]/60" />
+                    <span className="text-[#b0b0b0]">
+                      {action.action.replace(/_/g, ' ')}
+                    </span>
+                    <span className="text-[#606060] ml-auto">
+                      {new Date(action.timestamp).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Character Description (post-crystallization) */}
         {echo.personality?.character_description && (
           <div className="glass-morphism rounded-2xl p-6 sm:p-8">
@@ -312,6 +377,30 @@ function EchoProfileContent() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Skill Export (post-crystallization) */}
+        {echo.status === 'crystallized' && (
+          <div className="glass-morphism rounded-2xl p-6 sm:p-8 mt-8 border border-[#50c878]/20">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-serif font-bold text-[#50c878] mb-2">
+                  SkillSetをダウンロード
+                </h2>
+                <p className="text-sm text-[#b0b0b0]">
+                  あなたのエコーをKairosChain MCP serverに持ち帰る
+                </p>
+              </div>
+              <button
+                onClick={handleExportSkills}
+                disabled={exporting}
+                className="flex items-center gap-2 px-6 py-3 rounded-lg bg-[#50c878]/20 text-[#50c878] border border-[#50c878]/40 hover:bg-[#50c878]/30 transition-colors font-semibold text-sm disabled:opacity-50"
+              >
+                <Download className="w-4 h-4" />
+                {exporting ? 'エクスポート中...' : 'JSON ダウンロード'}
+              </button>
+            </div>
           </div>
         )}
       </main>

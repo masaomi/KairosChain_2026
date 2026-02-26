@@ -12,7 +12,12 @@ Rails.application.routes.draw do
       end
 
       # Echoes
-      resources :echoes, only: %i[index create show update destroy]
+      resources :echoes, only: %i[index create show update destroy] do
+        member do
+          get "export_skills", to: "echoes#export_skills"
+          get "chain_status", to: "echoes#chain_status"
+        end
+      end
 
       # Story Sessions
       resources :story_sessions, only: %i[create show] do

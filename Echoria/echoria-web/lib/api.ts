@@ -9,6 +9,7 @@ import {
   EchoMessage,
   ChatPartner,
   StoryLogResponse,
+  ChainStatus,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1';
@@ -110,6 +111,14 @@ class ApiClient {
     });
   }
 
+  async exportSkills(echoId: string): Promise<Record<string, unknown>> {
+    return this.request(`/echoes/${echoId}/export_skills`);
+  }
+
+  async getChainStatus(echoId: string): Promise<ChainStatus> {
+    return this.request(`/echoes/${echoId}/chain_status`);
+  }
+
   // === Story Sessions ===
   async createStorySession(echoId: string, chapter: string = 'chapter_1'): Promise<StorySession> {
     return this.request('/story_sessions', {
@@ -193,6 +202,8 @@ export const googleAuth = (token: string) =>
 export const getEchoes = () => apiClient.getEchoes();
 export const getEcho = (id: string) => apiClient.getEcho(id);
 export const createEcho = (name: string) => apiClient.createEcho(name);
+export const exportSkills = (echoId: string) => apiClient.exportSkills(echoId);
+export const getChainStatus = (echoId: string) => apiClient.getChainStatus(echoId);
 
 // Story exports
 export const createStorySession = (echoId: string, chapter?: string) =>
