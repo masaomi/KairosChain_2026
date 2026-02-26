@@ -1,0 +1,37 @@
+# Tool Metadata Registry
+# This file stores metadata for KairosChain tools.
+# Managed by tool_guide(command: "apply_metadata", approved: true)
+#
+# Structure:
+#   tool_name:
+#     category: <symbol>
+#     usecase_tags: [<string>, ...]
+#     examples:
+#       - title: <string>
+#         code: <string>
+#     related_tools: [<string>, ...]
+#
+# Categories: chain, knowledge, context, skills, resource, state, guide, utility
+
+# Initial metadata (can be extended via tool_guide)
+tool_guide:
+  category: guide
+  usecase_tags:
+    - help
+    - discovery
+    - catalog
+    - search
+    - recommend
+    - guide
+    - metadata
+  examples:
+    - title: List all tools by category
+      code: 'tool_guide(command: "catalog")'
+    - title: Search for save-related tools
+      code: 'tool_guide(command: "search", query: "save")'
+    - title: Get tool recommendation
+      code: 'tool_guide(command: "recommend", goal: "save project conventions")'
+  related_tools:
+    - hello_world
+    - skills_list
+    - knowledge_list

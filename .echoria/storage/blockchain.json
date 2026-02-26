@@ -1,0 +1,32 @@
+[
+  {
+    "index": 0,
+    "timestamp": "1970-01-01T00:00:00.000000Z",
+    "data": [
+      "Genesis Block"
+    ],
+    "previous_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "merkle_root": "0000000000000000000000000000000000000000000000000000000000000000",
+    "hash": "19bcc95a7b5946ca2c1029728cb623975c2807690f8fd354ca6799878c4b7efd"
+  },
+  {
+    "index": 1,
+    "timestamp": "2026-02-26T13:51:06.638241Z",
+    "data": [
+      "{\"skill_id\":\"instructions:echoria\",\"prev_ast_hash\":\"nil\",\"next_ast_hash\":\"fa86f6cb050c87b7e68e7dc24e3705deeab8797198fe5cc712e2285b221c92b3\",\"diff_hash\":\"ba891cf06cc1ad4ee8d0be6000198fbdc805cf28813406edadd2c1258877b5b3\",\"actor\":\"AI\",\"agent_id\":\"Kairos\",\"timestamp\":\"2026-02-26T14:51:06+01:00\",\"reason_ref\":\"create_instructions: Create Echoria development instruction mode with self-referential philosophy as design constraint, architecture rules, coding conventions, and lore constraints\"}"
+    ],
+    "previous_hash": "19bcc95a7b5946ca2c1029728cb623975c2807690f8fd354ca6799878c4b7efd",
+    "merkle_root": "23579a39a6cbf4ba17bf1fb8fe70f60c78f87f88703235d802edc5dfb27e19ca",
+    "hash": "6ee5650b45fac2d65e6f568478f67f4b1fda0f2ea3f59a9279a3acaad849c48b"
+  },
+  {
+    "index": 2,
+    "timestamp": "2026-02-26T13:51:10.815154Z",
+    "data": [
+      "{\"skill_id\":\"instructions:echoria\",\"prev_ast_hash\":\"04f8996da763b7a969b1028ee3007569eaf3a635486ddab211d512c85b9df8fb\",\"next_ast_hash\":\"fa0bc15a3958214d11a2fb8dfcad0f2302650ba688607cbf7fcf0de89e933cd7\",\"diff_hash\":\"7d4847b8098c4d6db8c4563b540c6b61d3962ac57e4658d79c0c6e54e2d1e7f9\",\"actor\":\"AI\",\"agent_id\":\"Kairos\",\"timestamp\":\"2026-02-26T14:51:10+01:00\",\"reason_ref\":\"set_instructions_mode: Activate Echoria development mode for feature/echoria branch work\"}"
+    ],
+    "previous_hash": "6ee5650b45fac2d65e6f568478f67f4b1fda0f2ea3f59a9279a3acaad849c48b",
+    "merkle_root": "3754fdc3e57b5821e2b66b0ecc44e0282da002f43a7a7d4b018a1132c4ea7db5",
+    "hash": "de0f5e77d4151af8be77e63728832e0a66db8170d5adaf5237231147483c2582"
+  }
+]

@@ -1,0 +1,80 @@
+---
+enabled: true
+evolution_enabled: false
+max_evolutions_per_session: 3
+require_human_approval: true
+immutable_skills:
+- core_safety
+layers:
+  L0_constitution:
+    enabled: true
+    mutable: false
+    description: Kairos philosophy and principles (read-only)
+  L0_law:
+    enabled: true
+    mutable: true
+    require_blockchain: full
+    require_human_approval: true
+    description: Kairos meta-rules (self-modifying constraints)
+  L1:
+    enabled: true
+    mutable: true
+    require_blockchain: hash_only
+    require_human_approval: false
+    description: Project knowledge (Anthropic skills format)
+  L2:
+    enabled: true
+    mutable: true
+    require_blockchain: none
+    require_human_approval: false
+    description: Temporary context (free modification)
+kairos_meta_skills:
+- core_safety
+- evolution_rules
+- layer_awareness
+- approval_workflow
+- self_inspection
+- chain_awareness
+instructions_mode: echoria
+skill_tools_enabled: false
+storage:
+  backend: file
+  file:
+    storage_dir: storage
+    blockchain_file: storage/blockchain.json
+    action_log_file: skills/action_log.jsonl
+  sqlite:
+    path: storage/kairos.db
+    wal_mode: true
+  export:
+    enabled: true
+    auto_export: false
+    export_path: storage/export
+vector_search:
+  enabled: true
+  model: sentence-transformers/all-MiniLM-L6-v2
+  dimension: 384
+  index_path: storage/embeddings
+  auto_index: true
+state_commit:
+  enabled: true
+  snapshot_dir: storage/snapshots
+  max_snapshots: 100
+  auto_commit:
+    enabled: true
+    skip_if_no_changes: true
+    on_events:
+      l0_change: true
+      promotion: true
+      demotion: true
+      session_end: true
+    change_threshold:
+      enabled: true
+      l1_changes: 5
+      total_changes: 10
+http:
+  enabled: false
+  port: 8080
+  host: 0.0.0.0
+  token_store: storage/tokens.json
+  default_token_expiry_days: 90
