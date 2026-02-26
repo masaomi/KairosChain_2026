@@ -7,6 +7,7 @@ import AuthGuard from '@/components/layout/AuthGuard';
 import ChoicePanel from '@/components/story/ChoicePanel';
 import DialogueDisplay from '@/components/story/DialogueDisplay';
 import TiaraAvatar from '@/components/story/TiaraAvatar';
+import AffinityIndicator from '@/components/story/AffinityIndicator';
 import PersonalityRadar from '@/components/echo/PersonalityRadar';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import {
@@ -407,6 +408,14 @@ function StoryPageContent() {
                 <p className="text-[#806090] italic text-xs sm:text-sm leading-relaxed">
                   {currentScene.tiara_inner}
                 </p>
+              </div>
+            )}
+
+            {/* Affinity changes — shown after all narrative content */}
+            {typewriterDone && currentScene?.affinity_delta &&
+              Object.values(currentScene.affinity_delta).some((v) => v !== 0) && (
+              <div className="mt-6">
+                <AffinityIndicator delta={currentScene.affinity_delta} />
               </div>
             )}
 

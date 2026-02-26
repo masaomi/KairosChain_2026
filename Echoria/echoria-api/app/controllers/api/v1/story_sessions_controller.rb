@@ -1,6 +1,8 @@
 module Api
   module V1
     class StorySessionsController < ApplicationController
+      include DailyUsageLimitable
+
       before_action :authenticate_user!
       before_action :set_story_session, only: %i[show choose generate_scene pause resume story_log]
       before_action :set_echo, only: [:create]
@@ -60,6 +62,8 @@ module Api
       # POST /api/v1/story_sessions/:id/choose
       # Player makes a choice at the current beacon.
       def choose
+        return unless check_daily_usage!(:scene)
+
         choice_index = params.require(:choice_index).to_i
         navigator = BeaconNavigatorService.new(@session)
 
@@ -107,6 +111,8 @@ module Api
           navigator.create_beacon_scene!
         end
 
+        increment_daily_usage!
+
         # Check for chapter end
         if navigator.chapter_end? && affinity_calc.crystallization_ready?
           @session.reload
@@ -132,6 +138,8 @@ module Api
       # POST /api/v1/story_sessions/:id/generate_scene
       # Generates an AI scene without explicit player choice (auto-progression).
       def generate_scene
+        return unless check_daily_usage!(:scene)
+
         result = StoryGeneratorService.new(@session, nil).call
 
         # Lore validation
@@ -156,6 +164,8 @@ module Api
 
         # Apply generated affinity delta
         AffinityCalculatorService.new(@session).apply_generated_delta(result)
+
+        increment_daily_usage!
 
         @session.reload
         render json: {
@@ -260,6 +270,7 @@ module Api
           tiara_inner: metadata["tiara_inner"],
           user_choice: scene.user_choice,
           decision_actor: scene.decision_actor,
+          affinity_delta: scene.affinity_delta || {},
           created_at: scene.created_at
         }
       end
@@ -276,6 +287,7 @@ module Api
           tiara_inner: metadata["tiara_inner"],
           user_choice: scene.user_choice,
           decision_actor: scene.decision_actor,
+          affinity_delta: scene.affinity_delta || {},
           created_at: scene.created_at
         }
 

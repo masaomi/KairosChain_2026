@@ -1,6 +1,8 @@
 module Api
   module V1
     class MessagesController < ApplicationController
+      include DailyUsageLimitable
+
       before_action :authenticate_user!
       before_action :set_conversation
       before_action :authorize_conversation_owner!
@@ -11,6 +13,8 @@ module Api
       end
 
       def create
+        return unless check_daily_usage!(:chat)
+
         message_params = params.require(:message).permit(:content)
 
         # Add user message
@@ -25,6 +29,8 @@ module Api
 
         # Add assistant message
         assistant_message = @conversation.add_message("assistant", response)
+
+        increment_daily_usage!
 
         render json: {
           user_message: user_message,

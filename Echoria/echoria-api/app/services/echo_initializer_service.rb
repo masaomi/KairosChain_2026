@@ -26,12 +26,16 @@ class EchoInitializerService
   end
 
   def record_genesis_on_chain
+    return unless @bridge&.available?
+
     @bridge.add_to_chain(
       type: "echo_initialization",
       name: @echo.name,
       status: @echo.status,
       base_skills: @echo.echo_skills.map { |s| { id: s.skill_id, title: s.title, layer: s.layer } }
     )
+  rescue StandardError => e
+    Rails.logger.warn("[EchoInitializer] KairosChain genesis record failed: #{e.message}")
   end
 
   BASE_SKILLS = [

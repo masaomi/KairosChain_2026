@@ -26,9 +26,9 @@ export default function StoryScene({ scene, displayedText, onSkip }: StorySceneP
       )}
 
       {/* Affinity Changes */}
-      {scene.affinity_impact && Object.keys(scene.affinity_impact).length > 0 && (
+      {scene.affinity_delta && Object.keys(scene.affinity_delta).length > 0 && (
         <div className="mt-8">
-          <AffinityIndicator delta={scene.affinity_impact} />
+          <AffinityIndicator delta={scene.affinity_delta} />
         </div>
       )}
 

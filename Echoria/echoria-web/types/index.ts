@@ -117,7 +117,7 @@ export interface StoryScene {
   echo_action?: string;
   user_choice?: string;
   decision_actor?: 'player' | 'echo' | 'system';
-  affinity_impact?: Partial<Affinity>;
+  affinity_delta?: Partial<Affinity>;
   created_at: string;
 }
 
