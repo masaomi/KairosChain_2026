@@ -11,7 +11,7 @@ class TiaraDialogueService
   def initialize(echo, conversation = nil)
     @echo = echo
     @conversation = conversation
-    @client = Anthropic::Client.new(api_key: Rails.configuration.x.anthropic.api_key, request_timeout: 30)
+    @client = Anthropic::Client.new(access_token: Rails.configuration.x.anthropic.api_key, request_timeout: 30)
   end
 
   def call(user_message)
@@ -104,13 +104,15 @@ class TiaraDialogueService
 
   def generate_with_claude(prompt)
     response = @client.messages(
-      model: ENV.fetch("CLAUDE_MODEL", "claude-sonnet-4-5-20250514"),
-      max_tokens: 1024,
-      system: "あなたは残響界（Echoria）のティアラです。紫色の毛並みの猫のような存在で、知的でいたずら好き。ユーモアと温かさを持って応答してください。",
-      messages: [{ role: "user", content: prompt }]
+      parameters: {
+        model: ENV.fetch("CLAUDE_MODEL", "claude-sonnet-4-6"),
+        max_tokens: 1024,
+        system: "あなたは残響界（Echoria）のティアラです。紫色の毛並みの猫のような存在で、知的でいたずら好き。ユーモアと温かさを持って応答してください。",
+        messages: [{ role: "user", content: prompt }]
+      }
     )
 
-    response.content[0].text
+    response.dig("content", 0, "text")
   end
 
   def build_conversation_context

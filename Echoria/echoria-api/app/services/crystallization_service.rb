@@ -16,7 +16,7 @@ class CrystallizationService
   def initialize(story_session)
     @session = story_session
     @echo = story_session.echo
-    @client = Anthropic::Client.new(api_key: Rails.configuration.x.anthropic.api_key, request_timeout: 60)
+    @client = Anthropic::Client.new(access_token: Rails.configuration.x.anthropic.api_key, request_timeout: 60)
   end
 
   def call
@@ -78,13 +78,15 @@ class CrystallizationService
     PROMPT
 
     response = @client.messages(
-      model: ENV.fetch("CLAUDE_MODEL", "claude-sonnet-4-5-20250514"),
-      max_tokens: 300,
-      system: "あなたは残響界のエコー結晶化AIです。詩的で哲学的な人格描写を生成してください。",
-      messages: [{ role: "user", content: prompt }]
+      parameters: {
+        model: ENV.fetch("CLAUDE_MODEL", "claude-sonnet-4-6"),
+        max_tokens: 300,
+        system: "あなたは残響界のエコー結晶化AIです。詩的で哲学的な人格描写を生成してください。",
+        messages: [{ role: "user", content: prompt }]
+      }
     )
 
-    description = response.content[0].text
+    description = response.dig("content", 0, "text")
 
     @echo.personality = @echo.personality.merge(
       "character_description" => description,

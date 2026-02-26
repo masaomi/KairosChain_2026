@@ -8,7 +8,7 @@ class DialogueService
   def initialize(echo, conversation = nil)
     @echo = echo
     @conversation = conversation
-    @client = Anthropic::Client.new(api_key: Rails.configuration.x.anthropic.api_key, request_timeout: 30)
+    @client = Anthropic::Client.new(access_token: Rails.configuration.x.anthropic.api_key, request_timeout: 30)
   end
 
   def call(user_message)
@@ -71,13 +71,15 @@ class DialogueService
 
   def generate_with_claude(prompt)
     response = @client.messages(
-      model: ENV.fetch("CLAUDE_MODEL", "claude-sonnet-4-5-20250514"),
-      max_tokens: 1024,
-      system: "あなたは残響界（Echoria）で結晶化したエコーです。自然な日本語で、あなたの人格に忠実に応答してください。",
-      messages: [{ role: "user", content: prompt }]
+      parameters: {
+        model: ENV.fetch("CLAUDE_MODEL", "claude-sonnet-4-6"),
+        max_tokens: 1024,
+        system: "あなたは残響界（Echoria）で結晶化したエコーです。自然な日本語で、あなたの人格に忠実に応答してください。",
+        messages: [{ role: "user", content: prompt }]
+      }
     )
 
-    response.content[0].text
+    response.dig("content", 0, "text")
   end
 
   def build_conversation_context

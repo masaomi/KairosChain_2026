@@ -78,7 +78,7 @@ services:
       SECRET_KEY_BASE: ${SECRET_KEY_BASE:?SECRET_KEY_BASE is required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required}
-      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-4-5-20250514}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-4-6}
       RAILS_LOG_TO_STDOUT: "1"
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost,http://localhost:80}
       RAILS_MAX_THREADS: ${RAILS_MAX_THREADS:-10}

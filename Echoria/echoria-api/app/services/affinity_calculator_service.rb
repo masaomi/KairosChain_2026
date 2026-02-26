@@ -144,7 +144,7 @@ class AffinityCalculatorService
 
     bridge.record_action(
       "affinity_update",
-      {
+      details: {
         session_id: @session.id,
         delta: delta,
         resulting_affinity: current_affinity,
