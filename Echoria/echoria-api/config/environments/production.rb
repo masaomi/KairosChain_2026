@@ -42,10 +42,13 @@ Rails.application.configure do
         sentry_config.breadcrumbs_logger = [:active_support_logger]
       end
     else
-      Rails.logger.warn(
-        "[Echoria] SENTRY_DSN is not set. Error tracking is DISABLED in production. " \
-        "Set SENTRY_DSN environment variable to enable Sentry error reporting."
-      )
+      warning = "[Echoria] SENTRY_DSN is not set. Error tracking is DISABLED in production. " \
+                "Set SENTRY_DSN environment variable to enable Sentry error reporting."
+      if Rails.logger
+        Rails.logger.warn(warning)
+      else
+        $stderr.puts(warning)
+      end
     end
   end
 end

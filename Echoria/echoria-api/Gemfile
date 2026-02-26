@@ -24,6 +24,9 @@ gem "kairos-chain", path: "../../KairosChain_mcp_server"
 # Serialization
 gem "jsonapi-serializer", "~> 2.2"
 
+# Redis (required by redis_cache_store and Sidekiq)
+gem "redis", "~> 5.0"
+
 # Job Queue
 gem "sidekiq", "~> 7.3"
 

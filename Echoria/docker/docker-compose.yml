@@ -86,7 +86,7 @@ services:
       DAILY_SCENE_LIMIT: ${DAILY_SCENE_LIMIT:-50}
       DAILY_CHAT_LIMIT: ${DAILY_CHAT_LIMIT:-100}
       SENTRY_DSN: ${SENTRY_DSN:-}  # Optional: set to enable error tracking
-      # DISABLE_SSL: "1"  # Uncomment only for initial setup before SSL cert provisioning
+      DISABLE_SSL: ${DISABLE_SSL:-}  # Set to "1" for initial setup before SSL cert provisioning
     networks:
       - echoria-network
     healthcheck:
@@ -108,6 +108,7 @@ services:
       DATABASE_URL: postgresql://echoria:${DB_PASSWORD:-echoria_dev}@db:5432/echoria_production
       RAILS_ENV: production
       SECRET_KEY_BASE: ${SECRET_KEY_BASE:?SECRET_KEY_BASE is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       DISABLE_SSL: "1"  # Setup service runs migrations only, SSL not needed
     command: >
       sh -c "bundle exec rails db:create 2>/dev/null || true &&
