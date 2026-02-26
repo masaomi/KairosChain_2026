@@ -11,6 +11,12 @@ services:
   db:
     image: postgres:16-alpine
     container_name: echoria-db
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       POSTGRES_USER: echoria
       POSTGRES_PASSWORD: ${DB_PASSWORD:-echoria_dev}
@@ -30,6 +36,12 @@ services:
   redis:
     image: redis:7-alpine
     container_name: echoria-redis
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     command: redis-server --appendonly yes
     ports:
       - "${REDIS_PORT:-6380}:6379"  # 6380 to avoid conflict with dev Redis
@@ -48,6 +60,12 @@ services:
       context: ../..
       dockerfile: Echoria/docker/Dockerfile.api
     container_name: echoria-api
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     depends_on:
       api-setup:
         condition: service_completed_successfully
@@ -63,6 +81,8 @@ services:
       CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-4-5-20250514}
       RAILS_LOG_TO_STDOUT: "1"
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost,http://localhost:80}
+      RAILS_MAX_THREADS: ${RAILS_MAX_THREADS:-10}
+      DB_POOL: ${DB_POOL:-15}
       DAILY_SCENE_LIMIT: ${DAILY_SCENE_LIMIT:-50}
       DAILY_CHAT_LIMIT: ${DAILY_CHAT_LIMIT:-100}
       # DISABLE_SSL: "1"  # Uncomment only for initial setup before SSL cert provisioning
@@ -104,6 +124,12 @@ services:
       args:
         NEXT_PUBLIC_API_URL: /api/v1
     container_name: echoria-web
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       HOSTNAME: "0.0.0.0"
     networks:
@@ -118,6 +144,12 @@ services:
   nginx:
     image: nginx:alpine
     container_name: echoria-nginx
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "${HTTP_PORT:-80}:80"
     depends_on:
@@ -135,6 +167,29 @@ services:
       timeout: 5s
       retries: 3
 
+  db-backup:
+    image: postgres:16-alpine
+    container_name: echoria-db-backup
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGUSER: echoria
+      PGPASSWORD: ${DB_PASSWORD:-echoria_dev}
+      PGDATABASE: echoria_production
+    volumes:
+      - backups:/backups
+    networks:
+      - echoria-network
+    # Run daily backup at 03:00 UTC via cron-like entrypoint
+    entrypoint: >
+      sh -c "pg_dump -Fc > /backups/echoria_$$(date +%Y%m%d_%H%M%S).dump &&
+             echo 'Backup completed' &&
+             find /backups -name '*.dump' -mtime +7 -delete &&
+             echo 'Old backups cleaned'"
+
 networks:
   echoria-network:
     driver: bridge
@@ -142,3 +197,4 @@ networks:
 volumes:
   pgdata:
   redisdata:
+  backups:

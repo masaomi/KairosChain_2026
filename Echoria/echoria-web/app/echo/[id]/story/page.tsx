@@ -50,6 +50,7 @@ function StoryPageContent() {
   const [saveConfirmed, setSaveConfirmed] = useState(false);
   const [evolvedSkills, setEvolvedSkills] = useState<EvolvedSkill[]>([]);
   const [onboardingDone, setOnboardingDone] = useState(false);
+  const [pendingAffinityDelta, setPendingAffinityDelta] = useState<Partial<Affinity> | null>(null);
   const storyContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -172,6 +173,13 @@ function StoryPageContent() {
             }
           : prev
       );
+
+      // Show affinity delta immediately (before narrative typewriter)
+      if (result.scene.affinity_delta &&
+          Object.values(result.scene.affinity_delta).some((v) => v !== 0)) {
+        setPendingAffinityDelta(result.scene.affinity_delta);
+        setTimeout(() => setPendingAffinityDelta(null), 3000);
+      }
 
       // Display the AI-generated scene
       setCurrentScene(result.scene);
@@ -404,6 +412,19 @@ function StoryPageContent() {
             <p className="text-sm text-red-200">{error}</p>
           </div>
         )}
+
+        {/* Immediate affinity delta toast — shown before typewriter starts */}
+        <div
+          className={`transition-opacity duration-500 ${
+            pendingAffinityDelta ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+        >
+          {pendingAffinityDelta && (
+            <div className="mb-4">
+              <AffinityIndicator delta={pendingAffinityDelta} />
+            </div>
+          )}
+        </div>
 
         {/* Story Content */}
         <div

@@ -11,7 +11,7 @@ class TiaraDialogueService
   def initialize(echo, conversation = nil)
     @echo = echo
     @conversation = conversation
-    @client = Anthropic::Client.new(api_key: Rails.configuration.x.anthropic.api_key)
+    @client = Anthropic::Client.new(api_key: Rails.configuration.x.anthropic.api_key, request_timeout: 30)
   end
 
   def call(user_message)

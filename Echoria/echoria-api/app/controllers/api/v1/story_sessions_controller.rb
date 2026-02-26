@@ -14,14 +14,14 @@ module Api
         first_beacon = StoryBeacon.in_chapter(chapter).ordered.first
 
         unless first_beacon
-          return render json: { error: "Chapter not found" }, status: :not_found
+          return render json: { error: I18n.t("echoria.errors.chapter_not_found") }, status: :not_found
         end
 
         # Prevent duplicate active sessions in the same chapter
         existing = @echo.story_sessions.active_sessions.by_chapter(chapter).first
         if existing
           return render json: {
-            error: "Active session already exists for this chapter",
+            error: I18n.t("echoria.errors.active_session_exists"),
             session_id: existing.id
           }, status: :conflict
         end
@@ -30,7 +30,7 @@ module Api
         paused = @echo.story_sessions.where(status: :paused).by_chapter(chapter).first
         if paused
           return render json: {
-            error: "Paused session exists for this chapter",
+            error: I18n.t("echoria.errors.paused_session_exists"),
             session_id: paused.id,
             paused: true
           }, status: :conflict
@@ -62,7 +62,7 @@ module Api
                          .first
 
           render json: {
-            error: "Active session already exists for this chapter",
+            error: I18n.t("echoria.errors.active_session_exists"),
             session_id: existing&.id
           }, status: :conflict
         end
@@ -83,7 +83,7 @@ module Api
 
         # Validate choice
         unless navigator.valid_choice?(choice_index)
-          return render json: { error: "Invalid choice index" }, status: :bad_request
+          return render json: { error: I18n.t("echoria.errors.invalid_choice") }, status: :bad_request
         end
 
         selected_choice = navigator.choice_at(choice_index)
@@ -96,33 +96,38 @@ module Api
         lore_check = LoreConstraintLayer.validate!(result[:narrative], @session)
         narrative_text = lore_check[:valid] ? result[:narrative] : lore_check[:sanitized]
 
-        # Create the scene with dialogue and inner monologues
-        scene = @session.story_scenes.create!(
-          scene_order: @session.scene_count + 1,
-          scene_type: result[:scene_type],
-          beacon_id: @session.current_beacon_id,
-          narrative: narrative_text,
-          echo_action: result[:echo_inner] || result[:echo_action],
-          user_choice: selected_choice["choice_text"] || selected_choice["text"],
-          decision_actor: :player,
-          affinity_delta: result[:affinity_delta],
-          generation_metadata: {
-            dialogue: result[:dialogue] || [],
-            tiara_inner: result[:tiara_inner]
-          }.compact
-        )
+        # Wrap DB mutations in a transaction for atomicity
+        scene = nil
+        next_beacon = nil
+        ActiveRecord::Base.transaction do
+          # Create the scene with dialogue and inner monologues
+          scene = @session.story_scenes.create!(
+            scene_order: @session.scene_count + 1,
+            scene_type: result[:scene_type],
+            beacon_id: @session.current_beacon_id,
+            narrative: narrative_text,
+            echo_action: result[:echo_inner] || result[:echo_action],
+            user_choice: selected_choice["choice_text"] || selected_choice["text"],
+            decision_actor: :player,
+            affinity_delta: result[:affinity_delta],
+            generation_metadata: {
+              dialogue: result[:dialogue] || [],
+              tiara_inner: result[:tiara_inner]
+            }.compact
+          )
 
-        @session.update!(scene_count: @session.scene_count + 1)
+          @session.update!(scene_count: @session.scene_count + 1)
 
-        # Apply affinity changes (beacon delta is authoritative, AI delta is supplementary)
-        affinity_calc.apply_combined(selected_choice, result)
+          # Apply affinity changes (beacon delta is authoritative, AI delta is supplementary)
+          affinity_calc.apply_combined(selected_choice, result)
 
-        # Advance to next beacon
-        next_beacon = navigator.advance!(selected_choice)
+          # Advance to next beacon
+          next_beacon = navigator.advance!(selected_choice)
 
-        # If we advanced to a new beacon, create a beacon scene for it
-        if next_beacon
-          navigator.create_beacon_scene!
+          # If we advanced to a new beacon, create a beacon scene for it
+          if next_beacon
+            navigator.create_beacon_scene!
+          end
         end
 
         increment_daily_usage!
@@ -199,7 +204,7 @@ module Api
       # Saves and pauses the current story session.
       def pause
         unless @session.active?
-          return render json: { error: "Session is not active" }, status: :unprocessable_entity
+          return render json: { error: I18n.t("echoria.errors.session_not_active") }, status: :unprocessable_entity
         end
 
         @session.update!(status: :paused)
@@ -213,7 +218,7 @@ module Api
       # Resumes a paused story session.
       def resume
         unless @session.paused?
-          return render json: { error: "Session is not paused" }, status: :unprocessable_entity
+          return render json: { error: I18n.t("echoria.errors.session_not_paused") }, status: :unprocessable_entity
         end
 
         @session.update!(status: :active)

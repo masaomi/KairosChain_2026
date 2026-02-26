@@ -185,7 +185,7 @@ class StoryGeneratorService
   end
 
   def generate_with_claude(prompt)
-    client = Anthropic::Client.new(api_key: Rails.configuration.x.anthropic.api_key)
+    client = Anthropic::Client.new(api_key: Rails.configuration.x.anthropic.api_key, request_timeout: 60)
 
     response = client.messages(
       model: ENV.fetch("CLAUDE_MODEL", "claude-sonnet-4-5-20250514"),

@@ -16,10 +16,12 @@ class CrystallizationService
   def initialize(story_session)
     @session = story_session
     @echo = story_session.echo
-    @client = Anthropic::Client.new(api_key: Rails.configuration.x.anthropic.api_key)
+    @client = Anthropic::Client.new(api_key: Rails.configuration.x.anthropic.api_key, request_timeout: 60)
   end
 
   def call
+    return @echo if @echo.crystallized?
+
     compute_final_personality
     generate_character_description
     update_echo_status
@@ -86,6 +88,13 @@ class CrystallizationService
 
     @echo.personality = @echo.personality.merge(
       "character_description" => description,
+      "crystallized_at" => Time.current.iso8601
+    )
+    @echo.save!
+  rescue StandardError => e
+    Rails.logger.warn("[Crystallization] Character description generation failed: #{e.message}")
+    @echo.personality = @echo.personality.merge(
+      "character_description" => "呼応の記憶が、静かに結晶化した。",
       "crystallized_at" => Time.current.iso8601
     )
     @echo.save!

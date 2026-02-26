@@ -1,0 +1,11 @@
+ja:
+  echoria:
+    errors:
+      chapter_not_found: "章が見つかりません"
+      active_session_exists: "この章にはすでにアクティブなセッションがあります"
+      paused_session_exists: "この章には一時停止中のセッションがあります"
+      invalid_choice: "無効な選択肢です"
+      session_not_active: "セッションはアクティブではありません"
+      session_not_paused: "セッションは一時停止中ではありません"
+      generation_failed: "物語の生成に失敗しました"
+      unauthorized: "認証が必要です"

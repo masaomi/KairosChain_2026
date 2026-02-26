@@ -25,6 +25,9 @@ module Echoria
     config.time_zone = "UTC"
     config.active_record.default_timezone = :utc
 
+    # Locale
+    config.i18n.default_locale = :ja
+
     # Custom configuration
     config.x.jwt.secret = if Rails.env.production?
                              ENV.fetch("JWT_SECRET") { raise "JWT_SECRET must be set in production" }
