@@ -38,6 +38,12 @@ export interface Echo {
   avatar_url?: string;
   chapter_1_completed?: boolean;
   story_sessions?: { id: string; chapter: string; status: string }[];
+  story_progress?: {
+    chapter: string;
+    status: 'active' | 'paused' | 'completed';
+    scene_count: number;
+    session_id: string;
+  };
   created_at: string;
   updated_at: string;
 }
@@ -121,6 +127,13 @@ export interface StoryScene {
   created_at: string;
 }
 
+// === Evolved Skill (unlocked during story) ===
+export interface EvolvedSkill {
+  skill_id: string;
+  title: string;
+  layer: string;
+}
+
 // === Choice Response (after making a choice) ===
 export interface ChoiceResponse {
   scene: StoryScene;
@@ -136,6 +149,7 @@ export interface ChoiceResponse {
   chapter_end?: boolean;
   crystallization_available?: boolean;
   beacon_progress?: number;
+  evolved_skills?: EvolvedSkill[];
 }
 
 // === Chat (post-crystallization) ===

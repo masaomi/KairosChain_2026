@@ -113,6 +113,11 @@ module Api
 
         increment_daily_usage!
 
+        # Collect newly evolved skills for response
+        evolved = (affinity_calc.newly_evolved_skills || []).map do |s|
+          { skill_id: s.skill_id, title: s.title, layer: s.layer }
+        end
+
         # Check for chapter end
         if navigator.chapter_end? && affinity_calc.crystallization_ready?
           @session.reload
@@ -121,7 +126,8 @@ module Api
             session: session_summary(@session),
             next_choices: next_beacon&.choices || [],
             chapter_end: true,
-            crystallization_available: true
+            crystallization_available: true,
+            evolved_skills: evolved
           }, status: :ok
         else
           @session.reload
@@ -130,7 +136,8 @@ module Api
             session: session_summary(@session),
             next_choices: next_beacon&.choices || @session.current_beacon&.choices || [],
             chapter_end: navigator.chapter_end?,
-            beacon_progress: navigator.beacon_progress
+            beacon_progress: navigator.beacon_progress,
+            evolved_skills: evolved
           }, status: :ok
         end
       end

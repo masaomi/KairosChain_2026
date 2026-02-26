@@ -57,8 +57,20 @@ class EchoSerializer
   attribute :name
   attribute :status
   attribute :avatar_url
+  attribute :personality
   attribute :created_at
   attribute :updated_at
+  attribute :story_progress do |echo|
+    session = echo.story_sessions.order(updated_at: :desc).first
+    if session
+      {
+        chapter: session.chapter,
+        status: session.status,
+        scene_count: session.scene_count,
+        session_id: session.id
+      }
+    end
+  end
 end
 
 class EchoDetailSerializer

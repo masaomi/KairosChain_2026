@@ -24,6 +24,25 @@ export default function EchoCard({ echo }: EchoCardProps) {
   const affinities = echo.personality?.affinities;
   const tiaraTrust = affinities?.tiara_trust ?? 50;
   const fragments = affinities?.fragment_count ?? 0;
+  const progress = echo.story_progress;
+
+  const chapterLabels: Record<string, string> = {
+    prologue: '序章',
+    chapter_1: '第一章',
+    chapter_2: '第二章',
+  };
+
+  const progressStatusLabels: Record<string, string> = {
+    active: '進行中',
+    paused: '中断中',
+    completed: '完了',
+  };
+
+  const progressStatusColor: Record<string, string> = {
+    active: 'text-[#50c878]',
+    paused: 'text-yellow-300',
+    completed: 'text-[#c0a0d0]',
+  };
 
   return (
     <Link href={`/echo/${echo.id}`} className="group">
@@ -41,6 +60,22 @@ export default function EchoCard({ echo }: EchoCardProps) {
 
           <EchoAvatar status={echo.status} size="md" />
         </div>
+
+        {/* Story Progress */}
+        {progress && (
+          <div className="flex items-center gap-2 mb-4 text-xs">
+            <BookOpen className="w-3.5 h-3.5 text-[#b0b0b0]" />
+            <span className="text-[#b0b0b0]">
+              {chapterLabels[progress.chapter] || progress.chapter}
+            </span>
+            <span className={progressStatusColor[progress.status] || 'text-[#b0b0b0]'}>
+              {progressStatusLabels[progress.status] || progress.status}
+            </span>
+            <span className="text-[#606060]">
+              {progress.scene_count}シーン
+            </span>
+          </div>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4 mb-6 text-center">

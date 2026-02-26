@@ -8,6 +8,7 @@ import ChoicePanel from '@/components/story/ChoicePanel';
 import DialogueDisplay from '@/components/story/DialogueDisplay';
 import TiaraAvatar from '@/components/story/TiaraAvatar';
 import AffinityIndicator from '@/components/story/AffinityIndicator';
+import StoryOnboarding from '@/components/story/StoryOnboarding';
 import PersonalityRadar from '@/components/echo/PersonalityRadar';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import {
@@ -25,6 +26,7 @@ import {
   StoryScene,
   BeaconChoice,
   Affinity,
+  EvolvedSkill,
 } from '@/types';
 import { ArrowLeft, Sparkles, BookOpen, Save, ScrollText, Check } from 'lucide-react';
 import Link from 'next/link';
@@ -46,6 +48,8 @@ function StoryPageContent() {
   const [beaconProgress, setBeaconProgress] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saveConfirmed, setSaveConfirmed] = useState(false);
+  const [evolvedSkills, setEvolvedSkills] = useState<EvolvedSkill[]>([]);
+  const [onboardingDone, setOnboardingDone] = useState(false);
   const storyContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -160,6 +164,12 @@ function StoryPageContent() {
       setChapterEnd(result.chapter_end || false);
       setBeaconProgress(result.beacon_progress || 0);
 
+      // Show skill evolution notification
+      if (result.evolved_skills && result.evolved_skills.length > 0) {
+        setEvolvedSkills(result.evolved_skills);
+        setTimeout(() => setEvolvedSkills([]), 5000);
+      }
+
       // Scroll to new content
       setTimeout(() => {
         storyContentRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -270,6 +280,14 @@ function StoryPageContent() {
         <div className="absolute top-20 right-20 w-72 h-72 bg-[#50c878]/5 rounded-full blur-3xl" />
         <div className="absolute bottom-20 left-20 w-96 h-96 bg-[#d4af37]/5 rounded-full blur-3xl" />
       </div>
+
+      {/* Story Onboarding — shown once for first-time players */}
+      {!onboardingDone && echo && (
+        <StoryOnboarding
+          echoName={echo.name}
+          onComplete={() => setOnboardingDone(true)}
+        />
+      )}
 
       <Header />
 
@@ -428,6 +446,28 @@ function StoryPageContent() {
               )}
           </div>
         </div>
+
+        {/* Skill Evolution Notification */}
+        {evolvedSkills.length > 0 && (
+          <div className="glass-morphism rounded-2xl p-6 mb-6 border border-[#50c878]/40 animate-fade-in">
+            <div className="flex items-center gap-3 mb-3">
+              <Sparkles className="w-5 h-5 text-[#50c878]" />
+              <span className="text-sm font-semibold text-[#50c878]">
+                スキルが目覚めました
+              </span>
+            </div>
+            {evolvedSkills.map((skill) => (
+              <div key={skill.skill_id} className="ml-8 mb-2">
+                <span className="text-[#d4af37] font-medium text-sm">
+                  {skill.title}
+                </span>
+                <span className="text-[#606060] text-xs ml-2">
+                  {skill.layer}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Chapter End State */}
         {chapterEnd ? (

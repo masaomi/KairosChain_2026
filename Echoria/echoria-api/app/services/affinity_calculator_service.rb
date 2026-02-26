@@ -19,8 +19,11 @@ class AffinityCalculatorService
 
   VALID_AXES = AXIS_RANGES.keys.freeze
 
+  attr_reader :newly_evolved_skills
+
   def initialize(story_session)
     @session = story_session
+    @newly_evolved_skills = []
   end
 
   # Apply a delta from a beacon choice (pre-defined in seed data)
@@ -122,7 +125,17 @@ class AffinityCalculatorService
     # Record on KairosChain for blockchain integrity
     record_affinity_change(delta)
 
+    # Check for skill evolution based on new affinity state
+    check_skill_evolution
+
     current_affinity
+  end
+
+  def check_skill_evolution
+    @newly_evolved_skills = SkillEvolutionService.new(@session).evolve!
+  rescue StandardError => e
+    Rails.logger.warn("[AffinityCalculator] Skill evolution check failed: #{e.message}")
+    @newly_evolved_skills = []
   end
 
   def record_affinity_change(delta)
