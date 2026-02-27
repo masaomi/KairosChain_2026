@@ -99,6 +99,7 @@ module Api
         # Wrap DB mutations in a transaction for atomicity
         scene = nil
         next_beacon = nil
+        is_chapter_end = false
         ActiveRecord::Base.transaction do
           # Create the scene with dialogue and inner monologues
           scene = @session.story_scenes.create!(
@@ -121,12 +122,21 @@ module Api
           # Apply affinity changes (beacon delta is authoritative, AI delta is supplementary)
           affinity_calc.apply_combined(selected_choice, result)
 
+          # Check for chapter end BEFORE advancing (current beacon is the last one?)
+          is_chapter_end = navigator.chapter_end?
+
           # Advance to next beacon
           next_beacon = navigator.advance!(selected_choice)
 
           # If we advanced to a new beacon, create a beacon scene for it
           if next_beacon
             navigator.create_beacon_scene!
+          end
+
+          # Auto-complete session and sync affinity to Echo when chapter ends
+          if is_chapter_end
+            @session.update!(status: :completed)
+            sync_affinity_to_echo!(@session)
           end
         end
 
@@ -135,14 +145,6 @@ module Api
         # Collect newly evolved skills for response
         evolved = (affinity_calc.newly_evolved_skills || []).map do |s|
           { skill_id: s.skill_id, title: s.title, layer: s.layer }
-        end
-
-        # Check for chapter end
-        is_chapter_end = navigator.chapter_end?
-
-        # Auto-complete session when chapter ends
-        if is_chapter_end
-          @session.update!(status: :completed)
         end
 
         @session.reload
@@ -262,6 +264,16 @@ module Api
       end
 
       CHAPTER_ORDER = %w[prologue chapter_1 chapter_2 chapter_3].freeze
+
+      # Sync session affinity to Echo personality so dashboard reflects latest state
+      def sync_affinity_to_echo!(session)
+        echo = session.echo
+        personality = echo.personality || {}
+        personality["affinities"] = session.affinity
+        echo.update!(personality: personality)
+      rescue StandardError => e
+        Rails.logger.warn("[StorySession] Affinity sync to Echo failed: #{e.message}")
+      end
 
       def next_chapter_for(current_chapter)
         idx = CHAPTER_ORDER.index(current_chapter)

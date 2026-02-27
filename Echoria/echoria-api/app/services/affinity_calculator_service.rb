@@ -132,7 +132,10 @@ class AffinityCalculatorService
   end
 
   def check_skill_evolution
-    @newly_evolved_skills = SkillEvolutionService.new(@session).evolve!
+    # Wrap in savepoint so PG errors don't abort the outer transaction
+    ActiveRecord::Base.transaction(requires_new: true) do
+      @newly_evolved_skills = SkillEvolutionService.new(@session).evolve!
+    end
   rescue StandardError => e
     Rails.logger.warn("[AffinityCalculator] Skill evolution check failed: #{e.message}")
     @newly_evolved_skills = []
@@ -142,15 +145,18 @@ class AffinityCalculatorService
     bridge = @session.echo.kairos_chain
     return unless bridge&.available?
 
-    bridge.record_action(
-      "affinity_update",
-      details: {
-        session_id: @session.id,
-        delta: delta,
-        resulting_affinity: current_affinity,
-        scene_count: @session.scene_count
-      }
-    )
+    # Wrap in savepoint so PG errors don't abort the outer transaction
+    ActiveRecord::Base.transaction(requires_new: true) do
+      bridge.record_action(
+        "affinity_update",
+        details: {
+          session_id: @session.id,
+          delta: delta,
+          resulting_affinity: current_affinity,
+          scene_count: @session.scene_count
+        }
+      )
+    end
   rescue StandardError => e
     Rails.logger.warn("[AffinityCalculator] KairosChain record failed: #{e.message}")
   end
