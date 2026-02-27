@@ -74,97 +74,51 @@ module Api
       end
 
       # POST /api/v1/story_sessions/:id/choose
-      # Player makes a choice at the current beacon.
+      # Player makes a choice at the current beacon, or submits free-text.
       def choose
         return unless check_daily_usage!(:scene)
 
-        choice_index = params.require(:choice_index).to_i
         navigator = BeaconNavigatorService.new(@session)
 
-        # Validate choice
-        unless navigator.valid_choice?(choice_index)
-          return render json: { error: I18n.t("echoria.errors.invalid_choice") }, status: :bad_request
-        end
-
-        selected_choice = navigator.choice_at(choice_index)
-        affinity_calc = AffinityCalculatorService.new(@session)
-
-        # Generate AI scene based on the choice
-        result = StoryGeneratorService.new(@session, selected_choice).call
-
-        # Validate generated content against lore constraints
-        lore_check = LoreConstraintLayer.validate!(result[:narrative], @session)
-        narrative_text = lore_check[:valid] ? result[:narrative] : lore_check[:sanitized]
-
-        # Wrap DB mutations in a transaction for atomicity
-        scene = nil
-        next_beacon = nil
-        is_chapter_end = false
-        ActiveRecord::Base.transaction do
-          # Create the scene with dialogue and inner monologues
-          scene = @session.story_scenes.create!(
-            scene_order: @session.scene_count + 1,
-            scene_type: result[:scene_type],
-            beacon_id: @session.current_beacon_id,
-            narrative: narrative_text,
-            echo_action: result[:echo_inner] || result[:echo_action],
-            user_choice: selected_choice["choice_text"] || selected_choice["text"],
-            decision_actor: :player,
-            affinity_delta: result[:affinity_delta],
-            generation_metadata: {
-              dialogue: result[:dialogue] || [],
-              tiara_inner: result[:tiara_inner]
-            }.compact
-          )
-
-          @session.update!(scene_count: @session.scene_count + 1)
-
-          # Apply affinity changes (beacon delta is authoritative, AI delta is supplementary)
-          affinity_calc.apply_combined(selected_choice, result)
-
-          # Check for chapter end BEFORE advancing (current beacon is the last one?)
-          is_chapter_end = navigator.chapter_end?
-
-          # Advance to next beacon
-          next_beacon = navigator.advance!(selected_choice)
-
-          # If we advanced to a new beacon, create a beacon scene for it
-          if next_beacon
-            navigator.create_beacon_scene!
+        if params[:free_text].present?
+          # --- Free-text input branch ---
+          unless navigator.allow_free_text?
+            return render json: { error: "このビーコンでは自由入力は許可されていません" }, status: :bad_request
           end
 
-          # Auto-complete session and sync affinity to Echo when chapter ends
-          if is_chapter_end
-            @session.update!(status: :completed)
-            sync_affinity_to_echo!(@session)
+          free_text = params[:free_text].to_s.strip
+          if free_text.length < LoreConstraintLayer::FREE_TEXT_MIN_LENGTH ||
+             free_text.length > LoreConstraintLayer::FREE_TEXT_MAX_LENGTH
+            return render json: {
+              error: "入力は#{LoreConstraintLayer::FREE_TEXT_MIN_LENGTH}文字以上" \
+                     "#{LoreConstraintLayer::FREE_TEXT_MAX_LENGTH}文字以内で入力してください"
+            }, status: :bad_request
           end
+
+          input_check = LoreConstraintLayer.validate_input(free_text)
+          unless input_check[:valid]
+            return render json: { error: input_check[:error] }, status: :unprocessable_entity
+          end
+
+          # Synthesize a choice hash compatible with existing flow
+          selected_choice = {
+            "choice_id" => "free_text_#{SecureRandom.hex(4)}",
+            "choice_text" => free_text,
+            "input_type" => "free_text"
+          }
+
+          execute_choice_flow(navigator, selected_choice, affinity_mode: :free_text)
+        else
+          # --- Standard choice branch ---
+          choice_index = params.require(:choice_index).to_i
+
+          unless navigator.valid_choice?(choice_index)
+            return render json: { error: I18n.t("echoria.errors.invalid_choice") }, status: :bad_request
+          end
+
+          selected_choice = navigator.choice_at(choice_index)
+          execute_choice_flow(navigator, selected_choice, affinity_mode: :combined)
         end
-
-        increment_daily_usage!
-
-        # Collect newly evolved skills for response
-        evolved = (affinity_calc.newly_evolved_skills || []).map do |s|
-          { skill_id: s.skill_id, title: s.title, layer: s.layer }
-        end
-
-        @session.reload
-
-        response = {
-          scene: scene_response(scene),
-          session: session_summary(@session),
-          next_choices: is_chapter_end ? [] : (next_beacon&.choices || @session.current_beacon&.choices || []),
-          chapter_end: is_chapter_end,
-          beacon_progress: navigator.beacon_progress,
-          evolved_skills: evolved,
-          chapter: @session.chapter
-        }
-
-        if is_chapter_end
-          response[:crystallization_available] = affinity_calc.crystallization_ready?
-          response[:next_chapter] = next_chapter_for(@session.chapter)
-        end
-
-        render json: response, status: :ok
       end
 
       # POST /api/v1/story_sessions/:id/generate_scene
@@ -252,6 +206,88 @@ module Api
       end
 
       private
+
+      # Shared transaction logic for both standard choice and free-text input
+      def execute_choice_flow(navigator, selected_choice, affinity_mode:)
+        affinity_calc = AffinityCalculatorService.new(@session)
+
+        # Generate AI scene based on the choice
+        result = StoryGeneratorService.new(@session, selected_choice).call
+
+        # Validate generated content against lore constraints
+        lore_check = LoreConstraintLayer.validate!(result[:narrative], @session)
+        narrative_text = lore_check[:valid] ? result[:narrative] : lore_check[:sanitized]
+
+        # Wrap DB mutations in a transaction for atomicity
+        scene = nil
+        next_beacon = nil
+        is_chapter_end = false
+        ActiveRecord::Base.transaction do
+          scene = @session.story_scenes.create!(
+            scene_order: @session.scene_count + 1,
+            scene_type: result[:scene_type],
+            beacon_id: @session.current_beacon_id,
+            narrative: narrative_text,
+            echo_action: result[:echo_inner] || result[:echo_action],
+            user_choice: selected_choice["choice_text"] || selected_choice["text"],
+            decision_actor: :player,
+            affinity_delta: result[:affinity_delta],
+            generation_metadata: {
+              dialogue: result[:dialogue] || [],
+              tiara_inner: result[:tiara_inner],
+              input_type: selected_choice["input_type"]
+            }.compact
+          )
+
+          @session.update!(scene_count: @session.scene_count + 1)
+
+          # Apply affinity changes based on input mode
+          case affinity_mode
+          when :free_text
+            affinity_calc.apply_free_text_delta(result)
+          when :combined
+            affinity_calc.apply_combined(selected_choice, result)
+          end
+
+          is_chapter_end = navigator.chapter_end?
+          next_beacon = navigator.advance!(selected_choice)
+
+          if next_beacon
+            navigator.create_beacon_scene!
+          end
+
+          if is_chapter_end
+            @session.update!(status: :completed)
+            sync_affinity_to_echo!(@session)
+          end
+        end
+
+        increment_daily_usage!
+
+        evolved = (affinity_calc.newly_evolved_skills || []).map do |s|
+          { skill_id: s.skill_id, title: s.title, layer: s.layer }
+        end
+
+        @session.reload
+
+        response = {
+          scene: scene_response(scene),
+          session: session_summary(@session),
+          next_choices: is_chapter_end ? [] : (next_beacon&.choices || @session.current_beacon&.choices || []),
+          chapter_end: is_chapter_end,
+          beacon_progress: navigator.beacon_progress,
+          evolved_skills: evolved,
+          chapter: @session.chapter,
+          allow_free_text: navigator.allow_free_text?
+        }
+
+        if is_chapter_end
+          response[:crystallization_available] = affinity_calc.crystallization_ready?
+          response[:next_chapter] = next_chapter_for(@session.chapter)
+        end
+
+        render json: response, status: :ok
+      end
 
       def set_story_session
         @session = StorySession.find(params[:id])

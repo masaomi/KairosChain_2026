@@ -85,6 +85,15 @@ class BeaconNavigatorService
     current.beacon_order.to_f / total
   end
 
+  # Check if current beacon allows free-text input (from metadata jsonb)
+  def allow_free_text?
+    beacon = current_beacon
+    return false unless beacon
+
+    metadata = beacon.metadata || {}
+    metadata["allow_free_text"] == true
+  end
+
   # Validates that a choice index is valid for the current beacon
   def valid_choice?(choice_index)
     beacon = current_beacon

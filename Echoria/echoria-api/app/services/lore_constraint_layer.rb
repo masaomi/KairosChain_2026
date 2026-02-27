@@ -36,7 +36,36 @@ class LoreConstraintLayer
     /(?:レベルアップ|経験値|ステータス)/
   ].freeze
 
+  # Character length constraints for free-text input
+  FREE_TEXT_MIN_LENGTH = 10
+  FREE_TEXT_MAX_LENGTH = 200
+
   class << self
+    # Validates user-submitted free-text input against lore constraints.
+    # Returns { valid: true/false, error: String or nil }
+    def validate_input(text)
+      # Vocabulary check: forbidden terms
+      FORBIDDEN_TERMS.each do |term|
+        if text.match?(/#{Regexp.escape(term)}/i)
+          return { valid: false, error: "使用できない用語が含まれています: '#{term}'" }
+        end
+      end
+
+      # Fourth-wall breaking check
+      if text.match?(/(?:プレイヤー|ゲーム|スコア|ポイント)/)
+        return { valid: false, error: "物語の世界観にそぐわない表現が含まれています" }
+      end
+
+      # Prohibited narrative elements
+      PROHIBITED_NARRATIVE_ELEMENTS.each do |pattern|
+        if text.match?(pattern)
+          return { valid: false, error: "物語の世界観にそぐわない表現が含まれています" }
+        end
+      end
+
+      { valid: true, error: nil }
+    end
+
     # Main entry point: validates generated content against all layers
     def validate(content, story_session)
       violations = []

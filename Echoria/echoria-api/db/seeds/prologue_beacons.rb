@@ -135,7 +135,7 @@ prologue_beacons = [
         affinity_delta: { tiara_trust: 8, logic_empathy_balance: 3, name_memory_stability: -2, authority_resistance: 3 }
       }
     ],
-    metadata: { location: "残響界 — 名のない森", beacon_id: "prologue_04_silent_forest" }
+    metadata: { location: "残響界 — 名のない森", beacon_id: "prologue_04_silent_forest", allow_free_text: true }
   },
 
   # ─── Beacon 5: 波長 (Prologue 2, Scene 3 — Resonance) ───
@@ -165,7 +165,7 @@ prologue_beacons = [
         affinity_delta: { tiara_trust: 10, logic_empathy_balance: 3, name_memory_stability: 2 }
       }
     ],
-    metadata: { location: "残響界 — 森の小道", beacon_id: "prologue_05_resonance" }
+    metadata: { location: "残響界 — 森の小道", beacon_id: "prologue_05_resonance", allow_free_text: true }
   },
 
   # ─── Beacon 6: ノメイアへ (Prologue 2, Scene 4-5 — Approaching Nomeia) ───
@@ -195,7 +195,7 @@ prologue_beacons = [
         affinity_delta: { tiara_trust: 18, logic_empathy_balance: 10, name_memory_stability: 2 }
       }
     ],
-    metadata: { location: "残響界 — 森の出口", beacon_id: "prologue_06_toward_nomeia" }
+    metadata: { location: "残響界 — 森の出口", beacon_id: "prologue_06_toward_nomeia", allow_free_text: true }
   }
 ]
 

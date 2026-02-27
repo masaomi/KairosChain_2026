@@ -157,6 +157,13 @@ class ApiClient {
     });
   }
 
+  async submitFreeText(sessionId: string, freeText: string): Promise<ChoiceResponse> {
+    return this.request(`/story_sessions/${sessionId}/choose`, {
+      method: 'POST',
+      body: JSON.stringify({ free_text: freeText }),
+    });
+  }
+
   async generateScene(sessionId: string): Promise<{ scene: StoryScene; session: StorySession }> {
     return this.request(`/story_sessions/${sessionId}/generate_scene`, {
       method: 'POST',
@@ -235,6 +242,8 @@ export const getStorySession = (sessionId: string) =>
   apiClient.getStorySession(sessionId);
 export const submitChoice = (sessionId: string, choiceIndex: number) =>
   apiClient.submitChoice(sessionId, choiceIndex);
+export const submitFreeText = (sessionId: string, freeText: string) =>
+  apiClient.submitFreeText(sessionId, freeText);
 export const generateScene = (sessionId: string) =>
   apiClient.generateScene(sessionId);
 export const pauseStorySession = (sessionId: string) =>

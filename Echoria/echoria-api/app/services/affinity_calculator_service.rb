@@ -39,6 +39,14 @@ class AffinityCalculatorService
     apply_delta(sanitized)
   end
 
+  # Apply a delta from free-text input (AI-generated delta at full weight)
+  # Free-text has no beacon-defined delta, so AI delta is authoritative.
+  def apply_free_text_delta(generated_result)
+    delta = generated_result[:affinity_delta] || generated_result["affinity_delta"] || {}
+    sanitized = sanitize_delta(delta)
+    apply_delta(sanitized)
+  end
+
   # Combine beacon choice delta + AI-generated delta
   def apply_combined(selected_choice, generated_result)
     beacon_delta = extract_delta(selected_choice)

@@ -180,8 +180,24 @@ class StoryGeneratorService
 
   def choice_context
     return "" unless @choice
-    text = @choice.is_a?(Hash) ? (@choice["choice_text"] || @choice["text"]) : @choice.to_s
-    "プレイヤーの選択: #{text}"
+
+    if @choice.is_a?(Hash) && @choice["input_type"] == "free_text"
+      text = @choice["choice_text"] || @choice["text"]
+      <<~CTX
+        エコーの言葉: 「#{text}」
+
+        ※ 上記はプレイヤーが自由入力したテキストです。
+        - テキストの感情やニュアンスを汲み取り、affinity_deltaに反映してください。
+        - 共感的・感情的な言葉 → logic_empathy_balance を+方向に
+        - 分析的・知的な言葉 → logic_empathy_balance を-方向に
+        - ティアラへの親愛 → tiara_trust を+方向に
+        - 反抗的・自立的な言葉 → authority_resistance を+方向に
+        - 自己探求・記憶に関する言葉 → name_memory_stability を+方向に
+      CTX
+    else
+      text = @choice.is_a?(Hash) ? (@choice["choice_text"] || @choice["text"]) : @choice.to_s
+      "プレイヤーの選択: #{text}"
+    end
   end
 
   def generate_with_claude(prompt)

@@ -80,6 +80,7 @@ export interface StoryBeacon {
     location?: string;
     beacon_id?: string;
     is_chapter_end?: boolean;
+    allow_free_text?: boolean;
   };
 }
 
@@ -152,6 +153,7 @@ export interface ChoiceResponse {
   evolved_skills?: EvolvedSkill[];
   next_chapter?: string;
   chapter?: string;
+  allow_free_text?: boolean;
 }
 
 // === Chat (post-crystallization) ===

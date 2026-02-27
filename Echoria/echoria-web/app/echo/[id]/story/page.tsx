@@ -16,6 +16,7 @@ import {
   createStorySession,
   getStorySession,
   submitChoice,
+  submitFreeText,
   generateScene,
   pauseStorySession,
   resumeStorySession,
@@ -52,6 +53,7 @@ function StoryPageContent() {
   const [onboardingDone, setOnboardingDone] = useState(false);
   const [pendingAffinityDelta, setPendingAffinityDelta] = useState<Partial<Affinity> | null>(null);
   const [nextChapter, setNextChapter] = useState<string | null>(null);
+  const [allowFreeText, setAllowFreeText] = useState(false);
   const storyContentRef = useRef<HTMLDivElement>(null);
 
   const chapterTitle = (chapter: string): string => {
@@ -137,6 +139,9 @@ function StoryPageContent() {
     if (sessionData.current_beacon?.choices) {
       setChoices(sessionData.current_beacon.choices);
     }
+
+    // Set free-text availability from beacon metadata
+    setAllowFreeText(sessionData.current_beacon?.metadata?.allow_free_text || false);
   };
 
   // Typewriter effect
@@ -202,6 +207,7 @@ function StoryPageContent() {
       setChoices(result.next_choices || []);
       setChapterEnd(result.chapter_end || false);
       setBeaconProgress(result.beacon_progress || 0);
+      setAllowFreeText(result.allow_free_text || false);
       if (result.next_chapter) {
         setNextChapter(result.next_chapter);
       }
@@ -218,6 +224,65 @@ function StoryPageContent() {
       }, 100);
     } catch (err) {
       setError('選択の処理に失敗しました');
+      console.error(err);
+    } finally {
+      setGeneratingScene(false);
+    }
+  };
+
+  const handleFreeTextSubmit = async (text: string) => {
+    if (!session) return;
+
+    setGeneratingScene(true);
+    setError('');
+
+    try {
+      const result = await submitFreeText(session.id, text);
+
+      setSession((prev) =>
+        prev
+          ? {
+              ...prev,
+              ...result.session,
+              status: result.session.status as StorySession['status'],
+              affinity: result.session.affinity,
+            }
+          : prev
+      );
+
+      if (result.scene.affinity_delta &&
+          Object.values(result.scene.affinity_delta).some((v) => v !== 0)) {
+        setPendingAffinityDelta(result.scene.affinity_delta);
+        setTimeout(() => setPendingAffinityDelta(null), 3000);
+      }
+
+      setCurrentScene(result.scene);
+      setDisplayedText('');
+      setTypewriterActive(true);
+      setTypewriterDone(false);
+
+      setChoices(result.next_choices || []);
+      setChapterEnd(result.chapter_end || false);
+      setBeaconProgress(result.beacon_progress || 0);
+      setAllowFreeText(result.allow_free_text || false);
+      if (result.next_chapter) {
+        setNextChapter(result.next_chapter);
+      }
+
+      if (result.evolved_skills && result.evolved_skills.length > 0) {
+        setEvolvedSkills(result.evolved_skills);
+        setTimeout(() => setEvolvedSkills([]), 5000);
+      }
+
+      setTimeout(() => {
+        storyContentRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('自由入力の処理に失敗しました');
+      }
       console.error(err);
     } finally {
       setGeneratingScene(false);
@@ -577,6 +642,8 @@ function StoryPageContent() {
               choices={choices}
               onSelect={handleChoiceSelect}
               disabled={generatingScene}
+              allowFreeText={allowFreeText}
+              onFreeTextSubmit={handleFreeTextSubmit}
             />
 
             {/* Let Echo Decide */}
