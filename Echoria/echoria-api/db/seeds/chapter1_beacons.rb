@@ -40,7 +40,7 @@ chapter1_beacons = [
         affinity_delta: { tiara_trust: 10, logic_empathy_balance: 8, name_memory_stability: 2 }
       }
     ],
-    metadata: { location: "ノメイア — 南門", beacon_id: "chapter1_01_name_gate" }
+    metadata: { location: "ノメイア — 南門", beacon_id: "chapter1_01_name_gate", allow_free_text: true }
   },
 
   # ─── Beacon 2: 書記所と名の結晶 (Scene 2 — Crystal Room) ───
@@ -70,7 +70,7 @@ chapter1_beacons = [
         affinity_delta: { tiara_trust: 10, logic_empathy_balance: 5, name_memory_stability: 5 }
       }
     ],
-    metadata: { location: "ノメイア — 書記所", beacon_id: "chapter1_02_crystal_room" }
+    metadata: { location: "ノメイア — 書記所", beacon_id: "chapter1_02_crystal_room", allow_free_text: true }
   },
 
   # ─── Beacon 3: 名前に満ちた街 (Scene 3 — Streets of Nomeia) ───
@@ -100,7 +100,7 @@ chapter1_beacons = [
         affinity_delta: { tiara_trust: 8, logic_empathy_balance: 3, name_memory_stability: 3, fragment_count: 1 }
       }
     ],
-    metadata: { location: "ノメイア — 中央通り", beacon_id: "chapter1_03_streets" }
+    metadata: { location: "ノメイア — 中央通り", beacon_id: "chapter1_03_streets", allow_free_text: true }
   },
 
   # ─── Beacon 4: 名折れの兆し (Original + Echoria expansion — Signs of fading) ───
@@ -130,7 +130,7 @@ chapter1_beacons = [
         affinity_delta: { tiara_trust: 12, logic_empathy_balance: 8, name_memory_stability: 3, fragment_count: 2 }
       }
     ],
-    metadata: { location: "ノメイア — 書記所", beacon_id: "chapter1_04_fading_names" }
+    metadata: { location: "ノメイア — 書記所", beacon_id: "chapter1_04_fading_names", allow_free_text: true }
   },
 
   # ─── Beacon 5: 第一章の結末 — 名のない呼応 (Chapter end) ───
@@ -160,7 +160,7 @@ chapter1_beacons = [
         affinity_delta: { tiara_trust: 12, logic_empathy_balance: 5, name_memory_stability: 8, fragment_count: 2 }
       }
     ],
-    metadata: { location: "ノメイア — 忘れられた広場", beacon_id: "chapter1_05_nameless_resonance", is_chapter_end: true }
+    metadata: { location: "ノメイア — 忘れられた広場", beacon_id: "chapter1_05_nameless_resonance", is_chapter_end: true, allow_free_text: true }
   }
 ]
 
