@@ -53,6 +53,7 @@ function StoryPageContent() {
   const [onboardingDone, setOnboardingDone] = useState(false);
   const [pendingAffinityDelta, setPendingAffinityDelta] = useState<Partial<Affinity> | null>(null);
   const [nextChapter, setNextChapter] = useState<string | null>(null);
+  const [nextChapterAvailable, setNextChapterAvailable] = useState(false);
   const [allowFreeText, setAllowFreeText] = useState(false);
   const storyContentRef = useRef<HTMLDivElement>(null);
 
@@ -210,6 +211,7 @@ function StoryPageContent() {
       setAllowFreeText(result.allow_free_text || false);
       if (result.next_chapter) {
         setNextChapter(result.next_chapter);
+        setNextChapterAvailable(result.next_chapter_available || false);
       }
 
       // Show skill evolution notification
@@ -267,6 +269,7 @@ function StoryPageContent() {
       setAllowFreeText(result.allow_free_text || false);
       if (result.next_chapter) {
         setNextChapter(result.next_chapter);
+        setNextChapterAvailable(result.next_chapter_available || false);
       }
 
       if (result.evolved_skills && result.evolved_skills.length > 0) {
@@ -626,12 +629,10 @@ function StoryPageContent() {
           <div className="glass-morphism rounded-2xl p-8 text-center mb-8">
             <Sparkles className="w-8 h-8 text-[#d4af37] mx-auto mb-4" />
             <h2 className="text-2xl font-serif text-[#d4af37] mb-4">
-              {nextChapter ? chapterTitle(session.chapter) + ' 完' : '物語の終わり'}
+              {chapterTitle(session.chapter)} 完
             </h2>
             <p className="text-[#b0b0b0] mb-6">
-              {nextChapter
-                ? 'あなたの選択が、物語を紡ぎました。'
-                : 'あなたの選択が、一つのエコーを生み出しました。'}
+              あなたの選択が、物語を紡ぎました。
             </p>
 
             {/* Show final affinity radar */}
@@ -639,13 +640,55 @@ function StoryPageContent() {
               <PersonalityRadar affinity={session.affinity} size="md" />
             </div>
 
-            {nextChapter ? (
+            {nextChapter && nextChapterAvailable ? (
               <button
                 onClick={handleNextChapter}
                 className="button-primary px-8 py-3"
               >
                 次の章へ進む
               </button>
+            ) : nextChapter && !nextChapterAvailable ? (
+              /* Coming Soon Preview */
+              <div className="mt-2">
+                <div className="glass-morphism rounded-xl p-6 sm:p-8 border border-[#d4af37]/20 text-left mb-6">
+                  <p className="text-xs text-[#d4af37] tracking-widest mb-3 text-center">
+                    NEXT
+                  </p>
+                  <h3 className="text-xl sm:text-2xl font-serif text-[#f5f5f5] mb-4 text-center">
+                    第二章：レムナの街
+                  </h3>
+                  <p className="text-[#b0b0b0] text-sm sm:text-base leading-relaxed mb-4 italic">
+                    「誰かに覚えられている限り存在できる街」
+                  </p>
+                  <div className="text-[#808080] text-sm leading-relaxed space-y-3">
+                    <p>
+                      ノメイアが「名前」で存在を定義する街だったのに対し、
+                      次にあなたとティアラが訪れるのは「記憶」で存在が揺らぐ街。
+                    </p>
+                    <p>
+                      建物の輪郭は水面のように揺れ、人々の姿は確定しきらない。
+                      覚えられていることだけが、存在の証明——
+                    </p>
+                    <p className="text-[#d4af37]/70">
+                      善意が最適化されたとき、何が失われるのか。
+                    </p>
+                  </div>
+                  <div className="mt-5 pt-4 border-t border-white/5 text-center">
+                    <p className="text-[#606060] text-xs">
+                      ティアラ：「ここ......やさしすぎる」
+                    </p>
+                  </div>
+                </div>
+                <p className="text-[#d4af37] text-sm mb-6">
+                  第二章は現在制作中です。続報をお待ちください。
+                </p>
+                <button
+                  onClick={() => router.push(`/echo/${id}`)}
+                  className="button-primary px-8 py-3"
+                >
+                  エコーのもとへ戻る
+                </button>
+              </div>
             ) : (
               <button
                 onClick={() => router.push(`/echo/${id}`)}

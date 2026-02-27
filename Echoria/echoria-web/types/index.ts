@@ -149,6 +149,7 @@ export interface ChoiceResponse {
   next_choices: BeaconChoice[];
   chapter_end?: boolean;
   crystallization_available?: boolean;
+  next_chapter_available?: boolean;
   beacon_progress?: number;
   evolved_skills?: EvolvedSkill[];
   next_chapter?: string;

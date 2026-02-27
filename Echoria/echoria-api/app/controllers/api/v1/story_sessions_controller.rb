@@ -283,7 +283,9 @@ module Api
 
         if is_chapter_end
           response[:crystallization_available] = affinity_calc.crystallization_ready?
-          response[:next_chapter] = next_chapter_for(@session.chapter)
+          nc = next_chapter_for(@session.chapter)
+          response[:next_chapter] = nc
+          response[:next_chapter_available] = nc.present? && StoryBeacon.in_chapter(nc).exists?
         end
 
         render json: response, status: :ok
