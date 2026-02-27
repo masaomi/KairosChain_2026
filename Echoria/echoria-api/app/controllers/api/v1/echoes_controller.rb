@@ -6,7 +6,7 @@ module Api
 
       def index
         @echoes = current_user.echoes.includes(:story_sessions).order(created_at: :desc)
-        render json: @echoes, each_serializer: EchoSerializer
+        render json: @echoes.map { |e| echo_list_json(e) }
       end
 
       def create
@@ -18,19 +18,19 @@ module Api
           rescue StandardError => e
             Rails.logger.error("[EchoesController] Initializer failed but Echo created: #{e.message}")
           end
-          render json: @echo, serializer: EchoDetailSerializer, status: :created
+          render json: echo_detail_json(@echo), status: :created
         else
           render json: { errors: @echo.errors.full_messages }, status: :unprocessable_entity
         end
       end
 
       def show
-        render json: @echo, serializer: EchoDetailSerializer
+        render json: echo_detail_json(@echo)
       end
 
       def update
         if @echo.update(echo_params)
-          render json: @echo, serializer: EchoDetailSerializer
+          render json: echo_detail_json(@echo)
         else
           render json: { errors: @echo.errors.full_messages }, status: :unprocessable_entity
         end
@@ -96,6 +96,43 @@ module Api
 
       def echo_params
         params.require(:echo).permit(:name, :avatar_url, personality: {})
+      end
+
+      # Flat JSON for echo list (index)
+      def echo_list_json(echo)
+        session = echo.story_sessions.order(updated_at: :desc).first
+        {
+          id: echo.id,
+          name: echo.name,
+          status: echo.status,
+          avatar_url: echo.avatar_url,
+          personality: echo.personality,
+          created_at: echo.created_at,
+          updated_at: echo.updated_at,
+          story_progress: session ? {
+            chapter: session.chapter,
+            status: session.status,
+            scene_count: session.scene_count,
+            session_id: session.id
+          } : nil
+        }
+      end
+
+      # Flat JSON for echo detail (show/create/update)
+      def echo_detail_json(echo)
+        {
+          id: echo.id,
+          name: echo.name,
+          status: echo.status,
+          avatar_url: echo.avatar_url,
+          personality: echo.personality,
+          created_at: echo.created_at,
+          updated_at: echo.updated_at,
+          story_sessions: echo.story_sessions.map { |s|
+            { id: s.id, chapter: s.chapter, status: s.status }
+          },
+          chapter_1_completed: echo.story_sessions.where(chapter: "chapter_1", status: "completed").exists?
+        }
       end
     end
   end

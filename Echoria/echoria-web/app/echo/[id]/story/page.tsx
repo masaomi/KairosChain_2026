@@ -322,15 +322,35 @@ function StoryPageContent() {
   };
 
   const handleNextChapter = async () => {
-    // Reset state and reinitialize — determineNextChapter will pick up the completed session
+    if (!nextChapter) return;
+
     setLoading(true);
     setChapterEnd(false);
-    setNextChapter(null);
     setChoices([]);
     setCurrentScene(null);
     setDisplayedText('');
     setError('');
-    await initializeStory();
+
+    try {
+      // Use the known nextChapter from the chapter-end response directly
+      const sessionData = await createStorySession(id, nextChapter);
+      setSession(sessionData);
+      loadSessionState(sessionData);
+      setNextChapter(null);
+    } catch (err: unknown) {
+      if (err instanceof Error && (err as Error & { session_id?: string }).session_id) {
+        const existingId = (err as Error & { session_id?: string }).session_id!;
+        try { await resumeStorySession(existingId); } catch { /* already active */ }
+        const sessionData = await getStorySession(existingId);
+        setSession(sessionData);
+        loadSessionState(sessionData);
+      } else {
+        setError('次の章を開始できませんでした');
+        console.error(err);
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSave = async () => {
