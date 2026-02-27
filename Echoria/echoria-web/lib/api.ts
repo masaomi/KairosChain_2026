@@ -130,6 +130,10 @@ class ApiClient {
     });
   }
 
+  async deleteEcho(id: string): Promise<{ message: string }> {
+    return this.request(`/echoes/${id}`, { method: 'DELETE' });
+  }
+
   async exportSkills(echoId: string): Promise<Record<string, unknown>> {
     return this.request(`/echoes/${echoId}/export_skills`);
   }
@@ -232,6 +236,7 @@ export const resetPassword = (token: string, password: string, password_confirma
 export const getEchoes = () => apiClient.getEchoes();
 export const getEcho = (id: string) => apiClient.getEcho(id);
 export const createEcho = (name: string) => apiClient.createEcho(name);
+export const deleteEcho = (id: string) => apiClient.deleteEcho(id);
 export const exportSkills = (echoId: string) => apiClient.exportSkills(echoId);
 export const getChainStatus = (echoId: string) => apiClient.getChainStatus(echoId);
 

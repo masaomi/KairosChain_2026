@@ -2,23 +2,26 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import PersonalityRadar from '@/components/echo/PersonalityRadar';
 import EchoAvatar from '@/components/echo/EchoAvatar';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
-import { getEcho, exportSkills, getChainStatus } from '@/lib/api';
+import { getEcho, exportSkills, getChainStatus, deleteEcho } from '@/lib/api';
 import { Echo, ChainStatus } from '@/types';
-import { ArrowLeft, MessageCircle, BookOpen, Lock, Cat, ScrollText, Play, Pause, Download, Link2 } from 'lucide-react';
+import { ArrowLeft, MessageCircle, BookOpen, Lock, Cat, ScrollText, Play, Pause, Download, Link2, Trash2, AlertTriangle } from 'lucide-react';
 
 function EchoProfileContent() {
   const { id } = useParams() as { id: string };
+  const router = useRouter();
   const [echo, setEcho] = useState<Echo | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [chainStatus, setChainStatus] = useState<ChainStatus | null>(null);
   const [error, setError] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetchEcho();
@@ -35,6 +38,19 @@ function EchoProfileContent() {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!echo || deleting) return;
+    setDeleting(true);
+    try {
+      await deleteEcho(echo.id);
+      router.push('/home');
+    } catch (err: any) {
+      setError(err.message || 'エコーの削除に失敗しました');
+      setDeleting(false);
+      setShowDeleteConfirm(false);
     }
   };
 
@@ -403,6 +419,50 @@ function EchoProfileContent() {
             </div>
           </div>
         )}
+
+        {/* Delete Echo */}
+        <div className="mt-12 pt-8 border-t border-white/5">
+          {!showDeleteConfirm ? (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="flex items-center gap-2 text-sm text-[#606060] hover:text-red-400 transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+              この物語を閉じる
+            </button>
+          ) : (
+            <div className="glass-morphism rounded-xl p-6 border border-red-500/20">
+              <div className="flex items-start gap-3 mb-4">
+                <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-[#f5f5f5] font-semibold mb-1">
+                    「{echo.name}」の物語を閉じますか？
+                  </p>
+                  <p className="text-sm text-[#808080]">
+                    すべての物語の記録、カケラ、スキル、会話が失われます。この操作は取り消せません。
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  disabled={deleting}
+                  className="px-4 py-2 text-sm text-[#b0b0b0] hover:text-[#f5f5f5] transition-colors"
+                >
+                  やめる
+                </button>
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-red-900/30 text-red-300 border border-red-500/30 hover:bg-red-900/50 transition-colors disabled:opacity-50"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  {deleting ? '削除中...' : '閉じる'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </main>
     </div>
   );
