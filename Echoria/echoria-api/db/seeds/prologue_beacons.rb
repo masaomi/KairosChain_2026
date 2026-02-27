@@ -72,7 +72,7 @@ prologue_beacons = [
         choice_id: "prologue_02_silent",
         choice_text: "何も言わず、ただティアラの話を聞く",
         narrative_result: "あなたは口を閉ざし、ティアラの言葉を待った。長い沈黙。ティアラの表情が、ほんの一瞬だけ——本当に一瞬だけ、崩れた。「......あなた、そうやって黙って聞くのね。......昔も、そうだった気がする。......いえ、何でもないわ。忘れて」尻尾の先が、小さく震えていた。「守りたいとか、そういうのじゃないから。ただ——あなたがいないと、困るのよ。私が。......い、今のも客観的な事実だから」",
-        affinity_delta: { tiara_trust: 15, logic_empathy_balance: 8, name_memory_stability: -2 }
+        affinity_delta: { tiara_trust: 15, logic_empathy_balance: 8, name_memory_stability: -2, fragment_count: 1 }
       }
     ],
     metadata: { location: "残響界 — 遺跡の奥", beacon_id: "prologue_02_tiara" }
@@ -150,7 +150,7 @@ prologue_beacons = [
         choice_id: "prologue_05_feel",
         choice_text: "もう一度、今度は「心」に触れようと意識を向ける",
         narrative_result: "あなたは目を閉じ、構造ではなく、もっと深い場所に意識を向けた。ティアラの呼吸、尻尾の揺れ、耳の角度——その一つ一つに、言葉にならない感情があった。次の瞬間、ほんの一瞬だけ、ティアラの波と自分の波が重なった気がした。ティアラが小さく息を呑む。「......っ。今のは......ちょっと反則よ。初めてなのに、こんな......」ティアラは前足で顔を隠すような仕草をした。「......ま、まあ、才能はあるみたいね。認めてあげるわ」",
-        affinity_delta: { tiara_trust: 15, logic_empathy_balance: 12, name_memory_stability: 3 }
+        affinity_delta: { tiara_trust: 15, logic_empathy_balance: 12, name_memory_stability: 3, fragment_count: 1 }
       },
       {
         choice_id: "prologue_05_analyze",

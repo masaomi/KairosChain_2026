@@ -54,11 +54,12 @@ class AffinityCalculatorService
 
     # Beacon deltas are authoritative; generated deltas are supplementary
     # Weight: beacon = 1.0, generated = 0.5
+    # Exception: fragment_count uses ceil to prevent 1*0.5=0.5→0 rounding loss
     combined = {}
     VALID_AXES.each do |axis|
       beacon_val = (beacon_delta[axis] || 0).to_i
-      generated_val = ((generated_delta[axis] || 0).to_i * 0.5).round
-      combined[axis] = beacon_val + generated_val
+      raw = (generated_delta[axis] || 0).to_i * 0.5
+      combined[axis] = beacon_val + (axis == "fragment_count" ? raw.ceil : raw.round)
     end
 
     apply_delta(combined)

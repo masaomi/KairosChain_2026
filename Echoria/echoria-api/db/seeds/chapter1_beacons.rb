@@ -25,7 +25,7 @@ chapter1_beacons = [
         choice_id: "ch1_gate_honest",
         choice_text: "「遠くから来た。この街のことは、何も知らない」と正直に答える",
         narrative_result: "リリィは納得したように頷いた。「そう。さっきの波、本当に不思議だった。名前が呼ばれていないのに、あんなに澄んでいるなんて」「......波が、澄んでいる？」「普通、名前を拒絶されると、波は乱れるの。悲しみとか、怒りとか。でも、あなたの波は......静かだった。湖みたいに」ティアラがあなたの足元から顔を出し、リリィを見上げた。「ねえ、記録官さん。この街では、名前がないと何もできないの？」「名前がないと、記録に残らない。記録に残らないと、この街では『存在しない』のと同じよ」",
-        affinity_delta: { tiara_trust: 5, logic_empathy_balance: 5, name_memory_stability: 3 }
+        affinity_delta: { tiara_trust: 5, logic_empathy_balance: 5, name_memory_stability: 3, fragment_count: 1 }
       },
       {
         choice_id: "ch1_gate_observe",
@@ -145,13 +145,13 @@ chapter1_beacons = [
         choice_id: "ch1_end_promise",
         choice_text: "「ありがとう。その時は、よろしく頼む」とティアラに答える",
         narrative_result: "ティアラの尻尾が、大きくふわりと揺れた。「......別に、頼まれなくてもやるけど。......でも、ちゃんと言ってくれたのは、嬉しい。......い、今のはただの感想よ」リリィが微笑んだ。「あなたたち、いいコンビね」「コンビ!? 違うわよ、ただの道連れ......」ティアラの抗議は、風に流された。第一章は、こうして幕を閉じた。しかし、無題の書には、まだ多くの白紙のページが残っている。",
-        affinity_delta: { tiara_trust: 20, logic_empathy_balance: 8, name_memory_stability: 5 }
+        affinity_delta: { tiara_trust: 20, logic_empathy_balance: 8, name_memory_stability: 5, fragment_count: 1 }
       },
       {
         choice_id: "ch1_end_next",
         choice_text: "「次は、どこへ行けばいい？」とリリィに尋ねる",
         narrative_result: "リリィは少し考えてから答えた。「東の方角に、記憶の街——レムナがあるわ。あそこには、失われた記憶を集める人々がいるの。もしかしたら、あなたの名前の手がかりが見つかるかもしれない」ティアラが耳をぴくりと動かした。「記憶の街......。面白そうじゃない。行きましょう。......何よ、私だって好奇心くらいあるわよ」",
-        affinity_delta: { tiara_trust: 10, logic_empathy_balance: -3, name_memory_stability: 10 }
+        affinity_delta: { tiara_trust: 10, logic_empathy_balance: -3, name_memory_stability: 10, fragment_count: 1 }
       },
       {
         choice_id: "ch1_end_stay",

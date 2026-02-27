@@ -161,7 +161,7 @@ class StoryGeneratorService
           "logic_empathy_balance": ±整数 (-50～+50),
           "name_memory_stability": ±整数 (0-100),
           "authority_resistance": ±整数 (-50～+50),
-          "fragment_count": 0以上の整数
+          "fragment_count": 0または1または2（カケラに触れた・記憶の断片を感じた・消えかけた存在と呼応した場面では1。特に深い呼応・重要な記憶の発見では2。通常の会話では0）
         },
         "scene_type": "generated"
       }
