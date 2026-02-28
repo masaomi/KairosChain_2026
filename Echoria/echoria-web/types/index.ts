@@ -28,6 +28,13 @@ export interface AffinitySummary {
   total_resonance: number;
 }
 
+// === Quiz ===
+export interface QuizAnswers {
+  q1: 'a' | 'b' | 'c';
+  q2: 'a' | 'b' | 'c';
+  q3: 'a' | 'b' | 'c';
+}
+
 // === Echo ===
 export interface Echo {
   id: string;
@@ -52,6 +59,8 @@ export interface Echo {
 export interface EchoPersonality {
   traits?: Record<string, unknown>;
   affinities?: Partial<Affinity>;
+  initial_affinity?: Partial<Affinity>;
+  quiz_answers?: QuizAnswers;
   memories?: string[];
   skills?: string[];
   primary_archetype?: string;

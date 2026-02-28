@@ -12,6 +12,16 @@ module Api
       def create
         @echo = current_user.echoes.build(echo_params)
 
+        # Apply quiz answers to initial personality if provided
+        if params[:echo][:quiz_answers].present?
+          quiz_service = QuizAffinityService.new(params[:echo][:quiz_answers])
+          initial_affinity = quiz_service.call
+          @echo.personality = (@echo.personality || {}).merge(
+            "initial_affinity" => initial_affinity,
+            "quiz_answers" => params[:echo][:quiz_answers].to_unsafe_h
+          )
+        end
+
         if @echo.save
           begin
             EchoInitializerService.new(@echo).call

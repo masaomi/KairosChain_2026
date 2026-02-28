@@ -6,9 +6,10 @@ import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import EchoCard from '@/components/echo/EchoCard';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
+import PersonalityQuiz from '@/components/echo/PersonalityQuiz';
 import { getEchoes, createEcho } from '@/lib/api';
 import { removeToken } from '@/lib/auth';
-import { Echo } from '@/types';
+import { Echo, QuizAnswers } from '@/types';
 import { Plus, X } from 'lucide-react';
 
 function HomePageContent() {
@@ -16,6 +17,7 @@ function HomePageContent() {
   const [loading, setLoading] = useState(true);
   const [creatingEcho, setCreatingEcho] = useState(false);
   const [showNameDialog, setShowNameDialog] = useState(false);
+  const [showQuiz, setShowQuiz] = useState(false);
   const [echoName, setEchoName] = useState('');
   const [partnerName, setPartnerName] = useState('');
   const [error, setError] = useState('');
@@ -49,14 +51,31 @@ function HomePageContent() {
     setShowNameDialog(true);
   };
 
-  const handleCreateEcho = async () => {
-    const name = echoName.trim();
-    if (!name) return;
-
-    setCreatingEcho(true);
+  const handleProceedToQuiz = () => {
+    if (!echoName.trim()) return;
     setShowNameDialog(false);
+    setShowQuiz(true);
+  };
+
+  const handleQuizComplete = async (quizAnswers: QuizAnswers) => {
+    setShowQuiz(false);
+    setCreatingEcho(true);
     try {
-      const newEcho = await createEcho(name, partnerName || undefined);
+      const newEcho = await createEcho(echoName.trim(), partnerName || undefined, quizAnswers);
+      setEchoes([...echoes, newEcho]);
+    } catch (err: any) {
+      setError('エコーの作成に失敗しました');
+      console.error(err);
+    } finally {
+      setCreatingEcho(false);
+    }
+  };
+
+  const handleQuizSkip = async () => {
+    setShowQuiz(false);
+    setCreatingEcho(true);
+    try {
+      const newEcho = await createEcho(echoName.trim(), partnerName || undefined);
       setEchoes([...echoes, newEcho]);
     } catch (err: any) {
       setError('エコーの作成に失敗しました');
@@ -68,7 +87,7 @@ function HomePageContent() {
 
   const handleNameKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && echoName.trim()) {
-      handleCreateEcho();
+      handleProceedToQuiz();
     }
     if (e.key === 'Escape') {
       setShowNameDialog(false);
@@ -142,14 +161,23 @@ function HomePageContent() {
             </div>
 
             <button
-              onClick={handleCreateEcho}
+              onClick={handleProceedToQuiz}
               disabled={!echoName.trim()}
               className="w-full mt-6 button-primary py-3 text-base disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              物語を始める
+              次へ
             </button>
           </div>
         </div>
+      )}
+
+      {/* Personality Quiz */}
+      {showQuiz && (
+        <PersonalityQuiz
+          partnerName={partnerName || 'ティアラ'}
+          onComplete={handleQuizComplete}
+          onSkip={handleQuizSkip}
+        />
       )}
 
       {/* Content */}

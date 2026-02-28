@@ -27,7 +27,11 @@ class StorySession < ApplicationRecord
   }.freeze
 
   def initialize_affinity
-    self.affinity = DEFAULT_AFFINITY.dup if affinity.blank?
+    return unless affinity.blank?
+
+    # Use quiz-derived initial affinity if available
+    quiz_affinity = echo&.personality&.dig("initial_affinity")
+    self.affinity = quiz_affinity.present? ? quiz_affinity.dup : DEFAULT_AFFINITY.dup
   end
 
   def add_affinity_delta(delta)

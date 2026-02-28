@@ -10,6 +10,7 @@ import {
   ChatPartner,
   StoryLogResponse,
   ChainStatus,
+  QuizAnswers,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1';
@@ -123,10 +124,13 @@ class ApiClient {
     return this.request(`/echoes/${id}`);
   }
 
-  async createEcho(name: string, partnerName?: string): Promise<Echo> {
-    const echoParams: Record<string, string> = { name };
+  async createEcho(name: string, partnerName?: string, quizAnswers?: QuizAnswers): Promise<Echo> {
+    const echoParams: Record<string, unknown> = { name };
     if (partnerName?.trim()) {
       echoParams.partner_name = partnerName.trim();
+    }
+    if (quizAnswers) {
+      echoParams.quiz_answers = quizAnswers;
     }
     return this.request('/echoes', {
       method: 'POST',
@@ -239,7 +243,8 @@ export const resetPassword = (token: string, password: string, password_confirma
 // Echo exports
 export const getEchoes = () => apiClient.getEchoes();
 export const getEcho = (id: string) => apiClient.getEcho(id);
-export const createEcho = (name: string, partnerName?: string) => apiClient.createEcho(name, partnerName);
+export const createEcho = (name: string, partnerName?: string, quizAnswers?: QuizAnswers) =>
+  apiClient.createEcho(name, partnerName, quizAnswers);
 export const deleteEcho = (id: string) => apiClient.deleteEcho(id);
 export const exportSkills = (echoId: string) => apiClient.exportSkills(echoId);
 export const getChainStatus = (echoId: string) => apiClient.getChainStatus(echoId);
