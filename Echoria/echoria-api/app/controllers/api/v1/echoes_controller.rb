@@ -95,7 +95,7 @@ module Api
       end
 
       def echo_params
-        params.require(:echo).permit(:name, :avatar_url, personality: {})
+        params.require(:echo).permit(:name, :partner_name, :avatar_url, personality: {})
       end
 
       # Flat JSON for echo list (index)
@@ -104,6 +104,7 @@ module Api
         {
           id: echo.id,
           name: echo.name,
+          partner_name: echo.partner_name,
           status: echo.status,
           avatar_url: echo.avatar_url,
           personality: echo.personality,
@@ -123,6 +124,7 @@ module Api
         {
           id: echo.id,
           name: echo.name,
+          partner_name: echo.partner_name,
           status: echo.status,
           avatar_url: echo.avatar_url,
           personality: echo.personality,

@@ -5,6 +5,7 @@ import { DialogueLine } from '@/types';
 interface DialogueDisplayProps {
   dialogue: DialogueLine[];
   visible: boolean;
+  partnerName?: string;
 }
 
 // Map tone to visual style
@@ -22,11 +23,11 @@ const toneStyles: Record<string, string> = {
   silent_contemplation: 'text-[#808080] italic',
 };
 
-function getSpeakerStyle(speaker: string): { color: string; label: string; align: string } {
-  if (speaker === 'ティアラ' || speaker === 'Tiara') {
+function getSpeakerStyle(speaker: string, partnerName: string = 'ティアラ'): { color: string; label: string; align: string } {
+  if (speaker === partnerName || speaker === 'ティアラ' || speaker === 'Tiara') {
     return {
       color: 'text-[#c0a0d0]',
-      label: 'ティアラ',
+      label: partnerName,
       align: 'justify-start',
     };
   }
@@ -45,7 +46,7 @@ function getSpeakerStyle(speaker: string): { color: string; label: string; align
   };
 }
 
-export default function DialogueDisplay({ dialogue, visible }: DialogueDisplayProps) {
+export default function DialogueDisplay({ dialogue, visible, partnerName }: DialogueDisplayProps) {
   if (!dialogue || dialogue.length === 0 || !visible) {
     return null;
   }
@@ -53,7 +54,7 @@ export default function DialogueDisplay({ dialogue, visible }: DialogueDisplayPr
   return (
     <div className="space-y-4 my-6">
       {dialogue.map((line, idx) => {
-        const speakerStyle = getSpeakerStyle(line.speaker);
+        const speakerStyle = getSpeakerStyle(line.speaker, partnerName || 'ティアラ');
         const toneClass = toneStyles[line.tone || ''] || 'text-[#f5f5f5]';
         const isEcho = line.speaker === 'エコー' || line.speaker === 'Echo';
 

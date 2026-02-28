@@ -80,7 +80,7 @@ export default function EchoCard({ echo }: EchoCardProps) {
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4 mb-6 text-center">
           <div>
-            <p className="text-xs text-[#b0b0b0] mb-1">ティアラ</p>
+            <p className="text-xs text-[#b0b0b0] mb-1">{echo.partner_name || 'ティアラ'}</p>
             <p className="text-lg font-bold text-[#50c878]">{tiaraTrust}%</p>
           </div>
           <div>

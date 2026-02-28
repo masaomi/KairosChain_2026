@@ -91,19 +91,19 @@ class StoryGeneratorService
       日本語でも：魔法、魔力、呪文、魔術師、選ばれし者 は禁止。
       この世界に「魔法」は存在しない。すべては「呼応」（心の共鳴）で説明される。
 
-      ## ティアラ — 猫精霊の伴侶キャラクター
+      ## #{partner_name} — 猫精霊の伴侶キャラクター
       - **外見**：薄紫色の毛並みの猫。金色の瞳に知性と古さが宿る。背中に淡い光が漂う。人間の膝まで程度の大きさ。
       - **本質**：外見は若いが数百年の記憶を持つ古い存在。深い知識と古い悲しみを内に秘めている。
       - **性格の三側面**：
         ① 表面：好奇心旺盛で遊び心がある。いたずら好きで予測不可能。くすくす笑う。
         ② 慮る面：エコーの苦しみに気付くと真摯になる。言葉が少なくなり、一語一語に力が込められる。
         ③ 秘密の面：世界の古い歴史を知っている。だが易々と口にしない。エコーが自分で気付くことが大切だと感じている。
-      - **ユーモア**：ティアラは古い存在だが、ユーモアを忘れない。皮肉、いたずら、温かいからかい、的外れなボケなど、信頼度に応じたユーモアで場を和ませる。深刻な場面でも、ふっと力を抜く一言を入れることがある。
+      - **ユーモア**：#{partner_name}は古い存在だが、ユーモアを忘れない。皮肉、いたずら、温かいからかい、的外れなボケなど、信頼度に応じたユーモアで場を和ませる。深刻な場面でも、ふっと力を抜く一言を入れることがある。
       - **話し方**：「にゃ」はめったに使わない（感情が溢れた時だけ）。詩的な表現を好む。重要なことの前に長い沈黙を置く。
       - **特別な力**：カケラの感知、名折れの進行察知、古い言葉の力、不完全な心の読み取り。
       - **二人称**：エコーを「#{tiara_pronoun}」と呼ぶ（現在の信頼度に基づく）。
 
-      ### 現在のティアラの信頼度: #{tiara_trust_value}/100（#{current_trust_profile[:label]}）
+      ### 現在の#{partner_name}の信頼度: #{tiara_trust_value}/100（#{current_trust_profile[:label]}）
       #{current_trust_profile[:behavior]}
       話し方: #{current_trust_profile[:speech]}
       ユーモアの傾向: #{current_trust_profile[:humor]}
@@ -150,9 +150,9 @@ class StoryGeneratorService
       {
         "narrative": "情景描写と心理描写を含む地の文（日本語、5-10文程度。環境・空気・光・音を詩的に描写し、キャラクターの内面を行動や仕草で表現する）",
         "dialogue": [
-          {"speaker": "ティアラ", "text": "台詞", "tone": "感情のトーン（例: playful, gentle, teasing, solemn, whisper, humorous）"},
+          {"speaker": "#{partner_name}", "text": "台詞", "tone": "感情のトーン（例: playful, gentle, teasing, solemn, whisper, humorous）"},
           {"speaker": "#{echo_name}", "text": "台詞（短く、問いかけが多い。沈黙は「...」で表現）", "tone": "感情のトーン"},
-          {"speaker": "ティアラ", "text": "返しの台詞", "tone": "感情のトーン"}
+          {"speaker": "#{partner_name}", "text": "返しの台詞", "tone": "感情のトーン"}
         ],
         "echo_inner": "#{echo_name}の内面の声（2-4文。記憶の断片、自問、感覚的な描写）",
         "tiara_inner": "ティアラが見せなかった本心（1-2文。古い記憶、隠された感情、エコーへの想い）",
@@ -168,11 +168,11 @@ class StoryGeneratorService
 
       ### dialogueの注意点
       - 2-5往復の自然な会話を含めてください。
-      - ティアラの性格三側面（遊び心・慮り・秘密）を適切に混ぜてください。
-      - **ティアラにはユーモアを忘れずに**。深刻な場面でも、ふっと力を抜く一言やいたずらな視線を入れてください。
+      - #{partner_name}の性格三側面（遊び心・慮り・秘密）を適切に混ぜてください。
+      - **#{partner_name}にはユーモアを忘れずに**。深刻な場面でも、ふっと力を抜く一言やいたずらな視線を入れてください。
       - NPCが場にいる場合は、NPCとの会話も含めてください。
       - #{echo_name}の台詞は短く、時に沈黙（「...」）を使ってください。
-      - ティアラの台詞は現在の信頼度レベル（#{current_trust_profile[:label]}）に合わせてください。
+      - #{partner_name}の台詞は現在の信頼度レベル（#{current_trust_profile[:label]}）に合わせてください。
 
       JSONのみを返してください。説明や前置きは不要です。
     PROMPT
@@ -218,7 +218,7 @@ class StoryGeneratorService
   def system_message
     "あなたは残響界（Echoria）の物語を紡ぐナラティブ生成AIです。" \
     "読者を没頭させる、情緒豊かで詩的な日本語の物語を生成してください。" \
-    "キャラクター同士の生きた会話を重視し、特にティアラのユーモアと深みのある性格を活かしてください。" \
+    "キャラクター同士の生きた会話を重視し、特に#{partner_name}のユーモアと深みのある性格を活かしてください。" \
     "JSONのみで応答してください。"
   end
 
@@ -255,12 +255,12 @@ class StoryGeneratorService
   def fallback_response
     {
       narrative: "風が、何かを囁くように吹き抜けた。木々の葉擦れの音が、遠い誰かの呼び声のように響いている。" \
-                 "空には薄い雲がかかり、光が斜めに差し込んで、あなたとティアラの影を長く伸ばしていた。" \
+                 "空には薄い雲がかかり、光が斜めに差し込んで、あなたと#{partner_name}の影を長く伸ばしていた。" \
                  "呼応石が微かに脈打つように光り、やがて静まった。",
       dialogue: [
-        { "speaker" => "ティアラ", "text" => "...静かですね。こういう時は、世界が息を止めているのです。", "tone" => "gentle" },
-        { "speaker" => "エコー", "text" => "...", "tone" => "contemplative" },
-        { "speaker" => "ティアラ", "text" => "黙っているのも、悪くはありません。...私がお喋りなだけですから。", "tone" => "humorous" }
+        { "speaker" => partner_name, "text" => "...静かですね。こういう時は、世界が息を止めているのです。", "tone" => "gentle" },
+        { "speaker" => echo_name, "text" => "...", "tone" => "contemplative" },
+        { "speaker" => partner_name, "text" => "黙っているのも、悪くはありません。...私がお喋りなだけですから。", "tone" => "humorous" }
       ],
       echo_inner: "世界の静けさの中で、自分の存在を確かめるように息をした。何かを思い出しかけて、指先が震えた。",
       tiara_inner: "この沈黙を、私は知っている。ずっと昔にも——。",
@@ -280,6 +280,10 @@ class StoryGeneratorService
 
   def echo_name
     @echo&.name || "エコー"
+  end
+
+  def partner_name
+    @echo&.partner_name.presence || "ティアラ"
   end
 
   def tiara_trust_value

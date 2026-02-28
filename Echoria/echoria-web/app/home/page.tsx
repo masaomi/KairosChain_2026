@@ -17,6 +17,7 @@ function HomePageContent() {
   const [creatingEcho, setCreatingEcho] = useState(false);
   const [showNameDialog, setShowNameDialog] = useState(false);
   const [echoName, setEchoName] = useState('');
+  const [partnerName, setPartnerName] = useState('');
   const [error, setError] = useState('');
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -44,6 +45,7 @@ function HomePageContent() {
 
   const openNameDialog = () => {
     setEchoName('');
+    setPartnerName('');
     setShowNameDialog(true);
   };
 
@@ -54,7 +56,7 @@ function HomePageContent() {
     setCreatingEcho(true);
     setShowNameDialog(false);
     try {
-      const newEcho = await createEcho(name);
+      const newEcho = await createEcho(name, partnerName || undefined);
       setEchoes([...echoes, newEcho]);
     } catch (err: any) {
       setError('エコーの作成に失敗しました');
@@ -119,6 +121,25 @@ function HomePageContent() {
               maxLength={20}
               className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-[#f5f5f5] placeholder-[#606060] focus:outline-none focus:border-[#d4af37]/50 focus:ring-1 focus:ring-[#d4af37]/20 transition-all text-center text-lg"
             />
+
+            {/* Optional partner name */}
+            <div className="mt-5 pt-5 border-t border-white/5">
+              <p className="text-[#808080] text-xs mb-2 text-center">
+                パートナーの名前（オプション）
+              </p>
+              <input
+                type="text"
+                value={partnerName}
+                onChange={(e) => setPartnerName(e.target.value)}
+                onKeyDown={handleNameKeyDown}
+                placeholder="ティアラ"
+                maxLength={20}
+                className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/5 text-[#f5f5f5] placeholder-[#404040] focus:outline-none focus:border-[#50c878]/30 focus:ring-1 focus:ring-[#50c878]/10 transition-all text-center text-sm"
+              />
+              <p className="text-[#606060] text-xs mt-1 text-center">
+                あなたに寄り添う猫精霊の名前を変えられます
+              </p>
+            </div>
 
             <button
               onClick={handleCreateEcho}

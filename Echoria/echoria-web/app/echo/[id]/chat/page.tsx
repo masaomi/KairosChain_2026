@@ -141,7 +141,7 @@ function ChatPageInner() {
     ? 'from-[#9b59b6] to-[#c0a0d0]'
     : 'from-[#d4af37] to-[#50c878]';
   const loadingDotColor = isTiara ? 'bg-[#c0a0d0]' : 'bg-[#50c878]';
-  const partnerName = isTiara ? 'ティアラ' : echo.name;
+  const partnerName = isTiara ? (echo.partner_name || 'ティアラ') : echo.name;
   const partnerEmoji = isTiara ? '🐱' : '💎';
 
   return (
@@ -203,7 +203,7 @@ function ChatPageInner() {
                     : 'text-[#b0b0b0] hover:text-[#c0a0d0]'
                 }`}
               >
-                ティアラ
+                {echo.partner_name || 'ティアラ'}
               </Link>
             )}
           </div>
@@ -217,7 +217,7 @@ function ChatPageInner() {
             <div>
               <div className="text-5xl mb-4">{isTiara ? '🐱' : '💬'}</div>
               <h2 className="text-2xl font-serif font-bold mb-2" style={{ color: themeColor }}>
-                {isTiara ? 'ティアラと話そう' : '会話を始めましょう'}
+                {isTiara ? `${echo.partner_name || 'ティアラ'}と話そう` : '会話を始めましょう'}
               </h2>
               <p className="text-[#b0b0b0]">
                 {isTiara
@@ -267,7 +267,7 @@ function ChatPageInner() {
           <ChatInput
             onSendMessage={handleSendMessage}
             disabled={sending}
-            placeholder={isTiara ? 'ティアラに話しかける... (Enterで送信)' : undefined}
+            placeholder={isTiara ? `${echo.partner_name || 'ティアラ'}に話しかける... (Enterで送信)` : undefined}
           />
         </div>
       </div>

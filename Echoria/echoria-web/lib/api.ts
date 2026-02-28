@@ -123,10 +123,14 @@ class ApiClient {
     return this.request(`/echoes/${id}`);
   }
 
-  async createEcho(name: string): Promise<Echo> {
+  async createEcho(name: string, partnerName?: string): Promise<Echo> {
+    const echoParams: Record<string, string> = { name };
+    if (partnerName?.trim()) {
+      echoParams.partner_name = partnerName.trim();
+    }
     return this.request('/echoes', {
       method: 'POST',
-      body: JSON.stringify({ echo: { name } }),
+      body: JSON.stringify({ echo: echoParams }),
     });
   }
 
@@ -235,7 +239,7 @@ export const resetPassword = (token: string, password: string, password_confirma
 // Echo exports
 export const getEchoes = () => apiClient.getEchoes();
 export const getEcho = (id: string) => apiClient.getEcho(id);
-export const createEcho = (name: string) => apiClient.createEcho(name);
+export const createEcho = (name: string, partnerName?: string) => apiClient.createEcho(name, partnerName);
 export const deleteEcho = (id: string) => apiClient.deleteEcho(id);
 export const exportSkills = (echoId: string) => apiClient.exportSkills(echoId);
 export const getChainStatus = (echoId: string) => apiClient.getChainStatus(echoId);

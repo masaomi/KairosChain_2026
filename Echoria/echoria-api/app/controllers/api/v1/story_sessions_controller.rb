@@ -199,7 +199,8 @@ module Api
             affinity: @session.affinity,
             created_at: @session.created_at,
             updated_at: @session.updated_at,
-            echo_name: @session.echo.name
+            echo_name: @session.echo.name,
+            partner_name: @session.echo.partner_name
           },
           scenes: scenes.map { |s| story_log_scene(s) }
         }, status: :ok

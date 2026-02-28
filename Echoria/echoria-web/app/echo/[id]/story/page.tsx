@@ -563,6 +563,7 @@ function StoryPageContent() {
               <DialogueDisplay
                 dialogue={currentScene.dialogue}
                 visible={typewriterDone}
+                partnerName={echo?.partner_name}
               />
             )}
 
@@ -663,7 +664,7 @@ function StoryPageContent() {
                   <div className="text-[#808080] text-sm leading-relaxed space-y-3">
                     <p>
                       ノメイアが「名前」で存在を定義する街だったのに対し、
-                      次にあなたとティアラが訪れるのは「記憶」で存在が揺らぐ街。
+                      次にあなたと{echo?.partner_name || 'ティアラ'}が訪れるのは「記憶」で存在が揺らぐ街。
                     </p>
                     <p>
                       建物の輪郭は水面のように揺れ、人々の姿は確定しきらない。
@@ -675,7 +676,7 @@ function StoryPageContent() {
                   </div>
                   <div className="mt-5 pt-4 border-t border-white/5 text-center">
                     <p className="text-[#606060] text-xs">
-                      ティアラ：「ここ......やさしすぎる」
+                      {echo?.partner_name || 'ティアラ'}：「ここ......やさしすぎる」
                     </p>
                   </div>
                 </div>
@@ -749,7 +750,7 @@ function StoryPageContent() {
             <div className="flex items-center gap-3">
               <TiaraAvatar trust={(session.affinity?.tiara_trust || 50) / 100} size="sm" />
               <div>
-                <p className="text-xs text-[#b0b0b0]">ティアラとの絆</p>
+                <p className="text-xs text-[#b0b0b0]">{echo?.partner_name || 'ティアラ'}との絆</p>
                 <div className="w-20 h-1.5 bg-white/10 rounded-full overflow-hidden mt-1">
                   <div
                     className="h-full bg-[#50c878] rounded-full transition-all duration-500"

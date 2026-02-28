@@ -35,7 +35,7 @@ export default function ChatMessage({ message, echo, partner = 'echo' }: ChatMes
           🐱
         </div>
         <div className="max-w-xs lg:max-w-md bg-[#9b59b6]/10 border border-[#9b59b6]/30 rounded-2xl rounded-bl-none p-4">
-          <p className="text-xs font-semibold text-[#c0a0d0] mb-1">ティアラ</p>
+          <p className="text-xs font-semibold text-[#c0a0d0] mb-1">{echo.partner_name || 'ティアラ'}</p>
           <p className="text-[#f5f5f5] leading-relaxed">{message.content}</p>
           <p className="text-xs text-[#b0b0b0] mt-2">
             {new Date(message.created_at).toLocaleTimeString('ja-JP', {

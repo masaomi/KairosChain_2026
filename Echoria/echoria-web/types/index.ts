@@ -33,6 +33,7 @@ export interface Echo {
   id: string;
   user_id: string;
   name: string;
+  partner_name?: string;
   status: 'embryo' | 'growing' | 'crystallized';
   personality: EchoPersonality;
   avatar_url?: string;
@@ -192,6 +193,7 @@ export interface StoryLogResponse {
     created_at: string;
     updated_at: string;
     echo_name: string;
+    partner_name?: string;
   };
   scenes: StoryLogScene[];
 }

@@ -118,6 +118,93 @@ function EchoProfileContent() {
 
   const chapter1Done = echo.chapter_1_completed ?? false;
 
+  // Generate personality analysis text from affinity values
+  const getPersonalityAnalysis = () => {
+    const aff = echo.personality?.affinities;
+    if (!aff) return null;
+
+    const trust = aff.tiara_trust ?? 50;
+    const balance = aff.logic_empathy_balance ?? 0;
+    const stability = aff.name_memory_stability ?? 50;
+    const resistance = aff.authority_resistance ?? 0;
+    const fragments = aff.fragment_count ?? 0;
+    const pName = echo.partner_name || 'ティアラ';
+
+    const lines: string[] = [];
+
+    // Thinking style
+    if (balance > 20) lines.push('共感と直感で世界を受け止める傾向がある。');
+    else if (balance > 5) lines.push('感情に寄り添いながらも、冷静さを忘れない。');
+    else if (balance > -5) lines.push('分析と共感のバランスが取れた思考を持つ。');
+    else if (balance > -20) lines.push('論理的に物事を捉え、慎重に判断する。');
+    else lines.push('鋭い分析力で世界の構造を見抜こうとする。');
+
+    // Authority stance
+    if (resistance > 15) lines.push('既存の秩序に疑問を持ち、自らの道を切り開く意志がある。');
+    else if (resistance > 0) lines.push('自分の信念に従いつつ、周囲とも折り合いをつけられる。');
+    else if (resistance > -15) lines.push('調和を重んじ、導きに耳を傾ける姿勢を持つ。');
+    else lines.push('秩序と安定を信頼し、守られた道を歩む。');
+
+    // Identity
+    if (stability >= 75) lines.push('自己の輪郭は明確で、名前に確かな力が宿っている。');
+    else if (stability >= 50) lines.push('自分が何者かを少しずつ理解し始めている。');
+    else if (stability >= 25) lines.push('記憶の霧の中で、自分の形を探し続けている。');
+    else lines.push('自己の境界は曖昧で、存在が揺らいでいる。');
+
+    // Trust relationship
+    if (trust >= 80) lines.push(`${pName}とは言葉を超えた深い絆で結ばれている。`);
+    else if (trust >= 60) lines.push(`${pName}との間に確かな信頼が芽生えている。`);
+    else if (trust >= 40) lines.push(`${pName}と少しずつ心を通わせ始めている。`);
+    else if (trust >= 20) lines.push(`${pName}に対してまだ慎重な距離を保っている。`);
+    else lines.push(`${pName}との間には、まだ見えない壁がある。`);
+
+    // Fragments
+    if (fragments >= 10) lines.push(`${fragments}のカケラが、失われた記憶の輪郭を浮かび上がらせている。`);
+    else if (fragments >= 5) lines.push(`集めた${fragments}のカケラが、かすかな記憶の糸を紡ぎ始めている。`);
+    else if (fragments > 0) lines.push(`${fragments}つのカケラ——まだ記憶の断片に過ぎない。`);
+
+    return lines.join('');
+  };
+
+  const personalityText = getPersonalityAnalysis();
+
+  // Tiara/partner trust tier description
+  const getPartnerProfile = () => {
+    const trust = echo.personality?.affinities?.tiara_trust ?? 50;
+    const pName = echo.partner_name || 'ティアラ';
+
+    if (trust >= 81) return {
+      tier: '結合',
+      description: `${pName}はすべての仮面を外し、最も深い秘密を打ち明けている。言葉を超えた絆で結ばれ、瞳を交わすだけで互いを理解する。`,
+      color: 'text-[#e8c547]',
+      borderColor: 'border-[#e8c547]/20',
+    };
+    if (trust >= 61) return {
+      tier: '深い絆',
+      description: `${pName}との連携は完全に同期している。過去の重要な知識を共有し始め、あなたの決断に全面的な信頼を寄せている。`,
+      color: 'text-[#c0a0d0]',
+      borderColor: 'border-[#c0a0d0]/20',
+    };
+    if (trust >= 41) return {
+      tier: '友情',
+      description: `${pName}は一緒にいることを楽しんでいる。初めて恐れや悲しみを語り始め、あなたの判断を尊重するようになった。`,
+      color: 'text-[#50c878]',
+      borderColor: 'border-[#50c878]/20',
+    };
+    if (trust >= 21) return {
+      tier: '用心',
+      description: `${pName}はあなたの側に寄ることが増えたが、まだ慎重さを残している。いたずらを仕掛けてはあなたの反応を見ている。`,
+      color: 'text-[#a8d8ea]',
+      borderColor: 'border-[#a8d8ea]/20',
+    };
+    return {
+      tier: '警戒',
+      description: `${pName}は距離を取り、あなたを観察している。信頼に値するかどうか、まだ見極めている最中。`,
+      color: 'text-[#808080]',
+      borderColor: 'border-white/10',
+    };
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#1a0a2e] via-[#16213e] to-[#0f3460] relative">
       {/* Background decoration */}
@@ -171,7 +258,7 @@ function EchoProfileContent() {
               {/* Stats */}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <div>
-                  <p className="text-xs text-[#b0b0b0] mb-1">ティアラの絆</p>
+                  <p className="text-xs text-[#b0b0b0] mb-1">{echo.partner_name || 'ティアラ'}の絆</p>
                   <p className="text-xl sm:text-2xl font-semibold text-[#50c878]">
                     {echo.personality?.affinities?.tiara_trust ?? 50}%
                   </p>
@@ -233,7 +320,7 @@ function EchoProfileContent() {
                     ? 'セーブデータがあります — タップで再開'
                     : completedSession
                       ? '第一章の冒険を振り返る'
-                      : 'ティアラとともに残響界の冒険を進める'}
+                      : `${echo.partner_name || 'ティアラ'}とともに残響界の冒険を進める`}
                 </p>
               </Link>
             );
@@ -292,7 +379,7 @@ function EchoProfileContent() {
                   <Cat className="w-6 h-6 text-white" />
                 </div>
                 <h3 className="text-lg font-serif font-bold text-[#c0a0d0]">
-                  ティアラと会話
+                  {echo.partner_name || 'ティアラ'}と会話
                 </h3>
               </div>
               <p className="text-sm text-[#b0b0b0]">
@@ -309,7 +396,7 @@ function EchoProfileContent() {
                   </div>
                 </div>
                 <h3 className="text-lg font-serif font-bold text-[#c0a0d0]/50">
-                  ティアラと会話
+                  {echo.partner_name || 'ティアラ'}と会話
                 </h3>
               </div>
               <p className="text-sm text-[#b0b0b0]/60">
@@ -331,7 +418,35 @@ function EchoProfileContent() {
           <div className="flex justify-center">
             <PersonalityRadar affinity={echo.personality?.affinities} />
           </div>
+          {personalityText && (
+            <div className="mt-6 pt-6 border-t border-white/5">
+              <p className="text-[#b0b0b0] text-sm leading-relaxed font-serif">
+                {personalityText}
+              </p>
+            </div>
+          )}
         </div>
+
+        {/* Partner Trust Profile (post chapter 1) */}
+        {chapter1Done && (() => {
+          const profile = getPartnerProfile();
+          return (
+            <div className={`glass-morphism rounded-2xl p-6 sm:p-8 mb-8 border ${profile.borderColor}`}>
+              <div className="flex items-center gap-3 mb-4">
+                <Cat className="w-5 h-5 text-[#c0a0d0]" />
+                <h2 className={`text-lg font-serif font-bold ${profile.color}`}>
+                  {echo.partner_name || 'ティアラ'}の現在
+                </h2>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full bg-white/5 ${profile.color} border border-white/10`}>
+                  {profile.tier}
+                </span>
+              </div>
+              <p className="text-[#b0b0b0] text-sm leading-relaxed font-serif">
+                {profile.description}
+              </p>
+            </div>
+          );
+        })()}
 
         {/* KairosChain Status */}
         {chainStatus && chainStatus.available && chainStatus.blocks > 0 && (

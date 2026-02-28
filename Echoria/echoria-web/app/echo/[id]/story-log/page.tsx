@@ -73,6 +73,7 @@ function StoryLogInner() {
 
   const chapterTitle = storyLog.session.chapter === 'chapter_1' ? '第一章' : storyLog.session.chapter;
   const echoName = storyLog.session.echo_name;
+  const partnerName = storyLog.session.partner_name || 'ティアラ';
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#1a0a2e] via-[#16213e] to-[#0f3460] relative">
@@ -124,6 +125,7 @@ function StoryLogInner() {
               key={scene.id}
               scene={scene}
               echoName={echoName}
+              partnerName={partnerName}
               isFirst={index === 0}
               prevScene={index > 0 ? storyLog.scenes[index - 1] : null}
             />
@@ -162,11 +164,13 @@ function StoryLogInner() {
 function SceneBlock({
   scene,
   echoName,
+  partnerName,
   isFirst,
   prevScene,
 }: {
   scene: StoryLogScene;
   echoName: string;
+  partnerName: string;
   isFirst: boolean;
   prevScene: StoryLogScene | null;
 }) {
@@ -211,7 +215,7 @@ function SceneBlock({
       {scene.dialogue && scene.dialogue.length > 0 && (
         <div className="mt-4 space-y-3">
           {scene.dialogue.map((line: DialogueLine, i: number) => (
-            <DialogueBlock key={i} line={line} echoName={echoName} />
+            <DialogueBlock key={i} line={line} echoName={echoName} partnerName={partnerName} />
           ))}
         </div>
       )}
@@ -238,8 +242,8 @@ function SceneBlock({
 }
 
 // --- Dialogue Line Component ---
-function DialogueBlock({ line, echoName }: { line: DialogueLine; echoName: string }) {
-  const isTiara = line.speaker === 'ティアラ' || line.speaker === 'Tiara';
+function DialogueBlock({ line, echoName, partnerName }: { line: DialogueLine; echoName: string; partnerName: string }) {
+  const isTiara = line.speaker === partnerName || line.speaker === 'ティアラ' || line.speaker === 'Tiara';
   const isEcho = line.speaker === echoName || line.speaker === 'エコー' || line.speaker === 'Echo';
 
   let speakerColor = '#a8d8ea'; // NPC default
