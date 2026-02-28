@@ -55,6 +55,8 @@ function StoryPageContent() {
   const [nextChapter, setNextChapter] = useState<string | null>(null);
   const [nextChapterAvailable, setNextChapterAvailable] = useState(false);
   const [allowFreeText, setAllowFreeText] = useState(false);
+  const [hasQuiz, setHasQuiz] = useState(false);
+  const [autoNarrating, setAutoNarrating] = useState(false);
   const storyContentRef = useRef<HTMLDivElement>(null);
 
   const chapterTitle = (chapter: string): string => {
@@ -94,6 +96,11 @@ function StoryPageContent() {
       const echoData = await getEcho(id);
       setEcho(echoData);
 
+      // Detect quiz status from echo personality
+      if (echoData.personality?.quiz_answers) {
+        setHasQuiz(true);
+      }
+
       const nextChapter = determineNextChapter(echoData);
 
       // Try to create a new session, or use existing one on conflict
@@ -127,6 +134,11 @@ function StoryPageContent() {
   };
 
   const loadSessionState = (sessionData: StorySession) => {
+    // Track quiz status for quick mode
+    if (sessionData.has_quiz) {
+      setHasQuiz(true);
+    }
+
     // Set the latest scene
     if (sessionData.recent_scenes && sessionData.recent_scenes.length > 0) {
       const latest = sessionData.recent_scenes[sessionData.recent_scenes.length - 1];
@@ -136,13 +148,26 @@ function StoryPageContent() {
       setTypewriterDone(false);
     }
 
-    // Set choices from current beacon
+    // Set choices from current beacon (apply quick_mode_choices filter for quiz users)
     if (sessionData.current_beacon?.choices) {
-      setChoices(sessionData.current_beacon.choices);
+      const quickModeIds = sessionData.current_beacon?.metadata?.quick_mode_choices;
+      if (sessionData.has_quiz && quickModeIds && quickModeIds.length > 0) {
+        const filtered = sessionData.current_beacon.choices.filter(
+          (c) => quickModeIds.includes(c.choice_id)
+        );
+        setChoices(filtered.length > 0 ? filtered : sessionData.current_beacon.choices);
+      } else {
+        setChoices(sessionData.current_beacon.choices);
+      }
     }
 
     // Set free-text availability from beacon metadata
     setAllowFreeText(sessionData.current_beacon?.metadata?.allow_free_text || false);
+
+    // Auto-narrate: for quiz users on beacons with auto_narrate, auto-advance after narration
+    if (sessionData.has_quiz && sessionData.current_beacon?.metadata?.auto_narrate) {
+      setAutoNarrating(true);
+    }
   };
 
   // Typewriter effect
@@ -161,6 +186,18 @@ function StoryPageContent() {
       setTypewriterActive(false);
     }
   }, [displayedText, typewriterActive, currentScene]);
+
+  // Auto-narrate: when typewriter finishes on auto_narrate beacon, auto-advance
+  useEffect(() => {
+    if (!autoNarrating || !typewriterDone || choices.length === 0 || generatingScene) return;
+
+    const timer = setTimeout(() => {
+      setAutoNarrating(false);
+      handleChoiceSelect(0); // auto-select first choice
+    }, 1500); // brief pause to let user read the narration
+
+    return () => clearTimeout(timer);
+  }, [autoNarrating, typewriterDone, choices, generatingScene]);
 
   const skipTypewriter = () => {
     if (currentScene) {
@@ -204,14 +241,27 @@ function StoryPageContent() {
       setTypewriterActive(true);
       setTypewriterDone(false);
 
-      // Update choices and progress
-      setChoices(result.next_choices || []);
+      // Update choices and progress — apply quick_mode_choices filter for quiz users
+      let nextChoices = result.next_choices || [];
+      const bMetadata = result.beacon_metadata;
+      if (hasQuiz && bMetadata?.quick_mode_choices && bMetadata.quick_mode_choices.length > 0) {
+        const filtered = nextChoices.filter((c) =>
+          bMetadata.quick_mode_choices!.includes(c.choice_id)
+        );
+        if (filtered.length > 0) nextChoices = filtered;
+      }
+      setChoices(nextChoices);
       setChapterEnd(result.chapter_end || false);
       setBeaconProgress(result.beacon_progress || 0);
       setAllowFreeText(result.allow_free_text || false);
       if (result.next_chapter) {
         setNextChapter(result.next_chapter);
         setNextChapterAvailable(result.next_chapter_available || false);
+      }
+
+      // Trigger auto-narrate for quiz users on auto_narrate beacons
+      if (hasQuiz && bMetadata?.auto_narrate) {
+        setAutoNarrating(true);
       }
 
       // Show skill evolution notification
@@ -263,13 +313,27 @@ function StoryPageContent() {
       setTypewriterActive(true);
       setTypewriterDone(false);
 
-      setChoices(result.next_choices || []);
+      // Apply quick_mode_choices filter for quiz users
+      let ftNextChoices = result.next_choices || [];
+      const ftMetadata = result.beacon_metadata;
+      if (hasQuiz && ftMetadata?.quick_mode_choices && ftMetadata.quick_mode_choices.length > 0) {
+        const filtered = ftNextChoices.filter((c) =>
+          ftMetadata.quick_mode_choices!.includes(c.choice_id)
+        );
+        if (filtered.length > 0) ftNextChoices = filtered;
+      }
+      setChoices(ftNextChoices);
       setChapterEnd(result.chapter_end || false);
       setBeaconProgress(result.beacon_progress || 0);
       setAllowFreeText(result.allow_free_text || false);
       if (result.next_chapter) {
         setNextChapter(result.next_chapter);
         setNextChapterAvailable(result.next_chapter_available || false);
+      }
+
+      // Trigger auto-narrate for quiz users
+      if (hasQuiz && ftMetadata?.auto_narrate) {
+        setAutoNarrating(true);
       }
 
       if (result.evolved_skills && result.evolved_skills.length > 0) {
@@ -427,6 +491,8 @@ function StoryPageContent() {
       {!onboardingDone && echo && (
         <StoryOnboarding
           echoName={echo.name}
+          partnerName={echo.partner_name}
+          hasQuiz={hasQuiz}
           onComplete={() => setOnboardingDone(true)}
         />
       )}
@@ -701,26 +767,38 @@ function StoryPageContent() {
           </div>
         ) : (
           <>
-            {/* Choice Panel */}
-            <ChoicePanel
-              choices={choices}
-              onSelect={handleChoiceSelect}
-              disabled={generatingScene}
-              allowFreeText={allowFreeText}
-              onFreeTextSubmit={handleFreeTextSubmit}
-            />
-
-            {/* Let Echo Decide */}
-            {choices.length > 0 && (
-              <div className="mt-6 text-center">
-                <button
-                  onClick={handleLetEchoDecide}
-                  disabled={generatingScene}
-                  className="text-[#50c878] hover:text-[#6ae089] font-semibold text-sm sm:text-base transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] inline-flex items-center"
-                >
-                  エコーに任せる
-                </button>
+            {/* Auto-narrate indicator — story is auto-advancing for quiz users */}
+            {autoNarrating ? (
+              <div className="glass-morphism rounded-2xl p-6 sm:p-8 text-center">
+                <div className="flex items-center justify-center gap-2 text-[#c0a0d0]">
+                  <div className="w-2 h-2 rounded-full bg-[#c0a0d0] animate-pulse" />
+                  <p className="text-sm font-serif italic">物語が導いています...</p>
+                </div>
               </div>
+            ) : (
+              <>
+                {/* Choice Panel */}
+                <ChoicePanel
+                  choices={choices}
+                  onSelect={handleChoiceSelect}
+                  disabled={generatingScene}
+                  allowFreeText={allowFreeText}
+                  onFreeTextSubmit={handleFreeTextSubmit}
+                />
+
+                {/* Let Echo Decide */}
+                {choices.length > 0 && (
+                  <div className="mt-6 text-center">
+                    <button
+                      onClick={handleLetEchoDecide}
+                      disabled={generatingScene}
+                      className="text-[#50c878] hover:text-[#6ae089] font-semibold text-sm sm:text-base transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] inline-flex items-center"
+                    >
+                      エコーに任せる
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </>
         )}

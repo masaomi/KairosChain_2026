@@ -75,7 +75,7 @@ prologue_beacons = [
         affinity_delta: { tiara_trust: 15, logic_empathy_balance: 8, name_memory_stability: -2, fragment_count: 1 }
       }
     ],
-    metadata: { location: "残響界 — 遺跡の奥", beacon_id: "prologue_02_tiara" }
+    metadata: { location: "残響界 — 遺跡の奥", beacon_id: "prologue_02_tiara", quick_mode_choices: ["prologue_02_approach", "prologue_02_cautious"] }
   },
 
   # ─── Beacon 3: 無題の書と五つのカケラ (P1 Scene 2 latter + Scene 3 — The Book and Fragments) ───
@@ -105,7 +105,7 @@ prologue_beacons = [
         affinity_delta: { tiara_trust: 12, logic_empathy_balance: 5, name_memory_stability: 2 }
       }
     ],
-    metadata: { location: "残響界 — 遺跡の奥", beacon_id: "prologue_03_book_and_fragments" }
+    metadata: { location: "残響界 — 遺跡の奥", beacon_id: "prologue_03_book_and_fragments", auto_narrate: true }
   },
 
   # ─── Beacon 4: 沈黙する森 (Prologue 2, Scene 1-2 — The Silent Forest) ───

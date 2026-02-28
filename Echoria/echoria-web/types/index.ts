@@ -91,6 +91,8 @@ export interface StoryBeacon {
     beacon_id?: string;
     is_chapter_end?: boolean;
     allow_free_text?: boolean;
+    quick_mode_choices?: string[];
+    auto_narrate?: boolean;
   };
 }
 
@@ -113,6 +115,7 @@ export interface StorySession {
   current_beacon?: StoryBeacon;
   recent_scenes?: StoryScene[];
   affinity_summary?: AffinitySummary;
+  has_quiz?: boolean;
 }
 
 // === Dialogue Line ===
@@ -165,6 +168,7 @@ export interface ChoiceResponse {
   next_chapter?: string;
   chapter?: string;
   allow_free_text?: boolean;
+  beacon_metadata?: StoryBeacon['metadata'];
 }
 
 // === Chat (post-crystallization) ===

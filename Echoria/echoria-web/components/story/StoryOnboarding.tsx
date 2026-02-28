@@ -7,10 +7,13 @@ const ONBOARDING_KEY = 'echoria_story_onboarding_seen';
 
 interface StoryOnboardingProps {
   echoName: string;
+  partnerName?: string;
+  hasQuiz?: boolean;
   onComplete: () => void;
 }
 
-export default function StoryOnboarding({ echoName, onComplete }: StoryOnboardingProps) {
+export default function StoryOnboarding({ echoName, partnerName, hasQuiz, onComplete }: StoryOnboardingProps) {
+  const partner = partnerName || 'ティアラ';
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -48,7 +51,7 @@ export default function StoryOnboarding({ echoName, onComplete }: StoryOnboardin
 
           <p>
             猫の精霊
-            <span className="text-[#c0a0d0] font-medium">ティアラ</span>
+            <span className="text-[#c0a0d0] font-medium">{partner}</span>
             があなたの伴侶となり、旅を導きます。
           </p>
 
@@ -56,6 +59,12 @@ export default function StoryOnboarding({ echoName, onComplete }: StoryOnboardin
             あなたの選択が、エコーの心を形作ります。
             信頼、共感、記憶、意志——すべてがあなたの決断から生まれます。
           </p>
+
+          {hasQuiz && (
+            <p className="text-[#50c878]/80 text-xs">
+              クイズの結果が反映され、物語は短縮されています。
+            </p>
+          )}
 
           <p className="text-[#808080] text-xs">
             物語はいつでも中断・再開できます。

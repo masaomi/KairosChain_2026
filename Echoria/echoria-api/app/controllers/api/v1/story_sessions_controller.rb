@@ -17,6 +17,14 @@ module Api
           return render json: { error: I18n.t("echoria.errors.chapter_not_found") }, status: :not_found
         end
 
+        # Quiz users skip B1 (prologue awakening) — quiz already covered the awakening experience
+        if chapter == "prologue" && @echo.personality&.dig("quiz_answers").present?
+          second_beacon = StoryBeacon.in_chapter(chapter)
+                                     .where("beacon_order > ?", first_beacon.beacon_order)
+                                     .ordered.first
+          first_beacon = second_beacon if second_beacon
+        end
+
         # Prevent duplicate active sessions in the same chapter
         existing = @echo.story_sessions.active_sessions.by_chapter(chapter).first
         if existing
@@ -271,6 +279,7 @@ module Api
 
         @session.reload
 
+        current_beacon_obj = is_chapter_end ? nil : (@session.current_beacon || next_beacon)
         response = {
           scene: scene_response(scene),
           session: session_summary(@session),
@@ -279,7 +288,8 @@ module Api
           beacon_progress: navigator.beacon_progress,
           evolved_skills: evolved,
           chapter: @session.chapter,
-          allow_free_text: navigator.allow_free_text?
+          allow_free_text: navigator.allow_free_text?,
+          beacon_metadata: current_beacon_obj&.metadata
         }
 
         if is_chapter_end
@@ -332,7 +342,8 @@ module Api
           created_at: session.created_at,
           current_beacon: session.current_beacon&.to_narrative,
           recent_scenes: session.story_scenes.ordered.last(5).map { |s| scene_response(s) },
-          affinity_summary: AffinityCalculatorService.new(session).affinity_summary
+          affinity_summary: AffinityCalculatorService.new(session).affinity_summary,
+          has_quiz: session.echo.personality&.dig("quiz_answers").present?
         }
       end
 
