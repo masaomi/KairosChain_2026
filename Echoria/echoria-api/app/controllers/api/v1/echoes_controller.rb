@@ -14,11 +14,12 @@ module Api
 
         # Apply quiz answers to initial personality if provided
         if params[:echo][:quiz_answers].present?
-          quiz_service = QuizAffinityService.new(params[:echo][:quiz_answers])
+          quiz_data = params[:echo][:quiz_answers].permit(:q1, :q2, :q3).to_h
+          quiz_service = QuizAffinityService.new(quiz_data)
           initial_affinity = quiz_service.call
           @echo.personality = (@echo.personality || {}).merge(
             "initial_affinity" => initial_affinity,
-            "quiz_answers" => params[:echo][:quiz_answers].to_unsafe_h
+            "quiz_answers" => quiz_data
           )
         end
 
