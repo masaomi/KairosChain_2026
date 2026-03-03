@@ -72,6 +72,14 @@ when 'skillset'
       exit 1
     end
 
+    # Resolve gem-internal template paths (e.g. "templates/skillsets/mmp")
+    # When installed as a gem, relative paths like "templates/skillsets/mmp"
+    # won't exist in the user's cwd — resolve against gem root instead.
+    if !File.exist?(source) && source.start_with?('templates/')
+      gem_source = File.join(KairosMcp.gem_root, source)
+      source = gem_source if File.directory?(gem_source)
+    end
+
     layer_override = nil
     if (idx = ARGV.index('--layer'))
       layer_override = ARGV[idx + 1]&.to_sym
