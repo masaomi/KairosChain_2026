@@ -10,9 +10,9 @@ module KairosMcp
   module Tools
     class InstructionsUpdate < BaseTool
       # Protected built-in files that cannot be deleted
-      PROTECTED_FILES = %w[kairos.md kairos_quickguide.md].freeze
+      PROTECTED_FILES = %w[kairos.md kairos_quickguide.md kairos_tutorial.md].freeze
       # Reserved mode names that map to built-in behavior
-      RESERVED_MODES = %w[developer user none].freeze
+      RESERVED_MODES = %w[developer user tutorial none].freeze
 
       def name
         'instructions_update'
@@ -121,7 +121,7 @@ module KairosMcp
 
       def handle_status
         config = SkillsConfig.load
-        current_mode = config['instructions_mode'] || 'user'
+        current_mode = config['instructions_mode'] || 'tutorial'
         resolved = resolved_path(current_mode)
 
         # Find all .md files in skills_dir
@@ -270,7 +270,7 @@ module KairosMcp
 
         # Cannot delete active mode
         config = SkillsConfig.load
-        current_mode = config['instructions_mode'] || 'user'
+        current_mode = config['instructions_mode'] || 'tutorial'
         if current_mode == mode_name
           return text_content(
             "Error: Cannot delete '#{mode_name}.md' while it is the active instructions_mode.\n" \
@@ -336,7 +336,7 @@ module KairosMcp
         end
 
         config = SkillsConfig.load
-        prev_mode = config['instructions_mode'] || 'user'
+        prev_mode = config['instructions_mode'] || 'tutorial'
 
         return text_content("instructions_mode is already '#{mode_name}'.") if prev_mode == mode_name
 
@@ -388,6 +388,7 @@ module KairosMcp
         case mode
         when 'developer' then KairosMcp.md_path
         when 'user'      then KairosMcp.quickguide_path
+        when 'tutorial'  then KairosMcp.tutorial_path
         when 'none'      then '(none)'
         else File.join(KairosMcp.skills_dir, "#{mode}.md")
         end

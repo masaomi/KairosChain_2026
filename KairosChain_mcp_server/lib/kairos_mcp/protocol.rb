@@ -90,13 +90,15 @@ module KairosMcp
     #
     # @return [String, nil] Instructions text or nil
     def load_instructions
-      mode = SkillsConfig.load['instructions_mode'] || 'user'
+      mode = SkillsConfig.load['instructions_mode'] || 'tutorial'
 
       path = case mode
              when 'developer'
                KairosMcp.md_path           # Full philosophy (kairos.md)
              when 'user'
                KairosMcp.quickguide_path   # Quick guide (kairos_quickguide.md)
+             when 'tutorial'
+               KairosMcp.tutorial_path     # Tutorial mode (kairos_tutorial.md)
              when 'none'
                nil
              else

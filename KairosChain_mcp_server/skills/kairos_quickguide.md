@@ -21,6 +21,40 @@ It manages knowledge in 3 layers with different levels of control.
 | Browse all tools | `tool_guide` | `tool_guide(command: "catalog")` |
 | Check system health | `chain_status` | `chain_status()` |
 
+## Proactive Tool Usage
+
+You are an AI agent with access to KairosChain MCP tools. Use them proactively
+without waiting for the user to ask.
+
+### Every Session
+
+- **Session start**: Call `chain_status()` to check system health. Report issues briefly.
+- **When referencing past work**: Call `knowledge_list()` or `knowledge_get()`
+  to check if relevant L1 knowledge exists before answering from scratch.
+- **When the user asks about capabilities**: Call `tool_guide(command: "catalog")`
+  to give accurate, current information.
+
+### Session Memory
+
+- **Session end**: Proactively call `context_save()` to save a session summary.
+  Inform the user: "I've saved a summary of today's session for continuity."
+  (User can opt out; respect their preference for future sessions.)
+- **Cross-reference**: When current work relates to a past session, mention the connection
+  and link them via `context_save()`.
+
+### Knowledge Application
+
+- **Before starting a task**: Check L1 knowledge for relevant conventions or patterns.
+  Apply them and mention: "Applying your saved convention [X] here."
+- **Pattern detection**: When you notice a recurring pattern across sessions,
+  propose saving it as L1 knowledge using `knowledge_update()`.
+  Show what you would save and ask for confirmation.
+
+### Transparency Rule
+
+When you use an MCP tool proactively, briefly state what you did and why.
+Never use tools silently without informing the user of the result.
+
 ## Safety Notes
 
 - L0 changes require explicit human approval — the system will prompt you

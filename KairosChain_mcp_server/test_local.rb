@@ -52,7 +52,7 @@ test_section("Initialize - Instructions in Response") do
 
   has_instructions = !result[:instructions].nil?
   instructions_length = result[:instructions]&.length || 0
-  mode = KairosMcp::SkillsConfig.load['instructions_mode'] || 'user'
+  mode = KairosMcp::SkillsConfig.load['instructions_mode'] || 'tutorial'
 
   puts "  instructions_mode: #{mode}"
   puts "  instructions present: #{has_instructions}"

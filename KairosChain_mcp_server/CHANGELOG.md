@@ -4,6 +4,25 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.3.0] - 2026-03-03
+
+### Added
+
+- **Tutorial instruction mode** (`kairos_tutorial.md`): New built-in onboarding mode with behavioral gradient that evolves based on accumulated L2/L1 content. Includes existing project fast-track detection, progressive concept introduction, and content-based (not count-based) phase transitions. Tutorial mode is now the default for new `kairos-chain init`.
+
+- **Proactive Tool Usage** across all instruction modes:
+  - **Tutorial mode**: Gradual MCP tool usage starting with `context_save`, expanding to `knowledge_update` and `skills_audit` as content accumulates
+  - **User mode**: Session-level `chain_status`, `knowledge_list` checks, pattern detection with `knowledge_update` proposals
+  - **Developer mode** (`[BEHAVIOR-010]`): Full proactive usage including `chain_verify`, `state_status`, `skills_audit`, and `skills_evolve` awareness
+
+### Changed
+
+- **Default `instructions_mode`**: Changed from `user` to `tutorial` for new installations. Existing instances with explicit `instructions_mode` in config.yml are unaffected.
+- **Protected files**: `kairos_tutorial.md` added to built-in protected files (cannot be deleted via `instructions_update`)
+- **Reserved modes**: `tutorial` added to reserved mode names alongside `developer`, `user`, `none`
+
+---
+
 ## [2.2.0] - 2026-02-25
 
 ### Changed
