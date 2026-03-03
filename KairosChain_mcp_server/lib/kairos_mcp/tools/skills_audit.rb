@@ -114,7 +114,7 @@ module KairosMcp
             personas: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Personas for assembly (default: ["archivist", "guardian", "promoter"])'
+              description: 'Personas for assembly (default: ["archivist", "guardian", "promoter"]). Pre-defined: archivist, guardian, promoter. Custom persona names are also accepted — the LLM will infer the role from the name and context.'
             },
             facilitator: {
               type: 'string',
@@ -882,11 +882,15 @@ module KairosMcp
             - **Candidates**: [Specific items ready for promotion]
           TEMPLATE
         else
+          # Custom persona: generate a descriptive template inferring role from name
+          humanized = persona.to_s.split(/[_\-]/).map(&:capitalize).join(' ')
           <<~TEMPLATE
-            
-            #### #{persona}
+
+            #### #{persona} (#{humanized} — Custom Persona)
+            - **Inferred focus**: Based on the name "#{persona}", evaluate from this perspective
             - **Position**: [SUPPORT / OPPOSE / NEUTRAL]
-            - **Assessment**: [Evaluation]
+            - **Assessment**: [Evaluation from the #{humanized} perspective]
+            - **Key insight**: [What unique perspective does this role bring?]
           TEMPLATE
         end
       end

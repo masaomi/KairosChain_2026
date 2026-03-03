@@ -54,6 +54,10 @@ module KairosMcp
           {
             title: 'Check promotion requirements',
             code: 'skills_promote(command: "status", from_layer: "L1", to_layer: "L0")'
+          },
+          {
+            title: 'Suggest optimal personas for content',
+            code: 'skills_promote(command: "suggest", source_name: "my_context", from_layer: "L2", to_layer: "L1", session_id: "session_123")'
           }
         ]
       end
@@ -68,8 +72,8 @@ module KairosMcp
           properties: {
             command: {
               type: 'string',
-              description: 'Command: "analyze" (with assembly), "promote" (direct promotion), or "status" (check promotion requirements)',
-              enum: %w[analyze promote status]
+              description: 'Command: "analyze" (with assembly), "promote" (direct promotion), "status" (check requirements), or "suggest" (LLM suggests optimal personas for content)',
+              enum: %w[analyze promote status suggest]
             },
             source_name: {
               type: 'string',
@@ -100,7 +104,7 @@ module KairosMcp
             personas: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Personas to use for assembly (default: ["kairos"]). Available: kairos, conservative, radical, pragmatic, optimistic, skeptic'
+              description: 'Personas to use for assembly (default: ["kairos"]). Pre-defined: kairos, conservative, radical, pragmatic, optimistic, skeptic. Custom persona names are also accepted — the LLM will infer the role from the name and context. Use command: "suggest" to get context-aware recommendations.'
             },
             assembly_mode: {
               type: 'string',
@@ -134,6 +138,8 @@ module KairosMcp
           handle_promote(arguments)
         when 'status'
           handle_status(arguments)
+        when 'suggest'
+          handle_suggest(arguments)
         else
           text_content("Unknown command: #{command}")
         end
@@ -221,6 +227,85 @@ module KairosMcp
           output += "Use `command: \"analyze\"` with `personas` parameter to get multi-perspective evaluation.\n"
           output += "Available personas: kairos, conservative, radical, pragmatic, optimistic, skeptic\n"
         end
+
+        text_content(output)
+      end
+
+      # Suggest optimal personas based on source content analysis
+      def handle_suggest(args)
+        validation = validate_promotion_args(args)
+        return text_content("Error: #{validation[:error]}") unless validation[:valid]
+
+        source_content = fetch_source_content(args)
+        return text_content("Error: #{source_content[:error]}") if source_content[:error]
+
+        persona_definitions = load_persona_definitions
+        definitions_text = persona_definitions[:definitions] || default_persona_definitions
+
+        content_preview = source_content[:content].lines.first(30).join
+        content_preview += "\n...(truncated)" if source_content[:content].lines.size > 30
+
+        output = <<~MD
+          ## Persona Suggestion Request
+
+          ### Promotion Context
+
+          | Field | Value |
+          |-------|-------|
+          | **Source** | #{args['source_name']} (#{args['from_layer']}) |
+          | **Target** | #{args['target_name'] || args['source_name']} (#{args['to_layer']}) |
+
+          ### Source Content Preview
+
+          ```
+          #{content_preview}
+          ```
+
+          ### Available Pre-defined Personas
+
+          #{definitions_text}
+
+          ---
+
+          ### Instructions
+
+          Based on the source content above, please suggest the optimal persona combination for evaluating this promotion. Consider:
+
+          1. **Content domain**: What expertise areas does this content touch? (e.g., genomics, security, philosophy, infrastructure)
+          2. **Risk level**: How significant is this promotion? (L2→L1 is lower risk than L1→L0)
+          3. **Persona selection**: Choose from pre-defined personas above, or propose new custom personas with clear role descriptions
+          4. **Persona count**: Suggest 2-5 personas depending on complexity
+
+          ### Response Format
+
+          Please respond with:
+
+          ```yaml
+          suggested_personas:
+            - name: "persona_name"
+              reason: "Why this persona is relevant"
+            - name: "another_persona"
+              reason: "Why this persona is relevant"
+          recommended_mode: "oneshot"  # or "discussion" for complex/high-risk promotions
+          rationale: "Brief explanation of why this combination is optimal"
+          ```
+
+          ### Next Step
+
+          After reviewing the suggestion, run:
+
+          ```
+          skills_promote(
+            command: "analyze",
+            source_name: "#{args['source_name']}",
+            from_layer: "#{args['from_layer']}",
+            to_layer: "#{args['to_layer']}",
+            #{args['session_id'] ? "session_id: \"#{args['session_id']}\"," : ''}
+            personas: ["suggested_persona_1", "suggested_persona_2", ...],
+            assembly_mode: "suggested_mode"
+          )
+          ```
+        MD
 
         text_content(output)
       end
@@ -466,7 +551,7 @@ module KairosMcp
           if match
             "**#{persona}**:\n#{match[1].strip.lines.first(5).join}"
           else
-            "**#{persona}**: (definition not found)"
+            "**#{persona}**: (custom persona — no pre-defined definition. Infer role from name and evaluate accordingly.)"
           end
         end
 
