@@ -13,6 +13,32 @@ module Hestia
 
     def initialize(registry:)
       @registry = registry
+      @posted_needs = []
+    end
+
+    # Post knowledge needs for an agent (session-only, no persistence — DEE compliant).
+    # Overwrites existing needs for the same agent_id.
+    #
+    # @param agent_id [String] The agent's unique identifier
+    # @param agent_name [String] Human-readable agent name
+    # @param agent_mode [String] The agent's instruction mode
+    # @param needs [Array<Hash>] List of { name:, description: } hashes
+    def post_need(agent_id:, agent_name:, agent_mode:, needs:)
+      @posted_needs.reject! { |n| n[:agent_id] == agent_id }
+      @posted_needs << {
+        agent_id: agent_id,
+        agent_name: agent_name,
+        agent_mode: agent_mode,
+        needs: needs,
+        published_at: Time.now.utc.iso8601
+      }
+    end
+
+    # Remove all needs posted by an agent (called on unregister cleanup).
+    #
+    # @param agent_id [String] The agent's unique identifier
+    def remove_needs(agent_id)
+      @posted_needs.reject! { |n| n[:agent_id] == agent_id }
     end
 
     # Browse available skills across all registered agents.
@@ -77,6 +103,22 @@ module Hestia
           tags: [],
           registered_at: agent[:registered_at]
         }
+      end
+
+      # Add need entries from posted needs (session-only, in-memory)
+      @posted_needs.each do |posted|
+        posted[:needs].each do |need|
+          entries << {
+            agent_id: posted[:agent_id],
+            agent_name: posted[:agent_name],
+            name: need[:name],
+            format: 'need',
+            description: need[:description],
+            agent_mode: posted[:agent_mode],
+            tags: ['knowledge_need'],
+            published_at: posted[:published_at]
+          }
+        end
       end
 
       entries

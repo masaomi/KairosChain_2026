@@ -63,10 +63,9 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
   - [Tool Discovery with tool_guide](#tool-discovery-with-tool_guide)
   - [Common Commands Reference](#common-commands-reference)
   - [Security Considerations](#security-considerations)
-- [Available Tools (31 core + skill-tools)](#available-tools-31-core-skill-tools)
+- [Available Tools (26 core + skill-tools)](#available-tools-26-core-skill-tools)
   - [L0-A: Skills Tools (Markdown) - Read-only](#l0-a-skills-tools-markdown-read-only)
   - [L0-B: Skills Tools (DSL) - Full Blockchain Record](#l0-b-skills-tools-dsl-full-blockchain-record)
-  - [L0-C: DSL/AST Formalization Tools](#l0-c-dslast-formalization-tools)
   - [L0: Instructions Management - Full Blockchain Record](#l0-instructions-management-full-blockchain-record)
   - [Cross-Layer Promotion Tools](#cross-layer-promotion-tools)
   - [Audit Tools - Knowledge Lifecycle Management](#audit-tools-knowledge-lifecycle-management)
@@ -85,12 +84,13 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
   - [Record a Skill Transition](#record-a-skill-transition)
   - [P2P SkillSet Exchange](#p2p-skillset-exchange)
 - [Self-Evolution Workflow](#self-evolution-workflow)
-- [HestiaChain Meeting Place (v2.0.0)](#hestiachain-meeting-place-v200)
+- [HestiaChain Meeting Place (v2.5.0)](#hestiachain-meeting-place-v250)
   - [What is HestiaChain?](#what-is-hestiachain)
   - [Architecture](#architecture)
   - [Quick Start](#quick-start)
   - [HTTP Endpoints](#http-endpoints)
   - [MCP Tools](#mcp-tools)
+  - [Cross-Instance Knowledge Discovery](#cross-instance-knowledge-discovery)
   - [Trust Anchor: Chain Migration](#trust-anchor-chain-migration)
   - [DEE Philosophy Protocol](#dee-philosophy-protocol)
   - [EC2 Deployment](#ec2-deployment)
@@ -2023,9 +2023,9 @@ The `tool_guide` tool helps you discover and learn about KairosChain tools dynam
    - All operations are recorded in `action_log`
    - Review logs regularly
 
-## Available Tools (31 core + skill-tools)
+## Available Tools (26 core + skill-tools)
 
-The base installation provides 31 tools (30 + 1 HTTP-only). Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
+The base installation provides 25 tools (24 + 1 HTTP-only). Additional tools can be defined via `tool` blocks in `kairos.rb` when `skill_tools_enabled: true`.
 
 ### L0-A: Skills Tools (Markdown) - Read-only
 
@@ -2039,21 +2039,9 @@ The base installation provides 31 tools (30 + 1 HTTP-only). Additional tools can
 | Tool | Description |
 |------|-------------|
 | `skills_dsl_list` | List all skills from kairos.rb |
-| `skills_dsl_get` | Get skill definition by ID (includes Definition, Formalization Notes, and Verification Status sections) |
+| `skills_dsl_get` | Get skill definition by ID |
 | `skills_evolve` | Propose/apply skill changes |
 | `skills_rollback` | Manage version snapshots |
-
-### L0-C: DSL/AST Formalization Tools
-
-These tools operate on the structural definition layer of skills, enabling verification, decompilation, and drift detection without LLM evaluation.
-
-| Tool | Description |
-|------|-------------|
-| `definition_verify` | Verify a skill's AST constraints structurally (pattern-matched, eval-free) — reports each node as satisfied/unknown/unsatisfied |
-| `definition_decompile` | Reconstruct a human-readable Markdown description from a skill's AST definition |
-| `definition_drift` | Detect divergence between a skill's natural-language content and its formal definition layer |
-| `formalization_record` | Record a formalization decision to the blockchain (skill_id, rationale, confidence, ambiguity levels) |
-| `formalization_history` | Query past formalization decisions stored on-chain for a skill or across all skills |
 
 > **Skill-defined tools**: When `skill_tools_enabled: true`, skills with `tool` blocks in `kairos.rb` are also registered here as MCP tools.
 
@@ -2095,6 +2083,8 @@ Commands:
 - `conflicts`: Detect potential contradictions between knowledge
 - `dangerous`: Detect patterns conflicting with L0 safety
 - `recommend`: Get promotion and archive recommendations
+- `gaps`: Check knowledge gaps defined by Knowledge Acquisition Policy in instruction modes
+- `export_needs`: Package knowledge gaps as shareable needs for cross-instance discovery via Meeting Place
 - `archive`: Archive L1 knowledge (human approval required)
 - `unarchive`: Restore from archive (human approval required)
 
@@ -2293,7 +2283,7 @@ KairosChain supports **Safe Self-Evolution**:
 
 ---
 
-## HestiaChain Meeting Place (v2.0.0)
+## HestiaChain Meeting Place (v2.5.0)
 
 ### What is HestiaChain?
 
@@ -2314,9 +2304,9 @@ KairosChain (MCP Server)
       ├── chain/         ← Trust anchor (self-contained, no external gem dependency)
       ├── PlaceRouter    ← /place/v1/* HTTP endpoints
       ├── AgentRegistry  ← Agent registration with JSON persistence
-      ├── SkillBoard     ← Skill discovery (random sampling, no ranking)
+      ├── SkillBoard     ← Skill + knowledge needs discovery (random sampling, no ranking)
       ├── HeartbeatManager ← TTL-based liveness with fadeout recording
-      └── tools/         ← 6 MCP tools
+      └── tools/         ← 7 MCP tools
 ```
 
 A KairosChain instance with the hestia SkillSet is simultaneously an MCP server, a P2P agent, a Meeting Place host, and a participant in other Meeting Places. This embodies the DEE principle of subject-object undifferentiation (主客未分).
@@ -2370,6 +2360,8 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | POST | `/place/v1/unregister` | Bearer | Unregister an agent |
 | GET | `/place/v1/agents` | Bearer | List registered agents |
 | GET | `/place/v1/board/browse` | Bearer | Browse skill board (random order) |
+| POST | `/place/v1/board/needs` | Bearer | Publish knowledge needs to board |
+| DELETE | `/place/v1/board/needs` | Bearer | Remove published knowledge needs |
 | GET | `/place/v1/keys/:id` | Bearer | Retrieve agent's public key |
 
 ### MCP Tools
@@ -2382,6 +2374,26 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | `record_observation` | Record subjective observation of interaction |
 | `meeting_place_start` | Start the Meeting Place, initialize components |
 | `meeting_place_status` | Show Meeting Place configuration and status |
+| `meeting_publish_needs` | Publish knowledge gaps to board (explicit opt-in required) |
+
+### Cross-Instance Knowledge Discovery
+
+Agents can publish their knowledge gaps (needs) to the Meeting Place board, enabling other agents to discover and offer relevant knowledge.
+
+**Workflow:**
+
+1. Run `skills_audit(command: "gaps")` to detect missing baseline knowledge
+2. Run `skills_audit(command: "export_needs")` to preview exportable needs
+3. Run `meeting_publish_needs(opt_in: true)` to publish needs to the board
+4. Other agents browsing with `browse(type: 'need')` can discover these needs
+5. Agents decide locally whether to offer knowledge (no automated matching)
+
+**DEE Compliance:**
+- Needs are session-only (in-memory, no persistence)
+- No aggregation, ranking, or popularity metrics
+- Explicit opt-in required (`opt_in: true`)
+- Random sampling for browse results (D3)
+- Each agent decides independently whether to respond (D5)
 
 ### Trust Anchor: Chain Migration
 
@@ -2403,7 +2415,7 @@ HestiaChain implements the Decentralized Event Exchange (DEE) protocol:
 - **PhilosophyDeclaration**: Agents declare their exchange philosophy (observable, not enforceable). Only the hash is recorded on chain.
 - **ObservationLog**: Agents record subjective observations. Multiple agents can have different observations of the same interaction — "meaning coexists."
 - **Fadeout**: When an agent's heartbeat expires, this is recorded as a first-class event (not an error). Silent departure is a natural part of the protocol.
-- **Random Sampling**: The SkillBoard returns skills in random order. There is no ranking, no scoring, no popularity metric.
+- **Random Sampling**: The SkillBoard returns skills and knowledge needs in random order. There is no ranking, no scoring, no popularity metric.
 
 ### EC2 Deployment
 
@@ -2757,7 +2769,7 @@ KairosChain_mcp_server/
 
 ### Completed Phases
 
-The following development phases have been completed and merged to main:
+The following development phases have been completed on the `feature/skillset-plugin` branch:
 
 | Phase | Description | Key Deliverables |
 |-------|-------------|-----------------|
@@ -2771,10 +2783,11 @@ The following development phases have been completed and merged to main:
 | **Phase 4.pre** | Authentication + Hardening | Admin token rotation, session-based auth for P2P endpoints |
 | **Phase 4A** | HestiaChain Foundation | Self-contained trust anchor SkillSet, DEE protocol (PhilosophyDeclaration, ObservationLog), chain migration (4 stages), 4 MCP tools, 77 test assertions |
 | **Phase 4B** | Meeting Place Server | PlaceRouter, AgentRegistry, SkillBoard, HeartbeatManager, 6 HTTP endpoints, 2 MCP tools, 70 test assertions |
-| **DSL/AST Phase 1** | Partial Formalization Layer | `AstNode`/`DefinitionContext` DSL with 5 node types, `FormalizationDecision` on-chain provenance, `formalization_record` + `formalization_history` MCP tools, `core_safety`/`evolution_rules` annotated with definition blocks; 68 tests |
-| **DSL/AST Phase 2** | AST Verification Engine | `AstEngine` (eval-free, pattern-matched), `Decompiler` (AST→Markdown), `DriftDetector` (content/definition divergence); `definition_verify` + `definition_decompile` + `definition_drift` MCP tools; security: ALLOWED_METHODS whitelist; 91 tests |
+| **v2.3.0** | Tutorial Mode + Proactive Tools | Behavioral gradient instruction mode, existing project fast-track, Knowledge Acquisition Policy |
+| **v2.4.0** | Dynamic Persona Suggestion | 2-step suggest→assembly workflow, custom persona names, improved unknown persona handling |
+| **v2.5.0** | Cross-Instance Knowledge Discovery | SkillBoard knowledge needs, `meeting_publish_needs` tool, `export_needs` audit command, DEE-compliant session-only needs |
 
-Test results: 515 passed, 0 failed (v2.1.0).
+Test results: 356+ passed, 0 failed (v2.5.0).
 
 ### Near-term
 
@@ -4582,7 +4595,7 @@ See [LICENSE](./LICENSE) file.
 
 ---
 
-**Version**: 2.1.0
-**Last Updated**: 2026-02-25
+**Version**: 2.4.0
+**Last Updated**: 2026-03-03
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*

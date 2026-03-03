@@ -1,7 +1,7 @@
 ---
 name: kairoschain_operations_jp
 description: 将来のロードマップ、デプロイ、運用ガイド
-version: 1.2
+version: 1.1
 layer: L1
 tags: [documentation, readme, operations, deployment, roadmap, backup]
 readme_order: 5
@@ -12,7 +12,7 @@ readme_lang: jp
 
 ### 完了済みフェーズ
 
-以下の開発フェーズが完了し、mainにマージ済みです：
+以下の開発フェーズが`feature/skillset-plugin`ブランチで完了しています：
 
 | フェーズ | 説明 | 主な成果物 |
 |---------|------|-----------|
@@ -26,10 +26,11 @@ readme_lang: jp
 | **Phase 4.pre** | 認証 + 堅牢化 | Admin トークンローテーション、P2Pエンドポイントのセッションベース認証 |
 | **Phase 4A** | HestiaChain Foundation | 自己完結型信頼アンカーSkillSet、DEEプロトコル（PhilosophyDeclaration、ObservationLog）、チェーン移行（4ステージ）、4 MCPツール、77テストアサーション |
 | **Phase 4B** | Meeting Placeサーバー | PlaceRouter、AgentRegistry、SkillBoard、HeartbeatManager、6 HTTPエンドポイント、2 MCPツール、70テストアサーション |
-| **DSL/AST Phase 1** | 部分形式化レイヤー | `AstNode`/`DefinitionContext` DSL（5ノード型）、`FormalizationDecision`オンチェーン来歴記録、`formalization_record` + `formalization_history` MCPツール、`core_safety`/`evolution_rules`にdefinitionブロック追加；68テスト |
-| **DSL/AST Phase 2** | AST検証エンジン | `AstEngine`（eval不使用・パターンマッチ）、`Decompiler`（AST→Markdown）、`DriftDetector`（コンテンツ/定義層の乖離検出）；`definition_verify` + `definition_decompile` + `definition_drift` MCPツール；ALLOWED_METHODSホワイトリスト；91テスト |
+| **v2.3.0** | チュートリアルモード + プロアクティブツール | 行動勾配インストラクションモード、既存プロジェクト高速トラック、Knowledge Acquisition Policy |
+| **v2.4.0** | 動的ペルソナ提案 | 2ステップ suggest→assembly ワークフロー、カスタムペルソナ名、未知ペルソナハンドリング改善 |
+| **v2.5.0** | クロスインスタンス知識発見 | SkillBoard知識ニーズ、`meeting_publish_needs`ツール、`export_needs`監査コマンド、DEE準拠セッション限りニーズ |
 
-テスト結果: 515テスト通過、0失敗（v2.1.0）。
+テスト結果: 356+テスト通過、0失敗（v2.5.0）。
 
 ### 近期
 

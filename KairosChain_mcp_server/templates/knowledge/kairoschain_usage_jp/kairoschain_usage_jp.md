@@ -252,6 +252,8 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
 - `conflicts`: 知識間の潜在的矛盾を検出
 - `dangerous`: L0安全性と矛盾するパターンを検出
 - `recommend`: 昇格とアーカイブの推奨を取得
+- `gaps`: Knowledge Acquisition Policyで定義された知識ギャップを検出
+- `export_needs`: 知識ギャップをMeeting Placeでの共有用にパッケージ化
 - `archive`: L1知識をアーカイブ（人間の承認が必要）
 - `unarchive`: アーカイブから復元（人間の承認が必要）
 

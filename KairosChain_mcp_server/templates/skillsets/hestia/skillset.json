@@ -12,7 +12,8 @@
     "KairosMcp::SkillSets::Hestia::Tools::PhilosophyAnchor",
     "KairosMcp::SkillSets::Hestia::Tools::RecordObservation",
     "KairosMcp::SkillSets::Hestia::Tools::MeetingPlaceStart",
-    "KairosMcp::SkillSets::Hestia::Tools::MeetingPlaceStatus"
+    "KairosMcp::SkillSets::Hestia::Tools::MeetingPlaceStatus",
+    "KairosMcp::SkillSets::Hestia::Tools::MeetingPublishNeeds"
   ],
   "config_files": ["config/hestia.yml"],
   "knowledge_dirs": ["knowledge/hestia_meeting_place"]

@@ -358,10 +358,183 @@ section("4. PlaceRouter (HTTP endpoints)") do
 end
 
 # ==========================================================================
-# Section 5: MCP Tools & SkillSet Discovery
+# Section 5: SkillBoard Knowledge Needs
 # ==========================================================================
-section("5. MCP Tools & SkillSet Discovery") do
-  # 5.1 skillset.json includes new tools
+section("5. SkillBoard Knowledge Needs") do
+  Dir.mktmpdir do |dir|
+    registry = Hestia::AgentRegistry.new(registry_path: File.join(dir, 'agents.json'))
+    registry.register(
+      id: 'needs-agent-1', name: 'NeedsAgent1',
+      capabilities: { supported_actions: %w[skill_exchange], skill_formats: %w[ruby_dsl] }
+    )
+    board = Hestia::SkillBoard.new(registry: registry)
+
+    # 5.1 post_need adds need entries
+    board.post_need(
+      agent_id: 'needs-agent-1',
+      agent_name: 'NeedsAgent1',
+      agent_mode: 'genomics_expert',
+      needs: [
+        { name: 'rnaseq_pipeline', description: 'RNA-seq analysis pipeline knowledge' },
+        { name: 'variant_calling', description: 'Variant calling best practices' }
+      ]
+    )
+    result = board.browse(type: 'need')
+    assert("post_need adds need entries") { result[:total_available] == 2 }
+
+    # 5.2 browse(type: 'need') returns only need entries
+    assert("browse(type: 'need') returns only needs") {
+      result[:entries].all? { |e| e[:format] == 'need' }
+    }
+    assert("need entries have correct names") {
+      names = result[:entries].map { |e| e[:name] }.sort
+      names == %w[rnaseq_pipeline variant_calling]
+    }
+    assert("need entries have knowledge_need tag") {
+      result[:entries].all? { |e| e[:tags].include?('knowledge_need') }
+    }
+
+    # 5.3 browse() returns both agent and need entries
+    all_result = board.browse
+    assert("browse() returns agent + need entries") {
+      formats = all_result[:entries].map { |e| e[:format] }.uniq.sort
+      formats == %w[agent need]
+    }
+    assert("browse() total includes agents and needs") { all_result[:total_available] == 3 }
+
+    # 5.4 remove_needs removes need entries
+    board.remove_needs('needs-agent-1')
+    after_remove = board.browse(type: 'need')
+    assert("remove_needs removes all needs for agent") { after_remove[:total_available] == 0 }
+
+    # 5.5 Same agent_id overwrites existing needs
+    board.post_need(
+      agent_id: 'needs-agent-1', agent_name: 'NeedsAgent1',
+      agent_mode: 'genomics_expert',
+      needs: [{ name: 'chip_seq', description: 'ChIP-seq analysis' }]
+    )
+    board.post_need(
+      agent_id: 'needs-agent-1', agent_name: 'NeedsAgent1',
+      agent_mode: 'genomics_expert',
+      needs: [{ name: 'atac_seq', description: 'ATAC-seq analysis' }]
+    )
+    overwrite_result = board.browse(type: 'need')
+    assert("same agent_id overwrites existing needs") { overwrite_result[:total_available] == 1 }
+    assert("overwritten need has new name") {
+      overwrite_result[:entries].first[:name] == 'atac_seq'
+    }
+  end
+end
+
+# ==========================================================================
+# Section 6: PlaceRouter Needs Endpoints
+# ==========================================================================
+section("6. PlaceRouter Needs Endpoints") do
+  Dir.mktmpdir do |dir|
+    config = {
+      'meeting_place' => {
+        'name' => 'Needs Test Place',
+        'max_agents' => 10,
+        'session_timeout' => 3600,
+        'registry_path' => File.join(dir, 'agents.json')
+      }
+    }
+
+    router = Hestia::PlaceRouter.new(config: config)
+    identity = mock_identity(name: 'NeedsTestPlace')
+    session_store = MMP::MeetingSessionStore.new
+
+    router.start(identity: identity, session_store: session_store)
+
+    # Register an agent and get a token
+    router.call(rack_env('POST', '/place/v1/register', body: {
+      'id' => 'needs-ext-1',
+      'name' => 'NeedsExtAgent',
+      'capabilities' => { 'supported_actions' => ['test'] }
+    }))
+    token = session_store.create_session('needs-ext-1', nil)
+
+    # 6.1 POST /place/v1/board/needs succeeds
+    status, _headers, body = router.call(rack_env('POST', '/place/v1/board/needs',
+      body: {
+        'agent_id' => 'needs-ext-1',
+        'agent_name' => 'NeedsExtAgent',
+        'agent_mode' => 'test_mode',
+        'needs' => [
+          { 'name' => 'ruby_patterns', 'description' => 'Ruby design patterns' },
+          { 'name' => 'testing_strategies', 'description' => 'Testing best practices' }
+        ]
+      },
+      bearer_token: token
+    ))
+    result = JSON.parse(body.first, symbolize_names: true)
+    assert("POST /board/needs returns 200") { status == 200 }
+    assert("POST /board/needs returns status 'published'") { result[:status] == 'published' }
+    assert("POST /board/needs returns correct needs_count") { result[:needs_count] == 2 }
+    assert("POST /board/needs returns session_only: true") { result[:session_only] == true }
+
+    # 6.2 Needs are visible via browse
+    status, _headers, body = router.call(rack_env('GET', '/place/v1/board/browse',
+      bearer_token: token, query: 'type=need'))
+    browse_result = JSON.parse(body.first, symbolize_names: true)
+    assert("browse(type=need) returns published needs") { browse_result[:total_available] == 2 }
+
+    # 6.3 DELETE /place/v1/board/needs succeeds
+    status, _headers, body = router.call(rack_env('DELETE', '/place/v1/board/needs',
+      body: { 'agent_id' => 'needs-ext-1' },
+      bearer_token: token
+    ))
+    del_result = JSON.parse(body.first, symbolize_names: true)
+    assert("DELETE /board/needs returns 200") { status == 200 }
+    assert("DELETE /board/needs returns status 'removed'") { del_result[:status] == 'removed' }
+
+    # 6.4 Needs removed after DELETE
+    status, _headers, body = router.call(rack_env('GET', '/place/v1/board/browse',
+      bearer_token: token, query: 'type=need'))
+    after_del = JSON.parse(body.first, symbolize_names: true)
+    assert("needs removed after DELETE") { after_del[:total_available] == 0 }
+
+    # 6.5 POST /board/needs without auth returns 401
+    status, _headers, _body = router.call(rack_env('POST', '/place/v1/board/needs',
+      body: { 'agent_id' => 'needs-ext-1', 'needs' => [] }
+    ))
+    assert("POST /board/needs without auth returns 401") { status == 401 }
+
+    # 6.6 DELETE /board/needs without auth returns 401
+    status, _headers, _body = router.call(rack_env('DELETE', '/place/v1/board/needs',
+      body: { 'agent_id' => 'needs-ext-1' }
+    ))
+    assert("DELETE /board/needs without auth returns 401") { status == 401 }
+
+    # 6.7 Unregister cleans up needs
+    # Re-post needs first
+    router.call(rack_env('POST', '/place/v1/board/needs',
+      body: {
+        'agent_id' => 'needs-ext-1',
+        'agent_name' => 'NeedsExtAgent',
+        'agent_mode' => 'test_mode',
+        'needs' => [{ 'name' => 'cleanup_test', 'description' => 'Test cleanup' }]
+      },
+      bearer_token: token
+    ))
+    # Unregister the agent
+    router.call(rack_env('POST', '/place/v1/unregister',
+      body: { 'agent_id' => 'needs-ext-1' },
+      bearer_token: token
+    ))
+    # Verify needs are cleaned up
+    status, _headers, body = router.call(rack_env('GET', '/place/v1/board/browse',
+      bearer_token: token, query: 'type=need'))
+    cleanup_result = JSON.parse(body.first, symbolize_names: true)
+    assert("unregister cleans up agent needs") { cleanup_result[:total_available] == 0 }
+  end
+end
+
+# ==========================================================================
+# Section 7: MCP Tools & SkillSet Discovery
+# ==========================================================================
+section("7. MCP Tools & SkillSet Discovery") do
+  # 7.1 skillset.json includes new tools
   skillset_path = File.join(__dir__, 'templates/skillsets/hestia/skillset.json')
   skillset = JSON.parse(File.read(skillset_path))
   assert("skillset.json has MeetingPlaceStart tool") {
@@ -370,28 +543,38 @@ section("5. MCP Tools & SkillSet Discovery") do
   assert("skillset.json has MeetingPlaceStatus tool") {
     skillset['tool_classes'].include?('KairosMcp::SkillSets::Hestia::Tools::MeetingPlaceStatus')
   }
-  assert("skillset.json has 6 total tool classes") { skillset['tool_classes'].size == 6 }
+  assert("skillset.json has MeetingPublishNeeds tool") {
+    skillset['tool_classes'].include?('KairosMcp::SkillSets::Hestia::Tools::MeetingPublishNeeds')
+  }
+  assert("skillset.json has 7 total tool classes") { skillset['tool_classes'].size == 7 }
 
-  # 5.2 Tool class loading
+  # 7.2 Tool class loading
   require_relative 'lib/kairos_mcp/tools/base_tool'
   require_relative 'templates/skillsets/hestia/tools/meeting_place_start'
   require_relative 'templates/skillsets/hestia/tools/meeting_place_status'
+  require_relative 'templates/skillsets/hestia/tools/meeting_publish_needs'
 
   start_tool = KairosMcp::SkillSets::Hestia::Tools::MeetingPlaceStart.new
   status_tool = KairosMcp::SkillSets::Hestia::Tools::MeetingPlaceStatus.new
+  publish_tool = KairosMcp::SkillSets::Hestia::Tools::MeetingPublishNeeds.new
 
   assert("MeetingPlaceStart tool name") { start_tool.name == 'meeting_place_start' }
   assert("MeetingPlaceStatus tool name") { status_tool.name == 'meeting_place_status' }
+  assert("MeetingPublishNeeds tool name") { publish_tool.name == 'meeting_publish_needs' }
   assert("MeetingPlaceStart has input_schema") { start_tool.input_schema.is_a?(Hash) }
   assert("MeetingPlaceStatus has input_schema") { status_tool.input_schema.is_a?(Hash) }
+  assert("MeetingPublishNeeds has input_schema") { publish_tool.input_schema.is_a?(Hash) }
+  assert("MeetingPublishNeeds requires opt_in") {
+    publish_tool.input_schema[:required] == ['opt_in']
+  }
 
-  # 5.3 MeetingPlaceStatus tool execution
+  # 7.3 MeetingPlaceStatus tool execution
   result = status_tool.call({})
   assert("MeetingPlaceStatus returns text content") { result.is_a?(Array) && result.first[:type] == 'text' }
   parsed = JSON.parse(result.first[:text])
   assert("MeetingPlaceStatus includes meeting_place config") { parsed['meeting_place'].is_a?(Hash) }
 
-  # 5.4 Hestia module loads all Phase 4B classes
+  # 7.4 Hestia module loads all Phase 4B classes
   assert("Hestia::AgentRegistry is defined") { defined?(Hestia::AgentRegistry) }
   assert("Hestia::SkillBoard is defined") { defined?(Hestia::SkillBoard) }
   assert("Hestia::HeartbeatManager is defined") { defined?(Hestia::HeartbeatManager) }

@@ -1,7 +1,7 @@
 ---
 name: persona_definitions
 description: Default persona definitions for Persona Assembly during skill promotion and audit decisions
-version: "1.2"
+version: "1.3"
 layer: L1
 tags: [meta, personas, assembly, promotion, audit, decision-making, facilitator]
 ---
@@ -241,6 +241,15 @@ The assembly produces a discussion summary with:
 - Overall recommendation
 
 **Important:** The assembly output is advisory only. Human judgment remains the final authority, especially for L0 promotions.
+
+### Dynamic Persona Suggestion (v2.4.0+)
+
+Use `skills_promote(command: "suggest")` to have the LLM analyze source content and suggest optimal personas before running Persona Assembly. The 2-step workflow:
+
+1. **Suggest**: LLM analyzes the content and recommends persona types and count
+2. **Assembly**: Run the assembly with the suggested (or modified) persona set
+
+Custom persona names are fully supported — the LLM infers the role from the name and context when no pre-defined definition exists.
 
 ### Customizing Personas
 

@@ -73,6 +73,10 @@ them as naturally as you would use a notebook.
   to check if relevant L1 knowledge exists before answering from scratch.
 - **When the user asks about capabilities**: Call `tool_guide(command: "catalog")`
   to give accurate, current information.
+- **Knowledge gaps (custom modes only)**: If the active mode has a Knowledge
+  Acquisition Policy, call `skills_audit(command: "gaps")` silently to check
+  for missing baseline knowledge. If gaps are found, inform the user briefly
+  and offer to create the missing entries.
 
 ### When Few or No L2 Contexts Exist
 
@@ -182,6 +186,53 @@ Minimum requirements for L1 knowledge (kept intentionally low):
 
 Quality improves over time through audit suggestions. Do not block initial promotion
 for perfectionism.
+
+## Knowledge Acquisition Policy (Custom Modes)
+
+When creating a custom instruction mode (including via fast-track), include a
+Knowledge Acquisition Policy section to define what L1 knowledge the mode requires.
+This enables automatic gap detection at session start.
+
+### Template
+
+```markdown
+## Knowledge Acquisition Policy
+
+### Baseline Knowledge
+
+Required L1 knowledge entries for this mode.
+
+- `entry_name` — Description of what this knowledge covers
+- `another_entry` — Description of another required knowledge area
+
+### Active Monitoring
+
+Topics and sources to track for knowledge updates.
+
+- Source or topic to monitor (frequency)
+
+### Acquisition Behavior
+
+- **On session start**: Check baseline entries against L1 knowledge. Report gaps.
+- **On gap found**: Propose creating the missing L1 entry with a draft outline.
+- **Frequency**: Check baseline every session.
+- **Cross-instance (opt-in)**: When connected to a Meeting Place, you may
+  publish knowledge needs to the board using `meeting_publish_needs(opt_in: true)`.
+  Other agents browsing the board may discover and offer relevant knowledge.
+```
+
+### Format Rules
+
+- Start the section with `## Knowledge Acquisition Policy`
+- List baseline entries under `### Baseline Knowledge` using: `` - `name` — description ``
+- Separators between name and description: `—`, `--`, `:`, or `-` are all accepted
+- `### Active Monitoring` and `### Acquisition Behavior` are LLM-facing guidance
+  (not parsed programmatically)
+
+### Usage
+
+Run `skills_audit(command: "gaps")` to check the current mode's baseline against
+existing L1 knowledge. Missing entries are reported with suggested creation commands.
 
 ## Progressive Concept Introduction
 

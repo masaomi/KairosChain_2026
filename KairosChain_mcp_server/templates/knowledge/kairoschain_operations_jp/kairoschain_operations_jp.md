@@ -26,8 +26,11 @@ readme_lang: jp
 | **Phase 4.pre** | 認証 + 堅牢化 | Admin トークンローテーション、P2Pエンドポイントのセッションベース認証 |
 | **Phase 4A** | HestiaChain Foundation | 自己完結型信頼アンカーSkillSet、DEEプロトコル（PhilosophyDeclaration、ObservationLog）、チェーン移行（4ステージ）、4 MCPツール、77テストアサーション |
 | **Phase 4B** | Meeting Placeサーバー | PlaceRouter、AgentRegistry、SkillBoard、HeartbeatManager、6 HTTPエンドポイント、2 MCPツール、70テストアサーション |
+| **v2.3.0** | チュートリアルモード + プロアクティブツール | 行動勾配インストラクションモード、既存プロジェクト高速トラック、Knowledge Acquisition Policy |
+| **v2.4.0** | 動的ペルソナ提案 | 2ステップ suggest→assembly ワークフロー、カスタムペルソナ名、未知ペルソナハンドリング改善 |
+| **v2.5.0** | クロスインスタンス知識発見 | SkillBoard知識ニーズ、`meeting_publish_needs`ツール、`export_needs`監査コマンド、DEE準拠セッション限りニーズ |
 
-テスト結果: 356テスト通過、0失敗（v2.0.0）。
+テスト結果: 356+テスト通過、0失敗（v2.5.0）。
 
 ### 近期
 

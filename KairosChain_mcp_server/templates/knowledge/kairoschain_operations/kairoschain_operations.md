@@ -1,7 +1,7 @@
 ---
 name: kairoschain_operations
 description: "Future roadmap, deployment, and operations guide"
-version: 1.1
+version: 1.2
 layer: L1
 tags: [documentation, readme, operations, deployment, roadmap, backup]
 readme_order: 5
@@ -26,8 +26,11 @@ The following development phases have been completed on the `feature/skillset-pl
 | **Phase 4.pre** | Authentication + Hardening | Admin token rotation, session-based auth for P2P endpoints |
 | **Phase 4A** | HestiaChain Foundation | Self-contained trust anchor SkillSet, DEE protocol (PhilosophyDeclaration, ObservationLog), chain migration (4 stages), 4 MCP tools, 77 test assertions |
 | **Phase 4B** | Meeting Place Server | PlaceRouter, AgentRegistry, SkillBoard, HeartbeatManager, 6 HTTP endpoints, 2 MCP tools, 70 test assertions |
+| **v2.3.0** | Tutorial Mode + Proactive Tools | Behavioral gradient instruction mode, existing project fast-track, Knowledge Acquisition Policy |
+| **v2.4.0** | Dynamic Persona Suggestion | 2-step suggest→assembly workflow, custom persona names, improved unknown persona handling |
+| **v2.5.0** | Cross-Instance Knowledge Discovery | SkillBoard knowledge needs, `meeting_publish_needs` tool, `export_needs` audit command, DEE-compliant session-only needs |
 
-Test results: 356 passed, 0 failed (v2.0.0).
+Test results: 356+ passed, 0 failed (v2.5.0).
 
 ### Near-term
 

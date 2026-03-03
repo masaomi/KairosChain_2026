@@ -1,7 +1,7 @@
 ---
 name: kairoschain_usage
 description: "KairosChain tools reference, usage patterns, and evolution workflow"
-version: 1.1
+version: 1.2
 layer: L1
 tags: [documentation, readme, usage, tools, workflow, examples]
 readme_order: 3
@@ -252,6 +252,8 @@ Commands:
 - `conflicts`: Detect potential contradictions between knowledge
 - `dangerous`: Detect patterns conflicting with L0 safety
 - `recommend`: Get promotion and archive recommendations
+- `gaps`: Check knowledge gaps defined by Knowledge Acquisition Policy in instruction modes
+- `export_needs`: Package knowledge gaps as shareable needs for cross-instance discovery via Meeting Place
 - `archive`: Archive L1 knowledge (human approval required)
 - `unarchive`: Restore from archive (human approval required)
 

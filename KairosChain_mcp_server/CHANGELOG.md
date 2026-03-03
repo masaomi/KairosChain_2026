@@ -4,6 +4,29 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.5.0] - 2026-03-03
+
+### Added
+
+- **Cross-Instance Knowledge Discovery**: KairosChain instances connected to a Meeting Place can now publish knowledge gaps as "needs" to the SkillBoard. Other agents browsing the board can discover these needs and offer relevant knowledge.
+  - `skills_audit(command: "export_needs")`: New audit command to package knowledge gaps for cross-instance sharing
+  - `meeting_publish_needs`: New Hestia MCP tool to publish needs to the Meeting Place board (requires explicit `opt_in: true`)
+  - `SkillBoard#post_need` / `remove_needs`: In-memory need entries (session-only, no persistence — DEE compliant)
+  - `POST /place/v1/board/needs`: New HTTP endpoint to publish knowledge needs
+  - `DELETE /place/v1/board/needs`: New HTTP endpoint to remove published needs
+  - `browse(type: 'need')`: Filter board entries to show only knowledge needs
+  - Needs are automatically cleaned up on agent unregister
+
+- **Knowledge Acquisition Policy — Cross-Instance Extension**: Tutorial template Acquisition Behavior now includes opt-in cross-instance knowledge needs publishing guidance
+
+- **L1 Knowledge Updates**: Updated `hestiachain_meeting_place` (EN/JP), `kairoschain_usage` (EN/JP), `kairoschain_operations` (EN/JP), `persona_definitions` with cross-instance discovery, proactive tool usage, and dynamic persona suggestion documentation
+
+### Fixed
+
+- **PlaceRouter query string parsing**: Added missing `require 'uri'` — `parse_query` was silently failing due to `NameError` on `URI.decode_www_form`, causing all browse query parameters (`type`, `search`, `limit`) to be ignored
+
+---
+
 ## [2.4.0] - 2026-03-03
 
 ### Added
@@ -284,6 +307,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Skill promotion with Persona Assembly
 - Tool guide and metadata system
 
+[2.5.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/masaomi/KairosChain_2026/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.2.0...v2.3.0

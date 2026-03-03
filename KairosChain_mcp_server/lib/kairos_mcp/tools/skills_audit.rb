@@ -4,6 +4,7 @@ require_relative 'base_tool'
 require_relative '../knowledge_provider'
 require_relative '../context_manager'
 require_relative '../dsl_skills_provider'
+require_relative '../skills_config'
 require_relative '../kairos'
 
 module KairosMcp
@@ -38,7 +39,7 @@ module KairosMcp
         }
       }.freeze
 
-      READONLY_COMMANDS = %w[check conflicts stale dangerous recommend].freeze
+      READONLY_COMMANDS = %w[check conflicts stale dangerous recommend gaps export_needs].freeze
       WRITE_COMMANDS = %w[archive unarchive].freeze
 
       def name
@@ -47,7 +48,8 @@ module KairosMcp
 
       def description
         'Audit knowledge health across L0/L1/L2 layers. Check for conflicts, staleness, ' \
-        'dangerous patterns, and get promotion/archive recommendations. ' \
+        'dangerous patterns, get promotion/archive recommendations, and detect knowledge gaps ' \
+        'defined by custom instruction mode policies. ' \
         'Archive operations require human approval (approved: true).'
       end
 
@@ -56,7 +58,7 @@ module KairosMcp
       end
 
       def usecase_tags
-        %w[audit health check recommend archive stale dangerous L0 L1 L2]
+        %w[audit health check recommend archive stale dangerous gaps needs meeting knowledge-policy L0 L1 L2]
       end
 
       def examples
@@ -76,6 +78,18 @@ module KairosMcp
           {
             title: 'Archive stale knowledge',
             code: 'skills_audit(command: "archive", target: "old_guide", reason: "No longer relevant", approved: true)'
+          },
+          {
+            title: 'Check knowledge gaps for current mode',
+            code: 'skills_audit(command: "gaps")'
+          },
+          {
+            title: 'Check knowledge gaps for specific mode',
+            code: 'skills_audit(command: "gaps", mode_name: "genomics_expert")'
+          },
+          {
+            title: 'Export knowledge needs for Meeting Place sharing',
+            code: 'skills_audit(command: "export_needs")'
           }
         ]
       end
@@ -143,6 +157,10 @@ module KairosMcp
             include_archived: {
               type: 'boolean',
               description: 'Include archived items in results (default: false)'
+            },
+            mode_name: {
+              type: 'string',
+              description: 'Instruction mode name (for gaps command). Defaults to current active mode.'
             }
           },
           required: ['command']
@@ -192,6 +210,10 @@ module KairosMcp
                    run_dangerous_check(layer, args)
                  when 'recommend'
                    run_recommendations(layer, args)
+                 when 'gaps'
+                   run_gaps_check(args)
+                 when 'export_needs'
+                   run_export_needs(args)
                  end
 
         output << result
@@ -893,6 +915,214 @@ module KairosMcp
             - **Key insight**: [What unique perspective does this role bring?]
           TEMPLATE
         end
+      end
+
+      # =========================================================================
+      # Knowledge Gaps
+      # =========================================================================
+
+      def run_gaps_check(args)
+        mode = args['mode_name'] || current_mode_name
+        content = load_instruction_content(mode)
+
+        unless content
+          return "## Knowledge Gaps Report\n\n" \
+                 "Could not load instruction file for mode `#{mode}`.\n" \
+                 "Ensure the mode exists and has a corresponding `.md` file in the skills directory."
+        end
+
+        baseline = parse_baseline_knowledge(content)
+
+        unless baseline && !baseline.empty?
+          return "## Knowledge Gaps Report\n\n" \
+                 "**Mode**: `#{mode}`\n\n" \
+                 "No Knowledge Acquisition Policy found in this mode's instructions.\n\n" \
+                 "To add one, include a `## Knowledge Acquisition Policy` section with a " \
+                 "`### Baseline Knowledge` subsection listing required L1 entries:\n\n" \
+                 "```markdown\n" \
+                 "## Knowledge Acquisition Policy\n\n" \
+                 "### Baseline Knowledge\n\n" \
+                 "Required L1 knowledge entries for this mode.\n\n" \
+                 "- `entry_name` — Description of what this knowledge covers\n" \
+                 "```"
+        end
+
+        # Compare against existing L1 knowledge
+        provider = KnowledgeProvider.new
+        existing = provider.list.map { |item| item[:name] }
+
+        present = []
+        missing = []
+        baseline.each do |entry|
+          if existing.include?(entry[:name])
+            present << entry
+          else
+            missing << entry
+          end
+        end
+
+        output = ["## Knowledge Gaps Report\n"]
+        output << "**Mode**: `#{mode}`"
+        output << "**Baseline entries**: #{baseline.size}"
+        output << "**Present**: #{present.size}"
+        output << "**Missing**: #{missing.size}\n"
+
+        if missing.empty?
+          output << "### All Baseline Knowledge Present\n"
+          output << "All required L1 knowledge entries for this mode are available."
+        else
+          output << "### Missing Entries\n"
+          missing.each do |entry|
+            output << "- `#{entry[:name]}` — #{entry[:description]}"
+          end
+
+          output << "\n### Suggested Actions\n"
+          output << "Create the missing entries using `knowledge_update`:\n"
+          missing.each do |entry|
+            output << "```"
+            output << "knowledge_update(command: \"create\", name: \"#{entry[:name]}\", " \
+                       "description: \"#{entry[:description]}\", " \
+                       "content: \"# #{entry[:name]}\\n\\nTODO: Add content\", " \
+                       "tags: [\"baseline\"])"
+            output << "```\n"
+          end
+        end
+
+        if present.any?
+          output << "### Present Entries\n"
+          present.each do |entry|
+            output << "- `#{entry[:name]}` — #{entry[:description]}"
+          end
+        end
+
+        output.join("\n")
+      end
+
+      def parse_baseline_knowledge(content)
+        # Find the Knowledge Acquisition Policy section
+        policy_match = content.match(/^##\s+Knowledge Acquisition Policy\s*$/i)
+        return nil unless policy_match
+
+        # Extract from ### Baseline Knowledge subsection
+        baseline_match = content.match(/^###\s+Baseline Knowledge\s*\n(.*?)(?=^###|\z)/im)
+        return nil unless baseline_match
+
+        baseline_text = baseline_match[1]
+        entries = []
+
+        # Parse lines matching: - `name` — description (supports —, --, :, -)
+        baseline_text.scan(/^-\s+`([^`]+)`\s*(?:—|--|:|-)\s*(.+)$/) do |name, description|
+          entries << { name: name.strip, description: description.strip }
+        end
+
+        entries
+      end
+
+      def current_mode_name
+        SkillsConfig.load['instructions_mode'] || 'tutorial'
+      end
+
+      def load_instruction_content(mode_name)
+        path = case mode_name
+               when 'developer'
+                 KairosMcp.md_path
+               when 'user'
+                 KairosMcp.quickguide_path
+               when 'tutorial'
+                 KairosMcp.tutorial_path
+               when 'none'
+                 nil
+               else
+                 File.join(KairosMcp.skills_dir, "#{mode_name}.md")
+               end
+
+        return nil unless path && File.exist?(path)
+
+        File.read(path)
+      end
+
+      # =========================================================================
+      # Export Needs (Cross-Instance Knowledge Discovery)
+      # =========================================================================
+
+      def run_export_needs(args)
+        mode = args['mode_name'] || current_mode_name
+        content = load_instruction_content(mode)
+
+        unless content
+          return "## Export Needs Report\n\n" \
+                 "Could not load instruction file for mode `#{mode}`.\n" \
+                 "No knowledge needs to export."
+        end
+
+        baseline = parse_baseline_knowledge(content)
+
+        unless baseline && !baseline.empty?
+          return "## Export Needs Report\n\n" \
+                 "**Mode**: `#{mode}`\n\n" \
+                 "No Knowledge Acquisition Policy found — no needs to export."
+        end
+
+        # Find missing entries (gaps)
+        provider = KnowledgeProvider.new
+        existing = provider.list.map { |item| item[:name] }
+        missing = baseline.reject { |entry| existing.include?(entry[:name]) }
+
+        if missing.empty?
+          return "## Export Needs Report\n\n" \
+                 "**Mode**: `#{mode}`\n\n" \
+                 "All baseline knowledge is present. No needs to export."
+        end
+
+        # Build exportable needs structure
+        needs_data = build_knowledge_needs(mode, missing)
+
+        # Check Meeting Place connection
+        connection_file = File.join(KairosMcp.storage_dir, 'meeting_connection.json')
+        connected = File.exist?(connection_file)
+
+        output = ["## Export Needs Report\n"]
+        output << "**Mode**: `#{mode}`"
+        output << "**Missing entries**: #{missing.size}"
+        output << "**Meeting Place connected**: #{connected}\n"
+
+        output << "### Exportable Needs\n"
+        needs_data[:needs].each do |need|
+          output << "- `#{need[:name]}` — #{need[:description]}"
+        end
+
+        if connected
+          output << "\n### Next Step\n"
+          output << "Publish these needs to the Meeting Place board:\n"
+          output << "```"
+          output << "meeting_publish_needs(opt_in: true)"
+          output << "```"
+        else
+          output << "\n### Not Connected\n"
+          output << "Connect to a Meeting Place first using `meeting_connect(url: \"...\")`, "
+          output << "then use `meeting_publish_needs(opt_in: true)` to publish."
+        end
+
+        output.join("\n")
+      end
+
+      def build_knowledge_needs(mode_name, missing_entries = nil)
+        if missing_entries.nil?
+          content = load_instruction_content(mode_name)
+          return { agent_mode: mode_name, needs: [], published_at: nil, session_only: true } unless content
+
+          baseline = parse_baseline_knowledge(content) || []
+          provider = KnowledgeProvider.new
+          existing = provider.list.map { |item| item[:name] }
+          missing_entries = baseline.reject { |entry| existing.include?(entry[:name]) }
+        end
+
+        {
+          agent_mode: mode_name,
+          needs: missing_entries.map { |entry| { name: entry[:name], description: entry[:description] } },
+          published_at: Time.now.utc.iso8601,
+          session_only: true
+        }
       end
 
       # =========================================================================

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'uri'
 
 module Hestia
   # PlaceRouter handles Meeting Place HTTP endpoints under /place/v1/*.
@@ -102,6 +103,10 @@ module Hestia
         handle_list_agents(env)
       when ['GET', '/place/v1/board/browse']
         handle_browse(env)
+      when ['POST', '/place/v1/board/needs']
+        handle_post_needs(env)
+      when ['DELETE', '/place/v1/board/needs']
+        handle_delete_needs(env)
       else
         # Check for /place/v1/keys/:id pattern
         if request_method == 'GET' && path.start_with?('/place/v1/keys/')
@@ -215,6 +220,9 @@ module Hestia
 
       result = @registry.unregister(agent_id)
 
+      # Clean up any posted needs for this agent
+      @skill_board.remove_needs(agent_id)
+
       # Record fade-out observation if trust anchor available
       # (agent explicitly leaving = graceful fadeout)
 
@@ -239,6 +247,49 @@ module Hestia
 
       result = @skill_board.browse(type: type, search: search, limit: limit)
       json_response(200, result)
+    end
+
+    # POST /place/v1/board/needs — Bearer token required
+    # Publish knowledge needs to the board (session-only, in-memory)
+    def handle_post_needs(env)
+      body = parse_body(env)
+      agent_id = body['agent_id']
+      agent_name = body['agent_name'] || 'Unknown Agent'
+      agent_mode = body['agent_mode'] || 'unknown'
+      needs = body['needs'] || []
+
+      unless agent_id
+        return json_response(400, { error: 'missing_agent_id', message: 'agent_id is required' })
+      end
+
+      @skill_board.post_need(
+        agent_id: agent_id,
+        agent_name: agent_name,
+        agent_mode: agent_mode,
+        needs: needs.map { |n| { name: n['name'], description: n['description'] } }
+      )
+
+      json_response(200, {
+        status: 'published',
+        agent_id: agent_id,
+        needs_count: needs.size,
+        session_only: true
+      })
+    end
+
+    # DELETE /place/v1/board/needs — Bearer token required
+    # Remove all needs posted by an agent
+    def handle_delete_needs(env)
+      body = parse_body(env)
+      agent_id = body['agent_id']
+
+      unless agent_id
+        return json_response(400, { error: 'missing_agent_id', message: 'agent_id is required' })
+      end
+
+      @skill_board.remove_needs(agent_id)
+
+      json_response(200, { status: 'removed', agent_id: agent_id })
     end
 
     # GET /place/v1/keys/:id — Bearer token required
