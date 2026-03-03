@@ -131,7 +131,8 @@ module KairosMcp
           builtin = PROTECTED_FILES.include?(basename)
           active = (mode == current_mode) ||
                    (current_mode == 'developer' && basename == 'kairos.md') ||
-                   (current_mode == 'user' && basename == 'kairos_quickguide.md')
+                   (current_mode == 'user' && basename == 'kairos_quickguide.md') ||
+                   (current_mode == 'tutorial' && basename == 'kairos_tutorial.md')
           { file: basename, mode: mode, size: File.size(f), builtin: builtin, active: active }
         end
 
