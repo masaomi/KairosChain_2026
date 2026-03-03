@@ -4,6 +4,29 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.4.0] - 2026-03-03
+
+### Added
+
+- **Dynamic Persona Suggestion** (`skills_promote` command: `"suggest"`): New 2-step workflow where the LLM analyzes source content and suggests optimal personas (type and count) before running Persona Assembly. Generates a structured suggestion template with content preview, available personas, and YAML response format.
+
+- **Custom Persona Support**: Both `skills_promote` and `skills_audit` now accept arbitrary custom persona names in the `personas` parameter. The LLM infers roles from persona names and context when no pre-defined definition exists.
+
+- **Improved Unknown Persona Handling**:
+  - `skills_promote`: Unknown personas now show "(custom persona — no pre-defined definition. Infer role from name and evaluate accordingly.)" instead of "(definition not found)"
+  - `skills_audit`: Unknown personas get a rich template with humanized name, inferred focus, and key insight fields
+
+---
+
+## [2.3.1] - 2026-03-03
+
+### Fixed
+
+- **Tutorial mode activation**: Mark `kairos_tutorial.md` as ACTIVE when tutorial mode is set
+- **SystemUpgrade**: Add missing `require 'fileutils'` and resolve gem-internal template paths
+
+---
+
 ## [2.3.0] - 2026-03-03
 
 ### Added
@@ -261,6 +284,9 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Skill promotion with Persona Assembly
 - Tool guide and metadata system
 
+[2.4.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.3.1...v2.4.0
+[2.3.1]: https://github.com/masaomi/KairosChain_2026/compare/v2.3.0...v2.3.1
+[2.3.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.1.0...v2.2.0
 [2.0.5]: https://github.com/masaomi/KairosChain_2026/compare/v2.0.4...v2.0.5
 [2.0.4]: https://github.com/masaomi/KairosChain_2026/compare/v2.0.3...v2.0.4
