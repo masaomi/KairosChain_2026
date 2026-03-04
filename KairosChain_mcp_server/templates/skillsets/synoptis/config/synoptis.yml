@@ -1,0 +1,27 @@
+# Synoptis SkillSet Configuration
+# Mutual attestation protocol for KairosChain inter-agent trust building
+
+enabled: false
+
+attestation:
+  default_expiry_days: 180
+  min_evidence_fields: 2
+  allow_self_attestation: false
+  auto_reciprocate: false
+
+trust:
+  score_half_life_days: 90
+  cluster_threshold: 0.8
+  velocity_threshold_24h: 10
+  min_diversity: 0.3
+
+challenge:
+  response_window_hours: 72
+  max_active_challenges: 5
+
+storage:
+  backend: file
+  file_path: storage/synoptis
+
+transport:
+  priority: [mmp, hestia, local]

@@ -1,0 +1,21 @@
+{
+  "name": "synoptis",
+  "version": "0.1.0",
+  "description": "Mutual attestation protocol for KairosChain inter-agent trust building",
+  "author": "Dr. Masa Hatakeyama",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": ["mutual_attestation", "trust_graph", "challenge_protocol"],
+  "tool_classes": [
+    "KairosMcp::SkillSets::Synoptis::Tools::AttestationRequest",
+    "KairosMcp::SkillSets::Synoptis::Tools::AttestationIssue",
+    "KairosMcp::SkillSets::Synoptis::Tools::AttestationVerify",
+    "KairosMcp::SkillSets::Synoptis::Tools::AttestationRevoke",
+    "KairosMcp::SkillSets::Synoptis::Tools::AttestationList",
+    "KairosMcp::SkillSets::Synoptis::Tools::AttestationChallengeOpen",
+    "KairosMcp::SkillSets::Synoptis::Tools::AttestationChallengeResolve",
+    "KairosMcp::SkillSets::Synoptis::Tools::TrustScoreGet"
+  ],
+  "config_files": ["config/synoptis.yml"],
+  "knowledge_dirs": ["knowledge/synoptis_attestation_protocol"]
+}

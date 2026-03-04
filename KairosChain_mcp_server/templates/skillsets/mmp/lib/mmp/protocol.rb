@@ -16,6 +16,18 @@ module MMP
       propose_extension evaluate_extension adopt_extension share_extension
     ].freeze
 
+    # Class-level action extension for other SkillSets (e.g., Synoptis)
+    class << self
+      def register_actions(actions)
+        @extended_actions ||= []
+        @extended_actions.concat(actions.map(&:to_s)).uniq!
+      end
+
+      def extended_actions
+        @extended_actions || []
+      end
+    end
+
     attr_reader :protocol_loader, :supported_extensions, :evolution, :compatibility
 
     Message = Struct.new(:id, :action, :from, :to, :timestamp, :payload, :in_reply_to, :protocol_version, keyword_init: true) do
@@ -56,11 +68,12 @@ module MMP
     end
 
     def supported_actions
-      if @protocol_loader&.available_actions&.any?
-        @protocol_loader.available_actions
-      else
-        ACTIONS
-      end
+      base = if @protocol_loader&.available_actions&.any?
+               @protocol_loader.available_actions
+             else
+               ACTIONS
+             end
+      base + self.class.extended_actions
     end
 
     def action_supported?(action) = supported_actions.include?(action)
