@@ -78,6 +78,7 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
   - [Guide Tools (Tool Discovery)](#guide-tools-tool-discovery)
   - [System Management Tools](#system-management-tools)
   - [MMP Meeting Tools (SkillSet: mmp)](#mmp-meeting-tools-skillset-mmp)
+  - [Synoptis Attestation Tools (SkillSet: synoptis)](#synoptis-attestation-tools-skillset-synoptis)
 - [Usage Examples](#usage-examples)
   - [List Available Skills](#list-available-skills)
   - [Check Blockchain Status](#check-blockchain-status)
@@ -2205,6 +2206,27 @@ MMP SkillSet also exposes HTTP endpoints via MeetingRouter (`/meeting/v1/*`):
 | `/meeting/v1/skillset_content` | POST | Download SkillSet archive |
 
 > **Knowledge-only constraint**: Only non-executable content (Markdown, YAML) can be exchanged over P2P. SkillSets containing executable code (`tools/`, `lib/` with .rb, .py, .sh, etc.) must be installed via trusted channels. See the [MMP P2P User Guide](docs/KairosChain_MMP_P2P_UserGuide_20260220_en.md) for details.
+
+### Synoptis Attestation Tools (SkillSet: synoptis)
+
+These tools are available when the Synoptis SkillSet is installed and enabled. Synoptis provides mutual attestation for inter-agent trust verification.
+
+| Tool | Description |
+|------|-------------|
+| `attestation_request` | Request attestation from a target agent |
+| `attestation_issue` | Issue a signed attestation proof (ProofEnvelope) |
+| `attestation_verify` | Verify an attestation proof (`signature_only` or `full` 6-stage) |
+| `attestation_revoke` | Revoke an issued attestation |
+| `attestation_list` | List attestations with filters (agent, claim type, status) |
+| `attestation_challenge_open` | Open a challenge against an attestation |
+| `attestation_challenge_resolve` | Resolve a challenge (`uphold` or `invalidate`) |
+| `trust_score_get` | Get trust score with breakdown and anomaly flags |
+
+Supported claim types: `PIPELINE_EXECUTION`, `GENOMICS_QC`, `DATA_INTEGRITY`, `SKILL_QUALITY`, `L0_COMPLIANCE`, `L1_GOVERNANCE`, `OBSERVATION_CONFIRM`.
+
+Transport priority: MMP → Hestia → Local (configurable in `config/synoptis.yml`).
+
+> For detailed usage, workflows, and configuration, see the [Synoptis User Guide](knowledge://synoptis_guide) and [Synoptis Developer Guide](knowledge://synoptis_development).
 
 ## Usage Examples
 
@@ -4595,7 +4617,7 @@ See [LICENSE](./LICENSE) file.
 
 ---
 
-**Version**: 2.4.0
-**Last Updated**: 2026-03-03
+**Version**: 2.5.0
+**Last Updated**: 2026-03-04
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*
