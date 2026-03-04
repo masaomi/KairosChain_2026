@@ -1,7 +1,7 @@
 ---
 name: kairoschain_usage_jp
 description: KairosChainのツール一覧、使用方法、進化ワークフロー
-version: 1.1
+version: 1.2
 layer: L1
 tags: [documentation, readme, usage, tools, workflow, examples]
 readme_order: 3
@@ -374,6 +374,27 @@ MMP SkillSetはMeetingRouter経由でHTTPエンドポイント（`/meeting/v1/*`
 | `/meeting/v1/skillset_content` | POST | SkillSetアーカイブをダウンロード |
 
 > **Knowledge-only制約**: P2P経由で交換できるのは非実行コンテンツ（Markdown, YAML）のみです。実行可能コード（`tools/`, `lib/`内の.rb, .py, .sh等）を含むSkillSetは信頼されたチャネル経由でインストールする必要があります。詳細は[MMP P2Pユーザーガイド](docs/KairosChain_MMP_P2P_UserGuide_20260220_jp.md)を参照してください。
+
+### Synoptis認証ツール（SkillSet: synoptis）
+
+Synoptis SkillSetがインストール・有効化されている場合に利用可能なツールです。Synoptisはエージェント間の信頼検証のための相互認証を提供します。
+
+| ツール | 説明 |
+|--------|------|
+| `attestation_request` | ターゲットエージェントに認証をリクエスト |
+| `attestation_issue` | 署名付き認証プルーフ（ProofEnvelope）を発行 |
+| `attestation_verify` | 認証プルーフを検証（`signature_only` または `full` 6段階） |
+| `attestation_revoke` | 発行済み認証を失効 |
+| `attestation_list` | フィルタ付きで認証を一覧表示（エージェント、クレームタイプ、ステータス） |
+| `attestation_challenge_open` | 認証に対するチャレンジを開始 |
+| `attestation_challenge_resolve` | チャレンジを解決（`uphold` または `invalidate`） |
+| `trust_score_get` | 内訳と異常フラグ付き信頼スコアを取得 |
+
+対応クレームタイプ: `PIPELINE_EXECUTION`、`GENOMICS_QC`、`DATA_INTEGRITY`、`SKILL_QUALITY`、`L0_COMPLIANCE`、`L1_GOVERNANCE`、`OBSERVATION_CONFIRM`
+
+トランスポート優先順位: MMP → Hestia → Local（`config/synoptis.yml` で設定可能）。
+
+> 詳細な使用方法、ワークフロー、設定については、[Synoptisユーザーガイド](knowledge://synoptis_guide_jp) および [Synoptis開発者ガイド](knowledge://synoptis_development_jp) を参照してください。
 
 ## 使用例
 
