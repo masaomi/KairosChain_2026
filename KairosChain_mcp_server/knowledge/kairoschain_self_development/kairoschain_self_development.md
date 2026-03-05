@@ -1,9 +1,11 @@
 ---
 name: kairoschain_self_development
 description: "Self-referential development workflow: using KairosChain to develop KairosChain itself"
-version: "1.0"
+version: "1.1"
 layer: L1
-tags: [workflow, self-referentiality, development, dogfooding, meta]
+tags: [workflow, self-referentiality, development, dogfooding, meta, contributing]
+readme_order: 5.5
+readme_lang: en
 ---
 
 # KairosChain Self-Development Workflow
@@ -90,6 +92,43 @@ This workflow is a direct realization of several core propositions:
   occur within the same operational structure.
 - **Proposition 9** (Human-System Composite): The developer's metacognitive
   observations during self-referential use constitute the system's boundary.
+
+## Instruction Mode: `self_developer`
+
+A custom instruction mode (`self_developer`) is available for KairosChain development.
+It extends the developer mode with self-development-specific behavior:
+
+- Automatically loads `kairoschain_self_development` knowledge at session start
+- References full L0 philosophy (`kairos.md`) via proactive tool usage
+- Includes promotion guidelines and ordering constraints
+
+Activate it via:
+
+```
+instructions_update(command: "set_mode", mode_name: "self_developer")
+```
+
+To revert to the standard developer mode:
+
+```
+instructions_update(command: "set_mode", mode_name: "developer")
+```
+
+## Future: Collaborative Self-Development
+
+When multiple contributors join KairosChain development, the following
+evolution is planned:
+
+1. **Promote `self_developer` mode to templates**: Move `self_developer.md`
+   to `templates/skills/` so it is distributed via `kairos-chain init`
+2. **Replace the current `developer` mode**: Rename `self_developer` to
+   `developer`, making the self-referential workflow the default for all
+   KairosChain contributors
+3. **Promote this knowledge to templates**: Move `kairoschain_self_development`
+   to `templates/knowledge/` for distribution
+
+This follows the standard promotion pattern: start in the dev repo (`knowledge/`),
+prove value through use, then promote to `templates/` for all users.
 
 ## What This Is Not
 

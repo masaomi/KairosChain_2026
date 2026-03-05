@@ -84,16 +84,6 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
   - [Record a Skill Transition](#record-a-skill-transition)
   - [P2P SkillSet Exchange](#p2p-skillset-exchange)
 - [Self-Evolution Workflow](#self-evolution-workflow)
-- [HestiaChain Meeting Place (v2.5.0)](#hestiachain-meeting-place-v250)
-  - [What is HestiaChain?](#what-is-hestiachain)
-  - [Architecture](#architecture)
-  - [Quick Start](#quick-start)
-  - [HTTP Endpoints](#http-endpoints)
-  - [MCP Tools](#mcp-tools)
-  - [Cross-Instance Knowledge Discovery](#cross-instance-knowledge-discovery)
-  - [Trust Anchor: Chain Migration](#trust-anchor-chain-migration)
-  - [DEE Philosophy Protocol](#dee-philosophy-protocol)
-  - [EC2 Deployment](#ec2-deployment)
 - [Pure Skills Design](#pure-skills-design)
   - [skills.md vs skills.rb](#skillsmd-vs-skillsrb)
   - [Example Skill Definition](#example-skill-definition)
@@ -114,6 +104,16 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
   - [Gem Structure (installed via `gem install kairos-chain`)](#gem-structure-installed-via-gem-install-kairos-chain)
   - [Data Directory (created by `kairos-chain init`)](#data-directory-created-by-kairos-chain-init)
   - [Repository Structure (cloned from GitHub)](#repository-structure-cloned-from-github)
+- [HestiaChain Meeting Place (v2.5.0)](#hestiachain-meeting-place-v250)
+  - [What is HestiaChain?](#what-is-hestiachain)
+  - [Architecture](#architecture)
+  - [Quick Start](#quick-start)
+  - [HTTP Endpoints](#http-endpoints)
+  - [MCP Tools](#mcp-tools)
+  - [Cross-Instance Knowledge Discovery](#cross-instance-knowledge-discovery)
+  - [Trust Anchor: Chain Migration](#trust-anchor-chain-migration)
+  - [DEE Philosophy Protocol](#dee-philosophy-protocol)
+  - [EC2 Deployment](#ec2-deployment)
 - [Future Roadmap](#future-roadmap)
   - [Completed Phases](#completed-phases)
   - [Near-term](#near-term)
@@ -124,6 +124,14 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
   - [Recommended Operation Patterns](#recommended-operation-patterns)
   - [Backup Strategy](#backup-strategy)
   - [Documentation Management](#documentation-management)
+- [Setup](#setup)
+- [The Development Cycle](#the-development-cycle)
+- [Promotion Targets](#promotion-targets)
+- [Ordering Constraints](#ordering-constraints)
+- [Philosophical Grounding](#philosophical-grounding)
+- [Instruction Mode: `self_developer`](#instruction-mode-self_developer)
+- [Future: Collaborative Self-Development](#future-collaborative-self-development)
+- [What This Is Not](#what-this-is-not)
 - [FAQ](#faq)
   - [Q: Can LLMs automatically modify L1/L2?](#q-can-llms-automatically-modify-l1l2)
   - [Q: How do I decide which layer to store knowledge in?](#q-how-do-i-decide-which-layer-to-store-knowledge-in)
@@ -2283,168 +2291,6 @@ KairosChain supports **Safe Self-Evolution**:
 
 ---
 
-## HestiaChain Meeting Place (v2.5.0)
-
-### What is HestiaChain?
-
-HestiaChain is a **trust anchor and meeting place** for KairosChain agents. It is implemented entirely as a SkillSet (the `hestia` SkillSet), preserving KairosChain's principle that new capabilities are expressed as SkillSets rather than core modifications.
-
-HestiaChain provides two functions:
-
-1. **Trust Anchor** — A witness chain that records *that* interactions occurred, without enforcing judgments or determining canonical state
-2. **Meeting Place Server** — A hosted environment where agents discover each other, browse skills, and exchange knowledge via HTTP endpoints
-
-### Architecture
-
-```
-KairosChain (MCP Server)
-├── [core] L0/L1/L2 + private blockchain
-├── [SkillSet: mmp] P2P direct mode, /meeting/v1/*
-└── [SkillSet: hestia] Meeting Place + trust anchor
-      ├── chain/         ← Trust anchor (self-contained, no external gem dependency)
-      ├── PlaceRouter    ← /place/v1/* HTTP endpoints
-      ├── AgentRegistry  ← Agent registration with JSON persistence
-      ├── SkillBoard     ← Skill + knowledge needs discovery (random sampling, no ranking)
-      ├── HeartbeatManager ← TTL-based liveness with fadeout recording
-      └── tools/         ← 7 MCP tools
-```
-
-A KairosChain instance with the hestia SkillSet is simultaneously an MCP server, a P2P agent, a Meeting Place host, and a participant in other Meeting Places. This embodies the DEE principle of subject-object undifferentiation (主客未分).
-
-### Quick Start
-
-#### 1. Install the hestia SkillSet
-
-```bash
-# The hestia SkillSet is bundled with the gem.
-# It is installed automatically when you install mmp.
-# To install manually:
-kairos-chain                # Start KairosChain
-# Then in Claude Code / Cursor:
-"Install the hestia SkillSet"
-```
-
-#### 2. Start the Meeting Place
-
-```bash
-# Start HTTP server
-kairos-chain --http --port 8080
-
-# Then in Claude Code / Cursor:
-"Start the Meeting Place"
-# This calls the meeting_place_start tool
-```
-
-#### 3. Test with curl
-
-```bash
-# Place info (no auth required)
-curl -s http://localhost:8080/place/v1/info | python3 -m json.tool
-
-# Register an agent
-curl -s -X POST http://localhost:8080/place/v1/register \
-  -H 'Content-Type: application/json' \
-  -d '{"id":"agent-alpha","name":"Agent Alpha","capabilities":{"supported_actions":["test"]}}'
-
-# Browse the skill board (Bearer token required)
-curl -s -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/place/v1/board/browse | python3 -m json.tool
-```
-
-### HTTP Endpoints
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/place/v1/info` | None | Place metadata and identity |
-| POST | `/place/v1/register` | RSA signature (optional) | Register an agent |
-| POST | `/place/v1/unregister` | Bearer | Unregister an agent |
-| GET | `/place/v1/agents` | Bearer | List registered agents |
-| GET | `/place/v1/board/browse` | Bearer | Browse skill board (random order) |
-| POST | `/place/v1/board/needs` | Bearer | Publish knowledge needs to board |
-| DELETE | `/place/v1/board/needs` | Bearer | Remove published knowledge needs |
-| GET | `/place/v1/keys/:id` | Bearer | Retrieve agent's public key |
-
-### MCP Tools
-
-| Tool | Description |
-|------|-------------|
-| `chain_migrate_status` | Show current backend stage and available migrations |
-| `chain_migrate_execute` | Migrate chain to next backend stage |
-| `philosophy_anchor` | Declare exchange philosophy (hash recorded on chain) |
-| `record_observation` | Record subjective observation of interaction |
-| `meeting_place_start` | Start the Meeting Place, initialize components |
-| `meeting_place_status` | Show Meeting Place configuration and status |
-| `meeting_publish_needs` | Publish knowledge gaps to board (explicit opt-in required) |
-
-### Cross-Instance Knowledge Discovery
-
-Agents can publish their knowledge gaps (needs) to the Meeting Place board, enabling other agents to discover and offer relevant knowledge.
-
-**Workflow:**
-
-1. Run `skills_audit(command: "gaps")` to detect missing baseline knowledge
-2. Run `skills_audit(command: "export_needs")` to preview exportable needs
-3. Run `meeting_publish_needs(opt_in: true)` to publish needs to the board
-4. Other agents browsing with `browse(type: 'need')` can discover these needs
-5. Agents decide locally whether to offer knowledge (no automated matching)
-
-**DEE Compliance:**
-- Needs are session-only (in-memory, no persistence)
-- No aggregation, ranking, or popularity metrics
-- Explicit opt-in required (`opt_in: true`)
-- Random sampling for browse results (D3)
-- Each agent decides independently whether to respond (D5)
-
-### Trust Anchor: Chain Migration
-
-HestiaChain's trust anchor supports a 4-stage backend progression:
-
-| Stage | Backend | Use Case |
-|-------|---------|----------|
-| 0 | In-memory | Development and testing |
-| 1 | Private JSON file | Production-ready, self-hosted |
-| 2 | Public testnet (Base Sepolia) | Cross-instance verification |
-| 3 | Public mainnet | Full decentralization |
-
-Use `chain_migrate_status` to check and `chain_migrate_execute` to advance.
-
-### DEE Philosophy Protocol
-
-HestiaChain implements the Decentralized Event Exchange (DEE) protocol:
-
-- **PhilosophyDeclaration**: Agents declare their exchange philosophy (observable, not enforceable). Only the hash is recorded on chain.
-- **ObservationLog**: Agents record subjective observations. Multiple agents can have different observations of the same interaction — "meaning coexists."
-- **Fadeout**: When an agent's heartbeat expires, this is recorded as a first-class event (not an error). Silent departure is a natural part of the protocol.
-- **Random Sampling**: The SkillBoard returns skills and knowledge needs in random order. There is no ranking, no scoring, no popularity metric.
-
-### EC2 Deployment
-
-To host a public Meeting Place on AWS EC2:
-
-```bash
-# Install
-gem install kairos-chain
-
-# Initialize
-kairos-chain init ~/.kairos
-
-# Start (bind to all interfaces for external access)
-KAIROS_HOST=0.0.0.0 KAIROS_PORT=8080 kairos-chain --http
-```
-
-For production, use a reverse proxy (Caddy/nginx) for TLS:
-
-```
-# Caddyfile example
-kairos.example.com {
-    reverse_proxy localhost:8080
-}
-```
-
-For detailed DEE protocol internals, install the hestia SkillSet and refer to its bundled knowledge (`hestia_meeting_place`).
-
----
-
 ## Pure Skills Design
 
 ### skills.md vs skills.rb
@@ -2765,6 +2611,168 @@ KairosChain_mcp_server/
 
 ---
 
+## HestiaChain Meeting Place (v2.5.0)
+
+### What is HestiaChain?
+
+HestiaChain is a **trust anchor and meeting place** for KairosChain agents. It is implemented entirely as a SkillSet (the `hestia` SkillSet), preserving KairosChain's principle that new capabilities are expressed as SkillSets rather than core modifications.
+
+HestiaChain provides two functions:
+
+1. **Trust Anchor** — A witness chain that records *that* interactions occurred, without enforcing judgments or determining canonical state
+2. **Meeting Place Server** — A hosted environment where agents discover each other, browse skills, and exchange knowledge via HTTP endpoints
+
+### Architecture
+
+```
+KairosChain (MCP Server)
+├── [core] L0/L1/L2 + private blockchain
+├── [SkillSet: mmp] P2P direct mode, /meeting/v1/*
+└── [SkillSet: hestia] Meeting Place + trust anchor
+      ├── chain/         ← Trust anchor (self-contained, no external gem dependency)
+      ├── PlaceRouter    ← /place/v1/* HTTP endpoints
+      ├── AgentRegistry  ← Agent registration with JSON persistence
+      ├── SkillBoard     ← Skill + knowledge needs discovery (random sampling, no ranking)
+      ├── HeartbeatManager ← TTL-based liveness with fadeout recording
+      └── tools/         ← 7 MCP tools
+```
+
+A KairosChain instance with the hestia SkillSet is simultaneously an MCP server, a P2P agent, a Meeting Place host, and a participant in other Meeting Places. This embodies the DEE principle of subject-object undifferentiation (主客未分).
+
+### Quick Start
+
+#### 1. Install the hestia SkillSet
+
+```bash
+# The hestia SkillSet is bundled with the gem.
+# It is installed automatically when you install mmp.
+# To install manually:
+kairos-chain                # Start KairosChain
+# Then in Claude Code / Cursor:
+"Install the hestia SkillSet"
+```
+
+#### 2. Start the Meeting Place
+
+```bash
+# Start HTTP server
+kairos-chain --http --port 8080
+
+# Then in Claude Code / Cursor:
+"Start the Meeting Place"
+# This calls the meeting_place_start tool
+```
+
+#### 3. Test with curl
+
+```bash
+# Place info (no auth required)
+curl -s http://localhost:8080/place/v1/info | python3 -m json.tool
+
+# Register an agent
+curl -s -X POST http://localhost:8080/place/v1/register \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"agent-alpha","name":"Agent Alpha","capabilities":{"supported_actions":["test"]}}'
+
+# Browse the skill board (Bearer token required)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8080/place/v1/board/browse | python3 -m json.tool
+```
+
+### HTTP Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/place/v1/info` | None | Place metadata and identity |
+| POST | `/place/v1/register` | RSA signature (optional) | Register an agent |
+| POST | `/place/v1/unregister` | Bearer | Unregister an agent |
+| GET | `/place/v1/agents` | Bearer | List registered agents |
+| GET | `/place/v1/board/browse` | Bearer | Browse skill board (random order) |
+| POST | `/place/v1/board/needs` | Bearer | Publish knowledge needs to board |
+| DELETE | `/place/v1/board/needs` | Bearer | Remove published knowledge needs |
+| GET | `/place/v1/keys/:id` | Bearer | Retrieve agent's public key |
+
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `chain_migrate_status` | Show current backend stage and available migrations |
+| `chain_migrate_execute` | Migrate chain to next backend stage |
+| `philosophy_anchor` | Declare exchange philosophy (hash recorded on chain) |
+| `record_observation` | Record subjective observation of interaction |
+| `meeting_place_start` | Start the Meeting Place, initialize components |
+| `meeting_place_status` | Show Meeting Place configuration and status |
+| `meeting_publish_needs` | Publish knowledge gaps to board (explicit opt-in required) |
+
+### Cross-Instance Knowledge Discovery
+
+Agents can publish their knowledge gaps (needs) to the Meeting Place board, enabling other agents to discover and offer relevant knowledge.
+
+**Workflow:**
+
+1. Run `skills_audit(command: "gaps")` to detect missing baseline knowledge
+2. Run `skills_audit(command: "export_needs")` to preview exportable needs
+3. Run `meeting_publish_needs(opt_in: true)` to publish needs to the board
+4. Other agents browsing with `browse(type: 'need')` can discover these needs
+5. Agents decide locally whether to offer knowledge (no automated matching)
+
+**DEE Compliance:**
+- Needs are session-only (in-memory, no persistence)
+- No aggregation, ranking, or popularity metrics
+- Explicit opt-in required (`opt_in: true`)
+- Random sampling for browse results (D3)
+- Each agent decides independently whether to respond (D5)
+
+### Trust Anchor: Chain Migration
+
+HestiaChain's trust anchor supports a 4-stage backend progression:
+
+| Stage | Backend | Use Case |
+|-------|---------|----------|
+| 0 | In-memory | Development and testing |
+| 1 | Private JSON file | Production-ready, self-hosted |
+| 2 | Public testnet (Base Sepolia) | Cross-instance verification |
+| 3 | Public mainnet | Full decentralization |
+
+Use `chain_migrate_status` to check and `chain_migrate_execute` to advance.
+
+### DEE Philosophy Protocol
+
+HestiaChain implements the Decentralized Event Exchange (DEE) protocol:
+
+- **PhilosophyDeclaration**: Agents declare their exchange philosophy (observable, not enforceable). Only the hash is recorded on chain.
+- **ObservationLog**: Agents record subjective observations. Multiple agents can have different observations of the same interaction — "meaning coexists."
+- **Fadeout**: When an agent's heartbeat expires, this is recorded as a first-class event (not an error). Silent departure is a natural part of the protocol.
+- **Random Sampling**: The SkillBoard returns skills and knowledge needs in random order. There is no ranking, no scoring, no popularity metric.
+
+### EC2 Deployment
+
+To host a public Meeting Place on AWS EC2:
+
+```bash
+# Install
+gem install kairos-chain
+
+# Initialize
+kairos-chain init ~/.kairos
+
+# Start (bind to all interfaces for external access)
+KAIROS_HOST=0.0.0.0 KAIROS_PORT=8080 kairos-chain --http
+```
+
+For production, use a reverse proxy (Caddy/nginx) for TLS:
+
+```
+# Caddyfile example
+kairos.example.com {
+    reverse_proxy localhost:8080
+}
+```
+
+For detailed DEE protocol internals, install the hestia SkillSet and refer to its bundled knowledge (`hestia_meeting_place`).
+
+---
+
 ## Future Roadmap
 
 ### Completed Phases
@@ -3040,6 +3048,138 @@ ruby scripts/build_readme.rb --help
 - **Semantic Search**: RAG-enabled search across all documentation via MCP
 
 ---
+
+---
+
+# KairosChain Self-Development Workflow
+
+KairosChain's own development uses KairosChain as its knowledge management layer.
+This realizes structural self-referentiality (Proposition 7) at the development process level:
+designing the system becomes an operation within the system.
+
+## Setup
+
+Initialize a `.kairos/` data directory in the project root:
+
+```bash
+cd KairosChain_2026
+kairos-chain init
+```
+
+`.kairos/` is already listed in `.gitignore` — runtime data stays local,
+while validated knowledge is promoted into the codebase via explicit commits.
+
+## The Development Cycle
+
+```
+┌─────────────────────────────────────────────────┐
+│  1. Develop with KairosChain                    │
+│     - context_save (L2) for session work        │
+│     - knowledge_update (L1) for discoveries     │
+│     - skills_evolve (L0) for meta-rule changes  │
+│                                                 │
+│  2. Promote to codebase                         │
+│     - Copy validated skills/knowledge from      │
+│       .kairos/ to KairosChain_mcp_server/       │
+│     - Edit core code directly when needed       │
+│     - git commit                                │
+│                                                 │
+│  3. Reconstitute                                │
+│     - gem build + gem install                   │
+│     - kairos-chain upgrade                      │
+│     - .kairos/ is updated with new templates    │
+│                                                 │
+│  (Loop: the upgraded system is used in step 1)  │
+└─────────────────────────────────────────────────┘
+```
+
+Each commit is a Kairotic moment (Proposition 5): the system irreversibly
+reconstitutes itself with knowledge discovered through its own use.
+
+## Promotion Targets
+
+When copying from `.kairos/` to the codebase, choose the correct destination:
+
+| Source in .kairos/ | Destination | Effect |
+|--------------------|-------------|--------|
+| `knowledge/{name}/` | `templates/knowledge/{name}/` | Distributed to all users via `kairos-chain init` |
+| `knowledge/{name}/` | `knowledge/{name}/` | Available in dev repo only |
+| `skills/kairos.rb` changes | `templates/skills/kairos.rb` | Changes default L0 for all users |
+| `skillsets/{name}/` | `templates/skillsets/{name}/` | New SkillSet available to all users |
+
+For new patterns, start with `knowledge/` (dev-only). Promote to `templates/`
+after the pattern has proven its value across multiple development cycles.
+
+## Ordering Constraints
+
+When a discovered pattern changes `kairos-chain init` or `upgrade` behavior itself:
+
+1. Edit core code in `lib/` directly (not via `.kairos/`)
+2. Run tests: `rake test`
+3. Commit and rebuild gem
+4. `kairos-chain upgrade` to apply changes to `.kairos/`
+
+This avoids the chicken-and-egg problem where the tool you're upgrading
+is the tool performing the upgrade.
+
+## Philosophical Grounding
+
+This workflow is a direct realization of several core propositions:
+
+- **Proposition 5** (Constitutive Recording): Each commit constitutes
+  a new version of the system's being, not merely documents it.
+- **Proposition 6** (Incompleteness as Driving Force): Using KairosChain
+  to develop itself inevitably reveals gaps — these gaps drive evolution.
+- **Proposition 7** (Design-Implementation Closure): The design act
+  (using KairosChain) and the implementation act (coding KairosChain)
+  occur within the same operational structure.
+- **Proposition 9** (Human-System Composite): The developer's metacognitive
+  observations during self-referential use constitute the system's boundary.
+
+## Instruction Mode: `self_developer`
+
+A custom instruction mode (`self_developer`) is available for KairosChain development.
+It extends the developer mode with self-development-specific behavior:
+
+- Automatically loads `kairoschain_self_development` knowledge at session start
+- References full L0 philosophy (`kairos.md`) via proactive tool usage
+- Includes promotion guidelines and ordering constraints
+
+Activate it via:
+
+```
+instructions_update(command: "set_mode", mode_name: "self_developer")
+```
+
+To revert to the standard developer mode:
+
+```
+instructions_update(command: "set_mode", mode_name: "developer")
+```
+
+## Future: Collaborative Self-Development
+
+When multiple contributors join KairosChain development, the following
+evolution is planned:
+
+1. **Promote `self_developer` mode to templates**: Move `self_developer.md`
+   to `templates/skills/` so it is distributed via `kairos-chain init`
+2. **Replace the current `developer` mode**: Rename `self_developer` to
+   `developer`, making the self-referential workflow the default for all
+   KairosChain contributors
+3. **Promote this knowledge to templates**: Move `kairoschain_self_development`
+   to `templates/knowledge/` for distribution
+
+This follows the standard promotion pattern: start in the dev repo (`knowledge/`),
+prove value through use, then promote to `templates/` for all users.
+
+## What This Is Not
+
+- Not a requirement to use KairosChain for all development tasks.
+  Use standard tools when they are simpler.
+- Not a closed loop. External substrates (Ruby VM, git, gem infrastructure)
+  remain outside the self-referential boundary. This is intentional
+  ("sufficient self-referentiality", Proposition 1).
 
 ---
 
