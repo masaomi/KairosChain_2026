@@ -4,6 +4,14 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.6.0] - 2026-03-05
+
+### Added
+
+- **Self-Development Workflow (L1 Knowledge)**: New `kairoschain_self_development` knowledge documenting the self-referential development pattern — using KairosChain to develop KairosChain itself. Covers `.kairos/` initialization in project root, the three-step development cycle (develop → promote → reconstitute), promotion target guidelines (`knowledge/` vs `templates/`), ordering constraints for chicken-and-egg scenarios, and philosophical grounding (Propositions 5, 6, 7, 9). This is the last change made without using KairosChain's own tools — subsequent development will use the self-development workflow.
+
+---
+
 ## [2.5.0] - 2026-03-03
 
 ### Added
@@ -307,6 +315,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Skill promotion with Persona Assembly
 - Tool guide and metadata system
 
+[2.6.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/masaomi/KairosChain_2026/compare/v2.3.0...v2.3.1
