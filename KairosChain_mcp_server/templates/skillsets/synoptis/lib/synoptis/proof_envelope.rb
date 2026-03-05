@@ -45,11 +45,12 @@ module Synoptis
     end
 
     # Generate canonical JSON for signature target (sorted keys, deterministic)
+    # Generate canonical JSON for signature target (sorted keys, deterministic)
+    # All signable fields are included — nil values serialize as JSON null
     def canonical_json
       signable = {}
       SIGNABLE_FIELDS.each do |field|
-        value = send(field.to_sym)
-        signable[field] = value unless value.nil?
+        signable[field] = send(field.to_sym)
       end
       JSON.generate(signable.sort.to_h)
     end

@@ -52,13 +52,17 @@ module KairosMcp
             storage_path = ::Synoptis.storage_path(config)
             registry = ::Synoptis::Registry::FileRegistry.new(storage_path: storage_path)
 
+            # Pre-fetch proofs once for both scorer and analyzer
+            all_proofs = registry.list_proofs({})
+            agent_proofs = all_proofs.select { |p| p[:attester_id] == agent_id || p[:attestee_id] == agent_id }
+
             # Calculate trust score
             scorer = ::Synoptis::TrustScorer.new(registry: registry, config: config)
-            score_result = scorer.score(agent_id, window_days: window_days)
+            score_result = scorer.score(agent_id, window_days: window_days, proofs: agent_proofs)
 
             # Analyze graph for anomalies
             analyzer = ::Synoptis::GraphAnalyzer.new(registry: registry, config: config)
-            graph_result = analyzer.analyze(agent_id)
+            graph_result = analyzer.analyze(agent_id, proofs: all_proofs)
 
             # Merge anomaly flags
             all_flags = score_result[:anomaly_flags] + graph_result[:anomaly_flags]

@@ -8,6 +8,7 @@ require 'time'
 module Synoptis
   class AttestationEngine
     attr_reader :config, :registry, :verifier, :revocation_manager
+    attr_accessor :transport_router
 
     def initialize(config: nil, registry: nil)
       @config = config || Synoptis.default_config
@@ -40,6 +41,20 @@ module Synoptis
       allow_self = @config.dig('attestation', 'allow_self_attestation')
       if !allow_self && attester_id == attestee_id
         raise ArgumentError, 'Self-attestation is not allowed'
+      end
+
+      # Check for revoked proof with same (attester, attestee, claim_type, subject_ref)
+      if @registry
+        existing = @registry.list_proofs({}).select do |p|
+          p[:attester_id] == attester_id &&
+            p[:attestee_id] == attestee_id &&
+            p[:claim_type] == request[:claim_type] &&
+            p[:subject_ref] == request[:subject_ref] &&
+            p[:status] == 'revoked'
+        end
+        unless existing.empty?
+          raise ArgumentError, 'Cannot re-issue attestation for a previously revoked proof with same attester, attestee, claim_type, and subject_ref'
+        end
       end
 
       # Validate min_evidence_fields

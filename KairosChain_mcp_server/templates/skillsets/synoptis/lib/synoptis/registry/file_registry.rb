@@ -2,6 +2,7 @@
 
 require 'json'
 require 'fileutils'
+require 'tempfile'
 
 module Synoptis
   module Registry
@@ -12,25 +13,22 @@ module Synoptis
 
       def initialize(storage_path:)
         @storage_path = storage_path
-        @mutex = Mutex.new
         FileUtils.mkdir_p(@storage_path)
       end
 
       def save_proof(proof_hash)
-        @mutex.synchronize do
-          append_jsonl(proofs_path, normalize_hash(proof_hash))
-        end
+        append_jsonl(proofs_path, normalize_hash(proof_hash))
       end
 
       def find_proof(proof_id)
-        @mutex.synchronize do
-          read_jsonl(proofs_path).find { |p| p[:proof_id] == proof_id }
+        with_file_lock(proofs_path, shared: true) do
+          read_jsonl_unlocked(proofs_path).find { |p| p[:proof_id] == proof_id }
         end
       end
 
       def list_proofs(filters = {})
-        @mutex.synchronize do
-          proofs = read_jsonl(proofs_path)
+        with_file_lock(proofs_path, shared: true) do
+          proofs = read_jsonl_unlocked(proofs_path)
 
           if filters[:agent_id]
             proofs = proofs.select { |p| p[:attester_id] == filters[:agent_id] || p[:attestee_id] == filters[:agent_id] }
@@ -49,8 +47,8 @@ module Synoptis
       end
 
       def update_proof_status(proof_id, status, revoke_ref = nil)
-        @mutex.synchronize do
-          proofs = read_jsonl(proofs_path)
+        with_file_lock(proofs_path) do
+          proofs = read_jsonl_unlocked(proofs_path)
           updated = proofs.map do |p|
             if p[:proof_id] == proof_id
               p[:status] = status
@@ -58,37 +56,33 @@ module Synoptis
             end
             p
           end
-          write_jsonl(proofs_path, updated)
+          write_jsonl_atomic(proofs_path, updated)
         end
       end
 
       def save_revocation(revocation_hash)
-        @mutex.synchronize do
-          append_jsonl(revocations_path, normalize_hash(revocation_hash))
-        end
+        append_jsonl(revocations_path, normalize_hash(revocation_hash))
       end
 
       def find_revocation(proof_id)
-        @mutex.synchronize do
-          read_jsonl(revocations_path).find { |r| r[:proof_id] == proof_id }
+        with_file_lock(revocations_path, shared: true) do
+          read_jsonl_unlocked(revocations_path).find { |r| r[:proof_id] == proof_id }
         end
       end
 
       def save_challenge(challenge_hash)
-        @mutex.synchronize do
-          append_jsonl(challenges_path, normalize_hash(challenge_hash))
-        end
+        append_jsonl(challenges_path, normalize_hash(challenge_hash))
       end
 
       def find_challenge(challenge_id)
-        @mutex.synchronize do
-          read_jsonl(challenges_path).find { |c| c[:challenge_id] == challenge_id }
+        with_file_lock(challenges_path, shared: true) do
+          read_jsonl_unlocked(challenges_path).find { |c| c[:challenge_id] == challenge_id }
         end
       end
 
       def list_challenges(**filters)
-        @mutex.synchronize do
-          challenges = read_jsonl(challenges_path)
+        with_file_lock(challenges_path, shared: true) do
+          challenges = read_jsonl_unlocked(challenges_path)
 
           if filters[:challenger_id]
             challenges = challenges.select { |c| c[:challenger_id] == filters[:challenger_id] }
@@ -107,8 +101,8 @@ module Synoptis
       end
 
       def update_challenge(challenge_id, updated_hash)
-        @mutex.synchronize do
-          challenges = read_jsonl(challenges_path)
+        with_file_lock(challenges_path) do
+          challenges = read_jsonl_unlocked(challenges_path)
           updated = challenges.map do |c|
             if c[:challenge_id] == challenge_id
               normalize_hash(updated_hash)
@@ -116,7 +110,7 @@ module Synoptis
               c
             end
           end
-          write_jsonl(challenges_path, updated)
+          write_jsonl_atomic(challenges_path, updated)
         end
       end
 
@@ -134,11 +128,25 @@ module Synoptis
         File.join(@storage_path, CHALLENGES_FILE)
       end
 
-      def append_jsonl(path, hash)
-        File.open(path, 'a') { |f| f.puts(JSON.generate(hash)) }
+      # File-level lock helper (replaces in-process Mutex)
+      def with_file_lock(path, shared: false)
+        lock_path = "#{path}.lock"
+        FileUtils.touch(lock_path) unless File.exist?(lock_path)
+        mode = shared ? File::LOCK_SH : File::LOCK_EX
+        File.open(lock_path, 'r') do |lock_file|
+          lock_file.flock(mode)
+          yield
+        end
       end
 
-      def read_jsonl(path)
+      def append_jsonl(path, hash)
+        with_file_lock(path) do
+          File.open(path, 'a') { |f| f.puts(JSON.generate(hash)) }
+        end
+      end
+
+      # Read without acquiring lock (caller must hold lock)
+      def read_jsonl_unlocked(path)
         return [] unless File.exist?(path)
 
         File.readlines(path).filter_map do |line|
@@ -151,9 +159,18 @@ module Synoptis
         end
       end
 
-      def write_jsonl(path, records)
-        File.open(path, 'w') do |f|
-          records.each { |r| f.puts(JSON.generate(r)) }
+      # Atomic write: write to temp file then rename
+      def write_jsonl_atomic(path, records)
+        dir = File.dirname(path)
+        tmp = Tempfile.new(File.basename(path), dir)
+        begin
+          records.each { |r| tmp.puts(JSON.generate(r)) }
+          tmp.close
+          File.rename(tmp.path, path)
+        rescue StandardError
+          tmp.close
+          tmp.unlink rescue nil
+          raise
         end
       end
 

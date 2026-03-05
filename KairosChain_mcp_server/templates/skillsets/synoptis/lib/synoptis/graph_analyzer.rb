@@ -17,8 +17,8 @@ module Synoptis
 
     # Analyze the attestation graph for an agent and return anomaly flags
     # Returns { metrics:, anomaly_flags: [] }
-    def analyze(agent_id)
-      all_proofs = @registry.list_proofs({})
+    def analyze(agent_id, proofs: nil)
+      all_proofs = proofs || @registry.list_proofs({})
       flags = []
 
       cc = cluster_coefficient(agent_id, all_proofs)

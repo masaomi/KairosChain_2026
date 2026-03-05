@@ -25,3 +25,7 @@ storage:
 
 transport:
   priority: [mmp, hestia, local]
+
+revocation:
+  allow_third_party: false
+  check_re_issuance: true

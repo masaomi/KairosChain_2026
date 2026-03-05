@@ -16,12 +16,12 @@ module Synoptis
 
     # Calculate trust score for an agent
     # Returns { score:, breakdown:, anomaly_flags: [] }
-    def score(agent_id, window_days: 180)
+    def score(agent_id, window_days: 180, proofs: nil)
       now = Time.now.utc
       cutoff = now - (window_days * 86400)
 
       # Gather all proofs where this agent is the attestee (received attestations)
-      all_proofs = @registry.list_proofs(agent_id: agent_id)
+      all_proofs = proofs || @registry.list_proofs(agent_id: agent_id)
       proofs = all_proofs.select do |p|
         p[:attestee_id] == agent_id &&
           p[:issued_at] &&

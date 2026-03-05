@@ -61,6 +61,24 @@ module KairosMcp
 
             proofs = registry.list_proofs(filters)
 
+            # Dynamic expired check: proofs with expires_at in the past are expired
+            now = Time.now.utc
+            if filters[:status] == 'expired'
+              # Include proofs whose expires_at has passed, even if status is still 'active'
+              all_proofs = registry.list_proofs(filters.reject { |k, _| k == :status })
+              proofs = all_proofs.select do |p|
+                p[:status] == 'expired' ||
+                  (p[:expires_at] && (Time.parse(p[:expires_at].to_s) rescue nil)&.<(now))
+              end
+            else
+              # Exclude dynamically expired proofs from 'active' results
+              if filters[:status] == 'active'
+                proofs = proofs.reject do |p|
+                  p[:expires_at] && (Time.parse(p[:expires_at].to_s) rescue nil)&.<(now)
+                end
+              end
+            end
+
             output = {
               total_count: proofs.size,
               filters: filters.empty? ? 'none' : filters,

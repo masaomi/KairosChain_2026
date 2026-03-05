@@ -59,7 +59,8 @@ module KairosMcp
             registry = ::Synoptis::Registry::FileRegistry.new(storage_path: storage_path)
             manager = ::Synoptis::ChallengeManager.new(registry: registry, config: config)
 
-            result = manager.resolve_challenge(challenge_id, decision, response: response)
+            resolver_id = resolve_agent_id
+            result = manager.resolve_challenge(challenge_id, decision, response: response, resolver_id: resolver_id)
 
             # Notify relevant parties via transport (best effort)
             notify_resolution(config, registry, result)
@@ -82,6 +83,16 @@ module KairosMcp
           end
 
           private
+
+          def resolve_agent_id
+            return ENV['SYNOPTIS_AGENT_ID'] if ENV['SYNOPTIS_AGENT_ID']
+
+            if defined?(KairosMcp) && KairosMcp.respond_to?(:agent_id)
+              KairosMcp.agent_id
+            else
+              raise 'Agent identity not available'
+            end
+          end
 
           def notify_resolution(config, registry, challenge)
             router = ::Synoptis::Transport::Router.new(config: config)

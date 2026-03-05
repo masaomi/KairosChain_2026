@@ -44,8 +44,9 @@ module Synoptis
     path = config_path
     return default_config unless File.exist?(path)
     require 'yaml'
-    YAML.load_file(path) || default_config
-  rescue StandardError
+    YAML.safe_load_file(path, permitted_classes: []) || default_config
+  rescue StandardError => e
+    $stderr.puts "[Synoptis] WARNING: Failed to load config from #{path}: #{e.class}: #{e.message}"
     default_config
   end
 
@@ -74,12 +75,18 @@ module Synoptis
       },
       'transport' => {
         'priority' => %w[mmp hestia local]
+      },
+      'revocation' => {
+        'allow_third_party' => false,
+        'check_re_issuance' => true
       }
     }
   end
 
   # Load Synoptis SkillSet: register hooks and log startup
   def self.load!
+    return if @loaded
+
     config = load_config
     unless config['enabled']
       $stderr.puts "[Synoptis] disabled by config (enabled: false)"
@@ -91,6 +98,7 @@ module Synoptis
     store = config.dig('storage', 'backend') || 'file'
     transport = (config.dig('transport', 'priority') || ['mmp']).first
     $stderr.puts "[Synoptis] v#{VERSION} loaded (transport: #{transport}, store: #{store})"
+    @loaded = true
   end
 
   # Storage path resolution
@@ -109,6 +117,11 @@ module Synoptis
   def self.engine(config: nil)
     config ||= load_config
     registry = Registry::FileRegistry.new(storage_path: storage_path(config))
-    AttestationEngine.new(config: config, registry: registry)
+    engine = AttestationEngine.new(config: config, registry: registry)
+    engine.transport_router = Transport::Router.new(config: config)
+    engine
   end
 end
+
+# Auto-initialize when running inside KairosMcp
+Synoptis.load! if defined?(KairosMcp)

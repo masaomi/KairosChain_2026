@@ -89,10 +89,12 @@ module KairosMcp
           private
 
           def resolve_agent_id
+            return ENV['SYNOPTIS_AGENT_ID'] if ENV['SYNOPTIS_AGENT_ID']
+
             if defined?(KairosMcp) && KairosMcp.respond_to?(:agent_id)
               KairosMcp.agent_id
             else
-              'local_agent'
+              raise 'Agent identity not available'
             end
           end
         end

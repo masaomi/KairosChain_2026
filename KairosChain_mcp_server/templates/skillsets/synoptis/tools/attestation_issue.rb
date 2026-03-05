@@ -34,7 +34,7 @@ module KairosMcp
               properties: {
                 request_id: {
                   type: 'string',
-                  description: 'Request ID from a previous attestation_request (used for nonce binding)'
+                  description: 'Request ID from a previous attestation_request (for audit trail only)'
                 },
                 target_agent: {
                   type: 'string',
@@ -75,6 +75,11 @@ module KairosMcp
             disclosure_level = arguments['disclosure_level'] || 'existence_only'
             expires_in_days = arguments['expires_in_days']
 
+            # Validate expires_in_days
+            if expires_in_days && expires_in_days.to_i < 1
+              raise ArgumentError, 'expires_in_days must be at least 1'
+            end
+
             config = ::Synoptis.load_config
 
             # Override expiry if specified
@@ -88,14 +93,13 @@ module KairosMcp
             # Determine attester identity
             attester_id = resolve_attester_id
 
-            # Build the request structure
-            nonce = arguments['request_id'] ? arguments['request_id'].sub(/^req_/, '') : nil
+            # Build the request structure — always use fresh nonce
             request = {
               target_id: target_agent,
               claim_type: claim_type,
               subject_ref: subject_ref,
               disclosure_level: disclosure_level,
-              nonce: nonce || SecureRandom.hex(16)
+              nonce: SecureRandom.hex(16)
             }
 
             # Get crypto for signing
@@ -141,15 +145,24 @@ module KairosMcp
           private
 
           def resolve_attester_id
+            return ENV['SYNOPTIS_AGENT_ID'] if ENV['SYNOPTIS_AGENT_ID']
+
             if defined?(KairosMcp) && KairosMcp.respond_to?(:agent_id)
               KairosMcp.agent_id
             else
-              'local_agent'
+              raise 'Agent identity not available'
             end
           end
 
           def resolve_crypto
-            if defined?(MMP::Crypto)
+            if defined?(KairosMcp) && defined?(MMP::Identity)
+              identity = MMP::Identity.new(
+                workspace_root: KairosMcp.data_dir,
+                config: MMP.load_config
+              )
+              identity.crypto
+            elsif defined?(MMP::Crypto)
+              $stderr.puts '[Synoptis] WARNING: Using ephemeral crypto key — signatures will not be verifiable across sessions'
               MMP::Crypto.new
             else
               raise 'MMP::Crypto not available for signing'

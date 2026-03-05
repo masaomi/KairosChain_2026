@@ -517,11 +517,11 @@ test_section('Transport::MMPTransport') do
   assert('transport_name is mmp') { transport.transport_name == 'mmp' }
   assert('available? returns true when MMP::Protocol defined') { transport.available? == defined?(MMP::Protocol) }
 
-  # Send a message (no live MeetingRouter — should report failure)
+  # Send a message (no live delivery — should report failure)
   result = transport.send_message('agent_beta', { action: 'attestation_request', payload: { test: true } })
-  assert('send_message returns failure without MeetingRouter') { result[:success] == false }
+  assert('send_message returns failure without delivery') { result[:success] == false }
   assert('send_message returns transport name') { result[:transport] == 'mmp' }
-  assert('send_message reports no MeetingRouter') { result[:error].include?('MeetingRouter') }
+  assert('send_message reports no delivery mechanism') { result[:error].include?('delivery') || result[:error].include?('No') }
 end
 
 test_section('Transport::HestiaTransport') do

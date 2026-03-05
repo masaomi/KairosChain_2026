@@ -27,9 +27,22 @@ module Synoptis
       proof = @registry.find_proof(challenged_proof_id)
       raise ArgumentError, "Proof #{challenged_proof_id} not found" unless proof
 
-      # Cannot challenge already-revoked or expired proofs
+      # Cannot challenge already-revoked proofs
       status = proof[:status]
       raise ArgumentError, "Cannot challenge a #{status} proof" if status == 'revoked'
+
+      # Cannot challenge expired proofs
+      if proof[:expires_at]
+        expires = Time.parse(proof[:expires_at].to_s) rescue nil
+        if expires && expires < Time.now.utc
+          raise ArgumentError, "Cannot challenge an expired proof"
+        end
+      end
+
+      # Self-challenge prevention: attester cannot challenge their own attestation
+      if challenger_id == proof[:attester_id]
+        raise ArgumentError, "Cannot challenge your own attestation"
+      end
 
       # Prevent duplicate open challenges against the same proof
       if @registry.respond_to?(:list_challenges)
@@ -73,13 +86,22 @@ module Synoptis
 
     # Resolve a challenge
     # decision: 'uphold' (attestation remains valid) or 'invalidate' (attestation revoked)
-    def resolve_challenge(challenge_id, decision, response: nil)
+    # resolver_id: the agent resolving — must be the attester of the challenged proof
+    def resolve_challenge(challenge_id, decision, response: nil, resolver_id: nil)
       raise ArgumentError, 'challenge_id is required' if challenge_id.nil? || challenge_id.to_s.empty?
       raise ArgumentError, "Invalid decision: #{decision}. Must be 'uphold' or 'invalidate'" unless %w[uphold invalidate].include?(decision)
 
       challenge = find_challenge(challenge_id)
       raise ArgumentError, "Challenge #{challenge_id} not found" unless challenge
       raise ArgumentError, "Challenge #{challenge_id} is already resolved (#{challenge[:status]})" unless challenge[:status] == 'open'
+
+      # Authorization: only the attester of the challenged proof may resolve
+      if resolver_id
+        proof = @registry.find_proof(challenge[:challenged_proof_id])
+        if proof && resolver_id != proof[:attester_id]
+          raise ArgumentError, "Not authorized to resolve challenge: must be the attester of the challenged proof"
+        end
+      end
 
       now = Time.now.utc
 
@@ -140,10 +162,11 @@ module Synoptis
       @registry.find_challenge(challenge_id)
     end
 
-    # List challenges with optional filters
+    # List challenges with optional filters (auto-checks expired challenges first)
     def list_challenges(filters = {})
       return [] unless @registry.respond_to?(:list_challenges)
 
+      check_expired_challenges
       @registry.list_challenges(**filters)
     end
   end
