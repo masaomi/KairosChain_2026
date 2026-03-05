@@ -5,6 +5,7 @@ log/
 KairosChain_mcp_server/skills/action_log.jsonl
 HestiaChain_2026/
 Echoria/
+.echoria/
 Who_read_this_story_2025/
 who_read_this_story_2026/
 command.log
@@ -38,3 +39,4 @@ KairosChain_mcp_server/pkg/
 
 # Runtime data directory (created by `kairos_mcp_server init`)
 .kairos/
+
