@@ -1,7 +1,7 @@
 ---
 name: kairoschain_self_development
 description: "Self-referential development workflow: using KairosChain to develop KairosChain itself"
-version: "1.1"
+version: "1.2"
 layer: L1
 tags: [workflow, self-referentiality, development, dogfooding, meta, contributing]
 readme_order: 5.5
@@ -129,6 +129,59 @@ evolution is planned:
 
 This follows the standard promotion pattern: start in the dev repo (`knowledge/`),
 prove value through use, then promote to `templates/` for all users.
+
+## SkillSet Release Checklist
+
+When a new SkillSet is implemented and tested, follow this checklist to release:
+
+### 1. L1 Knowledge for README
+
+Create L1 knowledge files (EN + JP) with `readme_order` and `readme_lang`
+frontmatter so the SkillSet appears in the auto-generated README:
+
+```
+KairosChain_mcp_server/knowledge/{skillset_name}/
+  {skillset_name}.md          # readme_order: N, readme_lang: en
+KairosChain_mcp_server/knowledge/{skillset_name}_jp/
+  {skillset_name}_jp.md       # readme_order: N, readme_lang: jp
+```
+
+Copy to templates for distribution:
+
+```
+KairosChain_mcp_server/templates/knowledge/{skillset_name}/
+KairosChain_mcp_server/templates/knowledge/{skillset_name}_jp/
+```
+
+### 2. Regenerate README
+
+```bash
+ruby scripts/build_readme.rb          # or: rake build_readme
+ruby scripts/build_readme.rb --check  # verify up-to-date
+```
+
+This reads all L1 knowledge files with `readme_order`/`readme_lang` frontmatter,
+combines them with header/footer templates, and generates `README.md` + `README_jp.md`
+at the project root.
+
+### 3. Version and Changelog
+
+1. Bump version in `lib/kairos_mcp/version.rb`
+2. Add entry to `CHANGELOG.md` (follow existing format)
+3. Commit all changes
+4. Tag: `git tag v{VERSION}`
+
+### 4. Gem Build and Publish
+
+```bash
+cd KairosChain_mcp_server
+gem build kairos-chain.gemspec
+gem install kairos-chain-{VERSION}.gem   # local test
+gem push kairos-chain-{VERSION}.gem      # publish (after testing)
+```
+
+This checklist should be proposed automatically by the AI assistant in
+`self_developer` mode when a SkillSet implementation is complete and tested.
 
 ## What This Is Not
 

@@ -84,6 +84,18 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
   - [Record a Skill Transition](#record-a-skill-transition)
   - [P2P SkillSet Exchange](#p2p-skillset-exchange)
 - [Self-Evolution Workflow](#self-evolution-workflow)
+- [Synoptis: Mutual Attestation Protocol (v2.7.0)](#synoptis-mutual-attestation-protocol-v270)
+  - [What is Synoptis?](#what-is-synoptis)
+  - [Architecture](#architecture)
+  - [Quick Start](#quick-start)
+  - [MCP Tools](#mcp-tools)
+  - [MMP Integration](#mmp-integration)
+  - [Trust Scoring](#trust-scoring)
+  - [Registry and Constitutive Recording](#registry-and-constitutive-recording)
+  - [ProofEnvelope Structure](#proofenvelope-structure)
+  - [Challenge Workflow](#challenge-workflow)
+  - [Transport Layer](#transport-layer)
+  - [Dependencies](#dependencies)
 - [Pure Skills Design](#pure-skills-design)
   - [skills.md vs skills.rb](#skillsmd-vs-skillsrb)
   - [Example Skill Definition](#example-skill-definition)
@@ -131,6 +143,11 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
 - [Philosophical Grounding](#philosophical-grounding)
 - [Instruction Mode: `self_developer`](#instruction-mode-self_developer)
 - [Future: Collaborative Self-Development](#future-collaborative-self-development)
+- [SkillSet Release Checklist](#skillset-release-checklist)
+  - [1. L1 Knowledge for README](#1-l1-knowledge-for-readme)
+  - [2. Regenerate README](#2-regenerate-readme)
+  - [3. Version and Changelog](#3-version-and-changelog)
+  - [4. Gem Build and Publish](#4-gem-build-and-publish)
 - [What This Is Not](#what-this-is-not)
 - [FAQ](#faq)
   - [Q: Can LLMs automatically modify L1/L2?](#q-can-llms-automatically-modify-l1l2)
@@ -2291,6 +2308,156 @@ KairosChain supports **Safe Self-Evolution**:
 
 ---
 
+## Synoptis: Mutual Attestation Protocol (v2.7.0)
+
+### What is Synoptis?
+
+Synoptis is an opt-in SkillSet for cross-agent trust verification through cryptographically signed attestation proofs. It enables agents to attest to facts about any subject (knowledge entries, skill hashes, chain blocks, pipeline outputs, etc.), and provides mechanisms to verify, revoke, and challenge those attestations.
+
+Synoptis is implemented entirely as a SkillSet, preserving KairosChain's principle that new capabilities are expressed as SkillSets rather than core modifications.
+
+### Architecture
+
+```
+KairosChain (MCP Server)
+├── [core] L0/L1/L2 + private blockchain
+├── [SkillSet: mmp] P2P direct mode, /meeting/v1/*
+├── [SkillSet: hestia] Meeting Place + trust anchor
+└── [SkillSet: synoptis] Mutual attestation protocol
+      ├── ProofEnvelope       ← Signed attestation data structure
+      ├── Verifier            ← Structural + cryptographic verification
+      ├── AttestationEngine   ← Attestation lifecycle (create, verify, list)
+      ├── RevocationManager   ← Revocation with authorization checks
+      ├── ChallengeManager    ← Challenge/response lifecycle
+      ├── TrustScorer         ← Weighted trust score calculation
+      ├── Registry::FileRegistry ← Append-only JSONL with hash-chain integrity
+      ├── Transport            ← MMP / Hestia / Local transport abstraction
+      └── tools/               ← 7 MCP tools
+```
+
+### Quick Start
+
+#### 1. Install the synoptis SkillSet
+
+```bash
+# Synoptis depends on MMP. Install both:
+kairos-chain skillset install templates/skillsets/mmp
+kairos-chain skillset install templates/skillsets/synoptis
+```
+
+#### 2. Issue an attestation
+
+In Claude Code / Cursor:
+
+```
+"Attest that knowledge/my_skill has been integrity_verified"
+```
+
+This calls `attestation_issue(subject_ref: "knowledge/my_skill", claim: "integrity_verified")`.
+
+#### 3. Verify and query trust
+
+```
+"What is the trust score for knowledge/my_skill?"
+```
+
+This calls `trust_query(subject_ref: "knowledge/my_skill")`.
+
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `attestation_issue` | Issue a signed attestation proof for a subject |
+| `attestation_verify` | Verify proof validity (structure, signature, expiry, revocation) |
+| `attestation_revoke` | Revoke an attestation (original attester or admin only) |
+| `attestation_list` | List attestations with optional filters (subject_ref, attester_id) |
+| `trust_query` | Calculate trust score based on attestation history |
+| `challenge_create` | Challenge an existing attestation (validity, evidence_request, re_verification) |
+| `challenge_respond` | Respond to a challenge with additional evidence |
+
+### MMP Integration
+
+Synoptis registers 5 MMP actions via `MMP::Protocol.register_handler`, enabling P2P attestation exchange:
+
+| MMP Action | Description |
+|------------|-------------|
+| `attestation_request` | Request an attestation from a peer |
+| `attestation_response` | Respond with a signed ProofEnvelope |
+| `attestation_revoke` | Broadcast a revocation |
+| `challenge_create` | Send a challenge to the original attester |
+| `challenge_respond` | Respond to a challenge over MMP |
+
+All P2P messages use Bearer token authentication via `MMP::PeerManager`. The authenticated peer ID is injected by `MeetingRouter` as `_authenticated_peer_id`.
+
+### Trust Scoring
+
+Trust scores are calculated as a weighted composite:
+
+| Factor | Weight | Description |
+|--------|--------|-------------|
+| Quality | 0.30 | Ratio of valid (non-revoked, non-expired) attestations |
+| Freshness | 0.25 | Recency of latest attestation (exponential decay, 24h half-life) |
+| Diversity | 0.25 | Number of unique attesters (capped at 5) |
+| Velocity | 0.10 | Attestation rate in the last 7 days |
+| Revocation penalty | −0.10 | Penalty for revoked attestations |
+
+### Registry and Constitutive Recording
+
+All attestation data is stored in append-only JSONL files with hash-chain linking (`_prev_entry_hash`). This implements constitutive recording (Proposition 5): each record irreversibly extends the system's history.
+
+Registry types:
+- `proofs.jsonl` — Attestation proof envelopes
+- `revocations.jsonl` — Revocation records
+- `challenges.jsonl` — Challenge and response records
+
+Use `trust_query` to verify registry integrity — it includes a `registry_integrity.valid` field in its response.
+
+### ProofEnvelope Structure
+
+```json
+{
+  "proof_id": "uuid",
+  "attester_id": "agent_instance_id",
+  "subject_ref": "knowledge/my_skill",
+  "claim": "integrity_verified",
+  "evidence": "manual review of hash chain",
+  "merkle_root": "sha256_of_content",
+  "content_hash": "sha256_of_canonical_json",
+  "signature": "rsa_sha256_signature",
+  "timestamp": "2026-03-06T12:00:00Z",
+  "ttl": 86400,
+  "version": "1.0.0"
+}
+```
+
+### Challenge Workflow
+
+1. Any agent can call `challenge_create(proof_id, challenge_type, details)` to challenge an attestation
+2. The original attester receives the challenge (via MMP or local notification)
+3. The attester calls `challenge_respond(challenge_id, response, evidence)` with additional evidence
+4. Challenge types: `validity` (proof may be incorrect), `evidence_request` (more evidence needed), `re_verification` (conditions may have changed)
+
+### Transport Layer
+
+Synoptis supports multiple transport mechanisms:
+
+| Transport | Backend | Use Case |
+|-----------|---------|----------|
+| MMP | `MMP::PeerManager` | P2P direct attestation exchange |
+| Hestia | `Hestia::PlaceRouter` | Via Meeting Place (future) |
+| Local | Direct registry access | Single-instance and Multiuser mode |
+
+Transport selection is automatic based on available SkillSets.
+
+### Dependencies
+
+- **Required**: MMP SkillSet (>= 1.0.0)
+- **Optional**: Hestia SkillSet (for Meeting Place transport)
+
+For the full protocol specification, install the synoptis SkillSet and refer to its bundled knowledge (`synoptis_protocol`).
+
+---
+
 ## Pure Skills Design
 
 ### skills.md vs skills.rb
@@ -3172,6 +3339,59 @@ evolution is planned:
 
 This follows the standard promotion pattern: start in the dev repo (`knowledge/`),
 prove value through use, then promote to `templates/` for all users.
+
+## SkillSet Release Checklist
+
+When a new SkillSet is implemented and tested, follow this checklist to release:
+
+### 1. L1 Knowledge for README
+
+Create L1 knowledge files (EN + JP) with `readme_order` and `readme_lang`
+frontmatter so the SkillSet appears in the auto-generated README:
+
+```
+KairosChain_mcp_server/knowledge/{skillset_name}/
+  {skillset_name}.md          # readme_order: N, readme_lang: en
+KairosChain_mcp_server/knowledge/{skillset_name}_jp/
+  {skillset_name}_jp.md       # readme_order: N, readme_lang: jp
+```
+
+Copy to templates for distribution:
+
+```
+KairosChain_mcp_server/templates/knowledge/{skillset_name}/
+KairosChain_mcp_server/templates/knowledge/{skillset_name}_jp/
+```
+
+### 2. Regenerate README
+
+```bash
+ruby scripts/build_readme.rb          # or: rake build_readme
+ruby scripts/build_readme.rb --check  # verify up-to-date
+```
+
+This reads all L1 knowledge files with `readme_order`/`readme_lang` frontmatter,
+combines them with header/footer templates, and generates `README.md` + `README_jp.md`
+at the project root.
+
+### 3. Version and Changelog
+
+1. Bump version in `lib/kairos_mcp/version.rb`
+2. Add entry to `CHANGELOG.md` (follow existing format)
+3. Commit all changes
+4. Tag: `git tag v{VERSION}`
+
+### 4. Gem Build and Publish
+
+```bash
+cd KairosChain_mcp_server
+gem build kairos-chain.gemspec
+gem install kairos-chain-{VERSION}.gem   # local test
+gem push kairos-chain-{VERSION}.gem      # publish (after testing)
+```
+
+This checklist should be proposed automatically by the AI assistant in
+`self_developer` mode when a SkillSet implementation is complete and tested.
 
 ## What This Is Not
 
@@ -4735,7 +4955,7 @@ See [LICENSE](./LICENSE) file.
 
 ---
 
-**Version**: 2.6.0
-**Last Updated**: 2026-03-05
+**Version**: 2.7.0
+**Last Updated**: 2026-03-06
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*

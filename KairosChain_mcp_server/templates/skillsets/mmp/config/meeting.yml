@@ -1,7 +1,7 @@
 # MMP SkillSet Configuration
 # Model Meeting Protocol for P2P agent communication
 
-enabled: false
+enabled: true
 
 identity:
   name: "KairosChain Instance"

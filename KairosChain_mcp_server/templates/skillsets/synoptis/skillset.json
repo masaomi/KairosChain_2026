@@ -1,0 +1,22 @@
+{
+  "name": "synoptis",
+  "version": "0.1.0",
+  "description": "Mutual Attestation Protocol for cross-agent trust verification and audit trails",
+  "author": "Dr. Masa Hatakeyama",
+  "layer": "L1",
+  "depends_on": [
+    {"name": "mmp", "version": ">= 1.0.0"}
+  ],
+  "provides": ["mutual_attestation", "trust_scoring", "audit_trail", "challenge_protocol"],
+  "tool_classes": [
+    "KairosMcp::SkillSets::Synoptis::Tools::AttestationIssue",
+    "KairosMcp::SkillSets::Synoptis::Tools::AttestationVerify",
+    "KairosMcp::SkillSets::Synoptis::Tools::AttestationRevoke",
+    "KairosMcp::SkillSets::Synoptis::Tools::AttestationList",
+    "KairosMcp::SkillSets::Synoptis::Tools::TrustQuery",
+    "KairosMcp::SkillSets::Synoptis::Tools::ChallengeCreate",
+    "KairosMcp::SkillSets::Synoptis::Tools::ChallengeRespond"
+  ],
+  "config_files": ["config/synoptis.yml"],
+  "knowledge_dirs": ["knowledge/synoptis_protocol"]
+}

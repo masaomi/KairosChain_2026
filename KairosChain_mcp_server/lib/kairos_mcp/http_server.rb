@@ -54,6 +54,17 @@ module KairosMcp
       @admin_router = Admin::Router.new(token_store: @token_store, authenticator: @authenticator)
       @meeting_router = MeetingRouter.new
       @place_router = nil  # Initialized lazily via meeting_place_start tool
+
+      eager_load_skillsets
+    end
+
+    # Load SkillSets at startup so /meeting/* endpoints work immediately.
+    # Without this, MMP module is not defined until the first MCP request.
+    def eager_load_skillsets
+      require_relative 'skillset_manager'
+      SkillSetManager.new.enabled_skillsets.each(&:load!)
+    rescue StandardError => e
+      $stderr.puts "[HttpServer] SkillSet eager load: #{e.message}"
     end
 
     # Start the HTTP server with Puma

@@ -1,7 +1,7 @@
 ---
 name: kairoschain_self_development_jp
 description: 自己言及的開発ワークフロー：KairosChain自身をKairosChainで開発する
-version: "1.1"
+version: "1.2"
 layer: L1
 tags: [workflow, self-referentiality, development, dogfooding, meta, contributing]
 readme_order: 5.5
@@ -128,6 +128,59 @@ instructions_update(command: "set_mode", mode_name: "developer")
 
 これは標準的な昇格パターンに従います：開発リポジトリ（`knowledge/`）から始め、
 使用を通じて価値を証明し、`templates/` に昇格して全ユーザーに配布します。
+
+## SkillSet リリースチェックリスト
+
+新しい SkillSet の実装とテストが完了したら、以下のチェックリストに従ってリリースします：
+
+### 1. README 用 L1 Knowledge の作成
+
+`readme_order` と `readme_lang` フロントマターを持つ L1 knowledge ファイル（EN + JP）を
+作成し、自動生成される README に SkillSet が含まれるようにします：
+
+```
+KairosChain_mcp_server/knowledge/{skillset_name}/
+  {skillset_name}.md          # readme_order: N, readme_lang: en
+KairosChain_mcp_server/knowledge/{skillset_name}_jp/
+  {skillset_name}_jp.md       # readme_order: N, readme_lang: jp
+```
+
+配布用にテンプレートにもコピー：
+
+```
+KairosChain_mcp_server/templates/knowledge/{skillset_name}/
+KairosChain_mcp_server/templates/knowledge/{skillset_name}_jp/
+```
+
+### 2. README の再生成
+
+```bash
+ruby scripts/build_readme.rb          # または: rake build_readme
+ruby scripts/build_readme.rb --check  # 最新状態の確認
+```
+
+`readme_order`/`readme_lang` フロントマターを持つ全 L1 knowledge ファイルを読み取り、
+ヘッダー/フッターテンプレートと組み合わせて、プロジェクトルートに
+`README.md` + `README_jp.md` を生成します。
+
+### 3. バージョンとチェンジログ
+
+1. `lib/kairos_mcp/version.rb` のバージョンを更新
+2. `CHANGELOG.md` にエントリを追加（既存のフォーマットに従う）
+3. 全変更をコミット
+4. タグ付け：`git tag v{VERSION}`
+
+### 4. Gem のビルドと公開
+
+```bash
+cd KairosChain_mcp_server
+gem build kairos-chain.gemspec
+gem install kairos-chain-{VERSION}.gem   # ローカルテスト
+gem push kairos-chain-{VERSION}.gem      # 公開（テスト後）
+```
+
+このチェックリストは `self_developer` モードの AI アシスタントが
+SkillSet の実装とテスト完了時に自動的に提案すべきものです。
 
 ## これが意味しないもの
 
