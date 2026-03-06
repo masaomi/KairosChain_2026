@@ -4,6 +4,40 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.7.0] - 2026-03-06
+
+### Added
+
+- **Synoptis Mutual Attestation SkillSet**: New opt-in SkillSet for cross-agent trust verification through cryptographically signed proof envelopes
+  - `ProofEnvelope`: Signed attestation data structure with Merkle root and content hash
+  - `Verifier`: Structural + cryptographic verification with mandatory signature checks
+  - `AttestationEngine`: Attestation lifecycle (create, verify, list) with re-issuance prevention
+  - `RevocationManager`: Authorization-checked revocation (original attester or admin only)
+  - `ChallengeManager`: Challenge/response lifecycle (validity, evidence_request, re_verification)
+  - `TrustScorer`: Weighted composite trust score (quality, freshness, diversity, velocity, revocation penalty)
+  - `Registry::FileRegistry`: Append-only JSONL storage with hash-chain integrity (`_prev_entry_hash`) implementing constitutive recording (Proposition 5)
+  - `Transport`: Abstraction layer for MMP, Hestia, and Local transport mechanisms
+  - 7 MCP tools: `attestation_issue`, `attestation_verify`, `attestation_revoke`, `attestation_list`, `trust_query`, `challenge_create`, `challenge_respond`
+  - 88 unit tests
+
+- **MMP Handler Extension Mechanism**: `MMP::Protocol.register_handler` allows SkillSets to register custom MMP actions without modifying core protocol code. Thread-safe with Mutex, built-in action override prevention.
+
+- **MMP Bearer Token Authentication**: `MMP::PeerManager` now includes `session_token` in Peer struct, extracted during `introduce_to` handshake and sent as `Authorization: Bearer` header on all subsequent messages.
+
+- **MeetingRouter Authenticated Peer Injection**: `MeetingRouter#handle_message` injects `_authenticated_peer_id` into message body, enabling receiving handlers to verify sender identity.
+
+- **SkillSet Eager Loading in HTTP Mode**: `HttpServer` now calls `eager_load_skillsets` during initialization, ensuring SkillSet MMP handlers are registered before the first HTTP request.
+
+- **L1 Knowledge**: Synoptis attestation knowledge (EN/JP) with `readme_order: 4.7` for auto-generated README inclusion.
+
+- **Self-Development Workflow v1.2**: Added SkillSet Release Checklist to `kairoschain_self_development` knowledge (EN/JP) — covers L1 knowledge creation for README, `rake build_readme`, version/changelog updates, and gem build/publish.
+
+### Changed
+
+- **MMP SkillSet**: `meeting.yml` default changed from `enabled: false` to `enabled: true`
+
+---
+
 ## [2.6.0] - 2026-03-05
 
 ### Added
@@ -315,6 +349,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Skill promotion with Persona Assembly
 - Tool guide and metadata system
 
+[2.7.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.6.0...v2.7.0
 [2.6.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.3.1...v2.4.0
