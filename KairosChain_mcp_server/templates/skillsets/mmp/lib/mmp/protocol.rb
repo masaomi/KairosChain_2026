@@ -16,6 +16,49 @@ module MMP
       propose_extension evaluate_extension adopt_extension share_extension
     ].freeze
 
+    # Generic handler extension mechanism for other SkillSets.
+    # Completes the ProtocolLoader design: action names + handlers in one step.
+    class << self
+      def handler_mutex
+        @handler_mutex ||= Mutex.new
+      end
+
+      def register_handler(action, &block)
+        handler_mutex.synchronize do
+          action_str = action.to_s
+          raise ArgumentError, "Cannot override built-in action: #{action_str}" if ACTIONS.include?(action_str)
+
+          @extended_handlers ||= {}
+          @extended_actions ||= []
+          @extended_handlers[action_str] = block
+          @extended_actions << action_str unless @extended_actions.include?(action_str)
+        end
+      end
+
+      def unregister_handler(action)
+        handler_mutex.synchronize do
+          action_str = action.to_s
+          @extended_handlers&.delete(action_str)
+          @extended_actions&.delete(action_str)
+        end
+      end
+
+      def extended_handler(action)
+        handler_mutex.synchronize { @extended_handlers&.dig(action.to_s) }
+      end
+
+      def extended_actions
+        handler_mutex.synchronize { (@extended_actions || []).dup }
+      end
+
+      def clear_extended_handlers!
+        handler_mutex.synchronize do
+          @extended_handlers = {}
+          @extended_actions = []
+        end
+      end
+    end
+
     attr_reader :protocol_loader, :supported_extensions, :evolution, :compatibility
 
     Message = Struct.new(:id, :action, :from, :to, :timestamp, :payload, :in_reply_to, :protocol_version, keyword_init: true) do
@@ -56,11 +99,13 @@ module MMP
     end
 
     def supported_actions
-      if @protocol_loader&.available_actions&.any?
-        @protocol_loader.available_actions
-      else
-        ACTIONS
-      end
+      base = if @protocol_loader&.available_actions&.any?
+               @protocol_loader.available_actions
+             else
+               ACTIONS
+             end
+      ext = self.class.extended_actions
+      ext.empty? ? base : (base + ext).uniq
     end
 
     def action_supported?(action) = supported_actions.include?(action)
@@ -138,9 +183,19 @@ module MMP
       when 'skill_content' then process_skill_content(msg_data)
       when 'reflect' then process_reflect(msg_data)
       else
-        { status: 'action_not_supported', action: action,
-          message: "Action '#{action}' is registered but has no handler. Available handled actions: #{ACTIONS.join(', ')}",
-          available_actions: supported_actions }
+        handler = self.class.extended_handler(action)
+        if handler
+          begin
+            handler.call(msg_data, self)
+          rescue StandardError => e
+            warn "[MMP::Protocol] Handler error for '#{action}': #{e.message}"
+            { status: 'error', action: action, message: 'Handler execution failed' }
+          end
+        else
+          { status: 'action_not_supported', action: action,
+            message: "Action '#{action}' is recognized but has no handler.",
+            available_actions: supported_actions }
+        end
       end
     end
 

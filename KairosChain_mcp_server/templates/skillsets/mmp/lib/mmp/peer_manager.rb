@@ -13,6 +13,7 @@ module MMP
 
     Peer = Struct.new(:id, :name, :url, :status, :last_seen, :introduction,
                       :extensions, :added_at, :public_key, :verified,
+                      :session_token,
                       keyword_init: true)
 
     def initialize(identity:, config: {}, data_dir: nil)
@@ -110,6 +111,7 @@ module MMP
       response = http_post("#{peer.url}/meeting/v1/introduce", my_intro)
       if response && response[:status] == 'received'
         peer.introduction = response[:peer_identity] if response[:peer_identity]
+        peer.session_token = response[:session_token] if response[:session_token]
         peer.last_seen = Time.now.utc
         save_peers
       end
@@ -119,7 +121,8 @@ module MMP
     def send_message(peer_id, message)
       peer = @peers[peer_id]
       return nil unless peer
-      response = http_post("#{peer.url}/meeting/v1/message", message)
+      auth = peer.session_token ? { 'Authorization' => "Bearer #{peer.session_token}" } : {}
+      response = http_post("#{peer.url}/meeting/v1/message", message, headers: auth)
       peer.last_seen = Time.now.utc if response
       response
     end
@@ -224,7 +227,7 @@ module MMP
       nil
     end
 
-    def http_post(url, data)
+    def http_post(url, data, headers: {})
       uri = URI.parse(url)
       http = Net::HTTP.new(uri.host, uri.port)
       http.open_timeout = @timeout
@@ -232,6 +235,7 @@ module MMP
       request = Net::HTTP::Post.new(uri.request_uri)
       request['Content-Type'] = 'application/json'
       request['Accept'] = 'application/json'
+      headers.each { |k, v| request[k] = v }
       request.body = JSON.generate(data)
       response = http.request(request)
       return nil unless response.is_a?(Net::HTTPSuccess)

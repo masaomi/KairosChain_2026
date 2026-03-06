@@ -206,8 +206,10 @@ module KairosMcp
     end
 
     # POST /meeting/v1/message - Generic MMP message handler
+    # Injects authenticated peer_id to prevent from: spoofing in extended handlers.
     def handle_message(env)
       body = parse_body(env)
+      body['_authenticated_peer_id'] = env['meeting.authenticated_peer_id']
       result = protocol.process_message(body)
       json_response(200, result)
     end
@@ -453,6 +455,7 @@ module KairosMcp
         })
       end
 
+      env['meeting.authenticated_peer_id'] = peer_id
       nil # Authentication passed
     end
 

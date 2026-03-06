@@ -1,0 +1,31 @@
+enabled: true
+
+attestation:
+  default_ttl: 86400          # 24 hours
+  max_evidence_size: 65536    # 64KB
+  require_signature: true
+
+trust:
+  score_weights:
+    quality: 0.3
+    freshness: 0.25
+    diversity: 0.25
+    velocity: 0.1
+    revocation_penalty: 0.1
+  min_trust_score: 0.0
+  max_trust_score: 1.0
+
+challenge:
+  response_timeout: 3600      # 1 hour
+  max_active_per_subject: 5
+
+registry:
+  backend: file               # file | sqlite (future)
+  data_dir: synoptis_data
+
+transport:
+  preferred: mmp              # mmp | hestia | local
+  fallback_order:
+    - mmp
+    - hestia
+    - local
