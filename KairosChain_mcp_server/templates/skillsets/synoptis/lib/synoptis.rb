@@ -87,4 +87,7 @@ module Synoptis
       end
     end
   end
+
+  # Auto-register MMP handlers when this file is required during SkillSet loading.
+  load! unless loaded?
 end
