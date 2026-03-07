@@ -214,6 +214,25 @@ MMP is the reference SkillSet implementation that enables P2P communication betw
 
 For detailed usage, see the [MMP P2P User Guide](docs/KairosChain_MMP_P2P_UserGuide_20260220_en.md).
 
+### Multiuser SkillSet (Multi-Tenant User Management)
+
+Multiuser extends KairosChain with PostgreSQL-backed multi-tenant user management via 6 generic core hooks (Option C architecture).
+
+**Key classes:**
+- `Multiuser::PgConnectionPool` — Mutex-based connection pool with tenant schema switching
+- `Multiuser::PgBackend` — `Storage::Backend` subclass for PostgreSQL
+- `Multiuser::TenantManager` — Schema creation, SQL migrations, tenant lifecycle
+- `Multiuser::UserRegistry` — User accounts with auto-tenant provisioning
+- `Multiuser::TenantTokenStore` — PostgreSQL-backed token store (same API as file-based)
+- `Multiuser::AuthorizationGate` — Default-deny RBAC gate for `ToolRegistry`
+- `Multiuser::RequestFilter` — Tenant resolution from Bearer token context
+
+**Design principles:**
+- Option C (generic hooks): 6 minimal extension points in core, usable by any SkillSet
+- Graceful degradation: Works without PostgreSQL — tools register and return diagnostics
+- Backward-compatible: Without Multiuser installed, KairosChain is unchanged
+- Schema isolation: `public` (shared) + `tenant_{id}` (per-user) PostgreSQL schemas
+
 ## Directory Structure
 
 ### Gem Structure (installed via `gem install kairos-chain`)

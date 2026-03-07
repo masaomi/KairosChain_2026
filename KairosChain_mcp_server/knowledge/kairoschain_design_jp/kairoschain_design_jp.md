@@ -214,6 +214,25 @@ MMPはKairosChainインスタンス間のP2P通信を可能にするリファレ
 
 詳細な使い方は[MMP P2Pユーザーガイド](docs/KairosChain_MMP_P2P_UserGuide_20260220_jp.md)を参照してください。
 
+### Multiuser SkillSet（マルチテナントユーザー管理）
+
+Multiuser は 6 つの汎用コアフック（Option C アーキテクチャ）を通じて、PostgreSQL バックエンドのマルチテナントユーザー管理で KairosChain を拡張します。
+
+**主要クラス：**
+- `Multiuser::PgConnectionPool` — Mutex ベースのコネクションプール（テナントスキーマ切り替え付き）
+- `Multiuser::PgBackend` — PostgreSQL 用 `Storage::Backend` サブクラス
+- `Multiuser::TenantManager` — スキーマ作成、SQL マイグレーション、テナントライフサイクル
+- `Multiuser::UserRegistry` — ユーザーアカウント（テナント自動プロビジョニング）
+- `Multiuser::TenantTokenStore` — PostgreSQL バックエンドのトークンストア（ファイルベースと同一 API）
+- `Multiuser::AuthorizationGate` — `ToolRegistry` 用デフォルト拒否 RBAC ゲート
+- `Multiuser::RequestFilter` — Bearer トークンコンテキストからのテナント解決
+
+**設計原則：**
+- Option C（汎用フック）：コアに 6 つの最小限の拡張ポイント（任意の SkillSet が利用可能）
+- グレースフルデグラデーション：PostgreSQL 無しでも動作（ツールは登録され、診断情報を返す）
+- 後方互換性：Multiuser 未インストール時、KairosChain は変更なし
+- スキーマ分離：`public`（共有）+ `tenant_{id}`（ユーザーごと）PostgreSQL スキーマ
+
 ## ディレクトリ構造
 
 ### Gem構造（`gem install kairos-chain` でインストール）
