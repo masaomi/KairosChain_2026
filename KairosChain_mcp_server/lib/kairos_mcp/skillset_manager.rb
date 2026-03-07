@@ -114,7 +114,7 @@ module KairosMcp
       templates_dir = File.join(KairosMcp.gem_root, 'templates', 'skillsets')
       return results unless File.directory?(templates_dir)
 
-      installed_skillsets.each do |installed|
+      all_skillsets.each do |installed|
         template_path = File.join(templates_dir, installed.name)
         next unless File.directory?(template_path)
 
