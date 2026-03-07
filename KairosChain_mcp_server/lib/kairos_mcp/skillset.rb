@@ -200,6 +200,9 @@ module KairosMcp
         return false
       end
       true
+    rescue ArgumentError
+      warn "[SkillSet] '#{@name}' has invalid min_core_version: #{min_version} — ignoring"
+      true
     end
 
     private

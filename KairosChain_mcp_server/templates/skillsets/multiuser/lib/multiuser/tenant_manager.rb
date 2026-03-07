@@ -160,6 +160,14 @@ module Multiuser
         ensure
           conn&.exec("RESET search_path") rescue nil if conn
         end
+
+        Multiuser.record_system_event(
+          action: 'tenant_migrated',
+          actor: 'system',
+          target: schema,
+          details: { version: version }
+        )
+
         applied << version
       end
       applied

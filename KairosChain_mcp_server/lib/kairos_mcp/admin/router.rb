@@ -3,6 +3,7 @@
 require 'json'
 require 'uri'
 require_relative 'helpers'
+require_relative '../protocol'
 
 module KairosMcp
   module Admin
@@ -75,7 +76,7 @@ module KairosMcp
           return redirect_with_flash('/admin/login', 'Admin access requires owner role.')
         end
 
-        @current_user = user_info
+        @current_user = Protocol.apply_all_filters(user_info)
         @csrf_token = session[:csrf_token]
 
         # CSRF check for POST requests
@@ -83,12 +84,15 @@ module KairosMcp
           return html_response(403, render('layout', content: '<p>CSRF validation failed. Please try again.</p>'))
         end
 
-        # Authenticated routes
+        # Authenticated routes — set thread-scoped user context for PgBackend
+        Thread.current[:kairos_user_context] = @current_user
         route(method, path, env)
       rescue StandardError => e
         $stderr.puts "[ADMIN ERROR] #{e.message}"
         $stderr.puts e.backtrace.first(5).join("\n")
         html_response(500, render('_error', layout: true, error: e.message))
+      ensure
+        Thread.current[:kairos_user_context] = nil
       end
 
       private

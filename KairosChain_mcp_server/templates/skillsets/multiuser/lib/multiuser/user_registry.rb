@@ -15,7 +15,7 @@ module Multiuser
       validate_role!(role)
       validate_username!(username)
 
-      schema = tenant_manager.create_tenant(username)
+      schema = tenant_manager.create_tenant(username, actor: actor)
 
       pool.with_connection do |conn|
         conn.exec_params(
@@ -82,7 +82,7 @@ module Multiuser
         conn.exec_params("DELETE FROM users WHERE username = $1", [username])
       end
 
-      tenant_manager.drop_tenant(schema) if schema && tenant_manager.tenant_exists?(schema)
+      tenant_manager.drop_tenant(schema, actor: actor) if schema && tenant_manager.tenant_exists?(schema)
 
       Multiuser.record_system_event(
         action: 'user_deleted',

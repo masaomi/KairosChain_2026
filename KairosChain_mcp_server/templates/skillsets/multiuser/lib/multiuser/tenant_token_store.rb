@@ -110,17 +110,27 @@ module Multiuser
           [user]
         )
 
-        token = SecureRandom.hex(32)
+        token = "#{TOKEN_PREFIX}#{SecureRandom.hex(32)}"
         token_hash = Digest::SHA256.hexdigest(token)
+        now = Time.now
 
         conn.exec_params(
-          "INSERT INTO tokens (token_hash, user_id, role, status, issued_by, expires_at) " \
-          "VALUES ($1, (SELECT id FROM users WHERE username = $2), $3, 'active', $4, $5)",
-          [token_hash, user, role, issued_by, expires_at]
+          "INSERT INTO tokens (token_hash, user_id, role, status, issued_by, issued_at, expires_at) " \
+          "VALUES ($1, (SELECT id FROM users WHERE username = $2), $3, 'active', $4, $5, $6)",
+          [token_hash, user, role, issued_by, now.iso8601, expires_at]
         )
 
         conn.exec("COMMIT")
-        { 'raw_token' => token, 'user' => user, 'role' => role }
+        {
+          'raw_token' => token,
+          'token_hash' => token_hash,
+          'user' => user,
+          'role' => role,
+          'issued_at' => now.iso8601,
+          'expires_at' => expires_at,
+          'issued_by' => issued_by,
+          'status' => 'active'
+        }
       rescue => e
         conn&.exec("ROLLBACK") rescue nil
         raise

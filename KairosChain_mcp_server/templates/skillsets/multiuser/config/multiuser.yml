@@ -12,6 +12,5 @@ postgresql:
   pool_size: 5
   connect_timeout: 5
 
-# Token backend: 'file' (default) or 'postgresql'
-# When 'postgresql', tokens are stored in public.tokens table
-token_backend: file
+# Token backend is configured in skills/config.yml under http.token_backend
+# ('file' or 'postgresql'). Do not duplicate that setting here.
