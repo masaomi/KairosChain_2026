@@ -113,6 +113,25 @@ module Multiuser
       @loaded = false
     end
 
+    # Record a system-level event to the blockchain.
+    # Shared by UserRegistry and TenantManager.
+    def record_system_event(action:, actor: 'system', target:, details: {})
+      require 'kairos_mcp/kairos_chain/chain'
+
+      chain = KairosMcp::KairosChain::Chain.new
+      chain.add_block([{
+        type: 'multiuser_system_event',
+        layer: 'system',
+        action: action,
+        actor: actor,
+        target: target,
+        details: details,
+        timestamp: Time.now.iso8601
+      }.to_json])
+    rescue StandardError => e
+      $stderr.puts "[Multiuser] Failed to record system event: #{e.message}"
+    end
+
     private
 
     def load_config

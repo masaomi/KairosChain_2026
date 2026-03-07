@@ -506,7 +506,7 @@ module KairosMcp
 
       def fetch_state_status
         require_relative '../state_commit/commit_service'
-        service = StateCommit::CommitService.new
+        service = StateCommit::CommitService.new(user_context: @current_user)
         service.status
       rescue StandardError
         { enabled: false, has_changes: false,

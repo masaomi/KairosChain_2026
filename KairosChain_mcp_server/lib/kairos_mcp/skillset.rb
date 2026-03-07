@@ -88,6 +88,7 @@ module KairosMcp
     # Load the SkillSet code (require lib/ and tools/)
     def load!
       return if @loaded
+      return false unless version_compatible?
 
       lib_dir = File.join(@path, 'lib')
       $LOAD_PATH.unshift(lib_dir) if File.directory?(lib_dir) && !$LOAD_PATH.include?(lib_dir)
@@ -186,6 +187,19 @@ module KairosMcp
       REQUIRED_FIELDS.all? { |f| @metadata[f] && !@metadata[f].to_s.strip.empty? }
     rescue StandardError
       false
+    end
+
+    # Check if the SkillSet is compatible with the current core version
+    def version_compatible?
+      min_version = @metadata['min_core_version']
+      return true unless min_version
+
+      current = KairosMcp::VERSION
+      if Gem::Version.new(current) < Gem::Version.new(min_version)
+        warn "[SkillSet] '#{@name}' requires core >= #{min_version}, current: #{current} — skipping"
+        return false
+      end
+      true
     end
 
     private

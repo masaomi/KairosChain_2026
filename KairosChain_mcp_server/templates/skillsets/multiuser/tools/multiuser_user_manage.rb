@@ -44,6 +44,7 @@ module KairosMcp
         end
 
         command = arguments['command']
+        actor = @safety&.current_user&.dig(:user) || 'system'
         registry = Multiuser.user_registry
 
         result = case command
@@ -55,10 +56,15 @@ module KairosMcp
 
                    role = arguments['role'] || 'member'
                    display_name = arguments['display_name']
-                   user = registry.register(username, role: role, display_name: display_name)
+                   user = registry.register(username, role: role, display_name: display_name, actor: actor)
 
-                   token = Multiuser::TenantTokenStore.new({}).create(
-                     user: username, role: role, issued_by: @safety&.current_user&.dig(:user) || 'system'
+                   config = KairosMcp::SkillsConfig.load['http'] || {}
+                   store = KairosMcp::Auth::TokenStore.create(
+                     backend: config['token_backend'],
+                     store_path: config['token_store']
+                   )
+                   token = store.create(
+                     user: username, role: role, issued_by: actor
                    )
 
                    {
@@ -73,12 +79,12 @@ module KairosMcp
                  when 'delete'
                    username = arguments['username']
                    return format_result({ error: 'username is required' }) unless username
-                   registry.delete(username)
+                   registry.delete(username, actor: actor)
                  when 'update_role'
                    username = arguments['username']
                    role = arguments['role']
                    return format_result({ error: 'username and role are required' }) unless username && role
-                   registry.update_role(username, role)
+                   registry.update_role(username, role, actor: actor)
                  else
                    { error: "Unknown command: #{command}" }
                  end

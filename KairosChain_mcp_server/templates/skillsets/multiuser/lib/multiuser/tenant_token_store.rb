@@ -95,13 +95,13 @@ module Multiuser
         )
 
         role = old.ntuples > 0 ? old.first['role'] : 'member'
-        expires_in = nil
+        expires_at = nil
 
         if old.ntuples > 0 && old.first['expires_at']
           original_issued = Time.parse(old.first['issued_at'])
           original_expires = Time.parse(old.first['expires_at'])
           duration_seconds = (original_expires - original_issued).to_i
-          expires_in = "#{duration_seconds / 86400}d"
+          expires_at = (Time.now + duration_seconds).utc.strftime('%Y-%m-%d %H:%M:%S')
         end
 
         conn.exec_params(
@@ -110,9 +110,17 @@ module Multiuser
           [user]
         )
 
-        conn.exec("COMMIT")
+        token = SecureRandom.hex(32)
+        token_hash = Digest::SHA256.hexdigest(token)
 
-        create(user: user, role: role, issued_by: issued_by, expires_in: expires_in)
+        conn.exec_params(
+          "INSERT INTO tokens (token_hash, user_id, role, status, issued_by, expires_at) " \
+          "VALUES ($1, (SELECT id FROM users WHERE username = $2), $3, 'active', $4, $5)",
+          [token_hash, user, role, issued_by, expires_at]
+        )
+
+        conn.exec("COMMIT")
+        { 'raw_token' => token, 'user' => user, 'role' => role }
       rescue => e
         conn&.exec("ROLLBACK") rescue nil
         raise

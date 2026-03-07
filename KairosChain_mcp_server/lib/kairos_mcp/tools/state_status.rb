@@ -47,7 +47,7 @@ module KairosMcp
       end
 
       def call(_arguments)
-        service = KairosMcp::StateCommit::CommitService.new
+        service = KairosMcp::StateCommit::CommitService.new(user_context: @safety&.current_user)
         status = service.status
 
         format_status(status)

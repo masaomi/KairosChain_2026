@@ -11,7 +11,7 @@ module Multiuser
       @migrations_dir = File.join(File.dirname(__FILE__), '..', '..', 'migrations')
     end
 
-    def create_tenant(name)
+    def create_tenant(name, actor: 'system')
       schema = "tenant_#{SecureRandom.uuid.tr('-', '_')}"
 
       pool.with_connection do |conn|
@@ -20,16 +20,29 @@ module Multiuser
         migration_file = File.join(@migrations_dir, '002_tenant_template.sql')
         if File.exist?(migration_file)
           sql = File.read(migration_file)
-          conn.exec("SET search_path TO #{PG::Connection.quote_ident(schema)}")
+          conn.exec("BEGIN")
+          conn.exec("SET LOCAL search_path TO #{PG::Connection.quote_ident(schema)}")
           conn.exec(sql)
-          conn.exec("RESET search_path")
+          conn.exec("COMMIT")
 
           conn.exec_params(
             "INSERT INTO tenant_migrations (tenant_schema, version) VALUES ($1, $2)",
             [schema, '002_tenant_template']
           )
         end
+      rescue => e
+        conn&.exec("ROLLBACK") rescue nil
+        raise
+      ensure
+        conn&.exec("RESET search_path") rescue nil if conn
       end
+
+      Multiuser.record_system_event(
+        action: 'tenant_created',
+        actor: actor,
+        target: schema,
+        details: { display_name: name }
+      )
 
       schema
     end
@@ -54,7 +67,7 @@ module Multiuser
       end
     end
 
-    def drop_tenant(schema)
+    def drop_tenant(schema, actor: 'system')
       pool.validate_schema_name!(schema)
       pool.with_connection do |conn|
         conn.exec("DROP SCHEMA #{PG::Connection.quote_ident(schema)} CASCADE")
@@ -63,6 +76,13 @@ module Multiuser
           [schema]
         )
       end
+
+      Multiuser.record_system_event(
+        action: 'tenant_deleted',
+        actor: actor,
+        target: schema,
+        details: {}
+      )
     end
 
     # Run public schema migrations
@@ -125,14 +145,20 @@ module Multiuser
         next unless File.exist?(file)
 
         pool.with_connection do |conn|
-          conn.exec("SET search_path TO #{PG::Connection.quote_ident(schema)}")
+          conn.exec("BEGIN")
+          conn.exec("SET LOCAL search_path TO #{PG::Connection.quote_ident(schema)}")
           conn.exec(File.read(file))
-          conn.exec("RESET search_path")
+          conn.exec("COMMIT")
 
           conn.exec_params(
             "INSERT INTO tenant_migrations (tenant_schema, version) VALUES ($1, $2)",
             [schema, version]
           )
+        rescue => e
+          conn&.exec("ROLLBACK") rescue nil
+          raise
+        ensure
+          conn&.exec("RESET search_path") rescue nil if conn
         end
         applied << version
       end

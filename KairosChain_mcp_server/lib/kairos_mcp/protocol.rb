@@ -176,12 +176,15 @@ module KairosMcp
     def handle_tools_call(params)
       name = params['name']
       arguments = params['arguments'] || {}
-      
+
+      Thread.current[:kairos_user_context] = @user_context
       content = @tool_registry.call_tool(name, arguments)
-      
+
       {
         content: content
       }
+    ensure
+      Thread.current[:kairos_user_context] = nil
     end
 
     def format_response(id, result)

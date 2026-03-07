@@ -54,17 +54,20 @@ module KairosMcp
     # =========================================================================
 
     @path_resolvers = {}
+    @path_resolver_mutex = Mutex.new
 
     # Register a named path resolver for tenant-aware directory resolution.
     # Block receives (type, user_context) and returns a path or nil.
     def register_path_resolver(name, &block)
-      @path_resolvers ||= {}
-      @path_resolvers[name.to_sym] = block
+      @path_resolver_mutex.synchronize do
+        @path_resolvers[name.to_sym] = block
+      end
     end
 
     def unregister_path_resolver(name)
-      @path_resolvers ||= {}
-      @path_resolvers.delete(name.to_sym)
+      @path_resolver_mutex.synchronize do
+        @path_resolvers.delete(name.to_sym)
+      end
     end
 
     # =========================================================================
@@ -256,9 +259,10 @@ module KairosMcp
     private
 
     def resolve_path(type, user_context)
-      @path_resolvers ||= {}
-      return nil unless user_context && @path_resolvers.any?
-      @path_resolvers.each_value do |resolver|
+      return nil unless user_context
+      resolvers = @path_resolver_mutex.synchronize { @path_resolvers.values.dup }
+      return nil if resolvers.empty?
+      resolvers.each do |resolver|
         result = resolver.call(type, user_context)
         return result if result
       end

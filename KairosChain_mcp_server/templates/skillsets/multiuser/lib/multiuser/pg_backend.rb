@@ -13,12 +13,12 @@ module Multiuser
 
     def initialize(config = {})
       @pool = Multiuser.pool
-      @tenant_schema = Thread.current[:kairos_tenant_schema]
     end
 
-    # Resolve current tenant schema from thread-local or config
+    # Resolve current tenant schema from request-scoped user_context.
+    # Set by Protocol#handle_tools_call via Thread.current[:kairos_user_context].
     def current_schema
-      Thread.current[:kairos_tenant_schema] || @tenant_schema
+      Thread.current[:kairos_user_context]&.dig(:tenant_schema)
     end
 
     # =========================================================================

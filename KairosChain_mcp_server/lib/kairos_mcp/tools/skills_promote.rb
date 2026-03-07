@@ -698,7 +698,7 @@ module KairosMcp
 
         # Promotion triggers auto-commit check
         if SkillsConfig.state_commit_auto_enabled?
-          service = StateCommit::CommitService.new
+          service = StateCommit::CommitService.new(user_context: @safety&.current_user)
           service.check_and_auto_commit
         end
       rescue StandardError => e

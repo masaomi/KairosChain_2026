@@ -659,7 +659,7 @@ module KairosMcp
 
       # Check if auto-commit should be triggered
       if SkillsConfig.state_commit_auto_enabled?
-        service = StateCommit::CommitService.new
+        service = StateCommit::CommitService.new(user_context: @user_context)
         service.check_and_auto_commit
       end
     rescue StandardError => e

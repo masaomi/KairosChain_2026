@@ -11,7 +11,7 @@ module Multiuser
       @tenant_manager = tenant_manager
     end
 
-    def register(username, role: 'member', display_name: nil)
+    def register(username, role: 'member', display_name: nil, actor: 'system')
       validate_role!(role)
       validate_username!(username)
 
@@ -24,9 +24,9 @@ module Multiuser
         )
       end
 
-      record_system_event(
+      Multiuser.record_system_event(
         action: 'user_registered',
-        actor: 'system',
+        actor: actor,
         target: username,
         details: { role: role, tenant_schema: schema }
       )
@@ -51,7 +51,7 @@ module Multiuser
       end
     end
 
-    def update_role(username, new_role)
+    def update_role(username, new_role, actor: 'system')
       validate_role!(new_role)
 
       pool.with_connection do |conn|
@@ -62,9 +62,9 @@ module Multiuser
         raise ArgumentError, "User not found: #{username}" if result.ntuples == 0
       end
 
-      record_system_event(
+      Multiuser.record_system_event(
         action: 'user_role_changed',
-        actor: 'system',
+        actor: actor,
         target: username,
         details: { new_role: new_role }
       )
@@ -72,7 +72,7 @@ module Multiuser
       { username: username, role: new_role }
     end
 
-    def delete(username)
+    def delete(username, actor: 'system')
       user = find(username)
       raise ArgumentError, "User not found: #{username}" unless user
 
@@ -84,9 +84,9 @@ module Multiuser
 
       tenant_manager.drop_tenant(schema) if schema && tenant_manager.tenant_exists?(schema)
 
-      record_system_event(
+      Multiuser.record_system_event(
         action: 'user_deleted',
-        actor: 'system',
+        actor: actor,
         target: username,
         details: { tenant_schema: schema }
       )
@@ -115,23 +115,5 @@ module Multiuser
       end
     end
 
-    def record_system_event(action:, actor:, target:, details: {})
-      require_relative '../../../../KairosChain_mcp_server/lib/kairos_mcp/kairos_chain/chain' rescue nil
-
-      begin
-        chain = KairosMcp::KairosChain::Chain.new
-        chain.add_block([{
-          type: 'multiuser_system_event',
-          layer: 'system',
-          action: action,
-          actor: actor,
-          target: target,
-          details: details,
-          timestamp: Time.now.iso8601
-        }.to_json])
-      rescue StandardError => e
-        $stderr.puts "[Multiuser] Failed to record system event: #{e.message}"
-      end
-    end
   end
 end
