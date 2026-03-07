@@ -2,6 +2,7 @@
 
 require 'json'
 require 'time'
+require 'kairos_mcp/storage/backend'
 
 module Multiuser
   # PostgreSQL storage backend for multi-tenant use.

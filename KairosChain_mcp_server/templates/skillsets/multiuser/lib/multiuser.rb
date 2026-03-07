@@ -19,6 +19,12 @@ module Multiuser
       @load_error = nil
       require 'pg'
 
+      require 'kairos_mcp/storage/backend'
+      require 'kairos_mcp/safety'
+      require 'kairos_mcp/tool_registry'
+      require 'kairos_mcp/protocol'
+      require 'kairos_mcp/auth/token_store'
+
       require_relative 'multiuser/pg_connection_pool'
       require_relative 'multiuser/pg_backend'
       require_relative 'multiuser/tenant_manager'
@@ -76,6 +82,12 @@ module Multiuser
       warn "[Multiuser] #{@load_error[:message]}"
     rescue PG::Error => e
       @load_error = { type: 'pg_error', message: "PostgreSQL error: #{e.message}. Check config/multiuser.yml" }
+      warn "[Multiuser] #{@load_error[:message]}"
+    rescue NameError => e
+      @load_error = { type: 'dependency_error', message: "Missing dependency: #{e.message}" }
+      warn "[Multiuser] #{@load_error[:message]}"
+    rescue StandardError => e
+      @load_error = { type: 'unexpected_error', message: "Unexpected error during load: #{e.class}: #{e.message}" }
       warn "[Multiuser] #{@load_error[:message]}"
     end
 
