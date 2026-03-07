@@ -39,12 +39,12 @@ module KairosMcp
       '.pdf' => 'application/pdf'
     }.freeze
 
-    def initialize
+    def initialize(user_context: nil)
       @skills_dir = KairosMcp.skills_dir
-      @knowledge_dir = KairosMcp.knowledge_dir
-      @context_dir = KairosMcp.context_dir
-      @knowledge_provider = KnowledgeProvider.new(@knowledge_dir, vector_search_enabled: false)
-      @context_manager = ContextManager.new(@context_dir)
+      @knowledge_dir = KairosMcp.knowledge_dir(user_context: user_context)
+      @context_dir = KairosMcp.context_dir(user_context: user_context)
+      @knowledge_provider = KnowledgeProvider.new(@knowledge_dir, vector_search_enabled: false, user_context: user_context)
+      @context_manager = ContextManager.new(@context_dir, user_context: user_context)
     end
 
     # List all resources with optional filtering

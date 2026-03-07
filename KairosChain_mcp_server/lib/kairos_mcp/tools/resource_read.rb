@@ -69,7 +69,7 @@ module KairosMcp
         uri = arguments['uri']
         return text_content('Error: uri is required') unless uri && !uri.empty?
 
-        registry = ResourceRegistry.new
+        registry = ResourceRegistry.new(user_context: @safety&.current_user)
         resource = registry.read(uri)
 
         if resource.nil?

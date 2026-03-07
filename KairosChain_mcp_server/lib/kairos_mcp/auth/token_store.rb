@@ -40,6 +40,34 @@ module KairosMcp
       TOKEN_PREFIX = 'kc_'
       DEFAULT_EXPIRY_DAYS = 90
 
+      # =====================================================================
+      # SkillSet TokenStore Registry
+      # =====================================================================
+
+      @registry = {}
+
+      # Register a named TokenStore backend (e.g. 'postgresql')
+      def self.register(name, klass)
+        @registry[name.to_s] = klass
+      end
+
+      def self.unregister(name)
+        @registry.delete(name.to_s)
+      end
+
+      # Factory: create a TokenStore based on config.
+      # If a SkillSet has registered a backend matching config[:backend],
+      # use that; otherwise fall back to file-based store.
+      def self.create(config = {})
+        backend = config[:backend]&.to_s
+        if backend && @registry.key?(backend)
+          return @registry[backend].new(config[backend.to_sym] || {})
+        end
+        new(config[:store_path])
+      end
+
+      # =====================================================================
+
       attr_reader :store_path
 
       def initialize(store_path = nil)

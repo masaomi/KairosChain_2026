@@ -407,7 +407,7 @@ module KairosMcp
 
       def handle_knowledge_detail_partial(name)
         require_relative '../knowledge_provider'
-        provider = KnowledgeProvider.new
+        provider = KnowledgeProvider.new(nil, user_context: @current_user)
         entry = provider.get(name)
 
         if entry
@@ -428,7 +428,7 @@ module KairosMcp
 
       def handle_context_list_partial(session_id)
         require_relative '../context_manager'
-        manager = ContextManager.new
+        manager = ContextManager.new(nil, user_context: @current_user)
         contexts = manager.list_contexts_in_session(session_id)
         html_response(200, render_partial('_context_list',
                                           session_id: session_id,
@@ -437,7 +437,7 @@ module KairosMcp
 
       def handle_context_detail_partial(session_id, name)
         require_relative '../context_manager'
-        manager = ContextManager.new
+        manager = ContextManager.new(nil, user_context: @current_user)
         entry = manager.get_context(session_id, name)
 
         if entry
@@ -486,7 +486,7 @@ module KairosMcp
 
       def fetch_knowledge_list(search: nil)
         require_relative '../knowledge_provider'
-        provider = KnowledgeProvider.new
+        provider = KnowledgeProvider.new(nil, user_context: @current_user)
         if search && !search.empty?
           provider.search(search)
         else
@@ -515,7 +515,7 @@ module KairosMcp
 
       def fetch_context_sessions
         require_relative '../context_manager'
-        manager = ContextManager.new
+        manager = ContextManager.new(nil, user_context: @current_user)
         manager.list_sessions
       rescue StandardError
         []

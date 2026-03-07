@@ -4,6 +4,34 @@ require_relative '../kairos_mcp'
 
 module KairosMcp
   class Safety
+    # =========================================================================
+    # SkillSet Policy Registry
+    # =========================================================================
+
+    @policies = {}
+    @policy_mutex = Mutex.new
+
+    # Register a named authorization policy for a capability.
+    # Keys should match capability method names (e.g. :can_modify_l0).
+    def self.register_policy(name, &block)
+      @policy_mutex.synchronize { @policies[name.to_sym] = block }
+    end
+
+    def self.unregister_policy(name)
+      @policy_mutex.synchronize { @policies.delete(name.to_sym) }
+    end
+
+    def self.policy_for(name)
+      @policy_mutex.synchronize { @policies[name.to_sym] }
+    end
+
+    # For testing only
+    def self.clear_policies!
+      @policy_mutex.synchronize { @policies = {} }
+    end
+
+    # =========================================================================
+
     attr_reader :workspace_root, :current_user
 
     def initialize
@@ -26,32 +54,33 @@ module KairosMcp
       end
     end
 
-    # Phase 2: Role-based authorization hooks
-    # These methods return true for all roles in Phase 1.
-    # Override behavior when role-based authorization is implemented.
+    # Role-based authorization hooks.
+    # When no policy is registered (STDIO mode / no Multiuser SkillSet),
+    # these return true (permissive fallback). SkillSets register policies
+    # via Safety.register_policy to enforce RBAC.
 
-    # Check if current user can modify L0 skills
-    # Phase 2: Only 'owner' role
     def can_modify_l0?
-      true # Phase 1: no role restrictions
+      return true unless @current_user
+      policy = self.class.policy_for(:can_modify_l0)
+      policy ? policy.call(@current_user) : true
     end
 
-    # Check if current user can modify L1 knowledge
-    # Phase 2: 'owner' and 'member' roles
     def can_modify_l1?
-      true # Phase 1: no role restrictions
+      return true unless @current_user
+      policy = self.class.policy_for(:can_modify_l1)
+      policy ? policy.call(@current_user) : true
     end
 
-    # Check if current user can modify L2 context
-    # Phase 2: all roles (guests limited to own context)
     def can_modify_l2?
-      true # Phase 1: no role restrictions
+      return true unless @current_user
+      policy = self.class.policy_for(:can_modify_l2)
+      policy ? policy.call(@current_user) : true
     end
 
-    # Check if current user can manage tokens
-    # Phase 2: Only 'owner' role
     def can_manage_tokens?
-      true # Phase 1: no role restrictions
+      return true unless @current_user
+      policy = self.class.policy_for(:can_manage_tokens)
+      policy ? policy.call(@current_user) : true
     end
 
     # Set workspace root from MCP client (roots) or environment

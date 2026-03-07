@@ -45,17 +45,24 @@ module KairosMcp
 
       @port = port || http_config['port'] || DEFAULT_PORT
       @host = host || http_config['host'] || DEFAULT_HOST
+
+      # SkillSets must load BEFORE TokenStore.create so that plugins
+      # (e.g. Multiuser) can register alternative backends first.
+      eager_load_skillsets
+
       store_path = token_store_path || http_config['token_store']
       if store_path && !File.absolute_path?(store_path)
         store_path = File.join(KairosMcp.data_dir, store_path)
       end
-      @token_store = Auth::TokenStore.new(store_path)
+
+      @token_store = Auth::TokenStore.create(
+        backend: http_config['token_backend'],
+        store_path: store_path
+      )
       @authenticator = Auth::Authenticator.new(@token_store)
       @admin_router = Admin::Router.new(token_store: @token_store, authenticator: @authenticator)
       @meeting_router = MeetingRouter.new
-      @place_router = nil  # Initialized lazily via meeting_place_start tool
-
-      eager_load_skillsets
+      @place_router = nil
     end
 
     # Load SkillSets at startup so /meeting/* endpoints work immediately.

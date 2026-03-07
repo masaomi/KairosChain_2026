@@ -339,13 +339,13 @@ module KairosMcp
         case from_layer
         when 'L2'
           session_id = args['session_id']
-          manager = ContextManager.new
+          manager = ContextManager.new(nil, user_context: @safety&.current_user)
           context = manager.get_context(session_id, source_name)
           return { error: "Context '#{source_name}' not found in session '#{session_id}'" } unless context
           content = File.read(context.md_file_path, encoding: 'UTF-8')
           { content: content, metadata: context.to_h }
         when 'L1'
-          provider = KnowledgeProvider.new
+          provider = KnowledgeProvider.new(nil, user_context: @safety&.current_user)
           knowledge = provider.get(source_name)
           return { error: "Knowledge '#{source_name}' not found" } unless knowledge
           content = File.read(knowledge.md_file_path, encoding: 'UTF-8')
@@ -356,7 +356,7 @@ module KairosMcp
       end
 
       def load_persona_definitions
-        provider = KnowledgeProvider.new
+        provider = KnowledgeProvider.new(nil, user_context: @safety&.current_user)
         knowledge = provider.get('persona_definitions')
 
         unless knowledge
@@ -563,7 +563,7 @@ module KairosMcp
           return text_content("Error: L1 (knowledge) layer is disabled")
         end
 
-        provider = KnowledgeProvider.new
+        provider = KnowledgeProvider.new(nil, user_context: @safety&.current_user)
         existing = provider.get(target_name)
 
         result = if existing

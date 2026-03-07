@@ -13,9 +13,10 @@ module KairosMcp
   # - Session-based organization
   #
   class ContextManager
-    def initialize(context_dir = nil)
-      context_dir ||= KairosMcp.context_dir
+    def initialize(context_dir = nil, user_context: nil)
+      context_dir ||= KairosMcp.context_dir(user_context: user_context)
       @context_dir = context_dir
+      @user_context = user_context
       FileUtils.mkdir_p(@context_dir)
     end
 

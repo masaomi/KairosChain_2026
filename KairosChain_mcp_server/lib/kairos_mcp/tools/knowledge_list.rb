@@ -52,7 +52,7 @@ module KairosMcp
       end
 
       def call(arguments)
-        provider = KnowledgeProvider.new
+        provider = KnowledgeProvider.new(nil, user_context: @safety&.current_user)
         search_query = arguments['search']
 
         skills = if search_query && !search_query.empty?

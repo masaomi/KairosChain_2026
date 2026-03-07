@@ -15,7 +15,8 @@ module KairosMcp
     #
     class ManifestBuilder
 
-      def initialize
+      def initialize(user_context: nil)
+        @user_context = user_context
         @knowledge_provider = nil
         @context_manager = nil
       end
@@ -165,14 +166,14 @@ module KairosMcp
       def knowledge_provider
         @knowledge_provider ||= begin
           require_relative '../knowledge_provider'
-          KnowledgeProvider.new(KairosMcp.knowledge_dir, vector_search_enabled: false)
+          KnowledgeProvider.new(nil, vector_search_enabled: false, user_context: @user_context)
         end
       end
 
       def context_manager
         @context_manager ||= begin
           require_relative '../context_manager'
-          ContextManager.new(KairosMcp.context_dir)
+          ContextManager.new(nil, user_context: @user_context)
         end
       end
 
