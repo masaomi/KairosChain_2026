@@ -21,9 +21,27 @@ module KairosMcp
 
       def call(_arguments)
         unless defined?(Multiuser) && Multiuser.loaded?
+          error_info = defined?(Multiuser) ? Multiuser.load_error : nil
+          diagnosis = if error_info
+                        error_info
+                      else
+                        { type: 'not_installed', message: 'Multiuser SkillSet is not installed.' }
+                      end
+
           return format_result({
             enabled: false,
-            message: 'Multiuser SkillSet is not loaded. Check config/multiuser.yml and ensure pg gem is installed.'
+            error_type: diagnosis[:type],
+            message: diagnosis[:message],
+            help: case diagnosis[:type]
+                  when 'pg_gem_missing'
+                    'Install the pg gem: gem install pg (requires PostgreSQL client library libpq)'
+                  when 'pg_server_unavailable'
+                    'Install and start PostgreSQL server, then check host/port in config/multiuser.yml'
+                  when 'pg_error'
+                    'Check database name, user, and password in config/multiuser.yml'
+                  else
+                    'Run: kairos-chain skillset install templates/skillsets/multiuser'
+                  end
           })
         end
 

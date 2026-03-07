@@ -12,10 +12,11 @@
 #
 module Multiuser
   class << self
-    attr_reader :pool, :tenant_manager, :user_registry
+    attr_reader :pool, :tenant_manager, :user_registry, :load_error
 
     def load!
       return if @loaded
+      @load_error = nil
       require 'pg'
 
       require_relative 'multiuser/pg_connection_pool'
@@ -68,10 +69,14 @@ module Multiuser
       @loaded = true
       $stderr.puts "[Multiuser] Loaded successfully (PostgreSQL: #{pg_config['host'] || 'localhost'}:#{pg_config['port'] || 5432})"
     rescue LoadError => e
-      warn "[Multiuser] pg gem not installed: #{e.message}"
+      @load_error = { type: 'pg_gem_missing', message: "pg gem is not installed. Run: gem install pg" }
+      warn "[Multiuser] #{@load_error[:message]}"
+    rescue PG::ConnectionBad => e
+      @load_error = { type: 'pg_server_unavailable', message: "PostgreSQL server is not running or unreachable: #{e.message}" }
+      warn "[Multiuser] #{@load_error[:message]}"
     rescue PG::Error => e
-      warn "[Multiuser] PostgreSQL connection failed: #{e.message}"
-      warn "[Multiuser] Multiuser SkillSet disabled. Check config/multiuser.yml"
+      @load_error = { type: 'pg_error', message: "PostgreSQL error: #{e.message}. Check config/multiuser.yml" }
+      warn "[Multiuser] #{@load_error[:message]}"
     end
 
     def loaded?

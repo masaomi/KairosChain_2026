@@ -119,6 +119,30 @@ when 'skillset'
       exit 1
     end
 
+  when 'upgrade'
+    apply = ARGV.delete('--apply')
+    upgrades = manager.upgrade_check
+
+    if upgrades.empty?
+      puts "All SkillSets are up to date."
+    elsif apply
+      results = manager.upgrade_apply
+      results.each do |r|
+        puts "Updated #{r[:name]}: v#{r[:from]} -> v#{r[:to]} (#{r[:files_updated]} files)"
+      end
+      puts "Done. #{results.size} SkillSet(s) upgraded."
+    else
+      puts "SkillSet upgrades available:"
+      puts ""
+      upgrades.each do |u|
+        label = u[:version_bump] ? "v#{u[:installed_version]} -> v#{u[:available_version]}" : "files changed"
+        puts "  #{u[:name]}: #{label}"
+        u[:changed_files].each { |f| puts "    Modified: #{f}" }
+        puts ""
+      end
+      puts "Run 'kairos-chain skillset upgrade --apply' to apply updates."
+    end
+
   when 'remove'
     name = ARGV.shift
     unless name
