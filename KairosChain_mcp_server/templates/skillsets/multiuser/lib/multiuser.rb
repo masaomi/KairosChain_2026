@@ -115,3 +115,6 @@ module Multiuser
     end
   end
 end
+
+# Auto-initialize when required by SkillSet loader
+Multiuser.load!
