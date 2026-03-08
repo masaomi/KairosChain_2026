@@ -5,6 +5,7 @@ meeting_place:
   name: "KairosChain Meeting Place"
   max_agents: 100
   session_timeout: 3600
+  registry_path: storage/agent_registry.json
 
 chain:
   enabled: true

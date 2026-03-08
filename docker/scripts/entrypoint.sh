@@ -102,45 +102,25 @@ if [ -n "$POSTGRES_HOST" ]; then
 fi
 
 # -------------------------------------------------------------------------
-# 4. Bootstrap admin token (backend-aware, no sentinel file)
-#    Checks TokenStore.create(...).empty? against the actual backend
-#    (PostgreSQL or file) rather than a separate sentinel file.
+# 4. Bootstrap admin token
+#    Uses the token output file as idempotency guard.
+#    If .admin_token exists in the volume, bootstrap was already done.
 # -------------------------------------------------------------------------
 ADMIN_TOKEN_FILE="$KAIROS_DATA_DIR/.admin_token"
 
-NEEDS_BOOTSTRAP=$(KAIROS_DATA_DIR="$KAIROS_DATA_DIR" ruby -e '
-  $LOAD_PATH.unshift File.join(ENV["GEM_HOME"] || "/usr/local/lib/ruby/gems/3.3.0", "gems", Dir.glob(File.join(ENV["GEM_HOME"] || "/usr/local/lib/ruby/gems/3.3.0", "gems", "kairos-chain-*")).map{|p| File.basename(p)}.first.to_s, "lib") rescue nil
-  $LOAD_PATH.unshift "/usr/local/lib/ruby/gems/3.3.0/gems/" rescue nil
-  require "kairos_mcp"
-  require "kairos_mcp/auth/token_store"
-  require "kairos_mcp/skills_config"
-  begin
-    require "kairos_mcp/skillset_manager"
-    KairosMcp::SkillSetManager.new.enabled_skillsets.each(&:load!)
-  rescue => e
-    $stderr.puts "[bootstrap] SkillSet load: #{e.message}"
-  end
-  http_config = KairosMcp::SkillsConfig.load["http"] || {}
-  store_path = http_config["token_store"]
-  if store_path && !File.absolute_path?(store_path)
-    store_path = File.join(KairosMcp.data_dir, store_path)
-  end
-  store = KairosMcp::Auth::TokenStore.create(
-    backend: http_config["token_backend"],
-    store_path: store_path
-  )
-  puts store.empty? ? "yes" : "no"
-' 2>/dev/null || { echo "[entrypoint] FATAL: bootstrap check failed" >&2; exit 1; })
-
-if [ "$NEEDS_BOOTSTRAP" = "yes" ]; then
-  echo "[entrypoint] No active tokens found. Bootstrapping admin token..."
+if [ ! -f "$ADMIN_TOKEN_FILE" ]; then
+  echo "[entrypoint] No admin token file found. Bootstrapping admin token..."
   kairos-chain --init-admin --quiet \
     --token-output-file "$ADMIN_TOKEN_FILE" \
     --data-dir "$KAIROS_DATA_DIR" 2>&1
-  echo "[entrypoint] Admin token created and saved."
-  echo "[entrypoint] Retrieve: docker exec kairos-meeting-place cat /app/.kairos/.admin_token"
+  if [ -f "$ADMIN_TOKEN_FILE" ]; then
+    echo "[entrypoint] Admin token created and saved."
+    echo "[entrypoint] Retrieve: docker exec kairos-meeting-place cat /app/.kairos/.admin_token"
+  else
+    echo "[entrypoint] WARNING: Admin token bootstrap may have failed."
+  fi
 else
-  echo "[entrypoint] Active tokens exist. Skipping bootstrap."
+  echo "[entrypoint] Admin token file exists. Skipping bootstrap."
 fi
 
 # -------------------------------------------------------------------------

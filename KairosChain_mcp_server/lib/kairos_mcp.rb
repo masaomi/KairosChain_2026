@@ -48,13 +48,13 @@ module KairosMcp
   # Use `kairos-chain init` to generate the initial data directory
   # with default templates.
   #
+  @path_resolvers = {}
+  @path_resolver_mutex = Mutex.new
+
   class << self
     # =========================================================================
     # SkillSet Path Resolver Registry
     # =========================================================================
-
-    @path_resolvers = {}
-    @path_resolver_mutex = Mutex.new
 
     # Register a named path resolver for tenant-aware directory resolution.
     # Block receives (type, user_context) and returns a path or nil.
