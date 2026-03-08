@@ -1,0 +1,10 @@
+skillset_creator:
+  default_review_personas:
+    - kairos
+    - pragmatic
+    - skeptic
+  default_review_mode: persona_assembly
+  include_claude_md_in_review: true
+  scaffold_defaults:
+    has_config: true
+    min_core_version: "2.7.0"

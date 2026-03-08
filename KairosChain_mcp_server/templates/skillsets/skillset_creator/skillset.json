@@ -1,0 +1,25 @@
+{
+  "name": "skillset_creator",
+  "version": "1.0.0",
+  "description": "Meta-SkillSet for developing KairosChain SkillSets. Provides Core-vs-SkillSet decision analysis, directory scaffolding, and multi-LLM review prompt generation. Use when creating a new SkillSet, deciding whether a change needs core modification, or preparing review prompts for SkillSet designs/implementations.",
+  "author": "Dr. Masa Hatakeyama",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": [
+    "core_or_skillset_decision",
+    "skillset_scaffolding",
+    "review_protocol_generation",
+    "skillset_development_workflow"
+  ],
+  "tool_classes": [
+    "KairosMcp::SkillSets::SkillsetCreator::Tools::ScDesign",
+    "KairosMcp::SkillSets::SkillsetCreator::Tools::ScScaffold",
+    "KairosMcp::SkillSets::SkillsetCreator::Tools::ScReview"
+  ],
+  "config_files": ["config/skillset_creator.yml"],
+  "knowledge_dirs": [
+    "knowledge/development_guide",
+    "knowledge/core_or_skillset_guide"
+  ],
+  "min_core_version": "2.7.0"
+}

@@ -1,0 +1,11 @@
+knowledge_creator:
+  default_evaluate_personas:
+    - evaluator
+    - guardian
+    - pragmatic
+  default_compare_personas:
+    - kairos
+    - pragmatic
+    - skeptic
+  default_assembly_mode: oneshot
+  evaluation_context_prefix: "kc_eval_"
