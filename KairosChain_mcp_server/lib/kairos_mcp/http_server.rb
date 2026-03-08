@@ -234,12 +234,13 @@ module KairosMcp
     #   When nil, PlaceRouter falls back to ::Hestia.load_config.
     def start_place(identity:, trust_anchor_client: nil, hestia_config: nil)
       require 'hestia'
-      @place_router = ::Hestia::PlaceRouter.new(config: hestia_config)
-      @place_router.start(
+      router = ::Hestia::PlaceRouter.new(config: hestia_config)
+      router.start(
         identity: identity,
         session_store: @meeting_router.session_store,
         trust_anchor_client: trust_anchor_client
       )
+      @place_router = router
     end
 
     # -----------------------------------------------------------------------
