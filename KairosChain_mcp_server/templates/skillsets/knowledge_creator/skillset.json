@@ -1,0 +1,24 @@
+{
+  "name": "knowledge_creator",
+  "version": "1.0.0",
+  "description": "SkillSet for evaluating and improving L1 knowledge quality. Generates structured evaluation prompts using Persona Assembly, and provides blind version comparison. Use when assessing L1 knowledge quality, comparing knowledge versions, or checking promotion readiness from L2 to L1.",
+  "author": "Dr. Masa Hatakeyama",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": [
+    "knowledge_quality_evaluation",
+    "knowledge_version_comparison",
+    "quality_criteria",
+    "creation_patterns"
+  ],
+  "tool_classes": [
+    "KairosMcp::SkillSets::KnowledgeCreator::Tools::KcEvaluate",
+    "KairosMcp::SkillSets::KnowledgeCreator::Tools::KcCompare"
+  ],
+  "config_files": ["config/knowledge_creator.yml"],
+  "knowledge_dirs": [
+    "knowledge/quality_criteria",
+    "knowledge/creation_guide"
+  ],
+  "min_core_version": "2.7.0"
+}

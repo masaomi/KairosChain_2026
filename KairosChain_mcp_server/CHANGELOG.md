@@ -4,6 +4,28 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.8.0] - 2026-03-08
+
+### Added
+
+- **Knowledge Creator SkillSet** (`knowledge_creator` v1.0.0): New opt-in SkillSet for evaluating and improving L1 knowledge quality through structured Persona Assembly prompts.
+  - `kc_evaluate`: Generate quality evaluation prompts (evaluate/analyze/criteria commands) with 7 evidence-based dimensions, 3-tier readiness assessment (READY/REVISE/DRAFT), and configurable personas (evaluator, guardian, pragmatic)
+  - `kc_compare`: Generate blind A/B comparison prompts for knowledge version comparison (L1 vs L1, L2 vs L1 promotion readiness)
+  - Bundled L1 knowledge: `quality_criteria` (evaluation dimensions, evidence requirements, persona definitions), `creation_guide` (Kairotic Creation Loop workflow, 6 structural patterns)
+  - SkillSet-local persona definitions (does not modify shared `persona_definitions`)
+  - L2 save instruction for evaluation history tracking
+
+- **SkillSet Creator SkillSet** (`skillset_creator` v1.0.0): New opt-in meta-SkillSet for developing KairosChain SkillSets with the 5-phase development workflow.
+  - `sc_design`: Core-vs-SkillSet decision analysis (loads `core_or_skillset_guide` knowledge) and design phase checklist
+  - `sc_scaffold`: Generate complete SkillSet directory structures with skeleton files (preview/generate), input validation (path traversal prevention, collision check), explicit `output_path` required
+  - `sc_review`: Generate structured review prompts for multi-LLM review or Persona Assembly review of SkillSet designs and implementations
+  - Bundled L1 knowledge: `development_guide` (5-phase workflow, review escalation, multi-LLM best practices), `core_or_skillset_guide` (Core vs SkillSet decision tree)
+  - Runtime-detected integration with Knowledge Creator (no declared dependency; uses `defined?` check)
+
+- **Design Process**: Both SkillSets designed through the 5-phase development meta-pattern with 2 rounds of multi-LLM review (Antigravity/Gemini, Claude Team/Opus 4.6, Codex/GPT-5.4). Design documents in `log/`.
+
+---
+
 ## [2.7.0] - 2026-03-06
 
 ### Added
@@ -349,6 +371,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Skill promotion with Persona Assembly
 - Tool guide and metadata system
 
+[2.8.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.7.0...v2.8.0
 [2.7.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.6.0...v2.7.0
 [2.6.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.4.0...v2.5.0
