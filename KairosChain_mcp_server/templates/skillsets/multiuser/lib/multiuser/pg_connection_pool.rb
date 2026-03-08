@@ -87,7 +87,7 @@ module Multiuser
         port: @config[:port] || @config['port'] || 5432,
         dbname: @config[:dbname] || @config['dbname'] || 'kairoschain',
         user: @config[:user] || @config['user'] || 'kairoschain',
-        password: @config[:password] || @config['password'] || '',
+        password: @config[:password] || @config['password'] || ENV['POSTGRES_PASSWORD'] || '',
         connect_timeout: @timeout
       )
     end

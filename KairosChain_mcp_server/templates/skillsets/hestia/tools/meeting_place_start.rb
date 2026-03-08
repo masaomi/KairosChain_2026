@@ -54,16 +54,30 @@ module KairosMcp
               config['meeting_place']['name'] = arguments['name']
             end
 
-            # Create PlaceRouter and start
+            # Delegate to HttpServer when running in HTTP mode
+            http_server = defined?(KairosMcp) && KairosMcp.respond_to?(:http_server) ? KairosMcp.http_server : nil
+            if http_server
+              trust_anchor = nil
+              if config.dig('trust_anchor', 'record_registrations')
+                trust_anchor = ::Hestia.chain_client(config: config.dig('chain'))
+              end
+              http_server.start_place(identity: identity, trust_anchor_client: trust_anchor, hestia_config: config)
+              place_name = config.dig('meeting_place', 'name') || 'KairosChain Meeting Place'
+              return text_content(JSON.pretty_generate({
+                status: 'started',
+                message: 'Meeting Place started via HttpServer (HTTP mode)',
+                name: place_name
+              }))
+            end
+
+            # STDIO mode: create local PlaceRouter
             place_router = ::Hestia::PlaceRouter.new(config: config)
 
-            # Build trust anchor client if configured
             trust_anchor = nil
             if config.dig('trust_anchor', 'record_registrations')
               trust_anchor = ::Hestia.chain_client(config: config.dig('chain'))
             end
 
-            # Create a session store (reuse MMP's pattern)
             session_store = ::MMP::MeetingSessionStore.new
 
             result = place_router.start(

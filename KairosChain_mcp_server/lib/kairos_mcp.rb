@@ -71,6 +71,18 @@ module KairosMcp
     end
 
     # =========================================================================
+    # HttpServer reference (set when running in HTTP mode)
+    # =========================================================================
+
+    def http_server
+      @http_server
+    end
+
+    def http_server=(server)
+      @http_server = server
+    end
+
+    # =========================================================================
 
     # Get the root data directory for all runtime data
     #

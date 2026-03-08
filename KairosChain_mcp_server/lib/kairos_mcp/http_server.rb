@@ -76,9 +76,11 @@ module KairosMcp
 
     # Start the HTTP server with Puma
     def run
+      KairosMcp.http_server = self
       check_dependencies!
       check_tokens!
       check_version_mismatch
+      auto_start_meeting_place
 
       app = build_rack_app
       server = self
@@ -89,6 +91,7 @@ module KairosMcp
       log "Health check: GET /health"
       log "Admin UI:     GET /admin"
       log "MMP P2P:      /meeting/v1/*"
+      log "Place API:    /place/v1/*" if @place_router
 
       require 'puma'
       require 'puma/configuration'
@@ -169,7 +172,8 @@ module KairosMcp
         server: 'kairos-chain',
         version: KairosMcp::VERSION,
         transport: 'streamable-http',
-        tokens_configured: !@token_store.empty?
+        tokens_configured: !@token_store.empty?,
+        place_started: !@place_router.nil?
       }
 
       [200, JSON_HEADERS, [body.to_json]]
@@ -223,10 +227,14 @@ module KairosMcp
       @place_router.call(env)
     end
 
-    # Start the Meeting Place (called by meeting_place_start tool)
-    def start_place(identity:, trust_anchor_client: nil)
+    # Start the Meeting Place (called by meeting_place_start tool or auto-start)
+    #
+    # @param hestia_config [Hash, nil] Full Hestia config hash. PlaceRouter
+    #   expects the full config (it accesses config['meeting_place'] internally).
+    #   When nil, PlaceRouter falls back to ::Hestia.load_config.
+    def start_place(identity:, trust_anchor_client: nil, hestia_config: nil)
       require 'hestia'
-      @place_router = ::Hestia::PlaceRouter.new
+      @place_router = ::Hestia::PlaceRouter.new(config: hestia_config)
       @place_router.start(
         identity: identity,
         session_store: @meeting_router.session_store,
@@ -243,6 +251,29 @@ module KairosMcp
     end
 
     private
+
+    # Auto-start Meeting Place if hestia.yml has meeting_place.enabled: true
+    def auto_start_meeting_place
+      require 'hestia'
+      hestia_config = ::Hestia.load_config
+      return unless hestia_config.dig('meeting_place', 'enabled')
+
+      mmp_config = ::MMP.load_config rescue nil
+      return unless mmp_config&.dig('enabled')
+
+      identity = ::MMP::Identity.new(config: mmp_config)
+      trust_anchor = nil
+      if hestia_config.dig('trust_anchor', 'record_registrations')
+        trust_anchor = ::Hestia.chain_client(config: hestia_config.dig('chain'))
+      end
+
+      start_place(identity: identity, trust_anchor_client: trust_anchor, hestia_config: hestia_config)
+      log "Meeting Place auto-started (config: meeting_place.enabled = true)"
+    rescue LoadError => e
+      $stderr.puts "[HttpServer] Meeting Place auto-start skipped: Hestia SkillSet not available (#{e.message})"
+    rescue StandardError => e
+      $stderr.puts "[HttpServer] Meeting Place auto-start failed: #{e.message}"
+    end
 
     def check_dependencies!
       begin

@@ -1,0 +1,19 @@
+enabled: true
+
+meeting_place:
+  enabled: true
+  name: "KairosChain Meeting Place"
+  max_agents: 100
+  session_timeout: 3600
+
+chain:
+  enabled: true
+  backend: private
+  private:
+    storage_path: storage/hestia_anchors.json
+    max_anchors: 100000
+
+trust_anchor:
+  record_exchanges: true
+  record_registrations: true
+  record_fadeouts: true

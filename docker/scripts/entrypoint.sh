@@ -1,0 +1,150 @@
+#!/bin/bash
+set -e
+
+KAIROS_DATA_DIR="${KAIROS_DATA_DIR:-/app/.kairos}"
+
+# -------------------------------------------------------------------------
+# 0. Validate required environment
+# -------------------------------------------------------------------------
+if [ -z "$POSTGRES_PASSWORD" ]; then
+  echo "[entrypoint] FATAL: POSTGRES_PASSWORD is not set or empty."
+  exit 1
+fi
+
+# -------------------------------------------------------------------------
+# 0.5 Volume seeding: copy build-time template if volume is empty
+# -------------------------------------------------------------------------
+if [ ! -f "$KAIROS_DATA_DIR/.kairos_meta.yml" ]; then
+  echo "[entrypoint] First start: seeding volume from build-time template..."
+  cp -a /app/.kairos-template/. "$KAIROS_DATA_DIR/"
+  echo "[entrypoint] Volume seeded."
+else
+  echo "[entrypoint] Volume already initialized."
+fi
+
+# -------------------------------------------------------------------------
+# 1. Apply config overrides (recursive YAML deep merge via Ruby)
+# -------------------------------------------------------------------------
+apply_config() {
+  local src="$1" dest="$2"
+  if [ -f "$src" ]; then
+    mkdir -p "$(dirname "$dest")"
+    MERGE_SRC="$src" MERGE_DEST="$dest" ruby -ryaml -e '
+      def deep_merge(base, override)
+        base.merge(override) do |_key, old_val, new_val|
+          if old_val.is_a?(Hash) && new_val.is_a?(Hash)
+            deep_merge(old_val, new_val)
+          else
+            new_val
+          end
+        end
+      end
+
+      src  = ENV["MERGE_SRC"]
+      dest = ENV["MERGE_DEST"]
+      base = File.exist?(dest) ? (YAML.safe_load(File.read(dest)) || {}) : {}
+      override = YAML.safe_load(File.read(src)) || {}
+      File.write(dest, YAML.dump(deep_merge(base, override)))
+    '
+    echo "[entrypoint] Applied config: $(basename "$src")"
+  fi
+}
+
+apply_config "/app/config-override/config.yml" \
+  "$KAIROS_DATA_DIR/skills/config.yml"
+
+apply_config "/app/config-override/multiuser.yml" \
+  "$KAIROS_DATA_DIR/skillsets/multiuser/config/multiuser.yml"
+
+apply_config "/app/config-override/hestia.yml" \
+  "$KAIROS_DATA_DIR/skillsets/hestia/config/hestia.yml"
+
+apply_config "/app/config-override/meeting.yml" \
+  "$KAIROS_DATA_DIR/skillsets/mmp/config/meeting.yml"
+
+apply_config "/app/config-override/synoptis.yml" \
+  "$KAIROS_DATA_DIR/skillsets/synoptis/config/synoptis.yml"
+
+# -------------------------------------------------------------------------
+# 2. Inject PostgreSQL connection (password stays in ENV only)
+# -------------------------------------------------------------------------
+MERGE_DEST="$KAIROS_DATA_DIR/skillsets/multiuser/config/multiuser.yml" \
+  ruby -ryaml -e '
+    dest = ENV["MERGE_DEST"]
+    cfg = File.exist?(dest) ? (YAML.safe_load(File.read(dest)) || {}) : {}
+    pg = cfg["postgresql"] || {}
+    pg["host"]   = ENV["POSTGRES_HOST"]   || pg["host"]   || "postgres"
+    pg["port"]   = (ENV["POSTGRES_PORT"]  || pg["port"]   || 5432).to_i
+    pg["dbname"] = ENV["POSTGRES_DB"]     || pg["dbname"] || "kairoschain"
+    pg["user"]   = ENV["POSTGRES_USER"]   || pg["user"]   || "kairoschain"
+    pg.delete("password")
+    cfg["postgresql"] = pg
+    File.write(dest, YAML.dump(cfg))
+  '
+echo "[entrypoint] PostgreSQL connection configured (password via ENV only)."
+
+# -------------------------------------------------------------------------
+# 3. Wait for PostgreSQL (fatal on timeout)
+# -------------------------------------------------------------------------
+if [ -n "$POSTGRES_HOST" ]; then
+  echo "[entrypoint] Waiting for PostgreSQL at $POSTGRES_HOST:${POSTGRES_PORT:-5432}..."
+  for i in $(seq 1 30); do
+    if pg_isready -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" -q 2>/dev/null; then
+      echo "[entrypoint] PostgreSQL is ready."
+      break
+    fi
+    if [ "$i" = "30" ]; then
+      echo "[entrypoint] FATAL: PostgreSQL not ready after 30s."
+      exit 1
+    fi
+    sleep 1
+  done
+fi
+
+# -------------------------------------------------------------------------
+# 4. Bootstrap admin token (backend-aware, no sentinel file)
+#    Checks TokenStore.create(...).empty? against the actual backend
+#    (PostgreSQL or file) rather than a separate sentinel file.
+# -------------------------------------------------------------------------
+ADMIN_TOKEN_FILE="$KAIROS_DATA_DIR/.admin_token"
+
+NEEDS_BOOTSTRAP=$(KAIROS_DATA_DIR="$KAIROS_DATA_DIR" ruby -e '
+  $LOAD_PATH.unshift File.join(ENV["GEM_HOME"] || "/usr/local/lib/ruby/gems/3.3.0", "gems", Dir.glob(File.join(ENV["GEM_HOME"] || "/usr/local/lib/ruby/gems/3.3.0", "gems", "kairos-chain-*")).map{|p| File.basename(p)}.first.to_s, "lib") rescue nil
+  $LOAD_PATH.unshift "/usr/local/lib/ruby/gems/3.3.0/gems/" rescue nil
+  require "kairos_mcp"
+  require "kairos_mcp/auth/token_store"
+  require "kairos_mcp/skills_config"
+  begin
+    require "kairos_mcp/skillset_manager"
+    KairosMcp::SkillSetManager.new.enabled_skillsets.each(&:load!)
+  rescue => e
+    $stderr.puts "[bootstrap] SkillSet load: #{e.message}"
+  end
+  http_config = KairosMcp::SkillsConfig.load["http"] || {}
+  store_path = http_config["token_store"]
+  if store_path && !File.absolute_path?(store_path)
+    store_path = File.join(KairosMcp.data_dir, store_path)
+  end
+  store = KairosMcp::Auth::TokenStore.create(
+    backend: http_config["token_backend"],
+    store_path: store_path
+  )
+  puts store.empty? ? "yes" : "no"
+' 2>/dev/null || { echo "[entrypoint] FATAL: bootstrap check failed" >&2; exit 1; })
+
+if [ "$NEEDS_BOOTSTRAP" = "yes" ]; then
+  echo "[entrypoint] No active tokens found. Bootstrapping admin token..."
+  kairos-chain --init-admin --quiet \
+    --token-output-file "$ADMIN_TOKEN_FILE" \
+    --data-dir "$KAIROS_DATA_DIR" 2>&1
+  echo "[entrypoint] Admin token created and saved."
+  echo "[entrypoint] Retrieve: docker exec kairos-meeting-place cat /app/.kairos/.admin_token"
+else
+  echo "[entrypoint] Active tokens exist. Skipping bootstrap."
+fi
+
+# -------------------------------------------------------------------------
+# 5. Start
+# -------------------------------------------------------------------------
+echo "[entrypoint] Starting KairosChain Meeting Place Server..."
+exec "$@"
