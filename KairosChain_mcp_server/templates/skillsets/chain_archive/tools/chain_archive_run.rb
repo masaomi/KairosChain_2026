@@ -67,9 +67,9 @@ module KairosMcp
                   Segment file:         #{result[:segment_filename]}
                   Segment SHA256:       #{result[:segment_hash]}
                   New live chain size:  #{result[:new_live_chain_length]}
-                  Checkpoint hash:      #{result[:checkpoint_hash]}
+                  Archive block hash:   #{result[:archive_block_hash]}
 
-                The live chain now starts from the checkpoint block.
+                The live chain now starts from the archive block.
                 Use chain_archive_verify to confirm archive integrity.
               MSG
             else

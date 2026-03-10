@@ -20,8 +20,7 @@ module KairosMcp
       # is verified separately via verify_archives.
       class Archiver
         DEFAULT_THRESHOLD = 1000
-        CHECKPOINT_TYPE = "archive_checkpoint"
-        GENESIS_PREVIOUS_HASH = "0" * 64
+        ARCHIVE_BLOCK_TYPE = "archive_block"
 
         def initialize(threshold: nil)
           @threshold = threshold || DEFAULT_THRESHOLD
@@ -92,31 +91,31 @@ module KairosMcp
           }
           save_manifest(manifest)
 
-          checkpoint_data = {
-            type:              CHECKPOINT_TYPE,
-            segment_num:       segment_num,
-            segment_filename:  segment_filename,
-            segment_hash:      segment_hash,
-            blocks_archived:   live_blocks.size,
+          archive_data = {
+            type:               ARCHIVE_BLOCK_TYPE,
+            segment_num:        segment_num,
+            segment_filename:   segment_filename,
+            segment_hash:       segment_hash,
+            blocks_archived:    live_blocks.size,
             last_archived_hash: last_hash,
-            total_segments:    manifest['segments'].size,
-            archived_at:       Time.now.utc.iso8601,
-            reason:            reason
+            total_segments:     manifest['segments'].size,
+            archived_at:        Time.now.utc.iso8601,
+            reason:             reason
           }
-          checkpoint = create_checkpoint_block(checkpoint_data)
-          save_live_chain([checkpoint.to_h])
+          archive_block = create_archive_block(archive_data, last_index: last_index, last_hash: last_hash)
+          save_live_chain([archive_block.to_h])
 
           {
-            success:              true,
-            blocks_archived:      live_blocks.size,
-            segment_filename:     segment_filename,
-            segment_hash:         segment_hash,
+            success:               true,
+            blocks_archived:       live_blocks.size,
+            segment_filename:      segment_filename,
+            segment_hash:          segment_hash,
             new_live_chain_length: 1,
-            checkpoint_hash:      checkpoint.hash
+            archive_block_hash:    archive_block.hash
           }
         end
 
-        # Verifies integrity of all archive segments.
+        # Verifies integrity of all archive segments and live chain boundary references.
         def verify_archives
           manifest = load_manifest
           segments = manifest['segments']
@@ -125,11 +124,15 @@ module KairosMcp
             return { valid: true, segments_verified: 0, message: "No archive segments found" }
           end
 
-          results = segments.map { |seg| verify_segment(seg) }
+          segment_results  = segments.map { |seg| verify_segment(seg) }
+          boundary_results = verify_live_chain_references(manifest)
+          all_valid        = (segment_results + boundary_results).all? { |r| r[:valid] }
+
           {
-            valid:              results.all? { |r| r[:valid] },
-            segments_verified:  results.size,
-            segments:           results
+            valid:             all_valid,
+            segments_verified: segment_results.size,
+            segments:          segment_results,
+            boundary_checks:   boundary_results
           }
         end
 
@@ -153,9 +156,8 @@ module KairosMcp
         end
 
         def save_live_chain(blocks)
-          path = KairosMcp.blockchain_path
-          FileUtils.mkdir_p(File.dirname(path))
-          File.write(path, JSON.pretty_generate(blocks))
+          backend = KairosMcp::Storage::Backend.default
+          backend.save_all_blocks(blocks)
         end
 
         def write_segment(path, blocks)
@@ -165,16 +167,54 @@ module KairosMcp
           end
         end
 
-        def create_checkpoint_block(data)
-          data_str = data.to_json
+        # Creates an archive block that continues the hash chain rather than resetting it.
+        # The block's previous_hash links cryptographically to the last archived block,
+        # preserving chain continuity across the archive boundary.
+        def create_archive_block(data, last_index:, last_hash:)
+          data_str    = data.to_json
           merkle_root = KairosMcp::KairosChain::MerkleTree.new([data_str]).root
           KairosMcp::KairosChain::Block.new(
-            index:         0,
+            index:         last_index + 1,
             timestamp:     Time.now.utc,
             data:          [data_str],
-            previous_hash: GENESIS_PREVIOUS_HASH,
+            previous_hash: last_hash,
             merkle_root:   merkle_root
           )
+        end
+
+        # Verifies that archive blocks in the live chain correctly reference their segments.
+        # This ensures the boundary between the live chain and archived segments is intact.
+        def verify_live_chain_references(manifest)
+          live_blocks = load_live_blocks
+          results     = []
+
+          live_blocks.each do |block|
+            data_str = (block[:data] || block['data'])&.first
+            next unless data_str
+
+            begin
+              data = JSON.parse(data_str)
+              next unless data['type'] == ARCHIVE_BLOCK_TYPE
+
+              seg_num  = data['segment_num']
+              seg_hash = data['segment_hash']
+              seg_meta = manifest['segments'].find { |s| s['segment_num'] == seg_num }
+
+              results << if seg_meta.nil?
+                           { valid: false, segment_num: seg_num,
+                             error: "Archive block references segment #{seg_num} not in manifest" }
+                         elsif seg_meta['segment_hash'] != seg_hash
+                           { valid: false, segment_num: seg_num,
+                             error: "Archive block segment_hash mismatch for segment #{seg_num}" }
+                         else
+                           { valid: true, segment_num: seg_num }
+                         end
+            rescue JSON::ParserError
+              next
+            end
+          end
+
+          results
         end
 
         def load_manifest

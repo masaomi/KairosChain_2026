@@ -119,24 +119,25 @@ test_section('3. Archiver#archive! — archives when threshold exceeded') do
   assert('blocks_archived == 12')        { result[:blocks_archived] == status_before[:live_block_count] }
   assert('segment_filename present')     { result[:segment_filename]&.start_with?('segment_') }
   assert('segment_hash is 64-char hex')  { result[:segment_hash]&.match?(/\A[0-9a-f]{64}\z/) }
-  assert('new_live_chain_length is 1')   { result[:new_live_chain_length] == 1 }
-  assert('checkpoint_hash is 64-char hex') { result[:checkpoint_hash]&.match?(/\A[0-9a-f]{64}\z/) }
+  assert('new_live_chain_length is 1')      { result[:new_live_chain_length] == 1 }
+  assert('archive_block_hash is 64-char hex') { result[:archive_block_hash]&.match?(/\A[0-9a-f]{64}\z/) }
 end
 
 test_section('4. Live chain validity after archive') do
   chain = KairosMcp::KairosChain::Chain.new
   assert('live chain is valid after archive') { chain.valid? }
-  assert('live chain has 1 block (checkpoint)') { chain.chain.size == 1 }
+  assert('live chain has 1 block (archive block)') { chain.chain.size == 1 }
 
-  # The checkpoint block must look like a genesis (index 0)
-  checkpoint = chain.chain.first
-  assert('checkpoint index is 0') { checkpoint.index == 0 }
-  assert('checkpoint previous_hash is all zeros') { checkpoint.previous_hash == '0' * 64 }
+  # The archive block continues the chain — index is last_archived_index + 1
+  archive_block = chain.chain.first
+  assert('archive block index continues the chain') { archive_block.index > 0 }
+  assert('archive block previous_hash links to archived segment') { archive_block.previous_hash != '0' * 64 }
 
-  # The data must contain archive_checkpoint type
-  data = JSON.parse(checkpoint.data.first)
-  assert('checkpoint type is archive_checkpoint') { data['type'] == 'archive_checkpoint' }
-  assert('checkpoint records blocks_archived')    { data['blocks_archived'].is_a?(Integer) }
+  # The data must contain archive_block type
+  data = JSON.parse(archive_block.data.first)
+  assert('archive block type is archive_block')    { data['type'] == 'archive_block' }
+  assert('archive block records blocks_archived')  { data['blocks_archived'].is_a?(Integer) }
+  assert('archive block embeds segment_hash')      { data['segment_hash']&.match?(/\A[0-9a-f]{64}\z/) }
 end
 
 test_section('5. New blocks can be added after archive') do
