@@ -9,6 +9,8 @@ module Autoexec
     # --- Plan Storage ---
 
     def self.save(task_id, plan, source)
+      raise ArgumentError, "Invalid task_id: must contain only word characters" unless task_id.to_s.match?(/\A\w+\z/)
+
       plans_dir = Autoexec.storage_path('plans')
       plan_path = File.join(plans_dir, "#{task_id}.kdsl")
       meta_path = File.join(plans_dir, "#{task_id}.json")

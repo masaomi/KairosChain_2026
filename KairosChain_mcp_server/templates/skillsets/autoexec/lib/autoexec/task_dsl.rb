@@ -79,8 +79,11 @@ module Autoexec
     def self.from_json(json_string)
       data = JSON.parse(json_string, symbolize_names: true)
 
-      task_id = data[:task_id]&.to_sym
-      raise ParseError, 'Missing task_id in JSON' unless task_id
+      task_id = data[:task_id]&.to_s
+      raise ParseError, 'Missing task_id in JSON' unless task_id && !task_id.empty?
+      raise ParseError, "Invalid task_id '#{task_id}': must contain only word characters" unless task_id.match?(/\A\w+\z/)
+
+      task_id = task_id.to_sym
 
       meta = TaskMeta.new(
         description: data.dig(:meta, :description) || '',

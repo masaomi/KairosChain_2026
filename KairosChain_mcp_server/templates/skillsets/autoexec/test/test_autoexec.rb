@@ -145,6 +145,28 @@ assert_raises(Autoexec::TaskDsl::ParseError, 'Should reject circular dependency'
 end
 
 # ============================================================================
+section 'TaskDsl — Path Traversal Prevention'
+# ============================================================================
+
+# Path traversal in task_id via JSON
+assert_raises(Autoexec::TaskDsl::ParseError, 'Should reject task_id with path traversal') do
+  Autoexec::TaskDsl.from_json(JSON.generate({ task_id: '../../etc/cron', steps: [] }))
+end
+
+assert_raises(Autoexec::TaskDsl::ParseError, 'Should reject task_id with slashes') do
+  Autoexec::TaskDsl.from_json(JSON.generate({ task_id: 'foo/bar', steps: [] }))
+end
+
+assert_raises(Autoexec::TaskDsl::ParseError, 'Should reject task_id with dots') do
+  Autoexec::TaskDsl.from_json(JSON.generate({ task_id: 'foo.bar', steps: [] }))
+end
+
+# Valid task_id should still work
+valid_json = JSON.generate({ task_id: 'valid_task_123', meta: { description: 'test' }, steps: [] })
+valid_plan = Autoexec::TaskDsl.from_json(valid_json)
+assert(valid_plan.task_id == :valid_task_123, 'Valid task_id should be accepted')
+
+# ============================================================================
 section 'RiskClassifier — Static Rules'
 # ============================================================================
 

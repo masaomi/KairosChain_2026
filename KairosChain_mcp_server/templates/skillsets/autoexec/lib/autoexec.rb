@@ -11,6 +11,9 @@ require_relative 'autoexec/risk_classifier'
 require_relative 'autoexec/plan_store'
 
 module Autoexec
+  SKILLSET_ROOT = File.expand_path('..', __dir__)
+  KNOWLEDGE_DIR = File.join(SKILLSET_ROOT, 'knowledge')
+
   class << self
     def load!(config_path = nil)
       return if loaded?
@@ -36,6 +39,19 @@ module Autoexec
     def config
       load! unless loaded?
       @config
+    end
+
+    def provider(user_context: nil)
+      return nil unless defined?(KairosMcp::KnowledgeProvider)
+
+      provider = KairosMcp::KnowledgeProvider.new(nil, user_context: user_context)
+      provider.add_external_dir(
+        KNOWLEDGE_DIR,
+        source: 'skillset:autoexec',
+        layer: :L1,
+        index: true
+      )
+      provider
     end
 
     def storage_path(subdir)

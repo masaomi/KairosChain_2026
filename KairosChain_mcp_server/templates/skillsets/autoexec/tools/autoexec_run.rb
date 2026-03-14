@@ -109,7 +109,7 @@ module KairosMcp
               sorted_steps = topological_sort(plan.steps)
 
               # 5a. Two-phase commit: record INTENT block before execution
-              intent_ref = record_intent(task_id, approved_hash, plan, mode)
+              intent_ref, intent_error = record_intent(task_id, approved_hash, plan, mode)
 
               # 5b. Process steps
               results = []
@@ -182,9 +182,12 @@ module KairosMcp
               }
 
               # Surface chain recording failures (not silently swallowed)
-              if chain_error
-                response[:chain_warning] = "Chain recording failed: #{chain_error}. " \
-                  'Execution result is valid but not recorded on chain.'
+              warnings = []
+              warnings << "Intent recording failed: #{intent_error}" if intent_error
+              warnings << "Outcome recording failed: #{chain_error}" if chain_error
+              unless warnings.empty?
+                response[:chain_warning] = warnings.join('; ') + '. ' \
+                  'Execution result is valid but not fully recorded on chain.'
               end
 
               if halted_at
@@ -254,8 +257,9 @@ module KairosMcp
           end
 
           # Two-phase commit: Phase 1 — record INTENT before execution
+          # Returns [ref, error] like record_outcome for consistent error surfacing
           def record_intent(task_id, plan_hash, plan, mode)
-            return nil unless defined?(KairosChain::Chain)
+            return [nil, nil] unless defined?(KairosChain::Chain)
 
             begin
               chain = KairosChain::Chain.new
@@ -268,10 +272,10 @@ module KairosMcp
                 timestamp: Time.now.iso8601
               })
               block = chain.add_block([log_entry])
-              block&.hash
+              [block&.hash, nil]
             rescue StandardError => e
               warn "[autoexec] Intent recording failed: #{e.message}"
-              nil
+              [nil, e.message]
             end
           end
 
