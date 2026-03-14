@@ -65,6 +65,37 @@ assert(plan.steps[2].requires_human_cognition == true, 'Step three requires huma
 assert(!plan.source_hash.nil?, 'Source hash should be computed')
 
 # ============================================================================
+section 'TaskDsl — Colons in Action Strings'
+# ============================================================================
+
+colon_dsl = <<~DSL
+  task :colon_test do
+    step :s1, action: "run command: echo hello", risk: :low
+    step :s2, action: "check status: pending items", risk: :medium, depends_on: [:s1]
+    step :s3, action: "URL: https://example.com test", risk: :low, depends_on: [:s2]
+  end
+DSL
+
+colon_plan = Autoexec::TaskDsl.parse(colon_dsl)
+assert(colon_plan.steps.size == 3, 'Colons in actions: should have 3 steps')
+assert(colon_plan.steps[0].action == 'run command: echo hello', 'Action with colon should be preserved')
+assert(colon_plan.steps[1].action == 'check status: pending items', 'Action with colon+space should be preserved')
+assert(colon_plan.steps[2].action == 'URL: https://example.com test', 'Action with URL-like colon should be preserved')
+
+# Roundtrip with colons
+colon_source = Autoexec::TaskDsl.to_source(colon_plan)
+colon_plan2 = Autoexec::TaskDsl.parse(colon_source)
+assert(colon_plan2.steps[0].action == colon_plan.steps[0].action, 'Colon roundtrip: action preserved')
+
+# JSON with colons
+colon_json = JSON.generate({
+  task_id: 'colon_json_test',
+  steps: [{ step_id: 's1', action: 'deploy to server: production', risk: 'medium' }]
+})
+colon_json_plan = Autoexec::TaskDsl.from_json(colon_json)
+assert(colon_json_plan.steps[0].action == 'deploy to server: production', 'JSON colon action preserved')
+
+# ============================================================================
 section 'TaskDsl — Roundtrip (parse -> to_source -> parse)'
 # ============================================================================
 

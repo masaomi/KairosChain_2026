@@ -94,9 +94,11 @@ module KairosMcp
             end
 
             # 3. Acquire execution lock (Day-1 #4)
-            ::Autoexec::PlanStore.acquire_lock(task_id)
-
+            lock_acquired = false
             begin
+              ::Autoexec::PlanStore.acquire_lock(task_id)
+              lock_acquired = true
+
               # 4. Check for checkpoint (resume from halted step)
               checkpoint = ::Autoexec::PlanStore.load_checkpoint(task_id)
               completed_step_ids = if checkpoint && checkpoint[:task_id] == task_id.to_s
@@ -169,12 +171,16 @@ module KairosMcp
               ::Autoexec::PlanStore.update_status(task_id, "#{mode}_#{status}")
 
               # 8. Build response (merged autoexec_status functionality)
+              newly_completed = results.count { |r| r[:status] != 'already_completed' }
+              previously_completed = results.count { |r| r[:status] == 'already_completed' }
               response = {
                 task_id: task_id,
                 mode: mode,
                 plan_hash: approved_hash,
                 outcome: halted_at ? 'halted' : (mode == 'dry_run' ? 'dry_run_complete' : 'delegated'),
-                steps_completed: results.size,
+                steps_processed: results.size,
+                steps_newly_completed: newly_completed,
+                steps_previously_completed: previously_completed,
                 steps_remaining: sorted_steps.size - results.size,
                 steps: results,
                 chain_ref: chain_ref,
@@ -201,14 +207,10 @@ module KairosMcp
 
               text_content(JSON.pretty_generate(response))
             ensure
-              # Always release lock
-              ::Autoexec::PlanStore.release_lock
+              # Release lock only if we acquired it
+              ::Autoexec::PlanStore.release_lock if lock_acquired
             end
-          rescue RuntimeError => e
-            # Lock acquisition failure
-            text_content(JSON.pretty_generate({ error: e.message, task_id: task_id }))
           rescue StandardError => e
-            ::Autoexec::PlanStore.release_lock
             text_content(JSON.pretty_generate({ error: e.message, type: e.class.name }))
           end
 

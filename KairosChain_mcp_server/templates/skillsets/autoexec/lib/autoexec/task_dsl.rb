@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require 'digest'
+require 'json'
+
 module Autoexec
   # Immutable data structures for task plans
   TaskPlan = Struct.new(:task_id, :meta, :steps, :source_hash, keyword_init: true) do
@@ -229,10 +232,12 @@ module Autoexec
         requires_human_cognition = cognition_match ? cognition_match[1] == 'true' : false
 
         raise ParseError, "Invalid risk '#{risk}' for step #{step_id}" unless ALLOWED_RISK_VALUES.include?(risk)
+        raise ParseError, "Empty action for step #{step_id}" if action.empty? && action_match.nil?
 
-        # Check for unknown keys
+        # Check for unknown keys (strip quoted strings first to avoid false positives)
         known_keys = %w[action risk depends_on requires_human_cognition]
-        rest.scan(/(\w+):/).each do |key_match|
+        rest_without_strings = rest.gsub(/"[^"]*"/, '""')
+        rest_without_strings.scan(/(\w+):/).each do |key_match|
           key = key_match[0]
           unless known_keys.include?(key)
             raise ParseError, "Unknown step key '#{key}' in step #{step_id}. Allowed: #{known_keys.join(', ')}"
