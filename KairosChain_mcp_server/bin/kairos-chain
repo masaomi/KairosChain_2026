@@ -452,7 +452,7 @@ if options[:init_admin]
   if options[:token_output_file]
     require 'fileutils'
     FileUtils.mkdir_p(File.dirname(options[:token_output_file]))
-    File.write(options[:token_output_file], result['raw_token'])
+    File.write(options[:token_output_file], result[:raw_token] || result['raw_token'])
     File.chmod(0600, options[:token_output_file])
     $stderr.puts "[init-admin] Token written to: #{options[:token_output_file]}"
   end
@@ -466,10 +466,10 @@ if options[:init_admin]
   $stderr.puts "  KairosChain Admin Token Generated"
   $stderr.puts "=" * 60
   $stderr.puts ""
-  $stderr.puts "  Token: #{result['raw_token']}"
-  $stderr.puts "  User:  #{result['user']}"
-  $stderr.puts "  Role:  #{result['role']}"
-  $stderr.puts "  Expires: #{result['expires_at'] || 'never'}"
+  $stderr.puts "  Token: #{result[:raw_token] || result['raw_token']}"
+  $stderr.puts "  User:  #{result[:user] || result['user']}"
+  $stderr.puts "  Role:  #{result[:role] || result['role']}"
+  $stderr.puts "  Expires: #{result[:expires_at] || result['expires_at'] || 'never'}"
   $stderr.puts ""
   $stderr.puts "  IMPORTANT: Store this token securely."
   $stderr.puts "  It will NOT be shown again."
