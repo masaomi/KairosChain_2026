@@ -102,6 +102,7 @@ module KairosMcp
             connect_result = client.connect
             agent_id = connect_result[:agent_id] || identity.introduce.dig(:identity, :instance_id)
             verified = connect_result[:identity_verified]
+            session_token = connect_result[:session_token]
 
             place_info = http_get("#{url}/place/v1/info") || { 'name' => 'Unknown' }
 
@@ -113,9 +114,21 @@ module KairosMcp
               agents = agents.select { |a| filter_caps.empty? || (a[:capabilities] || a['capabilities'] || []).is_a?(Hash) || filter_caps.empty? } unless filter_caps.empty?
             end
 
+            # Also perform MMP introduce handshake to get a meeting session token
+            # for accessing /meeting/v1/* endpoints on the Place
+            meeting_session_token = nil
+            begin
+              intro = identity.introduce
+              intro_result = http_post("#{url}/meeting/v1/introduce", intro)
+              meeting_session_token = intro_result[:session_token] if intro_result
+            rescue StandardError
+              # Non-fatal: skill exchange may still work without this
+            end
+
             {
               status: 'connected', mode: 'relay', url: url, relay_mode: true,
               identity_verified: verified,
+              session_token: meeting_session_token,
               meeting_place: { url: url, name: place_info['name'] || place_info[:name] || 'Meeting Place' },
               self_agent_id: agent_id,
               peers: agents.map { |a| { agent_id: a[:id] || a['id'], name: a[:name] || a['name'], endpoint: a[:endpoint] || a['endpoint'], skills: [] } },

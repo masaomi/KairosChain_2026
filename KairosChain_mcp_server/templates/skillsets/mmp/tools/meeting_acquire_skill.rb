@@ -69,11 +69,11 @@ module KairosMcp
               url = connection['url'] || connection[:url]
               endpoint = peer['endpoint'] || peer[:endpoint]
 
-              content_result = if relay_mode
-                get_skill_from_relay(url, skill_id)
-              else
-                get_skill_direct(endpoint, skill_id)
-              end
+              # Use peer's endpoint if available, otherwise fall back to
+              # the connection URL (e.g. Meeting Place's own MMP endpoint)
+              target = endpoint || url
+              token = connection['session_token'] || connection[:session_token]
+              content_result = get_skill_direct(target, skill_id, bearer_token: token)
 
               unless content_result[:success]
                 return text_content(JSON.pretty_generate({ error: 'Failed to receive skill', message: content_result[:error] }))
@@ -131,12 +131,13 @@ module KairosMcp
             { success: false, error: e.message }
           end
 
-          def get_skill_direct(endpoint, skill_id)
+          def get_skill_direct(endpoint, skill_id, bearer_token: nil)
             uri = URI.parse("#{endpoint}/meeting/v1/skill_content")
             http = Net::HTTP.new(uri.host, uri.port)
             http.open_timeout = 5; http.read_timeout = 10
             req = Net::HTTP::Post.new(uri.path)
             req['Content-Type'] = 'application/json'
+            req['Authorization'] = "Bearer #{bearer_token}" if bearer_token
             req.body = JSON.generate({ skill_id: skill_id })
             response = http.request(req)
             if response.is_a?(Net::HTTPSuccess)

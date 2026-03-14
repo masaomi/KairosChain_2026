@@ -66,11 +66,11 @@ module KairosMcp
               url = connection['url'] || connection[:url]
               endpoint = peer['endpoint'] || peer[:endpoint]
 
-              details = if relay_mode
-                get_details_relay(url, skill_id)
-              else
-                get_details_direct(endpoint, skill_id)
-              end
+              # In relay mode, use the peer's endpoint if available,
+              # otherwise fall back to the connection URL (Meeting Place itself)
+              target = endpoint || url
+              token = connection['session_token'] || connection[:session_token]
+              details = get_details_direct(target, skill_id, bearer_token: token)
 
               unless details
                 return text_content(JSON.pretty_generate({ error: "Skill not found: #{skill_id}" }))
@@ -116,11 +116,13 @@ module KairosMcp
           rescue StandardError; nil
           end
 
-          def get_details_direct(endpoint, skill_id)
+          def get_details_direct(endpoint, skill_id, bearer_token: nil)
             uri = URI.parse("#{endpoint}/meeting/v1/skill_details?skill_id=#{URI.encode_www_form_component(skill_id)}")
             http = Net::HTTP.new(uri.host, uri.port)
             http.open_timeout = 3; http.read_timeout = 5
-            response = http.get(uri.request_uri)
+            req = Net::HTTP::Get.new(uri)
+            req['Authorization'] = "Bearer #{bearer_token}" if bearer_token
+            response = http.request(req)
             response.is_a?(Net::HTTPSuccess) ? JSON.parse(response.body, symbolize_names: true) : nil
           rescue StandardError; nil
           end
