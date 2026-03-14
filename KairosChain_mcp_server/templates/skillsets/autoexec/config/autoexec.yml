@@ -1,0 +1,75 @@
+# AutoExec SkillSet Configuration
+# Semi-autonomous task planning and execution
+
+# Default execution mode: dry_run or execute
+default_mode: dry_run
+
+# Maximum steps per task plan
+max_steps: 20
+
+# Maximum concurrent tasks (enforced by execution mutex)
+max_concurrent: 1
+
+# Stale lock timeout in seconds (3600 = 1 hour)
+stale_lock_timeout: 3600
+
+# Loop detection thresholds
+loop_detection:
+  generic_repeat:
+    warn: 5
+    halt: 10
+  poll_no_progress:
+    warn: 3
+    halt: 5
+  ping_pong:
+    warn: 4
+    halt: 8
+  replan_cycle:
+    warn: 2
+    halt: 3
+
+# Risk classification defaults
+risk_defaults:
+  read: low
+  search: low
+  analyze: low
+  edit: medium
+  create: medium
+  test: medium
+  delete: high
+  push: high
+  deploy: high
+
+# L0 deny-list (hardcoded, cannot be overridden)
+# These operations are NEVER allowed regardless of risk classification
+# l0_deny_list:
+#   - l0_evolution
+#   - chain_modification
+#   - skill_deletion
+
+# Content firewall
+content_firewall:
+  enabled: true
+  block_on_detection: true  # false = warn only (NOT recommended)
+
+# Runtime boundary
+runtime_boundary:
+  enabled: true
+  network_allowlist_mode: true  # only declared URLs allowed
+  forbidden_read_paths:
+    - "~/.ssh"
+    - "~/.aws"
+    - "~/.gnupg"
+    - "~/.config/gcloud"
+    - "/etc/shadow"
+  forbidden_write_paths:
+    - "/dev/"
+    - "/proc/"
+    - "/sys/"
+    - "/boot/"
+
+# Storage paths (relative to .kairos/)
+storage:
+  plans_dir: "autoexec/plans"
+  state_dir: "autoexec/state"
+  violations_dir: "autoexec/violations"
