@@ -1,0 +1,23 @@
+{
+  "name": "autoexec",
+  "version": "0.1.0",
+  "description": "Semi-autonomous task planning and execution with constitutive chain recording. Plans tasks as structured DSL, executes with graduated approval, records each step to blockchain. Includes content firewall and runtime boundary for security.",
+  "author": "Dr. Masa Hatakeyama",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": [
+    "task_planning",
+    "task_execution",
+    "execution_recording",
+    "content_firewall",
+    "runtime_boundary"
+  ],
+  "tool_classes": [
+    "KairosMcp::SkillSets::Autoexec::Tools::AutoexecPlan",
+    "KairosMcp::SkillSets::Autoexec::Tools::AutoexecRun",
+    "KairosMcp::SkillSets::Autoexec::Tools::AutoexecStatus"
+  ],
+  "config_files": ["config/autoexec.yml"],
+  "knowledge_dirs": ["knowledge/autoexec_guide"],
+  "min_core_version": "2.8.0"
+}
