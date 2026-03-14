@@ -60,7 +60,8 @@ module Autoexec
       plans_dir = Autoexec.storage_path('plans')
       Dir.glob(File.join(plans_dir, '*.json')).map do |meta_path|
         JSON.parse(File.read(meta_path), symbolize_names: true)
-      rescue JSON::ParserError
+      rescue JSON::ParserError => e
+        warn "[autoexec] Corrupted metadata file: #{meta_path} (#{e.message})"
         nil
       end.compact
     end
