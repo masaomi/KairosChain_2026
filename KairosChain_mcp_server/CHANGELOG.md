@@ -4,6 +4,31 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.9.0] - 2026-03-14
+
+### Added
+
+- **AutoExec SkillSet** (`autoexec` v0.1.1): New opt-in SkillSet for semi-autonomous task planning and execution with constitutive chain recording.
+  - `autoexec_plan`: Generate structured task plans from natural language descriptions. Outputs `.kdsl` DSL files with SHA-256 hash-locked integrity. Supports DSL and JSON input formats.
+  - `autoexec_run`: Execute planned tasks with graduated approval (`dry_run` default, `execute`, `status` modes). Two-phase commit records intent before and outcome after execution. Checkpoint resume for halted tasks.
+  - **Regex DSL parser**: No `eval`, no `BasicObject` sandbox — 18 forbidden patterns checked before parsing. Roundtrip-safe (`parse` → `to_source` → `parse`).
+  - **Risk classifier**: Static rule-based risk classification (low/medium/high) with L0 deny-list (read from L0 governance skill, self-referential design), protected file detection, and L0 firewall.
+  - **Plan store**: File-based plan storage with atomic execution lock (`File::CREAT|EXCL|WRONLY`), PID liveness checks, stale lock timeout, and checkpoint management.
+  - **`requires_human_cognition`**: Step-level halt for human cognitive participation (constitutive, not cautionary — Proposition 9). Saves checkpoint and resumes on re-run.
+  - **TOCTOU prevention**: Single load + in-memory hash verification (no separate verify then load).
+  - **Chain recording**: Two-phase commit with intent block before execution and outcome block after (validity-conditional recording, Proposition 5). Chain failures surfaced in response, never silently swallowed.
+  - **Path traversal prevention**: `task_id` validated with `\A\w+\z` in both DSL and JSON input paths.
+  - Bundled L1 knowledge: `autoexec_guide` (usage guide with examples)
+  - 75 unit tests across TaskDsl, RiskClassifier, and PlanStore
+
+### Fixed
+
+- **TaskDsl colon false-positive**: Unknown key scanner no longer matches colons inside quoted action strings (e.g., `"run command: echo hello"`)
+- **TaskDsl missing requires**: Added `require 'digest'` and `require 'json'` for module independence
+- **AutoexecRun lock release**: Moved `acquire_lock` inside `begin/ensure` block with `lock_acquired` flag to guarantee lock release on any exception
+
+---
+
 ## [2.8.0] - 2026-03-08
 
 ### Added
@@ -371,6 +396,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Skill promotion with Persona Assembly
 - Tool guide and metadata system
 
+[2.9.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.8.0...v2.9.0
 [2.8.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.7.0...v2.8.0
 [2.7.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.6.0...v2.7.0
 [2.6.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.5.0...v2.6.0

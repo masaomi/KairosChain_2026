@@ -9,6 +9,7 @@ Echoria/
 Who_read_this_story_2025/
 who_read_this_story_2026/
 command.log
+openclaw/
 
 # Vector search index files (auto-generated)
 KairosChain_mcp_server/storage/embeddings/**/*.ann
