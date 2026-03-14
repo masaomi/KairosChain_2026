@@ -38,6 +38,9 @@ KairosChain_mcp_server/keys/
 KairosChain_mcp_server/*.gem
 KairosChain_mcp_server/pkg/
 
+# Docker environment (contains passwords)
+docker/.env
+
 # Runtime data directory (created by `kairos_mcp_server init`)
 .kairos/
 
