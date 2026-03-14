@@ -57,6 +57,13 @@ module MMP
       available_skills.select { |s| s[:public] }
     end
 
+    # Public accessor for the Identity's crypto instance.
+    # Ensures the same keypair is used for signing and verification.
+    def crypto
+      crypto_available?
+      @crypto
+    end
+
     private
 
     def identity_info
@@ -196,9 +203,5 @@ module MMP
       !@crypto.nil?
     end
 
-    def crypto
-      crypto_available?
-      @crypto
-    end
   end
 end

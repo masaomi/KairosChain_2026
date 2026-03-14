@@ -83,15 +83,16 @@ module KairosMcp
 
           def connect_relay(url, config, filter_caps)
             identity = ::MMP::Identity.new(config: config)
-            crypto = ::MMP::Crypto.new(
-              keypair_path: config.dig('crypto', 'keypair_path'),
-              auto_generate: config.dig('crypto', 'auto_generate') != false
-            )
+            # Use Identity's own crypto to ensure the same keypair is used
+            # for both signing (in PlaceClient.register) and the public key
+            # attached to the introduction. Identity handles key generation,
+            # saving, and loading from the correct path.
+            identity_crypto = identity.crypto
 
             client = ::MMP::PlaceClient.new(
               place_url: url,
               identity: identity,
-              crypto: crypto,
+              crypto: identity_crypto,
               config: {
                 max_session_minutes: config.dig('meeting_place', 'max_session_minutes') || 120,
                 warn_after_interactions: config.dig('meeting_place', 'warn_after_interactions') || 50
