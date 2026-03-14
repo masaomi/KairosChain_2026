@@ -30,12 +30,12 @@ module KairosMcp
       end
 
       def call(arguments)
-        unless defined?(Multiuser) && Multiuser.loaded?
+        unless defined?(::Multiuser) && ::Multiuser.loaded?
           return format_result({ error: 'Multiuser SkillSet is not loaded' })
         end
 
         command = arguments['command']
-        tm = Multiuser.tenant_manager
+        tm = ::Multiuser.tenant_manager
 
         result = case command
                  when 'status'

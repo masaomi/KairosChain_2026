@@ -24,8 +24,8 @@ module KairosMcp
       end
 
       def call(_arguments)
-        unless defined?(Multiuser) && Multiuser.loaded?
-          error_info = defined?(Multiuser) ? Multiuser.load_error : nil
+        unless defined?(::Multiuser) && ::Multiuser.loaded?
+          error_info = defined?(::Multiuser) ? ::Multiuser.load_error : nil
           diagnosis = if error_info
                         error_info
                       else
@@ -49,7 +49,7 @@ module KairosMcp
           })
         end
 
-        pool = Multiuser.pool
+        pool = ::Multiuser.pool
         pg_ok = begin
           pool.with_connection { |c| c.exec("SELECT 1") }
           true
@@ -57,8 +57,8 @@ module KairosMcp
           false
         end
 
-        tenants = Multiuser.tenant_manager.list_tenants rescue []
-        user_count = Multiuser.user_registry.count rescue 0
+        tenants = ::Multiuser.tenant_manager.list_tenants rescue []
+        user_count = ::Multiuser.user_registry.count rescue 0
 
         format_result({
           enabled: true,
