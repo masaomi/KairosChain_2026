@@ -23,12 +23,12 @@ module Multiuser
           conn.exec("BEGIN")
           conn.exec("SET LOCAL search_path TO #{PG::Connection.quote_ident(schema)}")
           conn.exec(sql)
-          conn.exec("COMMIT")
-
+          conn.exec("SET LOCAL search_path TO public")
           conn.exec_params(
             "INSERT INTO tenant_migrations (tenant_schema, version) VALUES ($1, $2)",
             [schema, '002_tenant_template']
           )
+          conn.exec("COMMIT")
         end
       rescue => e
         conn&.exec("ROLLBACK") rescue nil
@@ -148,12 +148,12 @@ module Multiuser
           conn.exec("BEGIN")
           conn.exec("SET LOCAL search_path TO #{PG::Connection.quote_ident(schema)}")
           conn.exec(File.read(file))
-          conn.exec("COMMIT")
-
+          conn.exec("SET LOCAL search_path TO public")
           conn.exec_params(
             "INSERT INTO tenant_migrations (tenant_schema, version) VALUES ($1, $2)",
             [schema, version]
           )
+          conn.exec("COMMIT")
         rescue => e
           conn&.exec("ROLLBACK") rescue nil
           raise

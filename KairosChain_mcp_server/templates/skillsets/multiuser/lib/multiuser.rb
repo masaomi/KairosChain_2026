@@ -65,6 +65,7 @@ module Multiuser
       KairosMcp.register_path_resolver(:multiuser_tenant) do |type, user_context|
         next nil unless user_context&.dig(:tenant_schema)
         tenant_id = user_context[:tenant_schema]
+        next nil unless tenant_id.match?(PgConnectionPool::TENANT_SCHEMA_PATTERN)
         base = File.join(KairosMcp.data_dir, 'tenants', tenant_id)
         case type
         when :knowledge then File.join(base, 'knowledge')
@@ -128,8 +129,10 @@ module Multiuser
         details: details,
         timestamp: Time.now.iso8601
       }.to_json])
+      nil
     rescue StandardError => e
       $stderr.puts "[Multiuser] Failed to record system event: #{e.message}"
+      "chain_recording_failed: #{e.message}"
     end
 
     private

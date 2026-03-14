@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
 require 'digest'
+require 'json'
 require 'securerandom'
+require 'time'
 
 module Multiuser
   # PostgreSQL-backed TokenStore with same public API as Auth::TokenStore
@@ -34,14 +36,14 @@ module Multiuser
       end
 
       {
-        'raw_token' => raw_token,
-        'token_hash' => token_hash,
-        'user' => user,
-        'role' => role,
-        'issued_at' => now.iso8601,
-        'expires_at' => expires_at&.iso8601,
-        'issued_by' => issued_by,
-        'status' => 'active'
+        raw_token: raw_token,
+        token_hash: token_hash,
+        user: user,
+        role: role,
+        issued_at: now.iso8601,
+        expires_at: expires_at&.iso8601,
+        issued_by: issued_by,
+        status: 'active'
       }
     end
 
@@ -122,14 +124,14 @@ module Multiuser
 
         conn.exec("COMMIT")
         {
-          'raw_token' => token,
-          'token_hash' => token_hash,
-          'user' => user,
-          'role' => role,
-          'issued_at' => now.iso8601,
-          'expires_at' => expires_at,
-          'issued_by' => issued_by,
-          'status' => 'active'
+          raw_token: token,
+          token_hash: token_hash,
+          user: user,
+          role: role,
+          issued_at: now.iso8601,
+          expires_at: expires_at,
+          issued_by: issued_by,
+          status: 'active'
         }
       rescue => e
         conn&.exec("ROLLBACK") rescue nil

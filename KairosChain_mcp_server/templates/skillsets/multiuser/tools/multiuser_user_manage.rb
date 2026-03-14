@@ -1,8 +1,12 @@
 # frozen_string_literal: true
 
+require 'json'
+
 module KairosMcp
-  module Tools
-    class MultiuserUserManage < BaseTool
+  module SkillSets
+    module Multiuser
+      module Tools
+        class MultiuserUserManage < KairosMcp::Tools::BaseTool
       def name
         'multiuser_user_manage'
       end
@@ -71,8 +75,8 @@ module KairosMcp
                      status: 'created',
                      user: user,
                      token: {
-                       raw_token: token['raw_token'],
-                       expires_at: token['expires_at'],
+                       raw_token: token[:raw_token],
+                       expires_at: token[:expires_at],
                        note: 'Save this token securely. It cannot be retrieved again.'
                      }
                    }
@@ -100,6 +104,8 @@ module KairosMcp
 
       def format_result(data)
         [{ type: 'text', text: JSON.pretty_generate(data) }]
+      end
+        end
       end
     end
   end

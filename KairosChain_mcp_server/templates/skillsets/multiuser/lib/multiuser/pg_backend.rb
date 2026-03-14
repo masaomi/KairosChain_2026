@@ -83,7 +83,30 @@ module Multiuser
     end
 
     def save_all_blocks(blocks)
-      blocks.each { |block| save_block(block) }
+      schema = current_schema
+      return false unless schema
+
+      @pool.with_tenant_connection(schema) do |conn|
+        blocks.each do |block|
+          data = block.is_a?(Hash) ? block : block.to_h
+          conn.exec_params(
+            "INSERT INTO blocks (block_index, timestamp, data, previous_hash, merkle_root, hash) " \
+            "VALUES ($1, $2, $3, $4, $5, $6) " \
+            "ON CONFLICT (block_index) DO UPDATE SET " \
+            "timestamp = EXCLUDED.timestamp, data = EXCLUDED.data, " \
+            "previous_hash = EXCLUDED.previous_hash, merkle_root = EXCLUDED.merkle_root, " \
+            "hash = EXCLUDED.hash",
+            [
+              data[:index],
+              data[:timestamp].to_s,
+              data[:data].to_json,
+              data[:previous_hash],
+              data[:merkle_root],
+              data[:hash]
+            ]
+          )
+        end
+      end
       true
     rescue => e
       warn "[PgBackend] Failed to save all blocks: #{e.message}"

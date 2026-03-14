@@ -63,7 +63,10 @@ module Multiuser
       conn = checkout
       yield conn
     ensure
-      checkin(conn) if conn
+      if conn
+        conn.exec("ROLLBACK") if conn.transaction_status != PG::PQTRANS_IDLE rescue nil
+        checkin(conn)
+      end
     end
 
     def close_all

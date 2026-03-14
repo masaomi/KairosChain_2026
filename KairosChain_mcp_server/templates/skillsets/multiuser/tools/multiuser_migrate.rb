@@ -1,8 +1,12 @@
 # frozen_string_literal: true
 
+require 'json'
+
 module KairosMcp
-  module Tools
-    class MultiuserMigrate < BaseTool
+  module SkillSets
+    module Multiuser
+      module Tools
+        class MultiuserMigrate < KairosMcp::Tools::BaseTool
       def name
         'multiuser_migrate'
       end
@@ -76,6 +80,8 @@ module KairosMcp
 
       def format_result(data)
         [{ type: 'text', text: JSON.pretty_generate(data) }]
+      end
+        end
       end
     end
   end

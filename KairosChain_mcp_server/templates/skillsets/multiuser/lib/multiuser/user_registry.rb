@@ -24,14 +24,16 @@ module Multiuser
         )
       end
 
-      Multiuser.record_system_event(
+      chain_warning = Multiuser.record_system_event(
         action: 'user_registered',
         actor: actor,
         target: username,
         details: { role: role, tenant_schema: schema }
       )
 
-      { username: username, role: role, tenant_schema: schema }
+      result = { username: username, role: role, tenant_schema: schema }
+      result[:chain_warning] = chain_warning if chain_warning
+      result
     end
 
     def find(username)
@@ -62,14 +64,16 @@ module Multiuser
         raise ArgumentError, "User not found: #{username}" if result.ntuples == 0
       end
 
-      Multiuser.record_system_event(
+      chain_warning = Multiuser.record_system_event(
         action: 'user_role_changed',
         actor: actor,
         target: username,
         details: { new_role: new_role }
       )
 
-      { username: username, role: new_role }
+      result = { username: username, role: new_role }
+      result[:chain_warning] = chain_warning if chain_warning
+      result
     end
 
     def delete(username, actor: 'system')
@@ -84,14 +88,16 @@ module Multiuser
 
       tenant_manager.drop_tenant(schema, actor: actor) if schema && tenant_manager.tenant_exists?(schema)
 
-      Multiuser.record_system_event(
+      chain_warning = Multiuser.record_system_event(
         action: 'user_deleted',
         actor: actor,
         target: username,
         details: { tenant_schema: schema }
       )
 
-      { username: username, deleted: true }
+      result = { username: username, deleted: true }
+      result[:chain_warning] = chain_warning if chain_warning
+      result
     end
 
     def count

@@ -1,8 +1,12 @@
 # frozen_string_literal: true
 
+require 'json'
+
 module KairosMcp
-  module Tools
-    class MultiuserStatus < BaseTool
+  module SkillSets
+    module Multiuser
+      module Tools
+        class MultiuserStatus < KairosMcp::Tools::BaseTool
       def name
         'multiuser_status'
       end
@@ -78,6 +82,8 @@ module KairosMcp
 
       def format_result(data)
         [{ type: 'text', text: JSON.pretty_generate(data) }]
+      end
+        end
       end
     end
   end
