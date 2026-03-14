@@ -82,26 +82,42 @@ module KairosMcp
           end
 
           def connect_relay(url, config, filter_caps)
-            agent_id = generate_agent_id(config)
+            identity = ::MMP::Identity.new(config: config)
+            crypto = ::MMP::Crypto.new(
+              keypair_path: config.dig('crypto', 'keypair_path'),
+              auto_generate: config.dig('crypto', 'auto_generate') != false
+            )
+
+            client = ::MMP::PlaceClient.new(
+              place_url: url,
+              identity: identity,
+              crypto: crypto,
+              config: {
+                max_session_minutes: config.dig('meeting_place', 'max_session_minutes') || 120,
+                warn_after_interactions: config.dig('meeting_place', 'warn_after_interactions') || 50
+              }
+            )
+
+            connect_result = client.connect
+            agent_id = connect_result[:agent_id] || identity.introduce.dig(:identity, :instance_id)
+            verified = connect_result[:identity_verified]
 
             place_info = http_get("#{url}/place/v1/info") || { 'name' => 'Unknown' }
 
-            register_result = http_post("#{url}/place/v1/register", {
-              agent_id: agent_id,
-              name: config.dig('identity', 'name') || 'KairosChain Instance',
-              capabilities: config.dig('capabilities', 'supported_actions') || ['meeting_protocol']
-            })
-
-            agents_data = http_get("#{url}/place/v1/agents") || { agents: [] }
-            agents = (agents_data[:agents] || agents_data['agents'] || [])
-            agents = agents.reject { |a| (a['id'] || a[:id]) == agent_id }
-            agents = agents.select { |a| filter_caps.empty? || (a['capabilities'] || []).any? { |c| filter_caps.include?(c) } }
+            agents = []
+            if verified && client.connected
+              agents_data = client.list_agents || { agents: [] }
+              agents = (agents_data[:agents] || [])
+              agents = agents.reject { |a| (a[:id] || a['id']) == agent_id }
+              agents = agents.select { |a| filter_caps.empty? || (a[:capabilities] || a['capabilities'] || []).is_a?(Hash) || filter_caps.empty? } unless filter_caps.empty?
+            end
 
             {
               status: 'connected', mode: 'relay', url: url, relay_mode: true,
+              identity_verified: verified,
               meeting_place: { url: url, name: place_info['name'] || place_info[:name] || 'Meeting Place' },
               self_agent_id: agent_id,
-              peers: agents.map { |a| { agent_id: a['id'] || a[:id], name: a['name'] || a[:name], endpoint: a['endpoint'] || a[:endpoint], skills: [] } },
+              peers: agents.map { |a| { agent_id: a[:id] || a['id'], name: a[:name] || a['name'], endpoint: a[:endpoint] || a['endpoint'], skills: [] } },
               hint: agents.empty? ? 'No peers found. Wait for others to connect.' : 'Use meeting_get_skill_details to learn about a skill.'
             }
           end

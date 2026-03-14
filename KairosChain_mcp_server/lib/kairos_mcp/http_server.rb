@@ -300,11 +300,9 @@ module KairosMcp
     def check_tokens!
       if @token_store.empty?
         $stderr.puts <<~MSG
-          [WARNING] No active tokens found.
-          No clients will be able to connect without a valid token.
-
-          Generate an admin token with:
-            kairos-chain --init-admin
+          [INFO] Local dev mode: no tokens configured.
+          MCP endpoint accepts unauthenticated requests as local owner.
+          For production, generate a token with: kairos-chain --init-admin
 
         MSG
       end
