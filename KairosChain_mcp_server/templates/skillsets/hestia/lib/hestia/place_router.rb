@@ -46,11 +46,17 @@ module Hestia
       @session_store = session_store
       @trust_anchor_client = trust_anchor_client
       @registry = AgentRegistry.new(registry_path: registry_path, config: place_config)
-      deposit_policy = place_config['deposit_policy'] || {}
-      @skill_board = SkillBoard.new(registry: @registry, config: deposit_policy)
-
       intro = identity.introduce
       @self_id = intro.dig(:identity, :instance_id)
+
+      deposit_policy = place_config['deposit_policy'] || {}
+      deposit_storage = place_config['deposit_storage_path'] || 'storage/skill_board_state.json'
+      @skill_board = SkillBoard.new(
+        registry: @registry,
+        config: deposit_policy,
+        storage_path: deposit_storage,
+        self_place_id: @self_id
+      )
 
       @heartbeat_manager = HeartbeatManager.new(
         registry: @registry,
@@ -131,6 +137,9 @@ module Hestia
     # Status info (for MCP tool).
     def status
       return { started: false } unless @started
+
+      # Flush dirty exchange counts to disk
+      @skill_board.flush_if_dirty
 
       # Run heartbeat check
       heartbeat_result = @heartbeat_manager.check_all
@@ -337,7 +346,8 @@ module Hestia
         format: body['format'],
         content: body['content'],
         content_hash: body['content_hash'],
-        signature: body['signature']
+        signature: body['signature'],
+        provenance: body['provenance'] ? symbolize_provenance(body['provenance']) : nil
       }
 
       # Get depositor's public key from registry for signature verification
@@ -484,6 +494,17 @@ module Hestia
       URI.decode_www_form(query).to_h
     rescue StandardError
       {}
+    end
+
+    def symbolize_provenance(prov)
+      return nil unless prov.is_a?(Hash)
+      {
+        origin_place_id: prov['origin_place_id'],
+        origin_agent_id: prov['origin_agent_id'],
+        via: prov['via'] || [],
+        hop_count: prov['hop_count'].to_i,
+        deposited_at_origin: prov['deposited_at_origin']
+      }
     end
 
     def json_response(status, body)

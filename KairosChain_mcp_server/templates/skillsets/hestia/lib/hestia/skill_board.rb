@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require 'digest'
+require 'fileutils'
+require 'json'
 
 module Hestia
   # SkillBoard aggregates skills from registered agents and deposited skills.
@@ -23,13 +25,18 @@ module Hestia
     DEFAULT_MAX_SKILLS_PER_AGENT = 20
     DEFAULT_MAX_TOTAL_DEPOSITS = 500
 
-    def initialize(registry:, config: {})
+    def initialize(registry:, config: {}, storage_path: nil, self_place_id: nil)
       @registry = registry
       @posted_needs = []
       @deposited_skills = []
       @deposit_config = config
       @exchange_counts = {}  # internal_key => count
       @total_exchange_count = 0
+      @self_place_id = self_place_id
+      @storage_path = storage_path || 'storage/skill_board_state.json'
+      @content_dir = File.join(File.dirname(@storage_path), 'deposits')
+      @state_dirty = false
+      load_state
     end
 
     # Deposit a skill to the Place. Validates format, size, hash, and signature.
@@ -48,6 +55,9 @@ module Hestia
       # Replace existing deposit of same skill from same agent
       @deposited_skills.reject! { |d| d[:internal_key] == internal_key }
 
+      now = Time.now.utc.iso8601
+      provenance = build_provenance(skill[:provenance], agent_id, now)
+
       @deposited_skills << {
         internal_key: internal_key,
         agent_id: agent_id,
@@ -60,8 +70,12 @@ module Hestia
         content_hash: skill[:content_hash],
         size_bytes: skill[:content]&.bytesize || 0,
         depositor_signature: skill[:signature],
-        deposited_at: Time.now.utc.iso8601
+        deposited_at: now,
+        provenance: provenance
       }
+
+      save_content(internal_key, skill[:content])
+      save_state
 
       { valid: true, status: 'deposited', skill_id: skill[:skill_id], internal_key: internal_key }
     end
@@ -83,7 +97,10 @@ module Hestia
 
     # Remove all deposits by an agent (called on unregister cleanup).
     def remove_deposits(agent_id)
+      removed = @deposited_skills.select { |d| d[:agent_id] == agent_id }
       @deposited_skills.reject! { |d| d[:agent_id] == agent_id }
+      removed.each { |d| delete_content(d[:internal_key]) }
+      save_state if removed.any?
     end
 
     # Record an acquire event for a deposited skill.
@@ -94,6 +111,14 @@ module Hestia
     def record_acquire(internal_key, acquirer_id)
       @exchange_counts[internal_key] = (@exchange_counts[internal_key] || 0) + 1
       @total_exchange_count += 1
+      @state_dirty = true
+    end
+
+    # Flush dirty state to disk. Called from HeartbeatManager or status checks.
+    def flush_if_dirty
+      return unless @state_dirty
+      save_state
+      @state_dirty = false
     end
 
     # Total exchange count across all skills
@@ -231,6 +256,92 @@ module Hestia
       @deposit_config['max_total_deposits'] || DEFAULT_MAX_TOTAL_DEPOSITS
     end
 
+    # --- Persistence ---
+
+    def save_state
+      FileUtils.mkdir_p(File.dirname(@storage_path))
+      data = {
+        deposited_skills: @deposited_skills.map { |d| d.except(:content) },
+        exchange_counts: @exchange_counts,
+        total_exchange_count: @total_exchange_count,
+        updated_at: Time.now.utc.iso8601
+      }
+      temp = "#{@storage_path}.tmp"
+      File.write(temp, JSON.pretty_generate(data))
+      File.rename(temp, @storage_path)
+      @state_dirty = false
+    rescue StandardError => e
+      $stderr.puts "[SkillBoard] Failed to save state: #{e.message}"
+    end
+
+    def load_state
+      return unless File.exist?(@storage_path)
+      data = JSON.parse(File.read(@storage_path), symbolize_names: true)
+      @exchange_counts = (data[:exchange_counts] || {}).transform_keys(&:to_s)
+      @total_exchange_count = data[:total_exchange_count] || 0
+      (data[:deposited_skills] || []).each do |dep|
+        ik = dep[:internal_key]&.to_s
+        next unless ik
+        content = load_content(ik)
+        next unless content
+        @deposited_skills << dep.merge(internal_key: ik, content: content)
+      end
+    rescue StandardError => e
+      $stderr.puts "[SkillBoard] Failed to load state: #{e.message}"
+    end
+
+    def save_content(internal_key, content)
+      return unless content
+      FileUtils.mkdir_p(@content_dir)
+      path = content_path(internal_key)
+      File.write(path, content)
+    rescue StandardError => e
+      $stderr.puts "[SkillBoard] Failed to save content for #{internal_key}: #{e.message}"
+    end
+
+    def load_content(internal_key)
+      path = content_path(internal_key)
+      File.exist?(path) ? File.read(path) : nil
+    rescue StandardError
+      nil
+    end
+
+    def delete_content(internal_key)
+      path = content_path(internal_key)
+      File.delete(path) if File.exist?(path)
+    rescue StandardError
+      nil
+    end
+
+    def content_path(internal_key)
+      sanitized = internal_key.gsub('/', '__').gsub('..', '_').gsub(/[^a-zA-Z0-9_\-]/, '_')
+      File.join(@content_dir, "#{sanitized}.md")
+    end
+
+    # --- Provenance ---
+
+    def build_provenance(incoming_provenance, agent_id, timestamp)
+      if incoming_provenance && incoming_provenance[:hop_count].to_i > 0
+        # Federated deposit: preserve origin, increment hop, append self to via
+        {
+          origin_place_id: incoming_provenance[:origin_place_id],
+          origin_agent_id: incoming_provenance[:origin_agent_id],
+          via: (incoming_provenance[:via] || []) + [@self_place_id].compact,
+          hop_count: incoming_provenance[:hop_count].to_i,
+          deposited_at_origin: incoming_provenance[:deposited_at_origin]
+        }
+      else
+        # Local deposit: this Place is the origin
+        {
+          origin_place_id: nil,
+          origin_agent_id: agent_id,
+          via: [],
+          hop_count: 0,
+          deposited_at_origin: timestamp
+        }
+      end
+    end
+
     def collect_all_entries
       agents = @registry.list(include_self: true)
       entries = []
@@ -295,7 +406,12 @@ module Hestia
           trust_metadata: {
             exchange_count: @exchange_counts[dep[:internal_key]] || 0,
             depositor_deposit_count: agent_deposit_count(dep[:agent_id]),
-            first_deposited: dep[:deposited_at]
+            first_deposited: dep[:deposited_at],
+            provenance: {
+              is_local: dep.dig(:provenance, :hop_count).to_i == 0,
+              hop_count: dep.dig(:provenance, :hop_count) || 0,
+              origin_place_id: dep.dig(:provenance, :origin_place_id)
+            }
           }
         }
       end
