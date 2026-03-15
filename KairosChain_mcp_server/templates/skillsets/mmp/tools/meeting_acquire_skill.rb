@@ -3,6 +3,7 @@
 require 'net/http'
 require 'uri'
 require 'json'
+require 'yaml'
 require 'digest'
 require 'fileutils'
 require 'securerandom'
@@ -93,11 +94,22 @@ module KairosMcp
                 target_layer: save_layer
               )
 
+              # Auto-save trusted peer to L1 knowledge
+              peer_name = peer['name'] || peer[:name] || peer_id
+              place_url = connection['url'] || connection[:url]
+              peer_saved = save_trusted_peer(
+                agent_id: peer_id,
+                name: peer_name,
+                place_url: place_url,
+                skill_acquired: { id: skill_id, name: content_result[:skill_name] }
+              )
+
               result = {
                 status: 'acquired', peer_id: peer_id,
                 skill: { id: skill_id, name: content_result[:skill_name], format: content_result[:format], content_hash: content_result[:content_hash] },
                 saved_to: { layer: save_layer, path: save_result[:path] },
-                provenance: save_result[:provenance]
+                provenance: save_result[:provenance],
+                trusted_peer_saved: peer_saved
               }
 
               text_content(JSON.pretty_generate(result))
@@ -116,6 +128,74 @@ module KairosMcp
 
           def find_peer(connection, peer_id)
             (connection['peers'] || connection[:peers] || []).find { |p| (p['agent_id'] || p[:agent_id]) == peer_id }
+          end
+
+          MAX_TRUSTED_PEERS = 100
+
+          # Save or update a trusted peer in L1 knowledge.
+          # Returns true on success, false on failure.
+          def save_trusted_peer(agent_id:, name:, place_url:, skill_acquired:)
+            dir = File.join(KairosMcp.data_dir, 'knowledge', 'trusted_peers')
+            FileUtils.mkdir_p(dir)
+            filepath = File.join(dir, 'trusted_peers.md')
+            now = Time.now.utc.iso8601
+
+            peers = load_trusted_peers_data(filepath)
+
+            # Find or create peer entry
+            existing = peers.find { |p| p['agent_id'] == agent_id }
+            if existing
+              existing['name'] = name
+              existing['last_interaction'] = now
+              existing['places_seen'] ||= []
+              existing['places_seen'] << place_url unless existing['places_seen'].include?(place_url)
+              existing['skills_acquired'] ||= []
+              unless existing['skills_acquired'].any? { |s| s['id'] == skill_acquired[:id] }
+                existing['skills_acquired'] << { 'id' => skill_acquired[:id], 'name' => skill_acquired[:name], 'acquired_at' => now }
+              end
+            else
+              peers << {
+                'agent_id' => agent_id,
+                'name' => name,
+                'first_met' => now,
+                'last_interaction' => now,
+                'places_seen' => [place_url],
+                'skills_acquired' => [{ 'id' => skill_acquired[:id], 'name' => skill_acquired[:name], 'acquired_at' => now }]
+              }
+            end
+
+            # LRU eviction: keep most recently interacted peers
+            if peers.size > MAX_TRUSTED_PEERS
+              peers = peers.sort_by { |p| p['last_interaction'] || '' }.last(MAX_TRUSTED_PEERS)
+            end
+
+            write_trusted_peers(filepath, peers)
+            true
+          rescue StandardError => e
+            warn "[MeetingAcquireSkill] Failed to save trusted peer: #{e.message}"
+            false
+          end
+
+          def load_trusted_peers_data(filepath)
+            return [] unless File.exist?(filepath)
+            content = File.read(filepath)
+            return [] unless content.start_with?('---')
+            parts = content.split(/^---\s*$/, 3)
+            return [] if parts.length < 3
+            frontmatter = YAML.safe_load(parts[1]) rescue nil
+            return [] unless frontmatter.is_a?(Hash)
+            frontmatter['peers'] || []
+          end
+
+          def write_trusted_peers(filepath, peers)
+            frontmatter = {
+              'name' => 'trusted_peers',
+              'tags' => %w[meeting peers bookmark trust],
+              'updated_at' => Time.now.utc.iso8601,
+              'peers' => peers
+            }
+            content = "---\n#{frontmatter.to_yaml}---\n\n# Trusted Peers\n\nPeers from whom skills were successfully acquired.\nAuto-managed by meeting_acquire_skill. Max #{MAX_TRUSTED_PEERS} entries (LRU).\n"
+            File.write(filepath, content)
           end
 
           def get_skill_from_relay(url, skill_id)

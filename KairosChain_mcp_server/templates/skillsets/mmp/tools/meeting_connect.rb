@@ -3,6 +3,7 @@
 require 'net/http'
 require 'uri'
 require 'json'
+require 'yaml'
 require 'securerandom'
 require 'fileutils'
 
@@ -74,11 +75,30 @@ module KairosMcp
             peer_mgr = ::MMP::PeerManager.new(identity: identity, config: config)
             peer = peer_mgr.add_peer(url)
 
-            if peer
-              { status: 'connected', mode: 'direct', url: url, peer: { id: peer.id, name: peer.name, url: peer.url }, peers: [{ agent_id: peer.id, name: peer.name, endpoint: peer.url, skills: (peer.introduction&.dig(:skills) || []).map { |s| { id: s[:id], name: s[:name] } } }] }
-            else
-              { status: 'failed', mode: 'direct', url: url, error: 'Could not connect to peer' }
+            unless peer
+              return { status: 'failed', mode: 'direct', url: url, error: 'Could not connect to peer' }
             end
+
+            skill_counts = count_local_skills(config)
+            peers_list = [{ agent_id: peer.id, name: peer.name, endpoint: peer.url, skills: (peer.introduction&.dig(:skills) || []).map { |s| { id: s[:id], name: s[:name] } } }]
+            trusted_matches = find_trusted_peers_in(peers_list)
+
+            result = {
+              status: 'connected', mode: 'direct', url: url,
+              peer: { id: peer.id, name: peer.name, url: peer.url },
+              your_skills: skill_counts,
+              peers: peers_list
+            }
+
+            if skill_counts[:public] == 0
+              result[:suggestion] = "You have no public skills (#{skill_counts[:total]} total). Other agents cannot discover your skills. To share, set publish: true in skill frontmatter."
+            end
+
+            unless trusted_matches.empty?
+              result[:trusted_peers_present] = trusted_matches
+            end
+
+            result
           end
 
           def connect_relay(url, config, filter_caps)
@@ -125,15 +145,35 @@ module KairosMcp
               # Non-fatal: skill exchange may still work without this
             end
 
-            {
+            # Scan local public skills for suggestion
+            skill_counts = count_local_skills(config)
+
+            # Check for trusted peers
+            peers_list = agents.map { |a| { agent_id: a[:id] || a['id'], name: a[:name] || a['name'], endpoint: a[:endpoint] || a['endpoint'], skills: [] } }
+            trusted_matches = find_trusted_peers_in(peers_list)
+
+            result = {
               status: 'connected', mode: 'relay', url: url, relay_mode: true,
               identity_verified: verified,
               session_token: meeting_session_token,
               meeting_place: { url: url, name: place_info['name'] || place_info[:name] || 'Meeting Place' },
               self_agent_id: agent_id,
-              peers: agents.map { |a| { agent_id: a[:id] || a['id'], name: a[:name] || a['name'], endpoint: a[:endpoint] || a['endpoint'], skills: [] } },
+              your_skills: skill_counts,
+              peers: peers_list,
               hint: agents.empty? ? 'No peers found. Wait for others to connect.' : 'Use meeting_get_skill_details to learn about a skill.'
             }
+
+            # Add suggestion if no public skills
+            if skill_counts[:public] == 0
+              result[:suggestion] = "You have no public skills (#{skill_counts[:total]} total). Other agents cannot discover your skills. To share, set publish: true in skill frontmatter."
+            end
+
+            # Add trusted peer notification
+            unless trusted_matches.empty?
+              result[:trusted_peers_present] = trusted_matches
+            end
+
+            result
           end
 
           def generate_agent_id(config)
@@ -141,6 +181,49 @@ module KairosMcp
             return fixed if fixed
             name = config.dig('identity', 'name') || 'kairos'
             "#{name.downcase.gsub(/\s+/, '-')}-#{SecureRandom.hex(4)}"
+          end
+
+          # Count local skills (total and public) by scanning knowledge directory
+          def count_local_skills(config)
+            knowledge_dir = File.join(KairosMcp.data_dir, 'knowledge')
+            return { total: 0, public: 0 } unless Dir.exist?(knowledge_dir)
+
+            total = 0
+            public_count = 0
+            Dir.glob(File.join(knowledge_dir, '**', '*.md')).each do |f|
+              content = File.read(f)
+              next unless content.start_with?('---')
+              parts = content.split(/^---\s*$/, 3)
+              next if parts.length < 3
+              frontmatter = YAML.safe_load(parts[1]) rescue next
+              next unless frontmatter.is_a?(Hash)
+              total += 1
+              public_count += 1 if frontmatter['publish'] == true
+            end
+            { total: total, public: public_count }
+          rescue StandardError
+            { total: 0, public: 0 }
+          end
+
+          # Load trusted_peers from L1 knowledge and match against connected peers
+          def find_trusted_peers_in(peers_list)
+            trusted_file = File.join(KairosMcp.data_dir, 'knowledge', 'trusted_peers', 'trusted_peers.md')
+            return [] unless File.exist?(trusted_file)
+
+            content = File.read(trusted_file)
+            return [] unless content.start_with?('---')
+            parts = content.split(/^---\s*$/, 3)
+            return [] if parts.length < 3
+            frontmatter = YAML.safe_load(parts[1]) rescue nil
+            return [] unless frontmatter.is_a?(Hash)
+
+            trusted_list = frontmatter['peers'] || []
+            peer_ids = peers_list.map { |p| p[:agent_id] || p['agent_id'] }
+
+            trusted_list.select { |t| peer_ids.include?(t['agent_id']) }
+                        .map { |t| { agent_id: t['agent_id'], name: t['name'], previously_acquired: (t['skills_acquired'] || []).size } }
+          rescue StandardError
+            []
           end
 
           def save_connection_state(result)
