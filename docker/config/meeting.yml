@@ -20,7 +20,7 @@ skill_exchange:
     - markdown
     - yaml_frontmatter
   allow_executable: false
-  public_by_default: false
+  public_by_default: true
 
 skillset_exchange:
   enabled: true
