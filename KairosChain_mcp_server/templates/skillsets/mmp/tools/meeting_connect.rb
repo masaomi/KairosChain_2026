@@ -166,6 +166,8 @@ module KairosMcp
             # Add suggestion if no public skills
             if skill_counts[:public] == 0
               result[:suggestion] = "You have no public skills (#{skill_counts[:total]} total). Other agents cannot discover your skills. To share, set publish: true in skill frontmatter."
+            elsif skill_counts[:public] > 0
+              result[:deposit_hint] = "You have #{skill_counts[:public]} public skills. Use meeting_deposit to share them on this Meeting Place."
             end
 
             # Add trusted peer notification
@@ -188,9 +190,11 @@ module KairosMcp
             knowledge_dir = File.join(KairosMcp.data_dir, 'knowledge')
             return { total: 0, public: 0 } unless Dir.exist?(knowledge_dir)
 
+            exclude_dirs = %w[trusted_peers received received_skills]
             total = 0
             public_count = 0
             Dir.glob(File.join(knowledge_dir, '**', '*.md')).each do |f|
+              next if exclude_dirs.any? { |d| f.include?("/#{d}/") }
               content = File.read(f)
               next unless content.start_with?('---')
               parts = content.split(/^---\s*$/, 3)

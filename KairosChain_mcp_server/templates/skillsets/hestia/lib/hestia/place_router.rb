@@ -12,7 +12,8 @@ module Hestia
   # Unauthenticated: GET /place/v1/info
   # RSA-verified:    POST /place/v1/register
   # Bearer-token:    POST /place/v1/unregister, GET /place/v1/agents,
-  #                  GET /place/v1/board/browse, GET /place/v1/keys/:id
+  #                  GET /place/v1/board/browse, GET /place/v1/keys/:id,
+  #                  POST /place/v1/deposit, GET /place/v1/skill_content/:id
   class PlaceRouter
     JSON_HEADERS = {
       'Content-Type' => 'application/json',
@@ -44,7 +45,8 @@ module Hestia
 
       @session_store = session_store
       @registry = AgentRegistry.new(registry_path: registry_path, config: place_config)
-      @skill_board = SkillBoard.new(registry: @registry)
+      deposit_policy = place_config['deposit_policy'] || {}
+      @skill_board = SkillBoard.new(registry: @registry, config: deposit_policy)
 
       intro = identity.introduce
       @self_id = intro.dig(:identity, :instance_id)
@@ -107,10 +109,14 @@ module Hestia
         handle_post_needs(env)
       when ['DELETE', '/place/v1/board/needs']
         handle_delete_needs(env)
+      when ['POST', '/place/v1/deposit']
+        handle_deposit(env)
       else
-        # Check for /place/v1/keys/:id pattern
+        # Check for pattern-based routes
         if request_method == 'GET' && path.start_with?('/place/v1/keys/')
           handle_get_key(path)
+        elsif request_method == 'GET' && path.start_with?('/place/v1/skill_content/')
+          handle_get_skill_content(env, path)
         else
           json_response(404, { error: 'not_found', message: "Unknown place endpoint: #{path}" })
         end
@@ -136,6 +142,7 @@ module Hestia
         registered_agents: @registry.count,
         external_agents: @registry.count(include_self: false),
         uptime_seconds: @started_at ? (Time.now.utc - @started_at).to_i : 0,
+        deposits: @skill_board.deposit_stats,
         last_heartbeat_check: heartbeat_result
       }
     end
@@ -220,8 +227,9 @@ module Hestia
 
       result = @registry.unregister(agent_id)
 
-      # Clean up any posted needs for this agent
+      # Clean up any posted needs and deposits for this agent
       @skill_board.remove_needs(agent_id)
+      @skill_board.remove_deposits(agent_id)
 
       # Record fade-out observation if trust anchor available
       # (agent explicitly leaving = graceful fadeout)
@@ -243,9 +251,10 @@ module Hestia
       params = parse_query(env)
       type = params['type']
       search = params['search']
+      tags = params['tags']&.split(',')&.map(&:strip)
       limit = (params['limit'] || SkillBoard::DEFAULT_MAX_RESULTS).to_i
 
-      result = @skill_board.browse(type: type, search: search, limit: limit)
+      result = @skill_board.browse(type: type, search: search, tags: tags, limit: limit)
       json_response(200, result)
     end
 
@@ -301,6 +310,74 @@ module Hestia
         json_response(200, { agent_id: agent_id, public_key: key })
       else
         json_response(404, { error: 'not_found', message: "No public key for agent: #{agent_id}" })
+      end
+    end
+
+    # POST /place/v1/deposit — Bearer token required
+    # Agent deposits a skill (metadata + content) to the Place
+    def handle_deposit(env)
+      body = parse_body(env)
+      token = extract_bearer_token(env)
+      agent_id = @session_store.validate(token)
+
+      skill = {
+        skill_id: body['skill_id'],
+        name: body['name'],
+        description: body['description'],
+        tags: body['tags'] || [],
+        format: body['format'],
+        content: body['content'],
+        content_hash: body['content_hash'],
+        signature: body['signature']
+      }
+
+      # Get depositor's public key from registry for signature verification
+      public_key = @registry.public_key_for(agent_id)
+
+      result = @skill_board.deposit_skill(agent_id: agent_id, skill: skill, public_key: public_key)
+
+      if result[:valid]
+        json_response(200, {
+          status: 'deposited',
+          skill_id: skill[:skill_id],
+          trust_notice: {
+            verified_by_place: false,
+            depositor_signed: !!skill[:signature],
+            depositor_id: agent_id,
+            disclaimer: 'Content deposited by agent. Place verified format safety and depositor identity only.'
+          }
+        })
+      else
+        json_response(422, { error: 'deposit_rejected', reasons: result[:errors] })
+      end
+    end
+
+    # GET /place/v1/skill_content/:skill_id — Bearer token required
+    # Retrieve deposited skill content
+    def handle_get_skill_content(env, path)
+      skill_id = URI.decode_www_form_component(path.sub('/place/v1/skill_content/', ''))
+      params = parse_query(env)
+      owner = params['owner']
+
+      skill = @skill_board.get_deposited_skill(skill_id, owner_agent_id: owner)
+
+      if skill
+        json_response(200, {
+          skill_id: skill[:skill_id],
+          name: skill[:name],
+          content: skill[:content],
+          content_hash: skill[:content_hash],
+          format: skill[:format],
+          depositor_id: skill[:agent_id],
+          trust_notice: {
+            verified_by_place: false,
+            depositor_signed: !!skill[:depositor_signature],
+            depositor_id: skill[:agent_id],
+            disclaimer: 'Validate content before use. Place verified format safety and depositor identity only.'
+          }
+        })
+      else
+        json_response(404, { error: 'not_found', message: "No deposited skill found: #{skill_id}" })
       end
     end
 
