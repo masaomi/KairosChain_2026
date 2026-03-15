@@ -79,6 +79,9 @@ module KairosMcp
                 hint: entries.empty? ? 'No skills found. Try different filters or wait for agents to deposit skills.' : 'Use meeting_acquire_skill(skill_id: "...") to acquire a skill.'
               }
 
+              # Pass through place-level trust info (factual metadata only)
+              output[:place_trust] = result[:place_trust] if result[:place_trust]
+
               text_content(JSON.pretty_generate(output))
             rescue StandardError => e
               text_content(JSON.pretty_generate({ error: 'Browse failed', message: e.message }))
@@ -119,6 +122,7 @@ module KairosMcp
             base[:size_bytes] = entry[:size_bytes] if entry[:size_bytes]
             base[:deposited_at] = entry[:deposited_at] if entry[:deposited_at]
             base[:trust_notice] = entry[:trust_notice] if entry[:trust_notice]
+            base[:trust_metadata] = entry[:trust_metadata] if entry[:trust_metadata]
             base.compact
           end
         end

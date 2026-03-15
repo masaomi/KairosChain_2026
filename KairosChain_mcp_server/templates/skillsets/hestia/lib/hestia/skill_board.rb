@@ -28,6 +28,8 @@ module Hestia
       @posted_needs = []
       @deposited_skills = []
       @deposit_config = config
+      @exchange_counts = {}  # internal_key => count
+      @total_exchange_count = 0
     end
 
     # Deposit a skill to the Place. Validates format, size, hash, and signature.
@@ -82,6 +84,21 @@ module Hestia
     # Remove all deposits by an agent (called on unregister cleanup).
     def remove_deposits(agent_id)
       @deposited_skills.reject! { |d| d[:agent_id] == agent_id }
+    end
+
+    # Record an acquire event for a deposited skill.
+    # Uses internal_key (agent_id/skill_id) to avoid cross-agent count collisions.
+    #
+    # @param internal_key [String] The internal key of the acquired skill
+    # @param acquirer_id [String] The acquiring agent's ID
+    def record_acquire(internal_key, acquirer_id)
+      @exchange_counts[internal_key] = (@exchange_counts[internal_key] || 0) + 1
+      @total_exchange_count += 1
+    end
+
+    # Total exchange count across all skills
+    def total_exchanges
+      @total_exchange_count
     end
 
     # Post knowledge needs for an agent (session-only, no persistence — DEE compliant).
@@ -142,6 +159,10 @@ module Hestia
     end
 
     private
+
+    def agent_deposit_count(agent_id)
+      @deposited_skills.count { |d| d[:agent_id] == agent_id }
+    end
 
     def validate_deposit(skill, agent_id: nil, public_key: nil)
       errors = []
@@ -253,7 +274,7 @@ module Hestia
         end
       end
 
-      # Add deposited skills
+      # Add deposited skills with trust_metadata
       @deposited_skills.each do |dep|
         entries << {
           agent_id: dep[:agent_id],
@@ -270,6 +291,11 @@ module Hestia
             depositor_signed: !!dep[:depositor_signature],
             depositor_id: dep[:agent_id],
             disclaimer: 'Place verified format safety and depositor identity only.'
+          },
+          trust_metadata: {
+            exchange_count: @exchange_counts[dep[:internal_key]] || 0,
+            depositor_deposit_count: agent_deposit_count(dep[:agent_id]),
+            first_deposited: dep[:deposited_at]
           }
         }
       end

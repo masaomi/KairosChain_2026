@@ -44,6 +44,7 @@ module Hestia
       registry_path = place_config['registry_path'] || 'storage/agent_registry.json'
 
       @session_store = session_store
+      @trust_anchor_client = trust_anchor_client
       @registry = AgentRegistry.new(registry_path: registry_path, config: place_config)
       deposit_policy = place_config['deposit_policy'] || {}
       @skill_board = SkillBoard.new(registry: @registry, config: deposit_policy)
@@ -255,6 +256,14 @@ module Hestia
       limit = (params['limit'] || SkillBoard::DEFAULT_MAX_RESULTS).to_i
 
       result = @skill_board.browse(type: type, search: search, tags: tags, limit: limit)
+
+      # Attach place-level trust info (factual metadata only — DEE compliant)
+      result[:place_trust] = {
+        uptime_seconds: @started_at ? (Time.now.utc - @started_at).to_i : 0,
+        total_deposits: @skill_board.deposit_stats[:total_deposits],
+        total_exchanges: @skill_board.total_exchanges
+      }
+
       json_response(200, result)
     end
 
@@ -337,6 +346,16 @@ module Hestia
       result = @skill_board.deposit_skill(agent_id: agent_id, skill: skill, public_key: public_key)
 
       if result[:valid]
+        # Record deposit event on chain (non-blocking)
+        record_chain_event(
+          event_type: 'deposit',
+          skill_id: skill[:skill_id],
+          skill_name: skill[:name],
+          content_hash: skill[:content_hash],
+          participants: [agent_id],
+          extra: { depositor_id: agent_id }
+        )
+
         json_response(200, {
           status: 'deposited',
           skill_id: skill[:skill_id],
@@ -353,7 +372,7 @@ module Hestia
     end
 
     # GET /place/v1/skill_content/:skill_id — Bearer token required
-    # Retrieve deposited skill content
+    # Retrieve deposited skill content and record acquire event
     def handle_get_skill_content(env, path)
       skill_id = URI.decode_www_form_component(path.sub('/place/v1/skill_content/', ''))
       params = parse_query(env)
@@ -362,6 +381,21 @@ module Hestia
       skill = @skill_board.get_deposited_skill(skill_id, owner_agent_id: owner)
 
       if skill
+        # Track exchange count on SkillBoard (in-memory)
+        token = extract_bearer_token(env)
+        acquirer_id = @session_store.validate(token)
+        @skill_board.record_acquire(skill[:internal_key], acquirer_id)
+
+        # Record acquire event on chain (non-blocking)
+        record_chain_event(
+          event_type: 'acquire',
+          skill_id: skill[:skill_id],
+          skill_name: skill[:name],
+          content_hash: skill[:content_hash],
+          participants: [acquirer_id, skill[:agent_id]],
+          extra: { acquirer_id: acquirer_id, depositor_id: skill[:agent_id] }
+        )
+
         json_response(200, {
           skill_id: skill[:skill_id],
           name: skill[:name],
@@ -378,6 +412,25 @@ module Hestia
         })
       else
         json_response(404, { error: 'not_found', message: "No deposited skill found: #{skill_id}" })
+      end
+    end
+
+    # Record deposit/acquire events on the private chain (non-blocking).
+    # Gracefully degrades if trust_anchor_client is unavailable.
+    def record_chain_event(event_type:, skill_id:, skill_name:, content_hash:, participants:, extra: {})
+      return unless @trust_anchor_client
+
+      begin
+        timestamp = Time.now.utc.iso8601
+        meeting_protocol = Chain::Integrations::MeetingProtocol.new(client: @trust_anchor_client)
+        meeting_protocol.anchor_skill_exchange({
+          skill_name: skill_name,
+          skill_hash: content_hash,
+          peer_id: participants.first,
+          direction: event_type
+        }, async: true)
+      rescue StandardError => e
+        $stderr.puts "[PlaceRouter] Chain recording failed (non-fatal): #{e.message}"
       end
     end
 
