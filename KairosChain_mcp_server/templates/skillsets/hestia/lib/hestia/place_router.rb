@@ -38,8 +38,9 @@ module Hestia
     # @param identity [MMP::Identity] This instance's identity
     # @param session_store [MMP::MeetingSessionStore] Reuse MeetingRouter's store
     # @param trust_anchor_client [Hestia::Chain::Core::Client, nil] For recording observations
+    # @param trust_scorer [Synoptis::TrustScorer, nil] Optional Synoptis trust scorer (DI)
     # @return [Hash] Start result
-    def start(identity:, session_store:, trust_anchor_client: nil)
+    def start(identity:, session_store:, trust_anchor_client: nil, trust_scorer: nil)
       place_config = @config['meeting_place'] || {}
       registry_path = place_config['registry_path'] || 'storage/agent_registry.json'
 
@@ -57,7 +58,8 @@ module Hestia
         config: deposit_policy,
         storage_path: deposit_storage,
         self_place_id: @self_id,
-        federation_config: federation_config
+        federation_config: federation_config,
+        trust_scorer: trust_scorer
       )
 
       @heartbeat_manager = HeartbeatManager.new(

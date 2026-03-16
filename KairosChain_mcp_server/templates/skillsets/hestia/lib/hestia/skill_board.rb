@@ -26,12 +26,14 @@ module Hestia
     DEFAULT_MAX_SKILLS_PER_AGENT = 20
     DEFAULT_MAX_TOTAL_DEPOSITS = 500
 
-    def initialize(registry:, config: {}, storage_path: nil, self_place_id: nil, federation_config: {})
+    def initialize(registry:, config: {}, storage_path: nil, self_place_id: nil,
+                   federation_config: {}, trust_scorer: nil)
       @registry = registry
       @posted_needs = []
       @deposited_skills = []
       @deposit_config = config
       @federation_config = federation_config
+      @trust_scorer = trust_scorer  # Optional Synoptis::TrustScorer (DI)
       @exchange_counts = {}  # internal_key => count
       @total_exchange_count = 0
       @self_place_id = self_place_id
@@ -318,6 +320,43 @@ module Hestia
       @deposit_config['max_total_deposits'] || DEFAULT_MAX_TOTAL_DEPOSITS
     end
 
+    # Build trust_metadata for a deposited skill.
+    # Includes Synoptis trust score when trust_scorer is available (DI).
+    # DEE compliant: factual metadata only, no ranking or recommendation.
+    def build_trust_metadata(dep)
+      metadata = {
+        exchange_count: @exchange_counts[dep[:internal_key]] || 0,
+        depositor_deposit_count: agent_deposit_count(dep[:agent_id]),
+        first_deposited: dep[:deposited_at],
+        provenance: {
+          is_local: dep.dig(:provenance, :hop_count).to_i == 0,
+          hop_count: dep.dig(:provenance, :hop_count) || 0,
+          origin_place_id: dep.dig(:provenance, :origin_place_id),
+          origin_agent_id: dep.dig(:provenance, :origin_agent_id),
+          via: dep.dig(:provenance, :via) || [],
+          deposited_at_origin: dep.dig(:provenance, :deposited_at_origin)
+        }
+      }
+
+      # Enrich with Synoptis trust score if available (graceful degradation)
+      if @trust_scorer
+        subject_ref = "skill://#{dep[:skill_id]}"
+        begin
+          score_result = @trust_scorer.calculate(subject_ref)
+          metadata[:synoptis] = {
+            trust_score: score_result[:score],
+            attestation_count: score_result[:attestation_count],
+            active_count: score_result[:active_count],
+            details: score_result[:details]
+          }
+        rescue StandardError => e
+          $stderr.puts "[SkillBoard] Synoptis scoring failed (non-fatal): #{e.message}"
+        end
+      end
+
+      metadata
+    end
+
     def federation_accept?
       # Both federation.enabled and federation.accept_federated must be true
       @federation_config.fetch('enabled', false) &&
@@ -472,19 +511,7 @@ module Hestia
             depositor_id: dep[:agent_id],
             disclaimer: 'Place verified format safety and depositor identity only.'
           },
-          trust_metadata: {
-            exchange_count: @exchange_counts[dep[:internal_key]] || 0,
-            depositor_deposit_count: agent_deposit_count(dep[:agent_id]),
-            first_deposited: dep[:deposited_at],
-            provenance: {
-              is_local: dep.dig(:provenance, :hop_count).to_i == 0,
-              hop_count: dep.dig(:provenance, :hop_count) || 0,
-              origin_place_id: dep.dig(:provenance, :origin_place_id),
-              origin_agent_id: dep.dig(:provenance, :origin_agent_id),
-              via: dep.dig(:provenance, :via) || [],
-              deposited_at_origin: dep.dig(:provenance, :deposited_at_origin)
-            }
-          }
+          trust_metadata: build_trust_metadata(dep)
         }
       end
 

@@ -10,6 +10,17 @@ module Synoptis
       revocation_penalty: 0.1
     }.freeze
 
+    # Attestation source weights for quality dimension.
+    # Human outcomes (paper accepted, patent filed) carry maximum weight
+    # because they represent real-world validation that is costly to forge.
+    # These are configurable defaults; robustness is evaluated via sensitivity analysis.
+    ACTOR_ROLE_WEIGHTS = {
+      'human'     => 1.0,
+      'peer'      => 0.7,
+      'automated' => 0.3
+    }.freeze
+    DEFAULT_ACTOR_WEIGHT = 0.3
+
     def initialize(registry:, config: {})
       @registry = registry
       weights_config = config[:score_weights] || config['score_weights'] || {}
@@ -55,12 +66,26 @@ module Synoptis
 
     private
 
+    # Quality score weighted by attestation source (actor_role).
+    # Each proof's base quality (evidence + merkle + signature) is multiplied
+    # by the actor_role weight: human outcomes > peer verification > automated checks.
     def quality_score(proofs)
       return 0.0 if proofs.empty?
-      with_evidence = proofs.count { |p| p.evidence && !p.evidence.to_s.empty? }
-      with_merkle = proofs.count { |p| p.merkle_root }
-      with_sig = proofs.count { |p| p.signature }
-      (with_evidence + with_merkle + with_sig).to_f / (proofs.size * 3)
+      weighted_sum = proofs.sum do |p|
+        base = proof_base_quality(p)
+        role = p.respond_to?(:actor_role) ? p.actor_role : nil
+        role_weight = ACTOR_ROLE_WEIGHTS.fetch(role.to_s, DEFAULT_ACTOR_WEIGHT)
+        base * role_weight
+      end
+      weighted_sum / proofs.size
+    end
+
+    def proof_base_quality(proof)
+      score = 0.0
+      score += 1.0 if proof.evidence && !proof.evidence.to_s.empty?
+      score += 1.0 if proof.merkle_root
+      score += 1.0 if proof.signature
+      score / 3.0
     end
 
     def freshness_score(proofs)
