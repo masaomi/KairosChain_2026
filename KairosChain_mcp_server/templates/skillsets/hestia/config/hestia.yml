@@ -13,6 +13,20 @@ meeting_place:
   # registry_path: storage/agent_registry.json
   # parent_place_url: null  # URL of parent place for federation
 
+  # Deposit policy
+  # deposit_policy:
+  #   max_skill_size_bytes: 100000
+  #   max_skills_per_agent: 20
+  #   max_total_deposits: 500
+
+  # Federation: Place-to-Place skill bridging
+  # Agent-initiated only (DEE: no automatic forwarding)
+  federation:
+    enabled: false
+    max_hop_count: 3            # Max hops for federated deposits
+    max_deposit_age_hours: 168  # 7 days — auto-expire federated deposits
+    accept_federated: true      # Accept deposits with provenance from other Places
+
 # HestiaChain backend configuration
 chain:
   enabled: true

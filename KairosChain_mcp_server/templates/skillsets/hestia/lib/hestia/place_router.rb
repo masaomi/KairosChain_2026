@@ -51,11 +51,13 @@ module Hestia
 
       deposit_policy = place_config['deposit_policy'] || {}
       deposit_storage = place_config['deposit_storage_path'] || 'storage/skill_board_state.json'
+      federation_config = place_config['federation'] || {}
       @skill_board = SkillBoard.new(
         registry: @registry,
         config: deposit_policy,
         storage_path: deposit_storage,
-        self_place_id: @self_id
+        self_place_id: @self_id,
+        federation_config: federation_config
       )
 
       @heartbeat_manager = HeartbeatManager.new(
@@ -141,6 +143,9 @@ module Hestia
       # Flush dirty exchange counts to disk
       @skill_board.flush_if_dirty
 
+      # Clean up expired federated deposits
+      cleanup_result = @skill_board.cleanup_expired_deposits
+
       # Run heartbeat check
       heartbeat_result = @heartbeat_manager.check_all
 
@@ -153,7 +158,8 @@ module Hestia
         external_agents: @registry.count(include_self: false),
         uptime_seconds: @started_at ? (Time.now.utc - @started_at).to_i : 0,
         deposits: @skill_board.deposit_stats,
-        last_heartbeat_check: heartbeat_result
+        last_heartbeat_check: heartbeat_result,
+        federation_cleanup: cleanup_result
       }
     end
 

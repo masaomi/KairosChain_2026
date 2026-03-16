@@ -3,6 +3,7 @@
 require 'digest'
 require 'fileutils'
 require 'json'
+require 'time'
 
 module Hestia
   # SkillBoard aggregates skills from registered agents and deposited skills.
@@ -25,11 +26,12 @@ module Hestia
     DEFAULT_MAX_SKILLS_PER_AGENT = 20
     DEFAULT_MAX_TOTAL_DEPOSITS = 500
 
-    def initialize(registry:, config: {}, storage_path: nil, self_place_id: nil)
+    def initialize(registry:, config: {}, storage_path: nil, self_place_id: nil, federation_config: {})
       @registry = registry
       @posted_needs = []
       @deposited_skills = []
       @deposit_config = config
+      @federation_config = federation_config
       @exchange_counts = {}  # internal_key => count
       @total_exchange_count = 0
       @self_place_id = self_place_id
@@ -152,7 +154,7 @@ module Hestia
 
       # Apply filters
       entries = all_entries
-      entries = entries.select { |e| e[:format] == type } if type
+      entries = entries.select { |e| e[:type] == type } if type
       entries = entries.select { |e| e[:name]&.downcase&.include?(search.downcase) } if search
       if tags && !tags.empty?
         entries = entries.select do |e|
@@ -173,10 +175,33 @@ module Hestia
       }
     end
 
+    # Clean up expired federated deposits (hop_count > 0 only).
+    # Local deposits never expire — depositor is responsible.
+    # Called from HeartbeatManager check cycle.
+    def cleanup_expired_deposits
+      max_age = @federation_config['max_deposit_age_hours'] || 168
+      cutoff = Time.now.utc - (max_age * 3600)
+
+      expired = @deposited_skills.select do |dep|
+        prov = dep[:provenance]
+        next false unless prov && prov[:hop_count].to_i > 0
+        origin_time = Time.parse(prov[:deposited_at_origin]) rescue nil
+        origin_time && origin_time < cutoff
+      end
+
+      expired.each { |d| delete_content(d[:internal_key]) }
+      @deposited_skills -= expired
+      save_state if expired.any?
+      { removed: expired.size, remaining: @deposited_skills.size }
+    end
+
     # Deposit statistics for status reporting
     def deposit_stats
+      federated = @deposited_skills.count { |d| d.dig(:provenance, :hop_count).to_i > 0 }
       {
         total_deposits: @deposited_skills.size,
+        local_deposits: @deposited_skills.size - federated,
+        federated_deposits: federated,
         agents_with_deposits: @deposited_skills.map { |d| d[:agent_id] }.uniq.size,
         max_per_agent: max_skills_per_agent,
         max_total: max_total_deposits
@@ -245,6 +270,43 @@ module Hestia
       # Skill ID required
       errors << 'skill_id is required' unless skill[:skill_id] && !skill[:skill_id].empty?
 
+      # Federation validation (for deposits with provenance from other Places)
+      if skill[:provenance] && skill[:provenance][:hop_count].to_i > 0
+        # Check if federation is accepted
+        unless federation_accept?
+          errors << 'This Place does not accept federated deposits'
+        end
+
+        # Hop count limit
+        max_hops = @federation_config['max_hop_count'] || 3
+        if skill[:provenance][:hop_count].to_i >= max_hops
+          errors << "Hop count exceeds limit (max #{max_hops})"
+        end
+
+        # Loop detection: reject if this Place is already in the via list
+        if skill[:provenance][:via].is_a?(Array) && @self_place_id
+          if skill[:provenance][:via].include?(@self_place_id)
+            errors << 'Loop detected: this Place is already in the provenance chain'
+          end
+        end
+
+        # Age limit for federated deposits
+        if skill[:provenance][:deposited_at_origin]
+          max_age = @federation_config['max_deposit_age_hours'] || 168
+          begin
+            origin_time = Time.parse(skill[:provenance][:deposited_at_origin])
+            now = Time.now.utc
+            if origin_time > now
+              errors << 'Federated deposit has future timestamp'
+            elsif (now - origin_time) > max_age * 3600
+              errors << "Federated deposit too old (max #{max_age} hours)"
+            end
+          rescue ArgumentError
+            errors << 'Invalid deposited_at_origin timestamp'
+          end
+        end
+      end
+
       { valid: errors.empty?, errors: errors }
     end
 
@@ -254,6 +316,10 @@ module Hestia
 
     def max_total_deposits
       @deposit_config['max_total_deposits'] || DEFAULT_MAX_TOTAL_DEPOSITS
+    end
+
+    def federation_accept?
+      @federation_config.fetch('accept_federated', true)
     end
 
     # --- Persistence ---
