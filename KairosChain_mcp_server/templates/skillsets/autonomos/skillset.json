@@ -1,0 +1,26 @@
+{
+  "name": "autonomos",
+  "version": "0.1.0",
+  "description": "Autonomous project execution agent loop (OODA cycle). Observes project state, orients against L1 goals, decides next task as autoexec plan, then reflects on execution results. Single-cycle default with human-in-the-loop at every decision point. Does NOT execute tasks itself — delegates to autoexec.",
+  "author": "Dr. Masa Hatakeyama",
+  "layer": "L1",
+  "depends_on": [
+    {
+      "name": "autoexec"
+    }
+  ],
+  "provides": [
+    "autonomous_cycle",
+    "project_observation",
+    "goal_oriented_planning",
+    "execution_reflection"
+  ],
+  "tool_classes": [
+    "KairosMcp::SkillSets::Autonomos::Tools::AutonomosCycle",
+    "KairosMcp::SkillSets::Autonomos::Tools::AutonomosReflect",
+    "KairosMcp::SkillSets::Autonomos::Tools::AutonomosStatus"
+  ],
+  "config_files": ["config/autonomos.yml"],
+  "knowledge_dirs": ["knowledge/autonomos_guide"],
+  "min_core_version": "2.8.0"
+}
