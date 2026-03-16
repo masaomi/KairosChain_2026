@@ -171,6 +171,7 @@ module Hestia
     def handle_info
       place_config = @config['meeting_place'] || {}
       json_response(200, {
+        place_id: @self_id,
         name: place_config['name'] || 'KairosChain Meeting Place',
         version: Hestia::VERSION,
         registered_agents: @registry.count,

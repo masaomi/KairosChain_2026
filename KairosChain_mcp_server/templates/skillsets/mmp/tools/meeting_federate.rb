@@ -64,6 +64,9 @@ module KairosMcp
             filter_tags = arguments['tags']
 
             begin
+              # Resolve Place IDs for provenance chain (prefer place_id, fallback to URL)
+              source_place_id = resolve_place_id(source_url) || source_url
+
               # Step 1: Browse source Place for deposited skills
               source_skills = browse_deposited_skills(source_url, source_token, tags: filter_tags)
               if source_skills.nil?
@@ -102,7 +105,7 @@ module KairosMcp
                 # Build provenance for federation
                 source_provenance = skill_meta[:trust_metadata]&.dig(:provenance) || {}
                 source_deposited_at = skill_meta[:deposited_at]
-                provenance = build_federation_provenance(source_provenance, source_url, content_result, source_deposited_at)
+                provenance = build_federation_provenance(source_provenance, source_place_id, content_result, source_deposited_at)
 
                 # Sign content with this agent's key
                 identity = ::MMP::Identity.new(config: config)
@@ -217,23 +220,39 @@ module KairosMcp
             { success: false, error: e.message }
           end
 
-          # Build provenance for the federated deposit
-          def build_federation_provenance(source_provenance, source_url, content_result, source_deposited_at)
+          # Resolve Place's instance ID from /place/v1/info (unauthenticated).
+          # Returns nil on failure (caller should fallback to URL).
+          def resolve_place_id(url)
+            uri = URI.parse("#{url}/place/v1/info")
+            http = Net::HTTP.new(uri.host, uri.port)
+            http.open_timeout = 3; http.read_timeout = 5
+            req = Net::HTTP::Get.new(uri)
+            response = http.request(req)
+            return nil unless response.is_a?(Net::HTTPSuccess)
+            data = JSON.parse(response.body, symbolize_names: true)
+            data[:place_id]
+          rescue StandardError
+            nil
+          end
+
+          # Build provenance for the federated deposit.
+          # source_place_id: resolved Place instance ID (or URL as fallback).
+          def build_federation_provenance(source_provenance, source_place_id, content_result, source_deposited_at)
             if source_provenance[:hop_count].to_i > 0
               # Already federated: increment hop, append source to via
               {
                 origin_place_id: source_provenance[:origin_place_id],
                 origin_agent_id: source_provenance[:origin_agent_id] || content_result[:depositor_id],
-                via: (source_provenance[:via] || []) + [source_url],
+                via: (source_provenance[:via] || []) + [source_place_id],
                 hop_count: source_provenance[:hop_count].to_i + 1,
                 deposited_at_origin: source_provenance[:deposited_at_origin]
               }
             else
               # First federation: source Place is the origin
               {
-                origin_place_id: source_url,
+                origin_place_id: source_place_id,
                 origin_agent_id: content_result[:depositor_id],
-                via: [source_url],
+                via: [source_place_id],
                 hop_count: 1,
                 deposited_at_origin: source_deposited_at || Time.now.utc.iso8601
               }

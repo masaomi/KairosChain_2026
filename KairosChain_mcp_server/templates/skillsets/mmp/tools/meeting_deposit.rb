@@ -123,6 +123,13 @@ module KairosMcp
           rescue StandardError; nil
           end
 
+          # Scan for skills with `publish: true` in frontmatter.
+          #
+          # Visibility semantics:
+          #   - `public: true`  → MMP direct exchange visibility (Identity#public_skills)
+          #   - `publish: true` → Meeting Place deposit eligibility (this method)
+          # These are intentionally separate: an agent may share skills directly
+          # with peers (public) without depositing them to a Place (publish).
           def scan_public_skills(filter_names = nil)
             knowledge_dir = File.join(KairosMcp.data_dir, 'knowledge')
             return [] unless Dir.exist?(knowledge_dir)

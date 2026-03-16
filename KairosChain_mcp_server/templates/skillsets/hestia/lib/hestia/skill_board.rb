@@ -319,7 +319,9 @@ module Hestia
     end
 
     def federation_accept?
-      @federation_config.fetch('accept_federated', true)
+      # Both federation.enabled and federation.accept_federated must be true
+      @federation_config.fetch('enabled', false) &&
+        @federation_config.fetch('accept_federated', true)
     end
 
     # --- Persistence ---
@@ -388,7 +390,8 @@ module Hestia
 
     def build_provenance(incoming_provenance, agent_id, timestamp)
       if incoming_provenance && incoming_provenance[:hop_count].to_i > 0
-        # Federated deposit: preserve origin, increment hop, append self to via
+        # Federated deposit: preserve origin and hop_count as received
+        # (client increments hop_count before POST), append self to via
         {
           origin_place_id: incoming_provenance[:origin_place_id],
           origin_agent_id: incoming_provenance[:origin_agent_id],
@@ -476,7 +479,10 @@ module Hestia
             provenance: {
               is_local: dep.dig(:provenance, :hop_count).to_i == 0,
               hop_count: dep.dig(:provenance, :hop_count) || 0,
-              origin_place_id: dep.dig(:provenance, :origin_place_id)
+              origin_place_id: dep.dig(:provenance, :origin_place_id),
+              origin_agent_id: dep.dig(:provenance, :origin_agent_id),
+              via: dep.dig(:provenance, :via) || [],
+              deposited_at_origin: dep.dig(:provenance, :deposited_at_origin)
             }
           }
         }
