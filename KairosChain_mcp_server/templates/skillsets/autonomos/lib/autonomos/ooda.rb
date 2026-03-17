@@ -234,7 +234,8 @@ module Autonomos
             }
           }
         end
-      rescue StandardError
+      rescue StandardError => e
+        warn "[autonomos] Chain events load failed: #{e.message}"
         []
       end
     end
@@ -247,9 +248,11 @@ module Autonomos
         sessions = ctx_mgr.list_sessions rescue []
         return nil if sessions.empty?
 
-        latest = sessions.last
-        { session_id: latest[:name] || latest[:id], exists: true }
-      rescue StandardError
+        # list_sessions returns modified_at descending — first is newest
+        latest = sessions.first
+        { session_id: latest[:session_id], context_count: latest[:context_count], exists: true }
+      rescue StandardError => e
+        warn "[autonomos] L2 context load failed: #{e.message}"
         nil
       end
     end

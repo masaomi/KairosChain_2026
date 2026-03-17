@@ -210,12 +210,16 @@ module KairosMcp
               evaluation = 'skipped'
             end
 
-            # Record cycle in mandate (always, including skipped — advances state properly)
-            mandate = ::Autonomos::Mandate.record_cycle(
-              mandate_id,
-              cycle_id: mandate[:last_cycle_id],
-              evaluation: evaluation
-            )
+            # Record cycle in mandate — but skip if cycle was already recorded
+            # (e.g. resuming from checkpoint where record_cycle ran before pause)
+            already_recorded = mandate[:cycle_history]&.any? { |h| h[:cycle_id] == mandate[:last_cycle_id] }
+            unless already_recorded
+              mandate = ::Autonomos::Mandate.record_cycle(
+                mandate_id,
+                cycle_id: mandate[:last_cycle_id],
+                evaluation: evaluation
+              )
+            end
 
             # Check termination conditions
             termination = ::Autonomos::Mandate.check_termination(mandate)

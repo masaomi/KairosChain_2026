@@ -30,7 +30,7 @@ module Autonomos
                      'skipped'
                    elsif @execution_result.nil? || @execution_result.to_s.empty?
                      'unknown'
-                   elsif @execution_result.to_s.match?(/\b(fail(ed|ure)?|error|crash|broke|broken|abort(ed)?)\b/i)
+                   elsif @execution_result.to_s.match?(/\b(fail(ed|ure)?|errors?|crash|broke|broken|abort(ed)?)\b/i)
                      'failed'
                    elsif @execution_result.to_s.match?(/\b(partial|some|incomplete|half|mixed)\b/i)
                      'partial'
@@ -55,14 +55,16 @@ module Autonomos
       # 6. Record OUTCOME on chain (two-phase commit, phase 2)
       chain_ref, chain_error = record_outcome(cycle, evaluation, learnings, l2_name)
 
-      # 7. Persist evaluation and learnings into cycle JSON, then update state
+      # 7. Persist evaluation, learnings, and state transition in a single save
       cycle[:evaluation] = evaluation
       cycle[:learnings] = learnings
       cycle[:suggested_next] = suggested_next
       cycle[:l2_saved] = l2_name
       cycle[:chain_outcome_ref] = chain_ref
+      cycle[:state] = 'reflected'
+      cycle[:state_history] ||= []
+      cycle[:state_history] << { state: 'reflected', at: Time.now.iso8601 }
       CycleStore.save(@cycle_id, cycle)
-      CycleStore.update_state(@cycle_id, 'reflected')
 
       result = {
         cycle_id: @cycle_id,
@@ -128,7 +130,11 @@ module Autonomos
       begin
         ctx_mgr = KairosMcp::ContextManager.new
         session_id = ctx_mgr.generate_session_id(prefix: 'autonomos')
-        ctx_mgr.save_context(session_id, l2_name, content)
+        result = ctx_mgr.save_context(session_id, l2_name, content)
+        if result.is_a?(Hash) && result[:success] == false
+          warn "[autonomos] L2 save failed: #{result[:error]}"
+          return nil
+        end
         l2_name
       rescue StandardError => e
         warn "[autonomos] L2 save failed: #{e.message}"

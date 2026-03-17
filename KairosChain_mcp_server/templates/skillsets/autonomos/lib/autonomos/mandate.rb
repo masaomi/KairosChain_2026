@@ -127,12 +127,18 @@ module Autonomos
         recent = Array(recent_gap_descriptions)
         return false if recent.empty?
 
+        # Normalize numbers to prevent interpolated counts from defeating detection
+        # e.g. "6 uncommitted files" and "7 uncommitted files" both become "N uncommitted files"
+        normalize = ->(s) { s.to_s.gsub(/\d+/, 'N') }
+        current_norm = normalize.call(current_desc)
+        recent_norm = recent.map { |d| normalize.call(d) }
+
         # Consecutive same-gap detection (A→A)
-        return true if recent.last == current_desc
+        return true if recent_norm.last == current_norm
 
         # Oscillation detection (A→B→A pattern) with 3-step window
-        if recent.size >= 2
-          window = recent.last(2) + [current_desc]
+        if recent_norm.size >= 2
+          window = recent_norm.last(2) + [current_norm]
           return true if window[0] == window[2] && window[0] != window[1]
         end
 

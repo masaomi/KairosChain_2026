@@ -1281,3 +1281,117 @@ class TestAutonomosGitObservation < Minitest::Test
     assert_equal 'disabled', result[:reason]
   end
 end
+
+class TestAutonomosSaveContextFailure < Minitest::Test
+  def setup
+    Autonomos.instance_variable_set(:@config, { 'git_observation' => false })
+    Autonomos.instance_variable_set(:@loaded, true)
+  end
+
+  def teardown
+    KairosMcp.send(:remove_const, :ContextManager) if KairosMcp.const_defined?(:ContextManager)
+  end
+
+  def test_save_to_l2_returns_nil_on_save_failure
+    # Mock ContextManager where save_context returns { success: false }
+    klass = Class.new do
+      define_method(:initialize) { |*| }
+      define_method(:generate_session_id) { |**| 'sess_fail' }
+      define_method(:save_context) { |_sid, _name, _content| { success: false, error: 'disk full' } }
+    end
+    KairosMcp.const_set(:ContextManager, klass)
+
+    cycle_id = 'save_fail_test'
+    Autonomos::CycleStore.save(cycle_id, {
+      cycle_id: cycle_id,
+      state: 'decided',
+      goal_name: 'test',
+      orientation: { gaps: [{ type: 'task_gap', description: 'test' }] },
+      proposal: { task_id: 't', design_intent: 'test' },
+      state_history: [{ state: 'decided', at: Time.now.iso8601 }]
+    })
+
+    reflector = Autonomos::Reflector.new(cycle_id, execution_result: 'success')
+    result = reflector.reflect
+
+    # l2_saved should be nil when save_context fails
+    assert_nil result[:l2_saved], "Expected l2_saved to be nil when save_context fails"
+    assert_equal 'success', result[:evaluation]
+    assert_equal 'reflected', Autonomos::CycleStore.load(cycle_id)[:state]
+  end
+end
+
+class TestAutonomosLoadL2ContextShape < Minitest::Test
+  def setup
+    Autonomos.instance_variable_set(:@config, { 'git_observation' => false })
+    Autonomos.instance_variable_set(:@loaded, true)
+  end
+
+  def teardown
+    KairosMcp.send(:remove_const, :ContextManager) if KairosMcp.const_defined?(:ContextManager)
+  end
+
+  def test_load_l2_context_returns_newest_session_id
+    klass = Class.new do
+      define_method(:initialize) { |*| }
+      define_method(:list_sessions) do
+        [
+          { session_id: 'sess_new', context_count: 3, modified_at: Time.now },
+          { session_id: 'sess_old', context_count: 1, modified_at: Time.now - 3600 }
+        ]
+      end
+    end
+    KairosMcp.const_set(:ContextManager, klass)
+
+    tool = KairosMcp::SkillSets::Autonomos::Tools::AutonomosCycle.new
+    result = tool.send(:load_l2_context)
+
+    assert result, "Expected non-nil L2 context"
+    assert_equal 'sess_new', result[:session_id], "Expected newest session (first in list)"
+    assert_equal 3, result[:context_count]
+    assert_equal true, result[:exists]
+  end
+end
+
+class TestAutonomosLoopDetectionNormalization < Minitest::Test
+  def test_loop_detected_with_different_counts
+    proposal = { selected_gap: { description: '7 uncommitted modified files detected' } }
+    recent = ['6 uncommitted modified files detected']
+
+    assert Autonomos::Mandate.loop_detected?(proposal, recent),
+           "Expected loop detection when only numbers differ"
+  end
+
+  def test_loop_not_detected_with_different_descriptions
+    proposal = { selected_gap: { description: 'Missing tests for module A' } }
+    recent = ['Missing docs for module B']
+
+    refute Autonomos::Mandate.loop_detected?(proposal, recent),
+           "Expected no loop for genuinely different descriptions"
+  end
+end
+
+class TestAutonomosRegexEvaluation < Minitest::Test
+  def setup
+    Autonomos.instance_variable_set(:@config, { 'git_observation' => false })
+    Autonomos.instance_variable_set(:@loaded, true)
+  end
+
+  def test_errors_plural_detected_as_failed
+    cycle_id = 'regex_errors_test'
+    Autonomos::CycleStore.save(cycle_id, {
+      cycle_id: cycle_id,
+      state: 'decided',
+      goal_name: 'test',
+      orientation: { gaps: [] },
+      proposal: { task_id: 't', design_intent: 'test' },
+      state_history: [{ state: 'decided', at: Time.now.iso8601 }]
+    })
+
+    reflector = Autonomos::Reflector.new(cycle_id, execution_result: 'completed with errors')
+    result = reflector.reflect
+
+    assert_equal 'failed', result[:evaluation],
+                 "Expected 'completed with errors' to evaluate as failed"
+  end
+end
