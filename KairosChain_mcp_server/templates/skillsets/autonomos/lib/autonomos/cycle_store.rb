@@ -23,6 +23,7 @@ module Autonomos
     end
 
     def self.load(cycle_id)
+      validate_cycle_id!(cycle_id)
       cycles_dir = Autonomos.storage_path('cycles')
       path = File.join(cycles_dir, "#{cycle_id}.json")
       return nil unless File.exist?(path)

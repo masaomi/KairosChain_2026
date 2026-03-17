@@ -18,6 +18,12 @@ Autonomos enables autonomous project execution through OODA cycles:
 
 Default mode is single-cycle: one cycle, one human review, maximum agency with maximum safety.
 
+> **Scope (v0.1)**: Single-terminal, single-user experimental mode.
+> Goal loading, cycle history, and session lookup operate on global state —
+> not yet scoped to terminal or user session. Multi-terminal and multi-user
+> isolation is planned for v0.2. Running concurrent Autonomos sessions from
+> different terminals against the same `.kairos/` directory is not supported.
+
 ## Quick Start
 
 ### 1. Set a Project Goal
@@ -44,8 +50,10 @@ MD
 ```
 
 L2 goals are ephemeral — they belong to your current work session and are
-naturally discarded when the work is done. Multiple terminals can have
-different goals without conflict.
+naturally discarded when the work is done.
+
+> **Note (v0.1)**: L2 goal loading currently uses global lookup (no session
+> scoping). In practice, use one terminal per `.kairos/` directory.
 
 **L1 fallback**: If no L2 goal is found, Autonomos falls back to L1 knowledge.
 Use L1 for reusable goal templates shared across sessions:
@@ -107,7 +115,7 @@ Goals are L2 contexts by default (L1 fallback for templates).
 - **Frontmatter**: include `type: autonomos_goal` for discoverability
 - **Checklist**: use `- [ ]` items — Autonomos reads these as task gaps. Prose-only goals will receive a clarification gap asking you to add checklist items.
 - **Update**: use `context_save` to modify goals between cycles
-- **Multi-terminal**: each terminal can have its own goal name (e.g. `goals_auth`, `goals_api`)
+- **Multi-terminal (v0.2)**: planned — each terminal will have its own goal scope. Currently global.
 - **L1 templates**: use `knowledge_update` for reusable goal patterns shared across sessions
 
 ## Cycle States

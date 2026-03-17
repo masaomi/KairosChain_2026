@@ -99,7 +99,7 @@ module KairosMcp
               complexity = proposal[:complexity_hint] || { level: 'low', signals: [] }
               steps = [
                 'Review the proposal above',
-                "If approved, run: autoexec_plan(task_json: '#{JSON.generate(proposal[:autoexec_task])}')",
+                "If approved, copy the autoexec_task JSON from the proposal above and run: autoexec_plan(task_json: <paste_task_json>)",
                 "After autoexec completes: autonomos_reflect(cycle_id: \"#{cycle_id}\", execution_result: \"...\")",
                 "If rejected: autonomos_reflect(cycle_id: \"#{cycle_id}\", skip_reason: \"...\")"
               ]

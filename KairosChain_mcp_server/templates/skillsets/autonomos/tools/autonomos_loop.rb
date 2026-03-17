@@ -334,7 +334,7 @@ module KairosMcp
 
               complexity = proposal[:complexity_hint] || { level: 'low', signals: [] }
               steps = [
-                "Execute via autoexec: autoexec_plan(task_json: '#{JSON.generate(proposal[:autoexec_task])}')",
+                "Execute via autoexec: autoexec_plan(task_json: <use autoexec_task from proposal>)",
                 "After execution: autonomos_loop(command: \"cycle_complete\", mandate_id: \"#{mandate_id}\", execution_result: \"...\")",
                 "To stop: autonomos_loop(command: \"interrupt\", mandate_id: \"#{mandate_id}\")"
               ]
