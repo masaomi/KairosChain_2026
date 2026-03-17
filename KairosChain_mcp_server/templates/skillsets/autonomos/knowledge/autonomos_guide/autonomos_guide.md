@@ -28,7 +28,9 @@ Default mode is single-cycle: one cycle, one human review, maximum agency with m
 
 ### 1. Set a Project Goal
 
-Goals are stored as **L2 context** (session-scoped, per-terminal):
+Goals are stored as **L2 context** (created via `context_save`) or **L1 knowledge**
+(created via `knowledge_update`). Autonomos scans L2 sessions first (most recent first),
+then falls back to L1:
 
 ```
 context_save(name: "project_goals", content: <<~MD)
@@ -52,11 +54,10 @@ MD
 L2 goals are ephemeral — they belong to your current work session and are
 naturally discarded when the work is done.
 
-> **Note (v0.1)**: L2 goal loading currently uses global lookup (no session
-> scoping). In practice, use one terminal per `.kairos/` directory.
+Autonomos scans all L2 sessions (most recent first) for the named context.
+If not found, it falls back to L1 knowledge.
 
-**L1 fallback**: If no L2 goal is found, Autonomos falls back to L1 knowledge.
-Use L1 for reusable goal templates shared across sessions:
+**L1 for reusable goals**: Use L1 for goal templates shared across sessions:
 
 ```
 knowledge_update(name: "goal_template_release", content: "...")
@@ -240,3 +241,16 @@ Complexity signals:
 
 This is guidance, not enforcement. The LLM decides whether to escalate.
 When in doubt, a 30-second persona assembly review is cheaper than a bad decision.
+
+## Known Limitations (v0.1)
+
+- **Mandate concurrency**: Mandate state (JSON file) is not protected by locks.
+  Concurrent tool calls on the same mandate can corrupt state (e.g., `cycles_completed`
+  counter). Single-terminal usage prevents this in practice. v0.2 will add mandate locking.
+- **Orphaned cycle on loop detection**: When a loop is detected, the current cycle
+  is already saved as `decided` with a chain intent record, but never reflected.
+  The intent-only record is informational ("planned but not executed").
+- **Loop detection**: Uses string equality on gap descriptions. LLM rewording of the
+  same gap can defeat detection. Compensated by max_cycles, error_threshold, and checkpoints.
+- **Reflector evaluation**: Regex-based heuristic (`/fail|error/` → failed). May
+  misclassify ambiguous results. Human feedback in the next cycle corrects this.

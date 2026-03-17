@@ -150,13 +150,16 @@ module Autonomos
     end
 
     def load_goal(goal_name)
-      # L2-first: goals are session-scoped contexts (work orders, not permanent knowledge)
+      # L2-first: scan sessions for the named context (most recent first)
       if defined?(KairosMcp::ContextManager)
         begin
           ctx_mgr = KairosMcp::ContextManager.new
-          result = ctx_mgr.load_context(goal_name)
-          if result && result[:content] && !result[:content].strip.empty?
-            return { content: result[:content], found: true, source: :l2 }
+          sessions = ctx_mgr.list_sessions
+          sessions.each do |session|
+            entry = ctx_mgr.get_context(session[:session_id], goal_name)
+            if entry && entry.respond_to?(:content) && entry.content && !entry.content.strip.empty?
+              return { content: entry.content, found: true, source: :l2 }
+            end
           end
         rescue StandardError => e
           warn "[autonomos] L2 goal load failed for '#{goal_name}': #{e.message}"

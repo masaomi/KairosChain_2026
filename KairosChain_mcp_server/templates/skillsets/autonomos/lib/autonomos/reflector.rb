@@ -127,7 +127,8 @@ module Autonomos
 
       begin
         ctx_mgr = KairosMcp::ContextManager.new
-        ctx_mgr.save(l2_name, content)
+        session_id = ctx_mgr.generate_session_id(prefix: 'autonomos')
+        ctx_mgr.save_context(session_id, l2_name, content)
         l2_name
       rescue StandardError => e
         warn "[autonomos] L2 save failed: #{e.message}"

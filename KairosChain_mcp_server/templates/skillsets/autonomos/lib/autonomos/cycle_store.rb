@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'securerandom'
+
 module Autonomos
   # Persists cycle state and manages concurrency locks.
   # Uses file-based storage under .kairos/autonomos/cycles/ (L2-equivalent).

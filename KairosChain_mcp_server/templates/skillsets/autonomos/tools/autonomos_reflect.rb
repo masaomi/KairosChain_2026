@@ -76,7 +76,7 @@ module KairosMcp
 
             # Add follow-up guidance
             result[:next_steps] = [
-              "Run autonomos_cycle(feedback: \"#{result[:suggested_next].to_s[0..60]}...\") to start next cycle",
+              "Run autonomos_cycle(feedback: <use suggested_next from above>) to start next cycle",
               'Or set/update goals: knowledge_update(name: "project_goals", content: "...")'
             ]
 

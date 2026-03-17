@@ -898,19 +898,16 @@ class TestAutonomosOodaModule < Minitest::Test
   end
 
   def test_load_goal_l2_first
-    # Define a stub ContextManager to simulate L2 goal
-    mod = Module.new do
-      define_method(:load_context) do |name|
-        if name == 'my_l2_goal'
-          { content: "- [ ] Do the thing" }
-        else
-          nil
-        end
+    # Stub ContextManager with real API shape: list_sessions + get_context
+    entry_class = Struct.new(:content)
+    klass = Class.new do
+      define_method(:initialize) { |*| }
+      define_method(:list_sessions) { [{ session_id: 'sess_1' }] }
+      define_method(:get_context) do |session_id, name|
+        name == 'my_l2_goal' ? entry_class.new("- [ ] Do the thing") : nil
       end
     end
-
-    # Temporarily define ContextManager
-    KairosMcp.const_set(:ContextManager, Class.new { include mod })
+    KairosMcp.const_set(:ContextManager, klass)
 
     tool = KairosMcp::SkillSets::Autonomos::Tools::AutonomosCycle.new
     result = tool.load_goal('my_l2_goal')
@@ -924,10 +921,12 @@ class TestAutonomosOodaModule < Minitest::Test
 
   def test_load_goal_l1_fallback
     # Define ContextManager that returns nil (no L2 goal)
-    empty_mod = Module.new do
-      define_method(:load_context) { |_name| nil }
+    klass = Class.new do
+      define_method(:initialize) { |*| }
+      define_method(:list_sessions) { [{ session_id: 'sess_empty' }] }
+      define_method(:get_context) { |_sid, _name| nil }
     end
-    KairosMcp.const_set(:ContextManager, Class.new { include empty_mod })
+    KairosMcp.const_set(:ContextManager, klass)
 
     # Define KnowledgeProvider that returns L1 goal
     kp_mod = Module.new do
@@ -954,17 +953,16 @@ class TestAutonomosOodaModule < Minitest::Test
   end
 
   def test_orient_includes_goal_source
-    # Define ContextManager with a goal
-    mod = Module.new do
-      define_method(:load_context) do |name|
-        if name == 'src_test'
-          { content: "- [ ] Source test task" }
-        else
-          nil
-        end
+    # Define ContextManager with real API shape
+    entry_class = Struct.new(:content)
+    klass = Class.new do
+      define_method(:initialize) { |*| }
+      define_method(:list_sessions) { [{ session_id: 'sess_src' }] }
+      define_method(:get_context) do |_sid, name|
+        name == 'src_test' ? entry_class.new("- [ ] Source test task") : nil
       end
     end
-    KairosMcp.const_set(:ContextManager, Class.new { include mod })
+    KairosMcp.const_set(:ContextManager, klass)
 
     tool = KairosMcp::SkillSets::Autonomos::Tools::AutonomosCycle.new
     obs = tool.observe('src_test')
