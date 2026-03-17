@@ -141,3 +141,22 @@ The human participates at three points:
 3. **Feedback injection**: provide perspective during reflect or next cycle
 
 This follows Proposition 9: the human is on the boundary, not excluded.
+
+## Complexity-Driven Deliberation
+
+Each proposal includes a `complexity_hint` with a level (`low`, `medium`, `high`)
+and signals explaining why.
+
+| Level | Signals | Recommended Action |
+|-------|---------|-------------------|
+| low | (none) | Execute directly via autoexec |
+| medium | 1 signal (e.g. `high_risk` or `design_scope`) | Use your judgment — consider a quick review |
+| high | 2+ signals (e.g. `high_risk` + `many_gaps`) | Run `sc_review(persona_assembly)` on the proposal before executing |
+
+Complexity signals:
+- `high_risk` — the gap produces high-risk steps
+- `many_gaps` — more than 3 gaps remain (direction matters)
+- `design_scope` — gap description involves architecture, design, refactoring, migration, integration, or security
+
+This is guidance, not enforcement. The LLM decides whether to escalate.
+When in doubt, a 30-second persona assembly review is cheaper than a bad decision.

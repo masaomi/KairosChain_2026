@@ -96,19 +96,30 @@ module KairosMcp
               state[:intent_ref] = intent_ref
               ::Autonomos::CycleStore.save(cycle_id, state)
 
+              complexity = proposal[:complexity_hint] || { level: 'low', signals: [] }
+              steps = [
+                'Review the proposal above',
+                "If approved, run: autoexec_plan(task_json: '#{JSON.generate(proposal[:autoexec_task])}')",
+                "After autoexec completes: autonomos_reflect(cycle_id: \"#{cycle_id}\", execution_result: \"...\")",
+                "If rejected: autonomos_reflect(cycle_id: \"#{cycle_id}\", skip_reason: \"...\")"
+              ]
+
+              if complexity[:level] != 'low'
+                steps.unshift(
+                  "COMPLEXITY #{complexity[:level].upcase} (#{complexity[:signals].join(', ')}): " \
+                  'Consider running sc_review(persona_assembly) on this proposal before executing.'
+                )
+              end
+
               response = {
                 cycle_id: cycle_id,
                 state: 'decided',
                 observation: observation,
                 orientation: orientation,
                 proposal: proposal,
+                complexity_hint: complexity,
                 intent_ref: intent_ref,
-                next_steps: [
-                  'Review the proposal above',
-                  "If approved, run: autoexec_plan(task_json: '#{JSON.generate(proposal[:autoexec_task])}')",
-                  "After autoexec completes: autonomos_reflect(cycle_id: \"#{cycle_id}\", execution_result: \"...\")",
-                  "If rejected: autonomos_reflect(cycle_id: \"#{cycle_id}\", skip_reason: \"...\")"
-                ]
+                next_steps: steps
               }
               response[:feedback_incorporated] = true if feedback && !feedback.empty?
               response[:chain_warning] = "Intent recording failed: #{intent_error}" if intent_error

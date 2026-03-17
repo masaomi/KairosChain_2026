@@ -66,11 +66,14 @@ module Autonomos
 
       is_setup = top_gap[:type] == 'setup'
 
+      complexity = assess_complexity(top_gap, sorted_gaps, risk_default)
+
       {
         task_id: task_id,
         design_intent: "Address #{top_gap[:type]}: #{top_gap[:description]}",
         selected_gap: top_gap,
         remaining_gaps: sorted_gaps.size - 1,
+        complexity_hint: complexity,
         autoexec_task: {
           task_id: task_id,
           meta: {
@@ -162,6 +165,25 @@ module Autonomos
     end
 
     private
+
+    COMPLEX_KEYWORDS = /\b(architect|design|refactor|migrat|restructur|integrat|security|auth)/i
+
+    def assess_complexity(top_gap, sorted_gaps, risk_default)
+      signals = []
+      signals << 'high_risk' if risk_default == 'high'
+      signals << 'many_gaps' if sorted_gaps.size > 3
+      signals << 'design_scope' if top_gap[:description]&.match?(COMPLEX_KEYWORDS)
+
+      level = if signals.size >= 2
+                'high'
+              elsif signals.any?
+                'medium'
+              else
+                'low'
+              end
+
+      { level: level, signals: signals }
+    end
 
     def load_previous_cycle
       prev = ::Autonomos::CycleStore.load_latest

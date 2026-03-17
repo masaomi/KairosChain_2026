@@ -307,6 +307,20 @@ module KairosMcp
                 }
               end
 
+              complexity = proposal[:complexity_hint] || { level: 'low', signals: [] }
+              steps = [
+                "Execute via autoexec: autoexec_plan(task_json: '#{JSON.generate(proposal[:autoexec_task])}')",
+                "After execution: autonomos_loop(command: \"cycle_complete\", mandate_id: \"#{mandate_id}\", execution_result: \"...\")",
+                "To stop: autonomos_loop(command: \"interrupt\", mandate_id: \"#{mandate_id}\")"
+              ]
+
+              if complexity[:level] != 'low'
+                steps.unshift(
+                  "COMPLEXITY #{complexity[:level].upcase} (#{complexity[:signals].join(', ')}): " \
+                  'Consider running sc_review(persona_assembly) on this proposal before executing.'
+                )
+              end
+
               {
                 mandate_id: mandate_id,
                 status: 'active',
@@ -314,12 +328,9 @@ module KairosMcp
                 cycle_number: mandate[:cycles_completed] + 1,
                 cycles_remaining: mandate[:max_cycles] - mandate[:cycles_completed],
                 proposal_summary: summarize_proposal(proposal),
+                complexity_hint: complexity,
                 autoexec_task: proposal[:autoexec_task],
-                next_steps: [
-                  "Execute via autoexec: autoexec_plan(task_json: '#{JSON.generate(proposal[:autoexec_task])}')",
-                  "After execution: autonomos_loop(command: \"cycle_complete\", mandate_id: \"#{mandate_id}\", execution_result: \"...\")",
-                  "To stop: autonomos_loop(command: \"interrupt\", mandate_id: \"#{mandate_id}\")"
-                ]
+                next_steps: steps
               }
             ensure
               ::Autonomos::CycleStore.release_lock if lock_acquired
