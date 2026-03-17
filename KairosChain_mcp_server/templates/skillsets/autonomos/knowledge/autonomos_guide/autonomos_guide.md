@@ -22,10 +22,10 @@ Default mode is single-cycle: one cycle, one human review, maximum agency with m
 
 ### 1. Set a Project Goal
 
-Goals are stored as L1 knowledge with a naming convention:
+Goals are stored as **L2 context** (session-scoped, per-terminal):
 
 ```
-knowledge_update(name: "project_goals", content: <<~MD)
+context_save(name: "project_goals", content: <<~MD)
 ---
 type: autonomos_goal
 status: active
@@ -41,6 +41,17 @@ status: active
 - Build the data model
 - Add API endpoints
 MD
+```
+
+L2 goals are ephemeral — they belong to your current work session and are
+naturally discarded when the work is done. Multiple terminals can have
+different goals without conflict.
+
+**L1 fallback**: If no L2 goal is found, Autonomos falls back to L1 knowledge.
+Use L1 for reusable goal templates shared across sessions:
+
+```
+knowledge_update(name: "goal_template_release", content: "...")
 ```
 
 ### 2. Run a Cycle
@@ -89,12 +100,15 @@ autonomos_cycle(feedback: "Focus on edge cases next")
 
 ## Goal Convention
 
-Goals use standard L1 knowledge. No special tool needed.
+Goals are L2 contexts by default (L1 fallback for templates).
 
 - **Name**: `project_goals` (default) or any name passed to `goal_name` parameter
+- **Create**: `context_save(name: "my_goal", content: "...")` for session-scoped goals
 - **Frontmatter**: include `type: autonomos_goal` for discoverability
 - **Checklist**: use `- [ ]` items — Autonomos reads these as task gaps
-- **Update**: use `knowledge_update` directly to modify goals between cycles
+- **Update**: use `context_save` to modify goals between cycles
+- **Multi-terminal**: each terminal can have its own goal name (e.g. `goals_auth`, `goals_api`)
+- **L1 templates**: use `knowledge_update` for reusable goal patterns shared across sessions
 
 ## Cycle States
 

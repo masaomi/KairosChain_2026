@@ -22,6 +22,7 @@ module Autonomos
       orientation = {
         goal_name: goal_name,
         goal_hash: goal_hash,
+        goal_source: goal[:source],
         goal_summary: extract_goal_summary(goal[:content]),
         gaps: identify_gaps(goal, observation),
         blockers: identify_blockers(observation),
@@ -149,12 +150,26 @@ module Autonomos
     end
 
     def load_goal(goal_name)
+      # L2-first: goals are session-scoped contexts (work orders, not permanent knowledge)
+      if defined?(KairosMcp::ContextManager)
+        begin
+          ctx_mgr = KairosMcp::ContextManager.new
+          result = ctx_mgr.load_context(goal_name)
+          if result && result[:content] && !result[:content].strip.empty?
+            return { content: result[:content], found: true, source: :l2 }
+          end
+        rescue StandardError
+          # Fall through to L1
+        end
+      end
+
+      # L1 fallback: reusable goal templates or legacy goals
       if defined?(KairosMcp::KnowledgeProvider)
         begin
           provider = KairosMcp::KnowledgeProvider.new(nil)
           result = provider.get(goal_name)
           if result && result[:content]
-            return { content: result[:content], found: true }
+            return { content: result[:content], found: true, source: :l1 }
           end
         rescue StandardError
           # Fall through

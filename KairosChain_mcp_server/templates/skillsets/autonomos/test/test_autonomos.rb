@@ -866,6 +866,92 @@ class TestAutonomosOodaModule < Minitest::Test
     assert orientation[:gaps].any? { |g| g[:type] == 'setup' }
   end
 
+  def test_load_goal_no_providers
+    # Without ContextManager or KnowledgeProvider, should return not found
+    tool = KairosMcp::SkillSets::Autonomos::Tools::AutonomosCycle.new
+    result = tool.load_goal('nonexistent_goal')
+    refute result[:found]
+    assert_nil result[:content]
+  end
+
+  def test_load_goal_l2_first
+    # Define a stub ContextManager to simulate L2 goal
+    mod = Module.new do
+      define_method(:load_context) do |name|
+        if name == 'my_l2_goal'
+          { content: "- [ ] Do the thing" }
+        else
+          nil
+        end
+      end
+    end
+
+    # Temporarily define ContextManager
+    KairosMcp.const_set(:ContextManager, Class.new { include mod })
+
+    tool = KairosMcp::SkillSets::Autonomos::Tools::AutonomosCycle.new
+    result = tool.load_goal('my_l2_goal')
+
+    assert result[:found]
+    assert_equal :l2, result[:source]
+    assert_includes result[:content], 'Do the thing'
+  ensure
+    KairosMcp.send(:remove_const, :ContextManager) if KairosMcp.const_defined?(:ContextManager)
+  end
+
+  def test_load_goal_l1_fallback
+    # Define ContextManager that returns nil (no L2 goal)
+    empty_mod = Module.new do
+      define_method(:load_context) { |_name| nil }
+    end
+    KairosMcp.const_set(:ContextManager, Class.new { include empty_mod })
+
+    # Define KnowledgeProvider that returns L1 goal
+    kp_mod = Module.new do
+      define_method(:initialize) { |_| }
+      define_method(:get) do |name|
+        if name == 'template_goal'
+          { content: "- [ ] Template task" }
+        else
+          nil
+        end
+      end
+    end
+    KairosMcp.const_set(:KnowledgeProvider, Class.new { include kp_mod })
+
+    tool = KairosMcp::SkillSets::Autonomos::Tools::AutonomosCycle.new
+    result = tool.load_goal('template_goal')
+
+    assert result[:found]
+    assert_equal :l1, result[:source]
+    assert_includes result[:content], 'Template task'
+  ensure
+    KairosMcp.send(:remove_const, :ContextManager) if KairosMcp.const_defined?(:ContextManager)
+    KairosMcp.send(:remove_const, :KnowledgeProvider) if KairosMcp.const_defined?(:KnowledgeProvider)
+  end
+
+  def test_orient_includes_goal_source
+    # Define ContextManager with a goal
+    mod = Module.new do
+      define_method(:load_context) do |name|
+        if name == 'src_test'
+          { content: "- [ ] Source test task" }
+        else
+          nil
+        end
+      end
+    end
+    KairosMcp.const_set(:ContextManager, Class.new { include mod })
+
+    tool = KairosMcp::SkillSets::Autonomos::Tools::AutonomosCycle.new
+    obs = tool.observe('src_test')
+    orientation = tool.orient(obs, 'src_test', nil)
+
+    assert_equal :l2, orientation[:goal_source]
+  ensure
+    KairosMcp.send(:remove_const, :ContextManager) if KairosMcp.const_defined?(:ContextManager)
+  end
+
   def test_ooda_decide_with_gaps
     tool = KairosMcp::SkillSets::Autonomos::Tools::AutonomosCycle.new
     orientation = {
