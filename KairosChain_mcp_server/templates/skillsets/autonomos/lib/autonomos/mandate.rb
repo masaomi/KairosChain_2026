@@ -161,7 +161,7 @@ module Autonomos
         files = Dir.glob(File.join(mandates_dir, '*.json'))
         files.filter_map do |path|
           m = JSON.parse(File.read(path), symbolize_names: true)
-          m if %w[created active paused_at_checkpoint paused_risk_exceeded].include?(m[:status])
+          m if %w[created active paused_at_checkpoint paused_risk_exceeded paused_goal_drift].include?(m[:status])
         rescue JSON::ParserError
           nil
         end

@@ -116,10 +116,10 @@ Goals are L2 contexts by default (L1 fallback for templates).
 |-------|---------|-------------|
 | decided | Proposal ready | Human reviews → autoexec |
 | no_action | No gaps found | Refine goals or celebrate |
-| approved | Human approved | Run autoexec |
-| rejected | Human rejected | Start new cycle |
-| executed | Autoexec completed | Call autonomos_reflect |
 | reflected | Reflection done | Start next cycle or stop |
+
+Note: Approval, rejection, and execution happen outside cycle state (in the LLM/human loop).
+Autonomos tracks the cognitive phases only: decide → reflect.
 
 ## Chain Recording
 
@@ -134,7 +134,7 @@ This makes each cycle a Kairotic moment (constitutive, not evidential).
 - Single-cycle default: human reviews every proposal
 - PID-based lock: prevents concurrent cycles
 - Inherited autoexec safety: risk classification, L0 deny-list, hash-locked plans
-- Goal hash: verified each cycle — if goal changes after mandate creation, loop pauses with `goal_drift_detected`
+- Goal hash: verified each cycle — if goal changes after mandate creation, loop pauses with `paused_goal_drift`
 - No L0 modification: capability gaps are flagged, not acted on
 - Risk budget: maps gap priority to step risk (high priority = high risk). This is a priority-based filter, not full action-semantic risk assessment. High-priority gaps always pause in low/medium budgets.
 

@@ -78,12 +78,21 @@ module Autonomos
         lock_data = JSON.parse(File.read(lock_path)) rescue {}
         pid = lock_data['pid']
 
-        pid_alive = begin
-          Process.kill(0, pid)
-          true
-        rescue Errno::ESRCH, Errno::EPERM
-          false
+        unless pid.is_a?(Integer)
+          File.delete(lock_path) rescue nil
+          pid = nil
         end
+
+        pid_alive = if pid
+                      begin
+                        Process.kill(0, pid)
+                        true
+                      rescue Errno::ESRCH, Errno::EPERM
+                        false
+                      end
+                    else
+                      false
+                    end
 
         if pid_alive
           stale_timeout = Autonomos.config.fetch('stale_lock_timeout', 3600)
