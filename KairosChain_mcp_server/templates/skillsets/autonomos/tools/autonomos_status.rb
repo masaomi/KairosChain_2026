@@ -32,8 +32,8 @@ module KairosMcp
               properties: {
                 command: {
                   type: 'string',
-                  enum: %w[current history summary],
-                  description: 'current: show active/latest cycle. history: list recent cycles. summary: detailed view of one cycle.'
+                  enum: %w[current history summary mandate],
+                  description: 'current: show active/latest cycle. history: list recent cycles. summary: detailed view of one cycle. mandate: show active mandate/loop state.'
                 },
                 cycle_id: {
                   type: 'string',
@@ -42,6 +42,10 @@ module KairosMcp
                 limit: {
                   type: 'integer',
                   description: 'Number of cycles to show in history (default: 10)'
+                },
+                mandate_id: {
+                  type: 'string',
+                  description: 'Specific mandate ID (for mandate command)'
                 }
               },
               required: %w[command]
@@ -62,8 +66,10 @@ module KairosMcp
                        handle_history(limit)
                      when 'summary'
                        handle_summary(cycle_id)
+                     when 'mandate'
+                       handle_mandate(arguments['mandate_id'])
                      else
-                       { error: "Unknown command: #{command}. Use: current, history, summary" }
+                       { error: "Unknown command: #{command}. Use: current, history, summary, mandate" }
                      end
 
             text_content(JSON.pretty_generate(result))
@@ -141,6 +147,41 @@ module KairosMcp
               intent_ref: cycle[:intent_ref],
               evaluation: cycle[:evaluation]
             }
+          end
+
+          def handle_mandate(mandate_id)
+            if mandate_id
+              mandate = ::Autonomos::Mandate.load(mandate_id)
+              return { error: "Mandate '#{mandate_id}' not found" } unless mandate
+
+              {
+                mandate_id: mandate[:mandate_id],
+                status: mandate[:status],
+                goal_name: mandate[:goal_name],
+                max_cycles: mandate[:max_cycles],
+                checkpoint_every: mandate[:checkpoint_every],
+                risk_budget: mandate[:risk_budget],
+                cycles_completed: mandate[:cycles_completed],
+                consecutive_errors: mandate[:consecutive_errors],
+                cycle_history: mandate[:cycle_history],
+                termination_reason: mandate[:termination_reason],
+                created_at: mandate[:created_at],
+                updated_at: mandate[:updated_at]
+              }
+            else
+              active = ::Autonomos::Mandate.list_active
+              {
+                active_mandates: active.map { |m|
+                  {
+                    mandate_id: m[:mandate_id],
+                    status: m[:status],
+                    goal_name: m[:goal_name],
+                    cycles_completed: m[:cycles_completed],
+                    max_cycles: m[:max_cycles]
+                  }
+                }
+              }
+            end
           end
 
           def summarize_observation(obs)

@@ -8,6 +8,8 @@ require 'time'
 require 'open3'
 
 require_relative 'autonomos/cycle_store'
+require_relative 'autonomos/mandate'
+require_relative 'autonomos/ooda'
 require_relative 'autonomos/reflector'
 
 module Autonomos
