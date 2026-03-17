@@ -1203,6 +1203,76 @@ class TestAutonomosSkipReflector < Minitest::Test
   end
 end
 
+class TestAutonomosPausedGoalDriftRejection < Minitest::Test
+  def setup
+    Autonomos.instance_variable_set(:@config, { 'git_observation' => false })
+    Autonomos.instance_variable_set(:@loaded, true)
+  end
+
+  def test_cycle_complete_rejects_paused_goal_drift
+    mandate = Autonomos::Mandate.create(
+      goal_name: 'drift_reject_test',
+      goal_hash: 'stale_hash',
+      max_cycles: 3,
+      checkpoint_every: 3,
+      risk_budget: 'low'
+    )
+    mandate_id = mandate[:mandate_id]
+    Autonomos::Mandate.update_status(mandate_id, 'paused_goal_drift')
+
+    tool = KairosMcp::SkillSets::Autonomos::Tools::AutonomosLoop.new
+    result = JSON.parse(tool.call({
+      'command' => 'cycle_complete',
+      'mandate_id' => mandate_id,
+      'execution_result' => 'should be rejected'
+    }))
+
+    # paused_goal_drift cannot be resumed via cycle_complete
+    assert result['error'] || result['status'] == 'paused_goal_drift',
+           "Expected rejection of cycle_complete from paused_goal_drift state"
+  end
+end
+
+class TestAutonomosHappyPathIntegration < Minitest::Test
+  def setup
+    Autonomos.instance_variable_set(:@config, { 'git_observation' => false })
+    Autonomos.instance_variable_set(:@loaded, true)
+
+    # Provide a goal via KnowledgeProvider mock
+    mod = Module.new do
+      define_method(:get) do |name|
+        if name == 'happy_goal'
+          { content: "# Goal\n- [ ] Write hello world\n- [ ] Add tests" }
+        end
+      end
+    end
+    klass = Class.new do
+      include mod
+      def initialize(*); end
+    end
+    KairosMcp.const_set(:KnowledgeProvider, klass)
+  end
+
+  def teardown
+    KairosMcp.send(:remove_const, :KnowledgeProvider) if KairosMcp.const_defined?(:KnowledgeProvider)
+  end
+
+  def test_single_cycle_returns_proposal_with_task_gaps
+    tool = KairosMcp::SkillSets::Autonomos::Tools::AutonomosCycle.new
+    result = JSON.parse(tool.call({ 'goal_name' => 'happy_goal' }))
+
+    assert_equal 'decided', result['state']
+    assert result['proposal'], "Expected a proposal"
+    assert result['proposal']['autoexec_task'], "Expected autoexec_task in proposal"
+    assert result['proposal']['selected_gap'], "Expected selected_gap"
+    assert_equal 'task_gap', result['proposal']['selected_gap']['type']
+
+    # Orientation should show gaps from checklist
+    gaps = result['orientation']['gaps']
+    assert_operator gaps.size, :>=, 2, "Expected at least 2 task gaps from checklist"
+  end
+end
+
 class TestAutonomosGitObservation < Minitest::Test
   def test_git_disabled
     Autonomos.instance_variable_set(:@config, { 'git_observation' => false })

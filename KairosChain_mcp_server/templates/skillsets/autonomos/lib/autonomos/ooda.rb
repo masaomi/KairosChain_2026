@@ -169,7 +169,7 @@ module Autonomos
         begin
           provider = KairosMcp::KnowledgeProvider.new(nil)
           result = provider.get(goal_name)
-          if result && result[:content]
+          if result && result[:content] && !result[:content].strip.empty?
             return { content: result[:content], found: true, source: :l1 }
           end
         rescue StandardError => e
@@ -284,7 +284,7 @@ module Autonomos
 
         # Prose goal without checklist items: request clarification rather than
         # falsely reporting "goal achieved"
-        if unchecked.empty? && goal[:content].strip.length > 10
+        if unchecked.empty? && goal[:content].strip.length > 0
           has_checked = goal[:content].match?(/^- \[x\] /m)
           unless has_checked
             gaps << {

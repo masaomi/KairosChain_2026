@@ -104,12 +104,16 @@ autonomos_loop(
 
 ## Risk Budget Gate
 
-| Budget | Auto-approved (return proposal) | Pause required |
-|--------|-------------------------------|----------------|
-| low    | read, search, analyze, list   | edit, create, test, delete |
-| medium | read, search, analyze, edit, create, test | delete, push, deploy |
+The risk budget is **priority-based**, not action-semantic. Gap priority maps
+to step risk: high-priority gaps produce high-risk steps.
 
-Maps to autoexec's RiskClassifier categories. When a proposal exceeds budget,
+| Budget | Auto-approved | Pause required |
+|--------|--------------|----------------|
+| low    | low-priority gaps only | medium and high priority |
+| medium | low and medium priority | high priority |
+
+This is a practical simplification: full action-semantic risk classification
+(read/write/delete) is deferred to v0.2. When a proposal exceeds budget,
 mandate status becomes "paused_risk_exceeded" and the tool returns asking for
 human decision.
 
@@ -145,7 +149,6 @@ At checkpoint, the tool returns:
   "cycles_remaining": 3,
   "last_evaluation": "success",
   "cumulative_evaluations": ["success", "partial"],
-  "gaps_remaining": 2,
   "checkpoint_prompt": "Review progress. Continue with cycle_complete, or interrupt."
 }
 ```
@@ -231,10 +234,10 @@ Individual cycle intent/outcome records continue as in v1.
 5. **max_cycles 1-10**: hard cap on autonomous execution
 6. **Error threshold**: 2 consecutive failures terminate loop
 7. **Loop detection**: 3-step lookback (A→A, A→B→A) halts loop
-11. **Goal hash verification**: each cycle verifies goal hasn't drifted since mandate creation
-8. **No L0 modification**: inherited from v1
-9. **Mandate recorded on chain**: approval is constitutive and auditable
-10. **interrupt command**: human can stop at any time
+8. **Goal hash verification**: each cycle verifies goal hasn't drifted since mandate creation
+9. **No L0 modification**: inherited from v1
+10. **Mandate recorded on chain**: approval is constitutive and auditable
+11. **interrupt command**: human can stop at any time
 
 ## Implementation Scope
 

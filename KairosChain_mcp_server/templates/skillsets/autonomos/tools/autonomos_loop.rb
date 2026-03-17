@@ -193,8 +193,7 @@ module KairosMcp
             feedback = args['feedback']
 
             if %w[paused_at_checkpoint paused_risk_exceeded].include?(mandate[:status])
-              ::Autonomos::Mandate.update_status(mandate_id, 'active')
-              mandate = ::Autonomos::Mandate.load(mandate_id)
+              mandate = ::Autonomos::Mandate.update_status(mandate_id, 'active')
             end
 
             # Reflect on previous cycle (always via Reflector for state consistency)

@@ -156,6 +156,63 @@ Autonomos (what to do) → autoexec (how to do it) → Human (approval) → Exec
 
 Autonomos never calls autoexec internally — the human mediates.
 
+## Continuous Mode (Mandate-Based Loop)
+
+For multi-step tasks, use `autonomos_loop` to run multiple cycles with pre-authorized scope.
+
+### 1. Create a Mandate
+
+```
+autonomos_loop(
+  command: "create_mandate",
+  goal_name: "project_goals",
+  max_cycles: 5,
+  checkpoint_every: 2,
+  risk_budget: "low"
+)
+```
+
+The mandate is the human's pre-authorization — it scopes what the loop can do.
+
+### 2. Start the Loop
+
+```
+autonomos_loop(command: "start", mandate_id: "mnd_...")
+```
+
+### 3. Execute and Continue
+
+After each proposal, execute via autoexec, then:
+
+```
+autonomos_loop(
+  command: "cycle_complete",
+  mandate_id: "mnd_...",
+  execution_result: "Tests pass, 3 files changed"
+)
+```
+
+The loop continues until: goal achieved, max_cycles reached, checkpoint due,
+error threshold (2 consecutive), or loop detected (A→A / A→B→A pattern).
+
+### 4. Checkpoints and Interrupts
+
+At checkpoints, review progress and continue or stop:
+
+```
+autonomos_loop(command: "cycle_complete", mandate_id: "mnd_...", feedback: "Looks good")
+autonomos_loop(command: "interrupt", mandate_id: "mnd_...")
+```
+
+### Safety Gates
+
+- **Risk budget**: `low` or `medium` — proposals exceeding budget pause the loop
+- **Goal hash**: verified each cycle — drift pauses with `paused_goal_drift`
+- **Checkpoints**: mandatory human review every 1-3 cycles
+- **Max cycles**: hard cap (1-10)
+
+See `docs/autonomos_continuous_mode_design.md` for full design details.
+
 ## Human-in-the-Loop
 
 The human participates at three points:
