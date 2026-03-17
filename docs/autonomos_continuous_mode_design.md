@@ -39,7 +39,7 @@ The mandate is the human's **pre-authorization**, recorded on chain.
 ```
 autonomos_loop(
   command: "create_mandate" | "start" | "cycle_complete" | "interrupt",
-  goal_name: "project_goals",           # L1 knowledge name (create_mandate)
+  goal_name: "project_goals",           # L2 context first, L1 fallback (create_mandate)
   max_cycles: 5,                         # 1-10, required for create_mandate
   checkpoint_every: 1,                   # 1-3, mandatory human pause interval
   risk_budget: "low",                    # "low" | "medium" — max auto-approved risk
@@ -51,7 +51,7 @@ autonomos_loop(
 
 ### Command: create_mandate
 
-1. Load and validate goal from L1
+1. Load and validate goal (L2 context first, L1 knowledge fallback)
 2. Compute goal_hash for immutability tracking
 3. Create mandate:
    ```json
@@ -76,9 +76,10 @@ autonomos_loop(
 1. Verify mandate_id exists and is in "created" state
 2. Set mandate status to "active"
 3. Run first cycle: observe → orient → decide
-4. If no gaps: terminate("goal_achieved")
-5. Apply risk budget gate to proposal
-6. Return proposal summary + next_steps (LLM executes act)
+4. Verify goal_hash matches mandate — if drift detected, pause with `paused_goal_drift`
+5. If no gaps: terminate("goal_achieved")
+6. Apply risk budget gate to proposal
+7. Return proposal summary + next_steps (LLM executes act)
 
 ### Command: cycle_complete
 
@@ -114,16 +115,23 @@ human decision.
 
 ## Loop Detection
 
-Simple consecutive-same-gap detection only (no complex heuristics):
+3-step lookback with two patterns:
 
 ```ruby
-def loop_detected?(current_proposal, previous_proposal)
-  return false unless previous_proposal
-  current_desc = current_proposal.dig(:selected_gap, :description)
-  prev_desc = previous_proposal.dig(:selected_gap, :description)
-  current_desc == prev_desc
+def loop_detected?(current_proposal, recent_gap_descriptions)
+  # 1. Consecutive same-gap (A→A)
+  return true if recent.last == current_desc
+  # 2. Oscillation (A→B→A pattern)
+  if recent.size >= 2
+    window = recent.last(2) + [current_desc]
+    return true if window[0] == window[2] && window[0] != window[1]
+  end
 end
 ```
+
+Note: String equality comparison is a known limitation. LLM rewording of the
+same gap can defeat detection. This is acceptable for v0.1 given the other
+termination safety nets (max_cycles, error_threshold, checkpoints).
 
 ## Checkpoint System
 
@@ -222,7 +230,8 @@ Individual cycle intent/outcome records continue as in v1.
 4. **checkpoint_every 1-3**: human MUST review at least every 3 cycles
 5. **max_cycles 1-10**: hard cap on autonomous execution
 6. **Error threshold**: 2 consecutive failures terminate loop
-7. **Loop detection**: same-gap consecutive detection halts loop
+7. **Loop detection**: 3-step lookback (A→A, A→B→A) halts loop
+11. **Goal hash verification**: each cycle verifies goal hasn't drifted since mandate creation
 8. **No L0 modification**: inherited from v1
 9. **Mandate recorded on chain**: approval is constitutive and auditable
 10. **interrupt command**: human can stop at any time

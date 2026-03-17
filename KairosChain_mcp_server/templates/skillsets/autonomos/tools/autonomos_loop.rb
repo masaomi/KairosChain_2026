@@ -42,7 +42,7 @@ module KairosMcp
                 },
                 goal_name: {
                   type: 'string',
-                  description: 'L1 knowledge name holding project goal (for create_mandate)'
+                  description: 'Goal name — L2 context first, L1 knowledge fallback (for create_mandate)'
                 },
                 max_cycles: {
                   type: 'integer',
@@ -118,8 +118,9 @@ module KairosMcp
             goal = load_goal(goal_name)
             unless goal[:found]
               return {
-                error: "Goal '#{goal_name}' not found in L1 knowledge",
-                hint: 'Set a goal via knowledge_update(name: "project_goals", content: "...")'
+                error: "Goal '#{goal_name}' not found",
+                hint: 'Set a goal via context_save(name: "project_goals", content: "...") for session-scoped goals, ' \
+                      'or knowledge_update for reusable templates'
               }
             end
 
@@ -196,11 +197,17 @@ module KairosMcp
               mandate = ::Autonomos::Mandate.load(mandate_id)
             end
 
-            # Reflect on previous cycle
+            # Reflect on previous cycle (always via Reflector for state consistency)
+            cycle_id_to_reflect = mandate[:last_cycle_id]
             if execution_result
               reflect_result = reflect_on_cycle(mandate, execution_result, feedback)
               evaluation = reflect_result[:evaluation] || 'unknown'
+            elsif cycle_id_to_reflect
+              # Skip path: use Reflector with skip_reason to close cycle properly
+              reflect_result = reflect_on_skipped_cycle(cycle_id_to_reflect, feedback)
+              evaluation = reflect_result[:evaluation] || 'skipped'
             else
+              # No previous cycle to reflect on (e.g. first cycle_complete after pause)
               evaluation = 'skipped'
             end
 
@@ -253,6 +260,24 @@ module KairosMcp
 
               observation = observe(mandate[:goal_name])
               orientation = orient(observation, mandate[:goal_name], feedback)
+
+              # goal_hash verification: detect goal drift since mandate creation
+              if orientation[:goal_hash] != mandate[:goal_hash]
+                ::Autonomos::Mandate.update_status(mandate_id, 'paused_goal_drift')
+                return {
+                  mandate_id: mandate_id,
+                  status: 'paused_goal_drift',
+                  cycle_id: cycle_id,
+                  message: 'Goal content has changed since mandate was created. ' \
+                    'Create a new mandate with the updated goal, or interrupt this one.',
+                  original_hash: mandate[:goal_hash],
+                  current_hash: orientation[:goal_hash],
+                  next_steps: [
+                    "Create new mandate: autonomos_loop(command: \"create_mandate\", goal_name: \"#{mandate[:goal_name]}\")",
+                    "Interrupt: autonomos_loop(command: \"interrupt\", mandate_id: \"#{mandate_id}\")"
+                  ]
+                }
+              end
 
               if orientation[:gaps].empty?
                 cycle_state = build_cycle_state(
@@ -352,6 +377,21 @@ module KairosMcp
             reflector = ::Autonomos::Reflector.new(
               cycle_id,
               execution_result: execution_result,
+              feedback: feedback
+            )
+            result = reflector.reflect
+            { cycle_id: cycle_id, evaluation: result[:evaluation] }
+          end
+
+          def reflect_on_skipped_cycle(cycle_id, feedback)
+            cycle = ::Autonomos::CycleStore.load(cycle_id)
+            unless cycle && cycle[:state] == 'decided'
+              return { cycle_id: cycle_id, evaluation: 'skipped' }
+            end
+
+            reflector = ::Autonomos::Reflector.new(
+              cycle_id,
+              skip_reason: 'Skipped by user (no execution result provided)',
               feedback: feedback
             )
             result = reflector.reflect

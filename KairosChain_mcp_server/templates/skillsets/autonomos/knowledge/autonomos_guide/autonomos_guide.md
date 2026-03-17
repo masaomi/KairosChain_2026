@@ -105,7 +105,7 @@ Goals are L2 contexts by default (L1 fallback for templates).
 - **Name**: `project_goals` (default) or any name passed to `goal_name` parameter
 - **Create**: `context_save(name: "my_goal", content: "...")` for session-scoped goals
 - **Frontmatter**: include `type: autonomos_goal` for discoverability
-- **Checklist**: use `- [ ]` items — Autonomos reads these as task gaps
+- **Checklist**: use `- [ ]` items — Autonomos reads these as task gaps. Prose-only goals will receive a clarification gap asking you to add checklist items.
 - **Update**: use `context_save` to modify goals between cycles
 - **Multi-terminal**: each terminal can have its own goal name (e.g. `goals_auth`, `goals_api`)
 - **L1 templates**: use `knowledge_update` for reusable goal patterns shared across sessions
@@ -134,8 +134,9 @@ This makes each cycle a Kairotic moment (constitutive, not evidential).
 - Single-cycle default: human reviews every proposal
 - PID-based lock: prevents concurrent cycles
 - Inherited autoexec safety: risk classification, L0 deny-list, hash-locked plans
-- Goal hash: immutability check during cycle
+- Goal hash: verified each cycle — if goal changes after mandate creation, loop pauses with `goal_drift_detected`
 - No L0 modification: capability gaps are flagged, not acted on
+- Risk budget: maps gap priority to step risk (high priority = high risk). This is a priority-based filter, not full action-semantic risk assessment. High-priority gaps always pause in low/medium budgets.
 
 ## Integration with autoexec
 
@@ -150,7 +151,7 @@ Autonomos never calls autoexec internally — the human mediates.
 ## Human-in-the-Loop
 
 The human participates at three points:
-1. **Goal-setting**: define what success looks like (knowledge_update)
+1. **Goal-setting**: define what success looks like (context_save for session goals, knowledge_update for templates)
 2. **Proposal review**: approve/modify/reject the cycle's decision
 3. **Feedback injection**: provide perspective during reflect or next cycle
 
@@ -169,7 +170,7 @@ and signals explaining why.
 
 Complexity signals:
 - `high_risk` — the gap produces high-risk steps
-- `many_gaps` — more than 3 gaps remain (direction matters)
+- `many_gaps` — more than 5 gaps remain (direction matters)
 - `design_scope` — gap description involves architecture, design, refactoring, migration, integration, or security
 
 This is guidance, not enforcement. The LLM decides whether to escalate.

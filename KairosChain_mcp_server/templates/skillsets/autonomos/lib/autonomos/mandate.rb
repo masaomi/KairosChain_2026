@@ -8,7 +8,7 @@ module Autonomos
   class Mandate
     VALID_STATUSES = %w[
       created active
-      paused_at_checkpoint paused_risk_exceeded
+      paused_at_checkpoint paused_risk_exceeded paused_goal_drift
       terminated interrupted
     ].freeze
 

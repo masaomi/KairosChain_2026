@@ -17,9 +17,9 @@ module Autonomos
         return { error: "Cycle '#{@cycle_id}' not found" }
       end
 
-      unless %w[decided approved executed].include?(cycle[:state])
+      unless cycle[:state] == 'decided'
         return {
-          error: "Cycle '#{@cycle_id}' is in state '#{cycle[:state]}', expected 'decided', 'approved', or 'executed'",
+          error: "Cycle '#{@cycle_id}' is in state '#{cycle[:state]}', expected 'decided'",
           hint: 'Run autonomos_cycle first to create a cycle, then execute via autoexec before reflecting'
         }
       end

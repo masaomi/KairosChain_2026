@@ -8,9 +8,7 @@ module Autonomos
     LOCK_FILE = 'autonomos.lock'
 
     VALID_STATES = %w[
-      observing orienting decided
-      approved rejected no_action
-      executed reflected cycle_complete
+      decided no_action reflected
     ].freeze
 
     # --- Cycle State ---

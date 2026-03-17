@@ -158,7 +158,8 @@ module Autonomos
           if result && result[:content] && !result[:content].strip.empty?
             return { content: result[:content], found: true, source: :l2 }
           end
-        rescue StandardError
+        rescue StandardError => e
+          warn "[autonomos] L2 goal load failed for '#{goal_name}': #{e.message}"
           # Fall through to L1
         end
       end
@@ -171,8 +172,8 @@ module Autonomos
           if result && result[:content]
             return { content: result[:content], found: true, source: :l1 }
           end
-        rescue StandardError
-          # Fall through
+        rescue StandardError => e
+          warn "[autonomos] L1 goal load failed for '#{goal_name}': #{e.message}"
         end
       end
 
@@ -186,7 +187,7 @@ module Autonomos
     def assess_complexity(top_gap, sorted_gaps, risk_default)
       signals = []
       signals << 'high_risk' if risk_default == 'high'
-      signals << 'many_gaps' if sorted_gaps.size > 3
+      signals << 'many_gaps' if sorted_gaps.size > 5
       signals << 'design_scope' if top_gap[:description]&.match?(COMPLEX_KEYWORDS)
 
       level = if signals.size >= 2
@@ -251,7 +252,7 @@ module Autonomos
     end
 
     def extract_goal_summary(content)
-      return 'No goal defined. Set a goal via: knowledge_update(name: "project_goals", content: "...")' unless content
+      return 'No goal defined. Set a goal via: context_save(name: "project_goals", content: "...") for session goals, or knowledge_update for reusable templates' unless content
 
       lines = content.to_s.split("\n").reject { |l| l.strip.start_with?('---') || l.strip.empty? }
       lines.first(10).join("\n")
@@ -263,9 +264,9 @@ module Autonomos
       unless goal[:found]
         gaps << {
           type: 'setup',
-          description: 'No project goal defined in L1 knowledge',
+          description: 'No project goal defined',
           priority: 'high',
-          action_hint: 'Set a goal via knowledge_update(name: "project_goals", content: "...")'
+          action_hint: 'Set a goal via context_save(name: "project_goals", content: "...") for session goals, or knowledge_update for reusable templates'
         }
         return gaps
       end
@@ -279,6 +280,20 @@ module Autonomos
             priority: 'medium',
             action_hint: "Implement: #{item.strip}"
           }
+        end
+
+        # Prose goal without checklist items: request clarification rather than
+        # falsely reporting "goal achieved"
+        if unchecked.empty? && goal[:content].strip.length > 10
+          has_checked = goal[:content].match?(/^- \[x\] /m)
+          unless has_checked
+            gaps << {
+              type: 'clarification',
+              description: 'Goal is prose without checklist items. Convert to checklist format for actionable tracking.',
+              priority: 'medium',
+              action_hint: 'Rewrite goal with "- [ ] item" checklist format via context_save'
+            }
+          end
         end
       end
 

@@ -98,6 +98,17 @@ class TestAutonomosCycleStore < Minitest::Test
     end
   end
 
+  def test_valid_states_only_reachable
+    # Only states actually used in implementation should be valid
+    assert_includes Autonomos::CycleStore::VALID_STATES, 'decided'
+    assert_includes Autonomos::CycleStore::VALID_STATES, 'no_action'
+    assert_includes Autonomos::CycleStore::VALID_STATES, 'reflected'
+    # Unreachable states should have been removed
+    refute_includes Autonomos::CycleStore::VALID_STATES, 'observing'
+    refute_includes Autonomos::CycleStore::VALID_STATES, 'approved'
+    refute_includes Autonomos::CycleStore::VALID_STATES, 'executed'
+  end
+
   def test_validate_cycle_id
     assert_raises(ArgumentError) do
       Autonomos::CycleStore.validate_cycle_id!('../../etc/passwd')
@@ -319,8 +330,20 @@ class TestAutonomosIdentifyGaps < Minitest::Test
     assert_empty gaps
   end
 
-  def test_prose_goal_without_checklist_produces_no_gaps
+  def test_prose_goal_without_checklist_produces_clarification_gap
     goal = { content: "# Goal\nBuild a great product with excellent quality.", found: true }
+    observation = { git: { git_available: false } }
+
+    tool = KairosMcp::SkillSets::Autonomos::Tools::AutonomosCycle.new
+    gaps = tool.send(:identify_gaps, goal, observation)
+
+    assert_equal 1, gaps.size
+    assert_equal 'clarification', gaps.first[:type]
+    assert gaps.first[:description].include?('checklist')
+  end
+
+  def test_prose_goal_with_checked_items_no_clarification
+    goal = { content: "# Goal\n- [x] Already done item\nSome prose.", found: true }
     observation = { git: { git_available: false } }
 
     tool = KairosMcp::SkillSets::Autonomos::Tools::AutonomosCycle.new
@@ -975,8 +998,8 @@ class TestAutonomosLoopIntegration < Minitest::Test
     Autonomos.instance_variable_set(:@loaded, true)
   end
 
-  def test_start_with_no_goal_runs_setup_gap
-    # Create mandate with known goal_hash (simulating that goal existed at create time)
+  def test_start_with_no_goal_detects_drift
+    # Create mandate with a fake goal_hash (simulating that goal existed at create time)
     mandate = Autonomos::Mandate.create(
       goal_name: 'test_integration_goal',
       goal_hash: 'abc',
@@ -991,10 +1014,34 @@ class TestAutonomosLoopIntegration < Minitest::Test
       'mandate_id' => mandate[:mandate_id]
     }))
 
-    # Without KnowledgeProvider, observe→orient produces a setup gap (high priority/risk)
-    # low risk_budget + high risk step → paused_risk_exceeded
-    assert_equal 'paused_risk_exceeded', result['status']
+    # Without providers, goal resolves to nil. Hash of nil.to_s differs from 'abc'.
+    # goal_hash verification triggers before risk budget gate.
+    assert_equal 'paused_goal_drift', result['status']
     assert_equal mandate[:mandate_id], result['mandate_id']
+  end
+
+  def test_start_with_matching_hash_reaches_risk_gate
+    # Compute the hash that orient will produce when goal is not found
+    # (nil content → hash of empty string)
+    expected_hash = Digest::SHA256.hexdigest('')
+
+    mandate = Autonomos::Mandate.create(
+      goal_name: 'hash_match_test',
+      goal_hash: expected_hash,
+      max_cycles: 3,
+      checkpoint_every: 3,
+      risk_budget: 'low'
+    )
+
+    tool = KairosMcp::SkillSets::Autonomos::Tools::AutonomosLoop.new
+    result = JSON.parse(tool.call({
+      'command' => 'start',
+      'mandate_id' => mandate[:mandate_id]
+    }))
+
+    # Hash matches, so we proceed past goal_hash check.
+    # No goal → setup gap (high priority/risk) → paused_risk_exceeded
+    assert_equal 'paused_risk_exceeded', result['status']
   end
 
   def test_cycle_complete_with_max_cycles
@@ -1083,6 +1130,76 @@ class TestAutonomosLoopIntegration < Minitest::Test
     loaded = Autonomos::Mandate.load(mandate[:mandate_id])
     assert_equal 'interrupted', loaded[:status]
     assert_equal 'interrupted', loaded[:termination_reason]
+  end
+end
+
+class TestAutonomosGoalHashVerification < Minitest::Test
+  def setup
+    Autonomos.instance_variable_set(:@config, { 'git_observation' => false })
+    Autonomos.instance_variable_set(:@loaded, true)
+  end
+
+  def test_goal_drift_pauses_mandate
+    # Create mandate with a specific goal_hash
+    mandate = Autonomos::Mandate.create(
+      goal_name: 'drift_test',
+      goal_hash: 'original_hash_abc',
+      max_cycles: 3,
+      checkpoint_every: 3,
+      risk_budget: 'low'
+    )
+
+    tool = KairosMcp::SkillSets::Autonomos::Tools::AutonomosLoop.new
+    # Start will observe→orient and compute a new goal_hash (different from 'original_hash_abc')
+    # Since no KnowledgeProvider is defined, the goal won't be found — but
+    # when goal is not found, orient still computes goal_hash from nil content.
+    # The hash of nil.to_s will differ from 'original_hash_abc'
+    result = JSON.parse(tool.call({
+      'command' => 'start',
+      'mandate_id' => mandate[:mandate_id]
+    }))
+
+    assert_equal 'paused_goal_drift', result['status']
+    assert result['message'].include?('changed')
+  end
+
+  def test_paused_goal_drift_is_valid_status
+    assert_includes Autonomos::Mandate::VALID_STATUSES, 'paused_goal_drift'
+  end
+end
+
+class TestAutonomosSkipReflector < Minitest::Test
+  def setup
+    Autonomos.instance_variable_set(:@config, { 'git_observation' => false })
+    Autonomos.instance_variable_set(:@loaded, true)
+  end
+
+  def test_skip_via_reflector_closes_cycle
+    # Create a decided cycle
+    cycle_id = 'skip_reflector_test'
+    Autonomos::CycleStore.save(cycle_id, {
+      cycle_id: cycle_id,
+      state: 'decided',
+      goal_name: 'test',
+      orientation: { gaps: [{ type: 'task_gap', description: 'test' }] },
+      proposal: { task_id: 't', design_intent: 'test' },
+      state_history: [{ state: 'decided', at: Time.now.iso8601 }]
+    })
+
+    # Reflect with skip_reason (same path as loop skip)
+    reflector = Autonomos::Reflector.new(
+      cycle_id,
+      skip_reason: 'Skipped by user'
+    )
+    result = reflector.reflect
+
+    assert_equal 'skipped', result[:evaluation]
+    assert_equal 'Skipped by user', result[:skip_reason]
+
+    # Verify cycle state is closed
+    loaded = Autonomos::CycleStore.load(cycle_id)
+    assert_equal 'reflected', loaded[:state]
+    assert_equal 'skipped', loaded[:evaluation]
   end
 end
 

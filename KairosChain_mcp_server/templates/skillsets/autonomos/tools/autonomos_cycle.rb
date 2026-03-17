@@ -38,7 +38,7 @@ module KairosMcp
               properties: {
                 goal_name: {
                   type: 'string',
-                  description: 'L1 knowledge name holding project goal (default: "project_goals")'
+                  description: 'Goal name — L2 context first, L1 knowledge fallback (default: "project_goals")'
                 },
                 feedback: {
                   type: 'string',
