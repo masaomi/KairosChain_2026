@@ -66,7 +66,7 @@ module KairosMcp
         return text_content("Error: name is required") unless name && !name.empty?
         return text_content("Error: subdir is required") unless subdir && !subdir.empty?
 
-        manager = ContextManager.new
+        manager = ContextManager.new(nil, user_context: @safety&.current_user)
         result = manager.create_subdir(session_id, name, subdir)
 
         if result[:success]

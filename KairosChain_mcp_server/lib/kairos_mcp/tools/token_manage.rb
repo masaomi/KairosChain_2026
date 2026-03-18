@@ -233,7 +233,12 @@ module KairosMcp
       def token_store
         @token_store ||= begin
           require_relative '../auth/token_store'
-          Auth::TokenStore.new
+          require_relative '../skills_config'
+          config = SkillsConfig.load['http'] || {}
+          Auth::TokenStore.create(
+            backend: config['token_backend'],
+            store_path: config['token_store']
+          )
         end
       end
 

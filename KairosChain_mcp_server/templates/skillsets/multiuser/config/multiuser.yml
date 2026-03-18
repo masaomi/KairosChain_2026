@@ -1,0 +1,16 @@
+# Multiuser SkillSet Configuration
+#
+# Requires: gem install pg
+#
+# PostgreSQL connection settings
+postgresql:
+  host: localhost
+  port: 5432
+  dbname: kairoschain
+  user: kairoschain
+  password: ""
+  pool_size: 5
+  connect_timeout: 5
+
+# Token backend is configured in skills/config.yml under http.token_backend
+# ('file' or 'postgresql'). Do not duplicate that setting here.

@@ -75,7 +75,7 @@ test_section("Layer Registry") do
   end
   
   puts "\nKairos meta-skills:"
-  puts "  #{KairosMcp::LayerRegistry::KAIROS_META_SKILLS.join(', ')}"
+  puts "  #{KairosMcp::LayerRegistry.kairos_meta_skills.join(', ')}"
 end
 
 # Test 2: Tools List

@@ -1,0 +1,11 @@
+.git
+.github
+.kairos
+.echoria
+vendor/
+storage/
+log/
+docs/
+*.md
+!README.md
+!README_jp.md

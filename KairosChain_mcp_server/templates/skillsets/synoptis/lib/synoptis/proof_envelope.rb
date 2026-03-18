@@ -51,6 +51,12 @@ module Synoptis
     # S-C1 fix: Retain nil values as JSON null for canonical form.
     # .compact is intentionally NOT used here — canonical form must be
     # deterministic regardless of which fields are populated.
+    #
+    # Design decision: actor_user_id, actor_role, and metadata are
+    # intentionally EXCLUDED from canonical_json (and thus from signature).
+    # actor_role is a trust hint used by TrustScorer to weight quality,
+    # not a cryptographic claim. The evidence field (which IS signed)
+    # carries the verifiable substance (DOI, hash, etc.).
     def canonical_json
       canonical = {
         proof_id: @proof_id,

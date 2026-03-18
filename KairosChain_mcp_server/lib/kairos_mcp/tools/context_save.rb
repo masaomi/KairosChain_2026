@@ -74,7 +74,7 @@ module KairosMcp
         return text_content("Error: name is required") unless name && !name.empty?
         return text_content("Error: content is required") unless content && !content.empty?
 
-        manager = ContextManager.new
+        manager = ContextManager.new(nil, user_context: @safety&.current_user)
 
         # Generate session_id if not provided
         if session_id.nil? || session_id.empty?

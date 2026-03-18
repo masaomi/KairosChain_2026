@@ -4,7 +4,7 @@
       "command": "kairos-chain",
       "args": [],
       "env": {
-        "KAIROS_DATA_DIR": "${CLAUDE_PLUGIN_ROOT}/.kairos"
+        "KAIROS_DATA_DIR": "/Users/masa/forback/github/KairosChain_2026/.kairos"
       }
     }
   }

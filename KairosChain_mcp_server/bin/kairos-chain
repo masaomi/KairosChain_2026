@@ -119,6 +119,30 @@ when 'skillset'
       exit 1
     end
 
+  when 'upgrade'
+    apply = ARGV.delete('--apply')
+    upgrades = manager.upgrade_check
+
+    if upgrades.empty?
+      puts "All SkillSets are up to date."
+    elsif apply
+      results = manager.upgrade_apply
+      results.each do |r|
+        puts "Updated #{r[:name]}: v#{r[:from]} -> v#{r[:to]} (#{r[:files_updated]} files)"
+      end
+      puts "Done. #{results.size} SkillSet(s) upgraded."
+    else
+      puts "SkillSet upgrades available:"
+      puts ""
+      upgrades.each do |u|
+        label = u[:version_bump] ? "v#{u[:installed_version]} -> v#{u[:available_version]}" : "files changed"
+        puts "  #{u[:name]}: #{label}"
+        u[:changed_files].each { |f| puts "    Modified: #{f}" }
+        puts ""
+      end
+      puts "Run 'kairos-chain skillset upgrade --apply' to apply updates."
+    end
+
   when 'remove'
     name = ARGV.shift
     unless name
@@ -316,6 +340,14 @@ OptionParser.new do |opts|
     options[:init_admin] = true
   end
 
+  opts.on('--quiet', 'Suppress token output (for scripted/Docker usage)') do
+    options[:quiet] = true
+  end
+
+  opts.on('--token-output-file PATH', 'Write raw admin token to file (mode 0600)') do |path|
+    options[:token_output_file] = path
+  end
+
   opts.on('--token-store PATH', 'Path to token store file') do |path|
     options[:token_store] = path
   end
@@ -374,8 +406,26 @@ end
 # Handle --init-admin
 if options[:init_admin]
   require 'kairos_mcp/auth/token_store'
+  require 'kairos_mcp/skills_config'
 
-  store = KairosMcp::Auth::TokenStore.new(options[:token_store])
+  # Load SkillSets first so registered backends (e.g. Multiuser/PostgreSQL) are available
+  begin
+    require 'kairos_mcp/skillset_manager'
+    KairosMcp::SkillSetManager.new.enabled_skillsets.each(&:load!)
+  rescue StandardError => e
+    $stderr.puts "[init-admin] SkillSet load: #{e.message}"
+  end
+
+  http_config = KairosMcp::SkillsConfig.load['http'] || {}
+  store_path = options[:token_store] || http_config['token_store']
+  if store_path && !File.absolute_path?(store_path)
+    store_path = File.join(KairosMcp.data_dir, store_path)
+  end
+
+  store = KairosMcp::Auth::TokenStore.create(
+    backend: http_config['token_backend'],
+    store_path: store_path
+  )
 
   if !store.empty?
     $stderr.puts "[WARNING] Active tokens already exist."
@@ -385,40 +435,58 @@ if options[:init_admin]
     store.list.each do |t|
       $stderr.puts "  - #{t[:user]} (#{t[:role]}, expires: #{t[:expires_at] || 'never'})"
     end
-    $stderr.puts ""
-    $stderr.puts "Proceed anyway? (y/N)"
-    answer = $stdin.gets&.strip
-    exit unless answer&.downcase == 'y'
+
+    if $stdin.tty?
+      $stderr.puts ""
+      $stderr.puts "Proceed anyway? (y/N)"
+      answer = $stdin.gets&.strip
+      exit unless answer&.downcase == 'y'
+    else
+      $stderr.puts ""
+      $stderr.puts "[init-admin] Non-interactive mode: skipping confirmation."
+    end
   end
 
   result = store.create(user: 'admin', role: 'owner', issued_by: 'system')
 
-  puts ""
-  puts "=" * 60
-  puts "  KairosChain Admin Token Generated"
-  puts "=" * 60
-  puts ""
-  puts "  Token: #{result['raw_token']}"
-  puts "  User:  #{result['user']}"
-  puts "  Role:  #{result['role']}"
-  puts "  Expires: #{result['expires_at'] || 'never'}"
-  puts ""
-  puts "  IMPORTANT: Store this token securely."
-  puts "  It will NOT be shown again."
-  puts ""
-  puts "  Configure in Cursor mcp.json:"
-  puts "  {"
-  puts "    \"mcpServers\": {"
-  puts "      \"kairos\": {"
-  puts "        \"url\": \"http://localhost:#{options[:port] || 8080}/mcp\","
-  puts "        \"headers\": {"
-  puts "          \"Authorization\": \"Bearer #{result['raw_token']}\""
-  puts "        }"
-  puts "      }"
-  puts "    }"
-  puts "  }"
-  puts ""
-  puts "=" * 60
+  if options[:token_output_file]
+    require 'fileutils'
+    FileUtils.mkdir_p(File.dirname(options[:token_output_file]))
+    File.write(options[:token_output_file], result[:raw_token] || result['raw_token'])
+    File.chmod(0600, options[:token_output_file])
+    $stderr.puts "[init-admin] Token written to: #{options[:token_output_file]}"
+  end
+
+  if options[:quiet]
+    exit
+  end
+
+  $stderr.puts ""
+  $stderr.puts "=" * 60
+  $stderr.puts "  KairosChain Admin Token Generated"
+  $stderr.puts "=" * 60
+  $stderr.puts ""
+  $stderr.puts "  Token: #{result[:raw_token] || result['raw_token']}"
+  $stderr.puts "  User:  #{result[:user] || result['user']}"
+  $stderr.puts "  Role:  #{result[:role] || result['role']}"
+  $stderr.puts "  Expires: #{result[:expires_at] || result['expires_at'] || 'never'}"
+  $stderr.puts ""
+  $stderr.puts "  IMPORTANT: Store this token securely."
+  $stderr.puts "  It will NOT be shown again."
+  $stderr.puts ""
+  $stderr.puts "  Configure in Cursor mcp.json:"
+  $stderr.puts "  {"
+  $stderr.puts "    \"mcpServers\": {"
+  $stderr.puts "      \"kairos\": {"
+  $stderr.puts "        \"url\": \"http://localhost:#{options[:port] || 8080}/mcp\","
+  $stderr.puts "        \"headers\": {"
+  $stderr.puts "          \"Authorization\": \"Bearer #{result['raw_token']}\""
+  $stderr.puts "        }"
+  $stderr.puts "      }"
+  $stderr.puts "    }"
+  $stderr.puts "  }"
+  $stderr.puts ""
+  $stderr.puts "=" * 60
   exit
 end
 

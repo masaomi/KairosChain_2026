@@ -334,7 +334,7 @@ module KairosMcp
       end
 
       def check_l1_health(args)
-        provider = KnowledgeProvider.new
+        provider = KnowledgeProvider.new(nil, user_context: @safety&.current_user)
         items = provider.list
         issues = []
         threshold_days = STALENESS_RULES['L1'][:threshold_days]
@@ -374,7 +374,7 @@ module KairosMcp
       end
 
       def check_l2_health(args)
-        manager = ContextManager.new
+        manager = ContextManager.new(nil, user_context: @safety&.current_user)
         sessions = manager.list_sessions
         issues = []
         threshold_days = STALENESS_RULES['L2'][:threshold_days]
@@ -432,7 +432,7 @@ module KairosMcp
       end
 
       def detect_l1_conflicts
-        provider = KnowledgeProvider.new
+        provider = KnowledgeProvider.new(nil, user_context: @safety&.current_user)
         items = provider.list
         conflicts = []
 
@@ -511,7 +511,7 @@ module KairosMcp
       end
 
       def find_stale_l1_items(threshold)
-        provider = KnowledgeProvider.new
+        provider = KnowledgeProvider.new(nil, user_context: @safety&.current_user)
         items = provider.list
         stale = []
 
@@ -531,7 +531,7 @@ module KairosMcp
       end
 
       def find_stale_l2_sessions(threshold, args)
-        manager = ContextManager.new
+        manager = ContextManager.new(nil, user_context: @safety&.current_user)
         sessions = manager.list_sessions
         stale = []
 
@@ -580,7 +580,7 @@ module KairosMcp
       end
 
       def detect_dangerous_l1
-        provider = KnowledgeProvider.new
+        provider = KnowledgeProvider.new(nil, user_context: @safety&.current_user)
         items = provider.list
         dangers = []
 
@@ -672,7 +672,7 @@ module KairosMcp
       def find_promotion_candidates_l2_to_l1(args)
         # This would ideally track usage across sessions
         # For now, return contexts that have been around for a while
-        manager = ContextManager.new
+        manager = ContextManager.new(nil, user_context: @safety&.current_user)
         candidates = []
 
         manager.list_sessions.each do |session|
@@ -692,7 +692,7 @@ module KairosMcp
       end
 
       def find_archive_candidates_l1
-        provider = KnowledgeProvider.new
+        provider = KnowledgeProvider.new(nil, user_context: @safety&.current_user)
         items = provider.list
         candidates = []
         threshold = STALENESS_RULES['L1'][:threshold_days] * 1.5 # 270 days
@@ -717,7 +717,7 @@ module KairosMcp
       end
 
       def find_cleanup_candidates_l2(args)
-        manager = ContextManager.new
+        manager = ContextManager.new(nil, user_context: @safety&.current_user)
         candidates = []
         threshold = STALENESS_RULES['L2'][:threshold_days] * 2 # 28 days
 
@@ -741,7 +741,7 @@ module KairosMcp
       # =========================================================================
 
       def execute_archive(target, reason, args)
-        provider = KnowledgeProvider.new
+        provider = KnowledgeProvider.new(nil, user_context: @safety&.current_user)
 
         # Check if archive method exists
         unless provider.respond_to?(:archive)
@@ -767,7 +767,7 @@ module KairosMcp
       end
 
       def execute_unarchive(target, reason, args)
-        provider = KnowledgeProvider.new
+        provider = KnowledgeProvider.new(nil, user_context: @safety&.current_user)
 
         unless provider.respond_to?(:unarchive)
           return text_content(
@@ -948,7 +948,7 @@ module KairosMcp
         end
 
         # Compare against existing L1 knowledge
-        provider = KnowledgeProvider.new
+        provider = KnowledgeProvider.new(nil, user_context: @safety&.current_user)
         existing = provider.list.map { |item| item[:name] }
 
         present = []
@@ -1064,7 +1064,7 @@ module KairosMcp
         end
 
         # Find missing entries (gaps)
-        provider = KnowledgeProvider.new
+        provider = KnowledgeProvider.new(nil, user_context: @safety&.current_user)
         existing = provider.list.map { |item| item[:name] }
         missing = baseline.reject { |entry| existing.include?(entry[:name]) }
 
@@ -1112,7 +1112,7 @@ module KairosMcp
           return { agent_mode: mode_name, needs: [], published_at: nil, session_only: true } unless content
 
           baseline = parse_baseline_knowledge(content) || []
-          provider = KnowledgeProvider.new
+          provider = KnowledgeProvider.new(nil, user_context: @safety&.current_user)
           existing = provider.list.map { |item| item[:name] }
           missing_entries = baseline.reject { |entry| existing.include?(entry[:name]) }
         end

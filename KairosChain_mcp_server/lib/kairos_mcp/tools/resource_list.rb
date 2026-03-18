@@ -79,7 +79,7 @@ module KairosMcp
         type = arguments['type'] || 'all'
         layer = arguments['layer'] || 'all'
 
-        registry = ResourceRegistry.new
+        registry = ResourceRegistry.new(user_context: @safety&.current_user)
         resources = registry.list(filter: filter, type: type, layer: layer)
 
         if resources.empty?

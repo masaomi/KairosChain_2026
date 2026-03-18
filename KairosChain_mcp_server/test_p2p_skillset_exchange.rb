@@ -178,7 +178,7 @@ section('1. SkillSet Plugin Infrastructure') do
   mmp = manager.find_skillset('mmp')
   assert('MMP is valid') { mmp.valid? }
   assert('MMP layer is L1') { mmp.layer == :L1 }
-  assert('MMP has 4 tool classes') { mmp.tool_class_names.size == 4 }
+  assert('MMP has 7 tool classes') { mmp.tool_class_names.size == 7 }
   assert('MMP has knowledge') { mmp.has_knowledge? }
   assert('MMP content hash is not empty') { !mmp.content_hash.empty? }
   assert('MMP is enabled by default') { manager.enabled?('mmp') }

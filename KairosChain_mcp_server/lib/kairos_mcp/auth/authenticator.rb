@@ -36,6 +36,15 @@ module KairosMcp
       # @param env [Hash] Rack environment hash
       # @return [AuthResult] Result with success/failure details
       def authenticate!(env)
+        # Local dev mode: when no tokens are configured, allow unauthenticated
+        # access with a default owner context. This makes local testing seamless.
+        if @token_store.empty?
+          return AuthResult.new(
+            success: true,
+            user_context: { user: 'local', role: 'owner', local_dev: true }
+          )
+        end
+
         raw_token = extract_bearer_token(env)
 
         unless raw_token

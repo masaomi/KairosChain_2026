@@ -15,9 +15,10 @@ module KairosMcp
     # - Record commits to blockchain
     #
     class CommitService
-      def initialize(config: nil)
+      def initialize(config: nil, user_context: nil)
         @config = config || load_config
-        @manifest_builder = ManifestBuilder.new
+        @user_context = user_context
+        @manifest_builder = ManifestBuilder.new(user_context: user_context)
         @snapshot_manager = SnapshotManager.new(
           snapshot_dir: @config.dig('state_commit', 'snapshot_dir'),
           max_snapshots: @config.dig('state_commit', 'max_snapshots')

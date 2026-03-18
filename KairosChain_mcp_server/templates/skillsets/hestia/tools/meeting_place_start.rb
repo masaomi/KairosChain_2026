@@ -54,22 +54,40 @@ module KairosMcp
               config['meeting_place']['name'] = arguments['name']
             end
 
-            # Create PlaceRouter and start
+            # Delegate to HttpServer when running in HTTP mode
+            http_server = defined?(KairosMcp) && KairosMcp.respond_to?(:http_server) ? KairosMcp.http_server : nil
+            if http_server
+              trust_anchor = nil
+              if config.dig('trust_anchor', 'record_registrations')
+                trust_anchor = ::Hestia.chain_client(config: config.dig('chain'))
+              end
+              http_server.start_place(identity: identity, trust_anchor_client: trust_anchor, hestia_config: config)
+              place_name = config.dig('meeting_place', 'name') || 'KairosChain Meeting Place'
+              return text_content(JSON.pretty_generate({
+                status: 'started',
+                message: 'Meeting Place started via HttpServer (HTTP mode)',
+                name: place_name
+              }))
+            end
+
+            # STDIO mode: create local PlaceRouter
             place_router = ::Hestia::PlaceRouter.new(config: config)
 
-            # Build trust anchor client if configured
             trust_anchor = nil
             if config.dig('trust_anchor', 'record_registrations')
               trust_anchor = ::Hestia.chain_client(config: config.dig('chain'))
             end
 
-            # Create a session store (reuse MMP's pattern)
             session_store = ::MMP::MeetingSessionStore.new
+
+            # Detect Synoptis trust scorer if available (optional SkillSet dependency)
+            scorer = resolve_trust_scorer
 
             result = place_router.start(
               identity: identity,
               session_store: session_store,
-              trust_anchor_client: trust_anchor
+              trust_anchor_client: trust_anchor,
+              trust_scorer: scorer
             )
 
             text_content(JSON.pretty_generate(result))
@@ -78,6 +96,28 @@ module KairosMcp
               error: 'start_failed',
               message: e.message
             }))
+          end
+
+          private
+
+          # Runtime detection of Synoptis SkillSet.
+          # Returns a TrustScorer instance if Synoptis is loaded, nil otherwise.
+          # This follows the core_or_skillset_guide pattern for optional dependencies.
+          def resolve_trust_scorer
+            return nil unless defined?(::Synoptis::TrustScorer)
+            return nil unless defined?(::Synoptis::Registry::FileRegistry)
+
+            synoptis_config = {}
+            if defined?(::Synoptis) && ::Synoptis.respond_to?(:load_config)
+              synoptis_config = ::Synoptis.load_config rescue {}
+            end
+
+            registry_path = synoptis_config.dig('registry', 'path') || 'storage/synoptis_registry.jsonl'
+            registry = ::Synoptis::Registry::FileRegistry.new(path: registry_path)
+            ::Synoptis::TrustScorer.new(registry: registry, config: synoptis_config)
+          rescue StandardError => e
+            $stderr.puts "[MeetingPlaceStart] Synoptis detection failed (non-fatal): #{e.message}"
+            nil
           end
         end
       end

@@ -10,11 +10,42 @@ module KairosMcp
     STDIO_PROTOCOL_VERSION = '2024-11-05'
     HTTP_PROTOCOL_VERSION = '2025-03-26'
 
+    # =========================================================================
+    # SkillSet Filter Registry
+    # =========================================================================
+
+    @filters = {}
+    @filter_mutex = Mutex.new
+
+    # Register a named request filter.
+    # Filters transform user_context before it reaches ToolRegistry.
+    def self.register_filter(name, &block)
+      @filter_mutex.synchronize { @filters[name.to_sym] = block }
+    end
+
+    def self.unregister_filter(name)
+      @filter_mutex.synchronize { @filters.delete(name.to_sym) }
+    end
+
+    # Apply all registered filters to user_context in registration order
+    def self.apply_all_filters(user_context)
+      @filter_mutex.synchronize { @filters.values.dup }.reduce(user_context) do |ctx, filter|
+        filter.call(ctx)
+      end
+    end
+
+    # For testing only
+    def self.clear_filters!
+      @filter_mutex.synchronize { @filters = {} }
+    end
+
+    # =========================================================================
+
     # @param user_context [Hash, nil] Authenticated user info from HTTP mode
     #   { user: "name", role: "owner"|"member"|"guest", ... }
     def initialize(user_context: nil)
-      @user_context = user_context
-      @tool_registry = ToolRegistry.new(user_context: user_context)
+      @user_context = self.class.apply_all_filters(user_context)
+      @tool_registry = ToolRegistry.new(user_context: @user_context)
       @initialized = false
     end
 
@@ -145,12 +176,15 @@ module KairosMcp
     def handle_tools_call(params)
       name = params['name']
       arguments = params['arguments'] || {}
-      
+
+      Thread.current[:kairos_user_context] = @user_context
       content = @tool_registry.call_tool(name, arguments)
-      
+
       {
         content: content
       }
+    ensure
+      Thread.current[:kairos_user_context] = nil
     end
 
     def format_response(id, result)

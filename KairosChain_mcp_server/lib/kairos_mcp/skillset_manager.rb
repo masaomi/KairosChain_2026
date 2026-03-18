@@ -106,6 +106,69 @@ module KairosMcp
       { success: true, name: installed.name, version: installed.version, layer: installed.layer, path: dest }
     end
 
+    # Check for available SkillSet upgrades from gem templates
+    #
+    # @return [Array<Hash>] List of upgradable skillsets with version info
+    def upgrade_check
+      results = []
+      templates_dir = File.join(KairosMcp.gem_root, 'templates', 'skillsets')
+      return results unless File.directory?(templates_dir)
+
+      all_skillsets.each do |installed|
+        template_path = File.join(templates_dir, installed.name)
+        next unless File.directory?(template_path)
+
+        template_ss = Skillset.new(template_path)
+        next unless template_ss.valid?
+
+        installed_ver = Gem::Version.new(installed.version)
+        template_ver = Gem::Version.new(template_ss.version)
+
+        changed_files = diff_files(template_path, installed.path)
+
+        if template_ver > installed_ver || changed_files.any?
+          results << {
+            name: installed.name,
+            installed_version: installed.version,
+            available_version: template_ss.version,
+            version_bump: template_ver > installed_ver,
+            changed_files: changed_files
+          }
+        end
+      end
+
+      results
+    end
+
+    # Apply SkillSet upgrades from gem templates
+    #
+    # @param names [Array<String>, nil] specific names to upgrade, or nil for all
+    # @return [Array<Hash>] results
+    def upgrade_apply(names: nil)
+      upgrades = upgrade_check
+      upgrades = upgrades.select { |u| names.include?(u[:name]) } if names
+
+      results = []
+      upgrades.each do |info|
+        template_path = File.join(KairosMcp.gem_root, 'templates', 'skillsets', info[:name])
+        dest = File.join(@skillsets_dir, info[:name])
+
+        info[:changed_files].each do |rel_path|
+          src = File.join(template_path, rel_path)
+          dst = File.join(dest, rel_path)
+          FileUtils.mkdir_p(File.dirname(dst))
+          FileUtils.cp(src, dst) if File.exist?(src)
+        end
+
+        installed = Skillset.new(dest)
+        record_skillset_event(installed, 'upgrade')
+        results << { name: info[:name], from: info[:installed_version], to: info[:available_version],
+                     files_updated: info[:changed_files].size }
+      end
+
+      results
+    end
+
     # Remove a SkillSet
     def remove(name)
       skillset = find_skillset(name)
@@ -208,6 +271,23 @@ module KairosMcp
     end
 
     private
+
+    # Compare files between template and installed SkillSet
+    def diff_files(template_path, installed_path)
+      changed = []
+      Dir.glob(File.join(template_path, '**', '*')).each do |src|
+        next if File.directory?(src)
+        rel = src.sub("#{template_path}/", '')
+        dst = File.join(installed_path, rel)
+
+        if !File.exist?(dst)
+          changed << rel
+        elsif Digest::SHA256.file(src).hexdigest != Digest::SHA256.file(dst).hexdigest
+          changed << rel
+        end
+      end
+      changed
+    end
 
     # Validate SkillSet name against safe pattern
     def validate_skillset_name!(name)

@@ -88,7 +88,7 @@ module KairosMcp
           return text_content("Error: L1 (knowledge) layer is disabled")
         end
 
-        provider = KnowledgeProvider.new
+        provider = KnowledgeProvider.new(nil, user_context: @safety&.current_user)
 
         case command
         when 'create'

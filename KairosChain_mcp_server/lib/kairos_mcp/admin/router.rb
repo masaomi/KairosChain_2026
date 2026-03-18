@@ -3,6 +3,7 @@
 require 'json'
 require 'uri'
 require_relative 'helpers'
+require_relative '../protocol'
 
 module KairosMcp
   module Admin
@@ -75,7 +76,7 @@ module KairosMcp
           return redirect_with_flash('/admin/login', 'Admin access requires owner role.')
         end
 
-        @current_user = user_info
+        @current_user = Protocol.apply_all_filters(user_info)
         @csrf_token = session[:csrf_token]
 
         # CSRF check for POST requests
@@ -83,12 +84,15 @@ module KairosMcp
           return html_response(403, render('layout', content: '<p>CSRF validation failed. Please try again.</p>'))
         end
 
-        # Authenticated routes
+        # Authenticated routes — set thread-scoped user context for PgBackend
+        Thread.current[:kairos_user_context] = @current_user
         route(method, path, env)
       rescue StandardError => e
         $stderr.puts "[ADMIN ERROR] #{e.message}"
         $stderr.puts e.backtrace.first(5).join("\n")
         html_response(500, render('_error', layout: true, error: e.message))
+      ensure
+        Thread.current[:kairos_user_context] = nil
       end
 
       private
@@ -407,7 +411,7 @@ module KairosMcp
 
       def handle_knowledge_detail_partial(name)
         require_relative '../knowledge_provider'
-        provider = KnowledgeProvider.new
+        provider = KnowledgeProvider.new(nil, user_context: @current_user)
         entry = provider.get(name)
 
         if entry
@@ -428,7 +432,7 @@ module KairosMcp
 
       def handle_context_list_partial(session_id)
         require_relative '../context_manager'
-        manager = ContextManager.new
+        manager = ContextManager.new(nil, user_context: @current_user)
         contexts = manager.list_contexts_in_session(session_id)
         html_response(200, render_partial('_context_list',
                                           session_id: session_id,
@@ -437,7 +441,7 @@ module KairosMcp
 
       def handle_context_detail_partial(session_id, name)
         require_relative '../context_manager'
-        manager = ContextManager.new
+        manager = ContextManager.new(nil, user_context: @current_user)
         entry = manager.get_context(session_id, name)
 
         if entry
@@ -486,7 +490,7 @@ module KairosMcp
 
       def fetch_knowledge_list(search: nil)
         require_relative '../knowledge_provider'
-        provider = KnowledgeProvider.new
+        provider = KnowledgeProvider.new(nil, user_context: @current_user)
         if search && !search.empty?
           provider.search(search)
         else
@@ -506,7 +510,7 @@ module KairosMcp
 
       def fetch_state_status
         require_relative '../state_commit/commit_service'
-        service = StateCommit::CommitService.new
+        service = StateCommit::CommitService.new(user_context: @current_user)
         service.status
       rescue StandardError
         { enabled: false, has_changes: false,
@@ -515,7 +519,7 @@ module KairosMcp
 
       def fetch_context_sessions
         require_relative '../context_manager'
-        manager = ContextManager.new
+        manager = ContextManager.new(nil, user_context: @current_user)
         manager.list_sessions
       rescue StandardError
         []

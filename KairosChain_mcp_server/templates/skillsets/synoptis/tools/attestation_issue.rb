@@ -31,9 +31,10 @@ module KairosMcp
             {
               type: 'object',
               properties: {
-                subject_ref: { type: 'string', description: 'Reference to the subject being attested (e.g., knowledge ID, skill hash, block hash)' },
-                claim: { type: 'string', description: 'The attestation claim (e.g., "integrity_verified", "skill_reviewed", "chain_valid")' },
-                evidence: { type: 'string', description: 'Optional supporting evidence (hash, content summary, etc.)' },
+                subject_ref: { type: 'string', description: 'Reference to the subject being attested (e.g., "skill://genomics_pipeline", "agent://id", "place://id")' },
+                claim: { type: 'string', description: 'The attestation claim (e.g., "integrity_verified", "paper_accepted", "automated_safety_check")' },
+                evidence: { type: 'string', description: 'Supporting evidence (DOI, patent ID, hash, content summary)' },
+                actor_role: { type: 'string', enum: %w[automated peer human], description: 'Attestation source: automated (LLM check), peer (agent verification), human (real-world outcome)' },
                 merkle_root: { type: 'string', description: 'Optional Merkle root for selective disclosure' },
                 ttl: { type: 'integer', description: 'Time-to-live in seconds (default: 86400 = 24h)' }
               },
@@ -50,7 +51,7 @@ module KairosMcp
               merkle_root: arguments['merkle_root'],
               ttl: arguments['ttl'],
               actor_user_id: resolve_actor_user_id,
-              actor_role: resolve_actor_role,
+              actor_role: arguments['actor_role'] || resolve_actor_role,
               crypto: resolve_crypto
             )
 

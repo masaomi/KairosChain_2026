@@ -68,7 +68,7 @@ module KairosMcp
         name = arguments['name']
         return text_content("Error: name is required") unless name && !name.empty?
 
-        provider = KnowledgeProvider.new
+        provider = KnowledgeProvider.new(nil, user_context: @safety&.current_user)
         skill = provider.get(name)
 
         if skill.nil?

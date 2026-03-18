@@ -1,0 +1,6 @@
+# Autonomos SkillSet Configuration
+
+default_goal_name: "project_goals"
+git_observation: true
+chain_history_limit: 10
+stale_lock_timeout: 3600

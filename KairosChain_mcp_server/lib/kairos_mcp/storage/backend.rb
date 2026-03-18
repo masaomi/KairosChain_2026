@@ -14,6 +14,22 @@ module KairosMcp
     #
     class Backend
       # ===========================================================================
+      # SkillSet Extension Registry
+      # ===========================================================================
+
+      @registry = {}
+
+      # Register a named backend class for SkillSet use (e.g. 'postgresql')
+      def self.register(name, klass)
+        @registry[name.to_s] = klass
+      end
+
+      # Unregister a named backend
+      def self.unregister(name)
+        @registry.delete(name.to_s)
+      end
+
+      # ===========================================================================
       # Block Operations (Blockchain)
       # ===========================================================================
 
@@ -135,6 +151,11 @@ module KairosMcp
       # @return [Backend] A FileBackend or SqliteBackend instance
       def self.create(config = {})
         backend = config[:backend]&.to_s || 'file'
+
+        # Check SkillSet-registered backends first (e.g. 'postgresql')
+        if @registry.key?(backend)
+          return @registry[backend].new(config[backend.to_sym] || {})
+        end
 
         case backend
         when 'sqlite'

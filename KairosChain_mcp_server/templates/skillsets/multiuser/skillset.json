@@ -1,0 +1,14 @@
+{
+  "name": "multiuser",
+  "version": "0.1.1",
+  "description": "Multi-tenant user management with PostgreSQL backend, RBAC, and tenant isolation",
+  "layer": "L1",
+  "depends_on": [],
+  "min_core_version": "2.7.0",
+  "entry_point": "lib/multiuser.rb",
+  "tool_classes": [
+    "KairosMcp::SkillSets::Multiuser::Tools::MultiuserStatus",
+    "KairosMcp::SkillSets::Multiuser::Tools::MultiuserUserManage",
+    "KairosMcp::SkillSets::Multiuser::Tools::MultiuserMigrate"
+  ]
+}

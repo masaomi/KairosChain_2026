@@ -375,6 +375,18 @@ MMP SkillSet also exposes HTTP endpoints via MeetingRouter (`/meeting/v1/*`):
 
 > **Knowledge-only constraint**: Only non-executable content (Markdown, YAML) can be exchanged over P2P. SkillSets containing executable code (`tools/`, `lib/` with .rb, .py, .sh, etc.) must be installed via trusted channels. See the [MMP P2P User Guide](docs/KairosChain_MMP_P2P_UserGuide_20260220_en.md) for details.
 
+### Multiuser Tools (SkillSet: multiuser)
+
+These tools are available when the Multiuser SkillSet is installed. The tools register even when PostgreSQL is unavailable, providing diagnostic information about the setup state.
+
+| Tool | Description |
+|------|-------------|
+| `multiuser_status` | Check Multiuser SkillSet status: PostgreSQL connection, tenant count, user count, migration status |
+| `multiuser_user_manage` | Manage users: list, create, delete, update_role (owner only) |
+| `multiuser_migrate` | Run database migrations: status, run, dry_run (owner only) |
+
+> **Graceful degradation**: When PostgreSQL is not available, `multiuser_status` returns a diagnostic report (`pg_gem_missing`, `pg_server_unavailable`, or `pg_error`) with actionable help text. All other KairosChain tools continue to work normally.
+
 ## Usage Examples
 
 ### List Available Skills

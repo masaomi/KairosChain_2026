@@ -4,6 +4,47 @@ require_relative 'skills_config'
 
 module KairosMcp
   class ToolRegistry
+    # Authorization denial raised by registered gates
+    class GateDeniedError < StandardError
+      attr_reader :tool_name, :role
+      def initialize(tool_name, role, msg = nil)
+        @tool_name = tool_name
+        @role = role
+        super(msg || "Access denied: #{tool_name} requires higher privileges")
+      end
+    end
+
+    # =========================================================================
+    # SkillSet Gate Registry
+    # =========================================================================
+
+    @gates = {}
+    @gate_mutex = Mutex.new
+
+    # Register a named authorization gate.
+    # Gates are called before every tool invocation with (tool_name, arguments, safety).
+    # Raise GateDeniedError to deny access.
+    def self.register_gate(name, &block)
+      @gate_mutex.synchronize { @gates[name.to_sym] = block }
+    end
+
+    def self.unregister_gate(name)
+      @gate_mutex.synchronize { @gates.delete(name.to_sym) }
+    end
+
+    def self.run_gates(tool_name, arguments, safety)
+      @gate_mutex.synchronize { @gates.values.dup }.each do |gate|
+        gate.call(tool_name, arguments, safety)
+      end
+    end
+
+    # For testing only
+    def self.clear_gates!
+      @gate_mutex.synchronize { @gates = {} }
+    end
+
+    # =========================================================================
+
     # @param user_context [Hash, nil] Authenticated user info from HTTP mode
     def initialize(user_context: nil)
       @safety = Safety.new
@@ -147,7 +188,10 @@ module KairosMcp
         raise "Tool not found: #{name}"
       end
 
+      self.class.run_gates(name, arguments, @safety)
       tool.call(arguments)
+    rescue GateDeniedError => e
+      [{ type: 'text', text: JSON.pretty_generate({ error: 'forbidden', message: e.message }) }]
     end
   end
 end

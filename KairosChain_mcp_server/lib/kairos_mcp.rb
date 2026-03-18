@@ -48,7 +48,42 @@ module KairosMcp
   # Use `kairos-chain init` to generate the initial data directory
   # with default templates.
   #
+  @path_resolvers = {}
+  @path_resolver_mutex = Mutex.new
+
   class << self
+    # =========================================================================
+    # SkillSet Path Resolver Registry
+    # =========================================================================
+
+    # Register a named path resolver for tenant-aware directory resolution.
+    # Block receives (type, user_context) and returns a path or nil.
+    def register_path_resolver(name, &block)
+      @path_resolver_mutex.synchronize do
+        @path_resolvers[name.to_sym] = block
+      end
+    end
+
+    def unregister_path_resolver(name)
+      @path_resolver_mutex.synchronize do
+        @path_resolvers.delete(name.to_sym)
+      end
+    end
+
+    # =========================================================================
+    # HttpServer reference (set when running in HTTP mode)
+    # =========================================================================
+
+    def http_server
+      @http_server
+    end
+
+    def http_server=(server)
+      @http_server = server
+    end
+
+    # =========================================================================
+
     # Get the root data directory for all runtime data
     #
     # @return [String] Absolute path to the data directory
@@ -114,14 +149,19 @@ module KairosMcp
       File.join(skills_dir, 'action_log.jsonl')
     end
 
-    # L1 knowledge directory
-    def knowledge_dir
-      path_for('knowledge')
+    # L1 knowledge directory.
+    # When user_context is provided, registered path resolvers can return
+    # a tenant-specific path. Without user_context, returns the global path.
+    def knowledge_dir(user_context: nil)
+      resolved = resolve_path(:knowledge, user_context)
+      resolved || path_for('knowledge')
     end
 
-    # L2 context directory
-    def context_dir
-      path_for('context')
+    # L2 context directory.
+    # Same tenant-aware resolution as knowledge_dir.
+    def context_dir(user_context: nil)
+      resolved = resolve_path(:context, user_context)
+      resolved || path_for('context')
     end
 
     # Storage directory (blockchain, embeddings, snapshots, tokens, etc.)
@@ -229,6 +269,17 @@ module KairosMcp
     end
 
     private
+
+    def resolve_path(type, user_context)
+      return nil unless user_context
+      resolvers = @path_resolver_mutex.synchronize { @path_resolvers.values.dup }
+      return nil if resolvers.empty?
+      resolvers.each do |resolver|
+        result = resolver.call(type, user_context)
+        return result if result
+      end
+      nil
+    end
 
     def resolve_data_dir
       dir = ENV['KAIROS_DATA_DIR'] || File.join(Dir.pwd, '.kairos')

@@ -96,7 +96,7 @@ module KairosMcp
           MSG
         end
 
-        service = KairosMcp::StateCommit::CommitService.new
+        service = KairosMcp::StateCommit::CommitService.new(user_context: @safety&.current_user)
         result = service.explicit_commit(reason: reason, actor: 'human', force: force)
 
         if result[:success]

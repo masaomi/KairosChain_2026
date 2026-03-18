@@ -31,9 +31,10 @@ module KairosMcp
     # @param knowledge_dir [String] Path to knowledge directory
     # @param vector_search_enabled [Boolean] Enable vector search
     # @param storage_backend [Storage::Backend, nil] Storage backend to use
-    def initialize(knowledge_dir = nil, vector_search_enabled: true, storage_backend: nil)
-      knowledge_dir ||= KairosMcp.knowledge_dir
+    def initialize(knowledge_dir = nil, vector_search_enabled: true, storage_backend: nil, user_context: nil)
+      knowledge_dir ||= KairosMcp.knowledge_dir(user_context: user_context)
       @knowledge_dir = knowledge_dir
+      @user_context = user_context
       @vector_search_enabled = vector_search_enabled
       @storage_backend = storage_backend
       @vector_search = nil
@@ -658,7 +659,7 @@ module KairosMcp
 
       # Check if auto-commit should be triggered
       if SkillsConfig.state_commit_auto_enabled?
-        service = StateCommit::CommitService.new
+        service = StateCommit::CommitService.new(user_context: @user_context)
         service.check_and_auto_commit
       end
     rescue StandardError => e

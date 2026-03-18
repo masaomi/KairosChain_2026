@@ -1,9 +1,8 @@
 ---
-name: multi_agent_design_workflow
-description: "Multi-agent deliberation workflow for design, implementation, and iterative review"
-version: "1.0"
-layer: L1
+title: Multi-agent deliberation workflow for design, implementation, and iterative review
 tags: [workflow, multi-agent, design, review, persona-assembly, multi-llm]
+version: "1.1"
+readme_order: false
 ---
 
 # Multi-Agent Design Workflow
@@ -49,6 +48,43 @@ and post-implementation review, forming an iterative loop.
 │  └────────────────────────────────────────────┘     │
 └─────────────────────────────────────────────────────┘
 ```
+
+## Review Scope Rules
+
+When scoping agent review tasks, the file list must be determined by the
+**type of change**, not just the module being changed. Insufficient scope
+is the most common cause of review escapes.
+
+### Mandatory Scope Expansion
+
+| Change Type | Required Scope |
+|-------------|---------------|
+| **Interface change** (return type, key format, method signature) | Codebase-wide caller search (`Grep` for method/key usage) |
+| **Namespace/class rename** | All files referencing old name, including config files (JSON, YAML) |
+| **Deletion of public method/constant** | All importers and callers across entire repo |
+| **Default value change** | All callers that rely on the previous default |
+
+### Anti-Pattern: Module-Scoped Review
+
+Reviewing only the files within the changed module (e.g., only
+`templates/skillsets/multiuser/`) misses callers in:
+- CLI entry points (`bin/`)
+- Core framework code (`lib/kairos_mcp/`)
+- Config files (`skillset.json`, `config.yml`)
+- Other SkillSets that depend on the changed module
+- Test files outside the module directory
+
+### Checklist for Review Agents
+
+Before finalizing a review, each agent should confirm:
+
+1. **Caller completeness**: "Did I search the entire codebase for every
+   changed public interface?" Use `Grep` with the method/key name across
+   the full repo, not just the module directory.
+2. **Config consistency**: "Do all config files (JSON, YAML) reference
+   the correct class names, paths, and keys?"
+3. **Cross-module impact**: "Does this change affect any other SkillSet,
+   tool, or CLI command?"
 
 ## Review Loop and Termination
 
