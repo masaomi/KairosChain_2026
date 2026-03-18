@@ -16,7 +16,7 @@ Initial design reviewed by 4 personas (kairos, pragmatic, skeptic, architect).
 All recommended REVISE. Key changes from v1:
 - Removed `phase` parameter (over-engineering, phantom modules)
 - Removed `autonomos_goal` tool (redundant with knowledge_update)
-- Removed continuous mode from v1 (self-approval gap, safety FAIL)
+- Removed continuous mode from initial v1 (self-approval gap); re-introduced as mandate-based loop in v0.1 experimental (see `autonomos_continuous_mode_design.md`)
 - Collapsed 5 lib modules to 2 (observer/orienter were data formatters)
 - Added two-phase chain recording (intent + outcome)
 - Added PID-based cycle lock (concurrency safety)
@@ -52,7 +52,7 @@ All recommended REVISE. Key changes from v1:
 Runs one complete observe → orient → decide pass. Returns a proposal for human review.
 
 **Parameters:**
-- `goal_name`: string (L1 knowledge name, default: "project_goals")
+- `goal_name`: string (L2 context name with L1 fallback, default: "project_goals")
 - `feedback`: string (optional, human feedback/new perspective from previous cycle)
 - `cycle_id`: string (optional, resume an interrupted cycle)
 
@@ -201,7 +201,7 @@ Output: structured hash merged into cycle state.
 ## Orient Phase (inside autonomos_cycle)
 
 Compares observation against goals:
-1. Load goal from L1: `KnowledgeProvider.get(goal_name)` — record `goal_hash = SHA256(content)`
+1. Load goal from L2 context (newest session first), falling back to L1: `KnowledgeProvider.get(goal_name)` — record `goal_hash = SHA256(content)`
 2. Gap identification — returned as structured list for LLM to reason over:
    - `task_gaps`: concrete tasks needed (→ autoexec)
    - `capability_gaps`: system capability missing (→ potential skills_evolve, flagged only)
@@ -277,7 +277,7 @@ No dedicated tool needed — `knowledge_update` / `knowledge_get` are sufficient
 
 ## Safety Model
 
-1. **Single cycle only (v1)**: always stops after decide for human review
+1. **Single cycle default**: always stops after decide for human review. Continuous mode available via `autonomos_loop` with mandate-based pre-authorization (see `autonomos_continuous_mode_design.md`)
 2. **PID-based cycle lock**: prevents concurrent cycles (same pattern as autoexec PlanStore)
 3. **Inherited autoexec safety**: risk classification, L0 deny-list, hash-locked plans
 4. **No L0 modification**: Autonomos tools cannot call skills_evolve (capability_gaps are flagged, not acted on)
@@ -326,9 +326,9 @@ skillsets/autonomos/
     test_autonomos.rb
 ```
 
-## Future (v2 candidates, NOT in v1)
+## Future (v0.2+ candidates)
 
-- **Continuous mode**: after trust is established through single-cycle usage, add loop with human checkpoints
+- **Continuous mode enhancements**: semantic loop detection, action-semantic risk classification, multi-terminal mandate isolation
 - **Cross-SkillSet Act**: drive mmp/hestia tasks, not just code tasks
-- **multiuser RBAC**: goal-setting permission tied to user roles
-- **Loop detection**: semantic similarity check across cycle proposals
+- **multiuser RBAC**: goal-setting permission tied to user roles, `user_context` end-to-end propagation
+- **Multi-LLM review SkillSet**: integrate review triangulation workflow via MCP meeting

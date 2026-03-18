@@ -1405,9 +1405,10 @@ class TestAutonomosCheckpointResume < Minitest::Test
 
   def test_checkpoint_resume_does_not_re_pause
     # Create mandate with checkpoint_every=1 (checkpoint after every cycle)
+    # Use the hash that orient computes when no goal provider exists (empty string)
     mandate = Autonomos::Mandate.create(
       goal_name: 'ckpt_test',
-      goal_hash: 'abc',
+      goal_hash: Digest::SHA256.hexdigest(''),
       max_cycles: 3,
       checkpoint_every: 1,
       risk_budget: 'low'

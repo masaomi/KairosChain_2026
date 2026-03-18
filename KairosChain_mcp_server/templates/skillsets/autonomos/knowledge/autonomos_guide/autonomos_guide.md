@@ -253,3 +253,20 @@ When in doubt, a 30-second persona assembly review is cheaper than a bad decisio
   error_threshold, and checkpoints.
 - **Reflector evaluation**: Regex-based heuristic (`/fail|error/` → failed). May
   misclassify ambiguous results. Human feedback in the next cycle corrects this.
+
+## Related L1 Knowledge
+
+The following L1 knowledge resources are available and complement Autonomos workflows.
+Use `knowledge_get(name: "...")` to load them when relevant.
+
+| Name | When to consider |
+|------|-----------------|
+| `review_discipline` | Before reviewing implementation results. Contains checklists for LLM-common cognitive biases (caller-side bias, fix-what-was-flagged bias, mock fidelity bias). Especially valuable during `autonomos_reflect` and multi-cycle reviews. |
+| `multi_agent_design_workflow` | When `complexity_hint` is `high` or the proposal involves architectural decisions. Provides structured multi-agent deliberation workflow for design and review. |
+| `persona_definitions` | When running `sc_review` with persona assembly. Defines default personas (kairos, pragmatic, skeptic, architect) and assembly protocol. Referenced by `complexity_hint` recommendations above. |
+
+### Continuous Mode Reminder
+
+For multi-step tasks, use `autonomos_loop` instead of repeating single `autonomos_cycle` calls.
+The loop provides mandate-based pre-authorization, automatic checkpoint/risk gates, and loop detection.
+See the "Continuous Mode" section above for details.

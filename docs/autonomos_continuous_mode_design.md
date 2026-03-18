@@ -83,9 +83,10 @@ autonomos_loop(
 
 ### Command: cycle_complete
 
-1. Verify mandate_id exists and is "active"
-2. Run reflect phase on execution_result
-3. Increment cycles_completed
+1. Verify mandate_id exists and is "active", "paused_at_checkpoint", or "paused_risk_exceeded"
+2. If resuming from pause, set status to "active" and skip checkpoint re-evaluation for this cycle
+3. Run reflect phase on execution_result (skipped if no prior cycle)
+4. Increment cycles_completed
 4. Check termination conditions:
    - goal_achieved? → terminate
    - cycles_completed >= max_cycles → terminate("max_cycles_reached")
@@ -123,19 +124,23 @@ human decision.
 
 ```ruby
 def loop_detected?(current_proposal, recent_gap_descriptions)
+  normalize = ->(s) { s.to_s.gsub(/\d+/, 'N') }
+  current_norm = normalize.call(current_desc)
+  recent_norm = recent.map { |d| normalize.call(d) }
   # 1. Consecutive same-gap (A→A)
-  return true if recent.last == current_desc
+  return true if recent_norm.last == current_norm
   # 2. Oscillation (A→B→A pattern)
-  if recent.size >= 2
-    window = recent.last(2) + [current_desc]
+  if recent_norm.size >= 2
+    window = recent_norm.last(2) + [current_norm]
     return true if window[0] == window[2] && window[0] != window[1]
   end
 end
 ```
 
-Note: String equality comparison is a known limitation. LLM rewording of the
-same gap can defeat detection. This is acceptable for v0.1 given the other
-termination safety nets (max_cycles, error_threshold, checkpoints).
+Note: Number-normalized string comparison (digits replaced with `N` to prevent
+interpolated counts from defeating detection). LLM synonym rewording can still
+bypass detection. This is acceptable for v0.1 given the other termination safety
+nets (max_cycles, error_threshold, checkpoints).
 
 ## Checkpoint System
 
