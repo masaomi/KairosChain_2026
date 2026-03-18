@@ -247,10 +247,9 @@ When in doubt, a 30-second persona assembly review is cheaper than a bad decisio
 - **Mandate concurrency**: Mandate state (JSON file) is not protected by locks.
   Concurrent tool calls on the same mandate can corrupt state (e.g., `cycles_completed`
   counter). Single-terminal usage prevents this in practice. v0.2 will add mandate locking.
-- **Orphaned cycle on loop detection**: When a loop is detected, the current cycle
-  is already saved as `decided` with a chain intent record, but never reflected.
-  The intent-only record is informational ("planned but not executed").
-- **Loop detection**: Uses string equality on gap descriptions. LLM rewording of the
-  same gap can defeat detection. Compensated by max_cycles, error_threshold, and checkpoints.
+- **Loop detection**: Uses number-normalized string comparison on gap descriptions
+  (digits replaced with `N` to prevent interpolated counts from defeating detection).
+  LLM synonym rewording can still bypass detection. Compensated by max_cycles,
+  error_threshold, and checkpoints.
 - **Reflector evaluation**: Regex-based heuristic (`/fail|error/` → failed). May
   misclassify ambiguous results. Human feedback in the next cycle corrects this.

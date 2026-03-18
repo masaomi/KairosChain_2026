@@ -66,8 +66,8 @@ module Autonomos
     end
 
     def storage_path(subdir)
-      base = if defined?(KairosMcp) && KairosMcp.respond_to?(:kairos_dir)
-               File.join(KairosMcp.kairos_dir, 'autonomos', subdir)
+      base = if defined?(KairosMcp) && KairosMcp.respond_to?(:data_dir)
+               File.join(KairosMcp.data_dir, 'autonomos', subdir)
              else
                File.join(Dir.pwd, '.kairos', 'autonomos', subdir)
              end

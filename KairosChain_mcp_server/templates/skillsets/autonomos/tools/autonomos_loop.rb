@@ -192,13 +192,16 @@ module KairosMcp
             execution_result = args['execution_result']
             feedback = args['feedback']
 
-            if %w[paused_at_checkpoint paused_risk_exceeded].include?(mandate[:status])
+            # Track whether we are resuming from a checkpoint/risk pause
+            resuming_from_pause = %w[paused_at_checkpoint paused_risk_exceeded].include?(mandate[:status])
+
+            if resuming_from_pause
               mandate = ::Autonomos::Mandate.update_status(mandate_id, 'active')
             end
 
             # Reflect on previous cycle (always via Reflector for state consistency)
             cycle_id_to_reflect = mandate[:last_cycle_id]
-            if execution_result
+            if cycle_id_to_reflect && execution_result
               reflect_result = reflect_on_cycle(mandate, execution_result, feedback)
               evaluation = reflect_result[:evaluation] || 'unknown'
             elsif cycle_id_to_reflect
@@ -212,13 +215,16 @@ module KairosMcp
 
             # Record cycle in mandate — but skip if cycle was already recorded
             # (e.g. resuming from checkpoint where record_cycle ran before pause)
-            already_recorded = mandate[:cycle_history]&.any? { |h| h[:cycle_id] == mandate[:last_cycle_id] }
-            unless already_recorded
-              mandate = ::Autonomos::Mandate.record_cycle(
-                mandate_id,
-                cycle_id: mandate[:last_cycle_id],
-                evaluation: evaluation
-              )
+            # Note: relies on single-writer assumption (mandate loaded once per call)
+            if cycle_id_to_reflect
+              already_recorded = mandate[:cycle_history]&.any? { |h| h[:cycle_id] == cycle_id_to_reflect }
+              unless already_recorded
+                mandate = ::Autonomos::Mandate.record_cycle(
+                  mandate_id,
+                  cycle_id: cycle_id_to_reflect,
+                  evaluation: evaluation
+                )
+              end
             end
 
             # Check termination conditions
@@ -227,9 +233,11 @@ module KairosMcp
               return terminate_loop(mandate_id, mandate, termination)
             end
 
-            # Check for checkpoint
-            if ::Autonomos::Mandate.checkpoint_due?(mandate)
-              return pause_at_checkpoint(mandate_id, mandate)
+            # Check for checkpoint — skip if we just resumed from one
+            unless resuming_from_pause
+              if ::Autonomos::Mandate.checkpoint_due?(mandate)
+                return pause_at_checkpoint(mandate_id, mandate)
+              end
             end
 
             run_cycle(mandate_id, mandate, feedback: feedback)
@@ -270,7 +278,6 @@ module KairosMcp
                 return {
                   mandate_id: mandate_id,
                   status: 'paused_goal_drift',
-                  cycle_id: cycle_id,
                   message: 'Goal content has changed since mandate was created. ' \
                     'Create a new mandate with the updated goal, or interrupt this one.',
                   original_hash: mandate[:goal_hash],
@@ -302,19 +309,20 @@ module KairosMcp
               cycle_state[:mandate_id] = mandate_id
               ::Autonomos::CycleStore.save(cycle_id, cycle_state)
 
-              # Loop detection (3-step lookback)
+              # Update mandate with current cycle info BEFORE loop detection
+              # so that terminate_loop has correct last_cycle_id if loop is detected
               recent_gaps = Array(mandate[:recent_gap_descriptions])
+              gap_desc = proposal.dig(:selected_gap, :description)
+              recent_gaps_updated = (recent_gaps + [gap_desc]).last(3)
+              mandate[:last_proposal] = proposal
+              mandate[:last_cycle_id] = cycle_id
+              mandate[:recent_gap_descriptions] = recent_gaps_updated
+              ::Autonomos::Mandate.save(mandate_id, mandate)
+
+              # Loop detection (3-step lookback)
               if ::Autonomos::Mandate.loop_detected?(proposal, recent_gaps)
                 return terminate_loop(mandate_id, mandate, 'loop_detected')
               end
-
-              # Update mandate with current cycle info
-              gap_desc = proposal.dig(:selected_gap, :description)
-              recent_gaps = (recent_gaps + [gap_desc]).last(3)
-              mandate[:last_proposal] = proposal
-              mandate[:last_cycle_id] = cycle_id
-              mandate[:recent_gap_descriptions] = recent_gaps
-              ::Autonomos::Mandate.save(mandate_id, mandate)
 
               # Risk budget gate
               if ::Autonomos::Mandate.risk_exceeds_budget?(proposal, mandate[:risk_budget])

@@ -14,7 +14,7 @@ end
 $test_kairos_dir = Dir.mktmpdir('autonomos_test')
 
 module KairosMcp
-  def self.kairos_dir
+  def self.data_dir
     $test_kairos_dir
   end
 
@@ -1082,7 +1082,7 @@ class TestAutonomosLoopIntegration < Minitest::Test
     assert_equal 1, result['cycles_completed']
   end
 
-  def test_cycle_complete_skipped_advances_state
+  def test_cycle_complete_skipped_with_no_prior_cycle
     mandate = Autonomos::Mandate.create(
       goal_name: 'skip_test',
       goal_hash: 'ghi',
@@ -1094,15 +1094,16 @@ class TestAutonomosLoopIntegration < Minitest::Test
     Autonomos::Mandate.update_status(mandate_id, 'active')
 
     tool = KairosMcp::SkillSets::Autonomos::Tools::AutonomosLoop.new
-    # cycle_complete without execution_result (skipped)
+    # cycle_complete without execution_result and no prior cycle (last_cycle_id nil)
     tool.call({
       'command' => 'cycle_complete',
       'mandate_id' => mandate_id
     })
 
-    # Should advance cycles_completed even for skipped
+    # No prior cycle to record — cycles_completed stays 0, but loop proceeds to run_cycle
     updated = Autonomos::Mandate.load(mandate_id)
-    assert_operator updated[:cycles_completed], :>=, 1
+    assert_equal 0, updated[:cycles_completed],
+                 "Expected no cycle recorded when last_cycle_id is nil"
   end
 
   def test_interrupt_from_active
@@ -1393,5 +1394,55 @@ class TestAutonomosRegexEvaluation < Minitest::Test
 
     assert_equal 'failed', result[:evaluation],
                  "Expected 'completed with errors' to evaluate as failed"
+  end
+end
+
+class TestAutonomosCheckpointResume < Minitest::Test
+  def setup
+    Autonomos.instance_variable_set(:@config, { 'git_observation' => false })
+    Autonomos.instance_variable_set(:@loaded, true)
+  end
+
+  def test_checkpoint_resume_does_not_re_pause
+    # Create mandate with checkpoint_every=1 (checkpoint after every cycle)
+    mandate = Autonomos::Mandate.create(
+      goal_name: 'ckpt_test',
+      goal_hash: 'abc',
+      max_cycles: 3,
+      checkpoint_every: 1,
+      risk_budget: 'low'
+    )
+    mandate_id = mandate[:mandate_id]
+
+    # Simulate: 1 cycle completed, then paused at checkpoint
+    Autonomos::Mandate.record_cycle(mandate_id, cycle_id: 'cyc_ckpt_1', evaluation: 'success')
+    Autonomos::Mandate.update_status(mandate_id, 'paused_at_checkpoint')
+
+    # Create a decided cycle so reflection can proceed
+    Autonomos::CycleStore.save('cyc_ckpt_1', {
+      cycle_id: 'cyc_ckpt_1',
+      state: 'decided',
+      goal_name: 'ckpt_test',
+      orientation: { gaps: [{ type: 'task_gap', description: 'test' }] },
+      proposal: { task_id: 't', design_intent: 'test' },
+      state_history: [{ state: 'decided', at: Time.now.iso8601 }]
+    })
+
+    # Set last_cycle_id
+    m = Autonomos::Mandate.load(mandate_id)
+    m[:last_cycle_id] = 'cyc_ckpt_1'
+    Autonomos::Mandate.save(mandate_id, m)
+
+    tool = KairosMcp::SkillSets::Autonomos::Tools::AutonomosLoop.new
+    result_json = tool.call({
+      'command' => 'cycle_complete',
+      'mandate_id' => mandate_id,
+      'feedback' => 'Looks good, continue'
+    })
+    result = JSON.parse(result_json)
+
+    # Should NOT be paused_at_checkpoint again — should proceed to next cycle or terminate
+    refute_equal 'paused_at_checkpoint', result['status'],
+                 "Expected checkpoint resume to proceed, not re-pause"
   end
 end
