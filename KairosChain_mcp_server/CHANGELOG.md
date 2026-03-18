@@ -4,6 +4,39 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.10.0] - 2026-03-18
+
+### Added
+
+- **Autonomos SkillSet** (`autonomos` v0.1.0): New opt-in SkillSet for autonomous project execution via OODA cycles with human-in-the-loop safety.
+  - `autonomos_cycle`: Single-cycle observe → orient → decide pass. Returns structured proposal with gap analysis, autoexec-compatible task JSON, and complexity-driven deliberation hints.
+  - `autonomos_reflect`: Post-execution reflection with L2 context save and two-phase chain recording (intent + outcome). Regex-based evaluation with human feedback correction.
+  - `autonomos_status`: Cycle history viewer for mandate and cycle state inspection.
+  - `autonomos_loop`: Continuous mode via mandate-based pre-authorization. Multi-cycle execution with risk budget gates (`low`/`medium`), goal hash verification, checkpoint system (1-3 cycle intervals), loop detection (number-normalized string comparison), and error threshold (2 consecutive).
+  - **L2-first goal loading**: Goals loaded from L2 context (newest session first) with L1 knowledge fallback. Supports `type: autonomos_goal` frontmatter and checklist-based gap identification.
+  - **Complexity-driven deliberation**: Proposals include `complexity_hint` (`low`/`medium`/`high`) with signals (`high_risk`, `many_gaps`, `design_scope`) to guide LLM escalation to persona assembly review.
+  - **Safety model**: PID-based cycle lock, inherited autoexec safety (risk classification, L0 deny-list, hash-locked plans), goal hash verification per cycle, no L0 modification capability.
+  - **Chain recording**: Two-phase commit (intent at decide, outcome at reflect) — constitutive, not evidential (Proposition 5).
+  - Bundled L1 knowledge: `autonomos_guide` (usage guide with goal convention, cycle states, continuous mode, related L1 knowledge references)
+  - Hard dependency on `autoexec` SkillSet
+  - 90 unit tests, 203 assertions
+
+- **Review Discipline L1 Knowledge** (`review_discipline`): Codified countermeasures for LLM-common cognitive biases discovered during 6 rounds of multi-LLM review triangulation.
+  - 3 bias patterns: Caller-side bias, Fix-what-was-flagged bias, Mock fidelity bias
+  - Per-bias checklists for systematic review
+  - Multi-LLM review workflow (v0.1 manual)
+
+### Fixed
+
+- **Autonomos checkpoint resume infinite loop**: `checkpoint_due?` re-evaluated immediately on resume when `cycles_completed % checkpoint_every == 0` still true. Fixed with `resuming_from_pause` flag that skips checkpoint evaluation once after resume.
+- **Autonomos storage_path API mismatch**: `KairosMcp.kairos_dir` (nonexistent) → `KairosMcp.data_dir` (correct API). Previously fell back to `Dir.pwd/.kairos` accidentally.
+- **Autonomos save_context return unchecked**: `Reflector.save_to_l2` now checks `save_context` return value for `{ success: false }` and returns nil on failure.
+- **Autonomos load_l2_context key/order**: Fixed to use `sessions.first[:session_id]` (newest-first from ContextManager).
+- **Autonomos loop detection number bypass**: Gap descriptions now number-normalized (`gsub(/\d+/, 'N')`) before comparison to prevent interpolated counts from defeating detection.
+- **Autonomos orphan cycle on loop termination**: Mandate state (last_cycle_id, recent_gaps) saved BEFORE loop detection check so terminate_loop sees correct state.
+
+---
+
 ## [2.9.0] - 2026-03-14
 
 ### Added
