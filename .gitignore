@@ -44,3 +44,6 @@ docker/.env
 # Runtime data directory (created by `kairos_mcp_server init`)
 .kairos/
 
+# MCP server config (environment-specific)
+.mcp.json
+
