@@ -7,8 +7,8 @@ require 'kairos_mcp/version'
 Gem::Specification.new do |spec|
   spec.name          = 'kairos-chain'
   spec.version       = KairosMcp::VERSION
-  spec.authors       = ['Masa Hatakeyama']
-  spec.email         = ['masa@genomicschain.ch']
+  spec.authors       = ['Masaomi Hatakeyama']
+  spec.email         = ['masaomi.hatakeyama@genomicschain.ch']
 
   spec.summary       = 'KairosChain - Self-referential MCP server for auditable skill self-management'
   spec.description   = <<~DESC
