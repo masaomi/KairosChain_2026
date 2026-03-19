@@ -538,6 +538,7 @@ ruby bin/kairos-chain --http --host 127.0.0.1 --port 8080
 {
   "mcpServers": {
     "kairos-chain-http": {
+      "type": "http",
       "url": "http://localhost:8080/mcp",
       "headers": {
         "Authorization": "Bearer kc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
@@ -787,6 +788,7 @@ HTTPSをセットアップ後、`~/.cursor/mcp.json`を更新：
 {
   "mcpServers": {
     "kairos-chain-http": {
+      "type": "http",
       "url": "https://kairos.example.com/mcp",
       "headers": {
         "Authorization": "Bearer kc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"

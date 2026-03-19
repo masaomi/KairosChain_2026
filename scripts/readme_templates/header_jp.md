@@ -4,11 +4,11 @@
 
 # KairosChain MCP Server
 
-**AIスキル進化を記録するメタ台帳**
+**自己参照的スキル自己管理のための監査可能なMCPサーバー**
 
 > 📖 [English README is here](README.md)
 
-KairosChainは、AIの能力進化をプライベートブロックチェーンに記録するModel Context Protocol (MCP)サーバーです。Pure Skills設計（Ruby DSL/AST）と不変台帳技術を組み合わせ、AIエージェントが監査可能で、進化可能で、自己参照的なスキル定義を持つことを可能にします。
+KairosChainは、自己管理型で進化可能なAIスキル定義のためのModel Context Protocol (MCP)サーバーです。Pure Skills設計（Ruby DSL/AST）とプライベートブロックチェーンを組み合わせ、AIエージェントが自己参照的なスキル管理を通じて、自らの能力を定義・進化・監査することを可能にします。
 
 ## 目次
 
