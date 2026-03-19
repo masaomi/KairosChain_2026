@@ -4,11 +4,11 @@
 
 # KairosChain MCP Server
 
-**A Meta Ledger for Recording AI Skill Evolution**
+**Self-referential MCP server for auditable skill self-management**
 
 > 📖 [日本語版 README はこちら (Japanese README)](README_jp.md)
 
-KairosChain is a Model Context Protocol (MCP) server that records the evolution of AI capabilities on a private blockchain. It combines Pure Skills design (Ruby DSL/AST) with immutable ledger technology, enabling AI agents to have auditable, evolvable, and self-referential skill definitions.
+KairosChain is a Model Context Protocol (MCP) server for self-managed, evolvable AI skill definitions. It combines Pure Skills design (Ruby DSL/AST) with a private blockchain, enabling AI agents to define, evolve, and audit their own capabilities through self-referential skill management.
 
 ## Table of Contents
 

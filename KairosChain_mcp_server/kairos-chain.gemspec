@@ -10,12 +10,13 @@ Gem::Specification.new do |spec|
   spec.authors       = ['Masa Hatakeyama']
   spec.email         = ['masa@genomicschain.ch']
 
-  spec.summary       = 'KairosChain - Memory-driven agent framework with blockchain auditability'
+  spec.summary       = 'KairosChain - Self-referential MCP server for auditable skill self-management'
   spec.description   = <<~DESC
-    KairosChain is a memory-driven agent framework that implements a layered
-    skill architecture (L0/L1/L2) with blockchain-backed auditability.
-    It runs as an MCP (Model Context Protocol) server for AI IDE integration
-    via stdio or Streamable HTTP transport.
+    KairosChain is a Model Context Protocol (MCP) server for self-managed,
+    evolvable AI skill definitions. It combines Pure Skills design (Ruby DSL/AST)
+    with a private blockchain, enabling AI agents to define, evolve, and audit
+    their own capabilities through self-referential skill management.
+    Supports stdio and Streamable HTTP transport.
   DESC
   spec.homepage      = 'https://github.com/masaomi/KairosChain_2026'
   spec.license       = 'MIT'
