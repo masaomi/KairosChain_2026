@@ -554,6 +554,7 @@ Add to `~/.cursor/mcp.json`:
 {
   "mcpServers": {
     "kairos-chain-http": {
+      "type": "http",
       "url": "http://localhost:8080/mcp",
       "headers": {
         "Authorization": "Bearer kc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
@@ -803,6 +804,7 @@ After setting up HTTPS, update `~/.cursor/mcp.json`:
 {
   "mcpServers": {
     "kairos-chain-http": {
+      "type": "http",
       "url": "https://kairos.example.com/mcp",
       "headers": {
         "Authorization": "Bearer kc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"

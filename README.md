@@ -78,24 +78,23 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
   - [Guide Tools (Tool Discovery)](#guide-tools-tool-discovery)
   - [System Management Tools](#system-management-tools)
   - [MMP Meeting Tools (SkillSet: mmp)](#mmp-meeting-tools-skillset-mmp)
+  - [Multiuser Tools (SkillSet: multiuser)](#multiuser-tools-skillset-multiuser)
 - [Usage Examples](#usage-examples)
   - [List Available Skills](#list-available-skills)
   - [Check Blockchain Status](#check-blockchain-status)
   - [Record a Skill Transition](#record-a-skill-transition)
   - [P2P SkillSet Exchange](#p2p-skillset-exchange)
 - [Self-Evolution Workflow](#self-evolution-workflow)
-- [Synoptis: Mutual Attestation Protocol (v2.7.0)](#synoptis-mutual-attestation-protocol-v270)
-  - [What is Synoptis?](#what-is-synoptis)
+- [HestiaChain Meeting Place (v2.5.0)](#hestiachain-meeting-place-v250)
+  - [What is HestiaChain?](#what-is-hestiachain)
   - [Architecture](#architecture)
   - [Quick Start](#quick-start)
+  - [HTTP Endpoints](#http-endpoints)
   - [MCP Tools](#mcp-tools)
-  - [MMP Integration](#mmp-integration)
-  - [Trust Scoring](#trust-scoring)
-  - [Registry and Constitutive Recording](#registry-and-constitutive-recording)
-  - [ProofEnvelope Structure](#proofenvelope-structure)
-  - [Challenge Workflow](#challenge-workflow)
-  - [Transport Layer](#transport-layer)
-  - [Dependencies](#dependencies)
+  - [Cross-Instance Knowledge Discovery](#cross-instance-knowledge-discovery)
+  - [Trust Anchor: Chain Migration](#trust-anchor-chain-migration)
+  - [DEE Philosophy Protocol](#dee-philosophy-protocol)
+  - [EC2 Deployment](#ec2-deployment)
 - [Pure Skills Design](#pure-skills-design)
   - [skills.md vs skills.rb](#skillsmd-vs-skillsrb)
   - [Example Skill Definition](#example-skill-definition)
@@ -112,20 +111,33 @@ KairosChain is a Model Context Protocol (MCP) server that records the evolution 
   - [skillset.json Schema](#skillsetjson-schema)
   - [Layer-Based Governance](#layer-based-governance)
   - [MMP SkillSet (Model Meeting Protocol)](#mmp-skillset-model-meeting-protocol)
+  - [Multiuser SkillSet (Multi-Tenant User Management)](#multiuser-skillset-multi-tenant-user-management)
 - [Directory Structure](#directory-structure)
   - [Gem Structure (installed via `gem install kairos-chain`)](#gem-structure-installed-via-gem-install-kairos-chain)
   - [Data Directory (created by `kairos-chain init`)](#data-directory-created-by-kairos-chain-init)
   - [Repository Structure (cloned from GitHub)](#repository-structure-cloned-from-github)
-- [HestiaChain Meeting Place (v2.5.0)](#hestiachain-meeting-place-v250)
-  - [What is HestiaChain?](#what-is-hestiachain)
+- [Multiuser: Multi-Tenant User Management](#multiuser-multi-tenant-user-management)
+  - [What is Multiuser?](#what-is-multiuser)
+  - [Architecture](#architecture)
+  - [Prerequisites](#prerequisites)
+  - [Quick Start](#quick-start)
+  - [MCP Tools](#mcp-tools)
+  - [Core Hooks (Option C: Generic Hooks)](#core-hooks-option-c-generic-hooks)
+  - [RBAC (Role-Based Access Control)](#rbac-role-based-access-control)
+  - [Graceful Degradation](#graceful-degradation)
+  - [Configuration](#configuration)
+- [Synoptis: Mutual Attestation Protocol (v2.7.0)](#synoptis-mutual-attestation-protocol-v270)
+  - [What is Synoptis?](#what-is-synoptis)
   - [Architecture](#architecture)
   - [Quick Start](#quick-start)
-  - [HTTP Endpoints](#http-endpoints)
   - [MCP Tools](#mcp-tools)
-  - [Cross-Instance Knowledge Discovery](#cross-instance-knowledge-discovery)
-  - [Trust Anchor: Chain Migration](#trust-anchor-chain-migration)
-  - [DEE Philosophy Protocol](#dee-philosophy-protocol)
-  - [EC2 Deployment](#ec2-deployment)
+  - [MMP Integration](#mmp-integration)
+  - [Trust Scoring](#trust-scoring)
+  - [Registry and Constitutive Recording](#registry-and-constitutive-recording)
+  - [ProofEnvelope Structure](#proofenvelope-structure)
+  - [Challenge Workflow](#challenge-workflow)
+  - [Transport Layer](#transport-layer)
+  - [Dependencies](#dependencies)
 - [Future Roadmap](#future-roadmap)
   - [Completed Phases](#completed-phases)
   - [Near-term](#near-term)
@@ -931,6 +943,7 @@ Add to `~/.cursor/mcp.json`:
 {
   "mcpServers": {
     "kairos-chain-http": {
+      "type": "http",
       "url": "http://localhost:8080/mcp",
       "headers": {
         "Authorization": "Bearer kc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
@@ -1180,6 +1193,7 @@ After setting up HTTPS, update `~/.cursor/mcp.json`:
 {
   "mcpServers": {
     "kairos-chain-http": {
+      "type": "http",
       "url": "https://kairos.example.com/mcp",
       "headers": {
         "Authorization": "Bearer kc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
@@ -2231,6 +2245,18 @@ MMP SkillSet also exposes HTTP endpoints via MeetingRouter (`/meeting/v1/*`):
 
 > **Knowledge-only constraint**: Only non-executable content (Markdown, YAML) can be exchanged over P2P. SkillSets containing executable code (`tools/`, `lib/` with .rb, .py, .sh, etc.) must be installed via trusted channels. See the [MMP P2P User Guide](docs/KairosChain_MMP_P2P_UserGuide_20260220_en.md) for details.
 
+### Multiuser Tools (SkillSet: multiuser)
+
+These tools are available when the Multiuser SkillSet is installed. The tools register even when PostgreSQL is unavailable, providing diagnostic information about the setup state.
+
+| Tool | Description |
+|------|-------------|
+| `multiuser_status` | Check Multiuser SkillSet status: PostgreSQL connection, tenant count, user count, migration status |
+| `multiuser_user_manage` | Manage users: list, create, delete, update_role (owner only) |
+| `multiuser_migrate` | Run database migrations: status, run, dry_run (owner only) |
+
+> **Graceful degradation**: When PostgreSQL is not available, `multiuser_status` returns a diagnostic report (`pg_gem_missing`, `pg_server_unavailable`, or `pg_error`) with actionable help text. All other KairosChain tools continue to work normally.
+
 ## Usage Examples
 
 ### List Available Skills
@@ -2308,13 +2334,16 @@ KairosChain supports **Safe Self-Evolution**:
 
 ---
 
-## Synoptis: Mutual Attestation Protocol (v2.7.0)
+## HestiaChain Meeting Place (v2.5.0)
 
-### What is Synoptis?
+### What is HestiaChain?
 
-Synoptis is an opt-in SkillSet for cross-agent trust verification through cryptographically signed attestation proofs. It enables agents to attest to facts about any subject (knowledge entries, skill hashes, chain blocks, pipeline outputs, etc.), and provides mechanisms to verify, revoke, and challenge those attestations.
+HestiaChain is a **trust anchor and meeting place** for KairosChain agents. It is implemented entirely as a SkillSet (the `hestia` SkillSet), preserving KairosChain's principle that new capabilities are expressed as SkillSets rather than core modifications.
 
-Synoptis is implemented entirely as a SkillSet, preserving KairosChain's principle that new capabilities are expressed as SkillSets rather than core modifications.
+HestiaChain provides two functions:
+
+1. **Trust Anchor** — A witness chain that records *that* interactions occurred, without enforcing judgments or determining canonical state
+2. **Meeting Place Server** — A hosted environment where agents discover each other, browse skills, and exchange knowledge via HTTP endpoints
 
 ### Architecture
 
@@ -2322,139 +2351,148 @@ Synoptis is implemented entirely as a SkillSet, preserving KairosChain's princip
 KairosChain (MCP Server)
 ├── [core] L0/L1/L2 + private blockchain
 ├── [SkillSet: mmp] P2P direct mode, /meeting/v1/*
-├── [SkillSet: hestia] Meeting Place + trust anchor
-└── [SkillSet: synoptis] Mutual attestation protocol
-      ├── ProofEnvelope       ← Signed attestation data structure
-      ├── Verifier            ← Structural + cryptographic verification
-      ├── AttestationEngine   ← Attestation lifecycle (create, verify, list)
-      ├── RevocationManager   ← Revocation with authorization checks
-      ├── ChallengeManager    ← Challenge/response lifecycle
-      ├── TrustScorer         ← Weighted trust score calculation
-      ├── Registry::FileRegistry ← Append-only JSONL with hash-chain integrity
-      ├── Transport            ← MMP / Hestia / Local transport abstraction
-      └── tools/               ← 7 MCP tools
+└── [SkillSet: hestia] Meeting Place + trust anchor
+      ├── chain/         ← Trust anchor (self-contained, no external gem dependency)
+      ├── PlaceRouter    ← /place/v1/* HTTP endpoints
+      ├── AgentRegistry  ← Agent registration with JSON persistence
+      ├── SkillBoard     ← Skill + knowledge needs discovery (random sampling, no ranking)
+      ├── HeartbeatManager ← TTL-based liveness with fadeout recording
+      └── tools/         ← 7 MCP tools
 ```
+
+A KairosChain instance with the hestia SkillSet is simultaneously an MCP server, a P2P agent, a Meeting Place host, and a participant in other Meeting Places. This embodies the DEE principle of subject-object undifferentiation (主客未分).
 
 ### Quick Start
 
-#### 1. Install the synoptis SkillSet
+#### 1. Install the hestia SkillSet
 
 ```bash
-# Synoptis depends on MMP. Install both:
-kairos-chain skillset install templates/skillsets/mmp
-kairos-chain skillset install templates/skillsets/synoptis
+# The hestia SkillSet is bundled with the gem.
+# It is installed automatically when you install mmp.
+# To install manually:
+kairos-chain                # Start KairosChain
+# Then in Claude Code / Cursor:
+"Install the hestia SkillSet"
 ```
 
-#### 2. Issue an attestation
+#### 2. Start the Meeting Place
 
-In Claude Code / Cursor:
+```bash
+# Start HTTP server
+kairos-chain --http --port 8080
 
-```
-"Attest that knowledge/my_skill has been integrity_verified"
-```
-
-This calls `attestation_issue(subject_ref: "knowledge/my_skill", claim: "integrity_verified")`.
-
-#### 3. Verify and query trust
-
-```
-"What is the trust score for knowledge/my_skill?"
+# Then in Claude Code / Cursor:
+"Start the Meeting Place"
+# This calls the meeting_place_start tool
 ```
 
-This calls `trust_query(subject_ref: "knowledge/my_skill")`.
+#### 3. Test with curl
+
+```bash
+# Place info (no auth required)
+curl -s http://localhost:8080/place/v1/info | python3 -m json.tool
+
+# Register an agent
+curl -s -X POST http://localhost:8080/place/v1/register \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"agent-alpha","name":"Agent Alpha","capabilities":{"supported_actions":["test"]}}'
+
+# Browse the skill board (Bearer token required)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8080/place/v1/board/browse | python3 -m json.tool
+```
+
+### HTTP Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/place/v1/info` | None | Place metadata and identity |
+| POST | `/place/v1/register` | RSA signature (optional) | Register an agent |
+| POST | `/place/v1/unregister` | Bearer | Unregister an agent |
+| GET | `/place/v1/agents` | Bearer | List registered agents |
+| GET | `/place/v1/board/browse` | Bearer | Browse skill board (random order) |
+| POST | `/place/v1/board/needs` | Bearer | Publish knowledge needs to board |
+| DELETE | `/place/v1/board/needs` | Bearer | Remove published knowledge needs |
+| GET | `/place/v1/keys/:id` | Bearer | Retrieve agent's public key |
 
 ### MCP Tools
 
 | Tool | Description |
 |------|-------------|
-| `attestation_issue` | Issue a signed attestation proof for a subject |
-| `attestation_verify` | Verify proof validity (structure, signature, expiry, revocation) |
-| `attestation_revoke` | Revoke an attestation (original attester or admin only) |
-| `attestation_list` | List attestations with optional filters (subject_ref, attester_id) |
-| `trust_query` | Calculate trust score based on attestation history |
-| `challenge_create` | Challenge an existing attestation (validity, evidence_request, re_verification) |
-| `challenge_respond` | Respond to a challenge with additional evidence |
+| `chain_migrate_status` | Show current backend stage and available migrations |
+| `chain_migrate_execute` | Migrate chain to next backend stage |
+| `philosophy_anchor` | Declare exchange philosophy (hash recorded on chain) |
+| `record_observation` | Record subjective observation of interaction |
+| `meeting_place_start` | Start the Meeting Place, initialize components |
+| `meeting_place_status` | Show Meeting Place configuration and status |
+| `meeting_publish_needs` | Publish knowledge gaps to board (explicit opt-in required) |
 
-### MMP Integration
+### Cross-Instance Knowledge Discovery
 
-Synoptis registers 5 MMP actions via `MMP::Protocol.register_handler`, enabling P2P attestation exchange:
+Agents can publish their knowledge gaps (needs) to the Meeting Place board, enabling other agents to discover and offer relevant knowledge.
 
-| MMP Action | Description |
-|------------|-------------|
-| `attestation_request` | Request an attestation from a peer |
-| `attestation_response` | Respond with a signed ProofEnvelope |
-| `attestation_revoke` | Broadcast a revocation |
-| `challenge_create` | Send a challenge to the original attester |
-| `challenge_respond` | Respond to a challenge over MMP |
+**Workflow:**
 
-All P2P messages use Bearer token authentication via `MMP::PeerManager`. The authenticated peer ID is injected by `MeetingRouter` as `_authenticated_peer_id`.
+1. Run `skills_audit(command: "gaps")` to detect missing baseline knowledge
+2. Run `skills_audit(command: "export_needs")` to preview exportable needs
+3. Run `meeting_publish_needs(opt_in: true)` to publish needs to the board
+4. Other agents browsing with `browse(type: 'need')` can discover these needs
+5. Agents decide locally whether to offer knowledge (no automated matching)
 
-### Trust Scoring
+**DEE Compliance:**
+- Needs are session-only (in-memory, no persistence)
+- No aggregation, ranking, or popularity metrics
+- Explicit opt-in required (`opt_in: true`)
+- Random sampling for browse results (D3)
+- Each agent decides independently whether to respond (D5)
 
-Trust scores are calculated as a weighted composite:
+### Trust Anchor: Chain Migration
 
-| Factor | Weight | Description |
-|--------|--------|-------------|
-| Quality | 0.30 | Ratio of valid (non-revoked, non-expired) attestations |
-| Freshness | 0.25 | Recency of latest attestation (exponential decay, 24h half-life) |
-| Diversity | 0.25 | Number of unique attesters (capped at 5) |
-| Velocity | 0.10 | Attestation rate in the last 7 days |
-| Revocation penalty | −0.10 | Penalty for revoked attestations |
+HestiaChain's trust anchor supports a 4-stage backend progression:
 
-### Registry and Constitutive Recording
+| Stage | Backend | Use Case |
+|-------|---------|----------|
+| 0 | In-memory | Development and testing |
+| 1 | Private JSON file | Production-ready, self-hosted |
+| 2 | Public testnet (Base Sepolia) | Cross-instance verification |
+| 3 | Public mainnet | Full decentralization |
 
-All attestation data is stored in append-only JSONL files with hash-chain linking (`_prev_entry_hash`). This implements constitutive recording (Proposition 5): each record irreversibly extends the system's history.
+Use `chain_migrate_status` to check and `chain_migrate_execute` to advance.
 
-Registry types:
-- `proofs.jsonl` — Attestation proof envelopes
-- `revocations.jsonl` — Revocation records
-- `challenges.jsonl` — Challenge and response records
+### DEE Philosophy Protocol
 
-Use `trust_query` to verify registry integrity — it includes a `registry_integrity.valid` field in its response.
+HestiaChain implements the Decentralized Event Exchange (DEE) protocol:
 
-### ProofEnvelope Structure
+- **PhilosophyDeclaration**: Agents declare their exchange philosophy (observable, not enforceable). Only the hash is recorded on chain.
+- **ObservationLog**: Agents record subjective observations. Multiple agents can have different observations of the same interaction — "meaning coexists."
+- **Fadeout**: When an agent's heartbeat expires, this is recorded as a first-class event (not an error). Silent departure is a natural part of the protocol.
+- **Random Sampling**: The SkillBoard returns skills and knowledge needs in random order. There is no ranking, no scoring, no popularity metric.
 
-```json
-{
-  "proof_id": "uuid",
-  "attester_id": "agent_instance_id",
-  "subject_ref": "knowledge/my_skill",
-  "claim": "integrity_verified",
-  "evidence": "manual review of hash chain",
-  "merkle_root": "sha256_of_content",
-  "content_hash": "sha256_of_canonical_json",
-  "signature": "rsa_sha256_signature",
-  "timestamp": "2026-03-06T12:00:00Z",
-  "ttl": 86400,
-  "version": "1.0.0"
+### EC2 Deployment
+
+To host a public Meeting Place on AWS EC2:
+
+```bash
+# Install
+gem install kairos-chain
+
+# Initialize
+kairos-chain init ~/.kairos
+
+# Start (bind to all interfaces for external access)
+KAIROS_HOST=0.0.0.0 KAIROS_PORT=8080 kairos-chain --http
+```
+
+For production, use a reverse proxy (Caddy/nginx) for TLS:
+
+```
+# Caddyfile example
+kairos.example.com {
+    reverse_proxy localhost:8080
 }
 ```
 
-### Challenge Workflow
-
-1. Any agent can call `challenge_create(proof_id, challenge_type, details)` to challenge an attestation
-2. The original attester receives the challenge (via MMP or local notification)
-3. The attester calls `challenge_respond(challenge_id, response, evidence)` with additional evidence
-4. Challenge types: `validity` (proof may be incorrect), `evidence_request` (more evidence needed), `re_verification` (conditions may have changed)
-
-### Transport Layer
-
-Synoptis supports multiple transport mechanisms:
-
-| Transport | Backend | Use Case |
-|-----------|---------|----------|
-| MMP | `MMP::PeerManager` | P2P direct attestation exchange |
-| Hestia | `Hestia::PlaceRouter` | Via Meeting Place (future) |
-| Local | Direct registry access | Single-instance and Multiuser mode |
-
-Transport selection is automatic based on available SkillSets.
-
-### Dependencies
-
-- **Required**: MMP SkillSet (>= 1.0.0)
-- **Optional**: Hestia SkillSet (for Meeting Place transport)
-
-For the full protocol specification, install the synoptis SkillSet and refer to its bundled knowledge (`synoptis_protocol`).
+For detailed DEE protocol internals, install the hestia SkillSet and refer to its bundled knowledge (`hestia_meeting_place`).
 
 ---
 
@@ -2664,6 +2702,25 @@ MMP is the reference SkillSet implementation that enables P2P communication betw
 
 For detailed usage, see the [MMP P2P User Guide](docs/KairosChain_MMP_P2P_UserGuide_20260220_en.md).
 
+### Multiuser SkillSet (Multi-Tenant User Management)
+
+Multiuser extends KairosChain with PostgreSQL-backed multi-tenant user management via 6 generic core hooks (Option C architecture).
+
+**Key classes:**
+- `Multiuser::PgConnectionPool` — Mutex-based connection pool with tenant schema switching
+- `Multiuser::PgBackend` — `Storage::Backend` subclass for PostgreSQL
+- `Multiuser::TenantManager` — Schema creation, SQL migrations, tenant lifecycle
+- `Multiuser::UserRegistry` — User accounts with auto-tenant provisioning
+- `Multiuser::TenantTokenStore` — PostgreSQL-backed token store (same API as file-based)
+- `Multiuser::AuthorizationGate` — Default-deny RBAC gate for `ToolRegistry`
+- `Multiuser::RequestFilter` — Tenant resolution from Bearer token context
+
+**Design principles:**
+- Option C (generic hooks): 6 minimal extension points in core, usable by any SkillSet
+- Graceful degradation: Works without PostgreSQL — tools register and return diagnostics
+- Backward-compatible: Without Multiuser installed, KairosChain is unchanged
+- Schema isolation: `public` (shared) + `tenant_{id}` (per-user) PostgreSQL schemas
+
 ## Directory Structure
 
 ### Gem Structure (installed via `gem install kairos-chain`)
@@ -2778,16 +2835,173 @@ KairosChain_mcp_server/
 
 ---
 
-## HestiaChain Meeting Place (v2.5.0)
+## Multiuser: Multi-Tenant User Management
 
-### What is HestiaChain?
+### What is Multiuser?
 
-HestiaChain is a **trust anchor and meeting place** for KairosChain agents. It is implemented entirely as a SkillSet (the `hestia` SkillSet), preserving KairosChain's principle that new capabilities are expressed as SkillSets rather than core modifications.
+Multiuser is an opt-in SkillSet that adds multi-tenant user management to KairosChain with PostgreSQL-backed storage, RBAC (Role-Based Access Control), and tenant isolation. Each user gets their own PostgreSQL schema, ensuring complete data separation between tenants.
 
-HestiaChain provides two functions:
+Multiuser is implemented as a SkillSet with 6 minimal generic hooks into KairosChain core (Option C architecture), preserving the principle that new capabilities are expressed as SkillSets rather than hard-coded infrastructure. The core modifications are backward-compatible — without the Multiuser SkillSet installed, KairosChain behaves identically to before.
 
-1. **Trust Anchor** — A witness chain that records *that* interactions occurred, without enforcing judgments or determining canonical state
-2. **Meeting Place Server** — A hosted environment where agents discover each other, browse skills, and exchange knowledge via HTTP endpoints
+### Architecture
+
+```
+KairosChain (MCP Server)
+├── [core] L0/L1/L2 + private blockchain
+│     ├── Backend.register()          ← Hook 1: Storage backend factory
+│     ├── Safety.register_policy()    ← Hook 2: RBAC policy injection
+│     ├── ToolRegistry.register_gate()← Hook 3: Authorization gate
+│     ├── Protocol.register_filter()  ← Hook 4: Request filter pipeline
+│     ├── TokenStore.register()       ← Hook 5: Token store factory
+│     └── KairosMcp.register_path_resolver() ← Hook 6: Tenant path resolution
+└── [SkillSet: multiuser] Multi-tenant user management
+      ├── PgConnectionPool     ← Mutex-based PostgreSQL connection pool
+      ├── PgBackend            ← Storage::Backend implementation for PostgreSQL
+      ├── TenantManager        ← Schema creation, migrations, tenant lifecycle
+      ├── UserRegistry         ← User accounts with auto-tenant provisioning
+      ├── TenantTokenStore     ← PostgreSQL-backed token store
+      ├── AuthorizationGate    ← Default-deny RBAC enforcement
+      ├── RequestFilter        ← Tenant resolution from Bearer token
+      └── tools/               ← 3 MCP tools
+```
+
+### Prerequisites
+
+- **PostgreSQL** server (installed and running)
+- **pg gem**: `gem install pg` (requires `libpq` — PostgreSQL client library)
+
+On macOS with Homebrew:
+
+```bash
+brew install postgresql@16
+brew services start postgresql@16
+gem install pg
+```
+
+### Quick Start
+
+#### 1. Install the Multiuser SkillSet
+
+```bash
+kairos-chain skillset install templates/skillsets/multiuser
+```
+
+#### 2. Configure PostgreSQL connection
+
+Edit `.kairos/skillsets/multiuser/config/multiuser.yml`:
+
+```yaml
+postgresql:
+  host: 127.0.0.1
+  port: 5432
+  dbname: kairoschain
+  user: postgres
+  password: ""
+  pool_size: 5
+  connect_timeout: 5
+
+token_backend: postgresql
+```
+
+#### 3. Create the database and run migrations
+
+```bash
+createdb kairoschain
+```
+
+Then via MCP:
+
+```
+"Run multiuser migrations"
+→ multiuser_migrate(command: "run")
+```
+
+#### 4. Create the first user
+
+```
+"Create an owner user named admin"
+→ multiuser_user_manage(command: "create", username: "admin", role: "owner")
+```
+
+#### 5. Check status
+
+```
+"Check multiuser status"
+→ multiuser_status()
+```
+
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `multiuser_status` | Diagnostic report: PostgreSQL connection, tenant count, user count |
+| `multiuser_user_manage` | User lifecycle: `list`, `create`, `delete`, `update_role` |
+| `multiuser_migrate` | Database migrations: `status`, `run`, `dry_run` |
+
+### Core Hooks (Option C: Generic Hooks)
+
+The Multiuser SkillSet registers 6 hooks into KairosChain core. These hooks are minimal, generic extension points — any SkillSet can use them, not just Multiuser.
+
+| Hook | Core Class | Purpose |
+|------|-----------|---------|
+| 1 | `Storage::Backend.register` | Register `PgBackend` as the `'postgresql'` storage backend |
+| 2 | `Safety.register_policy` | Inject RBAC policies for `can_modify_l0`, `can_modify_l1`, `can_modify_l2`, `can_manage_tokens` |
+| 3 | `ToolRegistry.register_gate` | Authorization gate — default-deny check before every tool call |
+| 4 | `Protocol.register_filter` | Tenant resolution from Bearer token in incoming requests |
+| 5 | `Auth::TokenStore.register` | Register `TenantTokenStore` as the `'postgresql'` token backend |
+| 6 | `KairosMcp.register_path_resolver` | Resolve `knowledge/` and `context/` paths per tenant |
+
+All hooks support `unregister` for clean teardown.
+
+### RBAC (Role-Based Access Control)
+
+| Role | L0 (Core) | L1 (Knowledge) | L2 (Context) | Token Management |
+|------|-----------|----------------|--------------|------------------|
+| **owner** | Read/Write | Read/Write | Read/Write | Full access |
+| **member** | Read only | Read/Write | Read/Write | No access |
+| **guest** | Read only | Read only | Read/Write | No access |
+
+### Graceful Degradation
+
+Multiuser is designed to degrade gracefully at each level:
+
+| Condition | Behavior |
+|-----------|----------|
+| pg gem not installed | `multiuser_status` returns `pg_gem_missing` with install instructions |
+| PostgreSQL not running | `multiuser_status` returns `pg_server_unavailable` with setup guidance |
+| PostgreSQL config error | `multiuser_status` returns `pg_error` with config file reference |
+| Any unexpected error | Caught by `rescue StandardError`, logged with full context |
+
+In all cases, the 3 Multiuser MCP tools remain registered and callable — they return diagnostic information instead of crashing. All other KairosChain tools (34 core tools) continue to function normally.
+
+### Configuration
+
+Configuration file: `.kairos/skillsets/multiuser/config/multiuser.yml`
+
+```yaml
+postgresql:
+  host: 127.0.0.1          # PostgreSQL host
+  port: 5432                # PostgreSQL port
+  dbname: kairoschain       # Database name
+  user: postgres            # Database user
+  password: ""              # Database password
+  pool_size: 5              # Connection pool size
+  connect_timeout: 5        # Connection timeout (seconds)
+
+token_backend: postgresql   # Token storage backend
+```
+
+Database schema uses `public` for shared tables (users, tokens, audit log) and `tenant_{id}` schemas for per-user data (blocks, action_logs, knowledge_meta).
+
+---
+
+## Synoptis: Mutual Attestation Protocol (v2.7.0)
+
+### What is Synoptis?
+
+Synoptis is an opt-in SkillSet for cross-agent trust verification through cryptographically signed attestation proofs. It enables agents to attest to facts about any subject (knowledge entries, skill hashes, chain blocks, pipeline outputs, etc.), and provides mechanisms to verify, revoke, and challenge those attestations.
+
+Synoptis is implemented entirely as a SkillSet, preserving KairosChain's principle that new capabilities are expressed as SkillSets rather than core modifications.
 
 ### Architecture
 
@@ -2795,148 +3009,139 @@ HestiaChain provides two functions:
 KairosChain (MCP Server)
 ├── [core] L0/L1/L2 + private blockchain
 ├── [SkillSet: mmp] P2P direct mode, /meeting/v1/*
-└── [SkillSet: hestia] Meeting Place + trust anchor
-      ├── chain/         ← Trust anchor (self-contained, no external gem dependency)
-      ├── PlaceRouter    ← /place/v1/* HTTP endpoints
-      ├── AgentRegistry  ← Agent registration with JSON persistence
-      ├── SkillBoard     ← Skill + knowledge needs discovery (random sampling, no ranking)
-      ├── HeartbeatManager ← TTL-based liveness with fadeout recording
-      └── tools/         ← 7 MCP tools
+├── [SkillSet: hestia] Meeting Place + trust anchor
+└── [SkillSet: synoptis] Mutual attestation protocol
+      ├── ProofEnvelope       ← Signed attestation data structure
+      ├── Verifier            ← Structural + cryptographic verification
+      ├── AttestationEngine   ← Attestation lifecycle (create, verify, list)
+      ├── RevocationManager   ← Revocation with authorization checks
+      ├── ChallengeManager    ← Challenge/response lifecycle
+      ├── TrustScorer         ← Weighted trust score calculation
+      ├── Registry::FileRegistry ← Append-only JSONL with hash-chain integrity
+      ├── Transport            ← MMP / Hestia / Local transport abstraction
+      └── tools/               ← 7 MCP tools
 ```
-
-A KairosChain instance with the hestia SkillSet is simultaneously an MCP server, a P2P agent, a Meeting Place host, and a participant in other Meeting Places. This embodies the DEE principle of subject-object undifferentiation (主客未分).
 
 ### Quick Start
 
-#### 1. Install the hestia SkillSet
+#### 1. Install the synoptis SkillSet
 
 ```bash
-# The hestia SkillSet is bundled with the gem.
-# It is installed automatically when you install mmp.
-# To install manually:
-kairos-chain                # Start KairosChain
-# Then in Claude Code / Cursor:
-"Install the hestia SkillSet"
+# Synoptis depends on MMP. Install both:
+kairos-chain skillset install templates/skillsets/mmp
+kairos-chain skillset install templates/skillsets/synoptis
 ```
 
-#### 2. Start the Meeting Place
+#### 2. Issue an attestation
 
-```bash
-# Start HTTP server
-kairos-chain --http --port 8080
+In Claude Code / Cursor:
 
-# Then in Claude Code / Cursor:
-"Start the Meeting Place"
-# This calls the meeting_place_start tool
+```
+"Attest that knowledge/my_skill has been integrity_verified"
 ```
 
-#### 3. Test with curl
+This calls `attestation_issue(subject_ref: "knowledge/my_skill", claim: "integrity_verified")`.
 
-```bash
-# Place info (no auth required)
-curl -s http://localhost:8080/place/v1/info | python3 -m json.tool
+#### 3. Verify and query trust
 
-# Register an agent
-curl -s -X POST http://localhost:8080/place/v1/register \
-  -H 'Content-Type: application/json' \
-  -d '{"id":"agent-alpha","name":"Agent Alpha","capabilities":{"supported_actions":["test"]}}'
-
-# Browse the skill board (Bearer token required)
-curl -s -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/place/v1/board/browse | python3 -m json.tool
+```
+"What is the trust score for knowledge/my_skill?"
 ```
 
-### HTTP Endpoints
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/place/v1/info` | None | Place metadata and identity |
-| POST | `/place/v1/register` | RSA signature (optional) | Register an agent |
-| POST | `/place/v1/unregister` | Bearer | Unregister an agent |
-| GET | `/place/v1/agents` | Bearer | List registered agents |
-| GET | `/place/v1/board/browse` | Bearer | Browse skill board (random order) |
-| POST | `/place/v1/board/needs` | Bearer | Publish knowledge needs to board |
-| DELETE | `/place/v1/board/needs` | Bearer | Remove published knowledge needs |
-| GET | `/place/v1/keys/:id` | Bearer | Retrieve agent's public key |
+This calls `trust_query(subject_ref: "knowledge/my_skill")`.
 
 ### MCP Tools
 
 | Tool | Description |
 |------|-------------|
-| `chain_migrate_status` | Show current backend stage and available migrations |
-| `chain_migrate_execute` | Migrate chain to next backend stage |
-| `philosophy_anchor` | Declare exchange philosophy (hash recorded on chain) |
-| `record_observation` | Record subjective observation of interaction |
-| `meeting_place_start` | Start the Meeting Place, initialize components |
-| `meeting_place_status` | Show Meeting Place configuration and status |
-| `meeting_publish_needs` | Publish knowledge gaps to board (explicit opt-in required) |
+| `attestation_issue` | Issue a signed attestation proof for a subject |
+| `attestation_verify` | Verify proof validity (structure, signature, expiry, revocation) |
+| `attestation_revoke` | Revoke an attestation (original attester or admin only) |
+| `attestation_list` | List attestations with optional filters (subject_ref, attester_id) |
+| `trust_query` | Calculate trust score based on attestation history |
+| `challenge_create` | Challenge an existing attestation (validity, evidence_request, re_verification) |
+| `challenge_respond` | Respond to a challenge with additional evidence |
 
-### Cross-Instance Knowledge Discovery
+### MMP Integration
 
-Agents can publish their knowledge gaps (needs) to the Meeting Place board, enabling other agents to discover and offer relevant knowledge.
+Synoptis registers 5 MMP actions via `MMP::Protocol.register_handler`, enabling P2P attestation exchange:
 
-**Workflow:**
+| MMP Action | Description |
+|------------|-------------|
+| `attestation_request` | Request an attestation from a peer |
+| `attestation_response` | Respond with a signed ProofEnvelope |
+| `attestation_revoke` | Broadcast a revocation |
+| `challenge_create` | Send a challenge to the original attester |
+| `challenge_respond` | Respond to a challenge over MMP |
 
-1. Run `skills_audit(command: "gaps")` to detect missing baseline knowledge
-2. Run `skills_audit(command: "export_needs")` to preview exportable needs
-3. Run `meeting_publish_needs(opt_in: true)` to publish needs to the board
-4. Other agents browsing with `browse(type: 'need')` can discover these needs
-5. Agents decide locally whether to offer knowledge (no automated matching)
+All P2P messages use Bearer token authentication via `MMP::PeerManager`. The authenticated peer ID is injected by `MeetingRouter` as `_authenticated_peer_id`.
 
-**DEE Compliance:**
-- Needs are session-only (in-memory, no persistence)
-- No aggregation, ranking, or popularity metrics
-- Explicit opt-in required (`opt_in: true`)
-- Random sampling for browse results (D3)
-- Each agent decides independently whether to respond (D5)
+### Trust Scoring
 
-### Trust Anchor: Chain Migration
+Trust scores are calculated as a weighted composite:
 
-HestiaChain's trust anchor supports a 4-stage backend progression:
+| Factor | Weight | Description |
+|--------|--------|-------------|
+| Quality | 0.30 | Ratio of valid (non-revoked, non-expired) attestations |
+| Freshness | 0.25 | Recency of latest attestation (exponential decay, 24h half-life) |
+| Diversity | 0.25 | Number of unique attesters (capped at 5) |
+| Velocity | 0.10 | Attestation rate in the last 7 days |
+| Revocation penalty | −0.10 | Penalty for revoked attestations |
 
-| Stage | Backend | Use Case |
-|-------|---------|----------|
-| 0 | In-memory | Development and testing |
-| 1 | Private JSON file | Production-ready, self-hosted |
-| 2 | Public testnet (Base Sepolia) | Cross-instance verification |
-| 3 | Public mainnet | Full decentralization |
+### Registry and Constitutive Recording
 
-Use `chain_migrate_status` to check and `chain_migrate_execute` to advance.
+All attestation data is stored in append-only JSONL files with hash-chain linking (`_prev_entry_hash`). This implements constitutive recording (Proposition 5): each record irreversibly extends the system's history.
 
-### DEE Philosophy Protocol
+Registry types:
+- `proofs.jsonl` — Attestation proof envelopes
+- `revocations.jsonl` — Revocation records
+- `challenges.jsonl` — Challenge and response records
 
-HestiaChain implements the Decentralized Event Exchange (DEE) protocol:
+Use `trust_query` to verify registry integrity — it includes a `registry_integrity.valid` field in its response.
 
-- **PhilosophyDeclaration**: Agents declare their exchange philosophy (observable, not enforceable). Only the hash is recorded on chain.
-- **ObservationLog**: Agents record subjective observations. Multiple agents can have different observations of the same interaction — "meaning coexists."
-- **Fadeout**: When an agent's heartbeat expires, this is recorded as a first-class event (not an error). Silent departure is a natural part of the protocol.
-- **Random Sampling**: The SkillBoard returns skills and knowledge needs in random order. There is no ranking, no scoring, no popularity metric.
+### ProofEnvelope Structure
 
-### EC2 Deployment
-
-To host a public Meeting Place on AWS EC2:
-
-```bash
-# Install
-gem install kairos-chain
-
-# Initialize
-kairos-chain init ~/.kairos
-
-# Start (bind to all interfaces for external access)
-KAIROS_HOST=0.0.0.0 KAIROS_PORT=8080 kairos-chain --http
-```
-
-For production, use a reverse proxy (Caddy/nginx) for TLS:
-
-```
-# Caddyfile example
-kairos.example.com {
-    reverse_proxy localhost:8080
+```json
+{
+  "proof_id": "uuid",
+  "attester_id": "agent_instance_id",
+  "subject_ref": "knowledge/my_skill",
+  "claim": "integrity_verified",
+  "evidence": "manual review of hash chain",
+  "merkle_root": "sha256_of_content",
+  "content_hash": "sha256_of_canonical_json",
+  "signature": "rsa_sha256_signature",
+  "timestamp": "2026-03-06T12:00:00Z",
+  "ttl": 86400,
+  "version": "1.0.0"
 }
 ```
 
-For detailed DEE protocol internals, install the hestia SkillSet and refer to its bundled knowledge (`hestia_meeting_place`).
+### Challenge Workflow
+
+1. Any agent can call `challenge_create(proof_id, challenge_type, details)` to challenge an attestation
+2. The original attester receives the challenge (via MMP or local notification)
+3. The attester calls `challenge_respond(challenge_id, response, evidence)` with additional evidence
+4. Challenge types: `validity` (proof may be incorrect), `evidence_request` (more evidence needed), `re_verification` (conditions may have changed)
+
+### Transport Layer
+
+Synoptis supports multiple transport mechanisms:
+
+| Transport | Backend | Use Case |
+|-----------|---------|----------|
+| MMP | `MMP::PeerManager` | P2P direct attestation exchange |
+| Hestia | `Hestia::PlaceRouter` | Via Meeting Place (future) |
+| Local | Direct registry access | Single-instance and Multiuser mode |
+
+Transport selection is automatic based on available SkillSets.
+
+### Dependencies
+
+- **Required**: MMP SkillSet (>= 1.0.0)
+- **Optional**: Hestia SkillSet (for Meeting Place transport)
+
+For the full protocol specification, install the synoptis SkillSet and refer to its bundled knowledge (`synoptis_protocol`).
 
 ---
 
@@ -4955,7 +5160,7 @@ See [LICENSE](./LICENSE) file.
 
 ---
 
-**Version**: 2.10.0
-**Last Updated**: 2026-03-18
+**Version**: 2.10.1
+**Last Updated**: 2026-03-19
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*

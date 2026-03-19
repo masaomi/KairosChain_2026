@@ -153,6 +153,7 @@ module KairosMcp
           {
             "mcpServers": {
               "kairos": {
+                "type": "http",
                 "url": "http://<server-host>:<port>/mcp",
                 "headers": {
                   "Authorization": "Bearer #{result['raw_token']}"
