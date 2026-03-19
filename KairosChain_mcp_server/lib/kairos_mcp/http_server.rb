@@ -2,6 +2,7 @@
 
 require 'json'
 require 'yaml'
+require 'securerandom'
 require_relative 'protocol'
 require_relative 'version'
 require_relative '../kairos_mcp'
@@ -151,6 +152,9 @@ module KairosMcp
           server.handle_health
         when ['POST', '/mcp']
           server.handle_mcp(env)
+        when ['DELETE', '/mcp']
+          # Streamable HTTP spec: session termination (no-op in stateless mode)
+          [204, {}, []]
         when ['GET', '/mcp']
           # Streamable HTTP spec: GET /mcp for SSE streaming
           server.json_response(501, error: 'not_implemented',
@@ -198,16 +202,44 @@ module KairosMcp
                                   message: 'Content-Type must be application/json')
       end
 
-      # 3. Process MCP message with user context
+      # 3. Parse request to detect method
+      parsed = JSON.parse(body)
+      method = parsed['method']
+
+      # 4. Process MCP message with user context
+      #
+      # Stateless design: each request creates a fresh Protocol instance.
+      # For non-initialize methods, we auto-initialize the Protocol first
+      # so that @initialized=true and tools are available.
+      # See L1 knowledge: kairoschain_operations "Streamable HTTP Transport: Stateless Design"
       user_context = auth_result.user_context
       protocol = Protocol.new(user_context: user_context)
-      response = protocol.handle_message(body)
 
-      if response
-        [200, JSON_HEADERS, [response.to_json]]
-      else
-        # Some MCP messages (like 'initialized') return nil
+      if method == 'initialize'
+        # First request in MCP handshake — process normally, return Mcp-Session-Id
+        response = protocol.handle_message(body)
+        session_id = SecureRandom.hex(32)
+        headers = JSON_HEADERS.merge('Mcp-Session-Id' => session_id)
+        [200, headers, [response.to_json]]
+      elsif method == 'initialized'
+        # Notification — no response body needed
         [204, {}, []]
+      else
+        # For tools/list, tools/call, etc.: auto-initialize the Protocol
+        # so it doesn't reject the request due to @initialized being false.
+        protocol.handle_message({
+          'jsonrpc' => '2.0', 'id' => '_init', 'method' => 'initialize',
+          'params' => { 'protocolVersion' => Protocol::HTTP_PROTOCOL_VERSION,
+                        'capabilities' => {},
+                        'clientInfo' => { 'name' => 'http-stateless', 'version' => '1.0' } }
+        }.to_json)
+
+        response = protocol.handle_message(body)
+        if response
+          [200, JSON_HEADERS, [response.to_json]]
+        else
+          [204, {}, []]
+        end
       end
     rescue JSON::ParserError
       json_response(400, error: 'bad_request', message: 'Invalid JSON in request body')

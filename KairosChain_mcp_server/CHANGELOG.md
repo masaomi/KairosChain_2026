@@ -4,6 +4,15 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.10.1] - 2026-03-19
+
+### Fixed
+
+- **Streamable HTTP session management**: MCP clients (Claude Code, Cursor) could not discover tools over HTTP transport because each request created a new `Protocol` instance, losing the `@initialized` state from the handshake. Fixed with stateless design: `initialize` returns `Mcp-Session-Id` header (spec compliance), subsequent requests auto-initialize the Protocol internally. No server-side session store needed — per-request Bearer token authentication is sufficient.
+- **`DELETE /mcp` endpoint**: Added support for MCP session termination requests (returns 204, no-op in stateless mode).
+
+---
+
 ## [2.10.0] - 2026-03-18
 
 ### Added
