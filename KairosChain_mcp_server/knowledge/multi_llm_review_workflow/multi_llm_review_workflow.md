@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
-description: Multi-LLM review workflow pattern — design/implement with single LLM, review with multiple LLMs, user orchestrates convergence loop
-version: 1.0
+description: Multi-LLM review workflow pattern — design/implement with single LLM, review with multiple independent LLMs, user orchestrates convergence loop
+version: 1.1
 layer: L1
 tags: [workflow, review, multi-llm, quality, process, orchestration]
 ---
@@ -10,13 +10,15 @@ tags: [workflow, review, multi-llm, quality, process, orchestration]
 
 ## Overview
 
-This workflow uses a single LLM (Claude Opus 4.6) for design/implementation and multiple LLMs (Claude Team, Codex, Cursor) for review. The user acts as orchestrator, routing outputs between tools. The cycle repeats until convergence (0 blockers).
+This workflow uses a **primary LLM** for design/implementation and **multiple independent LLMs** for review. The user acts as orchestrator, routing outputs between tools. The cycle repeats until convergence (0 blockers).
+
+The specific LLM tools used (which models, how many reviewers) are environment-specific and configured per project. This skill defines the general pattern.
 
 Validated through Service Grant SkillSet: 6 rounds, 14 LLM reviews, design through implementation.
 
 ## When to Use (and When NOT to)
 
-This workflow has significant overhead (~14 LLM reviews for Service Grant). Apply it selectively.
+This workflow has significant overhead. Apply it selectively.
 
 ### Use this workflow when:
 
@@ -58,32 +60,34 @@ The user always has the final say — if they request multi-LLM review for a sim
 
 | Role | Who | Responsibility |
 |------|-----|---------------|
-| **Designer/Implementer** | Claude Opus 4.6 (single) | Design, implement, synthesize reviews, produce fix plans |
-| **Reviewers** | Claude Team + Codex + Cursor (3 LLMs) | Independent multi-perspective review |
+| **Designer/Implementer** | Primary LLM (single instance) | Design, implement, synthesize reviews, produce fix plans |
+| **Reviewers** | N independent LLMs (N >= 2) | Independent multi-perspective review |
 | **Orchestrator** | User | Route prompts to tools, collect results, trigger next phase |
+
+The specific LLM tools and reviewer count are configured per environment (see auto memory or project config).
 
 ## Workflow Pattern
 
 ```
 Phase N (Design or Implementation):
 
-[1] LLM designs/implements → outputs artifact + review prompt
+[1] Primary LLM designs/implements → outputs artifact + review prompt
          |
          ├── artifact:      log/{name}_v{N}_{llm}_{date}.md
          ├── review prompt:  log/{name}_v{N}_review_prompt.md
          └── L2 context:    saved via context_save
          |
-[2] User copies review prompt → sends to 3 LLMs
+[2] User copies review prompt → sends to N reviewer LLMs
          |
-         ├── Claude Code:   agent team review + persona assembly
-         ├── Codex:         independent review
-         └── Cursor:        independent review
+         ├── Reviewer 1:   independent review (may use agent team internally)
+         ├── Reviewer 2:   independent review
+         └── Reviewer N:   independent review
          |
-[3] User reports reviews collected → LLM reads + synthesizes
+[3] User reports reviews collected → primary LLM reads + synthesizes
          |
-         ├── reads:         log/{name}_review{R}_{llm}_{date}.md  (×3)
-         ├── outputs:       log/{name}_v{N+1}_{llm}_{date}.md     (revised artifact)
-         ├── outputs:       log/{name}_v{N+1}_review_prompt.md     (next prompt)
+         ├── reads:         log/{name}_review{R}_{reviewer}_{date}.md  (×N)
+         ├── outputs:       log/{name}_v{N+1}_{llm}_{date}.md         (revised artifact)
+         ├── outputs:       log/{name}_v{N+1}_review_prompt.md         (next prompt)
          └── L2 context:    saved
          |
 [4] If 0 blockers → proceed to next phase
@@ -92,47 +96,76 @@ Phase N (Design or Implementation):
 
 ## When the LLM Should Act
 
-When the user says any of these, the LLM should follow this workflow automatically:
+When the user says any of these, the primary LLM should follow this workflow automatically:
 
 | User says | LLM does |
 |-----------|----------|
 | "設計してください" / "design this" | Create design doc + review prompt + save L2 |
 | "実装してください" / "implement this" | Implement + create implementation log + review prompt + save L2 |
-| "マルチLLMレビューが集まりました" | Read all 3 review files, synthesize, create revised version + new review prompt |
-| "レビューしてください" / "review this" | Run agent team review + persona assembly, output to specified file |
+| "マルチLLMレビューが集まりました" | Read all review files, synthesize, create revised version + new review prompt |
+| "レビューしてください" / "review this" | Run internal review (see below), auto-generate output filename |
 | "統合して最終版を作ってください" | Synthesize reviews into final version, check for blockers |
 | "ブロッカーがなければ実装に移ってください" | Check convergence → implement if clear, or output for more review |
+
+### Internal review procedure ("レビューしてください")
+
+When the primary LLM is asked to review, it should:
+
+1. **Launch 2-3 parallel agents** with different review perspectives (e.g., Security, Correctness, Philosophy+Test)
+2. Each agent reviews independently and produces findings
+3. **Persona Assembly** synthesizes: cross-reference findings, resolve disagreements, produce consensus verdict
+4. **Output** to file with auto-generated name following naming conventions:
+   `log/{feature}_{review_type}_{primary_llm_team_id}_{date}.md`
+
+The user does NOT need to specify the output filename. The LLM derives it from:
+- `{feature}`: current feature context (e.g., `service_grant_phase1`)
+- `{review_type}`: what is being reviewed (e.g., `implementation_review1`, `fix_plan_review`)
+- `{primary_llm_team_id}`: the primary LLM's team identifier from auto memory (e.g., `claude_team_opus4.6`)
+- `{date}`: today's date in `YYYYMMDD` format
+
+If the user specifies a filename, use that instead.
+
+### Auto-generated outputs for each phase
+
+At the end of each major action, the LLM should automatically produce:
+
+| Action completed | Auto-generate |
+|-----------------|---------------|
+| Design created | Review prompt file + L2 save |
+| Implementation completed | Implementation log + review prompt + L2 save |
+| Internal review completed | Review result file |
+| Reviews synthesized | Revised artifact + next review prompt + L2 save |
+| Fix plan created | Fix plan file + review prompt + L2 save |
+| Fixes implemented | Fix implementation log + review prompt + L2 save + commit |
 
 ## File Naming Conventions
 
 ### Design Phase
 ```
-log/{feature}_plan_v{version}_{llm}_{date}.md          # design doc
-log/{feature}_v{version}_multi_llm_review_prompt.md     # review prompt
-log/{feature}_plan_v{version}_review{R}_{llm}_{date}.md # review result
+log/{feature}_plan_v{version}_{llm}_{date}.md            # design doc
+log/{feature}_v{version}_multi_llm_review_prompt.md       # review prompt
+log/{feature}_plan_v{version}_review{R}_{reviewer}_{date}.md  # review result
 ```
 
 ### Implementation Phase
 ```
-log/{feature}_plan_v{final}_implementation_log_{llm}_{date}.md   # impl log
-log/{feature}_implementation_review_prompt_{date}.md              # review prompt
-log/{feature}_implementation_review{R}_{llm}_{date}.md           # review result
+log/{feature}_plan_v{final}_implementation_log_{llm}_{date}.md  # impl log
+log/{feature}_implementation_review_prompt_{date}.md            # review prompt
+log/{feature}_implementation_review{R}_{reviewer}_{date}.md     # review result
 ```
 
 ### Fix Phase
 ```
-log/{feature}_fix_plan_{llm}_{date}.md                           # fix plan
-log/{feature}_fix_plan_review_prompt.md                          # review prompt
-log/{feature}_fix_plan_review_{llm}_{date}.md                    # review result
-log/{feature}_fix_plan_v{N}_{llm}_{date}.md                     # revised fix plan
-log/{feature}_fix_implementation_log_{llm}_{date}.md             # fix impl log
-log/{feature}_fix_implementation_review_prompt_{date}.md          # fix review prompt
+log/{feature}_fix_plan_{llm}_{date}.md                          # fix plan
+log/{feature}_fix_plan_review_prompt.md                         # review prompt
+log/{feature}_fix_plan_review_{reviewer}_{date}.md              # review result
+log/{feature}_fix_plan_v{N}_{llm}_{date}.md                    # revised fix plan
+log/{feature}_fix_implementation_log_{llm}_{date}.md            # fix impl log
+log/{feature}_fix_implementation_review_prompt_{date}.md         # fix review prompt
 ```
 
 ### LLM identifiers in filenames
-- `claude_opus4.6` or `claude_team_opus4.6` — Claude Code
-- `codex_gpt5.4` — OpenAI Codex
-- `cursor_premium` — Cursor
+Use short identifiers for each LLM tool. Examples: `claude_opus4.6`, `codex_gpt5.4`, `cursor_premium`. The mapping between identifiers and tools is environment-specific.
 
 ## Review Prompt Template
 
@@ -179,16 +212,16 @@ A round **converges** when:
 
 If any reviewer says REJECT or finds a FAIL → revise and re-review.
 
-**Majority rule**: If 2/3 APPROVE and 1/3 has non-blocking concerns, proceed with the concerns documented.
+**Majority rule**: If (N-1)/N APPROVE and 1/N has non-blocking concerns, proceed with the concerns documented.
 
 ## Synthesis Pattern
 
-When the LLM synthesizes 3 reviews:
+When the primary LLM synthesizes N reviews:
 
 1. **Build concordance matrix** — which findings appear in 2+ reviews?
-2. **Classify each finding** — 3/3 agree (must fix), 2/3 agree (should fix), 1/3 only (evaluate)
+2. **Classify each finding** — N/N agree (must fix), majority agree (should fix), 1/N only (evaluate)
 3. **Check for conflicts** — do reviewers disagree? Document the majority decision.
-4. **Create revised artifact** — apply all 3/3 and 2/3 findings, evaluate 1/3 findings
+4. **Create revised artifact** — apply all unanimous and majority findings, evaluate minority findings
 5. **Create resolution matrix** — map each R(N) finding to its resolution
 6. **Output new review prompt** — include resolution matrix for verification
 
@@ -199,9 +232,9 @@ Save to L2 at these moments:
 - After synthesis of reviews (revised version)
 - After final convergence (implementation-ready)
 
-## Agent Team Review (Claude Code internal)
+## Agent Team Review (internal to primary LLM)
 
-When the user asks Claude Code to "review with agent team":
+When the user asks the primary LLM to review internally (using agent team):
 
 1. Launch 2-3 parallel agents with different perspectives
 2. Each agent reviews independently
@@ -211,6 +244,8 @@ When the user asks Claude Code to "review with agent team":
 Typical perspectives:
 - Security / Correctness / Philosophy+Test (for implementation)
 - Design Consistency / Security+Feasibility (for fix plans)
+
+Note: Internal agent team review is a supplement, not a substitute for independent multi-LLM review. Different LLM providers catch different categories of bugs.
 
 ## Observed Statistics (Service Grant experiment)
 
@@ -232,4 +267,4 @@ Typical perspectives:
 - **Don't merge design + implementation review** — They find different bug classes
 - **Don't implement Phase N+1 before Phase N review converges** — Prerequisites may change
 - **Don't re-review from scratch** — Each round should be a convergence review checking only the delta
-- **Don't use agent team for all reviews** — 3 independent LLMs catch more than 1 LLM × 3 agents
+- **Don't use only internal agent team** — Independent LLMs from different providers catch more than agents within one LLM
