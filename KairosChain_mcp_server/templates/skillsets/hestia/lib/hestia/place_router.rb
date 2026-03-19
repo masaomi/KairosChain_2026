@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'digest'
 require 'json'
 require 'uri'
 
@@ -19,6 +20,37 @@ module Hestia
       'Content-Type' => 'application/json',
       'Cache-Control' => 'no-cache'
     }.freeze
+
+    # Maps HTTP route segments to abstract action names for access control.
+    # Service Grant (or any middleware) uses these for gating.
+    ROUTE_ACTION_MAP = {
+      'deposit'       => 'deposit_skill',
+      'browse'        => 'browse',
+      'skill_content' => 'browse',
+      'needs'         => 'browse',
+      'agents'        => 'browse',
+      'keys'          => 'browse',
+      'acquire'       => 'acquire_skill',
+      'unregister'    => 'unregister',
+    }.freeze
+
+    # Place middleware registry (class-level, thread-safe)
+    @place_middlewares = []
+    @middleware_mutex = Mutex.new
+
+    class << self
+      def register_middleware(middleware)
+        @middleware_mutex.synchronize { @place_middlewares << middleware }
+      end
+
+      def unregister_middleware(middleware)
+        @middleware_mutex.synchronize { @place_middlewares.delete(middleware) }
+      end
+
+      def place_middlewares
+        @middleware_mutex.synchronize { @place_middlewares.dup }
+      end
+    end
 
     attr_reader :registry, :skill_board, :heartbeat_manager, :session_store, :started_at
 
@@ -107,7 +139,23 @@ module Hestia
 
       # All other endpoints require Bearer token
       auth_result = authenticate!(env)
-      return auth_result unless auth_result.nil?
+      # authenticate! returns { peer_id:, auth_token: } on success,
+      # or a Rack response [status, headers, body] on failure.
+      if auth_result.is_a?(Array)
+        return auth_result
+      end
+      peer_id = auth_result[:peer_id]
+      auth_token = auth_result[:auth_token]
+
+      # Resolve action from route for middleware
+      route_segment = extract_route_segment(path)
+      action = resolve_action(route_segment)
+
+      # Run place middlewares (Service Grant, etc.)
+      denial = run_place_middlewares(peer_id, action, service_name, auth_token: auth_token)
+      if denial
+        return [denial[:status] || 403, JSON_HEADERS, [denial.to_json]]
+      end
 
       case [request_method, path]
       when ['POST', '/place/v1/unregister']
@@ -227,7 +275,8 @@ module Hestia
       # Issue session token if signature was verified
       session_token = nil
       if verified
-        session_token = @session_store.create_session(agent_id, public_key)
+        pubkey_hash = public_key ? Digest::SHA256.hexdigest(public_key) : nil
+        session_token = @session_store.create_session(agent_id, public_key, pubkey_hash: pubkey_hash)
       end
 
       response = result.merge(identity_verified: verified)
@@ -455,6 +504,11 @@ module Hestia
 
     # --- Auth ---
 
+    # Authenticate the request and return identity on success.
+    # Returns a Rack response array on failure.
+    #
+    # @param env [Hash] Rack environment
+    # @return [Hash, Array] { peer_id:, auth_token: } on success, Rack response on failure
     def authenticate!(env)
       token = extract_bearer_token(env)
       unless token
@@ -479,7 +533,7 @@ module Hestia
       # Update heartbeat on any authenticated request
       @heartbeat_manager.touch(peer_id)
 
-      nil # Auth passed
+      { peer_id: peer_id, auth_token: token }
     end
 
     def extract_bearer_token(env)
@@ -518,6 +572,37 @@ module Hestia
 
     def json_response(status, body)
       [status, JSON_HEADERS, [body.to_json]]
+    end
+
+    # Extract route segment from path for action mapping.
+    # For parameterized routes (/keys/:id, /skill_content/:id), falls back to
+    # the first segment when the last segment is not a known action.
+    def extract_route_segment(path)
+      segments = path.sub('/place/v1/', '').split('/')
+      candidate = segments.last || ''
+      ROUTE_ACTION_MAP.key?(candidate) ? candidate : (segments.first || '')
+    end
+
+    # Map route segment to abstract action name for access control.
+    def resolve_action(route_segment)
+      ROUTE_ACTION_MAP[route_segment] || route_segment
+    end
+
+    # Run registered place middlewares. Returns nil if all pass,
+    # or a denial Hash if any middleware denies.
+    def run_place_middlewares(peer_id, action, service, auth_token: nil)
+      self.class.place_middlewares.each do |mw|
+        # Inject session_store if middleware accepts it (e.g., ServiceGrant::PlaceMiddleware)
+        mw.session_store = @session_store if mw.respond_to?(:session_store=)
+        result = mw.check(peer_id: peer_id, action: action, service: service, auth_token: auth_token)
+        return result if result
+      end
+      nil
+    end
+
+    # Service name for this Meeting Place instance
+    def service_name
+      @config.dig('meeting_place', 'service_name') || 'meeting_place'
     end
   end
 end

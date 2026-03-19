@@ -83,6 +83,14 @@ module KairosMcp
       policy ? policy.call(@current_user) : true
     end
 
+    def can_manage_grants?
+      return true unless @current_user
+      policy = self.class.policy_for(:can_manage_grants)
+      # Default: deny (unlike can_manage_tokens? which defaults to allow).
+      # Service Grant admin ops should be blocked if the policy SkillSet is not loaded.
+      policy ? policy.call(@current_user) : false
+    end
+
     # Set workspace root from MCP client (roots) or environment
     def set_workspace(roots = nil)
       if roots && roots.is_a?(Array) && !roots.empty?

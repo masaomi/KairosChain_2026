@@ -19,7 +19,7 @@ module MMP
     DEFAULT_RATE_LIMIT_PER_MINUTE = 100
 
     Session = Struct.new(
-      :peer_id, :public_key, :token, :created_at,
+      :peer_id, :public_key, :pubkey_hash, :token, :created_at,
       :last_activity, :request_count, :request_window_start,
       keyword_init: true
     )
@@ -36,13 +36,18 @@ module MMP
 
     # Create a new session for a verified peer.
     # Returns the session token string.
-    def create_session(peer_id, public_key)
+    #
+    # @param peer_id [String] Peer identifier
+    # @param public_key [String] PEM-encoded public key
+    # @param pubkey_hash [String, nil] SHA256 hex of public key (for Service Grant)
+    def create_session(peer_id, public_key, pubkey_hash: nil)
       token = SecureRandom.hex(32)
       now = Time.now
       @mutex.synchronize do
         @sessions[token] = Session.new(
           peer_id: peer_id,
           public_key: public_key,
+          pubkey_hash: pubkey_hash,
           token: token,
           created_at: now,
           last_activity: now,
@@ -122,6 +127,29 @@ module MMP
       @mutex.synchronize do
         cleanup_expired
         @sessions.size
+      end
+    end
+
+    # Reverse lookup: find pubkey_hash for a given peer_id.
+    # Falls back to linear scan — use pubkey_hash_for_token when possible.
+    #
+    # @param peer_id [String] Peer identifier
+    # @return [String, nil] pubkey_hash if found
+    def pubkey_hash_for(peer_id)
+      @mutex.synchronize do
+        session = @sessions.values.find { |s| s.peer_id == peer_id }
+        session&.pubkey_hash
+      end
+    end
+
+    # Exact session lookup by token. O(1) — no ambiguity with multiple sessions.
+    #
+    # @param token [String] Bearer token
+    # @return [String, nil] pubkey_hash if session exists
+    def pubkey_hash_for_token(token)
+      @mutex.synchronize do
+        session = @sessions[token]
+        session&.pubkey_hash
       end
     end
 

@@ -1,0 +1,106 @@
+# Service Grant SkillSet configuration
+# See: log/service_grant_plan_v1.4_claude_opus4.6_20260318.md
+
+# Default service name (used by RequestEnricher)
+default_service: meeting_place
+
+# PostgreSQL connection
+postgresql:
+  host: localhost
+  port: 5432
+  dbname: kairoschain
+  user: kairoschain
+  password:
+  pool_size: 5
+
+# PG unavailable policy: deny_all | allow_readonly | allow_all (DEV ONLY)
+pg_unavailable_policy: deny_all
+
+# Service definitions
+services:
+  root_attestation:
+    billing_model: per_action
+    currency: USD
+    cycle: monthly
+    write_actions: [third_party_verify, re_execution_verify]
+    action_map:
+      attestation_issue: "third_party_verify"
+      attestation_verify: "re_execution_verify"
+    plans:
+      free:
+        limits:
+          self_attestation: -1
+          third_party_verify: 3
+          re_execution_verify: 0
+      researcher:
+        limits:
+          self_attestation: -1
+          third_party_verify: 50
+          re_execution_verify: 5
+        price_per_action:
+          third_party_verify: "0.50"
+          re_execution_verify: "25.00"
+
+  genomicschain:
+    billing_model: metered
+    currency: USD
+    cycle: monthly
+    write_actions: [run_pipeline, mint_nft]
+    action_map:
+      gc_run_pipeline: "run_pipeline"
+      gc_mint_nft: "mint_nft"
+      gc_download: "download_results"
+    plans:
+      free:
+        limits:
+          run_pipeline: 3
+          mint_nft: 1
+          download_results: 10
+        metered_limits:
+          compute_hours: 10
+          storage_gb: 5
+        trust_requirements:
+          run_pipeline: 0.1
+          mint_nft: 0.2
+      pro:
+        limits:
+          run_pipeline: -1
+          mint_nft: 20
+          download_results: -1
+        metered_limits:
+          compute_hours: 1000
+          storage_gb: 500
+        metered_rates:
+          compute_hours:
+            overage: "0.10"
+          storage_gb:
+            overage: "0.05"
+        trust_requirements:
+          run_pipeline: 0.0
+
+  meeting_place:
+    billing_model: subscription
+    currency: USD
+    cycle: monthly
+    write_actions: [deposit_skill, acquire_skill]
+    action_map:
+      meeting_deposit: "deposit_skill"
+      meeting_acquire_skill: "acquire_skill"
+      meeting_get_skill_details: "browse"
+    plans:
+      free:
+        limits:
+          deposit_skill: 5
+          acquire_skill: 20
+          browse: 100
+        trust_requirements:
+          deposit_skill: 0.0
+          acquire_skill: 0.0
+      pro:
+        limits:
+          deposit_skill: -1
+          acquire_skill: -1
+          browse: -1
+        subscription_price: "9.99"
+        trust_requirements:
+          deposit_skill: 0.0

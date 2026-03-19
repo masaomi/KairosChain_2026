@@ -81,8 +81,9 @@ module KairosMcp
       # @param role [String] Role: "owner", "member", or "guest"
       # @param issued_by [String] Who issued this token
       # @param expires_in [String, nil] Expiry duration: "90d", "24h", "never", or nil (default)
+      # @param pubkey_hash [String, nil] SHA256 hex of agent's public key (for Service Grant)
       # @return [Hash] { raw_token:, token_hash:, user:, role:, ... }
-      def create(user:, role: 'member', issued_by: 'system', expires_in: nil)
+      def create(user:, role: 'member', issued_by: 'system', expires_in: nil, pubkey_hash: nil)
         validate_role!(role)
         validate_user!(user)
 
@@ -101,6 +102,7 @@ module KairosMcp
           'issued_by' => issued_by,
           'status' => 'active'
         }
+        entry['pubkey_hash'] = pubkey_hash if pubkey_hash
 
         @tokens << entry
         save_tokens
@@ -120,12 +122,14 @@ module KairosMcp
         return nil if entry['status'] != 'active'
         return nil if expired?(entry)
 
-        {
+        result = {
           user: entry['user'],
           role: entry['role'],
           issued_at: entry['issued_at'],
           expires_at: entry['expires_at']
         }
+        result[:pubkey_hash] = entry['pubkey_hash'] if entry['pubkey_hash']
+        result
       end
 
       # Revoke a user's token(s)
