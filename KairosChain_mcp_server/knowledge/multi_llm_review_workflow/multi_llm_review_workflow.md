@@ -226,19 +226,29 @@ A round **converges** when:
 - 0 FAIL / 0 REJECT findings
 - NOTEs are documented but non-blocking
 
-If any reviewer says REJECT or finds a FAIL → revise and re-review.
+If any reviewer says REJECT or finds a FAIL → evaluate each finding individually (see below).
 
-**Majority rule**: If (N-1)/N APPROVE and 1/N has non-blocking concerns, proceed with the concerns documented.
+### Majority Rule — Reference Only, Not Final Decision
+
+Majority vote (e.g., 2/3 APPROVE) is a **signal**, not a decision mechanism. A single reviewer's FAIL may identify a critical vulnerability that others missed.
+
+**Decision process for minority FAIL**:
+1. Read the specific finding — is it a security vulnerability, data loss risk, or correctness bug?
+2. If YES → fix it regardless of majority. A single reviewer catching a real bug is the whole point of multi-LLM review.
+3. If NO (style, optimization, scope disagreement) → document and proceed with majority.
+4. If UNCLEAR → err on the side of fixing. The cost of an unnecessary fix is low; the cost of shipping a real bug is high.
+
+**Never use majority rule to dismiss a finding without evaluating its substance.**
 
 ## Synthesis Pattern
 
 When the primary LLM synthesizes N reviews:
 
 1. **Build concordance matrix** — which findings appear in 2+ reviews?
-2. **Classify each finding** — N/N agree (must fix), majority agree (should fix), 1/N only (evaluate)
-3. **Check for conflicts** — do reviewers disagree? Document the majority decision.
-4. **Create revised artifact** — apply all unanimous and majority findings, evaluate minority findings
-5. **Create resolution matrix** — map each R(N) finding to its resolution
+2. **Classify each finding** — N/N agree (must fix), majority agree (should fix), 1/N only (evaluate individually)
+3. **Evaluate minority findings on substance** — is it a real bug? Security issue? Or scope/style disagreement?
+4. **Create revised artifact** — apply all genuine bugs regardless of concordance count
+5. **Create resolution matrix** — map each R(N) finding to its resolution with justification
 6. **Output new review prompt** — include resolution matrix for verification
 
 ## L2 Save Points

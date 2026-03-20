@@ -119,7 +119,14 @@ module ServiceGrant
     private
 
     def build_trust_scorer(config)
+      trust_required = @plan_registry.trust_requirements_configured?
+
       unless defined?(Synoptis::TrustScorer) && defined?(Synoptis::Registry)
+        if trust_required
+          raise ConfigValidationError,
+            "trust_requirements are configured but Synoptis SkillSet is not available. " \
+            "Either add synoptis to depends_on or remove trust_requirements from config."
+        end
         warn "[ServiceGrant] Synoptis TrustScorer not available. Trust-based access control disabled."
         return nil
       end
@@ -135,6 +142,10 @@ module ServiceGrant
 
         TrustScorerAdapter.new(scorer: scorer, cache_ttl: cache_ttl)
       rescue StandardError => e
+        if trust_required
+          raise ConfigValidationError,
+            "trust_requirements are configured but TrustScorer failed to initialize: #{e.message}"
+        end
         warn "[ServiceGrant] TrustScorer initialization failed (non-fatal): #{e.message}"
         nil
       end

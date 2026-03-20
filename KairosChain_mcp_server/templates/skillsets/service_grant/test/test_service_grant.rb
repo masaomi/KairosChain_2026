@@ -164,6 +164,29 @@ class TestPlanRegistry < Minitest::Test
     assert_nil @pr.trust_requirement('test_service', 'free', 'read')
   end
 
+  def test_trust_requirements_configured
+    assert @pr.trust_requirements_configured?
+  end
+
+  def test_trust_requirements_not_configured_when_all_zero
+    require 'yaml'
+    require 'tempfile'
+    config = {
+      'services' => {
+        'svc' => {
+          'billing_model' => 'free',
+          'plans' => { 'free' => { 'limits' => { 'read' => -1 } } }
+        }
+      }
+    }
+    f = Tempfile.new(['test_no_trust', '.yml'])
+    f.write(YAML.dump(config))
+    f.close
+    pr = ServiceGrant::PlanRegistry.new(f.path)
+    refute pr.trust_requirements_configured?
+    File.delete(f.path)
+  end
+
   private
 
   def create_test_config

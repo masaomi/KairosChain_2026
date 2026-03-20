@@ -52,6 +52,15 @@ module ServiceGrant
       @services.dig(service, 'plans', plan, 'trust_requirements', action)
     end
 
+    # Are any non-zero trust_requirements configured across all services/plans?
+    def trust_requirements_configured?
+      @services.any? do |_name, svc|
+        (svc['plans'] || {}).any? do |_plan, cfg|
+          (cfg['trust_requirements'] || {}).any? { |_action, threshold| threshold.to_f > 0.0 }
+        end
+      end
+    end
+
     def write_action?(service, action)
       write_actions = @services.dig(service, 'write_actions') || []
       write_actions.include?(action)
