@@ -28,6 +28,7 @@ module MMP
 
     def initialize(ttl_minutes: DEFAULT_TTL_MINUTES, rate_limit: DEFAULT_RATE_LIMIT_PER_MINUTE)
       @sessions = {}
+      @peer_id_index = {}  # peer_id => token (most recent session)
       @ttl = ttl_minutes * 60
       @ttl_minutes = ttl_minutes
       @rate_limit = rate_limit
@@ -54,6 +55,8 @@ module MMP
           request_count: 0,
           request_window_start: now
         )
+        # Update peer_id reverse index (most recent session wins)
+        @peer_id_index[peer_id] = token
       end
       token
     end
@@ -131,14 +134,15 @@ module MMP
     end
 
     # Reverse lookup: find pubkey_hash for a given peer_id.
-    # Falls back to linear scan — use pubkey_hash_for_token when possible.
+    # Uses O(1) index instead of linear scan.
     #
     # @param peer_id [String] Peer identifier
     # @return [String, nil] pubkey_hash if found
     def pubkey_hash_for(peer_id)
       @mutex.synchronize do
-        session = @sessions.values.find { |s| s.peer_id == peer_id }
-        session&.pubkey_hash
+        token = @peer_id_index[peer_id]
+        return @sessions[token]&.pubkey_hash if token && @sessions[token]
+        nil
       end
     end
 
@@ -158,7 +162,11 @@ module MMP
     # Remove expired sessions (called within mutex).
     def cleanup_expired
       now = Time.now
-      @sessions.delete_if { |_token, session| now - session.created_at > @ttl }
+      @sessions.delete_if do |_token, session|
+        expired = now - session.created_at > @ttl
+        @peer_id_index.delete(session.peer_id) if expired && @peer_id_index[session.peer_id] == _token
+        expired
+      end
     end
   end
 end

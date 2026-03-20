@@ -10,16 +10,37 @@ module ServiceGrant
       @pool = []
       @pool_size = config[:pool_size] || config['pool_size'] || 5
       @mutex = Mutex.new
+      @cond = ConditionVariable.new
+      @checked_out = 0
       @timeout = config[:connect_timeout] || config['connect_timeout'] || 5
     end
 
+    # Bounded checkout: blocks when all connections are in use.
+    # Prevents unbounded connection creation under concurrent load.
     def checkout
       @mutex.synchronize do
-        conn = @pool.pop
-        if conn && conn.status == PG::CONNECTION_OK
-          return conn
+        loop do
+          # Try to reuse a pooled connection
+          conn = @pool.pop
+          if conn
+            if conn.status == PG::CONNECTION_OK
+              @checked_out += 1
+              return conn
+            end
+            conn.close rescue nil
+            next
+          end
+
+          # Create new if under pool_size
+          if @checked_out < @pool_size
+            @checked_out += 1
+            break  # create outside mutex
+          end
+
+          # Wait for a connection to be returned
+          @cond.wait(@mutex, @timeout)
+          raise PoolExhaustedError, "Connection pool exhausted (size: #{@pool_size})" if @checked_out >= @pool_size && @pool.empty?
         end
-        conn&.close rescue nil
       end
       create_connection
     end
@@ -27,17 +48,17 @@ module ServiceGrant
     def checkin(conn)
       return unless conn
       @mutex.synchronize do
+        @checked_out -= 1
         if @pool.size < @pool_size && conn.status == PG::CONNECTION_OK
           @pool.push(conn)
         else
           conn.close rescue nil
         end
+        @cond.signal  # wake one waiting checkout
       end
     end
 
     # Circuit breaker wraps at this level only (not exec_params).
-    # This ensures all DB access paths are protected, including
-    # direct with_connection calls from service_grant_migrate.
     def with_connection(&block)
       if @circuit_breaker
         @circuit_breaker.call { with_connection_raw(&block) }
@@ -51,7 +72,6 @@ module ServiceGrant
     end
 
     # Skip circuit breaker for startup connection test.
-    # Boot should fail fast on real PG outage, not be mediated by CB policy.
     def test_connection!
       with_connection_raw { |conn| conn.exec("SELECT 1") }
     end
@@ -60,6 +80,7 @@ module ServiceGrant
       @mutex.synchronize do
         @pool.each { |c| c.close rescue nil }
         @pool.clear
+        @checked_out = 0
       end
     end
 

@@ -16,16 +16,19 @@ module ServiceGrant
       @mutex = Mutex.new
     end
 
+    # Two-phase mutex: lock-free in :closed success path for throughput.
+    # :open and :half_open use mutex for safe state transitions.
     def call(&block)
-      @mutex.synchronize do
-        case @state
-        when :closed
-          execute_closed(&block)
-        when :open
-          handle_open(&block)
-        when :half_open
-          execute_half_open(&block)
-        end
+      state = @mutex.synchronize { @state }
+
+      case state
+      when :closed
+        execute_closed(&block)
+      when :open
+        @mutex.synchronize { handle_open(&block) }
+      when :half_open
+        # Single-probe: only one thread attempts recovery
+        @mutex.synchronize { execute_half_open(&block) }
       end
     end
 
@@ -47,15 +50,22 @@ module ServiceGrant
       end
     end
 
+    # :closed — lock-free execution for throughput.
+    # Race between state read and execution is acceptable:
+    # if another thread transitions to :open between read and block.call,
+    # the block will fail with PG::Error, trigger record_failure, and
+    # the next call will see :open. This is one extra failure, not a safety issue.
     def execute_closed(&block)
       result = block.call
-      @failure_count = 0
+      @mutex.synchronize { @failure_count = 0 }
       result
     rescue PG::Error => e
-      @failure_count += 1
-      if @failure_count >= FAILURE_THRESHOLD
-        @state = :open
-        @last_failure_at = Time.now
+      @mutex.synchronize do
+        @failure_count += 1
+        if @failure_count >= FAILURE_THRESHOLD
+          @state = :open
+          @last_failure_at = Time.now
+        end
       end
       apply_policy(e)
     end
