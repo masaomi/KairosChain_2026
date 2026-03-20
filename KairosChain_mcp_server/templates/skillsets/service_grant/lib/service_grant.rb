@@ -28,6 +28,7 @@ module ServiceGrant
       require_relative 'service_grant/request_enricher'
       require_relative 'service_grant/payment_verifier'
       require_relative 'service_grant/client_ip_resolver'
+      require_relative 'service_grant/trust_scorer_adapter'
 
       config = load_config
 
@@ -49,10 +50,14 @@ module ServiceGrant
       @usage_tracker = UsageTracker.new(pg_pool: @pg_pool, plan_registry: @plan_registry,
                                          cycle_manager: @cycle_manager)
 
-      # 4. Unified access checker
+      # 4. Trust scorer (optional — requires Synoptis SkillSet)
+      @trust_scorer_adapter = build_trust_scorer(config)
+
+      # 5. Unified access checker
       @access_checker = AccessChecker.new(
         grant_manager: @grant_manager, usage_tracker: @usage_tracker,
-        plan_registry: @plan_registry, cycle_manager: @cycle_manager
+        plan_registry: @plan_registry, cycle_manager: @cycle_manager,
+        trust_scorer: @trust_scorer_adapter
       )
 
       # 5. Core Hook integrations
@@ -107,10 +112,33 @@ module ServiceGrant
       @gate = nil
       @enricher = nil
       @circuit_breaker = nil
+      @trust_scorer_adapter = nil
       @loaded = false
     end
 
     private
+
+    def build_trust_scorer(config)
+      unless defined?(Synoptis::TrustScorer) && defined?(Synoptis::Registry)
+        warn "[ServiceGrant] Synoptis TrustScorer not available. Trust-based access control disabled."
+        return nil
+      end
+
+      begin
+        ts_config = config['trust_scorer'] || {}
+        cache_ttl = ts_config.dig('anti_collusion', 'cache_ttl') || 300
+
+        # Access the Synoptis registry (file-backed)
+        registry_path = ts_config['registry_path'] || 'storage/synoptis_registry'
+        registry = Synoptis::Registry::FileRegistry.new(data_dir: registry_path)
+        scorer = Synoptis::TrustScorer.new(registry: registry, config: ts_config)
+
+        TrustScorerAdapter.new(scorer: scorer, cache_ttl: cache_ttl)
+      rescue StandardError => e
+        warn "[ServiceGrant] TrustScorer initialization failed (non-fatal): #{e.message}"
+        nil
+      end
+    end
 
     def load_config
       config_path = File.join(File.dirname(__FILE__), '..', 'config', 'service_grant.yml')

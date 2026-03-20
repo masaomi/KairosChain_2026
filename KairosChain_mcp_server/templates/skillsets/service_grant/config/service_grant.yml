@@ -106,8 +106,8 @@ services:
           acquire_skill: 20
           browse: 100
         trust_requirements:
-          deposit_skill: 0.0
-          acquire_skill: 0.0
+          deposit_skill: 0.1   # Phase 2B: non-self attestation required for write
+          acquire_skill: 0.0   # reading is free
       pro:
         limits:
           deposit_skill: -1

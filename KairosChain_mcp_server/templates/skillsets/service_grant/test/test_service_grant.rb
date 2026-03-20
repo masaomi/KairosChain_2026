@@ -911,6 +911,33 @@ class TestTrustScorerAntiCollusion < Minitest::Test
     assert_equal 0.0, result[:score]
   end
 
+  def test_closed_clique_bridge_zero
+    # 3-node closed clique: A←B←C←A. No external trust.
+    # Bridge score should be 0.0 (2-hop cluster covers entire clique).
+    registry = MockAttestationRegistry.new([
+      mock_proof('agent://aaa', 'agent://bbb'),  # B attests A
+      mock_proof('agent://bbb', 'agent://ccc'),  # C attests B
+      mock_proof('agent://ccc', 'agent://aaa'),  # A attests C
+    ])
+    scorer = Synoptis::TrustScorer.new(registry: registry, config: { anti_collusion: { enabled: true } })
+    result = scorer.calculate('agent://aaa')
+    assert_equal 0.0, result[:details][:bridge],
+      "Closed clique bridge should be 0.0, got #{result[:details][:bridge]}"
+  end
+
+  def test_attestation_weight_zero_without_external
+    # Agent with self-attestation only — attestation weight should be 0.0
+    # (PageRank teleportation mass should NOT give positive weight)
+    registry = MockAttestationRegistry.new([
+      mock_proof('agent://aaa', 'agent://aaa'),
+    ])
+    scorer = Synoptis::TrustScorer.new(registry: registry, config: { anti_collusion: { enabled: true } })
+    result = scorer.calculate('agent://aaa')
+    # quality_weighted should be 0.0 because self-attestation weight = 0.0
+    assert_equal 0.0, result[:details][:quality],
+      "Self-only quality should be exactly 0.0, got #{result[:details][:quality]}"
+  end
+
   private
 
   def mock_proof(subject, attester, proof_id: nil)
@@ -943,5 +970,72 @@ class TestTrustScorerAntiCollusion < Minitest::Test
     def revoked?(proof_id)
       @revoked.include?(proof_id)
     end
+  end
+end
+
+# === Phase 2B Tests ===
+
+class TestTrustScorerAdapter < Minitest::Test
+  def setup
+    require 'service_grant/trust_scorer_adapter'
+  end
+
+  def test_adapter_returns_trust_relevant_score
+    # Adapter returns quality + bridge, not full composite score
+    mock_scorer = MockDetailScorer.new(quality: 0.3, bridge: 0.2, score: 0.75)
+    adapter = ServiceGrant::TrustScorerAdapter.new(scorer: mock_scorer)
+    assert_equal 0.5, adapter.call('abc')  # 0.3 + 0.2 = 0.5
+  end
+
+  def test_adapter_caches
+    mock_scorer = MockDetailScorer.new(quality: 0.5, bridge: 0.0, score: 0.5)
+    adapter = ServiceGrant::TrustScorerAdapter.new(scorer: mock_scorer, cache_ttl: 60)
+    adapter.call('abc')
+    adapter.call('abc')
+    assert_equal 1, mock_scorer.call_count  # only called once
+  end
+
+  def test_adapter_clamps
+    mock_scorer = MockDetailScorer.new(quality: 0.8, bridge: 0.5, score: 1.5)
+    adapter = ServiceGrant::TrustScorerAdapter.new(scorer: mock_scorer)
+    assert_equal 1.0, adapter.call('abc')  # 0.8 + 0.5 = 1.3, clamped to 1.0
+  end
+
+  def test_adapter_returns_zero_on_error
+    mock_scorer = MockErrorScorer.new
+    adapter = ServiceGrant::TrustScorerAdapter.new(scorer: mock_scorer)
+    assert_equal 0.0, adapter.call('abc')
+  end
+
+  def test_invalidate
+    mock_scorer = MockDetailScorer.new(quality: 0.5, bridge: 0.0)
+    adapter = ServiceGrant::TrustScorerAdapter.new(scorer: mock_scorer, cache_ttl: 60)
+    adapter.call('abc')
+    adapter.invalidate('abc')
+    adapter.call('abc')
+    assert_equal 2, mock_scorer.call_count  # called twice after invalidation
+  end
+
+  def test_self_only_agent_returns_zero_trust
+    # Self-only agent: quality=0 (no external attestation weight), bridge=0
+    # Trust-relevant score should be 0.0, not 0.4 (which includes non-trust dimensions)
+    mock_scorer = MockDetailScorer.new(quality: 0.0, bridge: 0.0, score: 0.4)
+    adapter = ServiceGrant::TrustScorerAdapter.new(scorer: mock_scorer)
+    assert_equal 0.0, adapter.call('abc')  # quality(0) + bridge(0) = 0.0
+  end
+
+  class MockDetailScorer
+    attr_reader :call_count
+    def initialize(quality: 0.5, bridge: 0.0, score: 0.5)
+      @quality = quality; @bridge = bridge; @score = score; @call_count = 0
+    end
+    def calculate(_ref)
+      @call_count += 1
+      { score: @score, details: { quality: @quality, bridge: @bridge } }
+    end
+  end
+
+  class MockErrorScorer
+    def calculate(_ref) = raise("Synoptis unavailable")
   end
 end

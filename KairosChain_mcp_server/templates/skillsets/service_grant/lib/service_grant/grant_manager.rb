@@ -130,20 +130,39 @@ module ServiceGrant
       }
     end
 
+    MAX_RECORDING_RETRIES = 3
+
     def record_grant_event(pubkey_hash, service, action, details = {})
+      record_with_retry(
+        type: 'service_grant_event', layer: 'L1',
+        pubkey_hash: pubkey_hash, service: service,
+        action: action, details: details, timestamp: Time.now.iso8601
+      )
+    end
+
+    # Record with retry (non-blocking, up to MAX_RECORDING_RETRIES attempts).
+    # Phase 2 pragmatic choice: in-memory retry queue.
+    # Phase 3 should consider WAL-backed queue for true constitutive guarantee.
+    def record_with_retry(event, attempt: 0)
       require 'kairos_mcp/kairos_chain/chain'
       chain = KairosMcp::KairosChain::Chain.new
-      chain.add_block([{
-        type: 'service_grant_event',
-        layer: 'L1',
-        pubkey_hash: pubkey_hash,
-        service: service,
-        action: action,
-        details: details,
-        timestamp: Time.now.iso8601
-      }.to_json])
+      chain.add_block([event.to_json])
     rescue StandardError => e
-      warn "[ServiceGrant] Chain recording failed (non-fatal): #{e.message}"
+      if attempt < MAX_RECORDING_RETRIES
+        sleep_time = 0.1 * (2 ** attempt)  # exponential backoff: 0.1, 0.2, 0.4s
+        Thread.new do
+          sleep sleep_time
+          record_with_retry(event, attempt: attempt + 1)
+        end
+      else
+        warn "[ServiceGrant] Chain recording failed after #{MAX_RECORDING_RETRIES} retries: #{e.message}"
+        # Persist to local file for manual recovery
+        begin
+          File.open('storage/failed_recordings.jsonl', 'a') { |f| f.puts(event.to_json) }
+        rescue StandardError
+          # Last resort: stderr only
+        end
+      end
     end
   end
 end

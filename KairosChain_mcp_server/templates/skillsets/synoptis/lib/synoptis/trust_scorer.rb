@@ -170,13 +170,16 @@ module Synoptis
     end
 
     # Attestation weight based on attester's network score + bootstrap policy.
+    # Agents without external attestation get ZERO weight — their attestations
+    # have no effect on others' scores, regardless of PageRank teleportation mass.
     def attestation_weight(attester_ref, network_scores)
       return BOOTSTRAP_POLICY[:floor_with_external] unless network_scores
+      has_ext = has_external_attestation?(attester_ref, graph: @active_graph_cache)
+      return 0.0 unless has_ext  # No external attestation = zero influence, period.
+
       score = network_scores[TrustIdentity.normalize(attester_ref)] ||
               network_scores[attester_ref] || 0.0
-      has_ext = has_external_attestation?(attester_ref, graph: @active_graph_cache)
-      floor = has_ext ? BOOTSTRAP_POLICY[:floor_with_external] : BOOTSTRAP_POLICY[:floor_without_external]
-      [score, floor].max
+      [score, BOOTSTRAP_POLICY[:floor_with_external]].max
     end
 
     # Does this attester have attestations from agents outside their own attester set?
@@ -197,24 +200,57 @@ module Synoptis
     end
 
     # Bridge score: measures cross-cluster trust.
-    # An attester is "external" if their own trust sources include agents
-    # outside the subject's attester set.
+    # An attester is "external" if they have trust from agents outside
+    # the subject's strongly connected component (SCC).
     #
-    # Note: bridge score propagates transitively through one hop.
-    # A cartel with one legitimate connection will have non-zero bridge scores.
-    # This is an inherent property of graph-based trust (see threat model).
+    # In a closed clique (A←B←C←A), all nodes are in the same SCC → bridge = 0.
+    # In A←B, A←X, X←Y: B and X are NOT in A's SCC (no path back from B/X to A
+    # unless reciprocated). Y is external to the entire graph.
     def bridge_score(subject_ref, proofs, graph: nil)
       subject_attesters = Set.new(proofs.map { |p| TrustIdentity.normalize(p.attester_id) })
       return 0.0 if subject_attesters.empty?
 
       graph ||= build_active_graph
+      norm_subject = TrustIdentity.normalize(subject_ref)
 
+      # Find subject's SCC: all nodes mutually reachable via attestation edges
+      scc = find_scc(norm_subject, graph)
+
+      # An attester is "external" if they have trust from OUTSIDE the SCC
       external_count = subject_attesters.count do |attester|
         attester_sources = graph[:subject_to_attesters][attester] || Set.new
-        (attester_sources - subject_attesters).any?
+        (attester_sources - scc).any?
       end
 
       external_count.to_f / subject_attesters.size
+    end
+
+    # Find the strongly connected component containing start_node.
+    # A node X is in the SCC if: start_node can reach X AND X can reach start_node.
+    # Uses two BFS passes: forward (follow attestation edges) and reverse.
+    def find_scc(start_node, graph)
+      forward = bfs_reachable(start_node, graph[:attester_to_subjects])
+      reverse = bfs_reachable(start_node, graph[:subject_to_attesters])
+      forward & reverse  # intersection = SCC
+    end
+
+    # BFS from start_node following edges in the given adjacency map.
+    def bfs_reachable(start_node, adjacency)
+      visited = Set.new([start_node])
+      queue = [start_node]
+      while queue.any?
+        next_queue = []
+        queue.each do |node|
+          (adjacency[node] || Set.new).each do |neighbor|
+            unless visited.include?(neighbor)
+              visited << neighbor
+              next_queue << neighbor
+            end
+          end
+        end
+        queue = next_queue
+      end
+      visited
     end
 
     # Build a graph of active (non-revoked, non-expired) proofs.
@@ -224,6 +260,7 @@ module Synoptis
       active = all_proofs.reject { |p| @registry.revoked?(p.proof_id) || p.expired? }
 
       subject_to_attesters = {}
+      attester_to_subjects = {}
       attester_to_outgoing = Hash.new(0)
 
       active.each do |p|
@@ -232,6 +269,10 @@ module Synoptis
 
         subject_to_attesters[norm_subject] ||= Set.new
         subject_to_attesters[norm_subject] << norm_attester
+
+        attester_to_subjects[norm_attester] ||= Set.new
+        attester_to_subjects[norm_attester] << norm_subject
+
         attester_to_outgoing[norm_attester] += 1
       end
 
@@ -239,6 +280,7 @@ module Synoptis
       subject_to_attesters.each_value { |attesters| all_nodes.merge(attesters) }
 
       { subject_to_attesters: subject_to_attesters,
+        attester_to_subjects: attester_to_subjects,
         attester_to_outgoing: attester_to_outgoing,
         all_nodes: all_nodes }
     end
