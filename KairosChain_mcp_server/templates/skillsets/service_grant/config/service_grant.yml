@@ -16,6 +16,18 @@ postgresql:
 # PG unavailable policy: deny_all | allow_readonly | allow_all (DEV ONLY)
 pg_unavailable_policy: deny_all
 
+# IP resolution (Phase 2A)
+ip_resolution:
+  header: X-Real-IP  # or REMOTE_ADDR for direct connections
+
+# Trust scorer anti-collusion (Phase 2A-back)
+trust_scorer:
+  anti_collusion:
+    enabled: true
+    pagerank_iterations: 20
+    pagerank_damping: 0.85
+    cache_ttl: 300  # seconds
+
 # Service definitions
 services:
   root_attestation:

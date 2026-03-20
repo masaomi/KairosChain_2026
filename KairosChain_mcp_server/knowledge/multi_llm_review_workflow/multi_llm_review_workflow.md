@@ -169,7 +169,23 @@ Use short identifiers for each LLM tool. Examples: `claude_opus4.6`, `codex_gpt5
 
 ## Review Prompt Template
 
-Every review prompt MUST include:
+Every review prompt MUST begin with an **Orchestrator Instructions** section in English:
+
+```markdown
+## Orchestrator Instructions
+
+Review this with an agent team from multiple perspectives, discuss findings
+in a Persona Assembly, and produce a consolidated review.
+
+Output the review result to:
+\`\`\`
+log/{feature}_{review_type}_{agent_tool_name}_{LLM+version}_{date}.md
+\`\`\`
+```
+
+All prompt content (including Orchestrator Instructions) MUST be in **English**. This ensures consistent parsing across different LLM tools regardless of their language capabilities.
+
+After the Orchestrator Instructions, every review prompt MUST include:
 
 1. **Instructions** — What to review, what NOT to re-review
 2. **Review history** — Table of all previous rounds and what was found
@@ -234,16 +250,32 @@ Save to L2 at these moments:
 
 ## Agent Team Review (internal to primary LLM)
 
-When the user asks the primary LLM to review internally (using agent team):
+When the primary LLM reviews internally using an agent team:
 
 1. Launch 2-3 parallel agents with different perspectives
 2. Each agent reviews independently
-3. Persona Assembly synthesizes findings
+3. **Persona Assembly** synthesizes: deduplicate, resolve severity conflicts, compress
 4. Output single consolidated review file
 
-Typical perspectives:
-- Security / Correctness / Philosophy+Test (for implementation)
-- Design Consistency / Security+Feasibility (for fix plans)
+### Why Persona Assembly matters
+
+Parallel agents tend to produce exhaustive, overlapping findings. Without Assembly, the raw output is ~2x the volume of actionable findings. Assembly serves as an **editor**, not just a merger:
+
+- **Deduplication**: Multiple agents find the same issue with different wording
+- **Severity resolution**: Security says CONCERN, Design says FAIL for the same issue — Assembly decides
+- **Signal compression**: ~50% of raw findings are consolidated without losing information
+- **Compound risk identification**: Combinations of findings (e.g., "this bug is untested AND security-critical") that individual agents don't cross-reference
+
+Observed compression ratio: parallel agent raw output → Assembly output ≈ 2:1
+
+### When to use Assembly
+
+- **Always use** when running 2+ agents in parallel (the raw output is too noisy without it)
+- **Skip** only for single-agent review of trivial changes
+
+### Typical perspectives
+- Security / Correctness / Philosophy+Test (for implementation review)
+- Design Consistency / Security+Feasibility (for fix plan review)
 
 Note: Internal agent team review is a supplement, not a substitute for independent multi-LLM review. Different LLM providers catch different categories of bugs.
 

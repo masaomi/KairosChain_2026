@@ -3,7 +3,7 @@
 module ServiceGrant
   class << self
     attr_reader :pg_pool, :plan_registry, :cycle_manager, :grant_manager,
-                :usage_tracker, :access_checker, :load_error
+                :usage_tracker, :access_checker, :ip_resolver, :load_error
 
     def load!
       return if @loaded
@@ -27,6 +27,7 @@ module ServiceGrant
       require_relative 'service_grant/place_middleware'
       require_relative 'service_grant/request_enricher'
       require_relative 'service_grant/payment_verifier'
+      require_relative 'service_grant/client_ip_resolver'
 
       config = load_config
 
@@ -42,7 +43,8 @@ module ServiceGrant
       @pg_pool = PgConnectionPool.new(pg_config, circuit_breaker: @circuit_breaker)
       @pg_pool.test_connection!
 
-      # 3. Domain objects
+      # 3. IP resolution + domain objects
+      @ip_resolver = ClientIpResolver.new(config['ip_resolution'] || {})
       @grant_manager = GrantManager.new(pg_pool: @pg_pool, plan_registry: @plan_registry)
       @usage_tracker = UsageTracker.new(pg_pool: @pg_pool, plan_registry: @plan_registry,
                                          cycle_manager: @cycle_manager)

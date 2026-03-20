@@ -213,6 +213,16 @@ module KairosMcp
       # so that @initialized=true and tools are available.
       # See L1 knowledge: kairoschain_operations "Streamable HTTP Transport: Stateless Design"
       user_context = auth_result.user_context
+
+      # Inject remote_ip for Service Grant IP rate limiting (D-5).
+      # Uses shared ClientIpResolver when available (Path A/B consistency).
+      if user_context
+        user_context[:remote_ip] = if defined?(ServiceGrant) && ServiceGrant.respond_to?(:ip_resolver) && ServiceGrant.ip_resolver
+                                     ServiceGrant.ip_resolver.resolve(env)
+                                   else
+                                     env['HTTP_X_REAL_IP'] || env['REMOTE_ADDR']
+                                   end
+      end
       protocol = Protocol.new(user_context: user_context)
 
       if method == 'initialize'

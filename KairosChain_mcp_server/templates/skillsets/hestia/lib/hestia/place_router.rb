@@ -152,7 +152,14 @@ module Hestia
       action = resolve_action(route_segment)
 
       # Run place middlewares (Service Grant, etc.)
-      denial = run_place_middlewares(peer_id, action, service_name, auth_token: auth_token)
+      # Resolve remote_ip via ServiceGrant's ClientIpResolver if available
+      remote_ip = if defined?(ServiceGrant) && ServiceGrant.respond_to?(:ip_resolver) && ServiceGrant.ip_resolver
+                    ServiceGrant.ip_resolver.resolve(env)
+                  else
+                    env['REMOTE_ADDR']
+                  end
+      denial = run_place_middlewares(peer_id, action, service_name,
+                 auth_token: auth_token, remote_ip: remote_ip)
       if denial
         return [denial[:status] || 403, JSON_HEADERS, [denial.to_json]]
       end
@@ -590,11 +597,12 @@ module Hestia
 
     # Run registered place middlewares. Returns nil if all pass,
     # or a denial Hash if any middleware denies.
-    def run_place_middlewares(peer_id, action, service, auth_token: nil)
+    def run_place_middlewares(peer_id, action, service, auth_token: nil, remote_ip: nil)
       self.class.place_middlewares.each do |mw|
         # Inject session_store if middleware accepts it (e.g., ServiceGrant::PlaceMiddleware)
         mw.session_store = @session_store if mw.respond_to?(:session_store=)
-        result = mw.check(peer_id: peer_id, action: action, service: service, auth_token: auth_token)
+        result = mw.check(peer_id: peer_id, action: action, service: service,
+                          auth_token: auth_token, remote_ip: remote_ip)
         return result if result
       end
       nil

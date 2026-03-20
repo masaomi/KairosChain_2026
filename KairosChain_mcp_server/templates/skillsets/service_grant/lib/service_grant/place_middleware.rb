@@ -11,7 +11,7 @@ module ServiceGrant
 
     # Called by PlaceRouter before each handler.
     # @return [Hash, nil] nil = allowed, Hash = denial response
-    def check(peer_id:, action:, service:, auth_token: nil)
+    def check(peer_id:, action:, service:, auth_token: nil, remote_ip: nil)
       store = resolve_session_store
       unless store
         return { status: 503, error: "unavailable",
@@ -30,7 +30,8 @@ module ServiceGrant
                  message: "Cannot resolve identity for this peer" }
       end
 
-      @checker.check_access(pubkey_hash: pubkey_hash, action: action, service: service)
+      @checker.check_access(pubkey_hash: pubkey_hash, action: action,
+                            service: service, remote_ip: remote_ip)
       nil
     rescue AccessDeniedError => e
       {

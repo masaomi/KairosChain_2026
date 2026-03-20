@@ -8,36 +8,42 @@ module ServiceGrant
     def initialize(pg_pool:, plan_registry:)
       @pg = pg_pool
       @plans = plan_registry
-      @ip_tracker = IpRateTracker.new(max: MAX_GRANTS_PER_IP_PER_HOUR, window: 3600)
+      @ip_tracker = IpRateTracker.new(
+        max: MAX_GRANTS_PER_IP_PER_HOUR, window: 3600, pg_pool: pg_pool
+      )
     end
 
     attr_reader :plan_registry
 
     def ensure_grant(pubkey_hash, service:, remote_ip: nil)
-      # Atomic rate check + record BEFORE DB insert (FIX-10).
-      # NOTE: Phase 2 must revise to count only newly_created grants.
-      # Current pre-insert form will over-count when D-5 wires remote_ip,
-      # because ensure_grant is called on every request (including refreshes).
-      if remote_ip && !@ip_tracker.record_if_allowed(remote_ip)
-        raise RateLimitError, "Too many new grants from this address"
+      @pg.with_connection do |conn|
+        conn.exec("BEGIN")
+
+        result = conn.exec_params(<<~SQL, [pubkey_hash, service])
+          INSERT INTO service_grants (pubkey_hash, service)
+          VALUES ($1, $2)
+          ON CONFLICT (pubkey_hash, service)
+          DO UPDATE SET last_active_at = NOW()
+          RETURNING *, (xmax = 0) AS newly_created
+        SQL
+
+        grant = parse_grant_row(result[0])
+
+        # IP rate check only for truly new grants (Phase 2 revision of FIX-10).
+        # record_if_allowed operates on a separate connection/store — this is
+        # intentional: IP events persist even on ROLLBACK to prevent attackers
+        # from triggering rollbacks to avoid rate limiting.
+        if grant[:newly_created] && remote_ip
+          unless @ip_tracker.record_if_allowed(remote_ip)
+            conn.exec("ROLLBACK")
+            raise RateLimitError, "Too many new grants from this address"
+          end
+        end
+
+        conn.exec("COMMIT")
+        record_grant_event(pubkey_hash, service, 'created') if grant[:newly_created]
+        grant
       end
-
-      result = @pg.exec_params(<<~SQL, [pubkey_hash, service])
-        INSERT INTO service_grants (pubkey_hash, service)
-        VALUES ($1, $2)
-        ON CONFLICT (pubkey_hash, service)
-        DO UPDATE SET last_active_at = NOW()
-        RETURNING *, (xmax = 0) AS newly_created
-      SQL
-
-      row = result[0]
-      grant = parse_grant_row(row)
-
-      if grant[:newly_created]
-        record_grant_event(pubkey_hash, service, 'created')
-      end
-
-      grant
     end
 
     def upgrade_plan(pubkey_hash, service:, new_plan:, plan_version: nil)

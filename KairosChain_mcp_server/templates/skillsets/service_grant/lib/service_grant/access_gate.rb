@@ -56,6 +56,10 @@ module ServiceGrant
       raise KairosMcp::ToolRegistry::GateDeniedError.new(
         tool_name, "rate_limited", e.message
       )
+    rescue PgUnavailableError
+      raise KairosMcp::ToolRegistry::GateDeniedError.new(
+        tool_name, "service_unavailable", "Database temporarily unavailable"
+      )
     end
   end
 end
