@@ -20,5 +20,5 @@ module ServiceGrant
 
   class PgUnavailableError < ServiceGrantError; end
   class PgReadonlyError < PgUnavailableError; end
-  class PoolExhaustedError < ServiceGrantError; end
+  class PoolExhaustedError < PgUnavailableError; end
 end

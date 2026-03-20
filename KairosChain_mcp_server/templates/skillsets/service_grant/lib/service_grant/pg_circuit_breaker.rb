@@ -90,6 +90,9 @@ module ServiceGrant
       apply_policy(e)
     end
 
+    # NOTE: allow_readonly raises PgReadonlyError but AccessChecker always
+    # mutates state (ensure_grant). True read-only degradation requires
+    # Phase 3+ (cached grant lookup without DB mutation).
     def apply_policy(error)
       case @policy
       when :deny_all

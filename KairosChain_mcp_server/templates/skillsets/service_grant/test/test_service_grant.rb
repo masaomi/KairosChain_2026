@@ -1039,3 +1039,75 @@ class TestTrustScorerAdapter < Minitest::Test
     def calculate(_ref) = raise("Synoptis unavailable")
   end
 end
+
+# === Phase 2C Infrastructure Tests ===
+
+class TestPoolExhaustedInheritance < Minitest::Test
+  def setup
+    require 'service_grant/errors'
+  end
+
+  def test_pool_exhausted_is_pg_unavailable
+    err = ServiceGrant::PoolExhaustedError.new("pool full")
+    assert_kind_of ServiceGrant::PgUnavailableError, err
+  end
+end
+
+# Stub PG::Error for isolated CB testing
+module PG; class Error < StandardError; end unless defined?(PG::Error); end
+
+class TestPgCircuitBreakerStates < Minitest::Test
+  def setup
+    require 'service_grant/errors'
+    require 'service_grant/pg_circuit_breaker'
+  end
+
+  def test_starts_closed
+    cb = ServiceGrant::PgCircuitBreaker.new(policy: :deny_all)
+    assert_equal :closed, cb.state
+  end
+
+  def test_opens_after_threshold_failures
+    cb = ServiceGrant::PgCircuitBreaker.new(policy: :deny_all)
+    3.times do
+      cb.call { raise PG::Error, "down" } rescue nil
+    end
+    assert_equal :open, cb.state
+  end
+
+  def test_deny_all_raises_on_open
+    cb = ServiceGrant::PgCircuitBreaker.new(policy: :deny_all)
+    3.times { cb.call { raise PG::Error, "down" } rescue nil }
+    assert_raises(ServiceGrant::PgUnavailableError) { cb.call { "never" } }
+  end
+end
+
+class TestPgConnectionPoolBounded < Minitest::Test
+  def setup
+    require 'service_grant/errors'
+    require 'service_grant/pg_connection_pool'
+  end
+
+  def test_checked_out_rollback_on_connect_failure
+    # Verify @checked_out is decremented when create_connection fails
+    pool = ServiceGrant::PgConnectionPool.new({ 'pool_size' => 2, 'connect_timeout' => 1 })
+    # Force checkout to fail by trying to connect to invalid host
+    begin
+      pool.checkout
+    rescue StandardError
+      # Expected: PG::ConnectionBad or similar
+    end
+    # @checked_out should be back to 0, not stuck at 1
+    # Verify by checking that another checkout attempt doesn't raise PoolExhaustedError
+    # (it will fail with connection error, but NOT pool exhaustion)
+    err = nil
+    begin
+      pool.checkout
+    rescue ServiceGrant::PoolExhaustedError => e
+      err = e
+    rescue StandardError
+      # PG connection error is fine — we just want to verify it's NOT PoolExhaustedError
+    end
+    assert_nil err, "Should not raise PoolExhaustedError — @checked_out should have been rolled back"
+  end
+end
