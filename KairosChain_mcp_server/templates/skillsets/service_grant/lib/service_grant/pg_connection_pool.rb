@@ -42,7 +42,16 @@ module ServiceGrant
           raise PoolExhaustedError, "Connection pool exhausted (size: #{@pool_size})" if @checked_out >= @pool_size && @pool.empty?
         end
       end
-      create_connection
+      begin
+        create_connection
+      rescue StandardError
+        # Roll back @checked_out on connection failure to prevent permanent pool wedge
+        @mutex.synchronize do
+          @checked_out -= 1
+          @cond.signal
+        end
+        raise
+      end
     end
 
     def checkin(conn)

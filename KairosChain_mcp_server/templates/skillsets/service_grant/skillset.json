@@ -4,7 +4,7 @@
   "description": "Generic service access control and usage tracking for KairosChain services",
   "author": "Dr. Masa Hatakeyama",
   "layer": "L1",
-  "depends_on": ["hestia"],
+  "depends_on": ["hestia", "synoptis"],
   "provides": ["service_grant"],
   "tool_classes": [
     "KairosMcp::SkillSets::ServiceGrantTools::ServiceGrantStatus",

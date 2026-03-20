@@ -182,21 +182,22 @@ module Synoptis
       [score, BOOTSTRAP_POLICY[:floor_with_external]].max
     end
 
-    # Does this attester have attestations from agents outside their own attester set?
-    # Uses pre-loaded active proofs graph when available (from network_scores).
+    # Does this attester have attestations from agents outside their SCC?
+    # Uses SCC-consistent definition (same as bridge_score) to prevent
+    # closed cliques from having positive attestation weight.
     def has_external_attestation?(attester_ref, graph: nil)
       graph ||= build_active_graph
       norm_ref = TrustIdentity.normalize(attester_ref)
 
-      # Who attests FOR this attester (their trust sources)
+      # Who attests FOR this attester
       own_attesters = graph[:subject_to_attesters][norm_ref] || Set.new
       return false if own_attesters.empty?
 
-      # Check if any of THEIR attesters come from outside this set
-      own_attesters.any? do |a|
-        a_sources = graph[:subject_to_attesters][a] || Set.new
-        (a_sources - own_attesters).any?
-      end
+      # Find attester's SCC — all nodes mutually reachable
+      scc = find_scc(norm_ref, graph)
+
+      # External = has attesters from OUTSIDE the SCC
+      own_attesters.any? { |a| !scc.include?(a) }
     end
 
     # Bridge score: measures cross-cluster trust.
