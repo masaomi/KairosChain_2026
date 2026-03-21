@@ -116,9 +116,9 @@ module ServiceGrant
         (svc['plans'] || {}).each do |plan_name, plan_cfg|
           duration = plan_cfg['subscription_duration']
           next unless duration
-          unless duration.is_a?(Integer) && duration > 0
+          unless duration.is_a?(Integer) && duration > 0 && duration <= 3650
             raise ConfigValidationError,
-              "subscription_duration for #{name}/#{plan_name} must be a positive integer, got #{duration.inspect}"
+              "subscription_duration for #{name}/#{plan_name} must be a positive integer <= 3650, got #{duration.inspect}"
           end
         end
       end

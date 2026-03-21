@@ -270,26 +270,8 @@ module ServiceGrant
           )
           old_plan = result.ntuples > 0 ? result[0]['plan'] : 'free'
 
-          # Upgrade plan + set/clear subscription expiry in single UPDATE
-          new_version = @plan_registry.current_version(service, new_plan)
-          duration = @plan_registry.subscription_duration(service, new_plan)
-          if duration
-            conn.exec_params(<<~SQL, [new_plan, new_version, duration, payer, service])
-              UPDATE service_grants
-              SET plan = $1, plan_version = $2,
-                  subscription_expires_at = NOW() + INTERVAL '1 day' * $3,
-                  last_active_at = NOW()
-              WHERE pubkey_hash = $4 AND service = $5
-            SQL
-          else
-            conn.exec_params(<<~SQL, [new_plan, new_version, payer, service])
-              UPDATE service_grants
-              SET plan = $1, plan_version = $2,
-                  subscription_expires_at = NULL,
-                  last_active_at = NOW()
-              WHERE pubkey_hash = $3 AND service = $4
-            SQL
-          end
+          # Upgrade plan via GrantManager (single source of plan-change SQL)
+          @grant_manager.apply_plan_upgrade(conn, payer, service: service, new_plan: new_plan)
 
           # Record payment (with provider_tx_id)
           payment_params = [
@@ -307,6 +289,7 @@ module ServiceGrant
           SQL
 
           conn.exec('COMMIT')
+          @grant_manager.record_plan_upgrade(payer, service: service, new_plan: new_plan)
           { success: true, old_plan: old_plan, new_plan: new_plan }
         rescue StandardError
           conn.exec('ROLLBACK') rescue nil

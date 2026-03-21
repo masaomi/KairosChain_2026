@@ -49,15 +49,37 @@ module ServiceGrant
     end
 
     def upgrade_plan(pubkey_hash, service:, new_plan:, plan_version: nil)
+      apply_plan_upgrade(@pg, pubkey_hash, service: service, new_plan: new_plan, plan_version: plan_version)
+      record_plan_upgrade(pubkey_hash, service: service, new_plan: new_plan)
+    end
+
+    # SQL-only plan upgrade for use within external transactions.
+    # Caller is responsible for BEGIN/COMMIT and event recording.
+    def apply_plan_upgrade(conn, pubkey_hash, service:, new_plan:, plan_version: nil)
       raise PlanNotFoundError, "Plan '#{new_plan}' not found for service '#{service}'" unless @plans.plan_exists?(service, new_plan)
 
       version = plan_version || @plans.current_version(service, new_plan)
-      @pg.exec_params(<<~SQL, [new_plan, version, pubkey_hash, service])
-        UPDATE service_grants
-        SET plan = $1, plan_version = $2, last_active_at = NOW()
-        WHERE pubkey_hash = $3 AND service = $4
-      SQL
+      duration = @plans.subscription_duration(service, new_plan)
+      if duration
+        conn.exec_params(<<~SQL, [new_plan, version, duration, pubkey_hash, service])
+          UPDATE service_grants
+          SET plan = $1, plan_version = $2,
+              subscription_expires_at = NOW() + INTERVAL '1 day' * $3,
+              last_active_at = NOW()
+          WHERE pubkey_hash = $4 AND service = $5
+        SQL
+      else
+        conn.exec_params(<<~SQL, [new_plan, version, pubkey_hash, service])
+          UPDATE service_grants
+          SET plan = $1, plan_version = $2,
+              subscription_expires_at = NULL, last_active_at = NOW()
+          WHERE pubkey_hash = $3 AND service = $4
+        SQL
+      end
+    end
 
+    # Record plan upgrade event. Call after successful COMMIT.
+    def record_plan_upgrade(pubkey_hash, service:, new_plan:)
       record_grant_event(pubkey_hash, service, 'plan_upgrade', { new_plan: new_plan })
     end
 

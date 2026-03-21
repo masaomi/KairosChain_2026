@@ -451,6 +451,75 @@ class TestGrantManagerCooldown < Minitest::Test
   end
 end
 
+# === Phase 3b Fix: GrantManager#upgrade_plan expiry-aware (F4) ===
+
+class TestGrantManagerUpgradePlanExpiry < Minitest::Test
+  def setup
+    require 'service_grant/errors'
+    require 'service_grant/ip_rate_tracker'
+    require 'service_grant/grant_manager'
+  end
+
+  def test_upgrade_with_subscription_duration_sets_expiry
+    pg = MockPgCapture.new
+    pr = MockPlanRegistryUpgrade.new(duration: 30)
+    gm = ServiceGrant::GrantManager.new(pg_pool: pg, plan_registry: pr)
+    gm.define_singleton_method(:record_grant_event) { |*_args| nil }
+    gm.upgrade_plan('abc', service: 'svc', new_plan: 'pro')
+
+    update_call = pg.calls.find { |c| c[:sql].include?('subscription_expires_at = NOW()') }
+    refute_nil update_call, "Expected UPDATE with subscription_expires_at = NOW() + INTERVAL"
+    assert_equal 5, update_call[:params].length
+    assert_equal 30, update_call[:params][2]
+  end
+
+  def test_upgrade_without_subscription_duration_clears_expiry
+    pg = MockPgCapture.new
+    pr = MockPlanRegistryUpgrade.new(duration: nil)
+    gm = ServiceGrant::GrantManager.new(pg_pool: pg, plan_registry: pr)
+    gm.define_singleton_method(:record_grant_event) { |*_args| nil }
+    gm.upgrade_plan('abc', service: 'svc', new_plan: 'free')
+
+    update_call = pg.calls.find { |c| c[:sql].include?('subscription_expires_at = NULL') }
+    refute_nil update_call, "Expected UPDATE with subscription_expires_at = NULL"
+    assert_equal 4, update_call[:params].length
+  end
+
+  def test_upgrade_unknown_plan_raises
+    pg = MockPgCapture.new
+    pr = MockPlanRegistryUpgrade.new(duration: nil, exists: false)
+    gm = ServiceGrant::GrantManager.new(pg_pool: pg, plan_registry: pr)
+    assert_raises(ServiceGrant::PlanNotFoundError) do
+      gm.upgrade_plan('abc', service: 'svc', new_plan: 'nonexistent')
+    end
+  end
+
+  class MockPgCapture
+    attr_reader :calls
+    def initialize
+      @calls = []
+    end
+    def exec_params(sql, params = [])
+      @calls << { sql: sql, params: params }
+      MockResult.new
+    end
+  end
+
+  class MockResult
+    def ntuples = 0
+  end
+
+  class MockPlanRegistryUpgrade
+    def initialize(duration:, exists: true)
+      @duration = duration
+      @exists = exists
+    end
+    def plan_exists?(_s, _p) = @exists
+    def current_version(_s, _p) = 'v1'
+    def subscription_duration(_s, _p) = @duration
+  end
+end
+
 # === FIX-11: Critical Path Tests ===
 
 class TestAccessCheckerCheckAccess < Minitest::Test
@@ -1653,6 +1722,8 @@ class TestPaymentVerifierIntegration < Minitest::Test
 
   def setup
     require 'service_grant/errors'
+    require 'service_grant/ip_rate_tracker'
+    require 'service_grant/grant_manager'
     require 'service_grant/payment_verifier'
   end
 
@@ -1871,8 +1942,11 @@ class TestPaymentVerifierIntegration < Minitest::Test
         content_hash: 'stub', checked_at: Time.now.utc.iso8601 }
     end
 
+    gm = ServiceGrant::GrantManager.new(pg_pool: pg_mock, plan_registry: pr)
+    gm.define_singleton_method(:record_grant_event) { |*_args| nil }
+
     pv = ServiceGrant::PaymentVerifier.new(
-      grant_manager: nil,
+      grant_manager: gm,
       pg_pool: pg_mock,
       plan_registry: pr,
       synoptis_registry: registry
@@ -2196,6 +2270,17 @@ class TestSubscriptionDurationConfig < Minitest::Test
     end
   end
 
+  def test_subscription_duration_exceeds_max_raises
+    assert_raises(ServiceGrant::ConfigValidationError) do
+      build_registry(duration: 3651)
+    end
+  end
+
+  def test_subscription_duration_at_max_allowed
+    pr = build_registry(duration: 3650)
+    assert_equal 3650, pr.subscription_duration('svc', 'pro')
+  end
+
   private
 
   def build_registry(duration:)
@@ -2266,5 +2351,196 @@ class TestProviderTxId < Minitest::Test
   class MockPlanRegistryPaySimple
     def authorized_payment_issuers = []
     def attestation_max_age = 86_400
+  end
+end
+
+# === Phase 3b Fix: PaymentVerifier subscription_expires_at + provider_tx_id persistence ===
+
+class TestPaymentVerifierSubscriptionExpiry < Minitest::Test
+  ISSUER_HASH = 'a' * 64
+  PAYER_HASH = 'b' * 64
+
+  def setup
+    require 'service_grant/errors'
+    require 'service_grant/ip_rate_tracker'
+    require 'service_grant/grant_manager'
+    require 'service_grant/payment_verifier'
+  end
+
+  def test_upgrade_with_subscription_duration_sets_expiry
+    pv, pg_mock = build_full_pv_sub(subscription_duration: 30)
+    proof_data = build_valid_proof_data_sub
+
+    result = pv.verify_and_upgrade(proof_data)
+    assert_equal true, result[:success]
+
+    # The duration branch uses 5 params: plan, version, duration, pubkey, service
+    update_call = pg_mock.captured_calls.find { |c| c[:sql].include?('subscription_expires_at = NOW()') }
+    refute_nil update_call, "Expected UPDATE with subscription_expires_at = NOW() + INTERVAL"
+    assert_equal 5, update_call[:params].length, "Duration branch should have 5 params"
+    assert_equal 30, update_call[:params][2], "Duration param should be 30"
+  end
+
+  def test_upgrade_without_subscription_duration_clears_expiry
+    pv, pg_mock = build_full_pv_sub(subscription_duration: nil)
+    proof_data = build_valid_proof_data_sub
+
+    result = pv.verify_and_upgrade(proof_data)
+    assert_equal true, result[:success]
+
+    # The non-duration branch sets subscription_expires_at = NULL with 4 params
+    update_call = pg_mock.captured_calls.find { |c| c[:sql].include?('subscription_expires_at = NULL') }
+    refute_nil update_call, "Expected UPDATE with subscription_expires_at = NULL"
+    assert_equal 4, update_call[:params].length, "Non-duration branch should have 4 params"
+  end
+
+  def test_provider_tx_id_persisted_in_payment_record
+    pv, pg_mock = build_full_pv_sub(subscription_duration: nil)
+    proof_data = build_valid_proof_data_sub(provider_tx_id: 'stripe_pi_abc123')
+
+    result = pv.verify_and_upgrade(proof_data)
+    assert_equal true, result[:success]
+
+    insert_call = pg_mock.captured_calls.find { |c| c[:sql].include?('payment_records') && c[:sql].include?('INSERT') }
+    refute_nil insert_call, "Expected INSERT into payment_records"
+    assert_equal 'stripe_pi_abc123', insert_call[:params][11], "provider_tx_id should be param $12"
+  end
+
+  def test_provider_tx_id_nil_when_absent
+    pv, pg_mock = build_full_pv_sub(subscription_duration: nil)
+    proof_data = build_valid_proof_data_sub  # no provider_tx_id
+
+    pv.verify_and_upgrade(proof_data)
+
+    insert_call = pg_mock.captured_calls.find { |c| c[:sql].include?('payment_records') && c[:sql].include?('INSERT') }
+    assert_nil insert_call[:params][11], "provider_tx_id should be nil when absent from evidence"
+  end
+
+  private
+
+  def build_valid_proof_data_sub(timestamp: Time.now.utc.iso8601, provider_tx_id: nil)
+    evidence = {
+      'payment_intent_id' => 'pi_sub_001',
+      'service' => 'mp',
+      'plan' => 'pro',
+      'amount' => '9.99',
+      'currency' => 'USD',
+      'nonce' => 'nonce_sub'
+    }
+    evidence['provider_tx_id'] = provider_tx_id if provider_tx_id
+    {
+      'proof_id' => 'proof-sub-uuid',
+      'attester_id' => "agent://#{ISSUER_HASH}",
+      'subject_ref' => "agent://#{PAYER_HASH}",
+      'claim' => 'payment_verified',
+      'evidence' => JSON.generate(evidence),
+      'signature' => 'valid_sig',
+      'timestamp' => timestamp,
+      'version' => '1.0.0'
+    }
+  end
+
+  def build_full_pv_sub(subscription_duration:)
+    registry = MockSynoptisRegistrySub.new
+    pg_mock = MockPgPoolCapture.new
+    pr = MockPlanRegistryPaySub.new(duration: subscription_duration)
+
+    original_verify = Synoptis::Verifier.instance_method(:verify)
+    Synoptis::Verifier.define_method(:verify) do |envelope, public_key: nil|
+      { valid: true, errors: [], content_hash: 'stub', checked_at: Time.now.utc.iso8601 }
+    end
+
+    gm = ServiceGrant::GrantManager.new(pg_pool: pg_mock, plan_registry: pr)
+    gm.define_singleton_method(:record_grant_event) { |*_args| nil }
+
+    pv = ServiceGrant::PaymentVerifier.new(
+      grant_manager: gm, pg_pool: pg_mock,
+      plan_registry: pr, synoptis_registry: registry
+    )
+    pv.define_singleton_method(:resolve_public_key) { |_hash| 'MOCK_KEY' }
+
+    @_verifier_restore = original_verify
+    [pv, pg_mock]
+  end
+
+  def teardown
+    if @_verifier_restore
+      Synoptis::Verifier.define_method(:verify, @_verifier_restore)
+      @_verifier_restore = nil
+    end
+  end
+
+  class MockPlanRegistryPaySub
+    def initialize(duration:)
+      @duration = duration
+    end
+    def authorized_payment_issuers = [ISSUER_HASH]
+    def attestation_max_age = 86_400
+    def subscription_price(_s, plan) = plan == 'free' ? nil : '9.99'
+    def currency(_s) = 'USD'
+    def plan_exists?(_s, _p) = true
+    def billing_model(_s) = 'subscription'
+    def current_version(_s, _p) = 'v1'
+    def subscription_duration(_s, _p) = @duration
+  end
+
+  class MockSynoptisRegistrySub
+    def initialize
+      @store = {}
+    end
+
+    def find_proof(proof_id)
+      @store[proof_id]
+    end
+
+    def store_proof(envelope)
+      pid = envelope.is_a?(Hash) ? (envelope[:proof_id] || envelope['proof_id']) : envelope.proof_id
+      @store[pid] = envelope
+    end
+
+    def revoked?(_id) = false
+  end
+
+  class MockPgPoolCapture
+    attr_reader :captured_calls
+
+    def initialize
+      @captured_calls = []
+      @committed = false
+    end
+
+    def committed? = @committed
+
+    def exec_params(sql, params = [])
+      @captured_calls << { sql: sql, params: params }
+      MockPgResultSub.new([])
+    end
+
+    def with_connection
+      yield MockPgConnectionCapture.new(self)
+    end
+  end
+
+  class MockPgConnectionCapture
+    def initialize(pool) = @pool = pool
+
+    def exec(sql)
+      @pool.captured_calls << { sql: sql, params: [] }
+    end
+
+    def exec_params(sql, params = [])
+      @pool.captured_calls << { sql: sql, params: params }
+      if sql.include?('SELECT')
+        MockPgResultSub.new([{ 'plan' => 'free' }])
+      else
+        MockPgResultSub.new([])
+      end
+    end
+  end
+
+  class MockPgResultSub
+    def initialize(rows) = @rows = rows
+    def ntuples = @rows.length
+    def [](idx) = @rows[idx]
   end
 end
