@@ -1,0 +1,18 @@
+{
+  "name": "service_grant",
+  "version": "1.0.0",
+  "description": "Generic service access control and usage tracking for KairosChain services",
+  "author": "Dr. Masa Hatakeyama",
+  "layer": "L1",
+  "depends_on": ["hestia", "synoptis"],
+  "provides": ["service_grant"],
+  "tool_classes": [
+    "KairosMcp::SkillSets::ServiceGrantTools::ServiceGrantStatus",
+    "KairosMcp::SkillSets::ServiceGrantTools::ServiceGrantManage",
+    "KairosMcp::SkillSets::ServiceGrantTools::ServiceGrantMigrate",
+    "KairosMcp::SkillSets::ServiceGrantTools::ServiceGrantPay"
+  ],
+  "config_files": ["config/service_grant.yml"],
+  "knowledge_dirs": ["knowledge/service_grant_guide"],
+  "requires_pg": true
+}

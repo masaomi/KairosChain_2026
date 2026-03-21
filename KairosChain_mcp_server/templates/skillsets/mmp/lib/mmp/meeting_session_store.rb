@@ -19,7 +19,7 @@ module MMP
     DEFAULT_RATE_LIMIT_PER_MINUTE = 100
 
     Session = Struct.new(
-      :peer_id, :public_key, :token, :created_at,
+      :peer_id, :public_key, :pubkey_hash, :token, :created_at,
       :last_activity, :request_count, :request_window_start,
       keyword_init: true
     )
@@ -28,6 +28,7 @@ module MMP
 
     def initialize(ttl_minutes: DEFAULT_TTL_MINUTES, rate_limit: DEFAULT_RATE_LIMIT_PER_MINUTE)
       @sessions = {}
+      @peer_id_index = {}  # peer_id => token (most recent session)
       @ttl = ttl_minutes * 60
       @ttl_minutes = ttl_minutes
       @rate_limit = rate_limit
@@ -36,19 +37,26 @@ module MMP
 
     # Create a new session for a verified peer.
     # Returns the session token string.
-    def create_session(peer_id, public_key)
+    #
+    # @param peer_id [String] Peer identifier
+    # @param public_key [String] PEM-encoded public key
+    # @param pubkey_hash [String, nil] SHA256 hex of public key (for Service Grant)
+    def create_session(peer_id, public_key, pubkey_hash: nil)
       token = SecureRandom.hex(32)
       now = Time.now
       @mutex.synchronize do
         @sessions[token] = Session.new(
           peer_id: peer_id,
           public_key: public_key,
+          pubkey_hash: pubkey_hash,
           token: token,
           created_at: now,
           last_activity: now,
           request_count: 0,
           request_window_start: now
         )
+        # Update peer_id reverse index (most recent session wins)
+        @peer_id_index[peer_id] = token
       end
       token
     end
@@ -125,12 +133,40 @@ module MMP
       end
     end
 
+    # Reverse lookup: find pubkey_hash for a given peer_id.
+    # Uses O(1) index instead of linear scan.
+    #
+    # @param peer_id [String] Peer identifier
+    # @return [String, nil] pubkey_hash if found
+    def pubkey_hash_for(peer_id)
+      @mutex.synchronize do
+        token = @peer_id_index[peer_id]
+        return @sessions[token]&.pubkey_hash if token && @sessions[token]
+        nil
+      end
+    end
+
+    # Exact session lookup by token. O(1) — no ambiguity with multiple sessions.
+    #
+    # @param token [String] Bearer token
+    # @return [String, nil] pubkey_hash if session exists
+    def pubkey_hash_for_token(token)
+      @mutex.synchronize do
+        session = @sessions[token]
+        session&.pubkey_hash
+      end
+    end
+
     private
 
     # Remove expired sessions (called within mutex).
     def cleanup_expired
       now = Time.now
-      @sessions.delete_if { |_token, session| now - session.created_at > @ttl }
+      @sessions.delete_if do |_token, session|
+        expired = now - session.created_at > @ttl
+        @peer_id_index.delete(session.peer_id) if expired && @peer_id_index[session.peer_id] == _token
+        expired
+      end
     end
   end
 end
