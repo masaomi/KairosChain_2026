@@ -4,6 +4,44 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.0.0] - 2026-03-21
+
+### Added
+
+- **Service Grant SkillSet** (`service_grant`): New SkillSet providing generic, service-independent access control and billing for any KairosChain-based service. Designed and implemented through multi-LLM review methodology (Claude Opus 4.6, GPT-5.4, Composer-2) across 6 phases.
+  - **Phase 0**: Core/Hestia prerequisites — PlaceRouter middleware hooks, session store pubkey_hash support, token store extension
+  - **Phase 1**: Basic access control MVP — GrantManager (auto-grant with ON CONFLICT), UsageTracker (atomic try_consume), AccessChecker (unified pipeline), AccessGate (Path A), PlaceMiddleware (Path B), PlanRegistry (YAML config), PgConnectionPool (thread-safe with circuit breaker), IpRateTracker (anti-Sybil), CycleManager, RequestEnricher, Safety policies, admin tools
+  - **Phase 2**: Synoptis Trust Score integration — TrustScorerAdapter (quality+bridge scoring with caching), anti-collusion PageRank (zero-weight cartel detection), TrustIdentity (canonical `agent://` URIs), PgCircuitBreaker hardening, PoolExhaustedError hierarchy
+  - **Phase 3a**: PaymentVerifier (proof-centric design) — cryptographic signature verification via Synoptis Verifier, issuer authorization, freshness/revocation checks, evidence validation (amount, currency, nonce), idempotent duplicate handling (PG::UniqueViolation rescue), atomic upgrade transaction
+  - **Phase 3b**: Subscription expiry + provider_tx_id — lazy downgrade with atomic conditional UPDATE, concurrent renewal re-read, subscription_duration config validation (1-3650 days), provider_tx_id tracking
+  - **GrantManager-PaymentVerifier unification**: Plan-change SQL consolidated into `apply_plan_upgrade` (single source), event recording unified via `record_plan_upgrade` (called after COMMIT)
+  - 4 billing models: `free`, `per_action`, `metered`, `subscription`
+  - 4 MCP tools: `service_grant_status`, `service_grant_manage`, `service_grant_migrate`, `service_grant_pay`
+  - 3 SQL migrations, YAML-driven plan configuration
+  - Anti-Sybil: IP rate limiting (5/hour, PG-backed), cooldown (5 min write delay), trust score gating
+  - 159 unit tests, 232 assertions
+  - Bundled L1 knowledge: `service_grant_guide`
+
+- **Multi-LLM Design Review L1 Knowledge** (`multi_llm_design_review` v2.1): Methodology and CLI automation for parallel multi-LLM code review.
+  - Auto mode: Codex (GPT-5.4) + Cursor Agent (Composer-2) + Claude Code (Opus 4.6) in parallel
+  - Manual mode fallback with structured prompt generation
+  - Prompt Generation Rules: output filename specification, auto-execution commands
+  - Convergence rules: 2/3 APPROVE = proceed, any REJECT = revise
+  - Observed LLM role differentiation across structural, seam, and safety layers
+
+- **SkillSet Implementation Quality Guide** (`skillset_implementation_quality_guide`): Design constraint tests and wiring checklist derived from Service Grant multi-LLM review experiment.
+
+- **L1 Knowledge**: Service Grant access control documentation (EN/JP) with `readme_order: 4.9`
+
+### Changed
+
+- **HestiaChain PlaceRouter**: Added `register_middleware`/`unregister_middleware` hooks, `ROUTE_ACTION_MAP`, middleware invocation in request handling, pubkey_hash resolution from session store
+- **MMP MeetingSessionStore**: Added `pubkey_hash` storage and `pubkey_hash_for(peer_id)` method
+- **Synoptis TrustScorer**: Extended with anti-collusion PageRank, external attestation weighting, bridge score calculation, attestation weight with zero-weight floor for cartels
+- **Synoptis TrustIdentity**: New module for canonical `agent://` URI handling
+
+---
+
 ## [2.10.1] - 2026-03-19
 
 ### Fixed
@@ -438,6 +476,9 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Skill promotion with Persona Assembly
 - Tool guide and metadata system
 
+[3.0.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.10.1...v3.0.0
+[2.10.1]: https://github.com/masaomi/KairosChain_2026/compare/v2.10.0...v2.10.1
+[2.10.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.9.0...v2.10.0
 [2.9.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.8.0...v2.9.0
 [2.8.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.7.0...v2.8.0
 [2.7.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.6.0...v2.7.0
