@@ -1574,3 +1574,423 @@ class TestPaymentVerifierValidation < Minitest::Test
     def current_version(_s, _p) = 'v1'
   end
 end
+
+# === Phase 3a Integration Tests ===
+
+# Stub Synoptis modules for full-chain testing
+unless defined?(Synoptis::Verifier)
+  module Synoptis
+    class Verifier
+      def initialize(config: {}); end
+      def verify(envelope, public_key: nil)
+        { valid: true, errors: [], content_hash: 'stub', checked_at: Time.now.utc.iso8601 }
+      end
+    end
+  end
+end
+
+unless defined?(Synoptis::ProofEnvelope)
+  module Synoptis
+    class ProofEnvelope
+      attr_reader :proof_id, :attester_id, :subject_ref, :claim, :evidence,
+                  :signature, :timestamp, :ttl, :merkle_root, :version,
+                  :actor_user_id, :actor_role, :metadata
+
+      def initialize(attrs = {})
+        attrs = attrs.transform_keys(&:to_sym) if attrs.is_a?(Hash)
+        @proof_id = attrs[:proof_id] || SecureRandom.uuid
+        @attester_id = attrs[:attester_id]
+        @subject_ref = attrs[:subject_ref]
+        @claim = attrs[:claim]
+        @evidence = attrs[:evidence]
+        @signature = attrs[:signature]
+        @timestamp = attrs[:timestamp] || Time.now.utc.iso8601
+        @ttl = attrs[:ttl]
+        @version = attrs[:version] || '1.0.0'
+        @merkle_root = attrs[:merkle_root]
+        @actor_user_id = attrs[:actor_user_id]
+        @actor_role = attrs[:actor_role]
+        @metadata = attrs[:metadata] || {}
+      end
+
+      def to_h
+        { proof_id: @proof_id, version: @version, attester_id: @attester_id,
+          subject_ref: @subject_ref, claim: @claim, evidence: @evidence,
+          merkle_root: @merkle_root, signature: @signature, timestamp: @timestamp,
+          ttl: @ttl, actor_user_id: @actor_user_id, actor_role: @actor_role,
+          metadata: @metadata }
+      end
+
+      def self.from_h(hash)
+        hash = hash.transform_keys(&:to_sym) if hash.is_a?(Hash)
+        new(hash)
+      end
+
+      def content_hash
+        Digest::SHA256.hexdigest(canonical_json)
+      end
+
+      def canonical_json
+        JSON.generate({ proof_id: @proof_id, version: @version, attester_id: @attester_id,
+          subject_ref: @subject_ref, claim: @claim, evidence: @evidence,
+          merkle_root: @merkle_root, timestamp: @timestamp, ttl: @ttl }, sort_keys: true)
+      end
+
+      def expired?
+        return false unless @ttl
+        Time.now.utc > Time.parse(@timestamp) + @ttl
+      rescue ArgumentError
+        false
+      end
+    end
+  end
+end
+
+class TestPaymentVerifierIntegration < Minitest::Test
+  ISSUER_HASH = 'a' * 64
+  PAYER_HASH = 'b' * 64
+
+  def setup
+    require 'service_grant/errors'
+    require 'service_grant/payment_verifier'
+  end
+
+  # --- Full chain: verify_and_upgrade happy path ---
+
+  def test_verify_and_upgrade_happy_path
+    pv, pg_mock = build_full_pv
+    proof_data = build_valid_proof_data
+
+    result = pv.verify_and_upgrade(proof_data)
+    assert_equal true, result[:success]
+    assert_equal 'free', result[:old_plan]
+    assert_equal 'pro', result[:new_plan]
+
+    # Verify SQL was executed (BEGIN, INSERT grant, SELECT, UPDATE, INSERT payment, COMMIT)
+    assert pg_mock.committed?, "Transaction should have been committed"
+    assert_equal 6, pg_mock.exec_count, "Expected 6 SQL operations in transaction"
+  end
+
+  # --- Signature verification ---
+
+  def test_verify_signature_valid
+    pv, = build_full_pv
+    proof = build_proof_envelope
+    # Default mock verifier returns valid: true
+    pv.send(:verify_signature, proof)  # should not raise
+  end
+
+  def test_verify_signature_invalid
+    pv, = build_full_pv(verifier_valid: false, verifier_errors: ['invalid_signature'])
+    proof = build_proof_envelope
+    err = assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.send(:verify_signature, proof)
+    end
+    assert_includes err.message, 'invalid_signature'
+  end
+
+  def test_verify_signature_no_public_key
+    pv, = build_full_pv(has_public_key: false)
+    proof = build_proof_envelope
+    err = assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.send(:verify_signature, proof)
+    end
+    assert_includes err.message, 'Cannot resolve issuer public key'
+  end
+
+  # --- Idempotent duplicate ---
+
+  def test_idempotent_duplicate_returns_success
+    existing_record = {
+      'service' => 'mp', 'new_plan' => 'pro',
+      'amount' => '9.99', 'currency' => 'USD'
+    }
+    pv, = build_full_pv(existing_payment: existing_record)
+    proof_data = build_valid_proof_data
+
+    result = pv.verify_and_upgrade(proof_data)
+    assert_equal true, result[:success]
+    assert_equal true, result[:idempotent]
+  end
+
+  def test_conflicting_duplicate_raises
+    existing_record = {
+      'service' => 'mp', 'new_plan' => 'basic',  # Different plan!
+      'amount' => '9.99', 'currency' => 'USD'
+    }
+    pv, = build_full_pv(existing_payment: existing_record)
+    proof_data = build_valid_proof_data
+
+    err = assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.verify_and_upgrade(proof_data)
+    end
+    assert_includes err.message, 'plan'
+  end
+
+  # --- Transaction rollback ---
+
+  def test_transaction_rollback_on_failure
+    pv, pg_mock = build_full_pv(record_payment_fails: true)
+    proof_data = build_valid_proof_data
+
+    assert_raises(RuntimeError) do
+      pv.verify_and_upgrade(proof_data)
+    end
+    assert pg_mock.rolled_back?, "Transaction should have been rolled back"
+  end
+
+  # --- Extract payer pubkey ---
+
+  def test_extract_payer_pubkey
+    pv, = build_full_pv
+    proof = build_proof_envelope
+    payer = pv.send(:extract_payer_pubkey, proof)
+    assert_equal PAYER_HASH, payer
+  end
+
+  def test_extract_payer_pubkey_invalid_ref
+    pv, = build_full_pv
+    proof = Synoptis::ProofEnvelope.new(
+      proof_id: 'test', attester_id: "agent://#{ISSUER_HASH}",
+      subject_ref: 'skill://not_an_agent', claim: 'payment_verified',
+      evidence: '{}', signature: 'sig', timestamp: Time.now.utc.iso8601
+    )
+    assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.send(:extract_payer_pubkey, proof)
+    end
+  end
+
+  # --- Full chain rejection cases ---
+
+  def test_full_chain_rejects_expired_proof
+    pv, = build_full_pv
+    proof_data = build_valid_proof_data(timestamp: (Time.now - 100_000).utc.iso8601)
+
+    err = assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.verify_and_upgrade(proof_data)
+    end
+    assert_includes err.message, 'expired'
+  end
+
+  def test_full_chain_rejects_revoked_proof
+    pv, = build_full_pv(revoked: true)
+    proof_data = build_valid_proof_data
+
+    err = assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.verify_and_upgrade(proof_data)
+    end
+    assert_includes err.message, 'revoked'
+  end
+
+  def test_full_chain_rejects_unauthorized_issuer
+    pv, = build_full_pv(issuers: ['c' * 64])  # Different issuer
+    proof_data = build_valid_proof_data
+
+    err = assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.verify_and_upgrade(proof_data)
+    end
+    assert_includes err.message, 'Unauthorized'
+  end
+
+  def test_full_chain_rejects_wrong_claim
+    pv, = build_full_pv
+    proof_data = build_valid_proof_data(claim: 'integrity_verified')
+
+    err = assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.verify_and_upgrade(proof_data)
+    end
+    assert_includes err.message, 'Claim must be'
+  end
+
+  private
+
+  def build_valid_proof_data(timestamp: Time.now.utc.iso8601, claim: 'payment_verified')
+    {
+      'proof_id' => 'proof-uuid-123',
+      'attester_id' => "agent://#{ISSUER_HASH}",
+      'subject_ref' => "agent://#{PAYER_HASH}",
+      'claim' => claim,
+      'evidence' => JSON.generate({
+        'payment_intent_id' => 'pi_test_001',
+        'service' => 'mp',
+        'plan' => 'pro',
+        'amount' => '9.99',
+        'currency' => 'USD',
+        'nonce' => 'nonce_abc'
+      }),
+      'signature' => 'valid_signature_stub',
+      'timestamp' => timestamp,
+      'version' => '1.0.0'
+    }
+  end
+
+  def build_proof_envelope
+    Synoptis::ProofEnvelope.from_h(build_valid_proof_data)
+  end
+
+  def build_full_pv(issuers: [ISSUER_HASH], verifier_valid: true, verifier_errors: [],
+                     has_public_key: true, existing_payment: nil,
+                     record_payment_fails: false, revoked: false)
+    registry = MockSynoptisRegistry.new(revoked: revoked)
+    pg_mock = MockPgPool.new(existing_payment: existing_payment, record_fails: record_payment_fails)
+    pr = MockPlanRegistryPay.new(issuers: issuers)
+
+    # Monkey-patch Synoptis::Verifier for this test
+    original_verify = Synoptis::Verifier.instance_method(:verify)
+    Synoptis::Verifier.define_method(:verify) do |envelope, public_key: nil|
+      { valid: verifier_valid, errors: verifier_errors,
+        content_hash: 'stub', checked_at: Time.now.utc.iso8601 }
+    end
+
+    pv = ServiceGrant::PaymentVerifier.new(
+      grant_manager: nil,
+      pg_pool: pg_mock,
+      plan_registry: pr,
+      synoptis_registry: registry
+    )
+
+    # Inject public key resolver override
+    if has_public_key
+      pv.define_singleton_method(:resolve_public_key) { |_hash| 'MOCK_PUBLIC_KEY_PEM' }
+    else
+      pv.define_singleton_method(:resolve_public_key) { |_hash| nil }
+    end
+
+    # Restore original verify after test (via teardown)
+    @_verifier_restore = original_verify
+
+    [pv, pg_mock]
+  end
+
+  def teardown
+    if @_verifier_restore
+      Synoptis::Verifier.define_method(:verify, @_verifier_restore)
+      @_verifier_restore = nil
+    end
+  end
+
+  # --- Mock: PlanRegistry for integration ---
+
+  class MockPlanRegistryPay
+    def initialize(issuers: [], max_age: 86_400)
+      @issuers = issuers
+      @max_age = max_age
+    end
+    def authorized_payment_issuers = @issuers
+    def attestation_max_age = @max_age
+    def subscription_price(service, plan)
+      return nil if plan == 'free'
+      '9.99'
+    end
+    def currency(_service) = 'USD'
+    def plan_exists?(_s, _p) = true
+    def billing_model(_s) = 'per_action'
+    def current_version(_s, _p) = 'v1'
+  end
+
+  # --- Mock: Synoptis Registry ---
+
+  class MockSynoptisRegistry
+    def initialize(revoked: false)
+      @store = {}
+      @revoked = revoked
+    end
+
+    def find_proof(proof_id)
+      @store[proof_id]
+    end
+
+    def store_proof(envelope)
+      pid = envelope.is_a?(Hash) ? (envelope[:proof_id] || envelope['proof_id']) : envelope.proof_id
+      @store[pid] = envelope
+    end
+
+    def revoked?(proof_id)
+      @revoked
+    end
+  end
+
+  # --- Mock: PG Pool + Connection ---
+
+  class MockPgPool
+    attr_reader :exec_count
+
+    def initialize(existing_payment: nil, record_fails: false)
+      @existing_payment = existing_payment
+      @record_fails = record_fails
+      @exec_count = 0
+      @committed = false
+      @rolled_back = false
+    end
+
+    def committed? = @committed
+    def rolled_back? = @rolled_back
+
+    # Used for duplicate check outside transaction
+    def exec_params(sql, params = [])
+      if sql.include?('payment_records') && sql.include?('SELECT')
+        return MockPgResult.new(@existing_payment ? [@existing_payment] : [])
+      end
+      MockPgResult.new([])
+    end
+
+    # Used for transaction
+    def with_connection
+      conn = MockPgConnection.new(
+        existing_payment: @existing_payment,
+        record_fails: @record_fails,
+        pool: self
+      )
+      yield conn
+    end
+
+    def record_commit!
+      @committed = true
+    end
+
+    def record_rollback!
+      @rolled_back = true
+    end
+
+    def inc_exec!
+      @exec_count += 1
+    end
+  end
+
+  class MockPgConnection
+    def initialize(existing_payment:, record_fails:, pool:)
+      @existing_payment = existing_payment
+      @record_fails = record_fails
+      @pool = pool
+    end
+
+    def exec(sql)
+      @pool.inc_exec!
+      if sql == 'COMMIT'
+        @pool.record_commit!
+      elsif sql == 'ROLLBACK'
+        @pool.record_rollback!
+      end
+    end
+
+    def exec_params(sql, params = [])
+      @pool.inc_exec!
+      if @record_fails && sql.include?('payment_records') && sql.include?('INSERT')
+        raise RuntimeError, 'Simulated record_payment failure'
+      end
+      if sql.include?('SELECT')
+        return MockPgResult.new([{ 'plan' => 'free' }])
+      end
+      MockPgResult.new([])
+    end
+  end
+
+  class MockPgResult
+    def initialize(rows)
+      @rows = rows
+    end
+
+    def ntuples = @rows.length
+    def [](idx) = @rows[idx]
+  end
+end
