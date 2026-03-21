@@ -84,6 +84,10 @@ module ServiceGrant
       @services.dig(service, 'billing_model') || 'free'
     end
 
+    def subscription_duration(service, plan)
+      @services.dig(service, 'plans', plan, 'subscription_duration')
+    end
+
     def authorized_payment_issuers
       @config.dig('payment', 'authorized_issuers') || []
     end
@@ -107,6 +111,15 @@ module ServiceGrant
         model = svc['billing_model']
         unless BILLING_MODELS.include?(model)
           raise ConfigValidationError, "Invalid billing_model '#{model}' for service '#{name}'"
+        end
+
+        (svc['plans'] || {}).each do |plan_name, plan_cfg|
+          duration = plan_cfg['subscription_duration']
+          next unless duration
+          unless duration.is_a?(Integer) && duration > 0
+            raise ConfigValidationError,
+              "subscription_duration for #{name}/#{plan_name} must be a positive integer, got #{duration.inspect}"
+          end
         end
       end
     end

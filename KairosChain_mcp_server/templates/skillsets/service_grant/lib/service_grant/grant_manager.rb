@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'time'
+
 module ServiceGrant
   class GrantManager
     GRANT_CREATION_COOLDOWN = 300  # 5 minutes
@@ -89,6 +91,25 @@ module ServiceGrant
       parse_grant_row(result[0])
     end
 
+    def downgrade_to_free(pubkey_hash, service:)
+      version = @plans.current_version(service, 'free')
+      result = @pg.exec_params(<<~SQL, [version, pubkey_hash, service])
+        UPDATE service_grants
+        SET plan = 'free', plan_version = $1, subscription_expires_at = NULL, last_active_at = NOW()
+        WHERE pubkey_hash = $2 AND service = $3
+          AND subscription_expires_at IS NOT NULL
+          AND subscription_expires_at < NOW()
+        RETURNING id
+      SQL
+
+      if result.ntuples > 0
+        record_grant_event(pubkey_hash, service, 'subscription_expired')
+        true
+      else
+        false
+      end
+    end
+
     def in_cooldown?(grant)
       return false unless grant[:first_seen_at]
       (Time.now - grant[:first_seen_at]) < GRANT_CREATION_COOLDOWN
@@ -126,6 +147,7 @@ module ServiceGrant
         suspended_reason: row['suspended_reason'],
         first_seen_at: row['first_seen_at'] ? Time.parse(row['first_seen_at']) : nil,
         last_active_at: row['last_active_at'] ? Time.parse(row['last_active_at']) : nil,
+        subscription_expires_at: row['subscription_expires_at'] ? Time.parse(row['subscription_expires_at']) : nil,
         newly_created: row['newly_created'] == 't'
       }
     end

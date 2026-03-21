@@ -26,6 +26,17 @@ module ServiceGrant
           message: "Grant suspended: #{grant[:suspended_reason]}")
       end
 
+      # 1.5 Subscription expiry check (lazy downgrade)
+      if grant[:subscription_expires_at] && Time.now > grant[:subscription_expires_at]
+        downgraded = @grant_manager.downgrade_to_free(pubkey_hash, service: service)
+        if downgraded
+          grant[:plan] = 'free'
+        else
+          # DB says subscription is still active (concurrent renewal or clock skew)
+          grant = @grant_manager.get_grant(pubkey_hash, service: service) || grant
+        end
+      end
+
       plan = grant[:plan]
 
       # 2. Delayed activation check (Sybil mitigation)

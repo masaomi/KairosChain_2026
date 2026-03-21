@@ -1572,6 +1572,7 @@ class TestPaymentVerifierValidation < Minitest::Test
     def plan_exists?(_s, _p) = true
     def billing_model(_s) = 'per_action'
     def current_version(_s, _p) = 'v1'
+    def subscription_duration(_s, _p) = nil
   end
 end
 
@@ -1915,6 +1916,7 @@ class TestPaymentVerifierIntegration < Minitest::Test
     def plan_exists?(_s, _p) = @plan_exists
     def billing_model(_s) = 'per_action'
     def current_version(_s, _p) = 'v1'
+    def subscription_duration(_s, _p) = nil
   end
 
   # --- Mock: Synoptis Registry ---
@@ -2039,5 +2041,230 @@ class TestPaymentVerifierIntegration < Minitest::Test
 
     def ntuples = @rows.length
     def [](idx) = @rows[idx]
+  end
+end
+
+# === Phase 3b: Subscription Expiry + provider_tx_id Tests ===
+
+class TestSubscriptionExpiry < Minitest::Test
+  def setup
+    require 'service_grant/errors'
+    require 'service_grant/access_checker'
+  end
+
+  def test_expired_subscription_downgrades
+    grant = {
+      suspended: false, plan: 'pro',
+      first_seen_at: Time.now - 600,
+      subscription_expires_at: Time.now - 3600
+    }
+    gm = MockGrantManagerExpiry.new(grant, downgrade_result: true)
+    ut = MockUsageTrackerCapture.new(true)
+    checker = build_expiry_checker(gm, ut: ut)
+    checker.check_access(pubkey_hash: 'b' * 64, action: 'write', service: 'svc')
+    assert_equal 'free', ut.last_plan
+  end
+
+  def test_active_subscription_keeps_plan
+    grant = {
+      suspended: false, plan: 'pro',
+      first_seen_at: Time.now - 600,
+      subscription_expires_at: Time.now + 86_400
+    }
+    gm = MockGrantManagerExpiry.new(grant)
+    ut = MockUsageTrackerCapture.new(true)
+    checker = build_expiry_checker(gm, ut: ut)
+    checker.check_access(pubkey_hash: 'b' * 64, action: 'write', service: 'svc')
+    assert_equal 'pro', ut.last_plan
+  end
+
+  def test_nil_expiry_no_downgrade
+    grant = {
+      suspended: false, plan: 'pro',
+      first_seen_at: Time.now - 600,
+      subscription_expires_at: nil
+    }
+    gm = MockGrantManagerExpiry.new(grant)
+    ut = MockUsageTrackerCapture.new(true)
+    checker = build_expiry_checker(gm, ut: ut)
+    checker.check_access(pubkey_hash: 'b' * 64, action: 'write', service: 'svc')
+    assert_equal 'pro', ut.last_plan
+  end
+
+  def test_concurrent_renewal_reread_grant
+    expired_grant = {
+      suspended: false, plan: 'pro',
+      first_seen_at: Time.now - 600,
+      subscription_expires_at: Time.now - 10
+    }
+    renewed_grant = {
+      suspended: false, plan: 'pro',
+      first_seen_at: Time.now - 600,
+      subscription_expires_at: Time.now + 86_400
+    }
+    gm = MockGrantManagerExpiry.new(expired_grant, downgrade_result: false, reread_grant: renewed_grant)
+    ut = MockUsageTrackerCapture.new(true)
+    checker = build_expiry_checker(gm, ut: ut)
+    checker.check_access(pubkey_hash: 'b' * 64, action: 'write', service: 'svc')
+    assert_equal 'pro', ut.last_plan
+  end
+
+  private
+
+  def build_expiry_checker(gm, ut: nil)
+    ut ||= MockUsageTrackerCapture.new(true)
+    pr = MockPlanRegistryExpiry.new(true)
+    cm = MockCycleManagerSimple.new
+    ServiceGrant::AccessChecker.new(
+      grant_manager: gm, usage_tracker: ut,
+      plan_registry: pr, cycle_manager: cm
+    )
+  end
+
+  class MockGrantManagerExpiry
+    def initialize(grant, downgrade_result: nil, reread_grant: nil)
+      @grant = grant
+      @downgrade_result = downgrade_result
+      @reread_grant = reread_grant
+    end
+
+    def ensure_grant(_h, service:, remote_ip: nil) = @grant
+    def in_cooldown?(_g) = false
+
+    def downgrade_to_free(_h, service:)
+      @downgrade_result
+    end
+
+    def get_grant(_h, service:)
+      @reread_grant
+    end
+  end
+
+  class MockUsageTrackerCapture
+    attr_reader :last_plan
+    def initialize(result) = @result = result
+    def try_consume(_h, service:, action:, plan:)
+      @last_plan = plan
+      @result
+    end
+  end
+
+  class MockPlanRegistryExpiry
+    def initialize(gated) = @gated = gated
+    def gated_action?(_s, _a) = @gated
+    def write_action?(_s, _a) = false
+    def trust_requirement(_s, _p, _a) = nil
+    def action_for_tool(_s, t) = t
+  end
+
+  class MockCycleManagerSimple
+    def current_cycle_end(_s) = Time.now.utc + 86_400
+  end
+end
+
+class TestSubscriptionDurationConfig < Minitest::Test
+  def setup
+    require 'service_grant/errors'
+    require 'service_grant/plan_registry'
+  end
+
+  def test_subscription_duration_from_config
+    pr = build_registry(duration: 30)
+    assert_equal 30, pr.subscription_duration('svc', 'pro')
+  end
+
+  def test_subscription_duration_nil_for_free
+    pr = build_registry(duration: nil)
+    assert_nil pr.subscription_duration('svc', 'pro')
+  end
+
+  def test_subscription_duration_zero_raises
+    assert_raises(ServiceGrant::ConfigValidationError) do
+      build_registry(duration: 0)
+    end
+  end
+
+  def test_subscription_duration_negative_raises
+    assert_raises(ServiceGrant::ConfigValidationError) do
+      build_registry(duration: -5)
+    end
+  end
+
+  def test_subscription_duration_string_raises
+    assert_raises(ServiceGrant::ConfigValidationError) do
+      build_registry(duration: '30')
+    end
+  end
+
+  private
+
+  def build_registry(duration:)
+    require 'yaml'
+    require 'tempfile'
+    plan = { 'limits' => { 'read' => -1 } }
+    plan['subscription_duration'] = duration if duration
+    config = {
+      'services' => {
+        'svc' => {
+          'billing_model' => 'subscription',
+          'plans' => { 'pro' => plan }
+        }
+      }
+    }
+    f = Tempfile.new(['test_sub_dur', '.yml'])
+    f.write(YAML.dump(config))
+    f.close
+    @_tempfiles ||= []
+    @_tempfiles << f.path
+    ServiceGrant::PlanRegistry.new(f.path)
+  end
+
+  def teardown
+    (@_tempfiles || []).each { |p| File.delete(p) if File.exist?(p) }
+  end
+end
+
+class TestProviderTxId < Minitest::Test
+  def setup
+    require 'service_grant/errors'
+    require 'service_grant/payment_verifier'
+  end
+
+  def test_provider_tx_id_included_in_evidence_parsing
+    pv = build_pv_simple
+    proof = MockProofEvidence.new('payment_verified', JSON.generate({
+      'payment_intent_id' => 'pi_1', 'service' => 'mp', 'plan' => 'pro',
+      'amount' => '9.99', 'currency' => 'USD', 'nonce' => 'n1',
+      'provider_tx_id' => 'pi_stripe_123'
+    }))
+    evidence = pv.send(:parse_evidence, proof)
+    assert_equal 'pi_stripe_123', evidence['provider_tx_id']
+  end
+
+  def test_provider_tx_id_optional
+    pv = build_pv_simple
+    proof = MockProofEvidence.new('payment_verified', JSON.generate({
+      'payment_intent_id' => 'pi_1', 'service' => 'mp', 'plan' => 'pro',
+      'amount' => '9.99', 'currency' => 'USD', 'nonce' => 'n1'
+    }))
+    evidence = pv.send(:parse_evidence, proof)
+    assert_nil evidence['provider_tx_id']
+  end
+
+  private
+
+  def build_pv_simple
+    pr = MockPlanRegistryPaySimple.new
+    ServiceGrant::PaymentVerifier.new(
+      grant_manager: nil, pg_pool: nil,
+      plan_registry: pr, synoptis_registry: :stub
+    )
+  end
+
+  MockProofEvidence = Struct.new(:claim, :evidence)
+
+  class MockPlanRegistryPaySimple
+    def authorized_payment_issuers = []
+    def attestation_max_age = 86_400
   end
 end

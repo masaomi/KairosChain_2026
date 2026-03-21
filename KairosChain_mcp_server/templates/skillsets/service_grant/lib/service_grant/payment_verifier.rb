@@ -270,26 +270,40 @@ module ServiceGrant
           )
           old_plan = result.ntuples > 0 ? result[0]['plan'] : 'free'
 
-          # Upgrade plan
+          # Upgrade plan + set/clear subscription expiry in single UPDATE
           new_version = @plan_registry.current_version(service, new_plan)
-          conn.exec_params(<<~SQL, [new_plan, new_version, payer, service])
-            UPDATE service_grants
-            SET plan = $1, plan_version = $2, last_active_at = NOW()
-            WHERE pubkey_hash = $3 AND service = $4
-          SQL
+          duration = @plan_registry.subscription_duration(service, new_plan)
+          if duration
+            conn.exec_params(<<~SQL, [new_plan, new_version, duration, payer, service])
+              UPDATE service_grants
+              SET plan = $1, plan_version = $2,
+                  subscription_expires_at = NOW() + INTERVAL '1 day' * $3,
+                  last_active_at = NOW()
+              WHERE pubkey_hash = $4 AND service = $5
+            SQL
+          else
+            conn.exec_params(<<~SQL, [new_plan, new_version, payer, service])
+              UPDATE service_grants
+              SET plan = $1, plan_version = $2,
+                  subscription_expires_at = NULL,
+                  last_active_at = NOW()
+              WHERE pubkey_hash = $3 AND service = $4
+            SQL
+          end
 
-          # Record payment
+          # Record payment (with provider_tx_id)
           payment_params = [
             payer, service, payment_intent_id, proof.proof_id,
             'attestation', evidence['amount'], evidence['currency'],
-            evidence['amount'], old_plan, new_plan, evidence['nonce']
+            evidence['amount'], old_plan, new_plan, evidence['nonce'],
+            evidence['provider_tx_id']
           ]
           conn.exec_params(<<~SQL, payment_params)
             INSERT INTO payment_records
               (pubkey_hash, service, payment_intent_id, attestation_hash,
                payment_type, amount, currency, amount_display,
-               old_plan, new_plan, nonce)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+               old_plan, new_plan, nonce, provider_tx_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
           SQL
 
           conn.exec('COMMIT')
