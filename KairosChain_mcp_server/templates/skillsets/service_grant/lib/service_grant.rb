@@ -3,7 +3,8 @@
 module ServiceGrant
   class << self
     attr_reader :pg_pool, :plan_registry, :cycle_manager, :grant_manager,
-                :usage_tracker, :access_checker, :ip_resolver, :load_error
+                :usage_tracker, :access_checker, :ip_resolver, :load_error,
+                :payment_verifier
 
     def load!
       return if @loaded
@@ -50,8 +51,14 @@ module ServiceGrant
       @usage_tracker = UsageTracker.new(pg_pool: @pg_pool, plan_registry: @plan_registry,
                                          cycle_manager: @cycle_manager)
 
-      # 4. Trust scorer (optional — requires Synoptis SkillSet)
-      @trust_scorer_adapter = build_trust_scorer(config)
+      # 4. Synoptis registry (shared between trust scorer and payment verifier)
+      @synoptis_registry = build_synoptis_registry(config)
+
+      # 4a. Trust scorer (optional — requires trust_requirements)
+      @trust_scorer_adapter = build_trust_scorer_with_registry(config, @synoptis_registry)
+
+      # 4b. Payment verifier (optional — requires authorized_issuers)
+      @payment_verifier = build_payment_verifier
 
       # 5. Unified access checker
       @access_checker = AccessChecker.new(
@@ -82,9 +89,11 @@ module ServiceGrant
       @load_error = { type: 'pg_gem_missing', message: "pg gem is not installed. Run: gem install pg" }
       warn "[ServiceGrant] #{@load_error[:message]}"
     rescue PG::ConnectionBad => e
+      unload!
       @load_error = { type: 'pg_server_unavailable', message: "PostgreSQL unavailable: #{e.message}" }
       warn "[ServiceGrant] #{@load_error[:message]}"
     rescue ConfigValidationError => e
+      unload!
       @load_error = { type: 'config_error', message: "Config invalid: #{e.message}" }
       warn "[ServiceGrant] #{@load_error[:message]}"
     rescue StandardError => e
@@ -113,15 +122,28 @@ module ServiceGrant
       @enricher = nil
       @circuit_breaker = nil
       @trust_scorer_adapter = nil
+      @payment_verifier = nil
+      @synoptis_registry = nil
+      @ip_resolver = nil
       @loaded = false
     end
 
     private
 
-    def build_trust_scorer(config)
+    def build_synoptis_registry(config)
+      return nil unless defined?(Synoptis::Registry::FileRegistry)
+      ts_config = config['trust_scorer'] || {}
+      registry_path = ts_config['registry_path'] || 'storage/synoptis_registry'
+      Synoptis::Registry::FileRegistry.new(data_dir: registry_path)
+    rescue StandardError => e
+      warn "[ServiceGrant] Synoptis registry init failed (non-fatal): #{e.message}"
+      nil
+    end
+
+    def build_trust_scorer_with_registry(config, registry)
       trust_required = @plan_registry.trust_requirements_configured?
 
-      unless defined?(Synoptis::TrustScorer) && defined?(Synoptis::Registry)
+      unless registry && defined?(Synoptis::TrustScorer)
         if trust_required
           raise ConfigValidationError,
             "trust_requirements are configured but Synoptis SkillSet is not available. " \
@@ -134,12 +156,7 @@ module ServiceGrant
       begin
         ts_config = config['trust_scorer'] || {}
         cache_ttl = ts_config.dig('anti_collusion', 'cache_ttl') || 300
-
-        # Access the Synoptis registry (file-backed)
-        registry_path = ts_config['registry_path'] || 'storage/synoptis_registry'
-        registry = Synoptis::Registry::FileRegistry.new(data_dir: registry_path)
         scorer = Synoptis::TrustScorer.new(registry: registry, config: ts_config)
-
         TrustScorerAdapter.new(scorer: scorer, cache_ttl: cache_ttl)
       rescue StandardError => e
         if trust_required
@@ -149,6 +166,23 @@ module ServiceGrant
         warn "[ServiceGrant] TrustScorer initialization failed (non-fatal): #{e.message}"
         nil
       end
+    end
+
+    def build_payment_verifier
+      issuers = @plan_registry.authorized_payment_issuers
+      return nil if issuers.empty?
+
+      unless @synoptis_registry
+        raise ConfigValidationError,
+          "authorized_payment_issuers configured but Synoptis registry not available"
+      end
+
+      PaymentVerifier.new(
+        grant_manager: @grant_manager,
+        pg_pool: @pg_pool,
+        plan_registry: @plan_registry,
+        synoptis_registry: @synoptis_registry
+      )
     end
 
     def load_config

@@ -168,6 +168,60 @@ class TestPlanRegistry < Minitest::Test
     assert @pr.trust_requirements_configured?
   end
 
+  def test_trust_requirements_non_numeric_raises
+    require 'yaml'
+    require 'tempfile'
+    config = {
+      'services' => {
+        'svc' => {
+          'billing_model' => 'free',
+          'plans' => {
+            'free' => {
+              'limits' => { 'read' => -1 },
+              'trust_requirements' => { 'write' => 'strict' }
+            }
+          }
+        }
+      }
+    }
+    f = Tempfile.new(['test_bad_trust', '.yml'])
+    f.write(YAML.dump(config))
+    f.close
+    pr = ServiceGrant::PlanRegistry.new(f.path)
+    err = assert_raises(ServiceGrant::ConfigValidationError) do
+      pr.trust_requirements_configured?
+    end
+    assert_includes err.message, 'must be numeric'
+    File.delete(f.path)
+  end
+
+  def test_trust_requirements_non_numeric_after_valid_raises
+    require 'yaml'
+    require 'tempfile'
+    config = {
+      'services' => {
+        'svc' => {
+          'billing_model' => 'free',
+          'plans' => {
+            'free' => {
+              'limits' => { 'read' => -1, 'write' => 5 },
+              'trust_requirements' => { 'write' => 0.5, 'admin' => 'high' }
+            }
+          }
+        }
+      }
+    }
+    f = Tempfile.new(['test_mixed_trust', '.yml'])
+    f.write(YAML.dump(config))
+    f.close
+    pr = ServiceGrant::PlanRegistry.new(f.path)
+    err = assert_raises(ServiceGrant::ConfigValidationError) do
+      pr.trust_requirements_configured?
+    end
+    assert_includes err.message, 'must be numeric'
+    File.delete(f.path)
+  end
+
   def test_trust_requirements_not_configured_when_all_zero
     require 'yaml'
     require 'tempfile'
@@ -625,6 +679,134 @@ class TestIpRateTrackerAtomic < Minitest::Test
   def test_record_if_allowed_independent_ips
     3.times { @tracker.record_if_allowed('1.2.3.4') }
     assert @tracker.record_if_allowed('5.6.7.8')
+  end
+end
+
+# === Phase 2 Follow-up: build_trust_scorer fail-closed tests ===
+
+class TestBuildTrustScorerFailClosed < Minitest::Test
+  def setup
+    require 'service_grant/errors'
+    require 'service_grant/plan_registry'
+  end
+
+  def test_trust_required_without_synoptis_raises
+    # Simulate: trust_requirements configured but Synoptis module not defined
+    plan_registry = build_trust_registry(trust_threshold: 0.5)
+
+    # Hide Synoptis if it's defined (save and remove)
+    synoptis_defined = defined?(Synoptis::TrustScorer)
+    saved_synoptis = Synoptis if synoptis_defined
+
+    # Temporarily undefine Synoptis for this test
+    if synoptis_defined
+      Object.send(:remove_const, :Synoptis)
+    end
+
+    begin
+      err = assert_raises(ServiceGrant::ConfigValidationError) do
+        build_trust_scorer_standalone(plan_registry, {})
+      end
+      assert_includes err.message, 'Synoptis SkillSet is not available'
+    ensure
+      # Restore Synoptis if it was defined
+      if synoptis_defined
+        Object.const_set(:Synoptis, saved_synoptis)
+      end
+    end
+  end
+
+  def test_trust_not_required_without_synoptis_returns_nil
+    plan_registry = build_trust_registry(trust_threshold: 0.0)
+
+    synoptis_defined = defined?(Synoptis::TrustScorer)
+    saved_synoptis = Synoptis if synoptis_defined
+
+    if synoptis_defined
+      Object.send(:remove_const, :Synoptis)
+    end
+
+    begin
+      result = build_trust_scorer_standalone(plan_registry, {})
+      assert_nil result
+    ensure
+      if synoptis_defined
+        Object.const_set(:Synoptis, saved_synoptis)
+      end
+    end
+  end
+
+  def test_load_cleanup_on_config_validation_error
+    # Verify that ConfigValidationError in load! triggers unload!
+    # by checking that @loaded remains false and @load_error is set
+    # We test this indirectly: if unload! is called, @pg_pool should be nil
+    # (Previously, ConfigValidationError rescue did NOT call unload!)
+
+    # This is a structural test: verify the rescue clause includes unload!
+    source = File.read(File.expand_path('../lib/service_grant.rb', __dir__))
+    config_rescue = source[/rescue ConfigValidationError.*?(?=rescue|\z)/m]
+    assert_includes config_rescue, 'unload!',
+      "ConfigValidationError rescue must call unload! to clean up partial state"
+  end
+
+  private
+
+  def build_trust_registry(trust_threshold:)
+    require 'yaml'
+    require 'tempfile'
+    limits = trust_threshold > 0 ? { 'write' => 5 } : { 'read' => -1 }
+    trust_req = trust_threshold > 0 ? { 'write' => trust_threshold } : {}
+    config = {
+      'services' => {
+        'svc' => {
+          'billing_model' => 'free',
+          'plans' => {
+            'free' => { 'limits' => limits, 'trust_requirements' => trust_req }
+          }
+        }
+      }
+    }
+    f = Tempfile.new(['test_trust_scorer', '.yml'])
+    f.write(YAML.dump(config))
+    f.close
+    # Store tempfile path for cleanup
+    @_tempfiles ||= []
+    @_tempfiles << f.path
+    ServiceGrant::PlanRegistry.new(f.path)
+  end
+
+  def teardown
+    (@_tempfiles || []).each { |p| File.delete(p) if File.exist?(p) }
+  end
+
+  # Replicate build_trust_scorer logic for isolated testing
+  # (avoids requiring full ServiceGrant.load! with PG dependency)
+  def build_trust_scorer_standalone(plan_registry, config)
+    trust_required = plan_registry.trust_requirements_configured?
+
+    unless defined?(Synoptis::TrustScorer) && defined?(Synoptis::Registry)
+      if trust_required
+        raise ServiceGrant::ConfigValidationError,
+          "trust_requirements are configured but Synoptis SkillSet is not available. " \
+          "Either add synoptis to depends_on or remove trust_requirements from config."
+      end
+      return nil
+    end
+
+    begin
+      ts_config = config['trust_scorer'] || {}
+      cache_ttl = ts_config.dig('anti_collusion', 'cache_ttl') || 300
+      registry_path = ts_config['registry_path'] || 'storage/synoptis_registry'
+      registry = Synoptis::Registry::FileRegistry.new(data_dir: registry_path)
+      scorer = Synoptis::TrustScorer.new(registry: registry, config: ts_config)
+      ServiceGrant::TrustScorerAdapter.new(scorer: scorer, cache_ttl: cache_ttl)
+    rescue StandardError => e
+      if trust_required
+        raise ServiceGrant::ConfigValidationError,
+          "trust_requirements are configured but TrustScorer failed to initialize: #{e.message}"
+      end
+      nil
+    end
   end
 end
 
@@ -1132,5 +1314,263 @@ class TestPgConnectionPoolBounded < Minitest::Test
       # PG connection error is fine — we just want to verify it's NOT PoolExhaustedError
     end
     assert_nil err, "Should not raise PoolExhaustedError — @checked_out should have been rolled back"
+  end
+end
+
+# === Phase 3a: PaymentVerifier Tests ===
+
+# Stub PG::UniqueViolation for isolated testing
+module PG; class UniqueViolation < PG::Error; end unless defined?(PG::UniqueViolation); end
+
+# Stub Synoptis::TrustIdentity for isolated testing
+unless defined?(Synoptis::TrustIdentity)
+  module Synoptis
+    module TrustIdentity
+      def self.extract_pubkey_hash(ref)
+        return nil unless ref
+        ref = ref.sub('agent://', '') if ref.start_with?('agent://')
+        ref.length == 64 ? ref : nil
+      end
+    end
+  end
+end
+
+class TestPaymentVerifierValidation < Minitest::Test
+  def setup
+    require 'service_grant/errors'
+    require 'service_grant/payment_verifier'
+  end
+
+  def test_verify_nonce_valid
+    pv = build_pv
+    # Should not raise
+    pv.send(:verify_nonce, { 'nonce' => 'abc123' })
+  end
+
+  def test_verify_nonce_nil_raises
+    pv = build_pv
+    err = assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.send(:verify_nonce, { 'nonce' => nil })
+    end
+    assert_includes err.message, 'Nonce is required'
+  end
+
+  def test_verify_nonce_empty_raises
+    pv = build_pv
+    assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.send(:verify_nonce, { 'nonce' => '' })
+    end
+  end
+
+  def test_verify_nonce_whitespace_raises
+    pv = build_pv
+    assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.send(:verify_nonce, { 'nonce' => '   ' })
+    end
+  end
+
+  def test_verify_freshness_valid
+    pv = build_pv
+    proof = MockProofTime.new(Time.now.utc.iso8601)
+    pv.send(:verify_freshness, proof)
+  end
+
+  def test_verify_freshness_expired
+    pv = build_pv
+    proof = MockProofTime.new((Time.now - 100_000).utc.iso8601)
+    assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.send(:verify_freshness, proof)
+    end
+  end
+
+  def test_verify_freshness_future
+    pv = build_pv
+    proof = MockProofTime.new((Time.now + 120).utc.iso8601)
+    assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.send(:verify_freshness, proof)
+    end
+  end
+
+  def test_verify_freshness_malformed_timestamp
+    pv = build_pv
+    proof = MockProofTime.new('not-a-date')
+    err = assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.send(:verify_freshness, proof)
+    end
+    assert_includes err.message, 'timestamp format'
+  end
+
+  def test_parse_evidence_valid
+    pv = build_pv
+    proof = MockProofEvidence.new('payment_verified', JSON.generate({
+      'payment_intent_id' => 'pi_1', 'service' => 'mp', 'plan' => 'pro',
+      'amount' => '9.99', 'currency' => 'USD', 'nonce' => 'n1'
+    }))
+    evidence = pv.send(:parse_evidence, proof)
+    assert_equal 'pi_1', evidence['payment_intent_id']
+  end
+
+  def test_parse_evidence_wrong_claim
+    pv = build_pv
+    proof = MockProofEvidence.new('integrity_verified', '{}')
+    assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.send(:parse_evidence, proof)
+    end
+  end
+
+  def test_parse_evidence_missing_fields
+    pv = build_pv
+    proof = MockProofEvidence.new('payment_verified', JSON.generate({ 'service' => 'mp' }))
+    err = assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.send(:parse_evidence, proof)
+    end
+    assert_includes err.message, 'Missing evidence fields'
+  end
+
+  def test_parse_evidence_malformed_json
+    pv = build_pv
+    proof = MockProofEvidence.new('payment_verified', 'not-json')
+    assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.send(:parse_evidence, proof)
+    end
+  end
+
+  def test_parse_evidence_hash_type
+    pv = build_pv
+    # evidence is already a Hash (not String) — should still work
+    proof = MockProofEvidence.new('payment_verified', {
+      'payment_intent_id' => 'pi_1', 'service' => 'mp', 'plan' => 'pro',
+      'amount' => '9.99', 'currency' => 'USD', 'nonce' => 'n1'
+    })
+    evidence = pv.send(:parse_evidence, proof)
+    assert_equal 'pi_1', evidence['payment_intent_id']
+  end
+
+  def test_verify_issuer_authorized
+    pv = build_pv(issuers: ['aaa' * 21 + 'a'])
+    proof = MockProofAttester.new("agent://#{('aaa' * 21) + 'a'}")
+    pv.send(:verify_issuer, proof)
+  end
+
+  def test_verify_issuer_unauthorized
+    pv = build_pv(issuers: ['bbb' * 21 + 'b'])
+    proof = MockProofAttester.new("agent://#{('aaa' * 21) + 'a'}")
+    assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.send(:verify_issuer, proof)
+    end
+  end
+
+  def test_verify_issuer_empty_list
+    pv = build_pv(issuers: [])
+    proof = MockProofAttester.new("agent://#{('aaa' * 21) + 'a'}")
+    assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.send(:verify_issuer, proof)
+    end
+  end
+
+  def test_verify_amount_matches
+    pv = build_pv
+    evidence = { 'service' => 'test_service', 'plan' => 'pro', 'amount' => '9.99', 'currency' => 'USD' }
+    pv.send(:verify_amount_matches_plan, evidence)
+  end
+
+  def test_verify_amount_mismatch
+    pv = build_pv
+    evidence = { 'service' => 'test_service', 'plan' => 'pro', 'amount' => '1.00', 'currency' => 'USD' }
+    assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.send(:verify_amount_matches_plan, evidence)
+    end
+  end
+
+  def test_verify_currency_mismatch
+    pv = build_pv
+    evidence = { 'service' => 'test_service', 'plan' => 'pro', 'amount' => '9.99', 'currency' => 'CHF' }
+    assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.send(:verify_amount_matches_plan, evidence)
+    end
+  end
+
+  def test_verify_amount_free_plan_no_price
+    pv = build_pv
+    evidence = { 'service' => 'test_service', 'plan' => 'free', 'amount' => '0', 'currency' => 'USD' }
+    # Free plan has no subscription_price → skip amount check
+    pv.send(:verify_amount_matches_plan, evidence)
+  end
+
+  def test_validate_raw_proof_missing_proof_id
+    pv = build_pv
+    assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.send(:validate_raw_proof, { 'timestamp' => 'x', 'signature' => 'y' })
+    end
+  end
+
+  def test_validate_raw_proof_missing_timestamp
+    pv = build_pv
+    assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.send(:validate_raw_proof, { 'proof_id' => 'x', 'signature' => 'y' })
+    end
+  end
+
+  def test_validate_raw_proof_missing_signature
+    pv = build_pv
+    assert_raises(ServiceGrant::InvalidAttestationError) do
+      pv.send(:validate_raw_proof, { 'proof_id' => 'x', 'timestamp' => 'y' })
+    end
+  end
+
+  def test_no_synoptis_raises_config_error
+    pv = ServiceGrant::PaymentVerifier.new(
+      grant_manager: nil, pg_pool: nil,
+      plan_registry: MockPlanRegistryPay.new, synoptis_registry: nil
+    )
+    assert_raises(ServiceGrant::ConfigValidationError) do
+      pv.verify_and_upgrade({})
+    end
+  end
+
+  def test_config_authorized_issuers
+    pr = MockPlanRegistryPay.new(issuers: ['abc123'])
+    assert_equal ['abc123'], pr.authorized_payment_issuers
+  end
+
+  def test_config_max_age
+    pr = MockPlanRegistryPay.new(max_age: 3600)
+    assert_equal 3600, pr.attestation_max_age
+  end
+
+  def test_config_empty_issuers_default
+    pr = MockPlanRegistryPay.new
+    assert_equal [], pr.authorized_payment_issuers
+  end
+
+  private
+
+  def build_pv(issuers: ['aaa' * 21 + 'a'], max_age: 86_400)
+    pr = MockPlanRegistryPay.new(issuers: issuers, max_age: max_age)
+    ServiceGrant::PaymentVerifier.new(
+      grant_manager: nil, pg_pool: nil,
+      plan_registry: pr, synoptis_registry: :stub
+    )
+  end
+
+  MockProofTime = Struct.new(:timestamp)
+  MockProofEvidence = Struct.new(:claim, :evidence)
+  MockProofAttester = Struct.new(:attester_id)
+
+  class MockPlanRegistryPay
+    def initialize(issuers: [], max_age: 86_400)
+      @issuers = issuers
+      @max_age = max_age
+    end
+    def authorized_payment_issuers = @issuers
+    def attestation_max_age = @max_age
+    def subscription_price(service, plan)
+      return nil if plan == 'free'
+      '9.99'
+    end
+    def currency(_service) = 'USD'
+    def plan_exists?(_s, _p) = true
+    def billing_model(_s) = 'per_action'
+    def current_version(_s, _p) = 'v1'
   end
 end

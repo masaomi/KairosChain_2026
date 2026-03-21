@@ -9,7 +9,8 @@
   "tool_classes": [
     "KairosMcp::SkillSets::ServiceGrantTools::ServiceGrantStatus",
     "KairosMcp::SkillSets::ServiceGrantTools::ServiceGrantManage",
-    "KairosMcp::SkillSets::ServiceGrantTools::ServiceGrantMigrate"
+    "KairosMcp::SkillSets::ServiceGrantTools::ServiceGrantMigrate",
+    "KairosMcp::SkillSets::ServiceGrantTools::ServiceGrantPay"
   ],
   "config_files": ["config/service_grant.yml"],
   "knowledge_dirs": ["knowledge/service_grant_guide"],

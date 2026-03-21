@@ -53,12 +53,22 @@ module ServiceGrant
     end
 
     # Are any non-zero trust_requirements configured across all services/plans?
+    # Validates ALL entries first, then checks if any are positive.
+    # Raises ConfigValidationError if any threshold is non-numeric (e.g., "strict").
     def trust_requirements_configured?
-      @services.any? do |_name, svc|
-        (svc['plans'] || {}).any? do |_plan, cfg|
-          (cfg['trust_requirements'] || {}).any? { |_action, threshold| threshold.to_f > 0.0 }
+      has_positive = false
+      @services.each do |_name, svc|
+        (svc['plans'] || {}).each do |_plan, cfg|
+          (cfg['trust_requirements'] || {}).each do |action, threshold|
+            unless threshold.is_a?(Numeric)
+              raise ConfigValidationError,
+                "trust_requirements.#{action} must be numeric, got #{threshold.inspect}"
+            end
+            has_positive = true if threshold > 0.0
+          end
         end
       end
+      has_positive
     end
 
     def write_action?(service, action)
@@ -68,6 +78,18 @@ module ServiceGrant
 
     def subscription_price(service, plan)
       @services.dig(service, 'plans', plan, 'subscription_price')
+    end
+
+    def billing_model(service)
+      @services.dig(service, 'billing_model') || 'free'
+    end
+
+    def authorized_payment_issuers
+      @config.dig('payment', 'authorized_issuers') || []
+    end
+
+    def attestation_max_age
+      @config.dig('payment', 'attestation_max_age') || 86_400
     end
 
     def services
