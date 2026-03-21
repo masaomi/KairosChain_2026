@@ -1802,6 +1802,31 @@ class TestPaymentVerifierIntegration < Minitest::Test
     assert_includes err.message, 'Claim must be'
   end
 
+  # --- PG::UniqueViolation rescue path ---
+
+  def test_concurrent_duplicate_handled_via_unique_violation
+    # Simulate: duplicate check passes (no existing record), but INSERT hits
+    # PG::UniqueViolation due to concurrent insert by another process.
+    # The rescue should catch it and return idempotent success.
+    pv, pg_mock = build_full_pv(raises_unique_violation: true)
+    proof_data = build_valid_proof_data
+
+    result = pv.verify_and_upgrade(proof_data)
+    assert_equal true, result[:success]
+    assert_equal true, result[:idempotent]
+  end
+
+  # --- PlanNotFoundError ---
+
+  def test_full_chain_rejects_unknown_plan
+    pv, = build_full_pv(plan_exists: false)
+    proof_data = build_valid_proof_data
+
+    assert_raises(ServiceGrant::PlanNotFoundError) do
+      pv.verify_and_upgrade(proof_data)
+    end
+  end
+
   private
 
   def build_valid_proof_data(timestamp: Time.now.utc.iso8601, claim: 'payment_verified')
@@ -1830,10 +1855,13 @@ class TestPaymentVerifierIntegration < Minitest::Test
 
   def build_full_pv(issuers: [ISSUER_HASH], verifier_valid: true, verifier_errors: [],
                      has_public_key: true, existing_payment: nil,
-                     record_payment_fails: false, revoked: false)
+                     record_payment_fails: false, revoked: false,
+                     raises_unique_violation: false, plan_exists: true)
     registry = MockSynoptisRegistry.new(revoked: revoked)
-    pg_mock = MockPgPool.new(existing_payment: existing_payment, record_fails: record_payment_fails)
-    pr = MockPlanRegistryPay.new(issuers: issuers)
+    pg_mock = MockPgPool.new(existing_payment: existing_payment,
+                             record_fails: record_payment_fails,
+                             raises_unique_violation: raises_unique_violation)
+    pr = MockPlanRegistryPay.new(issuers: issuers, plan_exists: plan_exists)
 
     # Monkey-patch Synoptis::Verifier for this test
     original_verify = Synoptis::Verifier.instance_method(:verify)
@@ -1872,9 +1900,10 @@ class TestPaymentVerifierIntegration < Minitest::Test
   # --- Mock: PlanRegistry for integration ---
 
   class MockPlanRegistryPay
-    def initialize(issuers: [], max_age: 86_400)
+    def initialize(issuers: [], max_age: 86_400, plan_exists: true)
       @issuers = issuers
       @max_age = max_age
+      @plan_exists = plan_exists
     end
     def authorized_payment_issuers = @issuers
     def attestation_max_age = @max_age
@@ -1883,7 +1912,7 @@ class TestPaymentVerifierIntegration < Minitest::Test
       '9.99'
     end
     def currency(_service) = 'USD'
-    def plan_exists?(_s, _p) = true
+    def plan_exists?(_s, _p) = @plan_exists
     def billing_model(_s) = 'per_action'
     def current_version(_s, _p) = 'v1'
   end
@@ -1915,9 +1944,10 @@ class TestPaymentVerifierIntegration < Minitest::Test
   class MockPgPool
     attr_reader :exec_count
 
-    def initialize(existing_payment: nil, record_fails: false)
+    def initialize(existing_payment: nil, record_fails: false, raises_unique_violation: false)
       @existing_payment = existing_payment
       @record_fails = record_fails
+      @raises_unique_violation = raises_unique_violation
       @exec_count = 0
       @committed = false
       @rolled_back = false
@@ -1929,6 +1959,13 @@ class TestPaymentVerifierIntegration < Minitest::Test
     # Used for duplicate check outside transaction
     def exec_params(sql, params = [])
       if sql.include?('payment_records') && sql.include?('SELECT')
+        # After UniqueViolation, re-query returns the existing record
+        if @unique_violation_fired
+          return MockPgResult.new([{
+            'service' => 'mp', 'new_plan' => 'pro',
+            'amount' => '9.99', 'currency' => 'USD'
+          }])
+        end
         return MockPgResult.new(@existing_payment ? [@existing_payment] : [])
       end
       MockPgResult.new([])
@@ -1939,9 +1976,14 @@ class TestPaymentVerifierIntegration < Minitest::Test
       conn = MockPgConnection.new(
         existing_payment: @existing_payment,
         record_fails: @record_fails,
+        raises_unique_violation: @raises_unique_violation,
         pool: self
       )
       yield conn
+    end
+
+    def mark_unique_violation!
+      @unique_violation_fired = true
     end
 
     def record_commit!
@@ -1958,9 +2000,10 @@ class TestPaymentVerifierIntegration < Minitest::Test
   end
 
   class MockPgConnection
-    def initialize(existing_payment:, record_fails:, pool:)
+    def initialize(existing_payment:, record_fails:, pool:, raises_unique_violation: false)
       @existing_payment = existing_payment
       @record_fails = record_fails
+      @raises_unique_violation = raises_unique_violation
       @pool = pool
     end
 
@@ -1977,6 +2020,10 @@ class TestPaymentVerifierIntegration < Minitest::Test
       @pool.inc_exec!
       if @record_fails && sql.include?('payment_records') && sql.include?('INSERT')
         raise RuntimeError, 'Simulated record_payment failure'
+      end
+      if @raises_unique_violation && sql.include?('payment_records') && sql.include?('INSERT')
+        @pool.mark_unique_violation!
+        raise PG::UniqueViolation, 'duplicate key value violates unique constraint'
       end
       if sql.include?('SELECT')
         return MockPgResult.new([{ 'plan' => 'free' }])
