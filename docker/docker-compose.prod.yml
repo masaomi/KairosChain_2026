@@ -9,9 +9,17 @@ services:
       - caddy-data:/data
       - caddy-config:/config
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    networks:
+      - frontend
     depends_on:
       meeting-place:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:2019/config/", "||", "true"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
 
   meeting-place:
@@ -31,6 +39,9 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-kairoschain}
       - POSTGRES_USER=${POSTGRES_USER:-kairoschain}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    networks:
+      - frontend
+      - backend
     depends_on:
       postgres:
         condition: service_healthy
@@ -51,12 +62,18 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     volumes:
       - pg-data:/var/lib/postgresql/data
+    networks:
+      - backend
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kairoschain}"]
       interval: 5s
       timeout: 3s
       retries: 5
     restart: unless-stopped
+
+networks:
+  frontend:
+  backend:
 
 volumes:
   caddy-data:

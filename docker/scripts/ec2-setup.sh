@@ -18,16 +18,19 @@ sudo systemctl enable docker
 sudo systemctl start docker
 sudo usermod -aG docker "$USER"
 
-# Docker Compose plugin
+# Docker Compose plugin (from OS package manager for reproducibility)
 echo "[1/5] Installing Docker Compose plugin..."
-DOCKER_CLI_PLUGINS="${DOCKER_CLI_PLUGINS:-$HOME/.docker/cli-plugins}"
-mkdir -p "$DOCKER_CLI_PLUGINS"
-COMPOSE_VERSION=$(curl -sL https://api.github.com/repos/docker/compose/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
-ARCH=$(uname -m)
-curl -SL "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-${ARCH}" \
-  -o "$DOCKER_CLI_PLUGINS/docker-compose"
-chmod +x "$DOCKER_CLI_PLUGINS/docker-compose"
-echo "  Docker Compose ${COMPOSE_VERSION} installed."
+sudo dnf install -y -q docker-compose-plugin 2>/dev/null || {
+  echo "  dnf package not available, installing from GitHub..."
+  DOCKER_CLI_PLUGINS="${DOCKER_CLI_PLUGINS:-$HOME/.docker/cli-plugins}"
+  mkdir -p "$DOCKER_CLI_PLUGINS"
+  COMPOSE_VERSION="v2.32.4"
+  ARCH=$(uname -m)
+  curl -SL "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-${ARCH}" \
+    -o "$DOCKER_CLI_PLUGINS/docker-compose"
+  chmod +x "$DOCKER_CLI_PLUGINS/docker-compose"
+}
+echo "  Docker Compose installed: $(docker compose version 2>/dev/null || echo 'pending re-login')"
 
 # -------------------------------------------------------------------------
 # 2. Clone repository
@@ -38,6 +41,8 @@ if [ -d "$REPO_DIR" ]; then
   echo "  Repository already exists at $REPO_DIR. Pulling latest..."
   cd "$REPO_DIR" && git pull
 else
+  # NOTE: If repo is private, use SSH or set GH_TOKEN:
+  #   git clone https://${GH_TOKEN}@github.com/masaomi/KairosChain_2026.git
   git clone https://github.com/masaomi/KairosChain_2026.git "$REPO_DIR"
 fi
 cd "$REPO_DIR/docker"
@@ -49,7 +54,7 @@ echo "[3/5] Generating .env..."
 if [ -f .env ]; then
   echo "  .env already exists. Skipping generation."
 else
-  PG_PASS=$(openssl rand -base64 32 | tr -d '/+=')
+  PG_PASS=$(openssl rand -hex 32)
   cat > .env <<EOF
 POSTGRES_PASSWORD=${PG_PASS}
 POSTGRES_DB=kairoschain
@@ -73,14 +78,14 @@ sg docker -c "docker compose -f docker-compose.prod.yml up -d"
 echo "[5/5] Waiting for services to start..."
 sleep 15
 
-if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
+if sg docker -c "docker exec kairos-meeting-place curl -sf http://localhost:8080/health" > /dev/null 2>&1; then
   echo ""
   echo "=== Setup Complete ==="
   echo ""
   echo "Health check: OK"
-  sg docker -c "docker exec kairos-meeting-place cat /app/.kairos/.admin_token" && echo ""
   echo ""
-  echo "Admin token saved above. Store it securely."
+  echo "Admin token retrieval (run manually when needed):"
+  echo "  docker exec kairos-meeting-place cat /app/.kairos/.admin_token"
   echo ""
   echo "Next steps:"
   echo "  1. Point DNS A record for meeting.kairoschain.io -> $(curl -s http://checkip.amazonaws.com)"

@@ -20,6 +20,13 @@ if [ ! -f "$KAIROS_DATA_DIR/.kairos_meta.yml" ]; then
   echo "[entrypoint] Volume seeded."
 else
   echo "[entrypoint] Volume already initialized."
+  # Check for missing skillsets (upgrade scenario)
+  for ss in mmp hestia synoptis multiuser service_grant; do
+    if [ ! -d "$KAIROS_DATA_DIR/skillsets/$ss" ] && [ -d "/app/.kairos-template/skillsets/$ss" ]; then
+      echo "[entrypoint] WARNING: SkillSet '$ss' missing from volume. Copying from template..."
+      cp -a "/app/.kairos-template/skillsets/$ss" "$KAIROS_DATA_DIR/skillsets/$ss"
+    fi
+  done
 fi
 
 # -------------------------------------------------------------------------
