@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Synoptis: Mutual Attestation for Trustworthy MCP Agent Networks</title>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+<style>
+  body {
+    font-family: 'Georgia', 'Times New Roman', serif;
+    max-width: 800px;
+    margin: 2em auto;
+    padding: 0 1.5em;
+    line-height: 1.7;
+    color: #1a1a1a;
+    background: #fff;
+  }
+  h1 { font-size: 1.6em; text-align: center; margin-top: 2em; }
+  h2 { font-size: 1.3em; border-bottom: 1px solid #ccc; padding-bottom: 0.3em; margin-top: 2em; }
+  h3 { font-size: 1.1em; margin-top: 1.5em; }
+  p { text-align: justify; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 0.9em; }
+  th, td { border: 1px solid #ccc; padding: 0.5em 0.7em; text-align: left; }
+  th { background: #f5f5f5; font-weight: 600; }
+  pre { background: #f8f8f8; border: 1px solid #ddd; border-radius: 4px; padding: 1em; overflow-x: auto; font-size: 0.85em; line-height: 1.4; }
+  code { font-family: 'Menlo', 'Consolas', monospace; font-size: 0.9em; }
+  blockquote { border-left: 3px solid #ccc; margin-left: 0; padding-left: 1em; color: #555; }
+  hr { border: none; border-top: 1px solid #ddd; margin: 2em 0; }
+  ul, ol { padding-left: 1.5em; }
+  li { margin-bottom: 0.3em; }
+  @media print { body { font-size: 11pt; max-width: none; margin: 0; } }
+</style>
+</head>
+<body>
+<h1
+id="synoptis-mutual-attestation-for-trustworthy-mcp-agent-networks">Synoptis:
+Mutual Attestation for Trustworthy MCP Agent Networks</h1>
+<p><strong>Masaomi Hatakeyama</strong></p>
+<p>Genomics on Blockchain</p>
+<p><strong>DOI:</strong> <a
+href="https://doi.org/10.5281/zenodo.19161453">10.5281/zenodo.19161453</a></p>
+<p><strong>Date:</strong> March 2026</p>
+<hr />
+<h2 id="abstract">Abstract</h2>
+<p>The Model Context Protocol (MCP) enables AI agents to dynamically
+discover and invoke tools provided by external servers, creating
+flexible multi-agent networks. However, this dynamic capability
+acquisition introduces a fundamental trust problem: when agents can
+modify their available capabilities at runtime, static permission lists
+and single-protocol attestation are insufficient to ensure trustworthy
+interactions. Recent work on AttestMCP has shown that adding capability
+attestation within MCP reduces attack success rates from 52.8% to 12.4%,
+but relies on unidirectional, centralized verification. We present
+<strong>Synoptis</strong>, a mutual attestation protocol that enables
+MCP agents to make bidirectional, cryptographically signed claims about
+each other’s behavior, verified against a hash-chained tamper-evident
+log. Synoptis introduces three contributions: (1) a bidirectional
+attestation protocol with a challenge-response mechanism for
+contestation and local trust updating, (2) a five-dimensional dynamic
+trust scoring model that captures quality, freshness, diversity,
+velocity, and revocation status, and (3) an append-only hash-chained
+registry that provides local, blockchain-grade integrity guarantees
+without requiring consensus. We implement Synoptis as a modular SkillSet
+within KairosChain [22], a self-referential MCP server framework.
+Through a survey of related work spanning MCP security, decentralized
+identity, blockchain-based trust, and multi-agent reputation, we
+identify that, to our knowledge, no existing system combines mutual
+cryptographic attestation with tamper-evident logging for MCP agent
+networks. We present the protocol specification, analyze its security
+properties against four attack scenarios (tool poisoning, Sybil attacks,
+collusion, and score manipulation), and discuss design trade-offs
+including the deliberate choice of hash-chained logs over full
+blockchain consensus.</p>
+<p><strong>Keywords:</strong> Model Context Protocol, mutual
+attestation, trust scoring, multi-agent security, tamper-evident log,
+MCP agents</p>
+<hr />
+<h2 id="introduction">1. Introduction</h2>
+<p>When an AI agent can dynamically acquire, compose, and revoke
+capabilities through the Model Context Protocol (MCP) [1], how should
+other agents decide whether to trust it? This question is not merely
+theoretical. The MCP ecosystem has grown rapidly since its introduction
+by Anthropic in 2024, with MCP servers now providing tools ranging from
+file system access to database queries to code execution. Each tool
+invocation crosses a trust boundary, and the dynamic nature of
+capability acquisition means that an agent’s trustworthiness cannot be
+assessed statically.</p>
+<p>Recent security analyses have documented concrete attack vectors in
+this environment. Maloyan and Namiot [2] identify three critical
+vulnerabilities in MCP: absence of capability attestation, bidirectional
+sampling without origin authentication, and implicit trust propagation
+across tool chains. Their proposed AttestMCP extension reduces attack
+success rates from 52.8% to 12.4% by introducing server-side capability
+attestation. However, AttestMCP operates within a single MCP session and
+relies on a centralized verification authority, leaving cross-agent
+trust unaddressed.</p>
+<p><strong>Motivating example: skill trust in agent
+marketplaces.</strong> Consider a network of MCP agents that discover
+and exchange capabilities through a shared meeting place — a
+decentralized skill marketplace where agents offer tools such as
+genomics pipelines, data visualization, or code analysis. Before
+invoking another agent’s tool, an agent needs to assess whether that
+tool is trustworthy. Today’s centralized approaches — MCP server
+registries that rank by GitHub stars, the OpenAI GPT Store with
+platform-curated reviews, or package managers like npm that rely on
+download counts — share a common limitation: trust is established
+<em>before</em> use through static, centralized signals, and does not
+adapt after deployment. A tool that passed initial review may later be
+modified, compromised, or degraded, yet its marketplace rating remains
+unchanged. Moreover, these systems evaluate only the provider; the
+consumer’s behavior is unmonitored. Synoptis addresses this by enabling
+<em>post-use, mutual, and temporally dynamic</em> trust assessment:
+agents attest about each other’s behavior after actual interaction,
+trust scores decay if not actively maintained, and both skill providers
+and consumers are subject to evaluation. We demonstrate this integration
+through HestiaChain, a meeting place implementation where agents
+exchange skills without centralized ranking, using Synoptis attestations
+as the basis for trust (see Section 4.1).</p>
+<p>We present <strong>Synoptis</strong>, a mutual attestation protocol
+for MCP agent networks that addresses this gap. Our contributions
+are:</p>
+<ul>
+<li><p><strong>C1: Bidirectional mutual attestation protocol for MCP
+agents.</strong> Two MCP agents can make cryptographically signed claims
+about each other’s behavior, with a challenge-response mechanism for
+contestation and local trust updating. Unlike AttestMCP’s unidirectional
+model, Synoptis enables symmetric trust assessment across agents. While
+bidirectional attestation exists in other contexts (e.g., PGP
+web-of-trust, mutual TLS), Synoptis is, to our knowledge, the first
+protocol to apply it to the MCP agent ecosystem with tamper-evident
+persistence.</p></li>
+<li><p><strong>C2: Five-dimensional dynamic trust scoring.</strong>
+Rather than binary trust decisions, Synoptis computes a continuous trust
+score across five dimensions—quality, freshness, diversity, velocity,
+and revocation—enabling nuanced, time-varying trust assessment.</p></li>
+<li><p><strong>C3: Hash-chained tamper-evident registry.</strong> All
+attestations, revocations, and challenge-response records are stored in
+an append-only log with SHA-256 hash-chaining, providing local integrity
+guarantees verifiable without a consensus protocol.</p></li>
+</ul>
+<p>The remainder of this paper is organized as follows. Section 2
+defines the background and threat model. Section 3 surveys related work.
+Section 4 presents the Synoptis protocol. Section 5 analyzes its
+security properties. Section 6 discusses limitations and future work.
+Section 7 concludes.</p>
+<hr />
+<h2 id="background-and-threat-model">2. Background and Threat Model</h2>
+<h3 id="mcp-and-dynamic-capability-acquisition">2.1 MCP and Dynamic
+Capability Acquisition</h3>
+<p>The Model Context Protocol [1] defines a JSON-RPC 2.0-based interface
+between AI agent hosts and tool-providing servers. An MCP server exposes
+a set of tools, each described by a name, description, and input schema.
+Agents discover available tools via the <code>tools/list</code> method
+and invoke them via <code>tools/call</code>. Crucially, the set of
+available tools can change at runtime: servers may add, remove, or
+modify tools, and agents may connect to new servers during a
+session.</p>
+<p>We define <em>dynamic capability acquisition</em> as the process by
+which an agent’s effective capability set changes during execution
+through tool discovery, composition, or delegation. This is distinct
+from static configuration and introduces the trust challenge that
+Synoptis addresses: an agent that was trustworthy at time <em>t</em> may
+have acquired capabilities—or had capabilities modified by a compromised
+server—that make it untrustworthy at time <em>t+1</em>.</p>
+<h3 id="threat-model">2.2 Threat Model</h3>
+<p>We consider a network of <em>N</em> MCP agents, each operating an MCP
+server and potentially connecting to other agents’ servers. We adopt a
+variant of the Dolev-Yao adversary model [3] adapted for MCP
+networks:</p>
+<p><strong>Adversary capabilities:</strong> - The adversary controls up
+to <em>f</em> agents, where we use <em>f &lt; N/3</em> as a collusion
+sizing parameter for our security analysis. Note that this threshold is
+adopted from the BFT literature as a convenient bound for analyzing
+collusion resistance in the trust scoring model (Section 5.3); it does
+not imply that Synoptis provides BFT-style consensus guarantees, as
+Synoptis does not run a consensus protocol. - Compromised agents can
+issue arbitrary attestations, forge claims, and selectively withhold
+challenge responses. - The adversary can observe all network traffic but
+cannot forge RSA-2048 signatures of honest agents. - The adversary
+cannot modify the local tamper-evident log of honest agents.</p>
+<p><strong>Attack scenarios:</strong></p>
+<ul>
+<li><p><strong>Tool poisoning.</strong> A compromised MCP server
+modifies tool behavior after receiving positive attestations, exploiting
+the gap between attestation time and invocation time.</p></li>
+<li><p><strong>Sybil attack.</strong> An adversary creates multiple
+identities to inflate the diversity dimension of trust scores,
+manufacturing false consensus about a malicious agent’s
+trustworthiness.</p></li>
+<li><p><strong>Collusion.</strong> Multiple compromised agents issue
+mutually positive attestations to establish artificially high trust
+scores.</p></li>
+<li><p><strong>Score manipulation.</strong> An adversary strategically
+times attestations to exploit the velocity dimension, creating bursts of
+attestations that inflate scores before launching an attack.</p></li>
+</ul>
+<p><strong>Assumptions:</strong> - Each honest agent possesses an
+RSA-2048 key pair. Key distribution uses Trust-On-First-Use (TOFU). We
+note that TOFU is vulnerable to man-in-the-middle attacks during initial
+key exchange; stronger bootstrap mechanisms (e.g., organizational PKI,
+key ceremonies) may be required for high-security deployments (see
+Section 6.2). - The local file system of honest agents is
+integrity-protected (i.e., the adversary cannot tamper with the
+append-only log on honest agents’ storage). - Network communication may
+be unreliable but cannot be selectively delayed indefinitely by the
+adversary.</p>
+<p><strong>Explicit non-goals:</strong> - Post-compromise security is
+not provided. Compromise of a signing key allows the adversary to forge
+future attestations and renders past attestations signed with that key
+untrustworthy. - We do not address denial-of-service attacks on the
+attestation layer. - Sybil resistance depends on external identity
+mechanisms (e.g., key ceremony, organizational trust); Synoptis does not
+solve the identity bootstrap problem. - Replay attacks are partially
+mitigated through <code>proof_id</code> uniqueness checks (Section 4.2),
+but a comprehensive replay protection mechanism (e.g., sequence numbers
+or nonce-based protocols) is left to future work. - Privacy of
+attestation evidence is not addressed; all attestation records are
+visible to any agent with access to the registry.</p>
+<hr />
+<h2 id="related-work">3. Related Work</h2>
+<p>We survey related work across four areas. Our survey reviewed
+literature on MCP security, decentralized identity, blockchain-based
+trust, and multi-agent reputation published between 2022 and 2026; we
+cite 21 representative works below.</p>
+<h3 id="mcp-security">3.1 MCP Security</h3>
+<p>The MCP specification [1] defines transport-level security (TLS) and
+OAuth 2.1 authentication but provides no mechanism for cross-agent
+capability attestation. Maloyan and Namiot [2] present the most directly
+relevant prior work: AttestMCP, which introduces server-side capability
+declarations verified by a trusted authority. Their evaluation shows a
+reduction in prompt injection attack success from 52.8% to 12.4%.
+However, AttestMCP is limited to unidirectional verification (server
+attests to client) within a single session, with a centralized trust
+authority. Synoptis extends this work to bidirectional, decentralized,
+persistent attestation.</p>
+<p>Hou et al. [4] provide a comprehensive survey of MCP security
+threats, identifying capability attestation gaps, sampling
+vulnerabilities, and trust propagation risks. Their threat taxonomy
+informs our threat model in Section 2.2. Anbiaee et al. [16] present a
+comparative security threat model across MCP, A2A, Agora, and ANP
+protocols. The broader survey by Ehtesham et al. [5] compares MCP with
+A2A, ACP, and ANP protocols, noting that all current agent
+interoperability protocols lack built-in trust mechanisms for
+cross-agent verification.</p>
+<h3 id="verifiable-credentials-and-decentralized-identity">3.2
+Verifiable Credentials and Decentralized Identity</h3>
+<p>The W3C Verifiable Credentials (VC) and Decentralized Identifier
+(DID) standards [6] provide a framework for issuing, presenting, and
+verifying claims. Garzon et al. [7] apply DID/VC to AI agent identity,
+enabling credential portability across ecosystems. However, W3C VC is
+designed for public infrastructure and assumes the availability of
+verifiable data registries (typically public blockchains). Synoptis
+operates in permissioned environments where agents may not have access
+to public chain infrastructure, and where attestations must be recorded
+locally with integrity guarantees rather than on an external ledger.</p>
+<h3 id="blockchain-based-trust-and-audit">3.3 Blockchain-Based Trust and
+Audit</h3>
+<p>Several systems use blockchain infrastructure for agent coordination
+and trust. Jackson [8] proposes DAO-Agent with zero-knowledge
+verification and Shapley value-based integrity checks. The Observer
+Protocol [9] demonstrated real-time cryptographic proof settlement
+between AI agents on Bitcoin mainnet. However, these approaches incur
+the latency and cost of public chain transactions, making them
+impractical for the high-frequency, low-latency attestation required in
+MCP tool invocations. Hu et al. [17] analyze the governance tensions
+inherent in self-sovereign decentralized AI agents, providing motivation
+for attestation mechanisms that balance autonomy with
+accountability.</p>
+<p>Blockchain-based audit trail systems such as AuditTrust [10] provide
+tamper-evident logging for data sharing but target human-to-system
+interactions rather than agent-to-agent attestation. Synoptis’s
+hash-chained registry provides comparable integrity guarantees without
+requiring a consensus protocol, appropriate for permissioned agent
+networks where the log is maintained locally by each participant.</p>
+<h3 id="multi-agent-trust-and-reputation">3.4 Multi-Agent Trust and
+Reputation</h3>
+<p>Trust and reputation models for multi-agent systems have been
+extensively studied [11]. Recent work addresses AI agent-specific
+challenges: the TRiSM framework [12] identifies trust, risk, and
+security management dimensions for agentic AI but provides no concrete
+protocol. The Mansa AI reputation layer [13] introduces structured
+metrics for Web3 agents but lacks formal inter-agent attestation. Ren et
+al. [14] identify reputation manipulation risks in generative
+multi-agent systems, including colluding agents and hidden
+triggers—precisely the attack scenarios Synoptis is designed to detect.
+Schroeder de Witt [20] provides a broader survey of open challenges in
+multi-agent security, while Rajagopalan and Rao [18] and Doshi et
+al. [19] address authenticated workflows and verifiably safe tool use
+for LLM agents, respectively—complementary concerns to Synoptis’s
+attestation focus.</p>
+<p><strong>Gap summary.</strong> To our knowledge, no existing system
+combines: (1) bidirectional mutual attestation between AI agents, (2)
+dynamic trust scoring that evolves over time, (3) tamper-evident
+persistence without consensus overhead, and (4) integration with the MCP
+protocol ecosystem. Synoptis addresses this gap.</p>
+<hr />
+<h2 id="synoptis-protocol">4. Synoptis Protocol</h2>
+<h3 id="design-principles">4.1 Design Principles</h3>
+<p>Synoptis is designed around three principles:</p>
+<p><strong>Blockchain-grade local integrity without consensus.</strong>
+We target the integrity guarantees of blockchain systems—append-only
+storage, hash-chaining, cryptographic verification—without requiring a
+consensus protocol. Our implementation uses a hash-chained
+tamper-evident log: each record includes the SHA-256 hash of its
+predecessor, creating a verifiable chain. This provides <em>local</em>
+integrity (an honest agent can verify that its own log has not been
+tampered with) but does not provide <em>global</em> consensus (agents do
+not agree on a single canonical log). We consider this trade-off
+appropriate for permissioned MCP networks where agents maintain their
+own logs and cross-verify through the attestation protocol itself.</p>
+<p><strong>Observation-based trust.</strong> Trust is computed from
+observable evidence (attestations, challenges, responses) rather than
+declared intentions. This aligns with the principle that in
+decentralized networks, behavior is the only reliable signal (cf. the
+DEE model [15], our companion work on post-consensus coordination).</p>
+<p><strong>Transport independence.</strong> The attestation protocol is
+defined independently of the communication layer. Synoptis supports
+three transports: MMP (Model Meeting Protocol, see KairosChain
+documentation) for inter-server communication, Hestia (a LAN discovery
+protocol, see KairosChain documentation) for local network
+communication, and local delivery for co-located agents. New transports
+can be added without modifying the attestation logic.</p>
+<p><strong>MCP integration model.</strong> Synoptis is implemented as an
+application-layer overlay on MCP, deployed as a SkillSet (plugin) within
+the KairosChain MCP Server framework. Attestation operations are exposed
+as standard MCP tools (<code>attestation_issue</code>,
+<code>attestation_verify</code>, <code>attestation_revoke</code>,
+<code>attestation_list</code>, <code>challenge_create</code>,
+<code>challenge_respond</code>, <code>trust_query</code>) invokable via
+the standard <code>tools/call</code> method. An agent evaluates trust
+scores before invoking tools from another agent’s MCP server, using the
+<code>trust_query</code> tool to assess the target agent’s
+trustworthiness based on accumulated attestation evidence.</p>
+<p><strong>Structural note: SkillSets as uniform building
+blocks.</strong> In KairosChain, the transport layer (MMP), the
+discovery layer (HestiaChain Meeting Place), and the attestation layer
+(Synoptis) are all implemented as SkillSets — the same plugin
+architecture, the same API surface, the same evolution mechanism. This
+uniformity has a practical consequence: Synoptis can attest about the
+behavior of any SkillSet, including itself. An agent can issue
+attestations about whether another agent’s Synoptis implementation is
+behaving correctly (e.g., responding to challenges, maintaining
+hash-chain integrity). This self-referential property — where the trust
+verification layer is itself subject to trust verification through the
+same trust scoring mechanism — means that an agent’s Synoptis
+implementation carries its own trust score, computed from attestations
+by other agents. A malfunctioning or malicious attestation engine is
+detectable by the very protocol it implements. This is not an additional
+feature but a structural consequence of implementing all protocol layers
+as SkillSets. We explore the implications of this property for adaptive
+scoring in Section 6.3.</p>
+<h3 id="proof-envelope">4.2 Proof Envelope</h3>
+<p>The fundamental data unit in Synoptis is the
+<strong>ProofEnvelope</strong>, a structured attestation record:</p>
+<pre><code>ProofEnvelope := {
+  proof_id:       UUID v4,
+  version:        &quot;1.0.0&quot;,
+  attester_id:    String,     // MCP instance identifier
+  subject_ref:    String,     // What is being attested about (see examples below)
+  claim:          String,     // The attestation claim
+  evidence:       String?,    // Supporting evidence (optional)
+  merkle_root:    String?,    // For selective disclosure (optional)
+  signature:      String?,    // RSA-SHA256, Base64-encoded
+  timestamp:      ISO 8601,   // UTC
+  ttl:            Integer,    // Time-to-live in seconds
+  actor_user_id:  String?,    // Audit trail: user who triggered (implementation-specific)
+  actor_role:     String?,    // Audit trail: role of triggering user (implementation-specific)
+  metadata:       Object?     // Arbitrary extensibility (implementation-specific)
+}</code></pre>
+<p>The <code>subject_ref</code> field identifies the attestation target.
+Examples: - <code>"agent:mcp-server-alpha"</code> — attesting about an
+agent’s overall behavior - <code>"tool:code_execute@agent-B"</code> —
+attesting about a specific tool on a specific agent -
+<code>"invocation:uuid:abc-123"</code> — attesting about a specific tool
+invocation result</p>
+<p><strong>Canonical form.</strong> To ensure deterministic hashing, we
+define a canonical JSON representation following a simplified subset of
+the JSON Canonicalization Scheme (JCS, RFC 8785 [21]). The canonical
+form includes the core fields (<code>proof_id</code>,
+<code>version</code>, <code>attester_id</code>,
+<code>subject_ref</code>, <code>claim</code>, <code>evidence</code>,
+<code>merkle_root</code>, <code>timestamp</code>, <code>ttl</code>) and
+excludes implementation-specific fields (<code>signature</code>,
+<code>actor_user_id</code>, <code>actor_role</code>,
+<code>metadata</code>). Fields are sorted lexicographically by key, and
+<code>nil</code> values are explicitly retained as JSON
+<code>null</code> rather than omitted. The <strong>content hash</strong>
+is computed as SHA-256 over this canonical form.</p>
+<p><strong>Signing.</strong> When cryptographic material is available,
+the ProofEnvelope is signed using RSA-2048 with SHA-256:</p>
+<pre><code>signature = Base64(RSA-Sign(SHA256, canonical_json(envelope)))</code></pre>
+<p>Verification requires the attester’s public key, obtained through
+TOFU or pre-shared key distribution.</p>
+<p><strong>Replay mitigation.</strong> Receivers SHOULD reject
+ProofEnvelopes with previously observed <code>proof_id</code> values.
+Combined with the <code>ttl</code> field, this provides bounded replay
+protection: a replayed envelope will either have a known
+<code>proof_id</code> or will have expired.</p>
+<h3 id="normal-attestation-flow">4.3 Normal Attestation Flow</h3>
+<p>Before describing the challenge-response mechanism, we outline the
+standard bidirectional attestation lifecycle:</p>
+<pre><code>  Agent A                                Agent B
+     |                                      |
+     |---- tools/call (use B&#39;s tool) ------&gt;|
+     |&lt;--- tool result --------------------|
+     |                                      |
+     |  [A evaluates B&#39;s tool behavior]     |
+     |                                      |
+     |---- attestation_issue --------------&gt;|
+     |  (subject_ref: &quot;tool:X@agent-B&quot;,     |
+     |   claim: &quot;correct_output&quot;,           |
+     |   evidence: &quot;hash_of_result&quot;,        |
+     |   signature: RSA-Sign(A))            |
+     |                                      |
+     |  [B independently evaluates A]       |
+     |                                      |
+     |&lt;--- attestation_issue ---------------|
+     |  (subject_ref: &quot;agent:agent-A&quot;,      |
+     |   claim: &quot;legitimate_invocation&quot;,    |
+     |   signature: RSA-Sign(B))            |
+     |                                      |
+  [Both agents store received attestations  |
+   in their local hash-chained registries]  |</code></pre>
+<p><strong>Fig. 1.</strong> Normal bidirectional attestation flow. Each
+agent independently evaluates the other and issues a signed attestation.
+Neither agent is required to attest positively; negative claims (e.g.,
+<code>"anomalous_behavior"</code>) follow the same flow.</p>
+<h3 id="trust-score-model">4.4 Trust Score Model</h3>
+<p>Synoptis computes a continuous trust score <em>S</em> ∈ [0, 1] for
+each subject from the set of <em>n</em> attestations referencing that
+subject. The score is a weighted linear combination of five
+dimensions:</p>
+<p><span class="math display">\[S = \text{clamp}\left(\sum_{d \in D} w_d
+\cdot s_d - w_r \cdot p_r,\ 0,\ 1\right)\]</span></p>
+<p>where <em>D</em> = {quality, freshness, diversity, velocity},
+<em>w_d</em> are dimension weights, <em>s_d</em> ∈ [0, 1] are dimension
+scores, <em>w_r</em> is the revocation penalty weight, <em>p_r</em> ∈
+[0, 1] is the revocation ratio, and <em>n</em> is the total number of
+attestations for the subject.</p>
+<p><strong>Table 1.</strong> Trust score dimensions and default
+weights.</p>
+<table>
+<colgroup>
+<col style="width: 26%" />
+<col style="width: 19%" />
+<col style="width: 26%" />
+<col style="width: 26%" />
+</colgroup>
+<thead>
+<tr>
+<th>Dimension</th>
+<th style="text-align: center;">Weight</th>
+<th>Definition</th>
+<th>Rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Quality</td>
+<td style="text-align: center;">0.30</td>
+<td>Proportion of proofs with evidence, Merkle root, and signature</td>
+<td>Higher-quality attestations (with supporting evidence and
+cryptographic binding) are more trustworthy</td>
+</tr>
+<tr>
+<td>Freshness</td>
+<td style="text-align: center;">0.25</td>
+<td>Mean recency within a 30-day window: <span
+class="math inline">\(\bar{f} = \frac{1}{n}\sum_i \max(1 -
+\frac{a_i}{720}, 0)\)</span> where <span
+class="math inline">\(a_i\)</span> is age in hours</td>
+<td>Recent attestations are more relevant; stale attestations decay
+linearly over 720 hours (30 days)</td>
+</tr>
+<tr>
+<td>Diversity</td>
+<td style="text-align: center;">0.25</td>
+<td>Ratio of unique attesters to attestation count, capped: <span
+class="math inline">\(\min\left(\frac{|\text{unique attesters}|}{\min(n,
+10)}, 1\right)\)</span></td>
+<td>Attestations from diverse sources are harder to fabricate; capped at
+10 to limit Sybil amplification</td>
+</tr>
+<tr>
+<td>Velocity</td>
+<td style="text-align: center;">0.10</td>
+<td>Attestation rate: <span class="math inline">\(\min\left(\frac{n /
+\Delta t}{5}, 1\right)\)</span> where <span class="math inline">\(\Delta
+t\)</span> is the time span in days</td>
+<td>Sustained attestation activity indicates ongoing engagement;
+normalized to 5 attestations/day</td>
+</tr>
+<tr>
+<td>Revocation</td>
+<td style="text-align: center;">0.10</td>
+<td>Penalty: <span
+class="math inline">\(\frac{|\text{revoked}|}{n}\)</span></td>
+<td>Revoked attestations reduce trust proportionally</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Weight justification.</strong> The default weights reflect a
+design priority: <em>evidence quality</em> and <em>source diversity</em>
+together account for 55% of the score, reflecting the principle that
+trust should primarily derive from verifiable evidence from independent
+sources. The specific values (0.30, 0.25, 0.25, 0.10, 0.10) are
+configurable defaults. We explicitly note that these weights are not
+derived from game-theoretic analysis; formal equilibrium analysis is an
+important direction for future work (Section 6.4). The 720-hour
+freshness window and 5-attestations/day velocity normalization are
+chosen as reasonable defaults for active agent networks; deployments
+with different activity patterns (e.g., weekly batch processing) should
+adjust these parameters accordingly.</p>
+<p><strong>Linearity justification.</strong> We choose a linear
+combination for simplicity and interpretability. Each dimension
+contributes independently and proportionally to the total score. While
+non-linear models (e.g., multiplicative, threshold-based) could capture
+dimension interactions, the linear model has the advantage of
+transparent decomposition: practitioners can examine each dimension’s
+contribution to understand <em>why</em> a score is high or low.</p>
+<h3 id="challenge-response-protocol">4.5 Challenge-Response
+Protocol</h3>
+<p>When an agent disputes an attestation, Synoptis provides a structured
+challenge-response protocol for contestation and local trust updating.
+We emphasize that Synoptis does not impose a globally binding resolution
+mechanism; each agent interprets challenge outcomes according to its own
+trust policy.</p>
+<p><strong>States:</strong> - <code>pending</code>: Challenge issued,
+awaiting response. - <code>responded</code>: Original attester has
+provided a signed response. - <code>expired</code>: Response timeout
+exceeded (default: 3600 seconds).</p>
+<p><strong>Protocol flow:</strong></p>
+<ol type="1">
+<li><p><strong>Challenge creation.</strong> Agent <em>A</em> challenges
+attestation <em>P</em> by specifying a challenge type ∈
+{<code>validity</code>, <code>evidence_request</code>,
+<code>re_verification</code>}. The system verifies that (a) attestation
+<em>P</em> exists, (b) the number of active challenges for <em>P</em>’s
+subject does not exceed <code>max_active_per_subject</code> = 5, and (c)
+the challenge has not already been issued. Note that the
+<code>max_active_per_subject</code> limit mitigates challenge flooding
+specifically; it does not constitute general denial-of-service
+resistance, which is an explicit non-goal (Section 2.2).</p></li>
+<li><p><strong>Challenge delivery.</strong> The challenge is delivered
+to the original attester via the available transport (MMP, Hestia, or
+local).</p></li>
+<li><p><strong>Response.</strong> Only the original attester may
+respond. The response MUST be cryptographically signed by the original
+attester’s private key, preventing response spoofing. The response
+includes optional evidence and is recorded in the append-only
+log.</p></li>
+<li><p><strong>Local evaluation.</strong> The challenging agent
+evaluates the response content and determines whether to adjust trust
+accordingly. No global arbiter exists; resolution is local.</p></li>
+</ol>
+<p>The 3600-second timeout ensures that unresponsive attesters do not
+indefinitely block challenge resolution. An expired challenge without
+response is itself evidence of unreliability.</p>
+<pre><code>         Challenger              Attester
+            |                       |
+            |--- challenge_create -&gt;|
+            |   (type, proof_id)    |
+            |                       |
+            |&lt;-- challenge_respond--|
+            |   (evidence, response,|
+            |    signature)         |
+            |                       |
+       [local evaluation]           |</code></pre>
+<p><strong>Fig. 2.</strong> Challenge-response protocol flow.</p>
+<h3 id="registry-and-transport">4.6 Registry and Transport</h3>
+<p><strong>Hash-chained registry.</strong> All records (attestations,
+revocations, challenges) are stored in an append-only JSONL format. Each
+record includes a <code>_prev_entry_hash</code> field containing the
+SHA-256 hash of the preceding record:</p>
+<pre><code>record[i]._prev_entry_hash = SHA256(canonical_json(record[i-1]))</code></pre>
+<p>The first record in each chain has
+<code>_prev_entry_hash = null</code>. Chain integrity can be verified by
+recomputing hashes sequentially—a break in the chain indicates
+tampering. Concurrent writes are serialized using file-level exclusive
+locking. Note that each agent maintains its own local log; there is no
+mechanism to ensure global consistency across agents’ logs. An agent
+could, in principle, present different attestation histories to
+different peers (equivocation). Cross-verification through the
+challenge-response protocol provides partial mitigation, but full
+equivocation detection requires distributed log comparison, which is
+left to future work.</p>
+<p><strong>Revocation records.</strong> A revocation is recorded as a
+separate registry entry of type <code>revocation</code>, referencing the
+original <code>proof_id</code>. Revocations must be signed by the
+original attester or an authorized administrator. Revoked attestations
+remain in the log (preserving the hash chain) and are excluded as
+positive evidence in trust score computation; however, they still
+contribute to the revocation penalty dimension (Section 4.4, Table 1).
+Revoked attestations are flagged as such in query results.</p>
+<p><strong>Transport abstraction.</strong> Synoptis defines a transport
+interface with four operations: <code>send_attestation</code>,
+<code>send_revocation</code>, <code>send_challenge</code>, and
+<code>send_challenge_response</code>. Three implementations are
+provided:</p>
+<ul>
+<li><strong>MMP transport</strong>: Uses the Model Meeting Protocol
+(defined in the KairosChain MMP SkillSet) for inter-server communication
+over HTTP. Messages include the sender’s instance ID and a bearer token
+for authentication.</li>
+<li><strong>Hestia transport</strong>: Uses the Hestia LAN discovery
+protocol (defined in the KairosChain Hestia SkillSet) for local network
+communication.</li>
+<li><strong>Local transport</strong>: Delivers attestations between
+co-located agents on the same machine (e.g., multi-tenant
+deployments).</li>
+</ul>
+<p>Transport selection follows a configurable fallback order (default:
+MMP → Hestia → Local), with availability detected at runtime.</p>
+<hr />
+<h2 id="security-analysis">5. Security Analysis</h2>
+<p>We analyze Synoptis’s security properties against the four attack
+scenarios defined in Section 2.2. This analysis is qualitative and based
+on protocol design; empirical evaluation with simulated agent networks
+is planned as future work.</p>
+<h3 id="tool-poisoning-detection">5.1 Tool Poisoning Detection</h3>
+<p>In a tool poisoning attack, agent <em>M</em> modifies tool behavior
+after receiving positive attestations. Synoptis detects this through
+temporal evidence:</p>
+<ol type="1">
+<li>Agent <em>A</em> observes anomalous behavior after invoking
+<em>M</em>’s modified tool.</li>
+<li><em>A</em> issues a negative attestation with evidence (e.g.,
+behavioral diff, unexpected outputs).</li>
+<li><em>A</em> challenges <em>M</em>’s existing positive attestations
+via the challenge-response protocol.</li>
+<li>If <em>M</em> fails to respond within the timeout (3600s), the
+challenge expires, and the unanswered challenge is itself evidence of
+unreliability.</li>
+<li><em>M</em>’s trust score decreases through three mechanisms: (a) the
+negative attestation reduces quality, (b) positive attestations age and
+freshness declines, (c) the revocation of existing attestations
+increases the revocation penalty.</li>
+</ol>
+<p>The key design property is that <strong>trust scores are not
+static</strong>: even without explicit negative evidence, the freshness
+decay (720-hour linear decay window) ensures that trust degrades
+naturally if not actively maintained through ongoing positive
+attestations.</p>
+<h3 id="sybil-resistance">5.2 Sybil Resistance</h3>
+<p>The diversity dimension caps unique attesters at min(<em>n</em>, 10).
+This provides bounded Sybil resistance: an adversary controlling
+<em>k</em> identities can contribute at most <em>k</em>/10 to the
+diversity score (when <em>n</em> ≥ 10), with diminishing returns.
+However, Synoptis does not provide fundamental Sybil resistance—an
+adversary with unlimited identity generation can saturate the diversity
+cap.</p>
+<p><strong>Mitigation through multi-dimensional scoring.</strong> Even
+if an adversary inflates diversity through Sybil identities, the quality
+dimension requires evidence and signatures (costly to fabricate at
+scale), and the velocity dimension normalizes to 5 attestations/day
+(limiting burst attacks). The combination of dimensions provides
+defense-in-depth: compromising one dimension does not suffice to achieve
+a high trust score.</p>
+<h3 id="collusion-resistance">5.3 Collusion Resistance</h3>
+<p>When <em>f</em> compromised agents collude to inflate each other’s
+scores, Synoptis’s diversity dimension provides partial detection. We
+analyze the maximum achievable trust score under collusion for the case
+where the total number of attestations <em>n</em> is sufficiently large
+that the diversity cap binds (i.e., min(<em>n</em>, 10) = 10).</p>
+<p>Under this assumption, if all positive attestations for a subject
+originate from the same group of <em>f</em> colluding agents, the
+diversity score is bounded by <em>f</em>/10. For <em>f &lt; N/3</em>
+with <em>N</em> = 10 (i.e., <em>f</em> ≤ 3), the maximum achievable
+trust score is:</p>
+<p><span class="math display">\[S_{\text{max}} = 0.30 \times 1.0 + 0.25
+\times 1.0 + 0.25 \times \frac{f}{10} + 0.10 \times 1.0 - 0.10 \times
+0\]</span></p>
+<p>For <em>f</em> = 3: <span
+class="math inline">\(S_{\text{max}}\)</span> = 0.30 + 0.25 + 0.25 × 0.3
++ 0.10 = 0.725. This is below a reasonable trust threshold of 0.8,
+meaning colluding minorities cannot achieve “high trust” status under
+default parameters when <em>n</em> ≥ 10.</p>
+<p><strong>Small-<em>n</em> caveat.</strong> When the number of
+attestations is small (e.g., <em>n</em> = 3 and all three are from
+distinct colluding agents), the diversity score can reach 1.0 (since
+min(<em>n</em>, 10) = <em>n</em> = 3, and 3/3 = 1.0). In this regime,
+the collusion bound does not hold, and colluding agents can achieve
+arbitrarily high trust scores. This cold-start vulnerability is inherent
+to any reputation system with limited evidence and underscores the
+importance of establishing sufficient attestation volume before relying
+on trust scores for critical decisions.</p>
+<h3 id="score-manipulation-resistance">5.4 Score Manipulation
+Resistance</h3>
+<p>The velocity dimension, normalized to 5 attestations/day, bounds the
+contribution of attestation frequency to the overall score. An adversary
+issuing 100 attestations in one hour achieves the same velocity score
+(1.0) as one issuing 5 per day over 20 days—the velocity dimension does
+not distinguish sustained from bursty activity, which we acknowledge as
+a limitation of the current linear model. Combined with the diversity
+cap, velocity manipulation provides limited benefit without control over
+multiple identities.</p>
+<h3 id="comparison-with-attestmcp">5.5 Comparison with AttestMCP</h3>
+<p><strong>Table 2.</strong> Qualitative comparison of security
+properties. Note that AttestMCP reports measured attack reduction from
+controlled experiments, while Synoptis’s properties are derived from
+analytical reasoning over the protocol design.</p>
+<table>
+<colgroup>
+<col style="width: 29%" />
+<col style="width: 41%" />
+<col style="width: 29%" />
+</colgroup>
+<thead>
+<tr>
+<th>Property</th>
+<th style="text-align: center;">AttestMCP [2]</th>
+<th style="text-align: center;">Synoptis</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Direction</td>
+<td style="text-align: center;">Unidirectional</td>
+<td style="text-align: center;">Bidirectional</td>
+</tr>
+<tr>
+<td>Verification model</td>
+<td style="text-align: center;">Centralized authority</td>
+<td style="text-align: center;">Decentralized (peer-to-peer)</td>
+</tr>
+<tr>
+<td>Persistence</td>
+<td style="text-align: center;">Session-scoped</td>
+<td style="text-align: center;">Hash-chained tamper-evident log</td>
+</tr>
+<tr>
+<td>Attack surface reduction</td>
+<td style="text-align: center;">52.8% → 12.4% (measured)</td>
+<td style="text-align: center;">Defense-in-depth via 5 dimensions
+(analytical)</td>
+</tr>
+<tr>
+<td>Dispute mechanism</td>
+<td style="text-align: center;">None</td>
+<td style="text-align: center;">Challenge-response (local
+resolution)</td>
+</tr>
+<tr>
+<td>Collusion resistance</td>
+<td style="text-align: center;">Not addressed</td>
+<td style="text-align: center;">Bounded for <em>f</em> &lt; <em>N</em>/3
+when <em>n</em> ≥ 10</td>
+</tr>
+<tr>
+<td>Trust granularity</td>
+<td style="text-align: center;">Binary (attested/not)</td>
+<td style="text-align: center;">Continuous [0, 1]</td>
+</tr>
+<tr>
+<td>Temporal dynamics</td>
+<td style="text-align: center;">Static</td>
+<td style="text-align: center;">Decay-based (720h freshness window)</td>
+</tr>
+</tbody>
+</table>
+<p>AttestMCP and Synoptis address complementary aspects of MCP security.
+AttestMCP operates within a single MCP session to verify server
+capabilities; Synoptis operates across sessions and agents to build
+longitudinal trust. The two approaches are composable: an MCP server
+could use AttestMCP for session-level capability verification and
+Synoptis for cross-agent reputation.</p>
+<hr />
+<h2 id="discussion-limitations-and-future-work">6. Discussion,
+Limitations, and Future Work</h2>
+<h3 id="hash-chained-logs-vs.-blockchain">6.1 Hash-Chained Logs
+vs. Blockchain</h3>
+<p>We have deliberately described Synoptis’s registry as a “hash-chained
+tamper-evident log” rather than a “blockchain.” While the hash-chaining
+mechanism provides integrity guarantees analogous to those of blockchain
+systems, our implementation lacks a consensus protocol: each agent
+maintains its own log, and there is no mechanism to ensure that all
+agents agree on a single canonical history. This means equivocation is
+possible: an agent could present different attestation histories to
+different peers. This is a fundamental limitation for scenarios
+requiring global consistency (e.g., binding arbitration of disputes).
+However, for the mutual attestation use case—where each agent
+independently evaluates trust based on locally observed evidence—local
+integrity is sufficient. Extending Synoptis with a lightweight consensus
+protocol or distributed log comparison for equivocation detection is a
+natural direction for future work.</p>
+<h3 id="limitations">6.2 Limitations</h3>
+<p><strong>Post-compromise security.</strong> Synoptis uses RSA-2048
+signatures without ephemeral key exchange. Compromise of an agent’s
+private key allows the adversary to forge future attestations and
+renders all past attestations signed with that key untrustworthy.
+Integrating ephemeral Diffie-Hellman key exchange for transport
+encryption is left to future work. We note that RSA-2048 is the current
+default; algorithm agility (e.g., supporting Ed25519 or post-quantum
+schemes) is an implementation consideration not addressed in this
+specification.</p>
+<p><strong>TOFU vulnerability.</strong> The Trust-On-First-Use key
+distribution model is vulnerable to man-in-the-middle attacks during
+initial key exchange. An adversary who intercepts the first contact
+between two agents can substitute their own public key, undermining all
+subsequent signature verification. Deployments requiring strong initial
+trust should use organizational PKI or out-of-band key verification.</p>
+<p><strong>Sybil resistance.</strong> The diversity dimension caps
+unique attesters at 10, providing limited Sybil mitigation. However,
+Synoptis does not solve the fundamental Sybil problem: an adversary with
+the ability to generate arbitrary identities can inflate diversity
+scores. External identity mechanisms (e.g., organizational PKI, key
+ceremonies) are required for Sybil resistance in open networks.</p>
+<p><strong>Scale.</strong> The JSONL-based registry with linear scan
+queries does not scale to large networks. A SQLite or database-backed
+registry with indexed queries is planned but not yet implemented.</p>
+<p><strong>Trust score weights.</strong> The default weights are
+empirically motivated but not formally derived. Game-theoretic analysis
+of equilibrium strategies under the trust scoring mechanism—particularly
+whether rational adversaries can game the linear scoring model—is an
+important open question.</p>
+<p><strong>Empirical validation.</strong> This paper presents the
+protocol design and analytical security assessment. Empirical
+evaluation—including sensitivity analysis of trust score weights,
+Byzantine agent detection rates, and performance benchmarks—is planned
+as immediate follow-up work.</p>
+<h3 id="future-work">6.3 Future Work</h3>
+<p>Several directions for future work emerge from the current design.
+The most immediate priority is empirical evaluation with simulated
+multi-agent networks, including trust score sensitivity analysis across
+weight configurations, Byzantine agent detection rates under varying
+adversary ratios, and latency/throughput benchmarks for attestation
+creation, verification, and score computation. Formal verification of
+the challenge-response protocol using model checking tools such as TLA+
+or ProVerif would strengthen confidence in the protocol’s correctness
+properties. Game-theoretic analysis of trust score equilibria under
+rational adversaries is needed to determine whether the linear scoring
+model admits exploitable strategies. On the infrastructure side, a
+distributed Merkle tree for cross-agent log verification would enable
+equivocation detection without requiring full log replication, and
+adaptive weight tuning based on observed attack patterns would allow
+deployments to respond to emerging threats.</p>
+<p>More fundamentally, any fixed scoring model is eventually gameable by
+rational adversaries who learn its parameters. KairosChain’s
+self-referential SkillSet architecture provides a structural response to
+this challenge: because Synoptis is implemented as a SkillSet, the
+scoring model itself can be evolved through the same mechanisms used to
+evolve any other system component. Weight adjustment, model replacement,
+and even evolution-rule modification are all expressible as SkillSet
+operations recorded on the tamper-evident log. This transforms the
+static game (adversary vs. fixed rules) into a co-evolutionary dynamic
+(adversary vs. evolving rules), where the system’s incompleteness — its
+inability to anticipate all attacks — becomes the driving force for
+continuous adaptation (cf. the DEE model’s principle of order through
+fluctuation [15]).</p>
+<hr />
+<h2 id="conclusion">7. Conclusion</h2>
+<p>We have presented Synoptis, a mutual attestation protocol for MCP
+agent networks. Through a survey of related work across MCP security,
+decentralized identity, blockchain-based trust, and multi-agent
+reputation, we identified a gap: to our knowledge, no existing system
+combines bidirectional cryptographic attestation, dynamic trust scoring,
+and tamper-evident persistence for MCP agents. Synoptis addresses this
+gap with three contributions: a bidirectional attestation protocol with
+challenge-response contestation, a five-dimensional dynamic trust
+scoring model, and an append-only hash-chained registry providing local,
+blockchain-grade integrity without consensus overhead.</p>
+<p>Our security analysis indicates that the protocol provides bounded
+collusion resistance (colluding minorities with <em>f</em> ≤ 3 out of
+<em>N</em> = 10 cannot exceed trust scores of 0.725 under default
+parameters when sufficient attestation evidence exists),
+defense-in-depth through multi-dimensional scoring against Sybil and
+score manipulation attacks, and temporal trust degradation that detects
+tool poisoning through freshness decay. We have explicitly documented
+the protocol’s limitations, including the absence of post-compromise
+security, bounded Sybil resistance, the TOFU vulnerability, the
+possibility of equivocation in the absence of global consensus, and the
+need for empirical validation.</p>
+<p>Synoptis is implemented as an open-source SkillSet within the
+KairosChain MCP Server framework [22]. Empirical evaluation and formal
+verification are planned as immediate follow-up work.</p>
+<hr />
+<h2 id="references">References</h2>
+<p>[1] Anthropic, “Model Context Protocol Specification,” 2024.
+https://modelcontextprotocol.io/specification</p>
+<p>[2] N. Maloyan and D. Namiot, “Breaking the Protocol: Security
+Analysis of the Model Context Protocol Specification and Prompt
+Injection Vulnerabilities in Tool-Integrated LLM Agents,”
+arXiv:2601.17549, 2026.</p>
+<p>[3] D. Dolev and A. Yao, “On the security of public key protocols,”
+IEEE Transactions on Information Theory, vol. 29, no. 2, pp. 198–208,
+1983.</p>
+<p>[4] X. Hou, Y. Zhao, S. Wang, and H. Wang, “Model Context Protocol
+(MCP): Landscape, Security Threats, and Future Research Directions,”
+arXiv:2503.23278, 2025.</p>
+<p>[5] A. Ehtesham et al., “A Survey of Agent Interoperability
+Protocols: Model Context Protocol (MCP), Agent Communication Protocol
+(ACP), Agent-to-Agent Protocol (A2A), and Agent Network Protocol (ANP),”
+arXiv:2505.02279, 2025.</p>
+<p>[6] W3C, “Verifiable Credentials Data Model v2.0,” W3C
+Recommendation, 2025. https://www.w3.org/TR/vc-data-model-2.0/</p>
+<p>[7] S. R. Garzon, A. Vaziry, E. M. Kuzu, D. E. Gehrmann, B. Varkan,
+A. Gaballa, and A. Küpper, “AI Agents with Decentralized Identifiers and
+Verifiable Credentials,” arXiv:2511.02841, 2025.</p>
+<p>[8] F. Jackson, “Agentic Blockchain Intelligence: Designing Secure
+Decentralized AI Agents with Smart Contract Governance,” SSRN:5869322,
+2025.</p>
+<p>[9] Observer Protocol, “Two AI agents, different stacks, settled a
+payment on Bitcoin mainnet,” 2026. https://observerprotocol.org</p>
+<p>[10] F. A. Solórzano et al., “A Blockchain-Based Audit Trail
+Mechanism: Design and Implementation,” Algorithms, vol. 14, no. 12,
+p. 341, 2021. DOI: 10.3390/a14120341.</p>
+<p>[11] G. Granatyr, S. S. Botelho, O. R. Lessing, E. E. Scalabrin,
+J.-P. Barthès, and F. Enembreck, “Trust and Reputation Models for
+Multiagent Systems,” ACM Computing Surveys, vol. 48, no. 2, 2015. DOI:
+10.1145/2816826.</p>
+<p>[12] S. Raza, R. Sapkota, M. Karkee, and C. Emmanouilidis, “TRiSM for
+Agentic AI: A Review of Trust, Risk, and Security Management in
+LLM-based Agentic Multi-Agent Systems,” arXiv:2506.04133, 2025.</p>
+<p>[13] Mansa AI, “Agent Reputation Layer Framework,” 2025.</p>
+<p>[14] S. Ren, W. Fu, X. Zou, C. Shen, Y. Cai, C. Chu, Z. Wang, and S.
+Hu, “Reputation as a Solution to Cooperation Collapse in LLM-based
+Multi-Agent Systems,” arXiv:2505.05029, 2025.</p>
+<p>[15] M. Hatakeyama, “DEE: Decentralized Evolving Ecosystem — A
+Post-Consensus Model for AI Agent Communities,” Zenodo, 2026. DOI:
+10.5281/zenodo.18583107 (companion work).</p>
+<p>[16] Z. Anbiaee et al., “Security Threat Modeling for Emerging
+AI-Agent Protocols: A Comparative Analysis of MCP, A2A, Agora, and ANP,”
+arXiv:2602.11327, 2026.</p>
+<p>[17] B. A. Hu et al., “Trustless Autonomy: Understanding Motivations,
+Benefits, and Governance Dilemmas in Self-Sovereign Decentralized AI
+Agents,” arXiv:2505.09757, 2025.</p>
+<p>[18] M. Rajagopalan and V. Rao, “Authenticated Workflows: A Systems
+Approach to Protecting Agentic AI,” arXiv:2602.10465, 2026.</p>
+<p>[19] A. Doshi et al., “Towards Verifiably Safe Tool Use for LLM
+Agents,” arXiv:2601.08012, 2026.</p>
+<p>[20] C. Schroeder de Witt, “Open Challenges in Multi-Agent Security:
+Towards Secure Systems of Interacting AI Agents,” arXiv:2505.02077,
+2025.</p>
+<p>[21] A. Rundgren, B. Jordan, and S. Erdtman, “JSON Canonicalization
+Scheme (JCS),” RFC 8785, Internet Engineering Task Force, June 2020.
+https://www.rfc-editor.org/rfc/rfc8785</p>
+<p>[22] M. Hatakeyama, “KairosChain: A Self-Referential MCP Server
+Framework,” 2026. DOI: 10.5281/zenodo.19161453.
+https://github.com/masaomi/KairosChain_2026</p>
+</body>
+</html>

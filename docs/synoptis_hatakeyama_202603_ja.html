@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Synoptis: Mutual Attestation for Trustworthy MCP Agent Networks</title>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+<style>
+  body {
+    font-family: 'Georgia', 'Times New Roman', serif;
+    max-width: 800px;
+    margin: 2em auto;
+    padding: 0 1.5em;
+    line-height: 1.7;
+    color: #1a1a1a;
+    background: #fff;
+  }
+  h1 { font-size: 1.6em; text-align: center; margin-top: 2em; }
+  h2 { font-size: 1.3em; border-bottom: 1px solid #ccc; padding-bottom: 0.3em; margin-top: 2em; }
+  h3 { font-size: 1.1em; margin-top: 1.5em; }
+  p { text-align: justify; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 0.9em; }
+  th, td { border: 1px solid #ccc; padding: 0.5em 0.7em; text-align: left; }
+  th { background: #f5f5f5; font-weight: 600; }
+  pre { background: #f8f8f8; border: 1px solid #ddd; border-radius: 4px; padding: 1em; overflow-x: auto; font-size: 0.85em; line-height: 1.4; }
+  code { font-family: 'Menlo', 'Consolas', monospace; font-size: 0.9em; }
+  blockquote { border-left: 3px solid #ccc; margin-left: 0; padding-left: 1em; color: #555; }
+  hr { border: none; border-top: 1px solid #ddd; margin: 2em 0; }
+  ul, ol { padding-left: 1.5em; }
+  li { margin-bottom: 0.3em; }
+  @media print { body { font-size: 11pt; max-width: none; margin: 0; } }
+</style>
+</head>
+<body>
+<h1
+id="synoptis-信頼性の高いmcpエージェントネットワークのための相互アテステーション">Synoptis:
+信頼性の高いMCPエージェントネットワークのための相互アテステーション</h1>
+<p><strong>Masaomi Hatakeyama</strong></p>
+<p>Genomics on Blockchain</p>
+<p><strong>DOI:</strong> <a
+href="https://doi.org/10.5281/zenodo.19161453">10.5281/zenodo.19161453</a></p>
+<p><strong>日付:</strong> 2026年3月</p>
+<hr />
+<h2 id="概要">概要</h2>
+<p>Model Context
+Protocol（MCP）は、AIエージェントが外部サーバの提供するツールを動的に発見・実行することを可能にし、柔軟なマルチエージェントネットワークを構築する。しかし、この動的な能力獲得は根本的な信頼問題を引き起こす。エージェントが実行時に利用可能な能力を変更できる場合、静的な許可リストや単一プロトコルのアテステーションでは信頼性のある相互作用を保証するには不十分である。AttestMCPに関する最近の研究では、MCP内に能力アテステーションを追加することで攻撃成功率が52.8%から12.4%に低減されることが示されているが、この手法は一方向的かつ中央集権的な検証に依存している。本論文では、MCPエージェントが互いの振る舞いについて双方向に暗号署名された主張を行い、ハッシュチェーンによる改ざん検知ログに対して検証可能な相互アテステーションプロトコル
+<strong>Synoptis</strong>
+を提案する。Synoptisは3つの貢献を提供する：（1）異議申し立てとローカルな信頼更新のためのチャレンジ・レスポンス機構を備えた双方向アテステーションプロトコル、（2）品質・鮮度・多様性・速度・取消状態の5次元動的信頼スコアモデル、（3）合意プロトコルを必要としないローカルなブロックチェーン級の完全性保証を提供する追記専用ハッシュチェーンレジストリである。SynoptisをKairosChain
+[22]（自己参照型MCPサーバフレームワーク）のモジュラーSkillSetとして実装する。MCPセキュリティ、分散型アイデンティティ、ブロックチェーンベースの信頼、マルチエージェント評判にわたる関連研究のサーベイを通じて、我々の知る限り、MCPエージェントネットワークにおける相互暗号アテステーションと改ざん検知ログを組み合わせた既存システムは存在しないことを特定する。プロトコル仕様を提示し、4つの攻撃シナリオ（ツールポイズニング、Sybil攻撃、共謀、スコア操作）に対するセキュリティ特性を分析し、ハッシュチェーンログとフルブロックチェーン合意の間の意図的な選択を含む設計上のトレードオフを議論する。</p>
+<p><strong>キーワード：</strong> Model Context
+Protocol、相互アテステーション、信頼スコア、マルチエージェントセキュリティ、改ざん検知ログ、MCPエージェント</p>
+<hr />
+<h2 id="はじめに">1. はじめに</h2>
+<p>AIエージェントがModel Context
+Protocol（MCP）[1]を通じて動的に能力を獲得・合成・取消できるとき、他のエージェントはそれをどのように信頼すべきか。この問いは理論的なものにとどまらない。MCPエコシステムは2024年のAnthropicによる導入以来急速に成長し、MCPサーバはファイルシステムアクセスからデータベースクエリ、コード実行に至るまでのツールを提供している。各ツール呼び出しは信頼境界を越え、能力獲得の動的な性質は、エージェントの信頼性を静的に評価できないことを意味する。</p>
+<p>最近のセキュリティ分析はこの環境における具体的な攻撃ベクトルを文書化している。MaloyanとNamiot
+[2]はMCPにおける3つの重大な脆弱性を特定した：能力アテステーションの不在、オリジン認証なしの双方向サンプリング、ツールチェーン全体にわたる暗黙的信頼伝搬である。彼らが提案したAttestMCP拡張はサーバ側の能力アテステーションを導入し、攻撃成功率を52.8%から12.4%に低減した。しかし、AttestMCPは単一のMCPセッション内で動作し、中央集権的な検証機関に依存しており、クロスエージェント間の信頼は未対応のままである。</p>
+<p><strong>動機となる例：エージェントマーケットプレイスにおけるスキルの信頼性。</strong>
+MCPエージェントが共有のミーティングプレイス——ゲノミクスパイプライン、データ可視化、コード分析などのツールを提供する分散型スキルマーケットプレイス——を通じて能力を発見・交換するネットワークを考える。他のエージェントのツールを呼び出す前に、エージェントはそのツールが信頼できるかどうかを評価する必要がある。現在の中央集権的アプローチ——GitHubのスターでランク付けするMCPサーバレジストリ、プラットフォームが審査するOpenAI
+GPT
+Store、ダウンロード数に依存するnpmのようなパッケージマネージャ——は共通の限界を持つ：信頼は静的で中央集権的なシグナルによって使用<em>前</em>に確立され、デプロイ後には適応しない。初回審査を通過したツールが後に変更、侵害、劣化しても、マーケットプレイスの評価は変わらない。さらに、これらのシステムは提供者のみを評価し、消費者の振る舞いは監視されない。Synoptisは<em>使用後、相互的、かつ時間的に動的な</em>信頼評価を可能にすることでこれに対処する：エージェントは実際の相互作用の後に互いの振る舞いについてアテストし、信頼スコアは積極的に維持されなければ減衰し、スキル提供者と消費者の双方が評価の対象となる。この統合をHestiaChain——エージェントが中央集権的ランキングなしにスキルを交換し、Synoptisアテステーションを信頼の基盤として使用するミーティングプレイス実装——を通じて実証する（第4.1節参照）。</p>
+<p>本論文では、このギャップに対応するMCPエージェントネットワーク向けの相互アテステーションプロトコル
+<strong>Synoptis</strong> を提案する。我々の貢献は以下の通りである：</p>
+<ul>
+<li><p><strong>C1:
+MCPエージェント向け双方向相互アテステーションプロトコル。</strong>
+2つのMCPエージェントが互いの振る舞いについて暗号署名された主張を行い、異議申し立てとローカルな信頼更新のためのチャレンジ・レスポンス機構を備える。AttestMCPの一方向モデルとは異なり、Synoptisはエージェント間の対称的な信頼評価を可能にする。双方向アテステーション自体は他の文脈（PGPのweb-of-trust、相互TLSなど）に存在するが、Synoptisは我々の知る限り、改ざん検知永続化を伴うMCPエージェントエコシステムに適用した最初のプロトコルである。</p></li>
+<li><p><strong>C2: 5次元動的信頼スコア。</strong>
+二値的な信頼判定ではなく、Synoptisは品質・鮮度・多様性・速度・取消の5次元にわたる連続的な信頼スコアを計算し、微細で時間変化する信頼評価を可能にする。</p></li>
+<li><p><strong>C3: ハッシュチェーン改ざん検知レジストリ。</strong>
+すべてのアテステーション、取消、チャレンジ・レスポンス記録がSHA-256ハッシュチェーンを持つ追記専用ログに保存され、合意プロトコルなしで検証可能なローカルな完全性保証を提供する。</p></li>
+</ul>
+<p>本論文の構成は以下の通りである。第2節で背景と脅威モデルを定義する。第3節で関連研究をサーベイする。第4節でSynoptisプロトコルを提示する。第5節でセキュリティ特性を分析する。第6節で限界と将来の研究を議論する。第7節で結論を述べる。</p>
+<hr />
+<h2 id="背景と脅威モデル">2. 背景と脅威モデル</h2>
+<h3 id="mcpと動的能力獲得">2.1 MCPと動的能力獲得</h3>
+<p>Model Context Protocol
+[1]はAIエージェントホストとツール提供サーバ間のJSON-RPC
+2.0ベースのインタフェースを定義する。MCPサーバはツールのセットを公開し、各ツールは名前、説明、入力スキーマによって記述される。エージェントは<code>tools/list</code>メソッドで利用可能なツールを発見し、<code>tools/call</code>で実行する。重要なことに、利用可能なツールのセットは実行時に変更可能である：サーバはツールの追加・削除・変更を行うことができ、エージェントはセッション中に新しいサーバに接続できる。</p>
+<p><em>動的能力獲得</em>を、ツールの発見・合成・委任を通じて実行中にエージェントの実効的な能力セットが変化するプロセスと定義する。これは静的設定とは異なり、Synoptisが対処する信頼の課題を導入する：時刻<em>t</em>に信頼できたエージェントが、侵害されたサーバによって能力を獲得または変更され、時刻<em>t+1</em>には信頼できなくなっている可能性がある。</p>
+<h3 id="脅威モデル">2.2 脅威モデル</h3>
+<p><em>N</em>個のMCPエージェントのネットワークを考える。各エージェントはMCPサーバを運用し、他のエージェントのサーバに接続する可能性がある。MCPネットワーク向けに適応したDolev-Yao攻撃者モデル[3]の変種を採用する：</p>
+<p><strong>攻撃者の能力：</strong> -
+攻撃者は<em>f</em>個のエージェントを制御する。ここで<em>f &lt;
+N/3</em>をセキュリティ分析のための共謀サイジングパラメータとして使用する。この閾値はBFT文献から信頼スコアモデル（第5.3節）における共謀耐性分析の便宜的な上界として採用したものであり、SynoptisがBFTスタイルの合意保証を提供することを意味しない。Synoptisは合意プロトコルを実行しないためである。
+-
+侵害されたエージェントは任意のアテステーションを発行し、主張を偽造し、チャレンジ応答を選択的に保留できる。
+-
+攻撃者はすべてのネットワークトラフィックを観察できるが、誠実なエージェントのRSA-2048署名を偽造することはできない。
+- 攻撃者は誠実なエージェントのローカル改ざん検知ログを変更できない。</p>
+<p><strong>攻撃シナリオ：</strong></p>
+<ul>
+<li><p><strong>ツールポイズニング。</strong>
+侵害されたMCPサーバが肯定的なアテステーションを受け取った後にツールの振る舞いを変更し、アテステーション時と実行時のギャップを悪用する。</p></li>
+<li><p><strong>Sybil攻撃。</strong>
+攻撃者が複数のアイデンティティを作成して信頼スコアの多様性次元を水増しし、悪意あるエージェントの信頼性について偽のコンセンサスを製造する。</p></li>
+<li><p><strong>共謀。</strong>
+複数の侵害されたエージェントが相互に肯定的なアテステーションを発行し、人為的に高い信頼スコアを確立する。</p></li>
+<li><p><strong>スコア操作。</strong>
+攻撃者がアテステーションのタイミングを戦略的に調整して速度次元を悪用し、攻撃開始前にスコアを膨張させるバーストを生成する。</p></li>
+</ul>
+<p><strong>前提条件：</strong> -
+各誠実なエージェントはRSA-2048鍵ペアを所持する。鍵配布にはTrust-On-First-Use（TOFU）を使用する。TOFUは初回鍵交換時の中間者攻撃に対して脆弱であることに注意する。高セキュリティ環境では、より強力なブートストラップ機構（組織的PKI、鍵式典など）が必要となる場合がある（第6.2節参照）。
+-
+誠実なエージェントのローカルファイルシステムは完全性保護されている（すなわち、攻撃者は誠実なエージェントのストレージ上の追記専用ログを改ざんできない）。
+-
+ネットワーク通信は信頼性に欠ける場合があるが、攻撃者によって無期限に選択的に遅延されることはない。</p>
+<p><strong>明示的な非目標：</strong> -
+侵害後セキュリティは提供しない。署名鍵の侵害は攻撃者が将来のアテステーションを偽造することを可能にし、その鍵で署名されたすべての過去のアテステーションを信頼できないものにする。
+- アテステーション層に対するサービス拒否攻撃には対処しない。 -
+Sybil耐性は外部のアイデンティティメカニズム（鍵式典、組織的信頼など）に依存する。Synoptisはアイデンティティブートストラップ問題を解決しない。
+-
+リプレイ攻撃は<code>proof_id</code>の一意性チェック（第4.2節）によって部分的に緩和されるが、包括的なリプレイ保護機構（シーケンス番号やnonceベースのプロトコルなど）は将来の課題とする。
+-
+アテステーション証拠のプライバシーには対処しない。すべてのアテステーション記録はレジストリにアクセスできるすべてのエージェントに可視である。</p>
+<hr />
+<h2 id="関連研究">3. 関連研究</h2>
+<p>4つの領域にわたる関連研究をサーベイする。本サーベイはMCPセキュリティ、分散型アイデンティティ、ブロックチェーンベースの信頼、マルチエージェント評判に関する2022年から2026年の文献をレビューし、以下に21の代表的論文を引用する。</p>
+<h3 id="mcpセキュリティ">3.1 MCPセキュリティ</h3>
+<p>MCP仕様[1]はトランスポート層セキュリティ（TLS）とOAuth
+2.1認証を定義するが、クロスエージェント能力アテステーションの機構は提供しない。MaloyanとNamiot
+[2]は最も直接的に関連する先行研究を提示する：AttestMCPは信頼された機関によって検証されるサーバ側の能力宣言を導入する。彼らの評価はプロンプトインジェクション攻撃成功率の52.8%から12.4%への低減を示す。しかし、AttestMCPは中央集権的な信頼機関を持つ単一セッション内での一方向検証（サーバがクライアントに対してアテスト）に限定される。Synoptisはこの研究を双方向、分散型、永続的アテステーションに拡張する。</p>
+<p>Houら[4]はMCPセキュリティ脅威の包括的サーベイを提供し、能力アテステーションのギャップ、サンプリングの脆弱性、信頼伝搬リスクを特定する。彼らの脅威分類法は第2.2節の脅威モデルに反映されている。Anbiaeeら[16]はMCP、A2A、Agora、ANPプロトコルにわたる比較セキュリティ脅威モデルを提示する。Ehteshamら[5]によるより広範なサーベイはMCPをA2A、ACP、ANPプロトコルと比較し、現在のすべてのエージェント相互運用プロトコルがクロスエージェント検証のための組み込み信頼メカニズムを欠いていることを指摘する。</p>
+<h3 id="検証可能クレデンシャルと分散型アイデンティティ">3.2
+検証可能クレデンシャルと分散型アイデンティティ</h3>
+<p>W3C検証可能クレデンシャル（VC）および分散型識別子（DID）標準[6]はクレームの発行、提示、検証のためのフレームワークを提供する。Garzonら[7]はDID/VCをAIエージェントのアイデンティティに適用し、エコシステム間でのクレデンシャルポータビリティを実現する。しかし、W3C
+VCはパブリックインフラストラクチャ向けに設計されており、検証可能データレジストリ（通常はパブリックブロックチェーン）の利用を前提とする。Synoptisはエージェントがパブリックチェーンインフラにアクセスできない可能性のある許可型環境で動作し、アテステーションは外部台帳ではなくローカルに完全性保証付きで記録される。</p>
+<h3 id="ブロックチェーンベースの信頼と監査">3.3
+ブロックチェーンベースの信頼と監査</h3>
+<p>いくつかのシステムはエージェント調整と信頼のためにブロックチェーンインフラを使用する。Jackson
+[8]はゼロ知識検証とShapley値ベースの完全性チェックを持つDAO-Agentを提案する。Observer
+Protocol
+[9]はBitcoinメインネット上でAIエージェント間のリアルタイム暗号証明決済を実証した。しかし、これらのアプローチはパブリックチェーントランザクションのレイテンシとコストを伴い、MCPツール呼び出しに必要な高頻度・低レイテンシのアテステーションには実用的でない。Huら[17]は自己主権型分散AIエージェントに内在するガバナンスの緊張関係を分析し、自律性と説明責任のバランスをとるアテステーション機構の動機を提供する。</p>
+<p>AuditTrust
+[10]などのブロックチェーンベースの監査証跡システムはデータ共有のための改ざん検知ログを提供するが、エージェント間アテステーションではなく人間対システムの相互作用を対象とする。Synoptisのハッシュチェーンレジストリは合意プロトコルを必要とせず同等の完全性保証を提供し、各参加者がローカルにログを維持する許可型エージェントネットワークに適している。</p>
+<h3 id="マルチエージェント信頼と評判">3.4
+マルチエージェント信頼と評判</h3>
+<p>マルチエージェントシステムの信頼・評判モデルは広く研究されている[11]。最近の研究はAIエージェント固有の課題に対処する：TRiSMフレームワーク[12]はエージェンティックAIの信頼・リスク・セキュリティ管理の次元を特定するが、具体的なプロトコルを提供しない。Mansa
+AI評判レイヤー[13]はWeb3エージェントの構造化メトリクスを導入するが、形式的なエージェント間アテステーションを欠く。Renら[14]は生成的マルチエージェントシステムにおける評判操作リスク（共謀エージェントや隠しトリガーを含む）を特定する——これはまさにSynoptisが検出するよう設計された攻撃シナリオである。Schroeder
+de Witt
+[20]はマルチエージェントセキュリティにおける未解決課題のより広範なサーベイを提供し、RajagopalanとRao
+[18]およびDoshiら[19]はそれぞれ認証済みワークフローとLLMエージェントの検証可能な安全なツール使用に取り組んでいる——Synoptisのアテステーション焦点と補完的な関心事である。</p>
+<p><strong>ギャップの要約。</strong>
+我々の知る限り、以下を組み合わせた既存システムは存在しない：（1）AIエージェント間の双方向相互アテステーション、（2）時間とともに進化する動的信頼スコア、（3）合意オーバーヘッドなしの改ざん検知永続化、（4）MCPプロトコルエコシステムとの統合。Synoptisはこのギャップに対応する。</p>
+<hr />
+<h2 id="synoptisプロトコル">4. Synoptisプロトコル</h2>
+<h3 id="設計原則">4.1 設計原則</h3>
+<p>Synoptisは3つの原則に基づいて設計されている：</p>
+<p><strong>合意なしのブロックチェーン級ローカル完全性。</strong>
+ブロックチェーンシステムの完全性保証——追記専用ストレージ、ハッシュチェーン、暗号検証——を、合意プロトコルを必要とせずに目標とする。我々の実装はハッシュチェーン改ざん検知ログを使用する：各レコードは先行レコードのSHA-256ハッシュを含み、検証可能なチェーンを形成する。これは<em>ローカルな</em>完全性（誠実なエージェントが自身のログが改ざんされていないことを検証できる）を提供するが、<em>グローバルな</em>合意（エージェントが単一の正規の履歴に合意する）は提供しない。許可型MCPネットワークにおいて、エージェントが自身のログを維持しアテステーションプロトコル自体を通じて相互検証する場合、このトレードオフは適切と考える。</p>
+<p><strong>観察ベースの信頼。</strong>
+信頼は宣言された意図ではなく、観察可能な証拠（アテステーション、チャレンジ、レスポンス）から計算される。これは分散ネットワークにおいて振る舞いが唯一の信頼できるシグナルであるという原則と整合する（DEEモデル[15]、ポストコンセンサス型協調に関する我々の関連研究を参照）。</p>
+<p><strong>トランスポート独立性。</strong>
+アテステーションプロトコルは通信層から独立して定義される。Synoptisは3つのトランスポートをサポートする：サーバ間通信のためのMMP（Model
+Meeting
+Protocol、KairosChainドキュメント参照）、ローカルネットワーク通信のためのHestia（LAN発見プロトコル、KairosChainドキュメント参照）、同一マシン上のエージェント間のローカル配信である。アテステーションロジックを変更せずに新しいトランスポートを追加できる。</p>
+<p><strong>MCP統合モデル。</strong>
+SynoptisはMCP上のアプリケーション層オーバーレイとして実装され、KairosChain
+MCPサーバフレームワーク内のSkillSet（プラグイン）としてデプロイされる。アテステーション操作は標準MCPツール（<code>attestation_issue</code>、<code>attestation_verify</code>、<code>attestation_revoke</code>、<code>attestation_list</code>、<code>challenge_create</code>、<code>challenge_respond</code>、<code>trust_query</code>）として公開され、標準の<code>tools/call</code>メソッドで呼び出し可能である。エージェントは他のエージェントのMCPサーバからツールを呼び出す前に、<code>trust_query</code>ツールを使用して蓄積されたアテステーション証拠に基づく信頼スコアを評価する。</p>
+<p><strong>構造的注記：統一的構成要素としてのSkillSet。</strong>
+KairosChainでは、トランスポート層（MMP）、発見層（HestiaChain Meeting
+Place）、アテステーション層（Synoptis）がすべてSkillSet——同じプラグインアーキテクチャ、同じAPI表面、同じ進化メカニズム——として実装されている。この統一性は実用的な帰結を持つ：Synoptisは自身を含むあらゆるSkillSetの振る舞いについてアテストできる。エージェントは他のエージェントのSynoptis実装が正しく動作しているか（チャレンジへの応答、ハッシュチェーンの完全性維持など）についてアテステーションを発行できる。この自己参照的特性——信頼検証層自体が同じ信頼スコアメカニズムを通じて信頼検証の対象となる——は、エージェントのSynoptis実装が他のエージェントからのアテステーションによって計算される独自の信頼スコアを持つことを意味する。誤動作する、あるいは悪意のあるアテステーションエンジンは、それ自身が実装するプロトコルによって検出可能である。これは追加機能ではなく、すべてのプロトコル層をSkillSetとして実装したことの構造的帰結である。この特性の適応的スコアリングへの含意を第6.3節で探る。</p>
+<h3 id="proofenvelope">4.2 ProofEnvelope</h3>
+<p>Synoptisの基本データ単位は<strong>ProofEnvelope</strong>（構造化アテステーションレコード）である：</p>
+<pre><code>ProofEnvelope := {
+  proof_id:       UUID v4,
+  version:        &quot;1.0.0&quot;,
+  attester_id:    String,     // MCPインスタンス識別子
+  subject_ref:    String,     // アテステーション対象（以下の例を参照）
+  claim:          String,     // アテステーション主張
+  evidence:       String?,    // 裏付け証拠（オプション）
+  merkle_root:    String?,    // 選択的開示用（オプション）
+  signature:      String?,    // RSA-SHA256, Base64エンコード
+  timestamp:      ISO 8601,   // UTC
+  ttl:            Integer,    // 有効期間（秒）
+  actor_user_id:  String?,    // 監査証跡: トリガーしたユーザー（実装固有）
+  actor_role:     String?,    // 監査証跡: トリガーしたユーザーの役割（実装固有）
+  metadata:       Object?     // 任意の拡張性（実装固有）
+}</code></pre>
+<p><code>subject_ref</code>フィールドはアテステーション対象を識別する。例：
+- <code>"agent:mcp-server-alpha"</code> —
+エージェントの全体的な振る舞いについてアテスト -
+<code>"tool:code_execute@agent-B"</code> —
+特定のエージェント上の特定のツールについてアテスト -
+<code>"invocation:uuid:abc-123"</code> —
+特定のツール呼び出し結果についてアテスト</p>
+<p><strong>正規形。</strong>
+決定論的ハッシュを保証するため、JSON正規化スキーム（JCS, RFC 8785
+[21]）の簡略化サブセットに従う正規JSON表現を定義する。正規形はコアフィールド（<code>proof_id</code>、<code>version</code>、<code>attester_id</code>、<code>subject_ref</code>、<code>claim</code>、<code>evidence</code>、<code>merkle_root</code>、<code>timestamp</code>、<code>ttl</code>）を含み、実装固有フィールド（<code>signature</code>、<code>actor_user_id</code>、<code>actor_role</code>、<code>metadata</code>）を除外する。フィールドは辞書順にソートされ、<code>nil</code>値は省略せずJSON
+<code>null</code>として明示的に保持される。<strong>コンテンツハッシュ</strong>はこの正規形に対するSHA-256として計算される。</p>
+<p><strong>署名。</strong>
+暗号素材が利用可能な場合、ProofEnvelopeはRSA-2048とSHA-256を用いて署名される：</p>
+<pre><code>signature = Base64(RSA-Sign(SHA256, canonical_json(envelope)))</code></pre>
+<p>検証にはアテスターの公開鍵が必要であり、TOFUまたは事前共有鍵配布を通じて取得される。</p>
+<p><strong>リプレイ緩和。</strong>
+受信者は以前に観察された<code>proof_id</code>値を持つProofEnvelopeを拒否すべき（SHOULD）である。<code>ttl</code>フィールドと組み合わせることで、限定的なリプレイ保護が提供される：リプレイされたエンベロープは既知の<code>proof_id</code>を持つか、有効期限が切れているかのいずれかである。</p>
+<h3 id="通常のアテステーションフロー">4.3
+通常のアテステーションフロー</h3>
+<p>チャレンジ・レスポンス機構を説明する前に、標準的な双方向アテステーションライフサイクルを概説する：</p>
+<pre><code>  エージェントA                          エージェントB
+     |                                      |
+     |---- tools/call (Bのツール使用) -----&gt;|
+     |&lt;--- ツール結果 ----------------------|
+     |                                      |
+     |  [AがBのツール動作を評価]            |
+     |                                      |
+     |---- attestation_issue --------------&gt;|
+     |  (subject_ref: &quot;tool:X@agent-B&quot;,     |
+     |   claim: &quot;correct_output&quot;,           |
+     |   evidence: &quot;hash_of_result&quot;,        |
+     |   signature: RSA-Sign(A))            |
+     |                                      |
+     |  [Bが独立にAを評価]                  |
+     |                                      |
+     |&lt;--- attestation_issue ---------------|
+     |  (subject_ref: &quot;agent:agent-A&quot;,      |
+     |   claim: &quot;legitimate_invocation&quot;,    |
+     |   signature: RSA-Sign(B))            |
+     |                                      |
+     |  [両エージェントが受信した            |
+     |   アテステーションをローカルの        |
+     |   ハッシュチェーンレジストリに保存]   |</code></pre>
+<p><strong>図1.</strong>
+通常の双方向アテステーションフロー。各エージェントは独立に相手を評価し、署名付きアテステーションを発行する。肯定的なアテストは必須ではなく、否定的な主張（例:
+<code>"anomalous_behavior"</code>）も同じフローに従う。</p>
+<h3 id="信頼スコアモデル">4.4 信頼スコアモデル</h3>
+<p>Synoptisは各対象について、その対象を参照する<em>n</em>個のアテステーションのセットから連続的な信頼スコア<em>S</em>
+∈ [0, 1]を計算する。スコアは5次元の重み付き線形結合である：</p>
+<p><span class="math display">\[S = \text{clamp}\left(\sum_{d \in D} w_d
+\cdot s_d - w_r \cdot p_r,\ 0,\ 1\right)\]</span></p>
+<p>ここで<em>D</em> = {品質, 鮮度, 多様性,
+速度}、<em>w_d</em>は次元重み、<em>s_d</em> ∈ [0,
+1]は次元スコア、<em>w_r</em>は取消ペナルティ重み、<em>p_r</em> ∈ [0,
+1]は取消比率、<em>n</em>は対象のアテステーション総数である。</p>
+<p><strong>表1.</strong> 信頼スコアの次元とデフォルト重み。</p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>次元</th>
+<th style="text-align: center;">重み</th>
+<th>定義</th>
+<th>根拠</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>品質</td>
+<td style="text-align: center;">0.30</td>
+<td>証拠、Merkleルート、署名を持つ証明の割合</td>
+<td>裏付け証拠と暗号的結合を持つ高品質なアテステーションはより信頼できる</td>
+</tr>
+<tr>
+<td>鮮度</td>
+<td style="text-align: center;">0.25</td>
+<td>30日窓内の平均近時性：<span class="math inline">\(\bar{f} =
+\frac{1}{n}\sum_i \max(1 - \frac{a_i}{720}, 0)\)</span>（<span
+class="math inline">\(a_i\)</span>は経過時間）</td>
+<td>最近のアテステーションはより関連性が高い。古いアテステーションは720時間（30日）にわたり線形に減衰</td>
+</tr>
+<tr>
+<td>多様性</td>
+<td style="text-align: center;">0.25</td>
+<td>アテステーション数に対するユニークアテスター比率（キャップ付き）：<span
+class="math inline">\(\min\left(\frac{|\text{ユニークアテスター数}|}{\min(n,
+10)}, 1\right)\)</span></td>
+<td>多様なソースからのアテステーションは偽造が困難。Sybil増幅を制限するため10でキャップ</td>
+</tr>
+<tr>
+<td>速度</td>
+<td style="text-align: center;">0.10</td>
+<td>アテステーション率：<span class="math inline">\(\min\left(\frac{n /
+\Delta t}{5}, 1\right)\)</span>（<span class="math inline">\(\Delta
+t\)</span>は日数単位の期間）</td>
+<td>持続的なアテステーション活動は継続的な関与を示す。1日5アテステーションに正規化</td>
+</tr>
+<tr>
+<td>取消</td>
+<td style="text-align: center;">0.10</td>
+<td>ペナルティ：<span
+class="math inline">\(\frac{|\text{取消数}|}{n}\)</span></td>
+<td>取消されたアテステーションは信頼を比例的に低下させる</td>
+</tr>
+</tbody>
+</table>
+<p><strong>重みの正当化。</strong>
+デフォルト重みは設計上の優先度を反映する：<em>証拠の品質</em>と<em>ソースの多様性</em>がスコアの55%を占め、信頼は主に独立したソースからの検証可能な証拠に基づくべきという原則を反映する。具体的な値（0.30,
+0.25, 0.25, 0.10,
+0.10）は設定可能なデフォルト値である。これらの重みがゲーム理論的分析から導出されたものではないことを明示的に注記する。形式的な均衡分析は将来の重要な課題である（第6.3節）。720時間の鮮度窓と1日5アテステーションの速度正規化はアクティブなエージェントネットワーク向けの合理的なデフォルトとして選択されている。異なる活動パターン（週次バッチ処理など）のデプロイメントでは、これらのパラメータを適宜調整すべきである。</p>
+<p><strong>線形性の正当化。</strong>
+単純性と解釈可能性のために線形結合を選択する。各次元は独立かつ比例的に総合スコアに寄与する。非線形モデル（乗法的、閾値ベースなど）は次元間の相互作用を捉え得るが、線形モデルは透明な分解の利点を持つ：実務者が各次元の寄与を検査してスコアが高いまたは低い<em>理由</em>を理解できる。</p>
+<h3 id="チャレンジレスポンスプロトコル">4.5
+チャレンジ・レスポンスプロトコル</h3>
+<p>エージェントがアテステーションに異議を唱える際、Synoptisは異議申し立てとローカルな信頼更新のための構造化されたチャレンジ・レスポンスプロトコルを提供する。Synoptisはグローバルに拘束力のある解決メカニズムを課さず、各エージェントが自身の信頼ポリシーに従ってチャレンジの結果を解釈することを強調する。</p>
+<p><strong>状態：</strong> -
+<code>pending</code>：チャレンジ発行済み、応答待ち。 -
+<code>responded</code>：元のアテスターが署名付き応答を提供した。 -
+<code>expired</code>：応答タイムアウト超過（デフォルト：3600秒）。</p>
+<p><strong>プロトコルフロー：</strong></p>
+<ol type="1">
+<li><p><strong>チャレンジ作成。</strong>
+エージェント<em>A</em>がアテステーション<em>P</em>に対してチャレンジタイプ
+∈ {<code>validity</code>, <code>evidence_request</code>,
+<code>re_verification</code>}を指定してチャレンジを行う。システムは（a）アテステーション<em>P</em>の存在、（b）<em>P</em>の対象に対するアクティブチャレンジ数が<code>max_active_per_subject</code>
+=
+5を超えないこと、（c）チャレンジが未発行であることを検証する。<code>max_active_per_subject</code>制限はチャレンジフラッディングを特に緩和するものであり、明示的な非目標（第2.2節）である一般的なサービス拒否耐性を構成するものではないことに注意する。</p></li>
+<li><p><strong>チャレンジ配信。</strong>
+チャレンジは利用可能なトランスポート（MMP、Hestia、またはローカル）を通じて元のアテスターに配信される。</p></li>
+<li><p><strong>応答。</strong>
+元のアテスターのみが応答可能。応答は元のアテスターの秘密鍵によって暗号署名されなければならず（MUST）、応答のなりすましを防止する。応答にはオプションの証拠が含まれ、追記専用ログに記録される。</p></li>
+<li><p><strong>ローカル評価。</strong>
+チャレンジを行ったエージェントが応答内容を評価し、それに応じて信頼を調整するかどうかを決定する。グローバルな仲裁者は存在しない。解決はローカルである。</p></li>
+</ol>
+<p>3600秒のタイムアウトは、応答しないアテスターがチャレンジ解決を無期限にブロックしないことを保証する。応答なしで期限切れとなったチャレンジは、それ自体が信頼性の欠如の証拠となる。</p>
+<pre><code>         チャレンジャー             アテスター
+            |                       |
+            |--- challenge_create -&gt;|
+            |   (type, proof_id)    |
+            |                       |
+            |&lt;-- challenge_respond--|
+            |   (evidence, response,|
+            |    signature)         |
+            |                       |
+       [ローカル評価]               |</code></pre>
+<p><strong>図2.</strong> チャレンジ・レスポンスプロトコルフロー。</p>
+<h3 id="レジストリとトランスポート">4.6 レジストリとトランスポート</h3>
+<p><strong>ハッシュチェーンレジストリ。</strong>
+すべてのレコード（アテステーション、取消、チャレンジ）は追記専用JSONL形式で保存される。各レコードは先行レコードのSHA-256ハッシュを含む<code>_prev_entry_hash</code>フィールドを含む：</p>
+<pre><code>record[i]._prev_entry_hash = SHA256(canonical_json(record[i-1]))</code></pre>
+<p>各チェーンの最初のレコードは<code>_prev_entry_hash = null</code>である。チェーンの完全性はハッシュを順次再計算することで検証可能——チェーンの途切れは改ざんを示す。並行書き込みはファイルレベルの排他ロックを用いてシリアライズされる。各エージェントが自身のローカルログを維持し、エージェント間でログのグローバルな一貫性を保証する機構は存在しないことに注意する。原理的に、エージェントは異なるピアに対して異なるアテステーション履歴を提示することが可能である（二重性、equivocation）。チャレンジ・レスポンスプロトコルを通じた相互検証は部分的な緩和を提供するが、完全な二重性検出には分散ログ比較が必要であり、これは将来の課題とする。</p>
+<p><strong>取消レコード。</strong>
+取消はタイプ<code>revocation</code>の別個のレジストリエントリとして記録され、元の<code>proof_id</code>を参照する。取消は元のアテスターまたは権限を持つ管理者によって署名されなければならない。取消されたアテステーションはログ内に残り（ハッシュチェーンを維持）、信頼スコア計算においては肯定的証拠としては除外される。ただし、取消ペナルティ次元（第4.4節、表1）には引き続き寄与する。取消されたアテステーションはクエリ結果においてそのようにフラグされる。</p>
+<p><strong>トランスポート抽象化。</strong>
+Synoptisは4つの操作を持つトランスポートインタフェースを定義する：<code>send_attestation</code>、<code>send_revocation</code>、<code>send_challenge</code>、<code>send_challenge_response</code>。3つの実装が提供される：</p>
+<ul>
+<li><strong>MMPトランスポート</strong>：Model Meeting
+Protocol（KairosChain MMP
+SkillSetで定義）を用いたHTTP上のサーバ間通信。メッセージには送信者のインスタンスIDと認証用のベアラトークンが含まれる。</li>
+<li><strong>Hestiaトランスポート</strong>：Hestia
+LAN発見プロトコル（KairosChain Hestia
+SkillSetで定義）を用いたローカルネットワーク通信。</li>
+<li><strong>ローカルトランスポート</strong>：同一マシン上のエージェント間（マルチテナントデプロイメントなど）でアテステーションを配信。</li>
+</ul>
+<p>トランスポート選択は設定可能なフォールバック順序（デフォルト：MMP →
+Hestia → ローカル）に従い、実行時に可用性が検出される。</p>
+<hr />
+<h2 id="セキュリティ分析">5. セキュリティ分析</h2>
+<p>第2.2節で定義された4つの攻撃シナリオに対するSynoptisのセキュリティ特性を分析する。この分析はプロトコル設計に基づく定性的なものであり、シミュレートされたエージェントネットワークによる実証的評価は将来の課題として計画されている。</p>
+<h3 id="ツールポイズニング検出">5.1 ツールポイズニング検出</h3>
+<p>ツールポイズニング攻撃では、エージェント<em>M</em>が肯定的なアテステーションを受け取った後にツールの振る舞いを変更する。Synoptisは時間的証拠を通じてこれを検出する：</p>
+<ol type="1">
+<li>エージェント<em>A</em>が<em>M</em>の変更されたツールを呼び出した後に異常な動作を観察する。</li>
+<li><em>A</em>は証拠（振る舞いの差分、予期しない出力など）を含む否定的アテステーションを発行する。</li>
+<li><em>A</em>はチャレンジ・レスポンスプロトコルを通じて<em>M</em>の既存の肯定的アテステーションにチャレンジする。</li>
+<li><em>M</em>がタイムアウト（3600秒）内に応答しない場合、チャレンジは期限切れとなり、未回答のチャレンジ自体が信頼性の欠如の証拠となる。</li>
+<li><em>M</em>の信頼スコアは3つのメカニズムにより低下する：（a）否定的アテステーションが品質を低下させる、（b）肯定的アテステーションが経年化し鮮度が低下する、（c）既存アテステーションの取消が取消ペナルティを増加させる。</li>
+</ol>
+<p>重要な設計特性は、<strong>信頼スコアは静的ではない</strong>ということである：明示的な否定的証拠がなくても、鮮度の減衰（720時間の線形減衰窓）により、継続的な肯定的アテステーションによって積極的に維持されない限り、信頼は自然に低下する。</p>
+<h3 id="sybil耐性">5.2 Sybil耐性</h3>
+<p>多様性次元はユニークアテスターをmin(<em>n</em>,
+10)でキャップする。これは限定的なSybil耐性を提供する：<em>k</em>個のアイデンティティを制御する攻撃者は多様性スコアに最大<em>k</em>/10（<em>n</em>
+≥
+10の場合）しか寄与できず、収穫逓減となる。しかし、Synoptisは根本的なSybil耐性を提供しない——任意のアイデンティティを生成できる攻撃者は多様性キャップを飽和させることができる。</p>
+<p><strong>多次元スコアリングによる緩和。</strong>
+攻撃者がSybilアイデンティティを通じて多様性を水増ししても、品質次元は証拠と署名を要求し（大規模な偽造にはコストがかかる）、速度次元は1日5アテステーションに正規化される（バースト攻撃を制限）。次元の組み合わせは多層防御を提供する：1つの次元を侵害するだけでは高い信頼スコアを達成するには不十分である。</p>
+<h3 id="共謀耐性">5.3 共謀耐性</h3>
+<p><em>f</em>個の侵害されたエージェントが互いのスコアを水増しするために共謀する場合、Synoptisの多様性次元は部分的な検出を提供する。アテステーション総数<em>n</em>が十分に大きく多様性キャップが作用する場合（すなわちmin(<em>n</em>,
+10) = 10）の共謀下での最大達成可能信頼スコアを分析する。</p>
+<p>この仮定の下で、ある対象に対するすべての肯定的アテステーションが同じ<em>f</em>個の共謀エージェントグループから発生する場合、多様性スコアは<em>f</em>/10で上界される。<em>N</em>
+= 10で<em>f &lt; N/3</em>（すなわち<em>f</em> ≤
+3）の場合、最大達成可能信頼スコアは：</p>
+<p><span class="math display">\[S_{\text{max}} = 0.30 \times 1.0 + 0.25
+\times 1.0 + 0.25 \times \frac{f}{10} + 0.10 \times 1.0 - 0.10 \times
+0\]</span></p>
+<p><em>f</em> = 3の場合：<span
+class="math inline">\(S_{\text{max}}\)</span> = 0.30 + 0.25 + 0.25 × 0.3
++ 0.10 = 0.725。これは合理的な信頼閾値0.8を下回り、<em>n</em> ≥
+10のデフォルトパラメータ下では共謀する少数派が「高信頼」ステータスを達成できないことを意味する。</p>
+<p><strong>小<em>n</em>に関する注意。</strong>
+アテステーション数が少ない場合（例：<em>n</em> =
+3でいずれも異なる共謀エージェントからの場合）、多様性スコアは1.0に達し得る（min(<em>n</em>,
+10) = <em>n</em> = 3であり、3/3 =
+1.0）。この領域では共謀の上界は成立せず、共謀エージェントは任意に高い信頼スコアを達成できる。このコールドスタート脆弱性は限られた証拠を持つすべての評判システムに内在するものであり、重要な判断に信頼スコアを使用する前に十分なアテステーション量を確立することの重要性を強調する。</p>
+<h3 id="スコア操作耐性">5.4 スコア操作耐性</h3>
+<p>速度次元は1日5アテステーションに正規化され、アテステーション頻度の総合スコアへの寄与を上限づける。1時間に100アテステーションを発行する攻撃者は、20日間にわたり1日5つを発行するものと同じ速度スコア（1.0）を達成する——速度次元は持続的な活動とバースト的な活動を区別しないことを、現行の線形モデルの限界として認識する。多様性キャップと組み合わせると、複数のアイデンティティを制御しない限り、速度操作は限定的な利益しかもたらさない。</p>
+<h3 id="attestmcpとの比較">5.5 AttestMCPとの比較</h3>
+<p><strong>表2.</strong>
+セキュリティ特性の定性的比較。AttestMCPは対照実験からの測定された攻撃低減を報告し、Synoptisの特性はプロトコル設計に対する分析的推論から導出されていることに注意する。</p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th style="text-align: center;">AttestMCP [2]</th>
+<th style="text-align: center;">Synoptis</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>方向性</td>
+<td style="text-align: center;">一方向</td>
+<td style="text-align: center;">双方向</td>
+</tr>
+<tr>
+<td>検証モデル</td>
+<td style="text-align: center;">中央集権的機関</td>
+<td style="text-align: center;">分散型（ピアツーピア）</td>
+</tr>
+<tr>
+<td>永続性</td>
+<td style="text-align: center;">セッション限定</td>
+<td style="text-align: center;">ハッシュチェーン改ざん検知ログ</td>
+</tr>
+<tr>
+<td>攻撃面低減</td>
+<td style="text-align: center;">52.8% → 12.4%（実測）</td>
+<td style="text-align: center;">5次元による多層防御（分析的）</td>
+</tr>
+<tr>
+<td>紛争機構</td>
+<td style="text-align: center;">なし</td>
+<td
+style="text-align: center;">チャレンジ・レスポンス（ローカル解決）</td>
+</tr>
+<tr>
+<td>共謀耐性</td>
+<td style="text-align: center;">未対応</td>
+<td style="text-align: center;"><em>n</em> ≥ 10のとき<em>f</em> &lt;
+<em>N</em>/3で有界</td>
+</tr>
+<tr>
+<td>信頼の粒度</td>
+<td style="text-align: center;">二値（アテスト済み/未）</td>
+<td style="text-align: center;">連続 [0, 1]</td>
+</tr>
+<tr>
+<td>時間的動態</td>
+<td style="text-align: center;">静的</td>
+<td style="text-align: center;">減衰ベース（720h鮮度窓）</td>
+</tr>
+</tbody>
+</table>
+<p>AttestMCPとSynoptisはMCPセキュリティの補完的な側面に対処する。AttestMCPは単一のMCPセッション内でサーバ能力を検証し、Synoptisはセッションとエージェントを越えて縦断的な信頼を構築する。2つのアプローチは組み合わせ可能である：MCPサーバはセッション層の能力検証にAttestMCPを、クロスエージェント評判にSynoptisを使用できる。</p>
+<hr />
+<h2 id="議論限界将来の課題">6. 議論、限界、将来の課題</h2>
+<h3 id="ハッシュチェーンログ対ブロックチェーン">6.1
+ハッシュチェーンログ対ブロックチェーン</h3>
+<p>Synoptisのレジストリを「ブロックチェーン」ではなく「ハッシュチェーン改ざん検知ログ」と意図的に記述した。ハッシュチェーン機構はブロックチェーンシステムに類似した完全性保証を提供するが、我々の実装は合意プロトコルを欠く：各エージェントが自身のログを維持し、すべてのエージェントが単一の正規の履歴に合意するメカニズムは存在しない。これは二重性（equivocation）が可能であることを意味する：エージェントは異なるピアに対して異なるアテステーション履歴を提示できる。これはグローバルな整合性を要求するシナリオ（紛争の拘束力ある仲裁など）における根本的な制限である。しかし、各エージェントがローカルに観察された証拠に基づいて独立に信頼を評価する相互アテステーションのユースケースにおいては、ローカルな完全性で十分である。軽量な合意プロトコルまたは分散ログ比較による二重性検出でSynoptisを拡張することは将来の自然な方向性である。</p>
+<h3 id="限界">6.2 限界</h3>
+<p><strong>侵害後セキュリティ。</strong>
+Synoptisはエフェメラル鍵交換なしでRSA-2048署名を使用する。エージェントの秘密鍵の侵害は攻撃者が将来のアテステーションを偽造することを可能にし、その鍵で署名されたすべての過去のアテステーションを信頼できないものにする。トランスポート暗号化のためのエフェメラルDiffie-Hellman鍵交換の統合は将来の課題とする。RSA-2048が現在のデフォルトであることに注意する。アルゴリズムの俊敏性（Ed25519やポスト量子方式のサポートなど）は本仕様では扱わない実装上の考慮事項である。</p>
+<p><strong>TOFU脆弱性。</strong>
+Trust-On-First-Use鍵配布モデルは初回鍵交換時の中間者攻撃に対して脆弱である。2つのエージェント間の最初の接触を傍受する攻撃者は自身の公開鍵を代替でき、以降のすべての署名検証を無効化する。強力な初期信頼を要求するデプロイメントでは、組織的PKIまたは帯域外鍵検証を使用すべきである。</p>
+<p><strong>Sybil耐性。</strong>
+多様性次元はユニークアテスターを10でキャップし、限定的なSybil緩和を提供する。しかし、Synoptisは根本的なSybil問題を解決しない：任意のアイデンティティを生成できる攻撃者は多様性スコアを水増しできる。オープンネットワークにおけるSybil耐性には外部のアイデンティティメカニズム（組織的PKI、鍵式典など）が必要である。</p>
+<p><strong>スケール。</strong>
+線形スキャンクエリを用いるJSONLベースのレジストリは大規模ネットワークにスケールしない。インデックス付きクエリを持つSQLiteまたはデータベースバックエンドのレジストリは計画されているが未実装である。</p>
+<p><strong>信頼スコアの重み。</strong>
+デフォルト重みは経験的に動機づけられているが形式的に導出されたものではない。信頼スコアメカニズム下での均衡戦略のゲーム理論的分析——特に合理的な攻撃者が線形スコアモデルをゲームできるかどうか——は重要な未解決問題である。</p>
+<p><strong>実証的検証。</strong>
+本論文はプロトコル設計と分析的セキュリティ評価を提示する。信頼スコア重みの感度分析、ビザンチンエージェント検出率、性能ベンチマークを含む実証的評価は即座のフォローアップ研究として計画されている。</p>
+<h3 id="将来の課題">6.3 将来の課題</h3>
+<p>現在の設計からいくつかの将来の研究方向が浮上する。最も直近の優先事項は、シミュレートされたマルチエージェントネットワークによる実証的評価であり、重み設定にわたる信頼スコア感度分析、様々な攻撃者比率下でのビザンチンエージェント検出率、アテステーション作成・検証・スコア計算のレイテンシ/スループットベンチマークを含む。TLA+やProVerifなどのモデル検査ツールによるチャレンジ・レスポンスプロトコルの形式検証は、プロトコルの正当性特性への信頼を強化する。合理的攻撃者下での信頼スコア均衡のゲーム理論的分析は、線形スコアモデルが悪用可能な戦略を許容するかどうかを判断するために必要である。インフラストラクチャ面では、クロスエージェントログ検証のための分散Merkleツリーが完全なログレプリケーションなしでの二重性検出を可能にし、観察された攻撃パターンに基づく適応的重み調整がデプロイメントに新たな脅威への対応を可能にする。</p>
+<p>より根本的に、いかなる固定スコアリングモデルも、そのパラメータを学習した合理的攻撃者によって最終的にはゲーム可能である。KairosChainの自己参照的SkillSetアーキテクチャはこの課題に対する構造的な回答を提供する：SynoptisがSkillSetとして実装されているため、スコアリングモデル自体を他のシステムコンポーネントと同じメカニズムで進化させることができる。重みの調整、モデルの置換、さらには進化ルール自体の変更も、改ざん検知ログに記録されるSkillSet操作として表現可能である。これは静的なゲーム（攻撃者対固定ルール）を共進化的動態（攻撃者対進化するルール）に変換し、システムの不完全性——すべての攻撃を予見できないこと——が継続的な適応の駆動力となる（DEEモデルのゆらぎを通じた秩序の原則[15]を参照）。</p>
+<hr />
+<h2 id="結論">7. 結論</h2>
+<p>MCPエージェントネットワークのための相互アテステーションプロトコルSynoptisを提示した。MCPセキュリティ、分散型アイデンティティ、ブロックチェーンベースの信頼、マルチエージェント評判にわたる関連研究のサーベイを通じて、ギャップを特定した：我々の知る限り、MCPエージェントにおける双方向暗号アテステーション、動的信頼スコア、改ざん検知永続化を組み合わせた既存システムは存在しない。Synoptisはこのギャップに3つの貢献で対応する：チャレンジ・レスポンス異議申し立てを備えた双方向アテステーションプロトコル、5次元動的信頼スコアモデル、合意オーバーヘッドなしのローカルなブロックチェーン級完全性を提供する追記専用ハッシュチェーンレジストリである。</p>
+<p>我々のセキュリティ分析は、プロトコルが有界な共謀耐性（十分なアテステーション証拠が存在する場合、<em>N</em>
+= 10中<em>f</em> ≤
+3の共謀少数派はデフォルトパラメータ下で信頼スコア0.725を超えることができない）、Sybilおよびスコア操作攻撃に対する多次元スコアリングによる多層防御、鮮度減衰によるツールポイズニング検出のための時間的信頼低下を提供することを示唆する。侵害後セキュリティの欠如、限定的なSybil耐性、TOFU脆弱性、グローバル合意の欠如における二重性の可能性、実証的検証の必要性を含むプロトコルの限界を明示的に文書化した。</p>
+<p>SynoptisはKairosChain MCPサーバフレームワーク [22]
+内のオープンソースSkillSetとして実装されている。実証的評価と形式検証は即座のフォローアップ研究として計画されている。</p>
+<hr />
+<h2 id="参考文献">参考文献</h2>
+<p>[1] Anthropic, “Model Context Protocol Specification,” 2024.
+https://modelcontextprotocol.io/specification</p>
+<p>[2] N. Maloyan and D. Namiot, “Breaking the Protocol: Security
+Analysis of the Model Context Protocol Specification and Prompt
+Injection Vulnerabilities in Tool-Integrated LLM Agents,”
+arXiv:2601.17549, 2026.</p>
+<p>[3] D. Dolev and A. Yao, “On the security of public key protocols,”
+IEEE Transactions on Information Theory, vol. 29, no. 2, pp. 198–208,
+1983.</p>
+<p>[4] X. Hou, Y. Zhao, S. Wang, and H. Wang, “Model Context Protocol
+(MCP): Landscape, Security Threats, and Future Research Directions,”
+arXiv:2503.23278, 2025.</p>
+<p>[5] A. Ehtesham et al., “A Survey of Agent Interoperability
+Protocols: Model Context Protocol (MCP), Agent Communication Protocol
+(ACP), Agent-to-Agent Protocol (A2A), and Agent Network Protocol (ANP),”
+arXiv:2505.02279, 2025.</p>
+<p>[6] W3C, “Verifiable Credentials Data Model v2.0,” W3C
+Recommendation, 2025. https://www.w3.org/TR/vc-data-model-2.0/</p>
+<p>[7] S. R. Garzon, A. Vaziry, E. M. Kuzu, D. E. Gehrmann, B. Varkan,
+A. Gaballa, and A. Küpper, “AI Agents with Decentralized Identifiers and
+Verifiable Credentials,” arXiv:2511.02841, 2025.</p>
+<p>[8] F. Jackson, “Agentic Blockchain Intelligence: Designing Secure
+Decentralized AI Agents with Smart Contract Governance,” SSRN:5869322,
+2025.</p>
+<p>[9] Observer Protocol, “Two AI agents, different stacks, settled a
+payment on Bitcoin mainnet,” 2026. https://observerprotocol.org</p>
+<p>[10] F. A. Solórzano et al., “A Blockchain-Based Audit Trail
+Mechanism: Design and Implementation,” Algorithms, vol. 14, no. 12,
+p. 341, 2021. DOI: 10.3390/a14120341.</p>
+<p>[11] G. Granatyr, S. S. Botelho, O. R. Lessing, E. E. Scalabrin,
+J.-P. Barthès, and F. Enembreck, “Trust and Reputation Models for
+Multiagent Systems,” ACM Computing Surveys, vol. 48, no. 2, 2015. DOI:
+10.1145/2816826.</p>
+<p>[12] S. Raza, R. Sapkota, M. Karkee, and C. Emmanouilidis, “TRiSM for
+Agentic AI: A Review of Trust, Risk, and Security Management in
+LLM-based Agentic Multi-Agent Systems,” arXiv:2506.04133, 2025.</p>
+<p>[13] Mansa AI, “Agent Reputation Layer Framework,” 2025.</p>
+<p>[14] S. Ren, W. Fu, X. Zou, C. Shen, Y. Cai, C. Chu, Z. Wang, and S.
+Hu, “Reputation as a Solution to Cooperation Collapse in LLM-based
+Multi-Agent Systems,” arXiv:2505.05029, 2025.</p>
+<p>[15] M. Hatakeyama, “DEE: Decentralized Evolving Ecosystem — A
+Post-Consensus Model for AI Agent Communities,” Zenodo, 2026. DOI:
+10.5281/zenodo.18583107（関連研究）.</p>
+<p>[16] Z. Anbiaee et al., “Security Threat Modeling for Emerging
+AI-Agent Protocols: A Comparative Analysis of MCP, A2A, Agora, and ANP,”
+arXiv:2602.11327, 2026.</p>
+<p>[17] B. A. Hu et al., “Trustless Autonomy: Understanding Motivations,
+Benefits, and Governance Dilemmas in Self-Sovereign Decentralized AI
+Agents,” arXiv:2505.09757, 2025.</p>
+<p>[18] M. Rajagopalan and V. Rao, “Authenticated Workflows: A Systems
+Approach to Protecting Agentic AI,” arXiv:2602.10465, 2026.</p>
+<p>[19] A. Doshi et al., “Towards Verifiably Safe Tool Use for LLM
+Agents,” arXiv:2601.08012, 2026.</p>
+<p>[20] C. Schroeder de Witt, “Open Challenges in Multi-Agent Security:
+Towards Secure Systems of Interacting AI Agents,” arXiv:2505.02077,
+2025.</p>
+<p>[21] A. Rundgren, B. Jordan, and S. Erdtman, “JSON Canonicalization
+Scheme (JCS),” RFC 8785, Internet Engineering Task Force, June 2020.
+https://www.rfc-editor.org/rfc/rfc8785</p>
+<p>[22] M. Hatakeyama, “KairosChain: A Self-Referential MCP Server
+Framework,” 2026. DOI: 10.5281/zenodo.19161453.
+https://github.com/masaomi/KairosChain_2026</p>
+</body>
+</html>

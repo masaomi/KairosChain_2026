@@ -20,6 +20,13 @@ if [ ! -f "$KAIROS_DATA_DIR/.kairos_meta.yml" ]; then
   echo "[entrypoint] Volume seeded."
 else
   echo "[entrypoint] Volume already initialized."
+  # Check for missing skillsets (upgrade scenario)
+  for ss in mmp hestia synoptis multiuser service_grant; do
+    if [ ! -d "$KAIROS_DATA_DIR/skillsets/$ss" ] && [ -d "/app/.kairos-template/skillsets/$ss" ]; then
+      echo "[entrypoint] WARNING: SkillSet '$ss' missing from volume. Copying from template..."
+      cp -a "/app/.kairos-template/skillsets/$ss" "$KAIROS_DATA_DIR/skillsets/$ss"
+    fi
+  done
 fi
 
 # -------------------------------------------------------------------------
@@ -65,6 +72,9 @@ apply_config "/app/config-override/meeting.yml" \
 apply_config "/app/config-override/synoptis.yml" \
   "$KAIROS_DATA_DIR/skillsets/synoptis/config/synoptis.yml"
 
+apply_config "/app/config-override/service_grant.yml" \
+  "$KAIROS_DATA_DIR/skillsets/service_grant/config/service_grant.yml"
+
 # -------------------------------------------------------------------------
 # 2. Inject PostgreSQL connection (password stays in ENV only)
 # -------------------------------------------------------------------------
@@ -81,7 +91,22 @@ MERGE_DEST="$KAIROS_DATA_DIR/skillsets/multiuser/config/multiuser.yml" \
     cfg["postgresql"] = pg
     File.write(dest, YAML.dump(cfg))
   '
-echo "[entrypoint] PostgreSQL connection configured (password via ENV only)."
+echo "[entrypoint] Multiuser PostgreSQL connection configured."
+
+MERGE_DEST="$KAIROS_DATA_DIR/skillsets/service_grant/config/service_grant.yml" \
+  ruby -ryaml -e '
+    dest = ENV["MERGE_DEST"]
+    cfg = File.exist?(dest) ? (YAML.safe_load(File.read(dest)) || {}) : {}
+    pg = cfg["postgresql"] || {}
+    pg["host"]   = ENV["POSTGRES_HOST"]   || pg["host"]   || "postgres"
+    pg["port"]   = (ENV["POSTGRES_PORT"]  || pg["port"]   || 5432).to_i
+    pg["dbname"] = ENV["POSTGRES_DB"]     || pg["dbname"] || "kairoschain"
+    pg["user"]   = ENV["POSTGRES_USER"]   || pg["user"]   || "kairoschain"
+    pg.delete("password")
+    cfg["postgresql"] = pg
+    File.write(dest, YAML.dump(cfg))
+  '
+echo "[entrypoint] Service Grant PostgreSQL connection configured (password via ENV only)."
 
 # -------------------------------------------------------------------------
 # 3. Wait for PostgreSQL (fatal on timeout)
@@ -99,6 +124,20 @@ if [ -n "$POSTGRES_HOST" ]; then
     fi
     sleep 1
   done
+fi
+
+# -------------------------------------------------------------------------
+# 3.5 Run Service Grant database migrations
+# -------------------------------------------------------------------------
+if [ -d "$KAIROS_DATA_DIR/skillsets/service_grant/migrations" ]; then
+  echo "[entrypoint] Running Service Grant database migrations..."
+  PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" \
+    -U "${POSTGRES_USER:-kairoschain}" -d "${POSTGRES_DB:-kairoschain}" -q \
+    -f "$KAIROS_DATA_DIR/skillsets/service_grant/migrations/001_service_grant_schema.sql" 2>&1
+  PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" \
+    -U "${POSTGRES_USER:-kairoschain}" -d "${POSTGRES_DB:-kairoschain}" -q \
+    -f "$KAIROS_DATA_DIR/skillsets/service_grant/migrations/002_grant_ip_events.sql" 2>&1
+  echo "[entrypoint] Service Grant migrations applied."
 fi
 
 # -------------------------------------------------------------------------
