@@ -22,6 +22,7 @@ module ServiceGrant
       return unless user_ctx  # STDIO mode -- permissive
 
       return if user_ctx[:local_dev]  # local dev mode -- permissive
+      return if user_ctx[:role] == 'owner'  # admin/owner bypasses service grant checks
 
       pubkey_hash = user_ctx[:pubkey_hash]
 
