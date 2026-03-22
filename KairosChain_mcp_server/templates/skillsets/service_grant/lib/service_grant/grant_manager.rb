@@ -177,11 +177,11 @@ module ServiceGrant
     MAX_RECORDING_RETRIES = 3
 
     def record_grant_event(pubkey_hash, service, action, details = {})
-      record_with_retry(
+      record_with_retry({
         type: 'service_grant_event', layer: 'L1',
         pubkey_hash: pubkey_hash, service: service,
         action: action, details: details, timestamp: Time.now.iso8601
-      )
+      })
     end
 
     # Record with retry (non-blocking, up to MAX_RECORDING_RETRIES attempts).
