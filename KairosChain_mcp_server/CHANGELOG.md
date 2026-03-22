@@ -4,6 +4,32 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.1.0] - 2026-03-22
+
+### Added
+
+- **Docker Production Deployment**: Complete Docker setup for Meeting Place server on EC2
+  - `docker-compose.prod.yml` with Caddy TLS reverse proxy (`meeting.kairoschain.io`)
+  - Network isolation: `frontend` (Caddy + app) / `backend` (app + PG)
+  - Security headers (HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy)
+  - EC2 setup script (Amazon Linux 2023, Docker Compose via dnf)
+  - Service Grant DB migrations in entrypoint
+  - Volume upgrade: automatic SkillSet backfill from template on existing volumes
+- **Configurable Grant Creation Cooldown** (`grant_creation_cooldown`): Config option in `service_grant.yml` (default: 300s, set to 0 to disable). Future: trust-based cooldown where `cooldown = base * (1.0 - trust_score)`
+
+### Fixed
+
+- **AccessGate owner bypass**: Admin/owner tokens (from `--init-admin`) were blocked by Service Grant with "pubkey_hash missing from auth context". Owner role now bypasses Service Grant checks — admin tokens are system management, not service consumers
+- **GrantManager record_with_retry kwargs**: `record_grant_event` passed bare kwargs to `record_with_retry(event, attempt:)`, leaving the positional `event` parameter empty → `ArgumentError`. Fixed with explicit `{}` braces. Caused 500 errors on Place API endpoints
+- **meeting_connect session_token**: `connect_relay` saved the MMP introduce handshake token (`/meeting/v1/introduce`) instead of the Place register token (`/place/v1/register`). The MMP token lacks `pubkey_hash` in the session store, causing all Place API write operations (deposit, acquire) to fail with 403 "Cannot resolve identity"
+
+### Review
+
+- Docker deployment: 2 rounds × 3 LLMs (Claude Agent Team, Cursor Composer-2, Cursor GPT-5.4), converged at Round 2
+- Service Grant bugfixes: 1 round × 3 LLMs, 3/3 APPROVE
+
+---
+
 ## [3.0.0] - 2026-03-21
 
 ### Added
@@ -476,6 +502,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Skill promotion with Persona Assembly
 - Tool guide and metadata system
 
+[3.1.0]: https://github.com/masaomi/KairosChain_2026/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.10.1...v3.0.0
 [2.10.1]: https://github.com/masaomi/KairosChain_2026/compare/v2.10.0...v2.10.1
 [2.10.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.9.0...v2.10.0
