@@ -127,6 +127,20 @@ if [ -n "$POSTGRES_HOST" ]; then
 fi
 
 # -------------------------------------------------------------------------
+# 3.5 Run Service Grant database migrations
+# -------------------------------------------------------------------------
+if [ -d "$KAIROS_DATA_DIR/skillsets/service_grant/migrations" ]; then
+  echo "[entrypoint] Running Service Grant database migrations..."
+  PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" \
+    -U "${POSTGRES_USER:-kairoschain}" -d "${POSTGRES_DB:-kairoschain}" -q \
+    -f "$KAIROS_DATA_DIR/skillsets/service_grant/migrations/001_service_grant_schema.sql" 2>&1
+  PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" \
+    -U "${POSTGRES_USER:-kairoschain}" -d "${POSTGRES_DB:-kairoschain}" -q \
+    -f "$KAIROS_DATA_DIR/skillsets/service_grant/migrations/002_grant_ip_events.sql" 2>&1
+  echo "[entrypoint] Service Grant migrations applied."
+fi
+
+# -------------------------------------------------------------------------
 # 4. Bootstrap admin token
 #    Uses the token output file as idempotency guard.
 #    If .admin_token exists in the volume, bootstrap was already done.
