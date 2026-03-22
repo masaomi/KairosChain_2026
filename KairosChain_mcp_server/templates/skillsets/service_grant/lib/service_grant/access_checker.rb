@@ -43,7 +43,7 @@ module ServiceGrant
       if @grant_manager.in_cooldown?(grant) && write_action?(service, action)
         raise AccessDeniedError.new(:cooldown, service: service, action: action,
           message: "New grant in cooldown period. Read-only actions only.",
-          cooldown_remaining: GrantManager::GRANT_CREATION_COOLDOWN -
+          cooldown_remaining: @grant_manager.cooldown -
                               (Time.now - grant[:first_seen_at]).to_i)
       end
 

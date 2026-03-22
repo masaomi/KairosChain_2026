@@ -4,12 +4,15 @@ require 'time'
 
 module ServiceGrant
   class GrantManager
-    GRANT_CREATION_COOLDOWN = 300  # 5 minutes
+    DEFAULT_GRANT_CREATION_COOLDOWN = 300  # 5 minutes
     MAX_GRANTS_PER_IP_PER_HOUR = 5
 
-    def initialize(pg_pool:, plan_registry:)
+    attr_reader :plan_registry, :cooldown
+
+    def initialize(pg_pool:, plan_registry:, cooldown: nil)
       @pg = pg_pool
       @plans = plan_registry
+      @cooldown = cooldown || DEFAULT_GRANT_CREATION_COOLDOWN
       @ip_tracker = IpRateTracker.new(
         max: MAX_GRANTS_PER_IP_PER_HOUR, window: 3600, pg_pool: pg_pool
       )
@@ -133,8 +136,9 @@ module ServiceGrant
     end
 
     def in_cooldown?(grant)
+      return false if @cooldown <= 0
       return false unless grant[:first_seen_at]
-      (Time.now - grant[:first_seen_at]) < GRANT_CREATION_COOLDOWN
+      (Time.now - grant[:first_seen_at]) < @cooldown
     end
 
     def grants_with_unknown_plans(plan_registry)

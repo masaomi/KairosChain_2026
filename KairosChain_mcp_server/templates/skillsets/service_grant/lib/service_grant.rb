@@ -47,7 +47,9 @@ module ServiceGrant
 
       # 3. IP resolution + domain objects
       @ip_resolver = ClientIpResolver.new(config['ip_resolution'] || {})
-      @grant_manager = GrantManager.new(pg_pool: @pg_pool, plan_registry: @plan_registry)
+      cooldown = config['grant_creation_cooldown']&.to_i
+      @grant_manager = GrantManager.new(pg_pool: @pg_pool, plan_registry: @plan_registry,
+                                         cooldown: cooldown)
       @usage_tracker = UsageTracker.new(pg_pool: @pg_pool, plan_registry: @plan_registry,
                                          cycle_manager: @cycle_manager)
 
