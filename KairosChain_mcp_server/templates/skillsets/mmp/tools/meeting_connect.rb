@@ -155,7 +155,8 @@ module KairosMcp
             result = {
               status: 'connected', mode: 'relay', url: url, relay_mode: true,
               identity_verified: verified,
-              session_token: meeting_session_token,
+              session_token: session_token,
+              meeting_session_token: meeting_session_token,
               meeting_place: { url: url, name: place_info['name'] || place_info[:name] || 'Meeting Place' },
               self_agent_id: agent_id,
               your_skills: skill_counts,
