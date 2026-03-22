@@ -1,0 +1,2 @@
+default_service: meeting_place
+pg_unavailable_policy: deny_all

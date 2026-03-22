@@ -65,6 +65,9 @@ apply_config "/app/config-override/meeting.yml" \
 apply_config "/app/config-override/synoptis.yml" \
   "$KAIROS_DATA_DIR/skillsets/synoptis/config/synoptis.yml"
 
+apply_config "/app/config-override/service_grant.yml" \
+  "$KAIROS_DATA_DIR/skillsets/service_grant/config/service_grant.yml"
+
 # -------------------------------------------------------------------------
 # 2. Inject PostgreSQL connection (password stays in ENV only)
 # -------------------------------------------------------------------------
@@ -81,7 +84,22 @@ MERGE_DEST="$KAIROS_DATA_DIR/skillsets/multiuser/config/multiuser.yml" \
     cfg["postgresql"] = pg
     File.write(dest, YAML.dump(cfg))
   '
-echo "[entrypoint] PostgreSQL connection configured (password via ENV only)."
+echo "[entrypoint] Multiuser PostgreSQL connection configured."
+
+MERGE_DEST="$KAIROS_DATA_DIR/skillsets/service_grant/config/service_grant.yml" \
+  ruby -ryaml -e '
+    dest = ENV["MERGE_DEST"]
+    cfg = File.exist?(dest) ? (YAML.safe_load(File.read(dest)) || {}) : {}
+    pg = cfg["postgresql"] || {}
+    pg["host"]   = ENV["POSTGRES_HOST"]   || pg["host"]   || "postgres"
+    pg["port"]   = (ENV["POSTGRES_PORT"]  || pg["port"]   || 5432).to_i
+    pg["dbname"] = ENV["POSTGRES_DB"]     || pg["dbname"] || "kairoschain"
+    pg["user"]   = ENV["POSTGRES_USER"]   || pg["user"]   || "kairoschain"
+    pg.delete("password")
+    cfg["postgresql"] = pg
+    File.write(dest, YAML.dump(cfg))
+  '
+echo "[entrypoint] Service Grant PostgreSQL connection configured (password via ENV only)."
 
 # -------------------------------------------------------------------------
 # 3. Wait for PostgreSQL (fatal on timeout)

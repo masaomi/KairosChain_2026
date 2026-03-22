@@ -1,0 +1,65 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: kairos-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      meeting-place:
+        condition: service_healthy
+    restart: unless-stopped
+
+  meeting-place:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: kairos-meeting-place
+    # No host port mapping — only accessible via Caddy
+    expose:
+      - "8080"
+    volumes:
+      - kairos-data:/app/.kairos
+    environment:
+      - KAIROS_DATA_DIR=/app/.kairos
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-kairoschain}
+      - POSTGRES_USER=${POSTGRES_USER:-kairoschain}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: kairos-postgres
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-kairoschain}
+      - POSTGRES_USER=${POSTGRES_USER:-kairoschain}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kairoschain}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:
+  kairos-data:
+  pg-data:
