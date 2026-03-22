@@ -1,2 +1,33 @@
 default_service: meeting_place
 pg_unavailable_policy: deny_all
+grant_creation_cooldown: 0
+
+services:
+  meeting_place:
+    billing_model: subscription
+    currency: USD
+    cycle: monthly
+    write_actions:
+      - deposit_skill
+      - acquire_skill
+    action_map:
+      meeting_deposit: "deposit_skill"
+      meeting_acquire_skill: "acquire_skill"
+      meeting_get_skill_details: "browse"
+    plans:
+      free:
+        limits:
+          deposit_skill: 5
+          acquire_skill: 20
+          browse: 100
+        trust_requirements:
+          deposit_skill: 0.0
+          acquire_skill: 0.0
+      pro:
+        limits:
+          deposit_skill: -1
+          acquire_skill: -1
+          browse: -1
+        subscription_price: "9.99"
+        trust_requirements:
+          deposit_skill: 0.0
