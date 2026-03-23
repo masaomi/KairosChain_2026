@@ -48,8 +48,9 @@ module KairosMcp
         #
         # Steps:
         #   1. Compress all live blocks to a numbered segment file.
-        #   2. Update the manifest (archives_dir/manifest.json).
-        #   3. Append an archive block that continues the hash chain.
+        #   2. Append an archive block that continues the hash chain.
+        #   3. Persist the manifest last — any earlier failure leaves a state
+        #      that verify_archives can detect (orphan segment or live/manifest mismatch).
         #
         # Returns a result hash. If the chain is below the threshold,
         # returns { success: false, skipped: true, ... }.
@@ -89,7 +90,6 @@ module KairosMcp
             'archived_at'       => Time.now.utc.iso8601,
             'reason'            => reason
           }
-          save_manifest(manifest)
 
           archive_data = {
             type:               ARCHIVE_BLOCK_TYPE,
@@ -104,6 +104,7 @@ module KairosMcp
           }
           archive_block = create_archive_block(archive_data, last_index: last_index, last_hash: last_hash)
           save_live_chain([archive_block.to_h])
+          save_manifest(manifest)
 
           {
             success:               true,
@@ -151,8 +152,8 @@ module KairosMcp
           return [] unless File.exist?(path)
 
           JSON.parse(File.read(path), symbolize_names: true)
-        rescue JSON::ParserError
-          []
+        rescue JSON::ParserError => e
+          raise "blockchain.json is corrupted (#{e.message})"
         end
 
         def save_live_chain(blocks)
@@ -200,12 +201,16 @@ module KairosMcp
               seg_hash = data['segment_hash']
               seg_meta = manifest['segments'].find { |s| s['segment_num'] == seg_num }
 
+              live_previous_hash = block[:previous_hash] || block['previous_hash']
               results << if seg_meta.nil?
                            { valid: false, segment_num: seg_num,
                              error: "Archive block references segment #{seg_num} not in manifest" }
                          elsif seg_meta['segment_hash'] != seg_hash
                            { valid: false, segment_num: seg_num,
                              error: "Archive block segment_hash mismatch for segment #{seg_num}" }
+                         elsif seg_meta['last_block_hash'] != live_previous_hash
+                           { valid: false, segment_num: seg_num,
+                             error: "Archive block previous_hash does not match segment #{seg_num} last_block_hash" }
                          else
                            { valid: true, segment_num: seg_num }
                          end
@@ -221,8 +226,8 @@ module KairosMcp
           return { 'segments' => [] } unless File.exist?(manifest_path)
 
           JSON.parse(File.read(manifest_path))
-        rescue JSON::ParserError
-          { 'segments' => [] }
+        rescue JSON::ParserError => e
+          raise "manifest.json is corrupted (#{e.message})"
         end
 
         def save_manifest(manifest)

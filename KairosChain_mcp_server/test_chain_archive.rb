@@ -273,7 +273,65 @@ test_section('14. MCP tool — ChainArchiveRun with force flag') do
   assert('force archive completes successfully') { text.include?('completed') || text.include?('skip') }
 end
 
-test_section('15. SkillSet installation smoke test') do
+test_section('15. verify_archives detects previous_hash / last_block_hash mismatch') do
+  archives_dir = File.join(KairosMcp.storage_dir, 'archives')
+  manifest_path = File.join(archives_dir, 'manifest.json')
+  manifest = JSON.parse(File.read(manifest_path))
+
+  # Tamper with last_block_hash of the segment the live archive block references (the last one)
+  target = manifest['segments'].last
+  original_hash = target['last_block_hash']
+  target['last_block_hash'] = 'deadbeef' * 8
+
+  File.write(manifest_path, JSON.pretty_generate(manifest))
+
+  a = archiver
+  result = a.verify_archives
+
+  assert('detects boundary hash mismatch') { result[:valid] == false }
+  assert('boundary_checks contains failure') do
+    result[:boundary_checks].any? { |bc| !bc[:valid] && bc[:error].include?('previous_hash') }
+  end
+
+  # Restore
+  target['last_block_hash'] = original_hash
+  File.write(manifest_path, JSON.pretty_generate(manifest))
+end
+
+test_section('16. load_live_blocks raises on corrupted blockchain.json') do
+  path = KairosMcp.blockchain_path
+  original = File.read(path)
+  File.write(path, 'not valid json {{{')
+
+  raised = false
+  begin
+    archiver.status
+  rescue RuntimeError => e
+    raised = e.message.include?('corrupted')
+  end
+  assert('raises with corrupted message') { raised }
+
+  File.write(path, original)
+end
+
+test_section('17. load_manifest raises on corrupted manifest.json') do
+  archives_dir = File.join(KairosMcp.storage_dir, 'archives')
+  manifest_path = File.join(archives_dir, 'manifest.json')
+  original = File.read(manifest_path)
+  File.write(manifest_path, 'not valid json {{{')
+
+  raised = false
+  begin
+    archiver.verify_archives
+  rescue RuntimeError => e
+    raised = e.message.include?('corrupted')
+  end
+  assert('raises with corrupted message') { raised }
+
+  File.write(manifest_path, original)
+end
+
+test_section('18. SkillSet installation smoke test') do
   require_relative 'lib/kairos_mcp/skillset_manager'
   require_relative 'lib/kairos_mcp/skillset'
 
@@ -292,6 +350,7 @@ test_section('15. SkillSet installation smoke test') do
   remove_result = manager.remove('chain_archive')
   assert('remove succeeds')               { remove_result[:success] == true }
 end
+
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 
