@@ -52,8 +52,19 @@ module KairosMcp
               end
             end
             lines << ""
-            overall = result[:valid] ? "All segments valid." : "One or more segments FAILED verification."
             lines << "Segments verified: #{result[:segments_verified]}"
+
+            if result[:boundary_checks]&.any?
+              failed_boundaries = result[:boundary_checks].reject { |b| b[:valid] }
+              if failed_boundaries.any?
+                lines << "Boundary check failures:"
+                failed_boundaries.each do |bc|
+                  lines << "  [FAIL] Segment #{bc[:segment_num]}: #{bc[:error]}"
+                end
+              end
+            end
+
+            overall = result[:valid] ? "All segments valid." : "One or more segments FAILED verification."
             lines << overall
 
             text_content(lines.join("\n"))

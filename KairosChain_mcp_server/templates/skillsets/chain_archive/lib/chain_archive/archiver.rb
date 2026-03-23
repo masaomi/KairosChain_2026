@@ -258,11 +258,11 @@ module KairosMcp
 
         def verify_block_chain(blocks)
           blocks.each_with_index do |block, i|
-            next if i == 0
-
-            prev = blocks[i - 1]
-            if block[:previous_hash] != prev[:hash]
-              return { valid: false, error: "Block index #{block[:index]}: previous_hash mismatch" }
+            unless i == 0
+              prev = blocks[i - 1]
+              if block[:previous_hash] != prev[:hash]
+                return { valid: false, error: "Block index #{block[:index]}: previous_hash mismatch" }
+              end
             end
 
             recalc = recalculate_block_hash(block)
