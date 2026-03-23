@@ -13,6 +13,10 @@ This project follows [Semantic Versioning](https://semver.org/).
   computational reproducibility, statistical analysis, and scientific writing
   across all disciplines. Multi-LLM reviewed (consensus 4.5/5).
   Activate with: `instructions_update(command: "set_mode", mode_name: "researcher", ...)`
+- **L0 External Modification Protection**: `l0_governance` v1.1 adds declarative
+  rule rejecting L0 changes originating from external sources (Meeting Place,
+  P2P exchange, remote agents, chain_import). Prevents social engineering attacks
+  on L0 integrity. See `log/kairoschain_l0_external_protection_rule_proposal_20260323.md`.
 
 ---
 
