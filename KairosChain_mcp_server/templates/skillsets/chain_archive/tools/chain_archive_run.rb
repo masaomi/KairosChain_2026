@@ -5,7 +5,7 @@ module KairosMcp
     module ChainArchive
       module Tools
         # Triggers blockchain archiving. Archives all live blocks into a
-        # compressed segment file and replaces the live chain with a checkpoint block.
+        # compressed segment file and appends an archive block that continues the hash chain.
         class ChainArchiveRun < KairosMcp::Tools::BaseTool
           def name
             'chain_archive_run'
@@ -14,8 +14,8 @@ module KairosMcp
           def description
             'Archive old blockchain blocks to a compressed segment file. ' \
             'When the live chain exceeds the threshold, all blocks are compressed ' \
-            'to storage/archives/segment_NNNNNN.json.gz and the live chain is ' \
-            'replaced with a single checkpoint block. The full audit trail is preserved.'
+            'to storage/archives/segment_NNNNNN.json.gz and an archive block is appended ' \
+            'to continue the hash chain. The full audit trail is preserved.'
           end
 
           def category
@@ -36,7 +36,7 @@ module KairosMcp
               properties: {
                 reason: {
                   type: 'string',
-                  description: 'Optional reason for archiving (recorded in the checkpoint block and manifest)'
+                  description: 'Optional reason for archiving (recorded in the archive block and manifest)'
                 },
                 threshold: {
                   type: 'integer',

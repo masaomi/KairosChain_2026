@@ -12,12 +12,12 @@ module KairosMcp
       # Core archiving engine.
       #
       # Strategy: when the live chain (blockchain.json) exceeds a threshold,
-      # compress all current blocks into a numbered segment file and replace
-      # the live chain with a single checkpoint block that anchors the archive.
+      # compress all current blocks into a numbered segment file and append
+      # a single archive block that continues the hash chain.
       #
-      # The checkpoint block is a valid index-0 block (like genesis), so
-      # Chain#valid? passes without any core changes. Full-history integrity
-      # is verified separately via verify_archives.
+      # The archive block's previous_hash links cryptographically to the last
+      # archived block, preserving chain continuity across the archive boundary.
+      # Full-history integrity is verified separately via verify_archives.
       class Archiver
         DEFAULT_THRESHOLD = 1000
         ARCHIVE_BLOCK_TYPE = "archive_block"
@@ -49,7 +49,7 @@ module KairosMcp
         # Steps:
         #   1. Compress all live blocks to a numbered segment file.
         #   2. Update the manifest (archives_dir/manifest.json).
-        #   3. Replace blockchain.json with a single checkpoint block.
+        #   3. Append an archive block that continues the hash chain.
         #
         # Returns a result hash. If the chain is below the threshold,
         # returns { success: false, skipped: true, ... }.
