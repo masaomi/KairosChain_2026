@@ -170,7 +170,7 @@ module KairosMcp
 
             query = URI.encode_www_form(params)
             uri = URI.parse("#{url}/place/v1/board/browse?#{query}")
-            http = Net::HTTP.new(uri.host, uri.port)
+            http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = (uri.scheme == 'https')
             http.open_timeout = 5; http.read_timeout = 10
             req = Net::HTTP::Get.new(uri)
             req['Authorization'] = "Bearer #{token}"
@@ -198,7 +198,7 @@ module KairosMcp
             path = "/place/v1/skill_content/#{URI.encode_www_form_component(skill_id)}"
             path += "?owner=#{URI.encode_www_form_component(owner_agent_id)}" if owner_agent_id
             uri = URI.parse("#{url}#{path}")
-            http = Net::HTTP.new(uri.host, uri.port)
+            http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = (uri.scheme == 'https')
             http.open_timeout = 5; http.read_timeout = 10
             req = Net::HTTP::Get.new(uri)
             req['Authorization'] = "Bearer #{token}"
@@ -224,7 +224,7 @@ module KairosMcp
           # Returns nil on failure (caller should fallback to URL).
           def resolve_place_id(url)
             uri = URI.parse("#{url}/place/v1/info")
-            http = Net::HTTP.new(uri.host, uri.port)
+            http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = (uri.scheme == 'https')
             http.open_timeout = 3; http.read_timeout = 5
             req = Net::HTTP::Get.new(uri)
             response = http.request(req)
@@ -262,7 +262,7 @@ module KairosMcp
           # POST skill to target Place with provenance
           def deposit_to_target(url, token, skill)
             uri = URI.parse("#{url}/place/v1/deposit")
-            http = Net::HTTP.new(uri.host, uri.port)
+            http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = (uri.scheme == 'https')
             http.open_timeout = 5; http.read_timeout = 15
             req = Net::HTTP::Post.new(uri.path)
             req['Content-Type'] = 'application/json'

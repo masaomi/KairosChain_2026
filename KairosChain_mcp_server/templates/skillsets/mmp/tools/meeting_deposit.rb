@@ -173,7 +173,7 @@ module KairosMcp
 
           def deposit_to_place(url, token, skill)
             uri = URI.parse("#{url}/place/v1/deposit")
-            http = Net::HTTP.new(uri.host, uri.port)
+            http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = (uri.scheme == 'https')
             http.open_timeout = 5; http.read_timeout = 15
             req = Net::HTTP::Post.new(uri.path)
             req['Content-Type'] = 'application/json'

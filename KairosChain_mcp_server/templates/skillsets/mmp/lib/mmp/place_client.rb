@@ -127,6 +127,7 @@ module MMP
       uri = URI.parse("#{@place_url}#{path}")
       uri.query = URI.encode_www_form(params) unless params.empty?
       http = Net::HTTP.new(uri.host, uri.port); http.open_timeout = @timeout; http.read_timeout = @timeout
+      http.use_ssl = (uri.scheme == 'https')
       req = Net::HTTP::Get.new(uri)
       req['Authorization'] = "Bearer #{@bearer_token}" if @bearer_token
       response = http.request(req)
@@ -139,6 +140,7 @@ module MMP
     def post(path, body)
       uri = URI.parse("#{@place_url}#{path}")
       http = Net::HTTP.new(uri.host, uri.port); http.open_timeout = @timeout; http.read_timeout = @timeout
+      http.use_ssl = (uri.scheme == 'https')
       req = Net::HTTP::Post.new(uri.path)
       req['Content-Type'] = 'application/json'
       req['Authorization'] = "Bearer #{@bearer_token}" if @bearer_token

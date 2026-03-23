@@ -250,6 +250,7 @@ module KairosMcp
           def http_post(url, body)
             uri = URI.parse(url)
             http = Net::HTTP.new(uri.host, uri.port)
+            http.use_ssl = (uri.scheme == 'https')
             req = Net::HTTP::Post.new(uri.path)
             req['Content-Type'] = 'application/json'
             req.body = JSON.generate(body)

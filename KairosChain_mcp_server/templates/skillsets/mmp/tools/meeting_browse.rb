@@ -99,7 +99,7 @@ module KairosMcp
           def browse_place(url, token, params)
             query = URI.encode_www_form(params)
             uri = URI.parse("#{url}/place/v1/board/browse?#{query}")
-            http = Net::HTTP.new(uri.host, uri.port)
+            http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = (uri.scheme == 'https')
             http.open_timeout = 5; http.read_timeout = 10
             req = Net::HTTP::Get.new(uri)
             req['Authorization'] = "Bearer #{token}" if token

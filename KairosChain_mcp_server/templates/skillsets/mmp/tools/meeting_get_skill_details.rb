@@ -118,7 +118,7 @@ module KairosMcp
 
           def get_details_direct(endpoint, skill_id, bearer_token: nil)
             uri = URI.parse("#{endpoint}/meeting/v1/skill_details?skill_id=#{URI.encode_www_form_component(skill_id)}")
-            http = Net::HTTP.new(uri.host, uri.port)
+            http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = (uri.scheme == 'https')
             http.open_timeout = 3; http.read_timeout = 5
             req = Net::HTTP::Get.new(uri)
             req['Authorization'] = "Bearer #{bearer_token}" if bearer_token

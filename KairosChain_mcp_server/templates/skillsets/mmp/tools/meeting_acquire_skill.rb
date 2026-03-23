@@ -215,7 +215,7 @@ module KairosMcp
             path = "/place/v1/skill_content/#{URI.encode_www_form_component(skill_id)}"
             path += "?owner=#{URI.encode_www_form_component(owner_agent_id)}" if owner_agent_id
             uri = URI.parse("#{url}#{path}")
-            http = Net::HTTP.new(uri.host, uri.port)
+            http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = (uri.scheme == 'https')
             http.open_timeout = 5; http.read_timeout = 10
             req = Net::HTTP::Get.new(uri)
             req['Authorization'] = "Bearer #{bearer_token}" if bearer_token
@@ -254,7 +254,7 @@ module KairosMcp
 
           def get_skill_direct(endpoint, skill_id, bearer_token: nil)
             uri = URI.parse("#{endpoint}/meeting/v1/skill_content")
-            http = Net::HTTP.new(uri.host, uri.port)
+            http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = (uri.scheme == 'https')
             http.open_timeout = 5; http.read_timeout = 10
             req = Net::HTTP::Post.new(uri.path)
             req['Content-Type'] = 'application/json'
