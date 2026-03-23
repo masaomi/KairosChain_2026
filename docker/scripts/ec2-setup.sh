@@ -88,10 +88,10 @@ if sg docker -c "docker exec kairos-meeting-place curl -sf http://localhost:8080
   echo "  docker exec kairos-meeting-place cat /app/.kairos/.admin_token"
   echo ""
   echo "Next steps:"
-  echo "  1. Point DNS A record for meeting.kairoschain.io -> $(curl -s http://checkip.amazonaws.com)"
+  echo "  1. Point DNS A record for meeting.genomicschain.io -> $(curl -s http://checkip.amazonaws.com)"
   echo "  2. Wait for DNS propagation"
   echo "  3. Caddy will auto-obtain TLS certificate on first HTTPS request"
-  echo "  4. Test: curl https://meeting.kairoschain.io/health"
+  echo "  4. Test: curl https://meeting.genomicschain.io/health"
 else
   echo ""
   echo "=== Health check failed ==="

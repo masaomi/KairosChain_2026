@@ -1,4 +1,4 @@
-meeting.kairoschain.io {
+meeting.genomicschain.io {
 	reverse_proxy meeting-place:8080
 
 	header {
