@@ -4,6 +4,19 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.1.1] - 2026-03-23
+
+### Fixed
+
+- **HTTPS support for all MMP HTTP calls**: `Net::HTTP.new` does not enable SSL by default. All MMP PlaceClient and meeting_* tools failed with "Connection reset by peer" when connecting to TLS-enabled Meeting Place servers. Added `http.use_ssl = (uri.scheme == 'https')` to all HTTP calls.
+- **Caddy DNS resolvers**: Ubuntu 24.04 uses systemd-resolved (127.0.0.53) which is inaccessible from Docker containers. Added external DNS resolvers (8.8.8.8, 1.1.1.1) to Caddy container.
+
+### Changed
+
+- **Domain**: `meeting.kairoschain.io` → `meeting.genomicschain.io`
+
+---
+
 ## [3.1.0] - 2026-03-22
 
 ### Added
@@ -502,6 +515,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Skill promotion with Persona Assembly
 - Tool guide and metadata system
 
+[3.1.1]: https://github.com/masaomi/KairosChain_2026/compare/v3.1.0...v3.1.1
 [3.1.0]: https://github.com/masaomi/KairosChain_2026/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/masaomi/KairosChain_2026/compare/v2.10.1...v3.0.0
 [2.10.1]: https://github.com/masaomi/KairosChain_2026/compare/v2.10.0...v2.10.1
