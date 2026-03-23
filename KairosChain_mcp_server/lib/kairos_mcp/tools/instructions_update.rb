@@ -10,7 +10,7 @@ module KairosMcp
   module Tools
     class InstructionsUpdate < BaseTool
       # Protected built-in files that cannot be deleted
-      PROTECTED_FILES = %w[kairos.md kairos_quickguide.md kairos_tutorial.md].freeze
+      PROTECTED_FILES = %w[kairos.md kairos_quickguide.md kairos_tutorial.md researcher.md].freeze
       # Reserved mode names that map to built-in behavior
       RESERVED_MODES = %w[developer user tutorial none].freeze
 

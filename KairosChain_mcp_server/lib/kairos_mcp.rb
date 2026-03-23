@@ -17,6 +17,7 @@ module KairosMcp
     ['skills/kairos.md',              :md_path],
     ['skills/kairos_quickguide.md',   :quickguide_path],
     ['skills/kairos_tutorial.md',     :tutorial_path],
+    ['skills/researcher.md',          :researcher_path],
     ['skills/config.yml',             :skills_config_path],
     ['config/safety.yml',             :safety_config_path],
     ['config/tool_metadata.yml',      :tool_metadata_path]
@@ -28,6 +29,7 @@ module KairosMcp
     'skills/kairos.md'              => :l0_doc,
     'skills/kairos_quickguide.md'   => :l0_doc,
     'skills/kairos_tutorial.md'     => :l0_doc,
+    'skills/researcher.md'          => :l0_doc,
     'skills/config.yml'             => :config_yaml,
     'config/safety.yml'             => :config_yaml,
     'config/tool_metadata.yml'      => :config_yaml
@@ -132,6 +134,11 @@ module KairosMcp
     # L0 skills tutorial file path (onboarding instructions)
     def tutorial_path
       File.join(skills_dir, 'kairos_tutorial.md')
+    end
+
+    # Researcher instruction mode file path
+    def researcher_path
+      File.join(skills_dir, 'researcher.md')
     end
 
     # L0 skills config file path

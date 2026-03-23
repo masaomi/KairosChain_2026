@@ -4,6 +4,18 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.2.0] - 2026-03-23
+
+### Added
+
+- **`researcher` instruction mode**: Scientific research mode with quality guardrails,
+  Meeting Place interaction policy, and Knowledge Acquisition Policy. Supports
+  computational reproducibility, statistical analysis, and scientific writing
+  across all disciplines. Multi-LLM reviewed (consensus 4.5/5).
+  Activate with: `instructions_update(command: "set_mode", mode_name: "researcher", ...)`
+
+---
+
 ## [3.1.1] - 2026-03-23
 
 ### Fixed
