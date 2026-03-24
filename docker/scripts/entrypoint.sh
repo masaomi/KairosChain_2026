@@ -20,11 +20,31 @@ if [ ! -f "$KAIROS_DATA_DIR/.kairos_meta.yml" ]; then
   echo "[entrypoint] Volume seeded."
 else
   echo "[entrypoint] Volume already initialized."
-  # Check for missing skillsets (upgrade scenario)
+  # Sync skillsets from template (handles both missing and upgraded skillsets)
   for ss in mmp hestia synoptis multiuser service_grant; do
-    if [ ! -d "$KAIROS_DATA_DIR/skillsets/$ss" ] && [ -d "/app/.kairos-template/skillsets/$ss" ]; then
-      echo "[entrypoint] WARNING: SkillSet '$ss' missing from volume. Copying from template..."
+    if [ ! -d "/app/.kairos-template/skillsets/$ss" ]; then
+      continue
+    fi
+    if [ ! -d "$KAIROS_DATA_DIR/skillsets/$ss" ]; then
+      echo "[entrypoint] SkillSet '$ss' missing from volume. Copying from template..."
       cp -a "/app/.kairos-template/skillsets/$ss" "$KAIROS_DATA_DIR/skillsets/$ss"
+    else
+      # Compare tool counts and skillset.json to detect upgrades
+      tmpl_hash=$(md5sum "/app/.kairos-template/skillsets/$ss/skillset.json" 2>/dev/null | cut -d' ' -f1)
+      vol_hash=$(md5sum "$KAIROS_DATA_DIR/skillsets/$ss/skillset.json" 2>/dev/null | cut -d' ' -f1)
+      if [ "$tmpl_hash" != "$vol_hash" ]; then
+        echo "[entrypoint] SkillSet '$ss' updated in image. Syncing from template (preserving config)..."
+        # Backup config before sync
+        if [ -d "$KAIROS_DATA_DIR/skillsets/$ss/config" ]; then
+          cp -a "$KAIROS_DATA_DIR/skillsets/$ss/config" "/tmp/${ss}_config_backup"
+        fi
+        cp -a "/app/.kairos-template/skillsets/$ss/." "$KAIROS_DATA_DIR/skillsets/$ss/"
+        # Restore config (volume config takes precedence)
+        if [ -d "/tmp/${ss}_config_backup" ]; then
+          cp -a "/tmp/${ss}_config_backup/." "$KAIROS_DATA_DIR/skillsets/$ss/config/"
+          rm -rf "/tmp/${ss}_config_backup"
+        fi
+      fi
     fi
   done
 fi
