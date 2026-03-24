@@ -29,9 +29,9 @@ else
       echo "[entrypoint] SkillSet '$ss' missing from volume. Copying from template..."
       cp -a "/app/.kairos-template/skillsets/$ss" "$KAIROS_DATA_DIR/skillsets/$ss"
     else
-      # Compare tool counts and skillset.json to detect upgrades
-      tmpl_hash=$(md5sum "/app/.kairos-template/skillsets/$ss/skillset.json" 2>/dev/null | cut -d' ' -f1)
-      vol_hash=$(md5sum "$KAIROS_DATA_DIR/skillsets/$ss/skillset.json" 2>/dev/null | cut -d' ' -f1)
+      # Compare entire skillset directory (excluding config/) to detect any upgrades
+      tmpl_hash=$(find "/app/.kairos-template/skillsets/$ss" -path "*/config" -prune -o -type f -print0 2>/dev/null | sort -z | xargs -0 md5sum 2>/dev/null | md5sum | cut -d' ' -f1)
+      vol_hash=$(find "$KAIROS_DATA_DIR/skillsets/$ss" -path "*/config" -prune -o -type f -print0 2>/dev/null | sort -z | xargs -0 md5sum 2>/dev/null | md5sum | cut -d' ' -f1)
       if [ "$tmpl_hash" != "$vol_hash" ]; then
         echo "[entrypoint] SkillSet '$ss' updated in image. Syncing from template (preserving config)..."
         # Backup config before sync
