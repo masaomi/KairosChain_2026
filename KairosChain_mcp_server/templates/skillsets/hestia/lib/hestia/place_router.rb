@@ -27,6 +27,7 @@ module Hestia
       'deposit'       => 'deposit_skill',
       'browse'        => 'browse',
       'skill_content' => 'browse',
+      'preview'       => 'browse',
       'needs'         => 'browse',
       'agents'        => 'browse',
       'keys'          => 'browse',
@@ -183,6 +184,12 @@ module Hestia
           handle_get_key(path)
         elsif request_method == 'GET' && path.start_with?('/place/v1/skill_content/')
           handle_get_skill_content(env, path)
+        elsif request_method == 'DELETE' && path.start_with?('/place/v1/deposit/')
+          handle_withdraw(env, path)
+        elsif request_method == 'PUT' && path.start_with?('/place/v1/deposit/')
+          handle_update_deposit(env, path)
+        elsif request_method == 'GET' && path.start_with?('/place/v1/preview/')
+          handle_preview(env, path)
         else
           json_response(404, { error: 'not_found', message: "Unknown place endpoint: #{path}" })
         end
@@ -270,13 +277,18 @@ module Hestia
         end
       end
 
-      # Register the agent
+      # Register the agent (with enhanced profile fields)
+      agent_description = body['description'] || identity_data&.dig('description')
+      agent_scope = body['scope'] || identity_data&.dig('scope')
+
       result = @registry.register(
         id: agent_id,
         name: agent_name,
         capabilities: capabilities,
         public_key: public_key,
-        is_self: false
+        is_self: false,
+        description: agent_description,
+        scope: agent_scope
       )
 
       # Issue session token if signature was verified
@@ -412,7 +424,9 @@ module Hestia
         content: body['content'],
         content_hash: body['content_hash'],
         signature: body['signature'],
-        provenance: body['provenance'] ? symbolize_provenance(body['provenance']) : nil
+        provenance: body['provenance'] ? symbolize_provenance(body['provenance']) : nil,
+        summary: body['summary'],
+        input_output: body['input_output']
       }
 
       # Get depositor's public key from registry for signature verification
@@ -485,6 +499,124 @@ module Hestia
             disclaimer: 'Validate content before use. Place verified format safety and depositor identity only.'
           }
         })
+      else
+        json_response(404, { error: 'not_found', message: "No deposited skill found: #{skill_id}" })
+      end
+    end
+
+    # DELETE /place/v1/deposit/:skill_id — Bearer token required
+    # Withdraw a deposited skill (only depositor can withdraw)
+    def handle_withdraw(env, path)
+      skill_id = URI.decode_www_form_component(path.sub('/place/v1/deposit/', ''))
+      token = extract_bearer_token(env)
+      agent_id = @session_store.validate(token)
+      body = parse_body(env)
+      reason = body['reason'] || ''
+
+      if reason.empty?
+        return json_response(400, { error: 'reason_required', message: 'A reason is required for withdrawal.' })
+      end
+
+      result = @skill_board.withdraw_skill(agent_id: agent_id, skill_id: skill_id)
+
+      if result[:valid]
+        record_chain_event(
+          event_type: 'withdraw',
+          skill_id: skill_id,
+          skill_name: skill_id,
+          content_hash: result[:content_hash],
+          participants: [agent_id],
+          extra: { depositor_id: agent_id, reason_hash: Digest::SHA256.hexdigest(reason) }
+        )
+
+        json_response(200, {
+          status: 'withdrawn',
+          skill_id: skill_id,
+          owner_agent_id: agent_id,
+          withdrawn_at: Time.now.utc.iso8601,
+          chain_recorded: true
+        })
+      else
+        json_response(404, { error: result[:error], message: result[:message] })
+      end
+    end
+
+    # PUT /place/v1/deposit/:skill_id — Bearer token required
+    # Update a deposited skill (only depositor can update)
+    def handle_update_deposit(env, path)
+      skill_id = URI.decode_www_form_component(path.sub('/place/v1/deposit/', ''))
+      token = extract_bearer_token(env)
+      agent_id = @session_store.validate(token)
+      body = parse_body(env)
+      reason = body['reason'] || ''
+
+      # Verify existing deposit
+      existing = @skill_board.get_deposited_skill(skill_id, owner_agent_id: agent_id)
+      unless existing
+        return json_response(404, {
+          error: 'not_found',
+          message: "No existing deposit found: #{skill_id} (owner: #{agent_id})"
+        })
+      end
+
+      previous_hash = existing[:content_hash]
+
+      # Build new skill data and re-deposit
+      skill = {
+        skill_id: skill_id,
+        name: body['name'] || existing[:name],
+        description: body['description'] || existing[:description],
+        tags: body['tags'] || existing[:tags],
+        format: body['format'] || existing[:format],
+        content: body['content'],
+        content_hash: body['content_hash'],
+        signature: body['signature'],
+        summary: body['summary'],
+        input_output: body['input_output']
+      }
+
+      public_key = @registry.public_key_for(agent_id)
+      result = @skill_board.deposit_skill(agent_id: agent_id, skill: skill, public_key: public_key)
+
+      if result[:valid]
+        record_chain_event(
+          event_type: 'update',
+          skill_id: skill_id,
+          skill_name: skill[:name],
+          content_hash: skill[:content_hash],
+          participants: [agent_id],
+          extra: {
+            depositor_id: agent_id,
+            previous_hash: previous_hash,
+            reason_hash: reason.empty? ? nil : Digest::SHA256.hexdigest(reason)
+          }
+        )
+
+        json_response(200, {
+          status: 'updated',
+          skill_id: skill_id,
+          previous_hash: previous_hash,
+          new_hash: skill[:content_hash],
+          updated_at: Time.now.utc.iso8601,
+          chain_recorded: true
+        })
+      else
+        json_response(422, { error: 'update_rejected', reasons: result[:errors] })
+      end
+    end
+
+    # GET /place/v1/preview/:skill_id — Bearer token required
+    # Preview a deposited skill without full content download
+    def handle_preview(env, path)
+      skill_id = URI.decode_www_form_component(path.sub('/place/v1/preview/', ''))
+      params = parse_query(env)
+      owner = params['owner']
+      first_lines = (params['first_lines'] || 30).to_i
+
+      preview = @skill_board.preview_skill(skill_id, owner_agent_id: owner, first_lines: first_lines)
+
+      if preview
+        json_response(200, preview)
       else
         json_response(404, { error: 'not_found', message: "No deposited skill found: #{skill_id}" })
       end

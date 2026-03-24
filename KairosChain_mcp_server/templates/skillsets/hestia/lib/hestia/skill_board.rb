@@ -75,7 +75,9 @@ module Hestia
         size_bytes: skill[:content]&.bytesize || 0,
         depositor_signature: skill[:signature],
         deposited_at: now,
-        provenance: provenance
+        provenance: provenance,
+        summary: skill[:summary],
+        input_output: skill[:input_output]
       }
 
       save_content(internal_key, skill[:content])
@@ -116,6 +118,55 @@ module Hestia
       @exchange_counts[internal_key] = (@exchange_counts[internal_key] || 0) + 1
       @total_exchange_count += 1
       @state_dirty = true
+    end
+
+    # Withdraw a deposited skill. Only the depositor can withdraw their own skill.
+    #
+    # @param agent_id [String] Requesting agent's ID (must match depositor)
+    # @param skill_id [String] The skill ID to withdraw
+    # @return [Hash] { valid: true/false, ... }
+    def withdraw_skill(agent_id:, skill_id:)
+      internal_key = "#{agent_id}/#{skill_id}"
+      deposit = @deposited_skills.find { |d| d[:internal_key] == internal_key }
+      unless deposit
+        return { valid: false, error: 'not_found', message: "No deposit found: #{skill_id} (owner: #{agent_id})" }
+      end
+
+      content_hash = deposit[:content_hash]
+      @deposited_skills.reject! { |d| d[:internal_key] == internal_key }
+      delete_content(internal_key)
+      save_state
+
+      { valid: true, status: 'withdrawn', skill_id: skill_id, content_hash: content_hash }
+    end
+
+    # Preview a deposited skill without full content download.
+    # Returns structured overview: summary, sections, first N lines, trust metadata.
+    #
+    # @param skill_id [String] The skill ID
+    # @param owner_agent_id [String, nil] Owner's agent ID for exact match
+    # @param first_lines [Integer] Number of content lines to include (default: 30)
+    # @return [Hash, nil] Preview data or nil
+    def preview_skill(skill_id, owner_agent_id: nil, first_lines: 30)
+      dep = get_deposited_skill(skill_id, owner_agent_id: owner_agent_id)
+      return nil unless dep
+
+      content = dep[:content] || ''
+      {
+        skill_id: dep[:skill_id],
+        name: dep[:name],
+        description: dep[:description],
+        tags: dep[:tags],
+        format: dep[:format],
+        size_bytes: dep[:size_bytes],
+        deposited_at: dep[:deposited_at],
+        depositor_id: dep[:agent_id],
+        summary: dep[:summary] || extract_content_summary(content),
+        sections: extract_sections(content),
+        input_output: dep[:input_output],
+        first_lines: content.lines.first(first_lines).join,
+        trust_metadata: build_trust_metadata(dep)
+      }
     end
 
     # Flush dirty state to disk. Called from HeartbeatManager or status checks.
@@ -425,6 +476,23 @@ module Hestia
       File.join(@content_dir, "#{sanitized}.md")
     end
 
+    # Extract ## headings from Markdown content.
+    def extract_sections(content)
+      content.lines.select { |l| l.match?(/^##\s/) }.map { |l| l.sub(/^##\s+/, '').strip }
+    end
+
+    # Extract a summary from Markdown content (first paragraph after frontmatter/headings).
+    def extract_content_summary(content)
+      text = content
+      if content.start_with?('---')
+        parts = content.split(/^---\s*$/, 3)
+        text = parts[2] || ''
+      end
+      lines = text.lines.map(&:strip)
+      paragraph = lines.reject { |l| l.empty? || l.start_with?('#') }.first
+      paragraph&.slice(0, 300) || ''
+    end
+
     # --- Provenance ---
 
     def build_provenance(incoming_provenance, agent_id, timestamp)
@@ -462,7 +530,7 @@ module Hestia
         supported = skills[:supported_actions] || skills['supported_actions'] || []
 
         # Each agent contributes their capability info as board entries
-        entries << {
+        entry = {
           agent_id: agent[:id],
           agent_name: agent[:name],
           name: agent[:name],
@@ -472,8 +540,12 @@ module Hestia
           skill_formats: skill_formats,
           is_self: agent[:is_self],
           tags: [],
-          registered_at: agent[:registered_at]
+          registered_at: agent[:registered_at],
+          deposit_count: agent_deposit_count(agent[:id])
         }
+        entry[:description] = agent[:description] if agent[:description]
+        entry[:scope] = agent[:scope] if agent[:scope]
+        entries << entry
       end
 
       # Add need entries from posted needs (session-only, in-memory)
@@ -493,9 +565,10 @@ module Hestia
         end
       end
 
-      # Add deposited skills with trust_metadata
+      # Add deposited skills with trust_metadata, summary, and sections
       @deposited_skills.each do |dep|
-        entries << {
+        content = dep[:content] || ''
+        entry = {
           agent_id: dep[:agent_id],
           name: dep[:name],
           skill_id: dep[:skill_id],
@@ -505,6 +578,8 @@ module Hestia
           tags: dep[:tags],
           size_bytes: dep[:size_bytes],
           deposited_at: dep[:deposited_at],
+          summary: dep[:summary] || extract_content_summary(content),
+          sections: extract_sections(content),
           trust_notice: {
             verified_by_place: false,
             depositor_signed: !!dep[:depositor_signature],
@@ -513,6 +588,8 @@ module Hestia
           },
           trust_metadata: build_trust_metadata(dep)
         }
+        entry[:input_output] = dep[:input_output] if dep[:input_output]
+        entries << entry
       end
 
       entries

@@ -57,6 +57,10 @@ module MMP
       available_skills.select { |s| s[:public] }
     end
 
+    def instance_id
+      @instance_id ||= generate_instance_id
+    end
+
     # Public accessor for the Identity's crypto instance.
     # Ensures the same keypair is used for signing and verification.
     def crypto

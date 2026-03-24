@@ -16,6 +16,7 @@ module Hestia
     Agent = Struct.new(
       :id, :name, :url, :capabilities, :public_key,
       :is_self, :registered_at, :last_heartbeat, :visited_places,
+      :description, :scope,
       keyword_init: true
     )
 
@@ -39,7 +40,8 @@ module Hestia
     # @param is_self [Boolean] True if this is the Place itself
     # @param visited_places [Array] Known place URLs (for federation)
     # @return [Hash] Registration result
-    def register(id:, name:, capabilities: nil, public_key: nil, url: nil, is_self: false, visited_places: [])
+    def register(id:, name:, capabilities: nil, public_key: nil, url: nil, is_self: false,
+                 visited_places: [], description: nil, scope: nil)
       now = Time.now.utc.iso8601
       @mutex.synchronize do
         existing = @agents[id]
@@ -51,6 +53,8 @@ module Hestia
           existing.url = url if url
           existing.last_heartbeat = now
           existing.visited_places = visited_places unless visited_places.empty?
+          existing.description = description if description
+          existing.scope = scope if scope
           save_registry
           return { status: 'updated', agent_id: id }
         end
@@ -64,7 +68,9 @@ module Hestia
           is_self: is_self,
           registered_at: now,
           last_heartbeat: now,
-          visited_places: visited_places
+          visited_places: visited_places,
+          description: description,
+          scope: scope
         )
         save_registry
       end
@@ -166,7 +172,7 @@ module Hestia
     private
 
     def agent_to_h(agent)
-      {
+      h = {
         id: agent.id,
         name: agent.name,
         url: agent.url,
@@ -176,6 +182,9 @@ module Hestia
         last_heartbeat: agent.last_heartbeat,
         visited_places: agent.visited_places
       }
+      h[:description] = agent.description if agent.description
+      h[:scope] = agent.scope if agent.scope
+      h
     end
 
     def load_registry

@@ -62,7 +62,9 @@ module MMP
         id: intro.dig(:identity, :instance_id),
         name: intro.dig(:identity, :name),
         capabilities: intro[:capabilities],
-        public_key: intro[:public_key]
+        public_key: intro[:public_key],
+        description: intro.dig(:identity, :description),
+        scope: intro.dig(:identity, :scope)
       }
 
       # Add RSA signature for server-side verification
@@ -88,6 +90,20 @@ module MMP
     def browse(type: nil, search: nil, tags: nil, limit: nil)
       params = {}; params[:type] = type if type; params[:search] = search if search; params[:limit] = limit if limit
       get('/place/v1/board/browse', params)
+    end
+
+    def withdraw(skill_id:, reason:)
+      delete("/place/v1/deposit/#{URI.encode_www_form_component(skill_id)}", { reason: reason })
+    end
+
+    def update_deposit(skill_id:, skill:)
+      put("/place/v1/deposit/#{URI.encode_www_form_component(skill_id)}", skill)
+    end
+
+    def preview_skill(skill_id:, owner: nil, first_lines: 30)
+      params = { first_lines: first_lines }
+      params[:owner] = owner if owner
+      get("/place/v1/preview/#{URI.encode_www_form_component(skill_id)}", params)
     end
 
     def send_encrypted(to:, message:, message_type: 'message')
@@ -138,13 +154,25 @@ module MMP
     end
 
     def post(path, body)
+      http_request(Net::HTTP::Post, path, body: body)
+    end
+
+    def put(path, body)
+      http_request(Net::HTTP::Put, path, body: body)
+    end
+
+    def delete(path, body = nil)
+      http_request(Net::HTTP::Delete, path, body: body)
+    end
+
+    def http_request(method_class, path, body: nil)
       uri = URI.parse("#{@place_url}#{path}")
       http = Net::HTTP.new(uri.host, uri.port); http.open_timeout = @timeout; http.read_timeout = @timeout
       http.use_ssl = (uri.scheme == 'https')
-      req = Net::HTTP::Post.new(uri.path)
+      req = method_class.new(uri.path)
       req['Content-Type'] = 'application/json'
       req['Authorization'] = "Bearer #{@bearer_token}" if @bearer_token
-      req.body = JSON.generate(body)
+      req.body = JSON.generate(body) if body
       @interaction_count += 1
       parse_response(http.request(req))
     rescue Errno::ECONNREFUSED, Net::OpenTimeout => e
