@@ -17,9 +17,9 @@ services:
     plans:
       free:
         limits:
-          deposit_skill: 5
-          acquire_skill: 20
-          browse: 100
+          deposit_skill: 50
+          acquire_skill: 100
+          browse: 1000
         trust_requirements:
           deposit_skill: 0.0
           acquire_skill: 0.0
