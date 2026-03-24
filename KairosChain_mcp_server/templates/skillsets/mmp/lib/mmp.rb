@@ -4,7 +4,7 @@
 # Standalone SkillSet for P2P agent communication
 module MMP
   SKILLSET_ROOT = File.expand_path('..', __dir__)
-  VERSION = '1.0.0'
+  VERSION = '1.1.0'
 
   # ChainAdapter and its implementations must be eagerly loaded
   # since NullChainAdapter/KairosChainAdapter are referenced as MMP::*

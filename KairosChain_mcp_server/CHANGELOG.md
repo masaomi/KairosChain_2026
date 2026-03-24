@@ -4,6 +4,51 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.0] - 2026-03-24
+
+### Added
+
+- **Meeting Place: Deposit Lifecycle** — Full deposit management tools
+  - `meeting_withdraw`: Remove deposited skills (depositor-only, chain-recorded audit)
+  - `meeting_update_deposit`: Replace deposited skill content (pull-only, no push to acquirers)
+  - `meeting_preview_skill`: Preview summary, sections, first N lines without acquiring
+  - `DELETE /place/v1/deposit/:skill_id`, `PUT /place/v1/deposit/:skill_id`, `GET /place/v1/preview/:skill_id`
+- **Meeting Place: Discovery & Profiles**
+  - `meeting_check_freshness`: Check if acquired skills have been updated or withdrawn
+  - `meeting_get_agent_profile`: Public profile bundle (identity, deposited skills metadata, needs)
+  - Agent profile enhancement: `description` and `scope` fields in registration and browse
+  - `GET /place/v1/agent_profile/:id`, `GET /place/v1/welcome` (unauthenticated onboarding guide)
+- **Meeting Place: Operational Controls**
+  - Deposit rate limiting: per-agent, per-hour (default 10/hour, process-scoped)
+  - Format Gate: YAML frontmatter structural validation on deposit
+  - All limits published in `GET /place/v1/info` response (`deposit_limits` field)
+  - `hestia.yml`: Operator-configurable `deposit_policy` block (quotas, rate limits, future license/safety settings)
+- **Skill Metadata Card**: Browse and preview now include `summary`, `sections`, `version`, `license`, `content_size_lines`, `content_hash` from frontmatter
+- **Hestia SkillSet** bumped to v0.2.0, **MMP SkillSet** bumped to v1.1.0
+
+### Fixed
+
+- **`MMP::Identity#instance_id`**: Added public accessor (was only private `generate_instance_id`). Fixed `NoMethodError` in `philosophy_anchor` and `record_observation` tools.
+- **SkillBoard thread safety**: Added `@mutex` for `deposit_skill` and `withdraw_skill` (TOCTOU fix)
+- **Quota blocks PUT updates**: Existing deposit excluded from quota calculation during replacement
+- **`exchange_counts` leak on withdraw**: Cleaned up on skill withdrawal
+- **`first_lines` unbounded**: Clamped to 1..100 (prevents content exfiltration via preview)
+- **`chain_recorded: true` misleading**: Changed to `'attempted'`/`false` matching fire-and-forget semantics
+- **Agent profile data leakage**: Server-side whitelist (only id, name, description, scope, capabilities, registered_at)
+- **DEE D5 compliance**: Removed `total_exchanges` aggregate from agent profile (prevents agent-level ranking)
+- **Freshness check misclassification**: Only 404 = `withdrawn`; auth/transport errors = `check_failed`
+- **Rate limit DoS**: Now gates all deposit attempts, not just successful ones
+- **Rate limit config safety**: `deposit_rate_limit` clamped to minimum 1 (prevents 0/negative lockout)
+- **Metadata preservation on update**: `summary`/`input_output` preserved when not explicitly sent in PUT
+
+### Review
+
+- Sprint 1: 1 round × 3 LLMs, 8 fixes applied (3 FAIL + 5 CONCERN resolved)
+- Sprint 2: 2 rounds × 3 LLMs, 7 fixes applied (all RESOLVED at R2), 3/3 APPROVE
+- Reviewers: Claude Opus 4.6 (Agent Team), Cursor Composer-2, Cursor GPT-5.4
+
+---
+
 ## [3.2.0] - 2026-03-23
 
 ### Added

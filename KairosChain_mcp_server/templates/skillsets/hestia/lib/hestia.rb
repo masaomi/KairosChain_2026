@@ -5,7 +5,7 @@ require 'json'
 
 module Hestia
   SKILLSET_ROOT = File.expand_path('..', __dir__)
-  VERSION = '0.1.0'
+  VERSION = '0.2.0'
 
   # Eagerly load chain components (needed by adapter and tools)
   require_relative 'hestia/chain/core/anchor'
