@@ -166,6 +166,7 @@ module Hestia
 
         content_hash = deposit[:content_hash]
         @deposited_skills.reject! { |d| d[:internal_key] == internal_key }
+        @attestations.reject! { |a| a[:internal_key] == internal_key }
         @exchange_counts.delete(internal_key)
         delete_content(internal_key)
         save_state
@@ -207,11 +208,13 @@ module Hestia
       }
       result[:version] = fm_fields[:version] if fm_fields[:version]
       result[:license] = fm_fields[:license] if fm_fields[:license]
-      skill_attestations = get_attestations(dep[:skill_id], owner_agent_id: dep[:agent_id])
+      skill_attestations = get_attestations(dep[:skill_id], owner_agent_id: dep[:agent_id],
+                                              content_hash: dep[:content_hash])
       unless skill_attestations.empty?
         result[:attestations] = skill_attestations.map do |a|
           { attester_id: a[:attester_id], attester_name: a[:attester_name],
-            claim: a[:claim], evidence_hash: a[:evidence_hash], deposited_at: a[:deposited_at],
+            claim: a[:claim], evidence_hash: a[:evidence_hash], content_hash: a[:content_hash],
+            deposited_at: a[:deposited_at],
             has_signature: !!a[:signature], signed_payload: a[:signed_payload], signature: a[:signature] }
         end
       end
@@ -310,51 +313,95 @@ module Hestia
     # @param signature [String, nil] RSA signature of the signed_payload
     # @param signed_payload [String, nil] Canonical payload that was signed
     # @return [Hash] Result
+    MAX_CLAIM_BYTES = 200
+    MAX_SIGNATURE_BYTES = 1024
+    MAX_SIGNED_PAYLOAD_BYTES = 1024
+
     def deposit_attestation(attester_id:, attester_name: nil, skill_id:, owner_agent_id:,
-                            claim:, evidence_hash: nil, signature: nil, signed_payload: nil)
-      # Verify the skill exists
-      internal_key = "#{owner_agent_id}/#{skill_id}"
-      deposit = @deposited_skills.find { |d| d[:internal_key] == internal_key }
-      unless deposit
-        return { valid: false, error: 'skill_not_found', message: "No deposit found: #{skill_id} (owner: #{owner_agent_id})" }
+                            claim:, evidence_hash: nil, signature: nil, signed_payload: nil,
+                            public_key: nil)
+      @mutex.synchronize do
+        # Verify the skill exists
+        internal_key = "#{owner_agent_id}/#{skill_id}"
+        deposit = @deposited_skills.find { |d| d[:internal_key] == internal_key }
+        unless deposit
+          return { valid: false, error: 'skill_not_found', message: "No deposit found: #{skill_id} (owner: #{owner_agent_id})" }
+        end
+
+        # Rate limit (reuse deposit rate limiter)
+        unless check_deposit_rate(attester_id)
+          return { valid: false, errors: ["Rate limit exceeded (max #{deposit_rate_limit}/hour)"] }
+        end
+        record_deposit_timestamp(attester_id)
+
+        # Size limits
+        if claim && claim.bytesize > MAX_CLAIM_BYTES
+          return { valid: false, error: 'claim_too_large', message: "Claim exceeds #{MAX_CLAIM_BYTES} bytes" }
+        end
+        if signature && signature.bytesize > MAX_SIGNATURE_BYTES
+          return { valid: false, error: 'signature_too_large', message: "Signature exceeds #{MAX_SIGNATURE_BYTES} bytes" }
+        end
+        if signed_payload && signed_payload.bytesize > MAX_SIGNED_PAYLOAD_BYTES
+          return { valid: false, error: 'payload_too_large', message: "Signed payload exceeds #{MAX_SIGNED_PAYLOAD_BYTES} bytes" }
+        end
+
+        # Verify signature server-side if public key available
+        if signature && signed_payload && public_key
+          begin
+            crypto = ::MMP::Crypto.new(auto_generate: false)
+            unless crypto.verify_signature(signed_payload, signature, public_key)
+              return { valid: false, error: 'signature_invalid', message: 'Signature verification failed' }
+            end
+          rescue StandardError => e
+            return { valid: false, error: 'signature_error', message: "Signature verification error: #{e.message}" }
+          end
+        end
+
+        # Prevent duplicate attestation (same attester + same claim on same skill)
+        existing = @attestations.find do |a|
+          a[:attester_id] == attester_id && a[:skill_id] == skill_id &&
+            a[:owner_agent_id] == owner_agent_id && a[:claim] == claim
+        end
+        if existing
+          return { valid: false, error: 'duplicate', message: "Attestation already exists: #{claim} by #{attester_id}" }
+        end
+
+        now = Time.now.utc.iso8601
+        attestation = {
+          attester_id: attester_id,
+          attester_name: attester_name,
+          skill_id: skill_id,
+          owner_agent_id: owner_agent_id,
+          internal_key: internal_key,
+          claim: claim,
+          evidence_hash: evidence_hash,
+          content_hash: deposit[:content_hash],
+          signature: signature,
+          signed_payload: signed_payload,
+          deposited_at: now
+        }
+
+        @attestations << attestation
+        save_state
       end
 
-      # Prevent duplicate attestation (same attester + same claim on same skill)
-      existing = @attestations.find do |a|
-        a[:attester_id] == attester_id && a[:skill_id] == skill_id &&
-          a[:owner_agent_id] == owner_agent_id && a[:claim] == claim
-      end
-      if existing
-        return { valid: false, error: 'duplicate', message: "Attestation already exists: #{claim} by #{attester_id}" }
-      end
-
-      now = Time.now.utc.iso8601
-      attestation = {
-        attester_id: attester_id,
-        attester_name: attester_name,
-        skill_id: skill_id,
-        owner_agent_id: owner_agent_id,
-        internal_key: internal_key,
-        claim: claim,
-        evidence_hash: evidence_hash,
-        signature: signature,
-        signed_payload: signed_payload,
-        deposited_at: now
-      }
-
-      @attestations << attestation
-      save_state
-
-      { valid: true, status: 'attestation_deposited', claim: claim, skill_id: skill_id, deposited_at: now }
+      { valid: true, status: 'attestation_deposited', claim: claim, skill_id: skill_id, deposited_at: Time.now.utc.iso8601 }
     end
 
     # Get attestations for a deposited skill.
-    def get_attestations(skill_id, owner_agent_id: nil)
-      if owner_agent_id
-        internal_key = "#{owner_agent_id}/#{skill_id}"
-        @attestations.select { |a| a[:internal_key] == internal_key }
+    # Only returns attestations matching the current content_hash (version-bound).
+    def get_attestations(skill_id, owner_agent_id: nil, content_hash: nil)
+      candidates = if owner_agent_id
+                     internal_key = "#{owner_agent_id}/#{skill_id}"
+                     @attestations.select { |a| a[:internal_key] == internal_key }
+                   else
+                     @attestations.select { |a| a[:skill_id] == skill_id }
+                   end
+      # Filter to current version if content_hash provided
+      if content_hash
+        candidates.select { |a| a[:content_hash] == content_hash }
       else
-        @attestations.select { |a| a[:skill_id] == skill_id }
+        candidates
       end
     end
 
@@ -826,7 +873,8 @@ module Hestia
         entry[:input_output] = dep[:input_output] if dep[:input_output]
         entry[:version] = fm_fields[:version] if fm_fields[:version]
         entry[:license] = fm_fields[:license] if fm_fields[:license]
-        skill_attestations = get_attestations(dep[:skill_id], owner_agent_id: dep[:agent_id])
+        skill_attestations = get_attestations(dep[:skill_id], owner_agent_id: dep[:agent_id],
+                                                content_hash: dep[:content_hash])
         unless skill_attestations.empty?
           entry[:attestations] = skill_attestations.map do |a|
             { attester_id: a[:attester_id], attester_name: a[:attester_name],

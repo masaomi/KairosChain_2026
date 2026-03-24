@@ -29,6 +29,7 @@ module Hestia
       'skill_content' => 'browse',
       'preview'       => 'browse',
       'agent_profile' => 'browse',
+      'attest'        => 'deposit_skill',
       'needs'         => 'browse',
       'agents'        => 'browse',
       'keys'          => 'browse',
@@ -539,6 +540,9 @@ module Hestia
       attester_agent = @registry.get(attester_id)
       attester_name = attester_agent ? attester_agent[:name] : nil
 
+      # Get attester's public key for server-side signature verification
+      public_key = @registry.public_key_for(attester_id)
+
       result = @skill_board.deposit_attestation(
         attester_id: attester_id,
         attester_name: attester_name,
@@ -547,7 +551,8 @@ module Hestia
         claim: claim,
         evidence_hash: body['evidence_hash'],
         signature: body['signature'],
-        signed_payload: body['signed_payload']
+        signed_payload: body['signed_payload'],
+        public_key: public_key
       )
 
       if result[:valid]
