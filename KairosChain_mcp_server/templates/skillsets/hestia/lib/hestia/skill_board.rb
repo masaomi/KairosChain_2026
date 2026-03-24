@@ -4,6 +4,7 @@ require 'digest'
 require 'fileutils'
 require 'json'
 require 'time'
+require 'yaml'
 
 module Hestia
   # SkillBoard aggregates skills from registered agents and deposited skills.
@@ -29,6 +30,8 @@ module Hestia
     MAX_SUMMARY_BYTES = 500
     MAX_INPUT_OUTPUT_BYTES = 1000
     MAX_PREVIEW_LINES = 100
+    DEFAULT_DEPOSIT_RATE_LIMIT = 10  # per hour
+    MAX_DESCRIPTION_BYTES = 500
 
     def initialize(registry:, config: {}, storage_path: nil, self_place_id: nil,
                    federation_config: {}, trust_scorer: nil)
@@ -40,6 +43,7 @@ module Hestia
       @trust_scorer = trust_scorer  # Optional Synoptis::TrustScorer (DI)
       @exchange_counts = {}  # internal_key => count
       @total_exchange_count = 0
+      @deposit_timestamps = {}  # agent_id => [Time] for rate limiting
       @self_place_id = self_place_id
       @storage_path = storage_path || 'storage/skill_board_state.json'
       @content_dir = File.join(File.dirname(@storage_path), 'deposits')
@@ -59,6 +63,11 @@ module Hestia
       internal_key = "#{agent_id}/#{skill[:skill_id]}"
 
       @mutex.synchronize do
+        # Deposit rate limit (per agent, per hour)
+        unless check_deposit_rate(agent_id)
+          return { valid: false, errors: ["Deposit rate limit exceeded (max #{deposit_rate_limit}/hour)"] }
+        end
+
         # Exclude existing deposit of same key from quota checks (allows updates at quota limit)
         is_replacement = @deposited_skills.any? { |d| d[:internal_key] == internal_key }
         validation = validate_deposit(skill, agent_id: agent_id, public_key: public_key,
@@ -100,6 +109,7 @@ module Hestia
 
         save_content(internal_key, skill[:content])
         save_state
+        record_deposit_timestamp(agent_id)
       end
 
       { valid: true, status: 'deposited', skill_id: skill[:skill_id], internal_key: internal_key }
@@ -185,6 +195,7 @@ module Hestia
         size_bytes: dep[:size_bytes],
         deposited_at: dep[:deposited_at],
         depositor_id: dep[:agent_id],
+        content_hash: dep[:content_hash],
         summary: dep[:summary] || extract_content_summary(content),
         sections: extract_sections(content),
         input_output: dep[:input_output],
@@ -272,6 +283,54 @@ module Hestia
       { removed: expired.size, remaining: @deposited_skills.size }
     end
 
+    # Deposit limits for publishing in /place/v1/info.
+    def deposit_limits
+      {
+        max_skills_per_agent: max_skills_per_agent,
+        max_total_deposits: max_total_deposits,
+        max_skill_size_bytes: @deposit_config['max_skill_size_bytes'] || DEFAULT_MAX_SKILL_SIZE,
+        deposit_rate_limit_per_hour: deposit_rate_limit,
+        max_summary_bytes: MAX_SUMMARY_BYTES,
+        max_description_bytes: MAX_DESCRIPTION_BYTES,
+        max_preview_lines: MAX_PREVIEW_LINES
+      }
+    end
+
+    # Compile a public profile bundle for an agent (for /place/v1/agent_profile/:id).
+    # Returns aggregated public data: identity, deposited skills metadata, needs.
+    def compile_agent_profile(agent_id)
+      agent = @registry.get(agent_id)
+      return nil unless agent
+
+      skills = @deposited_skills.select { |d| d[:agent_id] == agent_id }.map do |dep|
+        content = dep[:content] || ''
+        {
+          skill_id: dep[:skill_id],
+          name: dep[:name],
+          description: dep[:description],
+          tags: dep[:tags],
+          summary: dep[:summary] || extract_content_summary(content),
+          sections: extract_sections(content),
+          content_hash: dep[:content_hash],
+          deposited_at: dep[:deposited_at],
+          size_bytes: dep[:size_bytes],
+          exchange_count: @exchange_counts[dep[:internal_key]] || 0
+        }
+      end
+
+      needs = @posted_needs.select { |n| n[:agent_id] == agent_id }
+
+      {
+        agent: agent,
+        deposited_skills: skills,
+        deposit_count: skills.size,
+        total_exchanges: skills.sum { |s| s[:exchange_count] },
+        posted_needs: needs,
+        profile_generated_at: Time.now.utc.iso8601,
+        note: 'Public profile bundle. Interpret through your own cognitive lens.'
+      }
+    end
+
     # Deposit statistics for status reporting
     def deposit_stats
       federated = @deposited_skills.count { |d| d.dig(:provenance, :hop_count).to_i > 0 }
@@ -348,6 +407,30 @@ module Hestia
       # Skill ID required
       errors << 'skill_id is required' unless skill[:skill_id] && !skill[:skill_id].empty?
 
+      # Format Gate: structural validation for yaml_frontmatter deposits
+      if format == 'yaml_frontmatter' && content && !content.empty?
+        unless content.start_with?('---')
+          errors << 'yaml_frontmatter format requires YAML frontmatter delimiters (---)'
+        else
+          parts = content.split(/^---\s*$/, 3)
+          if parts.length < 3
+            errors << 'yaml_frontmatter format requires valid frontmatter (---...---)'
+          else
+            begin
+              fm = YAML.safe_load(parts[1])
+              errors << 'Frontmatter must be a valid YAML hash' unless fm.is_a?(Hash)
+            rescue StandardError => e
+              errors << "Invalid YAML frontmatter: #{e.message}"
+            end
+          end
+        end
+      end
+
+      # Description size limit
+      if skill[:description] && skill[:description].bytesize > MAX_DESCRIPTION_BYTES
+        errors << "Description exceeds size limit (#{MAX_DESCRIPTION_BYTES} bytes)"
+      end
+
       # Federation validation (for deposits with provenance from other Places)
       if skill[:provenance] && skill[:provenance][:hop_count].to_i > 0
         # Check if federation is accepted
@@ -394,6 +477,22 @@ module Hestia
 
     def max_total_deposits
       @deposit_config['max_total_deposits'] || DEFAULT_MAX_TOTAL_DEPOSITS
+    end
+
+    def deposit_rate_limit
+      @deposit_config['deposit_rate_limit'] || DEFAULT_DEPOSIT_RATE_LIMIT
+    end
+
+    def check_deposit_rate(agent_id)
+      now = Time.now.utc
+      cutoff = now - 3600
+      @deposit_timestamps[agent_id] = (@deposit_timestamps[agent_id] || []).select { |t| t > cutoff }
+      @deposit_timestamps[agent_id].size < deposit_rate_limit
+    end
+
+    def record_deposit_timestamp(agent_id)
+      @deposit_timestamps[agent_id] ||= []
+      @deposit_timestamps[agent_id] << Time.now.utc
     end
 
     # Build trust_metadata for a deposited skill.
@@ -603,6 +702,7 @@ module Hestia
           tags: dep[:tags],
           size_bytes: dep[:size_bytes],
           deposited_at: dep[:deposited_at],
+          content_hash: dep[:content_hash],
           summary: dep[:summary] || extract_content_summary(content),
           sections: extract_sections(content),
           trust_notice: {

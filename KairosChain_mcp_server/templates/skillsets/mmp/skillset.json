@@ -16,6 +16,8 @@
     "KairosMcp::SkillSets::MMP::Tools::MeetingWithdraw",
     "KairosMcp::SkillSets::MMP::Tools::MeetingUpdateDeposit",
     "KairosMcp::SkillSets::MMP::Tools::MeetingPreviewSkill",
+    "KairosMcp::SkillSets::MMP::Tools::MeetingCheckFreshness",
+    "KairosMcp::SkillSets::MMP::Tools::MeetingGetAgentProfile",
     "KairosMcp::SkillSets::MMP::Tools::MeetingFederate"
   ],
   "config_files": ["config/meeting.yml"],
