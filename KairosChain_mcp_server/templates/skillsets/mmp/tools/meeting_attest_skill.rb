@@ -68,10 +68,14 @@ module KairosMcp
               crypto = identity.crypto
               attester_id = identity.instance_id
 
-              # Build signed payload: canonical form including attester_id for cross-Place replay prevention
+              # Fetch current skill content_hash for version-bound attestation
+              preview = client.preview_skill(skill_id: skill_id, owner: owner_agent_id, first_lines: 1)
+              skill_content_hash = preview[:content_hash]
+
+              # Build signed payload: canonical form with content_hash for cryptographic version binding
               timestamp = Time.now.utc.iso8601
               evidence_hash = evidence ? Digest::SHA256.hexdigest(evidence) : nil
-              signed_payload = [attester_id, claim, skill_id, owner_agent_id, evidence_hash, timestamp].compact.join('|')
+              signed_payload = [attester_id, claim, skill_id, owner_agent_id, skill_content_hash, evidence_hash, timestamp].compact.join('|')
               signature = crypto&.has_keypair? ? crypto.sign(signed_payload) : nil
 
               result = client.attest_skill(

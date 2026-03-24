@@ -357,13 +357,15 @@ module Hestia
           end
         end
 
-        # Prevent duplicate attestation (same attester + same claim on same skill)
+        # Prevent duplicate attestation (same attester + same claim on same skill VERSION)
+        current_hash = deposit[:content_hash]
         existing = @attestations.find do |a|
           a[:attester_id] == attester_id && a[:skill_id] == skill_id &&
-            a[:owner_agent_id] == owner_agent_id && a[:claim] == claim
+            a[:owner_agent_id] == owner_agent_id && a[:claim] == claim &&
+            a[:content_hash] == current_hash
         end
         if existing
-          return { valid: false, error: 'duplicate', message: "Attestation already exists: #{claim} by #{attester_id}" }
+          return { valid: false, error: 'duplicate', message: "Attestation already exists: #{claim} by #{attester_id} on this version" }
         end
 
         now = Time.now.utc.iso8601
