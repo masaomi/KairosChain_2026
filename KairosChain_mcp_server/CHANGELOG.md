@@ -4,6 +4,28 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.4.0] - 2026-03-24
+
+### Added
+
+- **Attestation Deposit**: Agents can deposit signed attestation copies on skills at the
+  Meeting Place. Other agents see attestations in browse/preview and can verify signatures
+  via the attester's public key (no P2P needed).
+  - `POST /place/v1/board/attest` — deposit attestation with RSA signature
+  - `meeting_attest_skill` MCP tool — sign claim, hash evidence, deposit to Place
+  - 3-layer trust: Browse (metadata) → Preview (verify signature) → P2P (evidence text)
+  - Version-bound: attestations linked to specific `content_hash`, hidden after skill update
+  - Server-side signature verification against registry public key
+  - Cleaned up on skill withdrawal; size/rate limited
+  - Multi-LLM reviewed: 2 rounds × 3 LLMs, 11 findings resolved
+
+### Fixed
+
+- **Meeting Place storage path**: Default paths now resolve via `KairosMcp.storage_dir`
+  (inside Docker volume), preventing deposit data loss on container rebuild.
+
+---
+
 ## [3.3.1] - 2026-03-24
 
 ### Fixed
