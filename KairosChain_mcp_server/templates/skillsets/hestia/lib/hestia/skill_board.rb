@@ -26,6 +26,10 @@ module Hestia
     DEFAULT_MAX_SKILLS_PER_AGENT = 20
     DEFAULT_MAX_TOTAL_DEPOSITS = 500
 
+    MAX_SUMMARY_BYTES = 500
+    MAX_INPUT_OUTPUT_BYTES = 1000
+    MAX_PREVIEW_LINES = 100
+
     def initialize(registry:, config: {}, storage_path: nil, self_place_id: nil,
                    federation_config: {}, trust_scorer: nil)
       @registry = registry
@@ -40,6 +44,7 @@ module Hestia
       @storage_path = storage_path || 'storage/skill_board_state.json'
       @content_dir = File.join(File.dirname(@storage_path), 'deposits')
       @state_dirty = false
+      @mutex = Mutex.new
       load_state
     end
 
@@ -51,37 +56,51 @@ module Hestia
     # @param public_key [String, nil] Depositor's public key for signature verification
     # @return [Hash] { valid: true/false, ... }
     def deposit_skill(agent_id:, skill:, public_key: nil)
-      validation = validate_deposit(skill, agent_id: agent_id, public_key: public_key)
-      return validation unless validation[:valid]
-
       internal_key = "#{agent_id}/#{skill[:skill_id]}"
 
-      # Replace existing deposit of same skill from same agent
-      @deposited_skills.reject! { |d| d[:internal_key] == internal_key }
+      @mutex.synchronize do
+        # Exclude existing deposit of same key from quota checks (allows updates at quota limit)
+        is_replacement = @deposited_skills.any? { |d| d[:internal_key] == internal_key }
+        validation = validate_deposit(skill, agent_id: agent_id, public_key: public_key,
+                                      replacing_key: is_replacement ? internal_key : nil)
+        return validation unless validation[:valid]
 
-      now = Time.now.utc.iso8601
-      provenance = build_provenance(skill[:provenance], agent_id, now)
+        # Replace existing deposit of same skill from same agent
+        @deposited_skills.reject! { |d| d[:internal_key] == internal_key }
 
-      @deposited_skills << {
-        internal_key: internal_key,
-        agent_id: agent_id,
-        skill_id: skill[:skill_id],
-        name: skill[:name],
-        description: skill[:description],
-        tags: skill[:tags] || [],
-        format: skill[:format] || 'markdown',
-        content: skill[:content],
-        content_hash: skill[:content_hash],
-        size_bytes: skill[:content]&.bytesize || 0,
-        depositor_signature: skill[:signature],
-        deposited_at: now,
-        provenance: provenance,
-        summary: skill[:summary],
-        input_output: skill[:input_output]
-      }
+        now = Time.now.utc.iso8601
+        provenance = build_provenance(skill[:provenance], agent_id, now)
 
-      save_content(internal_key, skill[:content])
-      save_state
+        # Truncate metadata to prevent abuse
+        summary = skill[:summary]
+        summary = summary[0, MAX_SUMMARY_BYTES] if summary && summary.bytesize > MAX_SUMMARY_BYTES
+        input_output = skill[:input_output]
+        if input_output
+          io_json = JSON.generate(input_output) rescue '{}'
+          input_output = nil if io_json.bytesize > MAX_INPUT_OUTPUT_BYTES
+        end
+
+        @deposited_skills << {
+          internal_key: internal_key,
+          agent_id: agent_id,
+          skill_id: skill[:skill_id],
+          name: skill[:name],
+          description: skill[:description],
+          tags: skill[:tags] || [],
+          format: skill[:format] || 'markdown',
+          content: skill[:content],
+          content_hash: skill[:content_hash],
+          size_bytes: skill[:content]&.bytesize || 0,
+          depositor_signature: skill[:signature],
+          deposited_at: now,
+          provenance: provenance,
+          summary: summary,
+          input_output: input_output
+        }
+
+        save_content(internal_key, skill[:content])
+        save_state
+      end
 
       { valid: true, status: 'deposited', skill_id: skill[:skill_id], internal_key: internal_key }
     end
@@ -127,17 +146,21 @@ module Hestia
     # @return [Hash] { valid: true/false, ... }
     def withdraw_skill(agent_id:, skill_id:)
       internal_key = "#{agent_id}/#{skill_id}"
-      deposit = @deposited_skills.find { |d| d[:internal_key] == internal_key }
-      unless deposit
-        return { valid: false, error: 'not_found', message: "No deposit found: #{skill_id} (owner: #{agent_id})" }
+
+      @mutex.synchronize do
+        deposit = @deposited_skills.find { |d| d[:internal_key] == internal_key }
+        unless deposit
+          return { valid: false, error: 'not_found', message: "No deposit found: #{skill_id} (owner: #{agent_id})" }
+        end
+
+        content_hash = deposit[:content_hash]
+        @deposited_skills.reject! { |d| d[:internal_key] == internal_key }
+        @exchange_counts.delete(internal_key)
+        delete_content(internal_key)
+        save_state
+
+        { valid: true, status: 'withdrawn', skill_id: skill_id, content_hash: content_hash }
       end
-
-      content_hash = deposit[:content_hash]
-      @deposited_skills.reject! { |d| d[:internal_key] == internal_key }
-      delete_content(internal_key)
-      save_state
-
-      { valid: true, status: 'withdrawn', skill_id: skill_id, content_hash: content_hash }
     end
 
     # Preview a deposited skill without full content download.
@@ -151,6 +174,7 @@ module Hestia
       dep = get_deposited_skill(skill_id, owner_agent_id: owner_agent_id)
       return nil unless dep
 
+      first_lines = [[first_lines.to_i, 1].max, MAX_PREVIEW_LINES].min
       content = dep[:content] || ''
       {
         skill_id: dep[:skill_id],
@@ -267,7 +291,7 @@ module Hestia
       @deposited_skills.count { |d| d[:agent_id] == agent_id }
     end
 
-    def validate_deposit(skill, agent_id: nil, public_key: nil)
+    def validate_deposit(skill, agent_id: nil, public_key: nil, replacing_key: nil)
       errors = []
       content = skill[:content]
       format = skill[:format]
@@ -307,16 +331,17 @@ module Hestia
         end
       end
 
-      # Per-agent quota
+      # Per-agent quota (exclude the deposit being replaced)
       if agent_id
-        agent_count = @deposited_skills.count { |d| d[:agent_id] == agent_id }
+        agent_count = @deposited_skills.count { |d| d[:agent_id] == agent_id && d[:internal_key] != replacing_key }
         if agent_count >= max_skills_per_agent
           errors << "Per-agent quota exceeded (max #{max_skills_per_agent})"
         end
       end
 
-      # Total quota
-      if @deposited_skills.size >= max_total_deposits
+      # Total quota (exclude the deposit being replaced)
+      effective_total = replacing_key ? @deposited_skills.size - 1 : @deposited_skills.size
+      if effective_total >= max_total_deposits
         errors << "Total deposit quota exceeded (max #{max_total_deposits})"
       end
 

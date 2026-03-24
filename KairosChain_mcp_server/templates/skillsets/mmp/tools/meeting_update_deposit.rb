@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'net/http'
-require 'uri'
 require 'json'
 require 'yaml'
 require 'digest'
@@ -61,22 +59,14 @@ module KairosMcp
           end
 
           def call(arguments)
-            config = ::MMP.load_config
-            unless config['enabled']
-              return text_content(JSON.pretty_generate({ error: 'Meeting Protocol is disabled' }))
-            end
+            client = build_place_client
+            return client if client.is_a?(String) # error message
 
-            connection = load_connection_state
-            unless connection
-              return text_content(JSON.pretty_generate({ error: 'Not connected', hint: 'Use meeting_connect first' }))
-            end
-
-            url = connection['url'] || connection[:url]
-            token = connection['session_token'] || connection[:session_token]
             skill_name = arguments['skill_name']
             reason = arguments['reason']
 
             begin
+              config = ::MMP.load_config
               identity = ::MMP::Identity.new(config: config)
               crypto = identity.crypto
 
@@ -107,7 +97,7 @@ module KairosMcp
               body[:summary] = arguments['summary'] if arguments['summary']
               body[:input_output] = arguments['input_output'] if arguments['input_output']
 
-              result = update_on_place(url, token, skill_name, body)
+              result = client.update_deposit(skill_id: skill_name, skill: body)
 
               if result[:status] == 'updated'
                 text_content(JSON.pretty_generate({
@@ -133,6 +123,26 @@ module KairosMcp
           end
 
           private
+
+          def build_place_client
+            config = ::MMP.load_config
+            unless config['enabled']
+              return text_content(JSON.pretty_generate({ error: 'Meeting Protocol is disabled' }))
+            end
+
+            connection = load_connection_state
+            unless connection
+              return text_content(JSON.pretty_generate({ error: 'Not connected', hint: 'Use meeting_connect first' }))
+            end
+
+            url = connection['url'] || connection[:url]
+            token = connection['session_token'] || connection[:session_token]
+            identity = ::MMP::Identity.new(config: config)
+            client = ::MMP::PlaceClient.new(place_url: url, identity: identity, config: {})
+            client.instance_variable_set(:@bearer_token, token)
+            client.instance_variable_set(:@connected, true)
+            client
+          end
 
           def load_connection_state
             f = File.join(KairosMcp.storage_dir, 'meeting_connection.json')
@@ -169,21 +179,6 @@ module KairosMcp
             nil
           rescue StandardError
             nil
-          end
-
-          def update_on_place(url, token, skill_id, body)
-            encoded = URI.encode_www_form_component(skill_id)
-            uri = URI.parse("#{url}/place/v1/deposit/#{encoded}")
-            http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = (uri.scheme == 'https')
-            http.open_timeout = 5; http.read_timeout = 15
-            req = Net::HTTP::Put.new(uri.path)
-            req['Content-Type'] = 'application/json'
-            req['Authorization'] = "Bearer #{token}" if token
-            req.body = JSON.generate(body)
-            response = http.request(req)
-            JSON.parse(response.body, symbolize_names: true)
-          rescue StandardError => e
-            { error: e.message }
           end
         end
       end

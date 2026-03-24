@@ -534,7 +534,7 @@ module Hestia
           skill_id: skill_id,
           owner_agent_id: agent_id,
           withdrawn_at: Time.now.utc.iso8601,
-          chain_recorded: true
+          chain_recorded: @trust_anchor_client ? 'attempted' : false
         })
       else
         json_response(404, { error: result[:error], message: result[:message] })
@@ -571,8 +571,8 @@ module Hestia
         content: body['content'],
         content_hash: body['content_hash'],
         signature: body['signature'],
-        summary: body['summary'],
-        input_output: body['input_output']
+        summary: body.key?('summary') ? body['summary'] : existing[:summary],
+        input_output: body.key?('input_output') ? body['input_output'] : existing[:input_output]
       }
 
       public_key = @registry.public_key_for(agent_id)
@@ -598,7 +598,7 @@ module Hestia
           previous_hash: previous_hash,
           new_hash: skill[:content_hash],
           updated_at: Time.now.utc.iso8601,
-          chain_recorded: true
+          chain_recorded: @trust_anchor_client ? 'attempted' : false
         })
       else
         json_response(422, { error: 'update_rejected', reasons: result[:errors] })
@@ -611,7 +611,7 @@ module Hestia
       skill_id = URI.decode_www_form_component(path.sub('/place/v1/preview/', ''))
       params = parse_query(env)
       owner = params['owner']
-      first_lines = (params['first_lines'] || 30).to_i
+      first_lines = [[((params['first_lines'] || 30).to_i), 1].max, SkillBoard::MAX_PREVIEW_LINES].min
 
       preview = @skill_board.preview_skill(skill_id, owner_agent_id: owner, first_lines: first_lines)
 
