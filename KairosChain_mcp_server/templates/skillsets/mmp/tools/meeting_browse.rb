@@ -123,6 +123,12 @@ module KairosMcp
             base[:deposited_at] = entry[:deposited_at] if entry[:deposited_at]
             base[:trust_notice] = entry[:trust_notice] if entry[:trust_notice]
             base[:trust_metadata] = entry[:trust_metadata] if entry[:trust_metadata]
+            base[:attestations] = entry[:attestations] if entry[:attestations]
+            base[:summary] = entry[:summary] if entry[:summary]
+            base[:sections] = entry[:sections] if entry[:sections]
+            base[:content_hash] = entry[:content_hash] if entry[:content_hash]
+            base[:version] = entry[:version] if entry[:version]
+            base[:license] = entry[:license] if entry[:license]
             base.compact
           end
         end
