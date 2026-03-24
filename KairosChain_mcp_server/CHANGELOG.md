@@ -4,6 +4,18 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.4.1] - 2026-03-24
+
+### Fixed
+
+- **meeting_browse missing fields**: `format_entry` did not forward `attestations`, `summary`,
+  `sections`, `content_hash`, `version`, or `license` from server response. These were correctly
+  returned by the server but dropped by the MCP tool's formatting layer.
+- **Attestation R2 fixes**: Version-aware duplicate check (same attester can re-attest after
+  skill update), `content_hash` included in signed payload for cryptographic version binding.
+
+---
+
 ## [3.4.0] - 2026-03-24
 
 ### Added
