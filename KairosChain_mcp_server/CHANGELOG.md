@@ -4,6 +4,17 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.1] - 2026-03-24
+
+### Fixed
+
+- **`kairos-chain skillset install` short name resolution**: `kairos-chain skillset install mmp`
+  now resolves to gem's `templates/skillsets/mmp/` automatically. Previously required full path.
+- **`kairos-chain skillset install --force`**: New flag for reinstalling/updating existing SkillSets.
+  Preserves user config files (`config/*.yml`) during reinstall.
+
+---
+
 ## [3.3.0] - 2026-03-24
 
 ### Added
