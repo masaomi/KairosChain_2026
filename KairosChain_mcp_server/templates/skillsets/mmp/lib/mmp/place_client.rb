@@ -110,6 +110,13 @@ module MMP
       get("/place/v1/agent_profile/#{URI.encode_www_form_component(agent_id)}")
     end
 
+    def attest_skill(skill_id:, owner_agent_id:, claim:, evidence_hash: nil, signature: nil, signed_payload: nil)
+      post('/place/v1/board/attest', {
+        skill_id: skill_id, owner_agent_id: owner_agent_id, claim: claim,
+        evidence_hash: evidence_hash, signature: signature, signed_payload: signed_payload
+      })
+    end
+
     def send_encrypted(to:, message:, message_type: 'message')
       return { error: 'Not connected' } unless @connected
       return { error: 'No keypair' } unless @crypto&.has_keypair?

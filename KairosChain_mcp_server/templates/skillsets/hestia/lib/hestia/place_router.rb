@@ -185,6 +185,8 @@ module Hestia
         handle_delete_needs(env)
       when ['POST', '/place/v1/deposit']
         handle_deposit(env)
+      when ['POST', '/place/v1/board/attest']
+        handle_attest(env)
       else
         # Check for pattern-based routes
         if request_method == 'GET' && path.start_with?('/place/v1/keys/')
@@ -512,6 +514,55 @@ module Hestia
         })
       else
         json_response(404, { error: 'not_found', message: "No deposited skill found: #{skill_id}" })
+      end
+    end
+
+    # POST /place/v1/board/attest — Bearer token required
+    # Deposit an attestation on a skill. Stores a copy on the Place.
+    def handle_attest(env)
+      body = parse_body(env)
+      token = extract_bearer_token(env)
+      attester_id = @session_store.validate(token)
+
+      skill_id = body['skill_id']
+      owner_agent_id = body['owner_agent_id']
+      claim = body['claim']
+
+      unless skill_id && owner_agent_id && claim
+        return json_response(400, {
+          error: 'missing_fields',
+          message: 'skill_id, owner_agent_id, and claim are required'
+        })
+      end
+
+      # Get attester name from registry
+      attester_agent = @registry.get(attester_id)
+      attester_name = attester_agent ? attester_agent[:name] : nil
+
+      result = @skill_board.deposit_attestation(
+        attester_id: attester_id,
+        attester_name: attester_name,
+        skill_id: skill_id,
+        owner_agent_id: owner_agent_id,
+        claim: claim,
+        evidence_hash: body['evidence_hash'],
+        signature: body['signature'],
+        signed_payload: body['signed_payload']
+      )
+
+      if result[:valid]
+        record_chain_event(
+          event_type: 'attestation',
+          skill_id: skill_id,
+          skill_name: skill_id,
+          content_hash: body['evidence_hash'] || '',
+          participants: [attester_id, owner_agent_id],
+          extra: { attester_id: attester_id, claim: claim }
+        )
+
+        json_response(200, result)
+      else
+        json_response(422, result)
       end
     end
 

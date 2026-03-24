@@ -44,6 +44,7 @@ module Hestia
       @exchange_counts = {}  # internal_key => count
       @total_exchange_count = 0
       @deposit_timestamps = {}  # agent_id => [Time] for rate limiting
+      @attestations = []  # attestation deposits on skills
       @self_place_id = self_place_id
       @storage_path = storage_path || 'storage/skill_board_state.json'
       @content_dir = File.join(File.dirname(@storage_path), 'deposits')
@@ -206,6 +207,14 @@ module Hestia
       }
       result[:version] = fm_fields[:version] if fm_fields[:version]
       result[:license] = fm_fields[:license] if fm_fields[:license]
+      skill_attestations = get_attestations(dep[:skill_id], owner_agent_id: dep[:agent_id])
+      unless skill_attestations.empty?
+        result[:attestations] = skill_attestations.map do |a|
+          { attester_id: a[:attester_id], attester_name: a[:attester_name],
+            claim: a[:claim], evidence_hash: a[:evidence_hash], deposited_at: a[:deposited_at],
+            has_signature: !!a[:signature], signed_payload: a[:signed_payload], signature: a[:signature] }
+        end
+      end
       result
     end
 
@@ -286,6 +295,67 @@ module Hestia
       @deposited_skills -= expired
       save_state if expired.any?
       { removed: expired.size, remaining: @deposited_skills.size }
+    end
+
+    # Deposit an attestation on a skill. Attester must be authenticated.
+    # Stores a copy of the attestation metadata + signature on the Place.
+    # The original proof stays with the attester.
+    #
+    # @param attester_id [String] Agent ID of the attester
+    # @param attester_name [String] Display name of the attester
+    # @param skill_id [String] ID of the attested skill
+    # @param owner_agent_id [String] Owner of the attested skill
+    # @param claim [String] Attestation claim (e.g., "reviewed", "used_in_production")
+    # @param evidence_hash [String, nil] SHA256 hash of evidence (full evidence stays with attester)
+    # @param signature [String, nil] RSA signature of the signed_payload
+    # @param signed_payload [String, nil] Canonical payload that was signed
+    # @return [Hash] Result
+    def deposit_attestation(attester_id:, attester_name: nil, skill_id:, owner_agent_id:,
+                            claim:, evidence_hash: nil, signature: nil, signed_payload: nil)
+      # Verify the skill exists
+      internal_key = "#{owner_agent_id}/#{skill_id}"
+      deposit = @deposited_skills.find { |d| d[:internal_key] == internal_key }
+      unless deposit
+        return { valid: false, error: 'skill_not_found', message: "No deposit found: #{skill_id} (owner: #{owner_agent_id})" }
+      end
+
+      # Prevent duplicate attestation (same attester + same claim on same skill)
+      existing = @attestations.find do |a|
+        a[:attester_id] == attester_id && a[:skill_id] == skill_id &&
+          a[:owner_agent_id] == owner_agent_id && a[:claim] == claim
+      end
+      if existing
+        return { valid: false, error: 'duplicate', message: "Attestation already exists: #{claim} by #{attester_id}" }
+      end
+
+      now = Time.now.utc.iso8601
+      attestation = {
+        attester_id: attester_id,
+        attester_name: attester_name,
+        skill_id: skill_id,
+        owner_agent_id: owner_agent_id,
+        internal_key: internal_key,
+        claim: claim,
+        evidence_hash: evidence_hash,
+        signature: signature,
+        signed_payload: signed_payload,
+        deposited_at: now
+      }
+
+      @attestations << attestation
+      save_state
+
+      { valid: true, status: 'attestation_deposited', claim: claim, skill_id: skill_id, deposited_at: now }
+    end
+
+    # Get attestations for a deposited skill.
+    def get_attestations(skill_id, owner_agent_id: nil)
+      if owner_agent_id
+        internal_key = "#{owner_agent_id}/#{skill_id}"
+        @attestations.select { |a| a[:internal_key] == internal_key }
+      else
+        @attestations.select { |a| a[:skill_id] == skill_id }
+      end
     end
 
     # Deposit limits for publishing in /place/v1/info.
@@ -567,6 +637,7 @@ module Hestia
         deposited_skills: @deposited_skills.map { |d| d.except(:content) },
         exchange_counts: @exchange_counts,
         total_exchange_count: @total_exchange_count,
+        attestations: @attestations,
         updated_at: Time.now.utc.iso8601
       }
       temp = "#{@storage_path}.tmp"
@@ -582,6 +653,7 @@ module Hestia
       data = JSON.parse(File.read(@storage_path), symbolize_names: true)
       @exchange_counts = (data[:exchange_counts] || {}).transform_keys(&:to_s)
       @total_exchange_count = data[:total_exchange_count] || 0
+      @attestations = data[:attestations] || []
       (data[:deposited_skills] || []).each do |dep|
         ik = dep[:internal_key]&.to_s
         next unless ik
@@ -754,6 +826,14 @@ module Hestia
         entry[:input_output] = dep[:input_output] if dep[:input_output]
         entry[:version] = fm_fields[:version] if fm_fields[:version]
         entry[:license] = fm_fields[:license] if fm_fields[:license]
+        skill_attestations = get_attestations(dep[:skill_id], owner_agent_id: dep[:agent_id])
+        unless skill_attestations.empty?
+          entry[:attestations] = skill_attestations.map do |a|
+            { attester_id: a[:attester_id], attester_name: a[:attester_name],
+              claim: a[:claim], evidence_hash: a[:evidence_hash], deposited_at: a[:deposited_at],
+              has_signature: !!a[:signature] }
+          end
+        end
         entries << entry
       end
 
