@@ -1,5 +1,20 @@
 meeting.genomicschain.io {
-	reverse_proxy meeting-place:8080
+	# Static landing page for browser visitors
+	handle / {
+		root * /srv/static
+		file_server
+	}
+
+	# API routes to KairosChain app
+	handle /place/* {
+		reverse_proxy meeting-place:8080
+	}
+	handle /meeting/* {
+		reverse_proxy meeting-place:8080
+	}
+	handle /health {
+		reverse_proxy meeting-place:8080
+	}
 
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
