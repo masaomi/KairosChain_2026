@@ -66,12 +66,14 @@ module KairosMcp
               fresh = results.count { |r| r[:status] == 'up_to_date' }
               stale = results.count { |r| r[:status] == 'updated' }
               gone = results.count { |r| r[:status] == 'withdrawn' }
+              failed = results.count { |r| r[:status] == 'check_failed' }
 
               text_content(JSON.pretty_generate({
                 checked: results.size,
                 up_to_date: fresh,
                 updated: stale,
                 withdrawn: gone,
+                check_failed: failed,
                 results: results,
                 hint: stale > 0 ? 'Use meeting_acquire_skill to get updated versions.' : nil
               }.compact))
@@ -86,7 +88,12 @@ module KairosMcp
             result = client.preview_skill(skill_id: skill_id, owner: owner, first_lines: 1)
 
             if result[:error]
-              { skill_id: skill_id, status: 'withdrawn', note: 'Skill not found on Place (may have been withdrawn)' }
+              error_str = result[:error].to_s
+              if error_str.include?('not_found') || error_str.include?('404')
+                { skill_id: skill_id, status: 'withdrawn', note: 'Skill not found on Place (may have been withdrawn)' }
+              else
+                { skill_id: skill_id, status: 'check_failed', error: error_str, note: 'Could not reach Place or access denied — skill may still exist' }
+              end
             elsif result[:content_hash] == known_hash
               { skill_id: skill_id, status: 'up_to_date', current_hash: result[:content_hash] }
             else

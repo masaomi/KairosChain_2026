@@ -18,12 +18,14 @@ meeting_place:
     max_skill_size_bytes: 100000
     max_skills_per_agent: 20
     max_total_deposits: 500
-    deposit_rate_limit: 10  # per hour per agent
-    require_license: false  # Set true for public/federated Places
-    accepted_licenses: []   # Empty = accept all SPDX identifiers
-    rejected_licenses: []   # Operator-specific blocklist
-    # Safety patterns (regex, minimal — not a content judge)
-    # Uncomment to enable:
+    deposit_rate_limit: 10  # per hour per agent (process-scoped, resets on restart)
+    # License enforcement — NOT YET IMPLEMENTED (planned for future sprint)
+    # Uncomment and set require_license: true when ready:
+    # require_license: false
+    # accepted_licenses: []
+    # rejected_licenses: []
+    # Safety patterns — NOT YET IMPLEMENTED (planned for future sprint)
+    # Uncomment to enable when code support is added:
     # safety_patterns:
     #   - pattern: "ignore previous instructions"
     #     category: prompt_injection

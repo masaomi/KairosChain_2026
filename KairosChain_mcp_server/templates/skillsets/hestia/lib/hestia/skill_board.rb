@@ -63,10 +63,11 @@ module Hestia
       internal_key = "#{agent_id}/#{skill[:skill_id]}"
 
       @mutex.synchronize do
-        # Deposit rate limit (per agent, per hour)
+        # Deposit rate limit (per agent, per hour) — gates attempts, not just successes
         unless check_deposit_rate(agent_id)
           return { valid: false, errors: ["Deposit rate limit exceeded (max #{deposit_rate_limit}/hour)"] }
         end
+        record_deposit_timestamp(agent_id)
 
         # Exclude existing deposit of same key from quota checks (allows updates at quota limit)
         is_replacement = @deposited_skills.any? { |d| d[:internal_key] == internal_key }
@@ -109,7 +110,6 @@ module Hestia
 
         save_content(internal_key, skill[:content])
         save_state
-        record_deposit_timestamp(agent_id)
       end
 
       { valid: true, status: 'deposited', skill_id: skill[:skill_id], internal_key: internal_key }
@@ -289,12 +289,14 @@ module Hestia
     end
 
     # Deposit limits for publishing in /place/v1/info.
+    # Note: deposit_rate_limit is process-scoped (resets on server restart).
     def deposit_limits
       {
         max_skills_per_agent: max_skills_per_agent,
         max_total_deposits: max_total_deposits,
         max_skill_size_bytes: @deposit_config['max_skill_size_bytes'] || DEFAULT_MAX_SKILL_SIZE,
         deposit_rate_limit_per_hour: deposit_rate_limit,
+        deposit_rate_limit_scope: 'process',
         max_summary_bytes: MAX_SUMMARY_BYTES,
         max_description_bytes: MAX_DESCRIPTION_BYTES,
         max_preview_lines: MAX_PREVIEW_LINES
@@ -304,8 +306,18 @@ module Hestia
     # Compile a public profile bundle for an agent (for /place/v1/agent_profile/:id).
     # Returns aggregated public data: identity, deposited skills metadata, needs.
     def compile_agent_profile(agent_id)
-      agent = @registry.get(agent_id)
-      return nil unless agent
+      agent_full = @registry.get(agent_id)
+      return nil unless agent_full
+
+      # Whitelist public-safe fields only (exclude visited_places, last_heartbeat, is_self, url)
+      agent = {
+        id: agent_full[:id],
+        name: agent_full[:name],
+        description: agent_full[:description],
+        scope: agent_full[:scope],
+        capabilities: agent_full[:capabilities],
+        registered_at: agent_full[:registered_at]
+      }.compact
 
       skills = @deposited_skills.select { |d| d[:agent_id] == agent_id }.map do |dep|
         content = dep[:content] || ''
@@ -334,7 +346,6 @@ module Hestia
         agent: agent,
         deposited_skills: skills,
         deposit_count: skills.size,
-        total_exchanges: skills.sum { |s| s[:exchange_count] },
         posted_needs: needs,
         profile_generated_at: Time.now.utc.iso8601,
         note: 'Public profile bundle. Interpret through your own cognitive lens.'
@@ -490,7 +501,7 @@ module Hestia
     end
 
     def deposit_rate_limit
-      @deposit_config['deposit_rate_limit'] || DEFAULT_DEPOSIT_RATE_LIMIT
+      [(@deposit_config['deposit_rate_limit'] || DEFAULT_DEPOSIT_RATE_LIMIT).to_i, 1].max
     end
 
     def check_deposit_rate(agent_id)
