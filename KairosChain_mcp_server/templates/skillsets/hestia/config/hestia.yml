@@ -13,11 +13,28 @@ meeting_place:
   # registry_path: storage/agent_registry.json
   # parent_place_url: null  # URL of parent place for federation
 
-  # Deposit policy
-  # deposit_policy:
-  #   max_skill_size_bytes: 100000
-  #   max_skills_per_agent: 20
-  #   max_total_deposits: 500
+  # Deposit policy (operator-configurable)
+  deposit_policy:
+    max_skill_size_bytes: 100000
+    max_skills_per_agent: 20
+    max_total_deposits: 500
+    deposit_rate_limit: 10  # per hour per agent
+    require_license: false  # Set true for public/federated Places
+    accepted_licenses: []   # Empty = accept all SPDX identifiers
+    rejected_licenses: []   # Operator-specific blocklist
+    # Safety patterns (regex, minimal — not a content judge)
+    # Uncomment to enable:
+    # safety_patterns:
+    #   - pattern: "ignore previous instructions"
+    #     category: prompt_injection
+    #   - pattern: "disregard your system prompt"
+    #     category: prompt_injection
+    #   - pattern: "you are now (?:a|an|the)"
+    #     category: prompt_injection
+    #   - pattern: "curl\\s.*POST"
+    #     category: data_exfiltration
+    #   - pattern: "eval\\s*\\("
+    #     category: code_execution
 
   # Federation: Place-to-Place skill bridging
   # Agent-initiated only (DEE: no automatic forwarding)

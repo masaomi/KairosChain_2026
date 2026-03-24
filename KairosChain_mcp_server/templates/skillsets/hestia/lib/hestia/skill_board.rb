@@ -186,13 +186,15 @@ module Hestia
 
       first_lines = [[first_lines.to_i, 1].max, MAX_PREVIEW_LINES].min
       content = dep[:content] || ''
-      {
+      fm_fields = extract_frontmatter_fields(content)
+      result = {
         skill_id: dep[:skill_id],
         name: dep[:name],
         description: dep[:description],
         tags: dep[:tags],
         format: dep[:format],
         size_bytes: dep[:size_bytes],
+        content_size_lines: content.lines.size,
         deposited_at: dep[:deposited_at],
         depositor_id: dep[:agent_id],
         content_hash: dep[:content_hash],
@@ -202,6 +204,9 @@ module Hestia
         first_lines: content.lines.first(first_lines).join,
         trust_metadata: build_trust_metadata(dep)
       }
+      result[:version] = fm_fields[:version] if fm_fields[:version]
+      result[:license] = fm_fields[:license] if fm_fields[:license]
+      result
     end
 
     # Flush dirty state to disk. Called from HeartbeatManager or status checks.
@@ -304,7 +309,8 @@ module Hestia
 
       skills = @deposited_skills.select { |d| d[:agent_id] == agent_id }.map do |dep|
         content = dep[:content] || ''
-        {
+        fm_fields = extract_frontmatter_fields(content)
+        skill_entry = {
           skill_id: dep[:skill_id],
           name: dep[:name],
           description: dep[:description],
@@ -314,8 +320,12 @@ module Hestia
           content_hash: dep[:content_hash],
           deposited_at: dep[:deposited_at],
           size_bytes: dep[:size_bytes],
+          content_size_lines: content.lines.size,
           exchange_count: @exchange_counts[dep[:internal_key]] || 0
         }
+        skill_entry[:version] = fm_fields[:version] if fm_fields[:version]
+        skill_entry[:license] = fm_fields[:license] if fm_fields[:license]
+        skill_entry
       end
 
       needs = @posted_needs.select { |n| n[:agent_id] == agent_id }
@@ -605,6 +615,21 @@ module Hestia
       content.lines.select { |l| l.match?(/^##\s/) }.map { |l| l.sub(/^##\s+/, '').strip }
     end
 
+    # Extract frontmatter fields (version, license) from YAML frontmatter.
+    def extract_frontmatter_fields(content)
+      return {} unless content&.start_with?('---')
+      parts = content.split(/^---\s*$/, 3)
+      return {} if parts.length < 3
+      fm = YAML.safe_load(parts[1])
+      return {} unless fm.is_a?(Hash)
+      fields = {}
+      fields[:version] = fm['version'].to_s if fm['version']
+      fields[:license] = fm['license'].to_s if fm['license']
+      fields
+    rescue StandardError
+      {}
+    end
+
     # Extract a summary from Markdown content (first paragraph after frontmatter/headings).
     def extract_content_summary(content)
       text = content
@@ -692,6 +717,7 @@ module Hestia
       # Add deposited skills with trust_metadata, summary, and sections
       @deposited_skills.each do |dep|
         content = dep[:content] || ''
+        fm_fields = extract_frontmatter_fields(content)
         entry = {
           agent_id: dep[:agent_id],
           name: dep[:name],
@@ -701,6 +727,7 @@ module Hestia
           type: 'deposited_skill',
           tags: dep[:tags],
           size_bytes: dep[:size_bytes],
+          content_size_lines: content.lines.size,
           deposited_at: dep[:deposited_at],
           content_hash: dep[:content_hash],
           summary: dep[:summary] || extract_content_summary(content),
@@ -714,6 +741,8 @@ module Hestia
           trust_metadata: build_trust_metadata(dep)
         }
         entry[:input_output] = dep[:input_output] if dep[:input_output]
+        entry[:version] = fm_fields[:version] if fm_fields[:version]
+        entry[:license] = fm_fields[:license] if fm_fields[:license]
         entries << entry
       end
 
