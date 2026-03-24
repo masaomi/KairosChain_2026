@@ -76,7 +76,9 @@ module Hestia
     # @return [Hash] Start result
     def start(identity:, session_store:, trust_anchor_client: nil, trust_scorer: nil)
       place_config = @config['meeting_place'] || {}
-      registry_path = place_config['registry_path'] || 'storage/agent_registry.json'
+      # Resolve storage paths relative to KairosMcp.data_dir (ensures Docker volume persistence)
+      default_storage = defined?(KairosMcp) ? File.join(KairosMcp.storage_dir, '') : 'storage/'
+      registry_path = place_config['registry_path'] || "#{default_storage}agent_registry.json"
 
       @session_store = session_store
       @trust_anchor_client = trust_anchor_client
@@ -85,7 +87,7 @@ module Hestia
       @self_id = intro.dig(:identity, :instance_id)
 
       deposit_policy = place_config['deposit_policy'] || {}
-      deposit_storage = place_config['deposit_storage_path'] || 'storage/skill_board_state.json'
+      deposit_storage = place_config['deposit_storage_path'] || "#{default_storage}skill_board_state.json"
       federation_config = place_config['federation'] || {}
       @skill_board = SkillBoard.new(
         registry: @registry,
