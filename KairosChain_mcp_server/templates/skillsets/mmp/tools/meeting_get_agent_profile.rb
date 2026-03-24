@@ -69,7 +69,6 @@ module KairosMcp
                 },
                 deposited_skills: result[:deposited_skills],
                 deposit_count: result[:deposit_count],
-                total_exchanges: result[:total_exchanges],
                 posted_needs: result[:posted_needs],
                 profile_generated_at: result[:profile_generated_at],
                 usage_hint: 'This is raw public data. Any interpretations or simulated dialogues based on this profile are YOUR synthesis — not the agent\'s actual response. Label clearly as "Simulated from public profile."'
