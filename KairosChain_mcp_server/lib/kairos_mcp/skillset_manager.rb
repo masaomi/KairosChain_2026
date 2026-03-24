@@ -76,8 +76,9 @@ module KairosMcp
       { success: true, name: name }
     end
 
-    # Install a SkillSet from a local path
-    def install(source_path, layer_override: nil)
+    # Install a SkillSet from a local path.
+    # With force: true, replaces an existing SkillSet (preserves config/ files).
+    def install(source_path, layer_override: nil, force: false)
       source_path = File.expand_path(source_path)
       raise ArgumentError, "Source path not found: #{source_path}" unless File.directory?(source_path)
 
@@ -87,11 +88,35 @@ module KairosMcp
 
       dest = File.join(@skillsets_dir, temp_skillset.name)
       if File.directory?(dest)
-        raise ArgumentError, "SkillSet '#{temp_skillset.name}' already installed at #{dest}"
-      end
+        if force
+          # Preserve user config files before replacing
+          config_dir = File.join(dest, 'config')
+          saved_configs = {}
+          if File.directory?(config_dir)
+            Dir.glob(File.join(config_dir, '*')).each do |f|
+              saved_configs[File.basename(f)] = File.read(f)
+            end
+          end
 
-      FileUtils.mkdir_p(@skillsets_dir)
-      FileUtils.cp_r(source_path, dest)
+          FileUtils.rm_rf(dest)
+
+          # Copy new version
+          FileUtils.cp_r(source_path, dest)
+
+          # Restore user configs
+          unless saved_configs.empty?
+            FileUtils.mkdir_p(File.join(dest, 'config'))
+            saved_configs.each do |name, content|
+              File.write(File.join(dest, 'config', name), content)
+            end
+          end
+        else
+          raise ArgumentError, "SkillSet '#{temp_skillset.name}' already installed at #{dest}. Use --force to reinstall."
+        end
+      else
+        FileUtils.mkdir_p(@skillsets_dir)
+        FileUtils.cp_r(source_path, dest)
+      end
 
       installed = Skillset.new(dest)
       installed.layer = layer_override if layer_override
@@ -101,7 +126,7 @@ module KairosMcp
       end
 
       set_config(installed.name, 'enabled', true)
-      record_skillset_event(installed, 'install')
+      record_skillset_event(installed, force ? 'reinstall' : 'install')
 
       { success: true, name: installed.name, version: installed.version, layer: installed.layer, path: dest }
     end

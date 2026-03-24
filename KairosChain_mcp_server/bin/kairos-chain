@@ -68,16 +68,28 @@ when 'skillset'
   when 'install'
     source = ARGV.shift
     unless source
-      $stderr.puts "Usage: kairos-chain skillset install <path> [--layer L0|L1|L2]"
+      $stderr.puts "Usage: kairos-chain skillset install <name_or_path> [--layer L0|L1|L2] [--force]"
       exit 1
     end
 
-    # Resolve gem-internal template paths (e.g. "templates/skillsets/mmp")
-    # When installed as a gem, relative paths like "templates/skillsets/mmp"
-    # won't exist in the user's cwd — resolve against gem root instead.
-    if !File.exist?(source) && source.start_with?('templates/')
-      gem_source = File.join(KairosMcp.gem_root, source)
-      source = gem_source if File.directory?(gem_source)
+    # Parse --force flag (allows reinstall/update of existing SkillSet)
+    force = false
+    if (idx = ARGV.index('--force'))
+      force = true
+      ARGV.delete_at(idx)
+    end
+
+    # Resolve source path:
+    # 1. Exact path (user provides full path)
+    # 2. templates/ prefix (e.g., "templates/skillsets/mmp")
+    # 3. Short name (e.g., "mmp" → gem's templates/skillsets/mmp)
+    unless File.exist?(source)
+      candidates = [
+        File.join(KairosMcp.gem_root, source),
+        File.join(KairosMcp.gem_root, 'templates', 'skillsets', source)
+      ]
+      resolved = candidates.find { |c| File.directory?(c) }
+      source = resolved if resolved
     end
 
     layer_override = nil
@@ -87,7 +99,7 @@ when 'skillset'
       ARGV.delete_at(idx)
     end
 
-    result = manager.install(source, layer_override: layer_override)
+    result = manager.install(source, layer_override: layer_override, force: force)
     puts "Installed SkillSet '#{result[:name]}' v#{result[:version]} [#{result[:layer]}]"
     puts "Path: #{result[:path]}"
 
