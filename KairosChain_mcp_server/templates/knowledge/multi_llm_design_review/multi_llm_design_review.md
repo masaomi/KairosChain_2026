@@ -1,7 +1,7 @@
 ---
 description: Multi-LLM design review methodology with automated and manual execution modes
 tags: [methodology, multi-llm, design-review, automation, quality-assurance, experiment]
-version: "2.1"
+version: "2.2"
 ---
 
 # Multi-LLM Design Review Methodology
@@ -332,6 +332,37 @@ reduce post-implementation review/debug cycles.
 - Use consensus level to prioritize fixes
 - Single-LLM integration (Opus 4.6) of all findings into next version worked well
 - Agent team review (4-persona + Persona Assembly) for internal Claude rounds
+
+### Persona Assembly Integration (Optional)
+
+When the Claude Agent Team is one of the reviewers, the orchestrator MAY enhance
+its review with Persona Assembly instead of a single-perspective review. The
+orchestrator decides automatically based on review complexity:
+
+| Complexity | Claude Agent Team Mode | Rationale |
+|-----------|----------------------|-----------|
+| Tier 1-2 (simple feature, single file) | Single perspective (default) | Overhead of assembly not justified |
+| Tier 3 (architectural, cross-component) | Persona Assembly (4+ personas) | Multiple viewpoints catch more seam issues |
+| Safety-critical (auth, billing, access control) | Persona Assembly + dedicated safety persona | Safety requires adversarial thinking |
+| Knowledge/methodology review | Single perspective | Content review benefits more from LLM diversity than persona diversity |
+
+**How the orchestrator decides:**
+1. At review prompt generation time, assess the artifact's complexity tier
+2. If Tier 3+ or safety-critical: instruct the Claude Agent Team to use Persona
+   Assembly with personas appropriate to the domain (e.g., kairos + conservative +
+   pragmatic + skeptic for design; kairos + guardian + pragmatic for safety)
+3. If Tier 1-2 or knowledge review: use single-perspective Claude Agent Team review
+4. Record the decision in the review prompt header: `Assembly: yes/no (reason)`
+
+**When NOT to use Persona Assembly in Multi-LLM review:**
+- When all 3 external LLMs already provide sufficient viewpoint diversity
+- When speed is more important than depth (e.g., quick sanity check between rounds)
+- When the review is a verification pass (R2+) rather than initial discovery (R1)
+
+This integration means a Tier 3 review can produce up to 6 perspectives: 4 from
+Claude Persona Assembly + 1 from Codex + 1 from Cursor. The orchestrator's
+consensus analysis weights assembly findings as a single reviewer (not 4 separate
+votes) to avoid over-representing the Claude perspective.
 
 ## Relation to multi_agent_design_workflow
 
