@@ -452,6 +452,103 @@ assert("restored context enforces same policy as original") do
 end
 
 # =========================================================================
+# 10. InvocationContext#derive (M0 — Phase 3 pre-requisite)
+# =========================================================================
+
+section "InvocationContext#derive"
+
+assert("derive preserves depth") do
+  ctx = KairosMcp::InvocationContext.new(depth: 3, blacklist: ["agent_*"])
+  derived = ctx.derive(blacklist_remove: ["agent_*"])
+  derived.depth == 3
+end
+
+assert("derive preserves root_invocation_id") do
+  ctx = KairosMcp::InvocationContext.new(blacklist: ["agent_*"])
+  derived = ctx.derive(blacklist_remove: ["agent_*"])
+  derived.root_invocation_id == ctx.root_invocation_id
+end
+
+assert("derive preserves token_budget") do
+  ctx = KairosMcp::InvocationContext.new(token_budget: 8192, blacklist: ["x"])
+  derived = ctx.derive
+  derived.token_budget == 8192
+end
+
+assert("derive preserves mandate_id") do
+  ctx = KairosMcp::InvocationContext.new(mandate_id: "mnd_001", blacklist: ["x"])
+  derived = ctx.derive
+  derived.mandate_id == "mnd_001"
+end
+
+assert("derive removes specified blacklist entries") do
+  ctx = KairosMcp::InvocationContext.new(blacklist: ["agent_*", "autoexec_plan", "autoexec_run"])
+  derived = ctx.derive(blacklist_remove: %w[autoexec_plan autoexec_run])
+  derived.allowed?("autoexec_plan") && derived.allowed?("autoexec_run") && !derived.allowed?("agent_start")
+end
+
+assert("derive adds specified blacklist entries") do
+  ctx = KairosMcp::InvocationContext.new(blacklist: ["agent_*"])
+  derived = ctx.derive(blacklist_add: ["skills_evolve"])
+  !derived.allowed?("agent_start") && !derived.allowed?("skills_evolve")
+end
+
+assert("derive does not modify parent blacklist") do
+  original_blacklist = ["agent_*", "autoexec_plan"]
+  ctx = KairosMcp::InvocationContext.new(blacklist: original_blacklist)
+  _derived = ctx.derive(blacklist_remove: ["autoexec_plan"])
+  ctx.blacklist.include?("autoexec_plan")
+end
+
+assert("derive does not modify parent whitelist") do
+  original_whitelist = ["knowledge_*", "context_*"]
+  ctx = KairosMcp::InvocationContext.new(whitelist: original_whitelist)
+  derived = ctx.derive
+  derived.whitelist << "extra_*"
+  !ctx.whitelist.include?("extra_*")
+end
+
+assert("derive with empty blacklist after removal sets nil") do
+  ctx = KairosMcp::InvocationContext.new(blacklist: ["only_one"])
+  derived = ctx.derive(blacklist_remove: ["only_one"])
+  derived.blacklist.nil?
+end
+
+assert("derive from nil blacklist adds entries") do
+  ctx = KairosMcp::InvocationContext.new
+  derived = ctx.derive(blacklist_add: ["agent_*"])
+  !derived.allowed?("agent_start")
+end
+
+assert("derive does not duplicate existing blacklist_add entries") do
+  ctx = KairosMcp::InvocationContext.new(blacklist: ["agent_*"])
+  derived = ctx.derive(blacklist_add: ["agent_*"])
+  derived.blacklist.count("agent_*") == 1
+end
+
+assert("derive preserves caller_tool") do
+  ctx = KairosMcp::InvocationContext.new(caller_tool: "agent_step", blacklist: ["x"])
+  derived = ctx.derive(blacklist_remove: ["x"])
+  derived.caller_tool == "agent_step"
+end
+
+section "child() defensive copy (X2 fix)"
+
+assert("child does not share blacklist reference with parent") do
+  parent = KairosMcp::InvocationContext.new(blacklist: ["agent_*"])
+  child_ctx = parent.child(caller_tool: "test")
+  child_ctx.blacklist << "extra_*"
+  !parent.blacklist.include?("extra_*")
+end
+
+assert("child does not share whitelist reference with parent") do
+  parent = KairosMcp::InvocationContext.new(whitelist: ["knowledge_*"])
+  child_ctx = parent.child(caller_tool: "test")
+  child_ctx.whitelist << "extra_*"
+  !parent.whitelist.include?("extra_*")
+end
+
+# =========================================================================
 # Summary
 # =========================================================================
 

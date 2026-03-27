@@ -18,6 +18,7 @@ module KairosMcp
           all_messages = []
           all_messages << { 'role' => 'system', 'content' => system } if system
           all_messages.concat(messages)
+          all_messages = convert_messages(all_messages)
 
           body = {
             model: resolve_model(model),
@@ -59,6 +60,48 @@ module KairosMcp
 
         def base_url
           @config['base_url'] || @config[:base_url] || API_URL
+        end
+
+        # Convert canonical intermediate messages to OpenAI API format.
+        # Canonical: role 'tool' + tool_use_id, assistant with tool_calls [{id, name, input}].
+        # OpenAI: role 'tool' + tool_call_id, assistant with tool_calls [{id, type, function}].
+        # Messages already in OpenAI-native format pass through unchanged.
+        def convert_messages(messages)
+          messages.map do |msg|
+            role = msg['role'] || msg[:role]
+            content = msg['content'] || msg[:content]
+
+            case role
+            when 'tool'
+              tool_call_id = msg['tool_call_id'] || msg[:tool_call_id] ||
+                             msg['tool_use_id'] || msg[:tool_use_id]
+              if tool_call_id
+                { 'role' => 'tool',
+                  'tool_call_id' => tool_call_id,
+                  'content' => content.is_a?(String) ? content : JSON.generate(content) }
+              else
+                msg  # Native format or unknown — pass through unchanged
+              end
+            when 'assistant'
+              tool_calls = msg['tool_calls'] || msg[:tool_calls]
+              if tool_calls && tool_calls.first && !tool_calls.first.key?('type')
+                { 'role' => 'assistant',
+                  'content' => content,
+                  'tool_calls' => tool_calls.map { |tc|
+                    { 'id' => tc['id'] || tc[:id],
+                      'type' => 'function',
+                      'function' => {
+                        'name' => tc['name'] || tc[:name],
+                        'arguments' => JSON.generate(tc['input'] || tc[:input] || {})
+                      } }
+                  } }
+              else
+                msg
+              end
+            else
+              msg
+            end
+          end
         end
 
         def parse_response(response)

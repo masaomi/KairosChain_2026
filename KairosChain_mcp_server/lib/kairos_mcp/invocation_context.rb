@@ -35,8 +35,27 @@ module KairosMcp
         caller_tool: caller_tool,
         mandate_id: @mandate_id,
         token_budget: @token_budget,
-        whitelist: @whitelist,
-        blacklist: @blacklist,
+        whitelist: @whitelist&.dup,
+        blacklist: @blacklist&.dup,
+        root_invocation_id: @root_invocation_id
+      )
+    end
+
+    # Derive a new context with modified blacklist, preserving all other fields.
+    # Used by agent ACT phase to selectively unblock autoexec tools.
+    # Does NOT increment depth — child() does that at invoke_tool time.
+    def derive(blacklist_remove: [], blacklist_add: [])
+      new_blacklist = Array(@blacklist).dup
+      blacklist_remove.each { |pat| new_blacklist.delete(pat) }
+      blacklist_add.each { |pat| new_blacklist << pat unless new_blacklist.include?(pat) }
+
+      self.class.new(
+        depth: @depth,
+        caller_tool: @caller_tool,
+        mandate_id: @mandate_id,
+        token_budget: @token_budget,
+        whitelist: @whitelist&.dup,
+        blacklist: new_blacklist.empty? ? nil : new_blacklist,
         root_invocation_id: @root_invocation_id
       )
     end

@@ -315,6 +315,130 @@ else
 end
 
 # =========================================================================
+# M0: Adapter convert_messages tests
+# =========================================================================
+
+section "AnthropicAdapter#convert_messages"
+
+anthropic_adapter = KairosMcp::SkillSets::LlmClient::AnthropicAdapter.new(
+  { 'provider' => 'anthropic', 'api_key_env' => 'ANTHROPIC_API_KEY' }
+)
+
+assert("converts canonical tool result to Anthropic tool_result") do
+  msgs = [{ 'role' => 'tool', 'tool_use_id' => 'tu_1', 'content' => 'result text' }]
+  converted = anthropic_adapter.send(:convert_messages, msgs)
+  m = converted[0]
+  m['role'] == 'user' &&
+    m['content'].is_a?(Array) &&
+    m['content'][0]['type'] == 'tool_result' &&
+    m['content'][0]['tool_use_id'] == 'tu_1' &&
+    m['content'][0]['content'] == 'result text'
+end
+
+assert("converts canonical assistant tool_calls to Anthropic tool_use blocks") do
+  msgs = [{ 'role' => 'assistant', 'content' => nil,
+             'tool_calls' => [{ 'id' => 'tu_1', 'name' => 'knowledge_get', 'input' => { 'name' => 'test' } }] }]
+  converted = anthropic_adapter.send(:convert_messages, msgs)
+  m = converted[0]
+  m['role'] == 'assistant' &&
+    m['content'].is_a?(Array) &&
+    m['content'][0]['type'] == 'tool_use' &&
+    m['content'][0]['id'] == 'tu_1' &&
+    m['content'][0]['name'] == 'knowledge_get' &&
+    m['content'][0]['input'] == { 'name' => 'test' }
+end
+
+assert("passes through plain user messages unchanged") do
+  msgs = [{ 'role' => 'user', 'content' => 'hello' }]
+  converted = anthropic_adapter.send(:convert_messages, msgs)
+  converted[0] == { 'role' => 'user', 'content' => 'hello' }
+end
+
+assert("passes through plain assistant messages unchanged") do
+  msgs = [{ 'role' => 'assistant', 'content' => 'I think...' }]
+  converted = anthropic_adapter.send(:convert_messages, msgs)
+  converted[0] == { 'role' => 'assistant', 'content' => 'I think...' }
+end
+
+assert("handles assistant with both content and tool_calls") do
+  msgs = [{ 'role' => 'assistant', 'content' => 'Let me check',
+             'tool_calls' => [{ 'id' => 'tu_2', 'name' => 'knowledge_list', 'input' => {} }] }]
+  converted = anthropic_adapter.send(:convert_messages, msgs)
+  m = converted[0]
+  m['content'].length == 2 &&
+    m['content'][0]['type'] == 'text' &&
+    m['content'][0]['text'] == 'Let me check' &&
+    m['content'][1]['type'] == 'tool_use'
+end
+
+assert("passes through native tool message without tool_use_id") do
+  native = { 'role' => 'tool', 'content' => 'native result' }
+  msgs = [native]
+  converted = anthropic_adapter.send(:convert_messages, msgs)
+  converted[0].equal?(native)
+end
+
+assert("passes through assistant with empty tool_calls array") do
+  msgs = [{ 'role' => 'assistant', 'content' => 'just text', 'tool_calls' => [] }]
+  converted = anthropic_adapter.send(:convert_messages, msgs)
+  converted[0] == { 'role' => 'assistant', 'content' => 'just text' }
+end
+
+section "OpenaiAdapter#convert_messages"
+
+openai_adapter = KairosMcp::SkillSets::LlmClient::OpenaiAdapter.new(
+  { 'provider' => 'openai', 'api_key_env' => 'OPENAI_API_KEY' }
+)
+
+assert("converts canonical tool result to OpenAI format (tool_call_id)") do
+  msgs = [{ 'role' => 'tool', 'tool_use_id' => 'tu_1', 'content' => 'result' }]
+  converted = openai_adapter.send(:convert_messages, msgs)
+  m = converted[0]
+  m['role'] == 'tool' &&
+    m['tool_call_id'] == 'tu_1' &&
+    m['content'] == 'result'
+end
+
+assert("converts canonical assistant tool_calls to OpenAI function format") do
+  msgs = [{ 'role' => 'assistant', 'content' => nil,
+             'tool_calls' => [{ 'id' => 'tc_1', 'name' => 'knowledge_get', 'input' => { 'name' => 'x' } }] }]
+  converted = openai_adapter.send(:convert_messages, msgs)
+  m = converted[0]
+  tc = m['tool_calls'][0]
+  tc['id'] == 'tc_1' &&
+    tc['type'] == 'function' &&
+    tc['function']['name'] == 'knowledge_get' &&
+    tc['function']['arguments'] == '{"name":"x"}'
+end
+
+assert("passes through OpenAI-native tool_calls unchanged") do
+  msgs = [{ 'role' => 'assistant', 'content' => nil,
+             'tool_calls' => [{ 'id' => 'tc_1', 'type' => 'function',
+                                'function' => { 'name' => 'test', 'arguments' => '{}' } }] }]
+  converted = openai_adapter.send(:convert_messages, msgs)
+  converted[0] == msgs[0]
+end
+
+assert("passes through system messages unchanged") do
+  msgs = [{ 'role' => 'system', 'content' => 'You are helpful' }]
+  converted = openai_adapter.send(:convert_messages, msgs)
+  converted[0] == msgs[0]
+end
+
+assert("handles tool result with already-present tool_call_id") do
+  msgs = [{ 'role' => 'tool', 'tool_call_id' => 'existing_id', 'content' => 'ok' }]
+  converted = openai_adapter.send(:convert_messages, msgs)
+  converted[0]['tool_call_id'] == 'existing_id'
+end
+
+assert("passes through native tool message without tool_use_id or tool_call_id") do
+  native = { 'role' => 'tool', 'content' => 'native' }
+  msgs = [native]
+  converted = openai_adapter.send(:convert_messages, msgs)
+  converted[0].equal?(native)
+end
+
+# =========================================================================
 # Summary
 # =========================================================================
 

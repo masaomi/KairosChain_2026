@@ -19,7 +19,7 @@ module KairosMcp
           body = {
             model: resolve_model(model),
             max_tokens: resolve_max_tokens(max_tokens),
-            messages: messages
+            messages: convert_messages(messages)
           }
           body[:system] = system if system
           body[:temperature] = resolve_temperature(temperature) unless temperature.nil?
@@ -53,6 +53,51 @@ module KairosMcp
             f.options.timeout = timeout_seconds
             f.options.open_timeout = 10
             f.adapter Faraday.default_adapter
+          end
+        end
+
+        # Convert canonical intermediate messages to Anthropic API format.
+        # Canonical: role 'tool' + tool_use_id, assistant with tool_calls array.
+        # Anthropic: role 'user' + tool_result content block, assistant with tool_use content blocks.
+        # Messages already in Anthropic-native format pass through unchanged.
+        def convert_messages(messages)
+          messages.map do |msg|
+            role = msg['role'] || msg[:role]
+            content = msg['content'] || msg[:content]
+
+            case role
+            when 'tool'
+              tool_id = msg['tool_use_id'] || msg[:tool_use_id]
+              if tool_id
+                {
+                  'role' => 'user',
+                  'content' => [{ 'type' => 'tool_result',
+                                  'tool_use_id' => tool_id,
+                                  'content' => content.is_a?(String) ? content : JSON.generate(content) }]
+                }
+              else
+                msg  # Native format or unknown — pass through unchanged
+              end
+            when 'assistant'
+              tool_calls = msg['tool_calls'] || msg[:tool_calls]
+              if tool_calls && !tool_calls.empty?
+                content_blocks = []
+                content_blocks << { 'type' => 'text', 'text' => content } if content
+                tool_calls.each do |tc|
+                  content_blocks << {
+                    'type' => 'tool_use',
+                    'id' => tc['id'] || tc[:id],
+                    'name' => tc['name'] || tc[:name],
+                    'input' => tc['input'] || tc[:input] || {}
+                  }
+                end
+                { 'role' => 'assistant', 'content' => content_blocks }
+              else
+                { 'role' => role, 'content' => content }
+              end
+            else
+              { 'role' => role, 'content' => content }
+            end
           end
         end
 
