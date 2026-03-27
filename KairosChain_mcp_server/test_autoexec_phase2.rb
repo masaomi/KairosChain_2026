@@ -17,6 +17,8 @@ require 'kairos_mcp/tool_registry'
 # Load autoexec SkillSet
 skillset_base = File.join(__dir__, '..', '.kairos', 'skillsets', 'autoexec')
 require File.join(skillset_base, 'lib', 'autoexec')
+require File.join(skillset_base, 'tools', 'autoexec_run')
+require File.join(skillset_base, 'tools', 'autoexec_plan')
 
 $pass = 0
 $fail = 0
@@ -267,6 +269,277 @@ assert("from_json → save_executable → load → hash matches") do
   loaded[:hash] == saved_hash &&
     loaded[:plan].steps.length == 2 &&
     loaded[:plan].steps[0].tool_name == "knowledge_get"
+end
+
+# =========================================================================
+# 8. internal_execute integration tests (mock registry)
+# =========================================================================
+
+section "internal_execute integration (mock tools)"
+
+# Build a mock registry with known tools
+mock_registry = KairosMcp::ToolRegistry.allocate
+mock_registry.instance_variable_set(:@safety, KairosMcp::Safety.new)
+mock_registry.instance_variable_set(:@tools, {})
+KairosMcp::ToolRegistry.clear_gates!
+
+class MockEchoTool < KairosMcp::Tools::BaseTool
+  def name; "echo_tool"; end
+  def description; "echo"; end
+  def input_schema; { type: 'object', properties: {} }; end
+  def call(arguments)
+    text_content("echo: #{arguments.to_json}")
+  end
+end
+
+class MockFailTool < KairosMcp::Tools::BaseTool
+  def name; "fail_tool"; end
+  def description; "always fails"; end
+  def input_schema; { type: 'object', properties: {} }; end
+  def call(arguments)
+    raise "Intentional failure for testing"
+  end
+end
+
+class MockErrorPayloadTool < KairosMcp::Tools::BaseTool
+  def name; "error_payload_tool"; end
+  def description; "returns MCP error payload"; end
+  def input_schema; { type: 'object', properties: {} }; end
+  def call(arguments)
+    text_content(JSON.generate({ 'error' => 'forbidden', 'message' => 'Access denied by gate' }))
+  end
+end
+
+echo = MockEchoTool.new(nil, registry: mock_registry)
+fail_t = MockFailTool.new(nil, registry: mock_registry)
+error_t = MockErrorPayloadTool.new(nil, registry: mock_registry)
+mock_registry.instance_variable_set(:@tools, {
+  "echo_tool" => echo, "fail_tool" => fail_t, "error_payload_tool" => error_t
+})
+
+# Create autoexec_run tool with mock registry
+autoexec_run = KairosMcp::SkillSets::Autoexec::Tools::AutoexecRun.new(nil, registry: mock_registry)
+
+# Helper: create and save an executable plan, return task_id and hash
+def create_exec_plan(steps, task_id: "int_test_#{SecureRandom.hex(4)}")
+  plan_json = {
+    task_id: task_id,
+    meta: { description: "Integration test", risk_default: "low" },
+    steps: steps
+  }
+  plan = Autoexec::TaskDsl.from_json(JSON.generate(plan_json))
+  hash = Autoexec::PlanStore.save_executable(task_id, plan)
+  [task_id, hash]
+end
+
+# -- Success --
+assert("internal_execute: successful tool execution") do
+  tid, hash = create_exec_plan([
+    { step_id: "s1", action: "Echo test", tool_name: "echo_tool",
+      tool_arguments: { "msg" => "hello" }, risk: "low" }
+  ])
+  result = autoexec_run.call({
+    'task_id' => tid, 'mode' => 'internal_execute', 'approved_hash' => hash
+  })
+  parsed = JSON.parse(result[0][:text])
+  parsed['outcome'] == 'internal_execute_complete' &&
+    parsed['steps'][0]['status'] == 'executed' &&
+    parsed['steps'][0]['tool_result'].include?('echo:')
+end
+
+# -- Tool not found --
+assert("internal_execute: tool not found → failed + halted") do
+  tid, hash = create_exec_plan([
+    { step_id: "s1", action: "Call nonexistent", tool_name: "nonexistent_tool",
+      tool_arguments: {}, risk: "low" }
+  ])
+  result = autoexec_run.call({
+    'task_id' => tid, 'mode' => 'internal_execute', 'approved_hash' => hash
+  })
+  parsed = JSON.parse(result[0][:text])
+  parsed['outcome'] == 'internal_execute_halted' &&
+    parsed['steps'][0]['status'] == 'failed' &&
+    parsed['steps'][0]['error'].include?('not found')
+end
+
+# -- Tool raises exception --
+assert("internal_execute: tool exception → failed + halted") do
+  tid, hash = create_exec_plan([
+    { step_id: "s1", action: "Fail", tool_name: "fail_tool",
+      tool_arguments: {}, risk: "low" }
+  ])
+  result = autoexec_run.call({
+    'task_id' => tid, 'mode' => 'internal_execute', 'approved_hash' => hash
+  })
+  parsed = JSON.parse(result[0][:text])
+  parsed['outcome'] == 'internal_execute_halted' &&
+    parsed['steps'][0]['status'] == 'failed' &&
+    parsed['steps'][0]['error'].include?('Intentional failure')
+end
+
+# -- MCP error payload detection --
+assert("internal_execute: MCP error payload detected as failure") do
+  tid, hash = create_exec_plan([
+    { step_id: "s1", action: "Error payload", tool_name: "error_payload_tool",
+      tool_arguments: {}, risk: "low" }
+  ])
+  result = autoexec_run.call({
+    'task_id' => tid, 'mode' => 'internal_execute', 'approved_hash' => hash
+  })
+  parsed = JSON.parse(result[0][:text])
+  parsed['outcome'] == 'internal_execute_halted' &&
+    parsed['steps'][0]['status'] == 'forbidden'
+end
+
+# -- No tool_name → delegated fallback --
+assert("internal_execute: no tool_name → delegated") do
+  tid, hash = create_exec_plan([
+    { step_id: "s1", action: "Manual step", risk: "low" }
+  ])
+  result = autoexec_run.call({
+    'task_id' => tid, 'mode' => 'internal_execute', 'approved_hash' => hash
+  })
+  parsed = JSON.parse(result[0][:text])
+  parsed['steps'][0]['status'] == 'delegated'
+end
+
+# -- Multi-step: halts on first failure --
+assert("internal_execute: multi-step halts on first failure") do
+  tid, hash = create_exec_plan([
+    { step_id: "s1", action: "Echo", tool_name: "echo_tool",
+      tool_arguments: { "x" => 1 }, risk: "low" },
+    { step_id: "s2", action: "Fail", tool_name: "fail_tool",
+      tool_arguments: {}, risk: "low", depends_on: ["s1"] },
+    { step_id: "s3", action: "Should not run", tool_name: "echo_tool",
+      tool_arguments: {}, risk: "low", depends_on: ["s2"] }
+  ])
+  result = autoexec_run.call({
+    'task_id' => tid, 'mode' => 'internal_execute', 'approved_hash' => hash
+  })
+  parsed = JSON.parse(result[0][:text])
+  parsed['outcome'] == 'internal_execute_halted' &&
+    parsed['steps_processed'] == 2 &&
+    parsed['steps'][0]['status'] == 'executed' &&
+    parsed['steps'][1]['status'] == 'failed'
+end
+
+# =========================================================================
+# 9. InvocationContext in internal_execute
+# =========================================================================
+
+section "InvocationContext in internal_execute"
+
+assert("internal_execute: with policy context → blacklisted tool denied") do
+  tid, hash = create_exec_plan([
+    { step_id: "s1", action: "Echo", tool_name: "echo_tool",
+      tool_arguments: { "x" => 1 }, risk: "low" }
+  ])
+  ctx = KairosMcp::InvocationContext.new(blacklist: ["echo_tool"])
+  result = autoexec_run.call({
+    'task_id' => tid, 'mode' => 'internal_execute', 'approved_hash' => hash,
+    'invocation_context_json' => ctx.to_json
+  })
+  parsed = JSON.parse(result[0][:text])
+  parsed['outcome'] == 'internal_execute_halted' &&
+    parsed['steps'][0]['status'] == 'policy_denied'
+end
+
+assert("internal_execute: malformed context_json → fail-closed (deny-all)") do
+  tid, hash = create_exec_plan([
+    { step_id: "s1", action: "Echo", tool_name: "echo_tool",
+      tool_arguments: {}, risk: "low" }
+  ])
+  result = autoexec_run.call({
+    'task_id' => tid, 'mode' => 'internal_execute', 'approved_hash' => hash,
+    'invocation_context_json' => '{invalid json!!!'
+  })
+  parsed = JSON.parse(result[0][:text])
+  # Fail-closed: deny-all context means echo_tool is blocked
+  parsed['outcome'] == 'internal_execute_halted' &&
+    parsed['steps'][0]['status'] == 'policy_denied'
+end
+
+assert("internal_execute: without context_json → no policy (allows all)") do
+  tid, hash = create_exec_plan([
+    { step_id: "s1", action: "Echo", tool_name: "echo_tool",
+      tool_arguments: { "ok" => true }, risk: "low" }
+  ])
+  result = autoexec_run.call({
+    'task_id' => tid, 'mode' => 'internal_execute', 'approved_hash' => hash
+  })
+  parsed = JSON.parse(result[0][:text])
+  parsed['outcome'] == 'internal_execute_complete' &&
+    parsed['steps'][0]['status'] == 'executed'
+end
+
+# =========================================================================
+# 10. decode_tool_result unit tests
+# =========================================================================
+
+section "decode_tool_result"
+
+assert("decode_tool_result: normal text → success") do
+  result = autoexec_run.send(:decode_tool_result, [{ text: "hello world" }])
+  !result[:error] && result[:summary] == "hello world"
+end
+
+assert("decode_tool_result: nil → error") do
+  result = autoexec_run.send(:decode_tool_result, nil)
+  result[:error] && result[:error_type] == 'no_result'
+end
+
+assert("decode_tool_result: MCP forbidden payload → error") do
+  payload = [{ text: JSON.generate({ 'error' => 'forbidden', 'message' => 'blocked' }) }]
+  result = autoexec_run.send(:decode_tool_result, payload)
+  result[:error] && result[:error_type] == 'forbidden'
+end
+
+assert("decode_tool_result: MCP invocation_denied payload → error") do
+  payload = [{ text: JSON.generate({ 'error' => 'invocation_denied', 'message' => 'depth exceeded' }) }]
+  result = autoexec_run.send(:decode_tool_result, payload)
+  result[:error] && result[:error_type] == 'invocation_denied'
+end
+
+assert("decode_tool_result: normal JSON without error key → success") do
+  payload = [{ text: JSON.generate({ 'status' => 'ok', 'data' => [1, 2, 3] }) }]
+  result = autoexec_run.send(:decode_tool_result, payload)
+  !result[:error]
+end
+
+assert("decode_tool_result: long result truncated") do
+  long_text = "x" * 600
+  result = autoexec_run.send(:decode_tool_result, [{ text: long_text }])
+  !result[:error] && result[:summary].length <= 501 && result[:summary].end_with?("...")
+end
+
+# =========================================================================
+# 11. build_invocation_context unit tests
+# =========================================================================
+
+section "build_invocation_context"
+
+assert("build_invocation_context: valid JSON → context with policy") do
+  ctx = KairosMcp::InvocationContext.new(whitelist: ["echo_*"], blacklist: ["fail_*"])
+  result = autoexec_run.send(:build_invocation_context, { 'invocation_context_json' => ctx.to_json })
+  result.is_a?(KairosMcp::InvocationContext) &&
+    result.allowed?("echo_tool") &&
+    !result.allowed?("fail_tool")
+end
+
+assert("build_invocation_context: nil → nil (no policy)") do
+  result = autoexec_run.send(:build_invocation_context, {})
+  result.nil?
+end
+
+assert("build_invocation_context: empty string → nil") do
+  result = autoexec_run.send(:build_invocation_context, { 'invocation_context_json' => '' })
+  result.nil?
+end
+
+assert("build_invocation_context: malformed JSON → deny-all") do
+  result = autoexec_run.send(:build_invocation_context, { 'invocation_context_json' => 'broken{' })
+  result.is_a?(KairosMcp::InvocationContext) &&
+    !result.allowed?("anything")
 end
 
 # =========================================================================
