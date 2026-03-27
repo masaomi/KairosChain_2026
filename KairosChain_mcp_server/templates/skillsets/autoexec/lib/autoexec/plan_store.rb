@@ -29,24 +29,55 @@ module Autoexec
       plan_hash
     end
 
-    def self.load(task_id)
+    # Save executable plan as canonical JSON (Phase 2)
+    def self.save_executable(task_id, plan)
+      raise ArgumentError, "Invalid task_id: must contain only word characters" unless task_id.to_s.match?(/\A\w+\z/)
+
       plans_dir = Autoexec.storage_path('plans')
-      plan_path = File.join(plans_dir, "#{task_id}.kdsl")
+      plan_path = File.join(plans_dir, "#{task_id}.plan.json")
       meta_path = File.join(plans_dir, "#{task_id}.json")
 
-      return nil unless File.exist?(plan_path) && File.exist?(meta_path)
+      canonical = TaskDsl.canonical_plan_json(plan)
+      plan_hash = Digest::SHA256.hexdigest(canonical)
 
-      source = File.read(plan_path)
+      File.write(plan_path, canonical)
+      File.write(meta_path, JSON.pretty_generate({
+        task_id: task_id.to_s,
+        plan_hash: plan_hash,
+        step_count: plan.steps.size,
+        risk_summary: RiskClassifier.risk_summary(plan.steps),
+        executable: true,
+        created_at: Time.now.iso8601,
+        status: 'planned'
+      }))
+
+      plan_hash
+    end
+
+    def self.load(task_id)
+      plans_dir = Autoexec.storage_path('plans')
+      json_plan_path = File.join(plans_dir, "#{task_id}.plan.json")
+      kdsl_plan_path = File.join(plans_dir, "#{task_id}.kdsl")
+      meta_path = File.join(plans_dir, "#{task_id}.json")
+
+      return nil unless File.exist?(meta_path)
       metadata = JSON.parse(File.read(meta_path), symbolize_names: true)
-      plan = TaskDsl.parse(source)
-      computed_hash = TaskDsl.compute_hash(source)
 
-      {
-        plan: plan,
-        source: source,
-        hash: computed_hash,
-        metadata: metadata
-      }
+      if File.exist?(json_plan_path)
+        # Executable plan (JSON format)
+        json_str = File.read(json_plan_path)
+        plan = TaskDsl.from_json(json_str)
+        computed_hash = Digest::SHA256.hexdigest(json_str)
+        { plan: plan, source: json_str, hash: computed_hash, metadata: metadata }
+      elsif File.exist?(kdsl_plan_path)
+        # Legacy plan (DSL format)
+        source = File.read(kdsl_plan_path)
+        plan = TaskDsl.parse(source)
+        computed_hash = TaskDsl.compute_hash(source)
+        { plan: plan, source: source, hash: computed_hash, metadata: metadata }
+      else
+        nil
+      end
     end
 
     def self.verify_hash(task_id, expected_hash)
@@ -58,7 +89,8 @@ module Autoexec
 
     def self.list
       plans_dir = Autoexec.storage_path('plans')
-      Dir.glob(File.join(plans_dir, '*.json')).map do |meta_path|
+      # Only metadata files (exclude .plan.json which are executable plan data)
+      Dir.glob(File.join(plans_dir, '*.json')).reject { |p| p.end_with?('.plan.json') }.map do |meta_path|
         JSON.parse(File.read(meta_path), symbolize_names: true)
       rescue JSON::ParserError => e
         warn "[autoexec] Corrupted metadata file: #{meta_path} (#{e.message})"

@@ -39,14 +39,20 @@ module KairosMcp
                 },
                 mode: {
                   type: 'string',
-                  enum: %w[dry_run execute status],
+                  enum: %w[dry_run execute internal_execute status],
                   description: 'dry_run: preview without side effects (default). ' \
-                    'execute: run the plan. status: show current task status and plan list.'
+                    'execute: delegate to external LLM. ' \
+                    'internal_execute: run steps via invoke_tool (Phase 2). ' \
+                    'status: show current task status and plan list.'
                 },
                 approved_hash: {
                   type: 'string',
-                  description: 'Plan hash from autoexec_plan output. Required for dry_run and execute modes. ' \
+                  description: 'Plan hash from autoexec_plan output. Required for dry_run, execute, and internal_execute. ' \
                     'Ensures the approved plan has not been modified.'
+                },
+                invocation_context_json: {
+                  type: 'string',
+                  description: 'Serialized InvocationContext for policy inheritance in internal_execute mode (optional).'
                 }
               },
               required: %w[task_id]
@@ -150,12 +156,56 @@ module KairosMcp
                   total: sorted_steps.size
                 }
 
-                if mode == 'dry_run'
+                case mode
+                when 'dry_run'
                   step_result[:status] = 'would_execute'
                   step_result[:message] = "DRY RUN: Would #{step.action}"
+                when 'internal_execute'
+                  if step.tool_name
+                    unless tool_exists?(step.tool_name)
+                      step_result[:status] = 'failed'
+                      step_result[:error] = "Tool '#{step.tool_name}' not found in registry"
+                      results << step_result
+                      halted_at = step.step_id
+                      break
+                    end
+
+                    begin
+                      parent_ctx = build_invocation_context(arguments)
+                      args = deep_stringify_keys(step.tool_arguments || {})
+                      tool_result = invoke_tool(step.tool_name, args, context: parent_ctx)
+
+                      decoded = decode_tool_result(tool_result)
+                      if decoded[:error]
+                        step_result[:status] = decoded[:error_type] || 'failed'
+                        step_result[:error] = decoded[:error_message]
+                        results << step_result
+                        halted_at = step.step_id
+                        break
+                      end
+
+                      step_result[:status] = 'executed'
+                      step_result[:tool_name] = step.tool_name
+                      step_result[:tool_result] = decoded[:summary]
+                    rescue KairosMcp::InvocationContext::PolicyDeniedError => e
+                      step_result[:status] = 'policy_denied'
+                      step_result[:error] = e.message
+                      results << step_result
+                      halted_at = step.step_id
+                      break
+                    rescue StandardError => e
+                      step_result[:status] = 'failed'
+                      step_result[:error] = e.message
+                      results << step_result
+                      halted_at = step.step_id
+                      break
+                    end
+                  else
+                    step_result[:status] = 'delegated'
+                    step_result[:message] = "No tool_name — #{step.action}"
+                  end
                 else
-                  # Execute mode — actual execution is delegated to the LLM/Claude Code
-                  # tool system. AutoExec orchestrates, not executes.
+                  # Execute mode — delegated to external LLM
                   step_result[:status] = 'delegated'
                   step_result[:message] = "DELEGATED: #{step.action} — awaiting LLM tool execution"
                 end
@@ -177,7 +227,7 @@ module KairosMcp
                 task_id: task_id,
                 mode: mode,
                 plan_hash: approved_hash,
-                outcome: halted_at ? 'halted' : (mode == 'dry_run' ? 'dry_run_complete' : 'delegated'),
+                outcome: compute_outcome(mode, halted_at),
                 steps_processed: results.size,
                 steps_newly_completed: newly_completed,
                 steps_previously_completed: previously_completed,
@@ -287,9 +337,9 @@ module KairosMcp
 
             begin
               chain = KairosChain::Chain.new
-              outcome = halted_at ? 'halted' : (mode == 'dry_run' ? 'dry_run_complete' : 'delegated')
+              outcome = compute_outcome(mode, halted_at)
 
-              log_entry = JSON.generate({
+              log_data = {
                 type: mode == 'dry_run' ? 'autoexec_dry_run' : 'autoexec_outcome',
                 task_id: task_id,
                 plan_hash: plan_hash,
@@ -299,14 +349,80 @@ module KairosMcp
                 mode: mode,
                 intent_ref: intent_ref,
                 timestamp: Time.now.iso8601
-              })
+              }
 
+              # internal_execute: include per-step evidence
+              if mode == 'internal_execute'
+                log_data[:steps] = results.map { |r|
+                  h = { step_id: r[:step_id], status: r[:status] }
+                  h[:tool_name] = r[:tool_name] if r[:tool_name]
+                  h[:tool_result_summary] = r[:tool_result] if r[:tool_result]
+                  h[:error] = r[:error] if r[:error]
+                  h
+                }
+              end
+
+              log_entry = JSON.generate(log_data)
               block = chain.add_block([log_entry])
               [block&.hash, nil]
             rescue StandardError => e
               warn "[autoexec] Outcome recording failed: #{e.message}"
               [nil, e.message]
             end
+          end
+
+          def compute_outcome(mode, halted_at)
+            case mode
+            when 'dry_run'
+              halted_at ? 'halted' : 'dry_run_complete'
+            when 'internal_execute'
+              halted_at ? 'internal_execute_halted' : 'internal_execute_complete'
+            else
+              halted_at ? 'halted' : 'delegated'
+            end
+          end
+
+          def build_invocation_context(arguments)
+            json = arguments['invocation_context_json']
+            return nil if json.nil? || json.to_s.empty?
+
+            KairosMcp::InvocationContext.from_json(json)
+          rescue JSON::ParserError, StandardError
+            KairosMcp::InvocationContext.new(whitelist: [])
+          end
+
+          def tool_exists?(name)
+            @registry&.list_tools&.any? { |t| t[:name] == name }
+          end
+
+          def deep_stringify_keys(obj)
+            case obj
+            when Hash then obj.transform_keys(&:to_s).transform_values { |v| deep_stringify_keys(v) }
+            when Array then obj.map { |v| deep_stringify_keys(v) }
+            else obj
+            end
+          end
+
+          def decode_tool_result(tool_result)
+            return { error: true, error_type: 'no_result', error_message: 'nil result' } unless tool_result.is_a?(Array)
+
+            text = tool_result.map { |b| b[:text] || b['text'] }.compact.join("\n")
+
+            begin
+              parsed = JSON.parse(text)
+              if parsed.is_a?(Hash) && parsed['error']
+                return {
+                  error: true,
+                  error_type: parsed['error'],
+                  error_message: parsed['message'] || parsed['error']
+                }
+              end
+            rescue JSON::ParserError
+              # Not JSON error payload — normal text result
+            end
+
+            summary = text.length > 500 ? "#{text[0..497]}..." : text
+            { error: false, summary: summary }
           end
         end
       end
