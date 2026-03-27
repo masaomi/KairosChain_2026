@@ -101,11 +101,14 @@ module KairosMcp
             end
           end
 
+          usage = body['usage'] || {}
           {
             'content' => choice['content'],
             'tool_use' => tool_use,
             'stop_reason' => map_stop_reason(choice['finish_reason'] || body.dig('choices', 0, 'finish_reason')),
-            'model' => body['model']
+            'model' => body['model'],
+            'input_tokens' => usage['prompt_tokens'],
+            'output_tokens' => usage['completion_tokens']
           }
         end
 

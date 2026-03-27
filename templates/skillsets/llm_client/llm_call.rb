@@ -2,6 +2,7 @@
 
 require 'json'
 require 'digest'
+require 'time'
 require_relative '../lib/llm_client/adapter'
 require_relative '../lib/llm_client/anthropic_adapter'
 require_relative '../lib/llm_client/openai_adapter'
@@ -105,7 +106,7 @@ module KairosMcp
             usage = extract_usage(raw_response, adapter)
 
             # Build success payload
-            actual_model = raw_response['model'] || adapter.resolve_model(model)
+            actual_model = raw_response['model'] || model || config['model'] || 'unknown'
             payload = {
               'status' => 'ok',
               'provider' => config['provider'],
@@ -170,9 +171,14 @@ module KairosMcp
           def deserialize_context(json_string)
             return nil if json_string.nil? || json_string.empty?
 
-            KairosMcp::InvocationContext.from_json(json_string)
+            ctx = KairosMcp::InvocationContext.from_json(json_string)
+            return ctx if ctx
+
+            # Fail-closed: malformed context returns a deny-all context
+            KairosMcp::InvocationContext.new(whitelist: [])
           rescue StandardError
-            nil
+            # Parse error → deny-all (fail-closed, not fail-open)
+            KairosMcp::InvocationContext.new(whitelist: [])
           end
 
           def resolve_and_convert_tools(patterns, invocation_context, config)
@@ -204,11 +210,12 @@ module KairosMcp
           end
 
           def extract_usage(response, adapter)
-            # Anthropic includes usage in response; OpenAI in choices
+            input_t = response.delete('input_tokens').to_i
+            output_t = response.delete('output_tokens').to_i
             {
-              'input_tokens' => response.delete('input_tokens') || 0,
-              'output_tokens' => response.delete('output_tokens') || 0,
-              'total_tokens' => (response.delete('input_tokens') || 0) + (response.delete('output_tokens') || 0)
+              'input_tokens' => input_t,
+              'output_tokens' => output_t,
+              'total_tokens' => input_t + output_t
             }
           end
 

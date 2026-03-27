@@ -22,7 +22,7 @@ module KairosMcp
             messages: messages
           }
           body[:system] = system if system
-          body[:temperature] = resolve_temperature(temperature) if temperature
+          body[:temperature] = resolve_temperature(temperature) unless temperature.nil?
           body[:tools] = tools if tools && !tools.empty?
 
           response = connection(api_key).post('/v1/messages') do |req|
@@ -94,11 +94,14 @@ module KairosMcp
             end
           end
 
+          usage = body['usage'] || {}
           {
             'content' => content_text.empty? ? nil : content_text.join("\n"),
             'tool_use' => tool_use.empty? ? nil : tool_use,
             'stop_reason' => map_stop_reason(body['stop_reason']),
-            'model' => body['model']
+            'model' => body['model'],
+            'input_tokens' => usage['input_tokens'],
+            'output_tokens' => usage['output_tokens']
           }
         end
 
