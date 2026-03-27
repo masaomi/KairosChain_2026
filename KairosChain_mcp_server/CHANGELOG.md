@@ -4,6 +4,40 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.0] - 2026-03-27
+
+### Added
+
+- **Trust Score v2 — Meeting Place-aware 2-layer trust model**: Client-side trust scoring
+  for Meeting Place skills and depositors. Core principle: Meeting Place provides facts,
+  trust computation is always a local cognitive act by the querying agent.
+  - **Skill Trust**: attestation quality (anti-collusion discounted), usage (remote-discounted),
+    freshness, provenance, depositor signature gate
+  - **Depositor Trust**: portfolio average skill trust (with shrinkage for small portfolios),
+    attestation breadth, attester diversity, activity level
+  - **Combined Score**: smooth linear interpolation (no discontinuity) — new skills lean on
+    depositor reputation, established skills stand on their own evidence
+  - **Anti-collusion**: self-attestation discount (0.15x), bootstrap gate, honest labeling
+    (`v2_simplified_bootstrap`), signature presence vs verification distinction
+  - **URI routing**: `meeting:<skill_id>`, `meeting_agent:<agent_id>`, legacy local refs
+  - **Input sanitization**: `SAFE_ID_PATTERN` regex for skill_id/agent_id
+  - **Portfolio truncation warning**: when browse limit (50) may have truncated depositor data
+  - **YAML-driven weights**: all weights, claim weights, thresholds configurable via `trust_v2:`
+    section in `synoptis.yml`
+  - **Graceful degradation**: returns `source: "unavailable"` when not connected
+  - New file: `synoptis/lib/synoptis/meeting_trust_adapter.rb` (HTTP data fetching + TTL cache)
+  - Design: 2-round multi-LLM review (R1 with Persona Assembly: 3 P0 found and fixed)
+  - Implementation: 2-round multi-LLM review (R1: 3 P1 + 4 P2; R2: converged)
+
+- **Multi-LLM Design Review v2.2**: Persona Assembly integration — orchestrator auto-decides
+  whether to use Persona Assembly for Claude Agent Team based on complexity tier:
+  - Tier 1-2 / knowledge review: single perspective (default)
+  - Tier 3 / safety-critical: Persona Assembly (4+ personas)
+  - R2+ verification passes: single perspective
+  - Assembly findings weighted as single reviewer in consensus analysis
+
+---
+
 ## [3.4.1] - 2026-03-24
 
 ### Fixed

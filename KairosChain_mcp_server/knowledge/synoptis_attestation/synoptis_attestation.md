@@ -1,14 +1,14 @@
 ---
 name: synoptis_attestation
 description: "Synoptis Mutual Attestation — cross-agent trust verification through cryptographic proof envelopes"
-version: 1.0
+version: 1.1
 layer: L1
-tags: [documentation, readme, synoptis, attestation, trust, p2p, audit, challenge]
+tags: [documentation, readme, synoptis, attestation, trust, p2p, audit, challenge, meeting-place]
 readme_order: 4.7
 readme_lang: en
 ---
 
-## Synoptis: Mutual Attestation Protocol (v2.7.0)
+## Synoptis: Mutual Attestation Protocol (v3.5.0)
 
 ### What is Synoptis?
 
@@ -24,15 +24,17 @@ KairosChain (MCP Server)
 ├── [SkillSet: mmp] P2P direct mode, /meeting/v1/*
 ├── [SkillSet: hestia] Meeting Place + trust anchor
 └── [SkillSet: synoptis] Mutual attestation protocol
-      ├── ProofEnvelope       ← Signed attestation data structure
-      ├── Verifier            ← Structural + cryptographic verification
-      ├── AttestationEngine   ← Attestation lifecycle (create, verify, list)
-      ├── RevocationManager   ← Revocation with authorization checks
-      ├── ChallengeManager    ← Challenge/response lifecycle
-      ├── TrustScorer         ← Weighted trust score calculation
+      ├── ProofEnvelope         ← Signed attestation data structure
+      ├── Verifier              ← Structural + cryptographic verification
+      ├── AttestationEngine     ← Attestation lifecycle (create, verify, list)
+      ├── RevocationManager     ← Revocation with authorization checks
+      ├── ChallengeManager      ← Challenge/response lifecycle
+      ├── TrustScorer           ← Weighted trust score (local + Meeting Place)
+      ├── MeetingTrustAdapter   ← Meeting Place data fetching + cache (v2)
+      ├── TrustIdentity         ← Canonical agent identity resolution
       ├── Registry::FileRegistry ← Append-only JSONL with hash-chain integrity
-      ├── Transport            ← MMP / Hestia / Local transport abstraction
-      └── tools/               ← 7 MCP tools
+      ├── Transport              ← MMP / Hestia / Local transport abstraction
+      └── tools/                 ← 7 MCP tools
 ```
 
 ### Quick Start
@@ -63,6 +65,14 @@ This calls `attestation_issue(subject_ref: "knowledge/my_skill", claim: "integri
 
 This calls `trust_query(subject_ref: "knowledge/my_skill")`.
 
+#### 4. Query Meeting Place skill trust (v2)
+
+```
+"What is the trust score for agent_skill_evolution_guide on the Meeting Place?"
+```
+
+This calls `trust_query(subject_ref: "meeting:agent_skill_evolution_guide")`.
+
 ### MCP Tools
 
 | Tool | Description |
@@ -71,7 +81,7 @@ This calls `trust_query(subject_ref: "knowledge/my_skill")`.
 | `attestation_verify` | Verify proof validity (structure, signature, expiry, revocation) |
 | `attestation_revoke` | Revoke an attestation (original attester or admin only) |
 | `attestation_list` | List attestations with optional filters (subject_ref, attester_id) |
-| `trust_query` | Calculate trust score based on attestation history |
+| `trust_query` | Calculate trust score (local, Meeting Place skills, or depositor trust) |
 | `challenge_create` | Challenge an existing attestation (validity, evidence_request, re_verification) |
 | `challenge_respond` | Respond to a challenge with additional evidence |
 
@@ -91,15 +101,58 @@ All P2P messages use Bearer token authentication via `MMP::PeerManager`. The aut
 
 ### Trust Scoring
 
-Trust scores are calculated as a weighted composite:
+#### Local Trust (v1)
+
+Trust scores for local attestations are calculated as a weighted composite:
 
 | Factor | Weight | Description |
 |--------|--------|-------------|
-| Quality | 0.30 | Ratio of valid (non-revoked, non-expired) attestations |
-| Freshness | 0.25 | Recency of latest attestation (exponential decay, 24h half-life) |
-| Diversity | 0.25 | Number of unique attesters (capped at 5) |
-| Velocity | 0.10 | Attestation rate in the last 7 days |
-| Revocation penalty | −0.10 | Penalty for revoked attestations |
+| Quality | 0.25 | PageRank-weighted attestation quality (with anti-collusion) |
+| Freshness | 0.20 | Recency of latest attestation (30-day decay) |
+| Diversity | 0.20 | Number of unique attesters (capped at 10) |
+| Velocity | 0.10 | Attestation rate |
+| Bridge | 0.15 | Cross-cluster trust (SCC-based external attester ratio) |
+| Revocation penalty | -0.10 | Penalty for revoked attestations |
+
+Anti-collusion mechanisms: PageRank-weighted quality, SCC detection, bootstrap policy (zero influence without external attestation), bridge scoring.
+
+#### Meeting Place Trust (v2)
+
+**Core principle: Meeting Place provides raw facts. Trust computation is always a local cognitive act.**
+
+Trust scores for Meeting Place skills use a 2-layer model:
+
+**Layer 1 — Skill Trust** (per skill, from browse/preview data):
+
+| Factor | Weight | Description |
+|--------|--------|-------------|
+| Attestation quality | 0.50 | Anti-collusion discounted (self: 0.15x, unsigned: 0.6x) |
+| Usage | 0.20 | Exchange count, remote-discounted (0.5x) |
+| Freshness | 0.15 | 180-day linear decay, floor at 0.2 |
+| Provenance | 0.15 | Direct deposit = 1.0, -0.2 per hop |
+
+**Layer 2 — Depositor Trust** (per agent, from portfolio analysis):
+
+| Factor | Weight | Description |
+|--------|--------|-------------|
+| Avg skill trust | 0.40 | Portfolio average with shrinkage for small portfolios |
+| Attestation breadth | 0.25 | Total third-party attestations across all skills |
+| Diversity | 0.25 | Unique third-party attesters |
+| Activity | 0.10 | Deposit count |
+
+**Combined Score** — smooth interpolation (no discontinuity):
+- New skills (low skill trust): 35% skill + 65% depositor (lean on reputation)
+- Established skills (high skill trust): 70% skill + 30% depositor (stand on own evidence)
+
+**URI routing:**
+
+| Subject ref | Query type |
+|------------|-----------|
+| `meeting:<skill_id>` | Skill trust + depositor trust → combined score |
+| `meeting_agent:<agent_id>` | Depositor trust only |
+| `skill://local_ref` | Local trust (v1, unchanged) |
+
+All weights are configurable via `trust_v2:` section in `synoptis.yml`.
 
 ### Registry and Constitutive Recording
 
@@ -152,6 +205,6 @@ Transport selection is automatic based on available SkillSets.
 ### Dependencies
 
 - **Required**: MMP SkillSet (>= 1.0.0)
-- **Optional**: Hestia SkillSet (for Meeting Place transport)
+- **Optional**: Hestia SkillSet (for Meeting Place transport and Meeting Place trust)
 
 For the full protocol specification, install the synoptis SkillSet and refer to its bundled knowledge (`synoptis_protocol`).
