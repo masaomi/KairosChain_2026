@@ -154,24 +154,9 @@ module KairosMcp
 
       Kairos.skills.each do |skill|
         next unless skill.has_tool?  # Only skills with tool block and executor
-        adapter = SkillToolAdapter.new(skill, @safety)
+        adapter = SkillToolAdapter.new(skill, @safety, registry: self)
         register(adapter)
       end
-    end
-
-    def skill_tools_enabled?
-      SkillsConfig.load['skill_tools_enabled'] == true
-    end
-
-    def register_if_defined(class_name)
-      klass = Object.const_get(class_name)
-      register(klass.new(@safety))
-    rescue NameError
-      # Class not defined yet (file might not exist), ignore
-    end
-
-    def register(tool)
-      @tools[tool.name] = tool
     end
 
     def set_workspace(roots)
@@ -182,16 +167,43 @@ module KairosMcp
       @tools.values.map(&:to_schema)
     end
 
-    def call_tool(name, arguments)
+    def call_tool(name, arguments, invocation_context: nil)
       tool = @tools[name]
       unless tool
         raise "Tool not found: #{name}"
+      end
+
+      # Defense-in-depth: enforce invocation policy at the registry boundary.
+      # This duplicates the check in BaseTool#invoke_tool so that direct
+      # call_tool calls with a context also respect whitelist/blacklist.
+      if invocation_context && !invocation_context.allowed?(name)
+        raise InvocationContext::PolicyDeniedError,
+              "Tool '#{name}' blocked by invocation policy at registry boundary"
       end
 
       self.class.run_gates(name, arguments, @safety)
       tool.call(arguments)
     rescue GateDeniedError => e
       [{ type: 'text', text: JSON.pretty_generate({ error: 'forbidden', message: e.message }) }]
+    rescue InvocationContext::DepthExceededError, InvocationContext::PolicyDeniedError => e
+      [{ type: 'text', text: JSON.pretty_generate({ error: 'invocation_denied', message: e.message }) }]
+    end
+
+    private
+
+    def skill_tools_enabled?
+      SkillsConfig.load['skill_tools_enabled'] == true
+    end
+
+    def register_if_defined(class_name)
+      klass = Object.const_get(class_name)
+      register(klass.new(@safety, registry: self))
+    rescue NameError
+      # Class not defined yet (file might not exist), ignore
+    end
+
+    def register(tool)
+      @tools[tool.name] = tool
     end
   end
 end

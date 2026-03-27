@@ -5,8 +5,8 @@ module KairosMcp
   # Adapter that wraps a Skill with tool_config as an MCP Tool
   # This allows skills defined in kairos.rb to be exposed as MCP tools
   class SkillToolAdapter < Tools::BaseTool
-    def initialize(skill, safety = nil)
-      super(safety)
+    def initialize(skill, safety = nil, registry: nil)
+      super(safety, registry: registry)
       @skill = skill
       @tool_config = skill.tool_config
     end
