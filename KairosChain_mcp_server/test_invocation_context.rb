@@ -380,9 +380,75 @@ end
 section "SecureRandom require"
 
 assert("InvocationContext can be loaded and constructed independently") do
-  # This tests that invocation_context.rb properly requires securerandom
   ctx = KairosMcp::InvocationContext.new
   ctx.root_invocation_id.is_a?(String) && ctx.root_invocation_id.length == 16
+end
+
+# =========================================================================
+# 9. Serialization (to_h / from_h / to_json / from_json)
+# =========================================================================
+
+section "InvocationContext serialization"
+
+assert("to_h includes policy fields") do
+  ctx = KairosMcp::InvocationContext.new(
+    whitelist: ["knowledge_*"], blacklist: ["agent_*"],
+    mandate_id: "mnd_001", token_budget: 8192
+  )
+  h = ctx.to_h
+  h['whitelist'] == ["knowledge_*"] &&
+    h['blacklist'] == ["agent_*"] &&
+    h['mandate_id'] == "mnd_001" &&
+    h['token_budget'] == 8192
+end
+
+assert("to_h does NOT include depth, caller, or root_invocation_id") do
+  ctx = KairosMcp::InvocationContext.new(depth: 3, caller_tool: "test")
+  h = ctx.to_h
+  !h.key?('depth') && !h.key?('caller_tool') && !h.key?('root_invocation_id')
+end
+
+assert("from_h reconstructs policy") do
+  original = KairosMcp::InvocationContext.new(
+    whitelist: ["knowledge_*"], blacklist: ["agent_*"],
+    mandate_id: "mnd_001", token_budget: 4096
+  )
+  restored = KairosMcp::InvocationContext.from_h(original.to_h)
+  restored.whitelist == ["knowledge_*"] &&
+    restored.blacklist == ["agent_*"] &&
+    restored.mandate_id == "mnd_001" &&
+    restored.token_budget == 4096
+end
+
+assert("from_h starts at depth 0 (fresh context)") do
+  restored = KairosMcp::InvocationContext.from_h({ 'whitelist' => ["*"] })
+  restored.depth == 0 && restored.caller_tool.nil?
+end
+
+assert("from_h returns nil for nil input") do
+  KairosMcp::InvocationContext.from_h(nil).nil?
+end
+
+assert("roundtrip to_json / from_json preserves policy") do
+  ctx = KairosMcp::InvocationContext.new(
+    whitelist: ["knowledge_*", "context_*"], blacklist: ["skills_evolve"],
+    mandate_id: "mnd_002"
+  )
+  json = ctx.to_json
+  restored = KairosMcp::InvocationContext.from_json(json)
+  restored.allowed?("knowledge_list") &&
+    !restored.allowed?("skills_evolve") &&
+    restored.mandate_id == "mnd_002"
+end
+
+assert("restored context enforces same policy as original") do
+  ctx = KairosMcp::InvocationContext.new(
+    whitelist: ["knowledge_*"], blacklist: ["knowledge_update"]
+  )
+  restored = KairosMcp::InvocationContext.from_h(ctx.to_h)
+  ctx.allowed?("knowledge_list") == restored.allowed?("knowledge_list") &&
+    ctx.allowed?("knowledge_update") == restored.allowed?("knowledge_update") &&
+    ctx.allowed?("agent_start") == restored.allowed?("agent_start")
 end
 
 # =========================================================================

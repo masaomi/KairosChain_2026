@@ -41,6 +41,40 @@ module KairosMcp
       )
     end
 
+    # Serialize to a plain Hash for passing through tool arguments.
+    # Only includes policy-relevant fields (whitelist, blacklist, mandate_id, token_budget).
+    def to_h
+      {
+        'whitelist' => @whitelist,
+        'blacklist' => @blacklist,
+        'mandate_id' => @mandate_id,
+        'token_budget' => @token_budget
+      }
+    end
+
+    def to_json(*args)
+      require 'json'
+      to_h.to_json(*args)
+    end
+
+    # Reconstruct policy from a Hash (e.g., parsed from tool arguments).
+    # Only restores policy fields — depth and caller are not transferred.
+    def self.from_h(hash)
+      return nil if hash.nil?
+
+      new(
+        whitelist: hash['whitelist'],
+        blacklist: hash['blacklist'],
+        mandate_id: hash['mandate_id'],
+        token_budget: hash['token_budget']
+      )
+    end
+
+    def self.from_json(json_string)
+      require 'json'
+      from_h(JSON.parse(json_string))
+    end
+
     # Check if a tool is allowed by whitelist/blacklist policy.
     # Blacklist is checked first (deny wins). Both use fnmatch patterns.
     def allowed?(tool_name)
