@@ -6,6 +6,8 @@ require 'time'
 require_relative '../lib/llm_client/adapter'
 require_relative '../lib/llm_client/anthropic_adapter'
 require_relative '../lib/llm_client/openai_adapter'
+require_relative '../lib/llm_client/claude_code_adapter'
+require_relative '../lib/llm_client/bedrock_adapter'
 require_relative '../lib/llm_client/schema_converter'
 
 module KairosMcp
@@ -161,8 +163,12 @@ module KairosMcp
 
           def build_adapter(config)
             case config['provider']
-            when 'openai', 'local'
+            when 'openai', 'local', 'openrouter'
               OpenaiAdapter.new(config)
+            when 'claude_code'
+              ClaudeCodeAdapter.new(config)
+            when 'bedrock'
+              BedrockAdapter.new(config)
             else
               AnthropicAdapter.new(config)
             end
