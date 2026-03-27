@@ -1,0 +1,21 @@
+{
+  "name": "agent",
+  "version": "0.1.0",
+  "description": "Governed autonomous OODA loop combining llm_client, autonomos, and autoexec into a cognitive agent. Observe-Orient-Decide-Act-Reflect with human checkpoints.",
+  "author": "Masaomi Hatakeyama",
+  "layer": "L1",
+  "depends_on": ["llm_client", "autonomos", "autoexec"],
+  "provides": [
+    "agent_orchestration",
+    "autonomous_ooda"
+  ],
+  "tool_classes": [
+    "KairosMcp::SkillSets::Agent::Tools::AgentStart",
+    "KairosMcp::SkillSets::Agent::Tools::AgentStep",
+    "KairosMcp::SkillSets::Agent::Tools::AgentStatus",
+    "KairosMcp::SkillSets::Agent::Tools::AgentStop"
+  ],
+  "config_files": ["config/agent.yml"],
+  "knowledge_dirs": ["knowledge/agent_guide"],
+  "min_core_version": "2.8.0"
+}
