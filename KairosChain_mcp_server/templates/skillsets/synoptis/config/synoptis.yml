@@ -15,6 +15,38 @@ trust:
   min_trust_score: 0.0
   max_trust_score: 1.0
 
+trust_v2:
+  skill_weights:
+    attestation_quality: 0.50
+    usage: 0.20
+    freshness: 0.15
+    provenance: 0.15
+  depositor_weights:
+    avg_skill_trust: 0.40
+    attestation_breadth: 0.25
+    diversity: 0.25
+    activity: 0.10
+  combined:
+    combined_min_skill_weight: 0.35
+    combined_max_skill_weight: 0.70
+  anti_collusion:
+    self_attestation_weight: 0.15
+    scc_discount: 0.20
+    max_expected_attestations: 5
+  remote_signal_discount: 0.50
+  depositor_shrinkage_threshold: 3
+  cache_ttl: 300
+  recommendation_thresholds:
+    high_confidence: 0.70
+    moderate_confidence: 0.40
+    low_confidence: 0.20
+  claim_weights:
+    multi_llm_reviewed: 0.90
+    used_in_production: 0.85
+    quality_reviewed: 0.75
+    integrity_verified: 0.60
+    default: 0.50
+
 challenge:
   response_timeout: 3600      # 1 hour
   max_active_per_subject: 5
