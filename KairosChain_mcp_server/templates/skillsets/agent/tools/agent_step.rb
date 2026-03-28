@@ -347,21 +347,26 @@ module KairosMcp
 
           # ---- Loop detection (M4) ----
 
-          def check_loop_detection(session, orient_result, decision_payload)
+          # M4: Loop detection using decision_payload['summary'] as canonical gap
+          # description (matches autonomos_loop's approach).
+          # Single-session-per-mandate assumed (no concurrent mandate writes).
+          def check_loop_detection(session, _orient_result, decision_payload)
             mandate = Autonomos::Mandate.load(session.mandate_id)
             return nil unless mandate
 
-            gap_desc = MandateAdapter.extract_gap_description(orient_result)
+            # Use decision summary as gap description (same source as proposal)
+            gap_desc = decision_payload['summary'] || 'unknown'
             recent_gaps = Array(mandate[:recent_gap_descriptions])
             recent_gaps_updated = (recent_gaps + [gap_desc]).last(3)
 
             proposal = MandateAdapter.to_mandate_proposal(decision_payload)
 
             if Autonomos::Mandate.loop_detected?(proposal, recent_gaps)
-              Autonomos::Mandate.update_status(session.mandate_id, 'terminated')
-              session.update_state('terminated')
+              # Single save: update both status and gap history atomically
+              mandate[:status] = 'terminated'
               mandate[:recent_gap_descriptions] = recent_gaps_updated
               Autonomos::Mandate.save(session.mandate_id, mandate)
+              session.update_state('terminated')
               session.save
               return true
             end

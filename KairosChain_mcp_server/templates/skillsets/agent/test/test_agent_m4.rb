@@ -166,17 +166,31 @@ REFLECT_OK = JSON.generate({
   'learnings' => [], 'open_questions' => []
 })
 
-def queue_orient_decide_reflect
+def make_decision(summary)
+  JSON.generate({
+    'summary' => summary,
+    'task_json' => {
+      'task_id' => "t_#{SecureRandom.hex(3)}", 'meta' => { 'description' => summary, 'risk_default' => 'low' },
+      'steps' => [{ 'step_id' => 's1', 'action' => 'do', 'tool_name' => 'knowledge_get',
+                     'tool_arguments' => {}, 'risk' => 'low', 'depends_on' => [],
+                     'requires_human_cognition' => false }]
+    }
+  })
+end
+
+def queue_orient_decide_reflect(summary: nil)
+  summary ||= "plan_#{SecureRandom.hex(3)}"
   MockLlmCall.clear!
   MockLlmCall.queue_response({ 'content' => 'orient analysis', 'tool_use' => nil, 'stop_reason' => 'end_turn' })
-  MockLlmCall.queue_response({ 'content' => VALID_DECISION, 'tool_use' => nil, 'stop_reason' => 'end_turn' })
+  MockLlmCall.queue_response({ 'content' => make_decision(summary), 'tool_use' => nil, 'stop_reason' => 'end_turn' })
   MockLlmCall.queue_response({ 'content' => REFLECT_OK, 'tool_use' => nil, 'stop_reason' => 'end_turn' })
 end
 
-def queue_orient_decide
+def queue_orient_decide(summary: nil)
+  summary ||= "plan_#{SecureRandom.hex(3)}"
   MockLlmCall.clear!
   MockLlmCall.queue_response({ 'content' => 'orient analysis', 'tool_use' => nil, 'stop_reason' => 'end_turn' })
-  MockLlmCall.queue_response({ 'content' => VALID_DECISION, 'tool_use' => nil, 'stop_reason' => 'end_turn' })
+  MockLlmCall.queue_response({ 'content' => make_decision(summary), 'tool_use' => nil, 'stop_reason' => 'end_turn' })
 end
 
 registry = build_registry
@@ -334,6 +348,65 @@ assert("loop_detected terminates when same gap repeats") do
   parsed['status'] == 'terminated' && parsed['reason'] == 'loop_detected'
 end
 
+assert("loop termination sets mandate status to terminated") do
+  start_tool = registry.instance_variable_get(:@tools)['agent_start']
+  result = start_tool.call({ 'goal_name' => 'loop_mandate_test', 'max_cycles' => 5 })
+  session_id = JSON.parse(result[0][:text])['session_id']
+  step_tool = registry.instance_variable_get(:@tools)['agent_step']
+
+  session = Session.load(session_id)
+  mandate = Autonomos::Mandate.load(session.mandate_id)
+  mandate[:recent_gap_descriptions] = ['dup', 'dup']
+  Autonomos::Mandate.save(session.mandate_id, mandate)
+
+  decision_dup = JSON.generate({
+    'summary' => 'dup',
+    'task_json' => {
+      'task_id' => 'ld_001', 'meta' => { 'description' => 'x', 'risk_default' => 'low' },
+      'steps' => [{ 'step_id' => 's1', 'action' => 'a', 'tool_name' => 'echo',
+                     'tool_arguments' => {}, 'risk' => 'low', 'depends_on' => [],
+                     'requires_human_cognition' => false }]
+    }
+  })
+  MockLlmCall.clear!
+  MockLlmCall.queue_response({ 'content' => 'orient', 'tool_use' => nil, 'stop_reason' => 'end_turn' })
+  MockLlmCall.queue_response({ 'content' => decision_dup, 'tool_use' => nil, 'stop_reason' => 'end_turn' })
+  step_tool.call({ 'session_id' => session_id, 'action' => 'approve' })
+
+  # Both session AND mandate must be terminated
+  session = Session.load(session_id)
+  mandate = Autonomos::Mandate.load(session.mandate_id)
+  session.state == 'terminated' && mandate[:status] == 'terminated'
+end
+
+assert("gap history uses decision_payload summary (not orient content)") do
+  start_tool = registry.instance_variable_get(:@tools)['agent_start']
+  result = start_tool.call({ 'goal_name' => 'gap_source_test' })
+  session_id = JSON.parse(result[0][:text])['session_id']
+  step_tool = registry.instance_variable_get(:@tools)['agent_step']
+
+  # ORIENT returns plain text, DECIDE returns a specific summary
+  specific_decision = JSON.generate({
+    'summary' => 'fix auth middleware',
+    'task_json' => {
+      'task_id' => 'gs_001', 'meta' => { 'description' => 'x', 'risk_default' => 'low' },
+      'steps' => [{ 'step_id' => 's1', 'action' => 'a', 'tool_name' => 'echo',
+                     'tool_arguments' => {}, 'risk' => 'low', 'depends_on' => [],
+                     'requires_human_cognition' => false }]
+    }
+  })
+  MockLlmCall.clear!
+  MockLlmCall.queue_response({ 'content' => 'Analysis of current state...', 'tool_use' => nil, 'stop_reason' => 'end_turn' })
+  MockLlmCall.queue_response({ 'content' => specific_decision, 'tool_use' => nil, 'stop_reason' => 'end_turn' })
+  step_tool.call({ 'session_id' => session_id, 'action' => 'approve' })
+
+  session = Session.load(session_id)
+  mandate = Autonomos::Mandate.load(session.mandate_id)
+  gaps = Array(mandate[:recent_gap_descriptions])
+  # Gap should be decision summary, NOT 'unknown'
+  gaps.last == 'fix auth middleware'
+end
+
 assert("no loop when gaps are different") do
   start_tool = registry.instance_variable_get(:@tools)['agent_start']
   result = start_tool.call({ 'goal_name' => 'no_loop_test', 'max_cycles' => 5 })
@@ -353,18 +426,19 @@ assert("no loop when gaps are different") do
   parsed['status'] == 'ok' && parsed['state'] == 'proposed'
 end
 
-assert("gap history is updated after orient+decide") do
+assert("gap history is updated with decision summary after orient+decide") do
   start_tool = registry.instance_variable_get(:@tools)['agent_start']
   result = start_tool.call({ 'goal_name' => 'gap_history_test' })
   session_id = JSON.parse(result[0][:text])['session_id']
   step_tool = registry.instance_variable_get(:@tools)['agent_step']
 
-  queue_orient_decide
+  queue_orient_decide(summary: 'specific gap description')
   step_tool.call({ 'session_id' => session_id, 'action' => 'approve' })
 
   session = Session.load(session_id)
   mandate = Autonomos::Mandate.load(session.mandate_id)
-  Array(mandate[:recent_gap_descriptions]).length >= 1
+  gaps = Array(mandate[:recent_gap_descriptions])
+  gaps.length == 1 && gaps.last == 'specific gap description'
 end
 
 # =========================================================================
