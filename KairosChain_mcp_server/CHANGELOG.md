@@ -4,6 +4,71 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.0] - 2026-03-28
+
+### Added
+
+- **Agent SkillSet** — OODA cognitive loop for autonomous task execution
+  - `agent_start`: Initialize agent session with mandate and goal
+  - `agent_step`: Execute one OODA cycle (Observe → Orient → Decide → Act via autoexec)
+  - `agent_status`: View cycle history and active mandates
+  - `agent_stop`: End agent session with reflection
+  - Cumulative progress file (`progress.jsonl`) for cross-cycle continuity
+  - Loop detection via decision_payload summary comparison
+  - Multi-cycle mandate progression with checkpoint
+  - 90 tests across M1-M4 milestones
+
+- **mcp_client SkillSet** — Connect to external MCP servers as a client
+  - `mcp_connect`: Establish connection to remote MCP server (HTTP JSON-RPC)
+  - `mcp_disconnect`: Close connection and unregister proxy tools
+  - `mcp_list_remote`: List available tools on connected server
+  - `ProxyTool`: Dynamic tool proxying with namespace prefixing
+  - `ConnectionManager`: Singleton with lifecycle management
+  - Dual blacklist (Agent + InvocationContext) for security
+  - ORIENT_TOOLS integration for Agent SkillSet awareness
+  - 25 tests (Client 6, ConnectionManager 7, ProxyTool 4, Registry 3, E2E 5)
+
+- **Attestation Nudge** (MMP SkillSet) — Proactive attestation prompts
+  - Tracks usage of acquired skills, suggests attestation after threshold
+  - `register_gate(:attestation_nudge)` passive observer (zero L0 changes)
+  - Gate detects `resource_read`/`knowledge_get` access to received skills
+  - In-memory tool_name/file_path indexes for O(1) gate miss path
+  - `flock(LOCK_EX)` atomic JSON file updates
+  - Time-window throttling: `cooldown_hours` + `nudge_interval_hours`
+  - Passive decline: nudge emission starts cooldown
+  - Nudge footer on 5 MMP tools (browse, connect, details, preview, freshness)
+  - `sanitize_for_display` for remote metadata in nudge messages
+  - 39 tests, 4 rounds of multi-LLM review (3/3 APPROVE including Codex)
+
+- **InvocationContext** — Tool invocation chain tracking
+  - Depth limiting, caller tracking, mandate propagation
+  - Whitelist/blacklist policy enforcement at registry boundary
+  - `derive` method for Agent SkillSet tool_names extraction
+  - 59 tests
+
+### Changed
+
+- **L1 Knowledge Consolidation** (4 → 3 skills):
+  - `multi_llm_review_workflow` v3.1: merged with `multi_llm_design_review` (methodology + CLI execution in single skill)
+  - `multi_llm_reviewer_evaluation` v1.1: Codex convergence behavior data, APPROVE signal reliability
+  - `design_to_implementation_workflow` v1.1: self-review phase, implementation review phase, Persona Assembly merge gate
+  - Deleted: `multi_llm_design_review` (absorbed into `multi_llm_review_workflow`)
+  - Self-referential review: v3.0 reviewed by its own multi-LLM process → v3.1
+
+- **meeting_attest_skill**: Fail-closed when `content_hash` is nil (previously fail-open)
+
+- **autoexec**: Enhanced `task_dsl` and `plan_store` for Agent SkillSet integration
+
+### Fixed
+
+- **Phase 4 review fixes**: Notification method, restore hook, race condition, stale proxy
+- **Mandate save race**: Single atomic save (no update_status then stale save)
+- **Attestation Nudge race condition**: `rebuild_indexes_from(data)` inside `with_locked_data`
+- **Attestation Nudge index staleness**: `mark_attested` rebuilds indexes
+- **Attestation Nudge JSON recovery**: `with_locked_data` recovers from corrupted JSON
+
+---
+
 ## [3.5.0] - 2026-03-27
 
 ### Added
