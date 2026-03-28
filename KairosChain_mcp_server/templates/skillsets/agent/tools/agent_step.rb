@@ -159,8 +159,18 @@ module KairosMcp
             decide_result = loop_inst.run_decide(decide_system_prompt, decide_messages)
             return error_with_state(session, 'observed', decide_result) if decide_result['error']
 
+            # M4: Loop detection (after DECIDE, before presenting to user)
+            decision_payload = decide_result['decision_payload']
+            loop_term = check_loop_detection(session, orient_result, decision_payload)
+            if loop_term
+              return text_content(JSON.generate({
+                'status' => 'terminated', 'reason' => 'loop_detected',
+                'session_id' => session.session_id
+              }))
+            end
+
             # Fix #1: persist decision for proposed→ACT transition
-            session.save_decision(decide_result['decision_payload'])
+            session.save_decision(decision_payload)
             session.update_state('proposed')
             session.save
 
@@ -333,6 +343,36 @@ module KairosMcp
               'status' => 'ok', 'session_id' => session.session_id,
               'state' => 'proposed', 'decision_payload' => decide_result['decision_payload']
             }))
+          end
+
+          # ---- Loop detection (M4) ----
+
+          def check_loop_detection(session, orient_result, decision_payload)
+            mandate = Autonomos::Mandate.load(session.mandate_id)
+            return nil unless mandate
+
+            gap_desc = MandateAdapter.extract_gap_description(orient_result)
+            recent_gaps = Array(mandate[:recent_gap_descriptions])
+            recent_gaps_updated = (recent_gaps + [gap_desc]).last(3)
+
+            proposal = MandateAdapter.to_mandate_proposal(decision_payload)
+
+            if Autonomos::Mandate.loop_detected?(proposal, recent_gaps)
+              Autonomos::Mandate.update_status(session.mandate_id, 'terminated')
+              session.update_state('terminated')
+              mandate[:recent_gap_descriptions] = recent_gaps_updated
+              Autonomos::Mandate.save(session.mandate_id, mandate)
+              session.save
+              return true
+            end
+
+            # Update gap history even if no loop detected
+            mandate[:recent_gap_descriptions] = recent_gaps_updated
+            Autonomos::Mandate.save(session.mandate_id, mandate)
+            nil
+          rescue StandardError => e
+            warn "[agent] Loop detection failed: #{e.message}"
+            nil
           end
 
           # ---- Chain recording ----
