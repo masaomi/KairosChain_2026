@@ -130,6 +130,9 @@ module KairosMcp
 
       # Skill-based tools (from kairos.rb with tool block)
       register_skill_tools if skill_tools_enabled?
+
+      # Restore dynamic proxy tools from active mcp_client connections (Phase 4)
+      restore_dynamic_tools
     end
 
     # Register tools from enabled SkillSets
@@ -220,6 +223,18 @@ module KairosMcp
 
     def register(tool)
       @tools[tool.name] = tool
+    end
+
+    # Restore dynamic proxy tools from active mcp_client connections.
+    # Called at the end of register_tools so that HTTP-mode registries
+    # (which are recreated per request) pick up existing connections.
+    def restore_dynamic_tools
+      return unless defined?(KairosMcp::SkillSets::McpClient::ConnectionManager)
+
+      conn_mgr = KairosMcp::SkillSets::McpClient::ConnectionManager.instance
+      conn_mgr.restore_proxy_tools(self, @safety)
+    rescue StandardError
+      nil  # mcp_client SkillSet may not be loaded
     end
   end
 end

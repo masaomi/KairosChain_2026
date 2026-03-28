@@ -26,7 +26,7 @@ module KairosMcp
             capabilities: { tools: {} },
             clientInfo: CLIENT_INFO
           })
-          notify('initialized', {})
+          notify('notifications/initialized', {})
           @initialized = true
           result
         end

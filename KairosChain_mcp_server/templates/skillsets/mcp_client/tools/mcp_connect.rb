@@ -49,6 +49,13 @@ module KairosMcp
             end
 
             conn_mgr = ConnectionManager.instance
+
+            # Unregister stale proxies if reconnecting same server_id
+            old_conn = conn_mgr.all_connections[server_id]
+            if old_conn
+              old_conn[:tools].each { |rt| @registry.unregister_tool("#{server_id}/#{rt['name']}") }
+            end
+
             conn = conn_mgr.connect(server_id: server_id, url: url,
                                     token: token, config: config)
 

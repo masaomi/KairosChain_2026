@@ -18,14 +18,14 @@ module KairosMcp
 
         def connect(server_id:, url:, token: nil, config: {})
           max_conn = config['max_connections'] || 5
+
           @mutex.synchronize do
             if @connections.size >= max_conn && !@connections.key?(server_id)
               raise RemoteToolError, "Max connections (#{max_conn}) reached"
             end
+            # Remove old connection if reconnecting (before releasing mutex)
+            @connections.delete(server_id)
           end
-
-          # If reconnecting same server_id, disconnect old first
-          disconnect(server_id) if @mutex.synchronize { @connections.key?(server_id) }
 
           client = Client.new(url: url, token: token,
                               timeout: config['default_timeout'] || 30)
