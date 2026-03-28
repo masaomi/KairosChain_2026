@@ -58,8 +58,8 @@ module MMP
     config = load_config
     return if config.dig('attestation_nudge', 'enabled') == false
 
-    KairosMcp::ToolRegistry.register_gate(:attestation_nudge) do |tool_name, _args, _safety|
-      AttestationNudge.instance.record_tool_usage(tool_name)
+    KairosMcp::ToolRegistry.register_gate(:attestation_nudge) do |tool_name, args, _safety|
+      AttestationNudge.instance.record_tool_usage(tool_name, args || {})
     rescue StandardError => e
       warn "[MMP::AttestationNudge] gate error (ignored): #{e.message}"
     end

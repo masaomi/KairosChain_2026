@@ -78,11 +78,17 @@ module MMP
     end
 
     # Called by gate: check in-memory index first, file I/O only on match.
-    def record_tool_usage(tool_name)
+    # Also detects resource_read/knowledge_get calls accessing received skills.
+    def record_tool_usage(tool_name, arguments = {})
+      # 1. Direct tool name match (for acquired SkillSet tools)
       key = @tool_name_index[tool_name]
-      return unless key
+      if key
+        increment_usage(key)
+        return
+      end
 
-      increment_usage(key)
+      # 2. Detect read access to received skill files via L0 tools
+      detect_read_access(tool_name, arguments)
     end
 
     # Called by MMP read paths: check in-memory index first.
@@ -224,10 +230,41 @@ module MMP
       {}
     end
 
+    # Detect if a resource_read or knowledge_get call accesses a received skill.
+    # Matches by checking if the argument contains a known file path basename.
+    def detect_read_access(tool_name, arguments)
+      return if @file_path_index.empty?
+
+      case tool_name
+      when 'resource_read'
+        uri = (arguments['uri'] || '').to_s
+        @file_path_index.each do |path, key|
+          basename = File.basename(path, '.md')
+          if uri.include?(basename)
+            increment_usage(key)
+            return
+          end
+        end
+      when 'knowledge_get'
+        name = (arguments['name'] || '').to_s
+        @file_path_index.each do |path, key|
+          # Match if the knowledge name appears in the stored file path
+          if path.include?("/#{name}/") || path.include?("/#{name}_")
+            increment_usage(key)
+            return
+          end
+        end
+      end
+    end
+
+    def sanitize_for_display(str)
+      str.to_s.gsub(/["\\\n\r]/, '')
+    end
+
     def format_nudge_message(entry)
-      skill_name = entry['skill_name'] || entry['skill_id']
-      owner = entry['owner_agent_id']
-      skill_id = entry['skill_id']
+      skill_name = sanitize_for_display(entry['skill_name'] || entry['skill_id'])
+      owner = sanitize_for_display(entry['owner_agent_id'])
+      skill_id = sanitize_for_display(entry['skill_id'])
       count = entry['use_count']
 
       "You've used '#{skill_name}' (from #{owner}) #{count} times since acquiring it.\n" \

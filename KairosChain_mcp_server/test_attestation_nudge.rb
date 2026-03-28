@@ -357,6 +357,71 @@ end
 assert('gate error rescued, tool call not broken') { !error_raised }
 KairosMcp::ToolRegistry.clear_gates!
 
+test_section('Test 16: gate detects resource_read access to received skill')
+KairosMcp::ToolRegistry.clear_gates!
+MMP::AttestationNudge.reset!
+test_dir = Dir.mktmpdir('nudge_resource_test')
+tracker = MMP::AttestationNudge.new(test_dir)
+tracker.register_acquisition(
+  skill_id: 'skill_r', skill_name: 'Resource Test', owner_agent_id: 'agent_r',
+  content_hash: 'hash_r', file_path: '/tmp/knowledge/received/resource_test_20260328.md'
+)
+
+# Register gate with arguments forwarding
+KairosMcp::ToolRegistry.register_gate(:attestation_nudge) do |tool_name, args, _safety|
+  tracker.record_tool_usage(tool_name, args || {})
+rescue StandardError => e
+  warn "[test] gate error: #{e.message}"
+end
+
+# Simulate resource_read for the received skill
+KairosMcp::ToolRegistry.run_gates('resource_read', { 'uri' => 'knowledge://received/resource_test_20260328' }, nil)
+data = JSON.parse(File.read(File.join(test_dir, MMP::AttestationNudge::USAGE_FILE)))
+assert('resource_read detected: use_count is 1') { data.values.first['use_count'] == 1 }
+
+# Simulate resource_read for unrelated resource
+KairosMcp::ToolRegistry.run_gates('resource_read', { 'uri' => 'knowledge://unrelated_skill' }, nil)
+data = JSON.parse(File.read(File.join(test_dir, MMP::AttestationNudge::USAGE_FILE)))
+assert('unrelated resource_read: use_count still 1') { data.values.first['use_count'] == 1 }
+KairosMcp::ToolRegistry.clear_gates!
+cleanup(test_dir)
+
+test_section('Test 17: gate detects knowledge_get access to received skill')
+KairosMcp::ToolRegistry.clear_gates!
+MMP::AttestationNudge.reset!
+test_dir = Dir.mktmpdir('nudge_knowledge_test')
+tracker = MMP::AttestationNudge.new(test_dir)
+tracker.register_acquisition(
+  skill_id: 'skill_k', skill_name: 'Knowledge Test', owner_agent_id: 'agent_k',
+  content_hash: 'hash_k', file_path: '/tmp/knowledge/received/my_skill_20260328.md'
+)
+
+KairosMcp::ToolRegistry.register_gate(:attestation_nudge) do |tool_name, args, _safety|
+  tracker.record_tool_usage(tool_name, args || {})
+rescue StandardError => e
+  warn "[test] gate error: #{e.message}"
+end
+
+# knowledge_get with name matching the file path
+KairosMcp::ToolRegistry.run_gates('knowledge_get', { 'name' => 'my_skill' }, nil)
+data = JSON.parse(File.read(File.join(test_dir, MMP::AttestationNudge::USAGE_FILE)))
+assert('knowledge_get detected: use_count is 1') { data.values.first['use_count'] == 1 }
+KairosMcp::ToolRegistry.clear_gates!
+cleanup(test_dir)
+
+test_section('Test 18: sanitize_for_display removes dangerous chars')
+tracker, dir = setup_tracker
+tracker.register_acquisition(
+  skill_id: "skill\"inject", skill_name: "Evil\nSkill", owner_agent_id: "agent\\bad",
+  content_hash: 'hash_x', file_path: '/tmp/test.md'
+)
+5.times { tracker.record_file_usage('/tmp/test.md') }
+msg = tracker.pending_nudge
+assert('nudge message has no quotes') { !msg.include?('"Evil') }
+assert('nudge message has no newlines in names') { !msg.include?("Evil\nSkill") }
+assert('nudge message has no backslashes in names') { !msg.include?('agent\\bad') }
+cleanup(dir)
+
 # ===== Summary =====
 puts "\n===== RESULTS ====="
 puts "  PASS: #{$pass}"

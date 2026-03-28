@@ -72,6 +72,15 @@ module KairosMcp
               preview = client.preview_skill(skill_id: skill_id, owner: owner_agent_id, first_lines: 1)
               skill_content_hash = preview[:content_hash]
 
+              # Fail closed: attestation must be version-bound
+              unless skill_content_hash && !skill_content_hash.empty?
+                return text_content(JSON.pretty_generate({
+                  error: 'Cannot attest without version binding',
+                  message: 'Failed to fetch content_hash from skill preview. The skill may have been withdrawn.',
+                  skill_id: skill_id, owner_agent_id: owner_agent_id
+                }))
+              end
+
               # Build signed payload: canonical form with content_hash for cryptographic version binding
               timestamp = Time.now.utc.iso8601
               evidence_hash = evidence ? Digest::SHA256.hexdigest(evidence) : nil
