@@ -1,0 +1,15 @@
+# MCP Client configuration
+default_timeout: 30        # seconds per request
+max_connections: 5          # max concurrent remote servers
+
+# Security: server trust
+# Empty trusted_servers + allow_untrusted: false = reject all connections
+# Add URL patterns to trusted_servers to allow specific servers
+trusted_servers: []
+allow_untrusted: false
+
+# Per-server tokens (alternative to passing token in mcp_connect argument)
+# servers:
+#   peer1:
+#     url: "https://peer1.example.com/mcp"
+#     token: "your-bearer-token"
