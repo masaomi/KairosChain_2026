@@ -91,7 +91,17 @@ module KairosMcp
                 hint: "To acquire: meeting_acquire_skill(peer_id: \"#{peer_id}\", skill_id: \"#{skill_id}\")"
               }
 
-              text_content(JSON.pretty_generate(result))
+              # Check for pending attestation nudge
+              nudge_msg = nil
+              begin
+                nudge_msg = ::MMP::AttestationNudge.instance.pending_nudge
+              rescue StandardError => e
+                warn "[MMP] Nudge check failed: #{e.message}"
+              end
+
+              result_text = JSON.pretty_generate(result)
+              result_text += "\n\n---\n#{nudge_msg}" if nudge_msg
+              text_content(result_text)
             rescue StandardError => e
               text_content(JSON.pretty_generate({ error: 'Failed to get details', message: e.message }))
             end

@@ -68,7 +68,15 @@ module KairosMcp
               gone = results.count { |r| r[:status] == 'withdrawn' }
               failed = results.count { |r| r[:status] == 'check_failed' }
 
-              text_content(JSON.pretty_generate({
+              # Check for pending attestation nudge
+              nudge_msg = nil
+              begin
+                nudge_msg = ::MMP::AttestationNudge.instance.pending_nudge
+              rescue StandardError => e
+                warn "[MMP] Nudge check failed: #{e.message}"
+              end
+
+              result_text = JSON.pretty_generate({
                 checked: results.size,
                 up_to_date: fresh,
                 updated: stale,
@@ -76,7 +84,9 @@ module KairosMcp
                 check_failed: failed,
                 results: results,
                 hint: stale > 0 ? 'Use meeting_acquire_skill to get updated versions.' : nil
-              }.compact))
+              }.compact)
+              result_text += "\n\n---\n#{nudge_msg}" if nudge_msg
+              text_content(result_text)
             rescue StandardError => e
               text_content(JSON.pretty_generate({ error: 'Freshness check failed', message: e.message }))
             end

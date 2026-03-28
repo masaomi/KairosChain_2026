@@ -88,6 +88,16 @@ module KairosMcp
               )
 
               if result[:valid] || result[:status] == 'attestation_deposited'
+                # Mark as attested in nudge tracker
+                begin
+                  ::MMP::AttestationNudge.instance.mark_attested(
+                    skill_id: skill_id,
+                    owner_agent_id: owner_agent_id
+                  )
+                rescue StandardError => e
+                  warn "[MeetingAttestSkill] Nudge mark_attested failed: #{e.message}"
+                end
+
                 text_content(JSON.pretty_generate({
                   status: 'attestation_deposited',
                   skill_id: skill_id,

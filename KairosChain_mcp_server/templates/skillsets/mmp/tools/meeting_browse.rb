@@ -82,7 +82,17 @@ module KairosMcp
               # Pass through place-level trust info (factual metadata only)
               output[:place_trust] = result[:place_trust] if result[:place_trust]
 
-              text_content(JSON.pretty_generate(output))
+              # Check for pending attestation nudge
+              nudge_msg = nil
+              begin
+                nudge_msg = ::MMP::AttestationNudge.instance.pending_nudge
+              rescue StandardError => e
+                warn "[MMP] Nudge check failed: #{e.message}"
+              end
+
+              result_text = JSON.pretty_generate(output)
+              result_text += "\n\n---\n#{nudge_msg}" if nudge_msg
+              text_content(result_text)
             rescue StandardError => e
               text_content(JSON.pretty_generate({ error: 'Browse failed', message: e.message }))
             end

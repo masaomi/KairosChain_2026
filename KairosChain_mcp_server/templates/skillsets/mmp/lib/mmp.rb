@@ -20,6 +20,7 @@ module MMP
   autoload :ProtocolEvolution, File.join(__dir__, 'mmp/protocol_evolution')
   autoload :Compatibility, File.join(__dir__, 'mmp/compatibility')
   autoload :PlaceClient, File.join(__dir__, 'mmp/place_client')
+  autoload :AttestationNudge, File.join(__dir__, 'mmp/attestation_nudge')
 
   # Resolve config path dynamically: prefer the installed SkillSet config
   # in the current data directory, fall back to the bundled template config.
@@ -49,4 +50,27 @@ module MMP
       'constraints' => { 'max_skill_size_bytes' => 100_000 }
     }
   end
+
+  # Gate registration for attestation nudge (passive observer, never raises).
+  def self.register_nudge_gate!
+    return unless defined?(KairosMcp::ToolRegistry)
+
+    config = load_config
+    return if config.dig('attestation_nudge', 'enabled') == false
+
+    KairosMcp::ToolRegistry.register_gate(:attestation_nudge) do |tool_name, _args, _safety|
+      AttestationNudge.instance.record_tool_usage(tool_name)
+    rescue StandardError => e
+      warn "[MMP::AttestationNudge] gate error (ignored): #{e.message}"
+    end
+  end
+
+  def self.unregister_nudge_gate!
+    return unless defined?(KairosMcp::ToolRegistry)
+
+    KairosMcp::ToolRegistry.unregister_gate(:attestation_nudge)
+    AttestationNudge.reset!
+  end
+
+  register_nudge_gate!
 end
