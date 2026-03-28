@@ -35,6 +35,9 @@ tool_blacklist:
   - "challenge_*"
   - "autoexec_plan"
   - "autoexec_run"
+  # MCP client: user-only (requires token)
+  - "mcp_connect"
+  - "mcp_disconnect"
 
 # Audit
 audit_level: summary

@@ -9,7 +9,8 @@ module KairosMcp
       module Tools
         class AgentStep < KairosMcp::Tools::BaseTool
           ORIENT_TOOLS = %w[knowledge_list knowledge_get chain_history
-                            skills_list resource_list resource_read context_save].freeze
+                            skills_list resource_list resource_read context_save
+                            mcp_list_remote].freeze
 
           def name
             'agent_step'
