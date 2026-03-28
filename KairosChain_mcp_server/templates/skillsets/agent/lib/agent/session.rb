@@ -69,6 +69,33 @@ module KairosMcp
           File.write(observation_path, JSON.pretty_generate(observation))
         end
 
+        # Append a progress entry after REFLECT (M5: cumulative progress file).
+        def save_progress(reflect_result, cycle_number, act_summary, decision_summary)
+          entry = {
+            'cycle'            => cycle_number,
+            'timestamp'        => Time.now.utc.iso8601,
+            'confidence'       => reflect_result['confidence'],
+            'achieved'         => reflect_result['achieved'] || [],
+            'remaining'        => reflect_result['remaining'] || [],
+            'learnings'        => reflect_result['learnings'] || [],
+            'open_questions'   => reflect_result['open_questions'] || [],
+            'act_summary'      => act_summary,
+            'decision_summary' => decision_summary
+          }
+          File.open(progress_path, 'a') { |f| f.puts(JSON.generate(entry)) }
+          entry
+        end
+
+        # Load progress history (most recent max_entries).
+        def load_progress(max_entries: 5)
+          return [] unless File.exist?(progress_path)
+
+          entries = File.readlines(progress_path).filter_map do |line|
+            JSON.parse(line.strip) rescue nil
+          end
+          entries.last(max_entries)
+        end
+
         # Load the last observation.
         def load_observation
           return nil unless File.exist?(observation_path)
@@ -144,6 +171,10 @@ module KairosMcp
 
         def observation_path
           File.join(session_dir, 'observation.json')
+        end
+
+        def progress_path
+          File.join(session_dir, 'progress.jsonl')
         end
 
         # Resolve storage path via Autonomos if available, else fallback.

@@ -115,7 +115,18 @@ module KairosMcp
             return error_result("skip only valid at [proposed]") unless session.state == 'proposed'
             # Skip ACT, go directly to REFLECT with "skipped"
             session.update_state('reflecting')
-            reflect_result = run_reflect(session, { 'skipped' => true })
+            act_result = { 'skipped' => true, 'summary' => 'skipped' }
+            reflect_result = run_reflect(session, act_result)
+
+            # Chain recording + progress (same as run_act_reflect)
+            decision_payload = session.load_decision || {}
+            record_agent_cycle(session, decision_payload, act_result, reflect_result)
+            session.save_progress(
+              reflect_result, session.cycle_number + 1,
+              'skipped', decision_payload['summary'] || ''
+            )
+
+            session.increment_cycle
             session.update_state('checkpoint')
             session.save
             text_content(JSON.generate({
@@ -190,6 +201,11 @@ module KairosMcp
 
             # Record cycle
             record_agent_cycle(session, decision_payload, act_result, reflect_result)
+
+            # M5: Save cumulative progress after REFLECT (1-based cycle numbering)
+            act_summary = act_result['summary'] || act_result['error'] || 'completed'
+            decision_summary = decision_payload['summary'] || ''
+            session.save_progress(reflect_result, session.cycle_number + 1, act_summary, decision_summary)
 
             session.increment_cycle
             session.update_state('checkpoint')
@@ -288,6 +304,7 @@ module KairosMcp
           end
 
           def run_observe_for_next_cycle(session)
+            # Progress history is injected via build_orient_prompt (not duplicated here)
             { 'goal_name' => session.goal_name, 'timestamp' => Time.now.iso8601,
               'cycle' => session.cycle_number + 1 }
           end
@@ -358,9 +375,23 @@ module KairosMcp
 
           def build_orient_prompt(session, observation_text = nil)
             parts = ["Goal: #{session.goal_name}", "Cycle: #{session.cycle_number + 1}"]
+            # M5: Prepend progress summary for cross-cycle continuity
+            progress = session.load_progress
+            parts << "Progress from previous cycles:\n#{format_progress_for_prompt(progress)}" unless progress.empty?
             parts << "Observation:\n#{observation_text}" if observation_text
             parts << "Analyze the current state and identify what needs to be done."
             parts.join("\n\n")
+          end
+
+          def format_progress_for_prompt(progress_entries)
+            return "No previous cycles." if progress_entries.empty?
+
+            progress_entries.map { |e|
+              "Cycle #{e['cycle']} (confidence: #{e['confidence']}): " \
+              "Achieved: #{(e['achieved'] || []).join(', ')}. " \
+              "Remaining: #{(e['remaining'] || []).join(', ')}. " \
+              "Learnings: #{(e['learnings'] || []).join(', ')}."
+            }.join("\n")
           end
 
           def build_decide_prompt(session, orient_result)
