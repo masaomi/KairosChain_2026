@@ -168,9 +168,10 @@ module KairosMcp
     end
 
     def handle_tools_list
-      {
-        tools: @tool_registry.list_tools
-      }
+      # Filter namespaced proxy tools (e.g., "peer1/tool") from external clients
+      # to prevent infinite proxy loops. Internal call_tool/tool_exists? still sees them.
+      tools = @tool_registry.list_tools.reject { |t| t[:name].to_s.include?('/') }
+      { tools: tools }
     end
 
     def handle_tools_call(params)

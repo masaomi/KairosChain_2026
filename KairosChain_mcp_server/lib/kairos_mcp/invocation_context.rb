@@ -96,12 +96,18 @@ module KairosMcp
 
     # Check if a tool is allowed by whitelist/blacklist policy.
     # Blacklist is checked first (deny wins). Both use fnmatch patterns.
+    # For namespaced tools (e.g., "peer1/agent_start"), also checks
+    # the bare name ("agent_start") to prevent blacklist bypass via
+    # remote proxy tool namespace prefix.
     def allowed?(tool_name)
-      if @blacklist&.any? { |pat| File.fnmatch(pat, tool_name) }
-        return false
+      names = [tool_name]
+      names << tool_name.split('/').last if tool_name.include?('/')
+
+      if @blacklist
+        return false if names.any? { |n| @blacklist.any? { |pat| File.fnmatch(pat, n) } }
       end
       if @whitelist
-        return @whitelist.any? { |pat| File.fnmatch(pat, tool_name) }
+        return names.any? { |n| @whitelist.any? { |pat| File.fnmatch(pat, n) } }
       end
       true
     end

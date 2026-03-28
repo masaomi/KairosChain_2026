@@ -167,6 +167,22 @@ module KairosMcp
       @tools.values.map(&:to_schema)
     end
 
+    # Register a pre-built tool instance (e.g., proxy tools from mcp_client).
+    # Cannot overwrite local (non-proxy) tools to prevent accidental replacement.
+    def register_dynamic_tool(tool_instance)
+      name = tool_instance.name
+      existing = @tools[name]
+      if existing && !existing.respond_to?(:remote_name)
+        raise "Cannot override local tool '#{name}' with dynamic registration"
+      end
+      @tools[name] = tool_instance
+    end
+
+    # Remove a dynamically registered tool (e.g., on mcp_disconnect).
+    def unregister_tool(name)
+      @tools.delete(name)
+    end
+
     def call_tool(name, arguments, invocation_context: nil)
       tool = @tools[name]
       unless tool

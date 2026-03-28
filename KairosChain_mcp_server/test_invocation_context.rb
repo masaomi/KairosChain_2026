@@ -549,6 +549,42 @@ assert("child does not share whitelist reference with parent") do
 end
 
 # =========================================================================
+# Phase 4 M0: Dual blacklist check for namespaced proxy tools
+# =========================================================================
+
+section "Dual blacklist check (Phase 4 M0)"
+
+assert("namespaced tool blocked when bare name matches blacklist") do
+  ctx = KairosMcp::InvocationContext.new(blacklist: %w[agent_*])
+  !ctx.allowed?('peer1/agent_start')
+end
+
+assert("namespaced tool blocked when exact bare name in blacklist") do
+  ctx = KairosMcp::InvocationContext.new(blacklist: %w[skills_evolve token_manage])
+  !ctx.allowed?('peer1/skills_evolve') && !ctx.allowed?('peer1/token_manage')
+end
+
+assert("namespaced tool allowed when bare name not in blacklist") do
+  ctx = KairosMcp::InvocationContext.new(blacklist: %w[agent_*])
+  ctx.allowed?('peer1/knowledge_get')
+end
+
+assert("non-namespaced tool still works with blacklist") do
+  ctx = KairosMcp::InvocationContext.new(blacklist: %w[agent_*])
+  !ctx.allowed?('agent_start') && ctx.allowed?('knowledge_get')
+end
+
+assert("namespaced tool with whitelist checks bare name") do
+  ctx = KairosMcp::InvocationContext.new(whitelist: %w[knowledge_*])
+  ctx.allowed?('peer1/knowledge_get') && !ctx.allowed?('peer1/agent_start')
+end
+
+assert("deeply namespaced tool checks last segment") do
+  ctx = KairosMcp::InvocationContext.new(blacklist: %w[agent_*])
+  !ctx.allowed?('org/sub/agent_start')
+end
+
+# =========================================================================
 # Summary
 # =========================================================================
 
