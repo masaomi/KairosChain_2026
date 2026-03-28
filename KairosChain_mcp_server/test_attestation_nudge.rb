@@ -279,6 +279,23 @@ assert('attested is true') { data.values.first['attested'] == true }
 assert('attested_at set') { !data.values.first['attested_at'].nil? }
 cleanup(dir)
 
+test_section('Test 12b: record_file_usage is no-op after attestation (P1-6)')
+tracker, dir = setup_tracker
+tracker.register_acquisition(
+  skill_id: 'skill_1', skill_name: 'Test', owner_agent_id: 'agent_a',
+  content_hash: 'hash_1', file_path: '/tmp/test.md'
+)
+3.times { tracker.record_file_usage('/tmp/test.md') }
+tracker.mark_attested(skill_id: 'skill_1', owner_agent_id: 'agent_a')
+# Usage after attestation should not increment
+tracker.record_file_usage('/tmp/test.md')
+tracker.record_file_usage('/tmp/test.md')
+data = JSON.parse(File.read(File.join(dir, MMP::AttestationNudge::USAGE_FILE)))
+assert('use_count stays at 3 after attestation') { data.values.first['use_count'] == 3 }
+# Index should be cleared for attested skill (P1-4)
+assert('file_path_index cleared for attested skill') { tracker.file_path_index['/tmp/test.md'].nil? }
+cleanup(dir)
+
 test_section('Test 13: different owner same skill_name = separate entries')
 tracker, dir = setup_tracker
 tracker.register_acquisition(

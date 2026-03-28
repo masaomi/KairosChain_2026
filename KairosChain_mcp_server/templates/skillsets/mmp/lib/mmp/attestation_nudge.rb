@@ -72,8 +72,9 @@ module MMP
             'tool_names' => tool_names
           }
         end
+        # Rebuild indexes from locked data (P0-1: avoids unlocked file read race)
+        rebuild_indexes_from(data)
       end
-      rebuild_indexes
     end
 
     # Called by gate: check in-memory index first, file I/O only on match.
@@ -93,6 +94,7 @@ module MMP
     end
 
     # Mark a skill as attested. Stops further nudges for this (skill_id, owner).
+    # Also rebuilds indexes to remove attested entries from tracking (P1-4).
     def mark_attested(skill_id:, owner_agent_id:)
       key = composite_key(skill_id, owner_agent_id)
       with_locked_data do |data|
@@ -101,6 +103,7 @@ module MMP
           entry['attested'] = true
           entry['attested_at'] = Time.now.utc.iso8601
         end
+        rebuild_indexes_from(data)
       end
     end
 
@@ -153,14 +156,23 @@ module MMP
       Digest::SHA256.hexdigest("#{skill_id}|#{owner_agent_id}")[0, 12]
     end
 
-    def rebuild_indexes
-      @tool_name_index = {}
-      @file_path_index = {}
-      data = load_data_readonly
+    # Rebuild indexes from already-locked data (avoids race condition).
+    def rebuild_indexes_from(data)
+      tool_idx = {}
+      file_idx = {}
       data.each do |key, entry|
-        (entry['tool_names'] || []).each { |tn| @tool_name_index[tn] = key }
-        @file_path_index[entry['file_path']] = key if entry['file_path']
+        next if entry['attested'] # P1-4: skip attested entries
+        (entry['tool_names'] || []).each { |tn| tool_idx[tn] = key }
+        file_idx[entry['file_path']] = key if entry['file_path']
       end
+      @tool_name_index = tool_idx
+      @file_path_index = file_idx
+    end
+
+    # Initial index build from file (used only in constructor).
+    def rebuild_indexes
+      data = load_data_readonly
+      rebuild_indexes_from(data)
     end
 
     def increment_usage(key)
@@ -179,7 +191,12 @@ module MMP
       File.open(path, File::RDWR | File::CREAT) do |f|
         f.flock(File::LOCK_EX)
         raw = f.read
-        data = raw.empty? ? {} : JSON.parse(raw)
+        data = begin
+                 raw.empty? ? {} : JSON.parse(raw)
+               rescue JSON::ParserError => e
+                 warn "[MMP::AttestationNudge] corrupted JSON, resetting: #{e.message}"
+                 {}
+               end
         yield(data)
         f.rewind
         f.write(JSON.generate(data))
