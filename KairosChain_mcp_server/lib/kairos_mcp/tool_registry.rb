@@ -130,6 +130,9 @@ module KairosMcp
 
       # Skill-based tools (from kairos.rb with tool block)
       register_skill_tools if skill_tools_enabled?
+
+      # Restore dynamic proxy tools from active mcp_client connections (Phase 4)
+      restore_dynamic_tools
     end
 
     # Register tools from enabled SkillSets
@@ -154,24 +157,9 @@ module KairosMcp
 
       Kairos.skills.each do |skill|
         next unless skill.has_tool?  # Only skills with tool block and executor
-        adapter = SkillToolAdapter.new(skill, @safety)
+        adapter = SkillToolAdapter.new(skill, @safety, registry: self)
         register(adapter)
       end
-    end
-
-    def skill_tools_enabled?
-      SkillsConfig.load['skill_tools_enabled'] == true
-    end
-
-    def register_if_defined(class_name)
-      klass = Object.const_get(class_name)
-      register(klass.new(@safety))
-    rescue NameError
-      # Class not defined yet (file might not exist), ignore
-    end
-
-    def register(tool)
-      @tools[tool.name] = tool
     end
 
     def set_workspace(roots)
@@ -182,16 +170,71 @@ module KairosMcp
       @tools.values.map(&:to_schema)
     end
 
-    def call_tool(name, arguments)
+    # Register a pre-built tool instance (e.g., proxy tools from mcp_client).
+    # Cannot overwrite local (non-proxy) tools to prevent accidental replacement.
+    def register_dynamic_tool(tool_instance)
+      name = tool_instance.name
+      existing = @tools[name]
+      if existing && !existing.respond_to?(:remote_name)
+        raise "Cannot override local tool '#{name}' with dynamic registration"
+      end
+      @tools[name] = tool_instance
+    end
+
+    # Remove a dynamically registered tool (e.g., on mcp_disconnect).
+    def unregister_tool(name)
+      @tools.delete(name)
+    end
+
+    def call_tool(name, arguments, invocation_context: nil)
       tool = @tools[name]
       unless tool
         raise "Tool not found: #{name}"
+      end
+
+      # Defense-in-depth: enforce invocation policy at the registry boundary.
+      # This duplicates the check in BaseTool#invoke_tool so that direct
+      # call_tool calls with a context also respect whitelist/blacklist.
+      if invocation_context && !invocation_context.allowed?(name)
+        raise InvocationContext::PolicyDeniedError,
+              "Tool '#{name}' blocked by invocation policy at registry boundary"
       end
 
       self.class.run_gates(name, arguments, @safety)
       tool.call(arguments)
     rescue GateDeniedError => e
       [{ type: 'text', text: JSON.pretty_generate({ error: 'forbidden', message: e.message }) }]
+    rescue InvocationContext::DepthExceededError, InvocationContext::PolicyDeniedError => e
+      [{ type: 'text', text: JSON.pretty_generate({ error: 'invocation_denied', message: e.message }) }]
+    end
+
+    private
+
+    def skill_tools_enabled?
+      SkillsConfig.load['skill_tools_enabled'] == true
+    end
+
+    def register_if_defined(class_name)
+      klass = Object.const_get(class_name)
+      register(klass.new(@safety, registry: self))
+    rescue NameError
+      # Class not defined yet (file might not exist), ignore
+    end
+
+    def register(tool)
+      @tools[tool.name] = tool
+    end
+
+    # Restore dynamic proxy tools from active mcp_client connections.
+    # Called at the end of register_tools so that HTTP-mode registries
+    # (which are recreated per request) pick up existing connections.
+    def restore_dynamic_tools
+      return unless defined?(KairosMcp::SkillSets::McpClient::ConnectionManager)
+
+      conn_mgr = KairosMcp::SkillSets::McpClient::ConnectionManager.instance
+      conn_mgr.restore_proxy_tools(self, @safety)
+    rescue StandardError
+      nil  # mcp_client SkillSet may not be loaded
     end
   end
 end

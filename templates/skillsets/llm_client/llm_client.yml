@@ -1,0 +1,48 @@
+# LLM Client Configuration
+# API keys are NEVER stored here — only env var names.
+#
+# Supported providers:
+#   anthropic    — Direct Anthropic API (requires ANTHROPIC_API_KEY)
+#   openai       — Direct OpenAI API (requires OPENAI_API_KEY)
+#   openrouter   — OpenRouter proxy (requires OPENROUTER_API_KEY, set base_url)
+#   bedrock      — AWS Bedrock (uses AWS credentials, data stays in AWS)
+#   claude_code  — Claude Code CLI subprocess (subscription, no API cost)
+#   local        — Local model via OpenAI-compatible API (Ollama, vLLM)
+
+provider: anthropic
+model: claude-sonnet-4-6
+api_key_env: ANTHROPIC_API_KEY
+default_max_tokens: 4096
+default_temperature: 0.7
+timeout_seconds: 120
+
+# --- Provider-specific examples (uncomment one) ---
+
+# # OpenRouter (cheaper API proxy, supports many models):
+# provider: openrouter
+# model: anthropic/claude-sonnet-4-6
+# api_key_env: OPENROUTER_API_KEY
+# base_url: https://openrouter.ai/api/v1
+
+# # AWS Bedrock (data stays within AWS):
+# provider: bedrock
+# model: anthropic.claude-sonnet-4-5-20250929-v1:0
+# aws_region: us-east-1
+# # Uses AWS credentials from environment (AWS_ACCESS_KEY_ID, etc. or IAM role)
+
+# # Claude Code CLI (subscription, no API cost):
+# provider: claude_code
+# # No api_key_env needed — uses Claude Code subscription auth
+
+# # Local model (Ollama):
+# provider: local
+# model: llama3.2
+# base_url: http://127.0.0.1:11434/v1
+
+# Cost estimates (USD per 1M tokens, for llm_status display)
+cost_estimates:
+  claude-sonnet-4-6: { input: 3.0, output: 15.0 }
+  claude-haiku-4-5: { input: 0.80, output: 4.0 }
+  claude-opus-4-6: { input: 15.0, output: 75.0 }
+  gpt-4o: { input: 2.50, output: 10.0 }
+  gpt-4o-mini: { input: 0.15, output: 0.60 }

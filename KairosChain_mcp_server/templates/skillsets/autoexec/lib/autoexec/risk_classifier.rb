@@ -79,7 +79,33 @@ module Autoexec
       l0_deny_list.any? { |d| action_str.include?(d.to_s.gsub('_', ' ')) || action_str.include?(d.to_s) }
     end
 
+    # Tool-name risk tiers: checked BEFORE text-based classification.
+    # Security boundary is tool identity, not action text description.
+    TOOL_RISK_TIERS = {
+      high: %w[
+        skills_evolve skills_rollback instructions_update
+        chain_record chain_import
+        token_manage
+        multiuser_user_manage multiuser_migrate
+      ],
+      medium: %w[
+        knowledge_update context_save context_create_subdir
+        formalization_record state_commit
+        autoexec_plan autoexec_run
+        meeting_deposit meeting_withdraw meeting_federate
+        attestation_issue attestation_revoke
+      ]
+    }.freeze
+
     def self.classify_step(step)
+      # Phase 2: if tool_name present, classify by tool identity first
+      if step.respond_to?(:tool_name) && step.tool_name
+        TOOL_RISK_TIERS.each do |risk_level, tools|
+          return risk_level if tools.include?(step.tool_name)
+        end
+        # Known tool not in tiers → fall through to text classification
+      end
+
       classify(action: step.action, target: nil)
     end
 

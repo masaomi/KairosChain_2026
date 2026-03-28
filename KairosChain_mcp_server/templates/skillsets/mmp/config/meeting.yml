@@ -57,6 +57,12 @@ meeting_place:
   max_session_minutes: 60
   warn_after_interactions: 50
 
+attestation_nudge:
+  enabled: true
+  threshold: 3
+  cooldown_hours: 24
+  nudge_interval_hours: 4
+
 protocol_evolution:
   auto_evaluate: true
   evaluation_period_days: 7

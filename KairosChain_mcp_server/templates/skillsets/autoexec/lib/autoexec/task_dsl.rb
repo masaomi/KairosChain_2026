@@ -12,10 +12,15 @@ module Autoexec
   end
 
   TaskStep = Struct.new(:step_id, :action, :risk, :depends_on,
-                        :requires_human_cognition, keyword_init: true) do
+                        :requires_human_cognition,
+                        :tool_name, :tool_arguments,
+                        keyword_init: true) do
     def to_h
-      { step_id: step_id, action: action, risk: risk,
-        depends_on: depends_on, requires_human_cognition: requires_human_cognition }
+      h = { step_id: step_id, action: action, risk: risk,
+            depends_on: depends_on, requires_human_cognition: requires_human_cognition }
+      h[:tool_name] = tool_name if tool_name
+      h[:tool_arguments] = tool_arguments if tool_arguments
+      h
     end
   end
 
@@ -100,21 +105,34 @@ module Autoexec
 
         deps = Array(s[:depends_on]).map(&:to_sym)
 
+        # tool_arguments: deep-stringify keys to avoid symbol/string mismatch
+        raw_args = s[:tool_arguments]
+        tool_args = raw_args ? deep_stringify_keys(raw_args) : nil
+
         TaskStep.new(
           step_id: s[:step_id].to_sym,
           action: s[:action] || '',
           risk: risk,
           depends_on: deps,
-          requires_human_cognition: s[:requires_human_cognition] == true
+          requires_human_cognition: s[:requires_human_cognition] == true,
+          tool_name: s[:tool_name]&.to_s,
+          tool_arguments: tool_args
         )
       end
 
+      has_executable = steps.any? { |s| s.tool_name }
       plan = TaskPlan.new(task_id: task_id, meta: meta, steps: steps, source_hash: nil)
 
-      # Generate canonical source, verify safety, and compute hash
-      source = to_source(plan)
-      check_forbidden!(source)  # Security: validate generated source against forbidden patterns
-      plan = TaskPlan.new(task_id: task_id, meta: meta, steps: steps, source_hash: compute_hash(source))
+      if has_executable
+        # Executable plans: hash from canonical JSON (no DSL involved)
+        plan_hash = compute_plan_hash(plan)
+      else
+        # Legacy plans: hash from DSL source
+        source = to_source(plan)
+        check_forbidden!(source)
+        plan_hash = compute_hash(source)
+      end
+      plan = TaskPlan.new(task_id: task_id, meta: meta, steps: steps, source_hash: plan_hash)
 
       errors = validate(plan)
       raise ParseError, "Validation errors: #{errors.join(', ')}" unless errors.empty?
@@ -138,6 +156,18 @@ module Autoexec
           errors << "Step #{step.step_id} depends on unknown step #{dep}" unless step_ids.include?(dep)
         end
         errors << "Invalid risk '#{step.risk}' for step #{step.step_id}" unless ALLOWED_RISK_VALUES.include?(step.risk)
+
+        # Validate tool_name / tool_arguments (Phase 2)
+        if step.tool_name
+          if step.tool_name.empty?
+            errors << "Empty tool_name for step #{step.step_id}"
+          elsif !step.tool_name.match?(/\A[a-z][a-z0-9_]*\z/)
+            errors << "Invalid tool_name '#{step.tool_name}' for step #{step.step_id}"
+          end
+        end
+        if step.tool_arguments && !step.tool_arguments.is_a?(Hash)
+          errors << "tool_arguments must be a Hash for step #{step.step_id}"
+        end
       end
 
       # Check for circular dependencies
@@ -174,10 +204,53 @@ module Autoexec
       Digest::SHA256.hexdigest(source)
     end
 
+    # Canonical JSON for executable plans (deterministic, sorted keys)
+    def self.canonical_plan_json(plan)
+      steps = plan.steps.map { |s| canonical_step(s) }
+      JSON.generate({
+        task_id: plan.task_id.to_s,
+        meta: plan.meta ? { description: plan.meta.description, risk_default: plan.meta.risk_default.to_s } : nil,
+        steps: steps
+      })
+    end
+
+    def self.compute_plan_hash(plan)
+      Digest::SHA256.hexdigest(canonical_plan_json(plan))
+    end
+
+    def self.deep_stringify_keys(obj)
+      case obj
+      when Hash then obj.transform_keys(&:to_s).transform_values { |v| deep_stringify_keys(v) }
+      when Array then obj.map { |v| deep_stringify_keys(v) }
+      else obj
+      end
+    end
+
     # --- Private ---
 
     class << self
       private
+
+      def canonical_step(step)
+        h = {
+          step_id: step.step_id.to_s,
+          action: step.action,
+          risk: step.risk.to_s,
+          depends_on: step.depends_on.map(&:to_s).sort,
+          requires_human_cognition: step.requires_human_cognition || false
+        }
+        h[:tool_name] = step.tool_name if step.tool_name
+        h[:tool_arguments] = sort_keys_deep(step.tool_arguments) if step.tool_arguments
+        h
+      end
+
+      def sort_keys_deep(obj)
+        case obj
+        when Hash then obj.sort_by { |k, _| k.to_s }.to_h.transform_values { |v| sort_keys_deep(v) }
+        when Array then obj.map { |v| sort_keys_deep(v) }
+        else obj
+        end
+      end
 
       def check_forbidden!(source)
         FORBIDDEN_PATTERNS.each do |pat|

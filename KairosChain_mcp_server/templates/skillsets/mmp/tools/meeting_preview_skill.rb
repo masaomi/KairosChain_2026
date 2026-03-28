@@ -84,7 +84,17 @@ module KairosMcp
               }
               output[:input_output] = result[:input_output] if result[:input_output]
 
-              text_content(JSON.pretty_generate(output))
+              # Check for pending attestation nudge
+              nudge_msg = nil
+              begin
+                nudge_msg = ::MMP::AttestationNudge.instance.pending_nudge
+              rescue StandardError => e
+                warn "[MMP] Nudge check failed: #{e.message}"
+              end
+
+              result_text = JSON.pretty_generate(output)
+              result_text += "\n\n---\n#{nudge_msg}" if nudge_msg
+              text_content(result_text)
             rescue StandardError => e
               text_content(JSON.pretty_generate({ error: 'Preview failed', message: e.message }))
             end

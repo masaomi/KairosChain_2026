@@ -1,8 +1,28 @@
+require_relative '../invocation_context'
+
 module KairosMcp
   module Tools
     class BaseTool
-      def initialize(safety = nil)
+      def initialize(safety = nil, registry: nil)
         @safety = safety
+        @registry = registry
+      end
+
+      # Invoke another tool through the same ToolRegistry, preserving the
+      # full gate pipeline and invocation policy (whitelist/blacklist/depth).
+      # Only available when the tool was registered with a registry reference.
+      def invoke_tool(tool_name, arguments = {}, context: nil)
+        raise "Tool invocation not available (no registry)" unless @registry
+
+        ctx = context || InvocationContext.new
+        child_ctx = ctx.child(caller_tool: name)
+
+        unless child_ctx.allowed?(tool_name)
+          raise InvocationContext::PolicyDeniedError,
+                "Tool '#{tool_name}' blocked by invocation policy (caller: #{name})"
+        end
+
+        @registry.call_tool(tool_name, arguments, invocation_context: child_ctx)
       end
 
       def name

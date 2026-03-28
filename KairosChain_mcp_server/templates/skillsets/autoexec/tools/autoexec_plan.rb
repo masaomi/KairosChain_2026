@@ -98,9 +98,14 @@ module KairosMcp
               }))
             end
 
-            # Save plan
+            # Save plan (executable plans use JSON format, legacy use DSL)
             task_id = plan.task_id.to_s
-            stored_hash = ::Autoexec::PlanStore.save(task_id, plan, source)
+            has_executable_steps = plan.steps.any? { |s| s.tool_name }
+            stored_hash = if has_executable_steps
+                           ::Autoexec::PlanStore.save_executable(task_id, plan)
+                         else
+                           ::Autoexec::PlanStore.save(task_id, plan, source)
+                         end
 
             # Build required permissions list
             required_permissions = build_permissions(plan)

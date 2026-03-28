@@ -1,0 +1,43 @@
+# Agent SkillSet configuration
+llm_model: claude-sonnet-4-6
+provider: null  # uses llm_client default
+
+# Per-phase budgets
+phases:
+  orient:
+    max_llm_calls: 10
+    max_tool_calls: 20
+  decide_prep:
+    max_llm_calls: 3
+    max_tool_calls: 5
+  decide:
+    max_llm_calls: 5
+    max_tool_calls: 0      # run_decide passes tools: [] — no tool_use
+    max_repair_attempts: 3  # must be <= max_llm_calls
+  reflect:
+    max_llm_calls: 3
+    max_tool_calls: 0
+
+# Default policy
+tool_blacklist:
+  - "agent_*"
+  - "autonomos_*"
+  - "skills_evolve"
+  - "skills_rollback"
+  - "skills_promote"
+  - "instructions_update"
+  - "token_manage"
+  - "system_upgrade"
+  - "chain_import"
+  - "multiuser_*"
+  - "chain_migrate_*"
+  - "chain_export"
+  - "challenge_*"
+  - "autoexec_plan"
+  - "autoexec_run"
+  # MCP client: user-only (requires token)
+  - "mcp_connect"
+  - "mcp_disconnect"
+
+# Audit
+audit_level: summary

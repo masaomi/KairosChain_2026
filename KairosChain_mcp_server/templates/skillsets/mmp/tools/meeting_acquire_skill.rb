@@ -111,6 +111,19 @@ module KairosMcp
                 skill_acquired: { id: skill_id, name: content_result[:skill_name] }
               )
 
+              # Register for attestation nudge tracking
+              begin
+                ::MMP::AttestationNudge.instance.register_acquisition(
+                  skill_id: skill_id,
+                  skill_name: content_result[:skill_name],
+                  owner_agent_id: source_id,
+                  content_hash: content_result[:content_hash],
+                  file_path: save_result[:path]
+                )
+              rescue StandardError => e
+                warn "[MeetingAcquireSkill] Nudge registration failed: #{e.message}"
+              end
+
               result = {
                 status: 'acquired',
                 source: peer_id ? 'peer' : 'place_deposit',
