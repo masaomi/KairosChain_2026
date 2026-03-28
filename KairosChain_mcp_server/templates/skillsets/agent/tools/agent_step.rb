@@ -10,7 +10,6 @@ module KairosMcp
         class AgentStep < KairosMcp::Tools::BaseTool
           ORIENT_TOOLS = %w[knowledge_list knowledge_get chain_history
                             skills_list resource_list resource_read context_save].freeze
-          DECIDE_PREP_TOOLS = %w[knowledge_list knowledge_get].freeze
 
           def name
             'agent_step'
@@ -165,10 +164,6 @@ module KairosMcp
               'orient' => summarize_orient(orient_result),
               'decision_payload' => decide_result['decision_payload']
             }))
-          end
-
-          def decide_needs_references?(_orient_result)
-            false # Default: skip Stage 1. Override in future if needed.
           end
 
           # ---- ACT + REFLECT ----
