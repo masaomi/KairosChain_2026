@@ -141,12 +141,7 @@ module KairosMcp
             orient_result = loop_inst.run_phase('orient', orient_system_prompt, messages, ORIENT_TOOLS)
             return error_with_state(session, 'observed', orient_result) if orient_result['error']
 
-            # DECIDE (single-stage for M2; two-stage decide_prep deferred to M5)
-            # Design v0.4 sec 3.3 defines an optional Stage 1 (decide_prep) for
-            # reference gathering. Currently descoped from M2 — the hook point
-            # (decide_needs_references?) is preserved but always returns false.
-            # When M5 enables it: run_phase('decide_prep', ..., DECIDE_PREP_TOOLS)
-            # then append prep_result to decide_messages before run_decide.
+            # DECIDE (single-stage; see design v0.4 sec 3.3 for future extension)
             session.update_state('deciding')
             decide_messages = [{ 'role' => 'user', 'content' => build_decide_prompt(session, orient_result) }]
 
