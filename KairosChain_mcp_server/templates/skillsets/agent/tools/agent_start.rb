@@ -91,6 +91,7 @@ module KairosMcp
             # OBSERVE (no LLM — direct Ruby)
             observation = run_observe(goal_name)
 
+            session.save_observation(observation)
             session.update_state('observed')
             session.save
 

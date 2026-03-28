@@ -505,6 +505,114 @@ assert("rejects tool batch exceeding budget") do
 end
 
 # =========================================================================
+# 9. Fix verification: decision persistence (Fix #1)
+# =========================================================================
+
+section "Decision persistence (Fix #1)"
+
+assert("save_decision and load_decision roundtrip") do
+  start_tool = registry.instance_variable_get(:@tools)['agent_start']
+  result = start_tool.call({ 'goal_name' => 'decision_persist_test' })
+  session_id = JSON.parse(result[0][:text])['session_id']
+  session = Session.load(session_id)
+
+  dp = { 'summary' => 'test plan', 'task_json' => { 'task_id' => 'x', 'steps' => [] } }
+  session.save_decision(dp)
+
+  loaded = session.load_decision
+  loaded && loaded['summary'] == 'test plan' && loaded['task_json']['task_id'] == 'x'
+end
+
+assert("load_decision returns nil when no decision saved") do
+  start_tool = registry.instance_variable_get(:@tools)['agent_start']
+  result = start_tool.call({ 'goal_name' => 'no_decision_test' })
+  session_id = JSON.parse(result[0][:text])['session_id']
+  session = Session.load(session_id)
+  session.load_decision.nil?
+end
+
+# =========================================================================
+# 10. Fix verification: observation persistence (Fix #6)
+# =========================================================================
+
+section "Observation persistence (Fix #6)"
+
+assert("agent_start saves observation") do
+  start_tool = registry.instance_variable_get(:@tools)['agent_start']
+  result = start_tool.call({ 'goal_name' => 'obs_persist_test' })
+  session_id = JSON.parse(result[0][:text])['session_id']
+  session = Session.load(session_id)
+  obs = session.load_observation
+  obs && obs['goal_name'] == 'obs_persist_test'
+end
+
+# =========================================================================
+# 11. E2E: agent_step(approve) at observed → proposed (Fix #1 + #2)
+# =========================================================================
+
+section "E2E: observed → proposed"
+
+assert("approve at observed runs orient+decide and reaches proposed") do
+  start_tool = registry.instance_variable_get(:@tools)['agent_start']
+  result = start_tool.call({ 'goal_name' => 'e2e_orient_decide' })
+  session_id = JSON.parse(result[0][:text])['session_id']
+
+  # Queue LLM responses: 1 for ORIENT, 1 for DECIDE
+  valid_decision = JSON.generate({
+    'summary' => 'e2e plan',
+    'task_json' => {
+      'task_id' => 'e2e_001', 'meta' => { 'description' => 'test', 'risk_default' => 'low' },
+      'steps' => [{ 'step_id' => 's1', 'action' => 'test', 'tool_name' => 'echo',
+                     'tool_arguments' => {}, 'risk' => 'low', 'depends_on' => [],
+                     'requires_human_cognition' => false }]
+    }
+  })
+
+  MockLlmCall.clear!
+  # ORIENT response
+  MockLlmCall.queue_response({ 'content' => 'Analysis: gaps found', 'tool_use' => nil, 'stop_reason' => 'end_turn' })
+  # DECIDE response
+  MockLlmCall.queue_response({ 'content' => valid_decision, 'tool_use' => nil, 'stop_reason' => 'end_turn' })
+
+  step_tool = registry.instance_variable_get(:@tools)['agent_step']
+  result = step_tool.call({ 'session_id' => session_id, 'action' => 'approve' })
+  parsed = JSON.parse(result[0][:text])
+  parsed['status'] == 'ok' &&
+    parsed['state'] == 'proposed' &&
+    parsed['decision_payload']['summary'] == 'e2e plan'
+end
+
+assert("decision is persisted after observed→proposed") do
+  # Use the last created session from the test above
+  # Create a fresh one to be safe
+  start_tool = registry.instance_variable_get(:@tools)['agent_start']
+  result = start_tool.call({ 'goal_name' => 'persist_check' })
+  session_id = JSON.parse(result[0][:text])['session_id']
+
+  valid_decision = JSON.generate({
+    'summary' => 'persist check',
+    'task_json' => {
+      'task_id' => 'pc_001', 'meta' => { 'description' => 'x', 'risk_default' => 'low' },
+      'steps' => [{ 'step_id' => 's1', 'action' => 'a', 'tool_name' => 'echo',
+                     'tool_arguments' => {}, 'risk' => 'low', 'depends_on' => [],
+                     'requires_human_cognition' => false }]
+    }
+  })
+
+  MockLlmCall.clear!
+  MockLlmCall.queue_response({ 'content' => 'orient ok', 'tool_use' => nil, 'stop_reason' => 'end_turn' })
+  MockLlmCall.queue_response({ 'content' => valid_decision, 'tool_use' => nil, 'stop_reason' => 'end_turn' })
+
+  step_tool = registry.instance_variable_get(:@tools)['agent_step']
+  step_tool.call({ 'session_id' => session_id, 'action' => 'approve' })
+
+  # Verify decision was persisted
+  session = Session.load(session_id)
+  dp = session.load_decision
+  dp && dp['summary'] == 'persist check'
+end
+
+# =========================================================================
 # Cleanup
 # =========================================================================
 

@@ -51,6 +51,32 @@ module KairosMcp
           @cycle_number += 1
         end
 
+        # Persist decision_payload for the proposed→ACT transition.
+        def save_decision(decision_payload)
+          File.write(decision_path, JSON.pretty_generate(decision_payload))
+        end
+
+        # Load the last saved decision_payload.
+        def load_decision
+          return nil unless File.exist?(decision_path)
+          JSON.parse(File.read(decision_path))
+        rescue JSON::ParserError
+          nil
+        end
+
+        # Persist observation for ORIENT continuity.
+        def save_observation(observation)
+          File.write(observation_path, JSON.pretty_generate(observation))
+        end
+
+        # Load the last observation.
+        def load_observation
+          return nil unless File.exist?(observation_path)
+          JSON.parse(File.read(observation_path))
+        rescue JSON::ParserError
+          nil
+        end
+
         # Persist session state to disk.
         def save
           data = {
@@ -110,6 +136,14 @@ module KairosMcp
 
         def state_path
           File.join(session_dir, 'session.json')
+        end
+
+        def decision_path
+          File.join(session_dir, 'decision_payload.json')
+        end
+
+        def observation_path
+          File.join(session_dir, 'observation.json')
         end
 
         # Resolve storage path via Autonomos if available, else fallback.

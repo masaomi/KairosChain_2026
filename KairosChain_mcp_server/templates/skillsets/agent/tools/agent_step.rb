@@ -128,26 +128,44 @@ module KairosMcp
           # ---- ORIENT + DECIDE ----
 
           def run_orient_decide(session)
-            loop = CognitiveLoop.new(self, session)
+            loop_inst = CognitiveLoop.new(self, session)
+
+            # Load observation (Fix #6: pass to ORIENT)
+            observation = session.load_observation
+            observation_text = observation ? JSON.generate(observation) : '(no observation data)'
 
             # ORIENT
             session.update_state('orienting')
-            orient_prompt = build_orient_prompt(session)
+            orient_prompt = build_orient_prompt(session, observation_text)
             messages = [{ 'role' => 'user', 'content' => orient_prompt }]
 
-            orient_result = loop.run_phase('orient', orient_system_prompt, messages, ORIENT_TOOLS)
+            orient_result = loop_inst.run_phase('orient', orient_system_prompt, messages, ORIENT_TOOLS)
             return error_with_state(session, 'observed', orient_result) if orient_result['error']
 
-            # DECIDE (two-stage: optional prep + JSON output)
+            # DECIDE (Fix #2: two-stage flow)
             session.update_state('deciding')
-
-            # Stage 1: optional reference gathering
             decide_messages = [{ 'role' => 'user', 'content' => build_decide_prompt(session, orient_result) }]
 
-            # Stage 2: JSON plan output
-            decide_result = loop.run_decide(decide_system_prompt, decide_messages)
+            # Stage 1 (optional): reference gathering via run_phase
+            # Currently skipped — decide_needs_references? defaults to false.
+            # When needed, Stage 1 gathers references and appends to decide_messages.
+            if decide_needs_references?(orient_result)
+              prep_result = loop_inst.run_phase('decide_prep', decide_system_prompt, decide_messages, DECIDE_PREP_TOOLS)
+              # Explicitly append Stage 1 output for Stage 2 continuity (Cursor P1 fix)
+              if prep_result['content']
+                decide_messages << { 'role' => 'assistant', 'content' => prep_result['content'] }
+                decide_messages << MessageFormat.user_message(
+                  'Now output the final decision_payload as JSON based on the gathered references.'
+                )
+              end
+            end
+
+            # Stage 2: JSON plan output (no tool_use)
+            decide_result = loop_inst.run_decide(decide_system_prompt, decide_messages)
             return error_with_state(session, 'observed', decide_result) if decide_result['error']
 
+            # Fix #1: persist decision for proposed→ACT transition
+            session.save_decision(decide_result['decision_payload'])
             session.update_state('proposed')
             session.save
 
@@ -157,6 +175,10 @@ module KairosMcp
               'orient' => summarize_orient(orient_result),
               'decision_payload' => decide_result['decision_payload']
             }))
+          end
+
+          def decide_needs_references?(_orient_result)
+            false # Default: skip Stage 1. Override in future if needed.
           end
 
           # ---- ACT + REFLECT ----
@@ -254,6 +276,9 @@ module KairosMcp
 
           # ---- NEXT CYCLE ----
 
+          # Fix #3: approve at [checkpoint] means the user has approved continuation.
+          # checkpoint_due? is checked BEFORE reaching [checkpoint] (in run_act_reflect).
+          # When the user approves at [checkpoint], we always proceed to the next cycle.
           def run_next_cycle(session)
             mandate = Autonomos::Mandate.load(session.mandate_id)
 
@@ -269,17 +294,9 @@ module KairosMcp
               }))
             end
 
-            # Check checkpoint
-            if Autonomos::Mandate.checkpoint_due?(mandate)
-              return text_content(JSON.generate({
-                'status' => 'checkpoint', 'session_id' => session.session_id,
-                'cycles_completed' => mandate[:cycles_completed],
-                'message' => 'Checkpoint reached. Approve to continue.'
-              }))
-            end
-
-            # Re-observe and continue
+            # Re-observe and continue to next cycle
             observation = run_observe_for_next_cycle(session)
+            session.save_observation(observation)
             session.update_state('observed')
             session.save
 
@@ -298,13 +315,22 @@ module KairosMcp
           # ---- DECIDE with feedback ----
 
           def run_decide_with_feedback(session, feedback)
-            loop = CognitiveLoop.new(self, session)
+            loop_inst = CognitiveLoop.new(self, session)
+
+            # Include prior decision for context continuity (Fix #5)
+            prior_decision = session.load_decision
+            prior_json = prior_decision ? JSON.generate(prior_decision) : '(none)'
+
             messages = [
-              { 'role' => 'user', 'content' => "Previous plan was rejected. Feedback: #{feedback}\nPlease revise." }
+              { 'role' => 'user', 'content' =>
+                "Previous plan:\n#{prior_json}\n\n" \
+                "This plan was rejected. Feedback: #{feedback}\n\n" \
+                "Please revise the plan and output a new decision_payload as JSON." }
             ]
-            decide_result = loop.run_decide(decide_system_prompt, messages)
+            decide_result = loop_inst.run_decide(decide_system_prompt, messages)
             return error_with_state(session, 'proposed', decide_result) if decide_result['error']
 
+            session.save_decision(decide_result['decision_payload'])
             session.save
             text_content(JSON.generate({
               'status' => 'ok', 'session_id' => session.session_id,
@@ -350,10 +376,11 @@ module KairosMcp
             "remaining: [...], learnings: [...], open_questions: [...]}."
           end
 
-          def build_orient_prompt(session, observation = nil)
-            "Goal: #{session.goal_name}\n" \
-            "Cycle: #{session.cycle_number + 1}\n" \
-            "Analyze the current state and identify what needs to be done."
+          def build_orient_prompt(session, observation_text = nil)
+            parts = ["Goal: #{session.goal_name}", "Cycle: #{session.cycle_number + 1}"]
+            parts << "Observation:\n#{observation_text}" if observation_text
+            parts << "Analyze the current state and identify what needs to be done."
+            parts.join("\n\n")
           end
 
           def build_decide_prompt(session, orient_result)
@@ -371,10 +398,7 @@ module KairosMcp
           # ---- Helpers ----
 
           def load_last_decision(session)
-            # For now, the decision is passed through the session's last saved state
-            # In production, this would load from session storage
-            # The caller (handle_approve at 'proposed') should have it from the previous step
-            nil # TODO: implement decision persistence in M3
+            session.load_decision
           end
 
           def summarize_orient(result)
