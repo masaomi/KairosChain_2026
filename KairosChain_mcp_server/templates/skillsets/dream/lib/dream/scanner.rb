@@ -222,8 +222,29 @@ module KairosMcp
           # Collect all L2 tags from live contexts
           all_l2_tags = collect_all_l2_tags
 
-          # L1 skills not referenced in any L2 tag
-          stale_l1 = l1_names.reject { |name| all_l2_tags.include?(name) }
+          # Normalize L2 tags for matching (e.g., "multi-llm-review" → "multi_llm_review")
+          normalized_l2_tags = Set.new
+          all_l2_tags.each do |tag|
+            normalized_l2_tags << tag
+            normalized_l2_tags << tag.tr('-', '_')  # hyphen → underscore
+            normalized_l2_tags << tag.tr('_', '-')  # underscore → hyphen
+          end
+
+          # L1 staleness: check by tag overlap, name token overlap, AND name containment
+          stale_l1 = l1_names.select do |name|
+            l1_entry = l1_skills.find { |s| s[:name] == name }
+            l1_tags = Array(l1_entry[:tags]) if l1_entry
+
+            # Method 1: L1 tags overlap with L2 tags
+            tag_overlap = l1_tags && (l1_tags.to_set & all_l2_tags).any?
+
+            # Method 2: L1 name (or name tokens) appear in normalized L2 tags
+            name_tokens = name.split('_').reject { |t| t.size < 3 }  # skip tiny tokens
+            name_in_tags = name_tokens.any? { |token| normalized_l2_tags.any? { |t| t.include?(token) } }
+
+            # Not stale if either method finds a reference
+            !tag_overlap && !name_in_tags
+          end
 
           result[:health_summary].merge!(
             total_l1: l1_names.size,
