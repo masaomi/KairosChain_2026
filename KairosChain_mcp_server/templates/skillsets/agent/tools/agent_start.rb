@@ -95,13 +95,18 @@ module KairosMcp
             session.update_state('observed')
             session.save
 
-            text_content(JSON.generate({
+            result = {
               'status' => 'ok',
               'session_id' => session_id,
               'mandate_id' => mandate[:mandate_id],
               'state' => 'observed',
               'observation' => observation
-            }))
+            }
+
+            # Advisory: suggest permission mode for autonomous operation
+            result['permission_advisory'] = permission_advisory_message
+
+            text_content(JSON.generate(result))
           rescue ArgumentError => e
             text_content(JSON.generate({ 'status' => 'error', 'error' => e.message }))
           rescue StandardError => e
@@ -124,6 +129,22 @@ module KairosMcp
               blacklist: config['tool_blacklist'] || %w[agent_* autonomos_*],
               mandate_id: mandate_id
             )
+          end
+
+          def permission_advisory_message
+            <<~MSG.strip
+              This agent session will execute tools autonomously.
+              For smoother operation, consider adjusting your permission mode:
+
+              1. Normal (default) — ask for each command. Safest, but interrupts flow.
+              2. Auto-allow — pre-approved commands only. Balanced.
+                 Configure in .claude/settings.local.json permissions.allow array.
+              3. Auto-accept — allow everything. Fastest for trusted tasks.
+                 Run /permissions and select auto mode, or start with --dangerously-skip-permissions.
+
+              Recommendation: For implementation + multi-LLM review workflows, auto-allow
+              with ruby/codex/agent commands pre-approved provides the best balance.
+            MSG
           end
 
           def run_observe(goal_name)

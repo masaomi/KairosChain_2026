@@ -1,0 +1,18 @@
+{
+  "name": "dream",
+  "version": "0.2.1",
+  "description": "Memory consolidation and L2 lifecycle management. Scans for recurring patterns, manages L2 soft-archive, and packages promotion proposals.",
+  "author": "Masaomi Hatakeyama",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": ["pattern_detection", "promotion_discovery", "knowledge_health_scan", "l2_soft_archive", "l2_recall"],
+  "tool_classes": [
+    "KairosMcp::SkillSets::Dream::Tools::DreamScan",
+    "KairosMcp::SkillSets::Dream::Tools::DreamPropose",
+    "KairosMcp::SkillSets::Dream::Tools::DreamArchive",
+    "KairosMcp::SkillSets::Dream::Tools::DreamRecall"
+  ],
+  "config_files": ["config/dream.yml"],
+  "knowledge_dirs": ["knowledge/dream_trigger_policy"],
+  "min_core_version": "2.8.0"
+}
