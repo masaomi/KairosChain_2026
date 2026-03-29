@@ -1,0 +1,22 @@
+# Document Authoring SkillSet configuration
+llm_model: null  # uses llm_client default
+
+# Output settings
+output_base_dir: null  # null = workspace root (@safety.safe_root)
+
+# Per-section limits
+max_words_default: 500
+
+# Context assembly
+max_context_chars: 4000        # per source, truncated at paragraph boundary
+max_total_context_chars: 16000  # total context budget
+max_context_sources: 10        # max number of context URIs
+
+# File safety
+allowed_output_extensions:
+  - ".md"
+  - ".txt"
+max_output_file_size_bytes: 1048576  # 1MB — refuse to overwrite larger files
+
+# document_status limits
+max_status_files: 50  # max files to scan

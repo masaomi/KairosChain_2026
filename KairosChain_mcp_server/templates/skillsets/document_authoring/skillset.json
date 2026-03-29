@@ -1,0 +1,19 @@
+{
+  "name": "document_authoring",
+  "version": "0.1.0",
+  "description": "LLM-driven document section generation with L1/L2 context injection. Integrates with Agent OODA via autoexec internal_execute.",
+  "author": "Masaomi Hatakeyama",
+  "layer": "L1",
+  "depends_on": ["llm_client"],
+  "provides": [
+    "document_authoring",
+    "section_writing"
+  ],
+  "tool_classes": [
+    "KairosMcp::SkillSets::DocumentAuthoring::Tools::WriteSection",
+    "KairosMcp::SkillSets::DocumentAuthoring::Tools::DocumentStatus"
+  ],
+  "config_files": ["config/document_authoring.yml"],
+  "knowledge_dirs": ["knowledge/document_authoring_guide"],
+  "min_core_version": "2.8.0"
+}
