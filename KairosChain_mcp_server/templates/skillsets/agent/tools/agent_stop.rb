@@ -53,7 +53,7 @@ module KairosMcp
 
             # Update mandate status
             begin
-              Autonomos::Mandate.update_status(session.mandate_id, 'interrupted')
+              ::Autonomos::Mandate.update_status(session.mandate_id, 'interrupted')
             rescue StandardError
               # Non-fatal
             end

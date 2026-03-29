@@ -66,7 +66,7 @@ module KairosMcp
 
             # Create mandate via Autonomos
             goal_hash = Digest::SHA256.hexdigest(goal_name)[0..15]
-            mandate = Autonomos::Mandate.create(
+            mandate = ::Autonomos::Mandate.create(
               goal_name: goal_name,
               goal_hash: goal_hash,
               max_cycles: max_cycles,
@@ -151,10 +151,10 @@ module KairosMcp
             # Gather observation data without LLM
             observation = { 'goal_name' => goal_name, 'timestamp' => Time.now.iso8601 }
 
-            # Try to load goal from L2/L1
-            if defined?(Autonomos::Ooda)
+            # Load environment data via Autonomos::Ooda
+            if defined?(::Autonomos::Ooda)
               begin
-                helper = Class.new { include Autonomos::Ooda }.new
+                helper = Class.new { include ::Autonomos::Ooda }.new
                 ooda_obs = helper.observe(goal_name)
                 observation.merge!(ooda_obs.transform_keys(&:to_s)) if ooda_obs.is_a?(Hash)
               rescue StandardError => e
@@ -162,7 +162,46 @@ module KairosMcp
               end
             end
 
+            # Load goal content from L2/L1 so Orient has context to analyze
+            begin
+              if defined?(::Autonomos::Ooda)
+                helper = Class.new { include ::Autonomos::Ooda }.new
+                goal = helper.load_goal(goal_name)
+              else
+                goal = load_goal_fallback(goal_name)
+              end
+              if goal && goal[:found]
+                observation['goal_content'] = goal[:content]
+                observation['goal_source'] = goal[:source].to_s
+              end
+            rescue StandardError => e
+              observation['goal_load_error'] = e.message
+            end
+
             observation
+          end
+
+          def load_goal_fallback(goal_name)
+            # Direct L2/L1 lookup when Autonomos::Ooda is unavailable
+            if defined?(KairosMcp::ContextManager)
+              ctx_mgr = KairosMcp::ContextManager.new
+              ctx_mgr.list_sessions.each do |session|
+                entry = ctx_mgr.get_context(session[:session_id], goal_name)
+                if entry && entry.respond_to?(:content) && entry.content && !entry.content.strip.empty?
+                  return { content: entry.content, found: true, source: :l2 }
+                end
+              end
+            end
+            if defined?(KairosMcp::KnowledgeProvider)
+              provider = KairosMcp::KnowledgeProvider.new(nil)
+              result = provider.get(goal_name)
+              if result && result[:content] && !result[:content].strip.empty?
+                return { content: result[:content], found: true, source: :l1 }
+              end
+            end
+            { content: nil, found: false }
+          rescue StandardError
+            { content: nil, found: false }
           end
         end
       end

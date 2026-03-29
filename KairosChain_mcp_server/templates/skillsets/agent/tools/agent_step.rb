@@ -191,9 +191,9 @@ module KairosMcp
 
             # Check risk before ACT
             proposal = MandateAdapter.to_mandate_proposal(decision_payload)
-            mandate = Autonomos::Mandate.load(session.mandate_id)
-            if Autonomos::Mandate.risk_exceeds_budget?(proposal, mandate[:risk_budget])
-              Autonomos::Mandate.update_status(session.mandate_id, 'paused_risk_exceeded')
+            mandate = ::Autonomos::Mandate.load(session.mandate_id)
+            if ::Autonomos::Mandate.risk_exceeds_budget?(proposal, mandate[:risk_budget])
+              ::Autonomos::Mandate.update_status(session.mandate_id, 'paused_risk_exceeded')
               session.update_state('terminated')
               session.save
               return text_content(JSON.generate({
@@ -271,14 +271,27 @@ module KairosMcp
             result = loop.run_phase('reflect', reflect_system_prompt, messages, [])
 
             if result['content']
-              begin
-                JSON.parse(result['content'])
-              rescue JSON::ParserError
-                { 'confidence' => 0.0, 'raw' => result['content'] }
-              end
+              parse_reflect_json(result['content'])
             else
               { 'confidence' => 0.0, 'error' => result['error'] || 'no content' }
             end
+          end
+
+          # Parse REFLECT response, handling code fences and nested JSON
+          def parse_reflect_json(content)
+            # Try direct parse first
+            JSON.parse(content)
+          rescue JSON::ParserError
+            # Try extracting from code fences
+            if content =~ /```(?:json)?\s*\n?(.*?)\n?\s*```/m
+              begin
+                return JSON.parse($1)
+              rescue JSON::ParserError
+                # fall through
+              end
+            end
+            # Last resort: confidence 0.0 with raw content preserved
+            { 'confidence' => 0.0, 'raw' => content }
           end
 
           # ---- NEXT CYCLE ----
@@ -287,12 +300,12 @@ module KairosMcp
           # checkpoint_due? is checked BEFORE reaching [checkpoint] (in run_act_reflect).
           # When the user approves at [checkpoint], we always proceed to the next cycle.
           def run_next_cycle(session)
-            mandate = Autonomos::Mandate.load(session.mandate_id)
+            mandate = ::Autonomos::Mandate.load(session.mandate_id)
 
             # Check termination conditions
-            term_reason = Autonomos::Mandate.check_termination(mandate)
+            term_reason = ::Autonomos::Mandate.check_termination(mandate)
             if term_reason
-              Autonomos::Mandate.update_status(session.mandate_id, 'terminated')
+              ::Autonomos::Mandate.update_status(session.mandate_id, 'terminated')
               session.update_state('terminated')
               session.save
               return text_content(JSON.generate({
@@ -357,7 +370,7 @@ module KairosMcp
           # description (matches autonomos_loop's approach).
           # Single-session-per-mandate assumed (no concurrent mandate writes).
           def check_loop_detection(session, _orient_result, decision_payload)
-            mandate = Autonomos::Mandate.load(session.mandate_id)
+            mandate = ::Autonomos::Mandate.load(session.mandate_id)
             return nil unless mandate
 
             # Use decision summary as gap description (same source as proposal)
@@ -367,11 +380,11 @@ module KairosMcp
 
             proposal = MandateAdapter.to_mandate_proposal(decision_payload)
 
-            if Autonomos::Mandate.loop_detected?(proposal, recent_gaps)
+            if ::Autonomos::Mandate.loop_detected?(proposal, recent_gaps)
               # Single save: update both status and gap history atomically
               mandate[:status] = 'terminated'
               mandate[:recent_gap_descriptions] = recent_gaps_updated
-              Autonomos::Mandate.save(session.mandate_id, mandate)
+              ::Autonomos::Mandate.save(session.mandate_id, mandate)
               session.update_state('terminated')
               session.save
               return true
@@ -379,7 +392,7 @@ module KairosMcp
 
             # Update gap history even if no loop detected
             mandate[:recent_gap_descriptions] = recent_gaps_updated
-            Autonomos::Mandate.save(session.mandate_id, mandate)
+            ::Autonomos::Mandate.save(session.mandate_id, mandate)
             nil
           rescue StandardError => e
             warn "[agent] Loop detection failed: #{e.message}"
@@ -390,7 +403,7 @@ module KairosMcp
 
           def record_agent_cycle(session, decision_payload, act_result, reflect_result)
             evaluation = MandateAdapter.reflect_to_evaluation(reflect_result)
-            Autonomos::Mandate.record_cycle(
+            ::Autonomos::Mandate.record_cycle(
               session.mandate_id,
               cycle_id: "#{session.session_id}_cycle#{session.cycle_number}",
               evaluation: evaluation

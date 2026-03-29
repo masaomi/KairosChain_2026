@@ -7,11 +7,14 @@ module KairosMcp
   module SkillSets
     module Agent
       class CognitiveLoop
+        FALLBACK_PROVIDERS = %w[claude_code].freeze
+
         # @param caller_tool [BaseTool] the agent_step tool instance (has invoke_tool)
         # @param session [Session] current agent session
         def initialize(caller_tool, session)
           @caller = caller_tool
           @session = session
+          @fallback_attempted = false
         end
 
         # Generic phase runner for ORIENT, REFLECT, and DECIDE_PREP.
@@ -29,14 +32,12 @@ module KairosMcp
                        'stop_reason' => 'budget' }
             end
 
-            llm_result = @caller.invoke_tool('llm_call', {
+            parsed = call_llm_with_fallback(
               'messages' => messages,
               'system' => system_prompt,
               'tools' => available_tools,
               'invocation_context_json' => @session.invocation_context.to_json
-            }, context: @session.invocation_context)
-
-            parsed = JSON.parse(llm_result.map { |b| b[:text] || b['text'] }.compact.join)
+            )
             return { 'error' => parsed['error'] } if parsed['status'] == 'error'
 
             response = parsed['response']
@@ -79,14 +80,12 @@ module KairosMcp
               return { 'error' => 'Budget exceeded for DECIDE phase' }
             end
 
-            llm_result = @caller.invoke_tool('llm_call', {
+            parsed = call_llm_with_fallback(
               'messages' => messages,
               'system' => system_prompt,
               'tools' => [],
               'invocation_context_json' => @session.invocation_context.to_json
-            }, context: @session.invocation_context)
-
-            parsed = JSON.parse(llm_result.map { |b| b[:text] || b['text'] }.compact.join)
+            )
             return { 'error' => parsed['error'] } if parsed['status'] == 'error'
 
             response = parsed['response']
@@ -110,7 +109,7 @@ module KairosMcp
             begin
               decision = JSON.parse(json_str)
               task_json_str = JSON.generate(decision['task_json'])
-              Autoexec::TaskDsl.from_json(task_json_str)
+              ::Autoexec::TaskDsl.from_json(task_json_str)
               return { 'decision_payload' => decision }
             rescue => e
               if attempts >= max_repair
@@ -126,6 +125,61 @@ module KairosMcp
         end
 
         private
+
+        # Call llm_call with automatic provider fallback on auth errors.
+        # Tries the configured provider first. On auth_error, switches to
+        # fallback providers (claude_code) via llm_configure, then retries once.
+        def call_llm_with_fallback(arguments)
+          llm_result = @caller.invoke_tool('llm_call', arguments,
+                                            context: @session.invocation_context)
+          parsed = JSON.parse(llm_result.map { |b| b[:text] || b['text'] }.compact.join)
+
+          # If not an auth error, or already tried fallback, return as-is
+          error_info = parsed['error']
+          if !error_info || !error_info.is_a?(Hash) || error_info['type'] != 'auth_error' || @fallback_attempted
+            return parsed
+          end
+
+          # Attempt provider fallback
+          original_provider = error_info['provider'] || 'configured'
+          warn "[agent] Auth error from #{original_provider}, attempting provider fallback"
+
+          FALLBACK_PROVIDERS.each do |fallback|
+            @fallback_attempted = true
+            configure_result = try_configure_provider(fallback)
+            next unless configure_result
+
+            warn "[agent] Switched to provider: #{fallback}"
+            retry_result = @caller.invoke_tool('llm_call', arguments,
+                                                context: @session.invocation_context)
+            retry_parsed = JSON.parse(retry_result.map { |b| b[:text] || b['text'] }.compact.join)
+
+            # If this provider also fails with auth_error, try next
+            retry_error = retry_parsed['error']
+            if retry_error.is_a?(Hash) && retry_error['type'] == 'auth_error'
+              warn "[agent] Fallback provider #{fallback} also failed: #{retry_error['message']}"
+              next
+            end
+
+            return retry_parsed
+          end
+
+          # All fallbacks exhausted — return original error with fallback info
+          parsed['error']['fallback_attempted'] = true
+          parsed['error']['fallback_exhausted'] = true
+          parsed
+        end
+
+        def try_configure_provider(provider)
+          args = { 'provider' => provider }
+          result = @caller.invoke_tool('llm_configure', args,
+                                        context: @session.invocation_context)
+          parsed = JSON.parse(result.map { |b| b[:text] || b['text'] }.compact.join)
+          parsed['status'] == 'ok'
+        rescue StandardError => e
+          warn "[agent] Failed to configure provider #{provider}: #{e.message}"
+          false
+        end
 
         def extract_json(content)
           JSON.parse(content)
