@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Synoptis — Mutual Attestation for AI Agents</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 40px;
+    }
+    .container {
+      background: white;
+      border-radius: 20px;
+      padding: 48px 44px 32px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      max-width: 800px;
+      width: 100%;
+    }
+
+    /* Header */
+    .title h1 {
+      text-align: center;
+      font-size: 2.4rem;
+      color: #1a1a2e;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .title .subtitle {
+      text-align: center;
+      color: #666;
+      font-size: 1.05rem;
+      margin-bottom: 8px;
+    }
+    .hook {
+      text-align: center;
+      font-size: 1.15rem;
+      color: #0066cc;
+      font-style: italic;
+      margin-bottom: 36px;
+      line-height: 1.4;
+    }
+
+    /* Comparison */
+    .comparison {
+      display: grid;
+      grid-template-columns: 1fr 100px 1fr;
+      gap: 0;
+      align-items: center;
+      margin-bottom: 36px;
+    }
+    .side {
+      border-radius: 16px;
+      padding: 24px 22px;
+    }
+    .side h3 {
+      font-size: 1.1rem;
+      margin-bottom: 14px;
+      text-align: center;
+    }
+    .side ul {
+      list-style: none;
+      padding: 0;
+    }
+    .side ul li {
+      font-size: 0.95rem;
+      padding: 7px 0;
+      border-bottom: 1px solid rgba(0,0,0,0.06);
+      line-height: 1.4;
+    }
+    .side ul li:last-child { border-bottom: none; }
+    .side ul li .icon { margin-right: 8px; }
+
+    .old {
+      background: linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%);
+      border: 2px solid #e57373;
+    }
+    .old h3 { color: #c62828; }
+    .old li .icon { color: #c62828; }
+
+    .new {
+      background: linear-gradient(135deg, #edf7ee 0%, #d4efd6 100%);
+      border: 2px solid #4caf50;
+    }
+    .new h3 { color: #2e7d32; }
+    .new li .icon { color: #2e7d32; }
+
+    /* Center agents */
+    .center-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+    .agent-pair {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+    .agent-emoji {
+      font-size: 2rem;
+    }
+    .mutual-arrow {
+      font-size: 1.8rem;
+      color: #0066cc;
+      font-weight: 700;
+      letter-spacing: -2px;
+    }
+    .mutual-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: #0066cc;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    /* Bottom line */
+    .bottomline {
+      text-align: center;
+      padding: 20px 24px;
+      background: #f0f4ff;
+      border-radius: 14px;
+      border: 1px solid #ccd9ff;
+      margin-bottom: 24px;
+    }
+    .bottomline p {
+      color: #0044aa;
+      font-size: 1.05rem;
+      font-weight: 500;
+      line-height: 1.5;
+    }
+
+    /* Footer */
+    .footer {
+      text-align: center;
+      color: #888;
+      font-size: 0.82rem;
+      line-height: 1.6;
+    }
+    .footer a {
+      color: #0066cc;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Section 1: Title + Hook -->
+    <div class="title">
+      <h1>🛡️ Synoptis</h1>
+      <div class="subtitle">Mutual Attestation for MCP Agent Networks</div>
+    </div>
+    <div class="hook">App Store ratings won't work for AI agents.<br>When agents choose their own tools, who reviews whom?</div>
+
+    <!-- Section 2: Comparison -->
+    <div class="comparison">
+      <div class="side old">
+        <h3>Marketplace Ratings</h3>
+        <ul>
+          <li><span class="icon">✗</span> One-way — users rate providers</li>
+          <li><span class="icon">✗</span> Static — ratings never expire</li>
+          <li><span class="icon">✗</span> Central authority decides trust</li>
+        </ul>
+      </div>
+
+      <div class="center-col">
+        <div class="agent-pair">
+          <div class="agent-emoji">🤖</div>
+          <div class="mutual-arrow">⇄</div>
+          <div class="agent-emoji">🤖</div>
+        </div>
+        <div class="mutual-label">Mutual</div>
+      </div>
+
+      <div class="side new">
+        <h3>Mutual Attestation</h3>
+        <ul>
+          <li><span class="icon">✓</span> Both sides evaluate each other</li>
+          <li><span class="icon">✓</span> Trust decays if not maintained</li>
+          <li><span class="icon">✓</span> Each agent decides locally</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Section 3: Bottom line -->
+    <div class="bottomline">
+      <p>When agents choose their own tools,<br>trust must be <strong>earned</strong> — not <strong>assigned</strong>.</p>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>Hatakeyama, M. (2026) — DOI: <a href="https://doi.org/10.5281/zenodo.19161453">10.5281/zenodo.19161453</a><br>
+      Built on <a href="https://doi.org/10.5281/zenodo.18289164">KairosChain</a> |
+      GitHub: <a href="https://github.com/masaomi/KairosChain_2026">masaomi/KairosChain_2026</a></p>
+    </div>
+  </div>
+</body>
+</html>

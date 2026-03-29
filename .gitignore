@@ -2,6 +2,7 @@ SUSHI_self_maintenance_mcp_server/
 ChronosChain_2026/
 log/
 .DS_Store
+storage/
 KairosChain_mcp_server/skills/action_log.jsonl
 HestiaChain_2026/
 Echoria/
@@ -10,6 +11,7 @@ Who_read_this_story_2025/
 who_read_this_story_2026/
 command.log
 openclaw/
+.kairos_stale_backup_20260329/
 
 # Vector search index files (auto-generated)
 KairosChain_mcp_server/storage/embeddings/**/*.ann
