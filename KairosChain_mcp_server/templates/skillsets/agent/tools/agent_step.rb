@@ -485,6 +485,7 @@ module KairosMcp
           # Build a filtered tool catalog for DECIDE prompt.
           # Uses session's InvocationContext.allowed? for blacklist/whitelist
           # consistency with the ACT phase execution policy.
+          # Includes parameter schemas so DECIDE LLM generates correct tool_arguments.
           def build_tool_catalog(session)
             return "(no registry available)" unless @registry
 
@@ -493,10 +494,38 @@ module KairosMcp
             tools = tools.reject { |t| ctx && !ctx.allowed?(t[:name]) } if ctx
 
             tools.map { |t|
-              required = extract_required_params(t[:inputSchema])
-              params_str = required.empty? ? '' : " (params: #{required.join(', ')})"
-              "- **#{t[:name]}**#{params_str}: #{t[:description]}"
+              format_tool_entry(t)
             }.join("\n")
+          end
+
+          # Format a single tool entry with parameter details for DECIDE.
+          def format_tool_entry(tool)
+            schema = tool[:inputSchema] || {}
+            required_names = extract_required_params(schema)
+            properties = schema[:properties] || schema['properties'] || {}
+
+            lines = ["- **#{tool[:name]}**: #{tool[:description]}"]
+
+            unless properties.empty?
+              req_parts = []
+              opt_parts = []
+              properties.each do |param_name, param_def|
+                pname = param_name.to_s
+                ptype = param_def['type'] || param_def[:type] || '?'
+                pdesc = param_def['description'] || param_def[:description]
+                short_desc = pdesc ? pdesc.to_s[0..60] : nil
+                entry = short_desc ? "#{pname} (#{ptype}: #{short_desc})" : "#{pname} (#{ptype})"
+                if required_names.include?(pname)
+                  req_parts << entry
+                else
+                  opt_parts << entry
+                end
+              end
+              lines << "  Required: #{req_parts.join(', ')}" unless req_parts.empty?
+              lines << "  Optional: #{opt_parts.join(', ')}" unless opt_parts.empty?
+            end
+
+            lines.join("\n")
           end
 
           # Extract required parameter names from an inputSchema hash.
