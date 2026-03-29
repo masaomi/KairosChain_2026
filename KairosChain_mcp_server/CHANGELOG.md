@@ -4,6 +4,35 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.7.0] - 2026-03-29
+
+### Added
+
+- **Dream SkillSet** — L2 memory consolidation and lifecycle management
+  - `dream_scan`: Pattern detection across L2 sessions — tag co-occurrence,
+    L2/L1 staleness (mtime-based), name overlap (Jaccard), archive candidate detection.
+    Filters soft-archived stubs from promotion candidates.
+  - `dream_archive`: L2 soft-archive — gzip compress .md, move full context directory
+    to archive, leave searchable stub (tags + summary). SHA256 verified inline.
+    Per-context flock. `dry_run: true` by default.
+  - `dream_recall`: Restore archived contexts with SHA256 integrity check.
+    Preview and verify-only modes (read-only, no permission required).
+  - `dream_propose`: Package L1 promotion proposals with ready-to-execute
+    `knowledge_update` commands. Optional Persona Assembly templates.
+  - L2 lifecycle model: Active → Candidate → Soft-Archived → Recalled
+  - `dream_trigger_policy` L1 knowledge for Kairotic trigger heuristics
+  - 119 tests across 27 test sections
+
+- **Agent SkillSet — permission advisory**
+  - `agent_start` now includes `permission_advisory` in response,
+    recommending users configure permission mode (Normal / Auto-allow / Auto-accept)
+    for smoother autonomous operation
+
+### Fixed
+
+- **L1 staleness detection** — use tag overlap and name token matching instead of
+  exact L1 name-in-L2-tags check. Reduces false positives from 48/48 to 7/48.
+
 ## [3.6.0] - 2026-03-28
 
 ### Added
