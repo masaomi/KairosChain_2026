@@ -39,5 +39,11 @@ tool_blacklist:
   - "mcp_connect"
   - "mcp_disconnect"
 
+# Additional tools available during ORIENT phase (opt-in from SkillSets).
+# Adding tools here increases the set the LLM can call during ORIENT;
+# the per-phase budget (max_tool_calls) is unchanged.
+orient_tools_extra: []
+  # - document_status   # uncomment to enable draft checking during ORIENT
+
 # Audit
 audit_level: summary

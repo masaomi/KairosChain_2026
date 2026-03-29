@@ -8,9 +8,9 @@ module KairosMcp
     module Agent
       module Tools
         class AgentStep < KairosMcp::Tools::BaseTool
-          ORIENT_TOOLS = %w[knowledge_list knowledge_get chain_history
-                            skills_list resource_list resource_read context_save
-                            mcp_list_remote].freeze
+          BASE_ORIENT_TOOLS = %w[knowledge_list knowledge_get chain_history
+                                skills_list resource_list resource_read context_save
+                                mcp_list_remote].freeze
 
           def name
             'agent_step'
@@ -150,7 +150,7 @@ module KairosMcp
             orient_prompt = build_orient_prompt(session, observation_text)
             messages = [{ 'role' => 'user', 'content' => orient_prompt }]
 
-            orient_result = loop_inst.run_phase('orient', orient_system_prompt, messages, ORIENT_TOOLS)
+            orient_result = loop_inst.run_phase('orient', orient_system_prompt, messages, orient_tools(session))
             return error_with_state(session, 'observed', orient_result) if orient_result['error']
 
             # DECIDE (single-stage; see design v0.4 sec 3.3 for future extension)
@@ -329,11 +329,16 @@ module KairosMcp
             prior_decision = session.load_decision
             prior_json = prior_decision ? JSON.generate(prior_decision) : '(none)'
 
+            # Include tool catalog so revise path has same tool awareness as initial DECIDE
+            catalog = build_tool_catalog(session)
+
             messages = [
               { 'role' => 'user', 'content' =>
+                "## Available Tools\n#{catalog}\n\n" \
                 "Previous plan:\n#{prior_json}\n\n" \
                 "This plan was rejected. Feedback: #{feedback}\n\n" \
-                "Please revise the plan and output a new decision_payload as JSON." }
+                "Please revise the plan and output a new decision_payload as JSON. " \
+                "Use ONLY tools listed above." }
             ]
             decide_result = loop_inst.run_decide(decide_system_prompt, messages)
             return error_with_state(session, 'proposed', decide_result) if decide_result['error']
@@ -442,14 +447,50 @@ module KairosMcp
 
           def build_decide_prompt(session, orient_result)
             analysis = orient_result['content'] || orient_result.to_json
+            catalog = build_tool_catalog(session)
+
             "Based on this analysis:\n#{analysis}\n\n" \
-            "Create a task execution plan as JSON (decision_payload format)."
+            "## Available Tools\n#{catalog}\n\n" \
+            "Create a task execution plan as JSON (decision_payload format). " \
+            "Use ONLY tools listed above."
           end
 
           def build_reflect_prompt(session, act_result)
             "Goal: #{session.goal_name}\n" \
             "Execution result:\n#{JSON.generate(act_result)}\n\n" \
             "Evaluate: what was achieved, what remains, confidence level (0.0-1.0)."
+          end
+
+          # ---- Capability Discovery ----
+
+          # Config-driven ORIENT tools: base + optional extras from agent.yml
+          def orient_tools(session)
+            extra = session&.config&.dig('orient_tools_extra') || []
+            (BASE_ORIENT_TOOLS + extra).uniq
+          end
+
+          # Build a filtered tool catalog for DECIDE prompt.
+          # Uses session's InvocationContext.allowed? for blacklist/whitelist
+          # consistency with the ACT phase execution policy.
+          def build_tool_catalog(session)
+            return "(no registry available)" unless @registry
+
+            ctx = session&.invocation_context
+            tools = @registry.list_tools
+            tools = tools.reject { |t| ctx && !ctx.allowed?(t[:name]) } if ctx
+
+            tools.map { |t|
+              required = extract_required_params(t[:inputSchema])
+              params_str = required.empty? ? '' : " (params: #{required.join(', ')})"
+              "- **#{t[:name]}**#{params_str}: #{t[:description]}"
+            }.join("\n")
+          end
+
+          # Extract required parameter names from an inputSchema hash.
+          def extract_required_params(schema)
+            return [] unless schema.is_a?(Hash)
+            required = schema[:required] || schema['required'] || []
+            required.map(&:to_s)
           end
 
           # ---- Helpers ----
