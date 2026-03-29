@@ -1,0 +1,26 @@
+scan:
+  default_scope: "l2"
+  min_recurrence: 3
+  max_candidates: 5
+  skip_archived: true              # scan filters skip soft-archived stubs
+
+archive:
+  staleness_threshold_days: 90
+  dry_run_default: true            # safe by default
+  preserve_gzip: true
+  archive_dir: "dream/archive"
+
+bisociation:
+  enabled: false                   # off by default
+  min_pmi: 1.5
+  min_pair_count: 2
+  min_tag_types: 15
+  max_results: 5
+
+staleness:
+  method: "mtime"                  # explicit definition
+  # future options: "referenced" (requires reference tracking)
+
+recording:
+  scan_findings_only: true
+  archive_events: true
