@@ -13,6 +13,10 @@ This project follows [Semantic Versioning](https://semver.org/).
   `KairosChain_mcp_server/templates/skillsets/llm_client/`. This caused
   `llm_call`, `llm_configure`, and `llm_status` tools to be unavailable on
   fresh installs, breaking the `agent` SkillSet (`depends_on: ["llm_client"]`).
+- **llm_client directory structure non-standard** — Tool files were at the
+  SkillSet top level instead of `tools/`, lib files in `llm_client/` instead
+  of `lib/llm_client/`, config at top level instead of `config/`. The
+  `skillset.rb` loader only scans `tools/` so tools were never loaded.
 
 ## [3.9.0] - 2026-03-30
 
