@@ -604,8 +604,11 @@ module KairosMcp
           end
 
           def run_act_via_agent_execute(session, decision_payload)
+            # Must remove both the exact entry AND the wildcard 'agent_*' to unblock agent_execute.
+            # Re-add other agent tools to keep them blocked.
             act_ctx = session.invocation_context.derive(
-              blacklist_remove: %w[agent_execute]
+              blacklist_remove: %w[agent_execute agent_*],
+              blacklist_add: %w[agent_start agent_step agent_status agent_stop]
             )
 
             context = build_agent_execute_context(session)
@@ -618,11 +621,19 @@ module KairosMcp
             }, context: act_ctx)
 
             parsed = JSON.parse(result.map { |b| b[:text] || b['text'] }.compact.join)
+
+            # Propagate subprocess failures as 'error' for ACT failure gates
+            error_msg = nil
+            unless parsed['status'] == 'ok'
+              error_msg = parsed['error'] || "agent_execute #{parsed['status']}: #{parsed['result'].to_s[0..200]}"
+            end
+
             {
               'execution' => parsed,
               'files_modified' => parsed['files_modified'] || [],
               'tool_calls_count' => parsed['tool_calls_count'] || 0,
-              'summary' => parsed['status'] == 'ok' ? 'completed' : 'failed'
+              'summary' => parsed['status'] == 'ok' ? 'completed' : 'failed',
+              'error' => error_msg
             }
           end
 

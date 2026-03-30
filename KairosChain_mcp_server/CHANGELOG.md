@@ -4,6 +4,38 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.9.0] - 2026-03-30
+
+### Added
+
+- **agent_execute** — Claude Code subprocess delegation for file operations
+  - Delegates Read/Edit/Write/Glob/Grep to a sandboxed `claude -p` subprocess
+  - `--permission-mode acceptEdits` for auto-approval of file edits
+  - `--output-format stream-json` for structured result parsing (files_modified, tool_calls)
+  - 8 security layers: Agent blacklist, tool restriction, Bash gating (requires
+    `Bash(pattern)` in allowed_tools), acceptEdits mode, env scrubbing
+    (unsetenv_others: true), project root lock, --max-budget-usd (clamped to
+    agent.yml max), external timeout (SIGTERM -> SIGKILL)
+  - Configurable via `agent.yml` `agent_execute:` section
+  - Design: 2 rounds x 2-3 LLMs. Implementation: 1 round x 3 LLMs.
+
+- **Agent ACT routing** — automatic delegation based on task plan
+  - `requires_file_operations?` detects Edit/Write/Read/Bash in task steps
+  - File operations route to `agent_execute`; MCP tools route to `autoexec_run`
+  - Context injection via `--append-system-prompt` (goal + progress)
+
+- **SkillSet discovery & install** via `system_upgrade`
+  - `system_upgrade command="skillsets"` lists all available SkillSets with status
+  - New SkillSets in gem templates auto-detected by `upgrade_check`
+  - `system_upgrade command="apply" names=["dream"]` installs specific SkillSets
+  - `available_skillsets` method on SkillSetManager
+
+### Fixed
+
+- `ClaudeCodeAdapter`: removed invalid `--max-turns 1` flag (not in claude CLI)
+- `agent_execute` blacklist: properly removes `agent_*` wildcard + re-adds other agent tools
+- `agent_execute` error propagation: subprocess failures now set `error` key for ACT gates
+
 ## [3.8.0] - 2026-03-30
 
 ### Added

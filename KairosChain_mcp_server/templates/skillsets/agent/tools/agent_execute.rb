@@ -10,7 +10,13 @@ module KairosMcp
       module Tools
         class AgentExecute < KairosMcp::Tools::BaseTool
           DEFAULT_TOOLS = %w[Read Edit Write Glob Grep].freeze
-          SAFE_ENV_VARS = %w[PATH HOME LANG LC_ALL TERM USER SHELL].freeze
+          # Include auth + config vars Claude Code needs to function
+          SAFE_ENV_VARS = %w[
+            PATH HOME LANG LC_ALL TERM USER SHELL TMPDIR
+            XDG_CONFIG_HOME XDG_DATA_HOME
+            ANTHROPIC_API_KEY CLAUDE_CODE_USE_BEDROCK
+            AWS_PROFILE AWS_REGION AWS_DEFAULT_REGION
+          ].freeze
           MAX_OUTPUT_BYTES = 1_048_576  # 1MB
           MAX_STDERR_BYTES = 1_048_576  # 1MB
           DEFAULT_TIMEOUT = 120
@@ -24,7 +30,8 @@ module KairosMcp
           def description
             'Execute a software engineering task via Claude Code subprocess. ' \
               'Delegates file operations (Read/Edit/Write) to a sandboxed Claude Code instance. ' \
-              'Bash is excluded by default; requires risk_budget: medium and allowed_tools patterns.'
+              'Bash is excluded by default; requires allowed_tools patterns (e.g., Bash(git:*)). ' \
+              'Mandate risk_budget is enforced at the ACT routing level, not within this tool.'
           end
 
           def category
@@ -82,9 +89,11 @@ module KairosMcp
             return error_text('task is required') if task.nil? || task.strip.empty?
 
             context = arguments['context']
-            tools = arguments['tools'] || DEFAULT_TOOLS.dup
+            tools = arguments['tools'] || agent_execute_config('default_tools', DEFAULT_TOOLS).dup
             allowed_tools_patterns = arguments['allowed_tools']
-            timeout = [arguments['timeout'] || DEFAULT_TIMEOUT, MAX_TIMEOUT].min
+            cfg_max_timeout = agent_execute_config('max_timeout', MAX_TIMEOUT).to_i
+            cfg_default_timeout = agent_execute_config('default_timeout', DEFAULT_TIMEOUT).to_i
+            timeout = [[arguments['timeout'] || cfg_default_timeout, 1].max, cfg_max_timeout].min
             model = arguments['model'] || agent_execute_config('default_model', 'sonnet')
 
             # Clamp budget to configured max
@@ -107,13 +116,14 @@ module KairosMcp
               end
             end
 
-            # Verify claude CLI exists
-            unless system('which claude > /dev/null 2>&1')
+            safe_env = build_safe_env
+            args = build_args(tools, allowed_tools_patterns, budget, model, context)
+
+            # Verify claude CLI exists using the same scrubbed env
+            _out, _err, st = Open3.capture3(safe_env, 'which', 'claude', unsetenv_others: true)
+            unless st.success?
               return error_text('Claude Code CLI not found. Install: https://docs.anthropic.com/en/docs/claude-code')
             end
-
-            args = build_args(tools, allowed_tools_patterns, budget, model, context)
-            safe_env = build_safe_env
             root = project_root
 
             result = execute_with_timeout(safe_env, args, task, timeout, root)
@@ -139,7 +149,7 @@ module KairosMcp
                     '--model', model]
 
             if allowed_tools_patterns && !allowed_tools_patterns.empty?
-              args += ['--allowedTools'] + allowed_tools_patterns
+              args += ['--allowedTools', allowed_tools_patterns.join(',')]
             end
 
             if context && !context.strip.empty?
@@ -192,9 +202,10 @@ module KairosMcp
                       end
                     else
                       stderr_data << chunk
-                      # Cap stderr too
                       stderr_data = stderr_data.byteslice(0, MAX_STDERR_BYTES) if stderr_data.bytesize > MAX_STDERR_BYTES
                     end
+                  rescue IO::WaitReadable, Errno::EAGAIN
+                    # Spurious readability — retry on next select
                   rescue EOFError
                     readers.delete(io)
                   end
@@ -276,19 +287,18 @@ module KairosMcp
           end
 
           def agent_execute_config(key, default = nil)
-            return default unless defined?(Session)
-
-            # Try loading from agent.yml
-            config_path = File.join(__dir__, '..', 'config', 'agent.yml')
-            if File.exist?(config_path)
-              require 'yaml'
-              config = YAML.safe_load(File.read(config_path)) || {}
-              config.dig('agent_execute', key) || default
-            else
-              default
+            @_agent_yml_cache ||= begin
+              config_path = File.join(__dir__, '..', 'config', 'agent.yml')
+              if File.exist?(config_path)
+                require 'yaml'
+                YAML.safe_load(File.read(config_path)) || {}
+              else
+                {}
+              end
+            rescue StandardError
+              {}
             end
-          rescue StandardError
-            default
+            @_agent_yml_cache.dig('agent_execute', key) || default
           end
 
           def error_text(message)
