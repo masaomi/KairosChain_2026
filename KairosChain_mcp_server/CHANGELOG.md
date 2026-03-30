@@ -4,6 +4,15 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.9.3] - 2026-03-30
+
+### Fixed
+
+- **act_summary always 'failed'** — `autoexec_run` `internal_execute` mode
+  returns `outcome: "internal_execute_complete"` but `agent_step` checked
+  `run_parsed['status'] == 'ok'` (always nil). Changed to check
+  `outcome.end_with?('_complete')`.
+
 ## [3.9.2] - 2026-03-30
 
 ### Fixed
