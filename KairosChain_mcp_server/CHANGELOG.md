@@ -4,7 +4,7 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [3.9.1] - 2026-03-30
+## [3.9.2] - 2026-03-30
 
 ### Fixed
 
@@ -17,6 +17,10 @@ This project follows [Semantic Versioning](https://semver.org/).
   SkillSet top level instead of `tools/`, lib files in `llm_client/` instead
   of `lib/llm_client/`, config at top level instead of `config/`. The
   `skillset.rb` loader only scans `tools/` so tools were never loaded.
+
+## [3.9.1] - 2026-03-30 [yanked]
+
+- Included llm_client files but with non-standard directory structure.
 
 ## [3.9.0] - 2026-03-30
 
