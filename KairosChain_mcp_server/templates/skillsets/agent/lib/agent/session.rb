@@ -9,6 +9,7 @@ module KairosMcp
       class Session
         attr_reader :session_id, :mandate_id, :goal_name, :invocation_context,
                     :state, :cycle_number, :config, :autonomous
+        attr_accessor :permission_advisory
 
         def initialize(session_id:, mandate_id:, goal_name:, invocation_context:, config:,
                        autonomous: false)

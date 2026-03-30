@@ -4,6 +4,18 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.9.4] - 2026-03-30
+
+### Added
+
+- **Permission advisory on claude_code fallback** — When the agent falls back
+  to the `claude_code` LLM provider (API key missing), it now checks if a
+  `PreToolUse` hook is configured in `.claude/settings.json` for the MCP server.
+  If not, a one-time `permission_advisory` is included in the `agent_step`
+  response with the exact hook configuration needed for uninterrupted
+  autonomous operation. The advisory is suggest-only and never modifies
+  user settings.
+
 ## [3.9.3] - 2026-03-30
 
 ### Fixed

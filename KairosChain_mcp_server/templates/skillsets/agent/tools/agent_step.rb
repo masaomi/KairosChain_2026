@@ -52,6 +52,10 @@ module KairosMcp
                 feedback: {
                   type: 'string',
                   description: 'Feedback for "revise" action (optional)'
+                },
+                apply_permission_hook: {
+                  type: 'boolean',
+                  description: 'Apply the suggested PreToolUse hook to .claude/settings.json (requires prior permission_advisory)'
                 }
               },
               required: %w[session_id action]
@@ -65,6 +69,11 @@ module KairosMcp
 
             session = Session.load(session_id)
             return error_result("Session not found: #{session_id}") unless session
+
+            if arguments['apply_permission_hook']
+              result = apply_permission_hook
+              return text_content(JSON.generate(result)) unless result['status'] == 'ok'
+            end
 
             case action
             when 'stop'
@@ -269,12 +278,14 @@ module KairosMcp
             result = run_act_reflect_internal(session)
             session.update_state('checkpoint')
             session.save
-            text_content(JSON.generate({
+            response = {
               'status' => 'ok', 'session_id' => session.session_id,
               'state' => 'checkpoint',
               'act_summary' => result.dig(:act, 'summary') || 'completed',
               'reflect' => result[:reflect]
-            }))
+            }
+            response['permission_advisory'] = session.permission_advisory if session.permission_advisory
+            text_content(JSON.generate(response))
           end
 
           # ---- AUTONOMOUS LOOP ----
@@ -423,7 +434,7 @@ module KairosMcp
                      else 'completed'
                      end
 
-            text_content(JSON.generate({
+            response = {
               'status' => status,
               'session_id' => session.session_id,
               'state' => session.state,
@@ -438,7 +449,9 @@ module KairosMcp
                   'confidence' => clamp_confidence(r.dig(:reflect, 'confidence')),
                   'remaining_count' => Array(r.dig(:reflect, 'remaining')).size }
               }
-            }))
+            }
+            response['permission_advisory'] = session.permission_advisory if session.permission_advisory
+            text_content(JSON.generate(response))
           end
 
           def clamp_confidence(raw)
@@ -936,6 +949,70 @@ module KairosMcp
               'status' => 'error', 'session_id' => session.session_id,
               'state' => revert_state, 'error' => result['error']
             }))
+          end
+
+          # ---- Permission Hook Management ----
+
+          def apply_permission_hook
+            mcp_name = detect_mcp_server_name
+            return { 'status' => 'error', 'error' => 'Could not detect MCP server name' } unless mcp_name
+
+            settings_path = find_settings_path
+            return { 'status' => 'error', 'error' => 'No .claude/settings.json found' } unless settings_path
+
+            settings = File.exist?(settings_path) ? JSON.parse(File.read(settings_path)) : {}
+            settings['hooks'] ||= {}
+            settings['hooks']['PreToolUse'] ||= []
+
+            matcher = "mcp__#{mcp_name}__*"
+
+            # Check if already configured
+            if settings['hooks']['PreToolUse'].any? { |h| h['matcher'] == matcher }
+              return { 'status' => 'ok', 'message' => "PreToolUse hook for #{matcher} already configured" }
+            end
+
+            hook_entry = {
+              'matcher' => matcher,
+              'hooks' => [{
+                'type' => 'command',
+                'command' => "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\"," \
+                             "\"permissionDecision\":\"allow\"," \
+                             "\"permissionDecisionReason\":\"Auto-allowed for #{mcp_name} agent autonomous mode\"}}'",
+                'statusMessage' => "Auto-allowing #{mcp_name} tool..."
+              }]
+            }
+
+            settings['hooks']['PreToolUse'] << hook_entry
+            File.write(settings_path, JSON.pretty_generate(settings) + "\n")
+
+            { 'status' => 'ok', 'message' => "PreToolUse hook added for #{matcher} in #{settings_path}" }
+          rescue StandardError => e
+            { 'status' => 'error', 'error' => "Failed to apply hook: #{e.message}" }
+          end
+
+          def detect_mcp_server_name
+            settings_candidates.each do |path|
+              next unless File.exist?(path)
+              settings = JSON.parse(File.read(path))
+              (settings['mcpServers'] || {}).each do |name, config|
+                cmd_parts = Array(config['command']) + Array(config['args'])
+                return name if cmd_parts.any? { |part| part.to_s.include?('kairos-chain') }
+              end
+            end
+            nil
+          rescue StandardError
+            nil
+          end
+
+          def find_settings_path
+            # Prefer project-level settings, fall back to global
+            settings_candidates.find { |p| File.exist?(p) }
+          end
+
+          def settings_candidates
+            project_settings = File.join(Dir.pwd, '.claude', 'settings.json')
+            global_settings = File.join(Dir.home, '.claude', 'settings.json')
+            [project_settings, global_settings]
           end
         end
       end

@@ -17,6 +17,7 @@ module KairosMcp
           @caller = caller_tool
           @session = session
           @fallback_attempted = false
+          @fallback_advisory_shown = false
           @total_calls = 0
         end
 
@@ -167,6 +168,7 @@ module KairosMcp
               next
             end
 
+            check_permission_advisory(fallback)
             return retry_parsed
           end
 
@@ -185,6 +187,72 @@ module KairosMcp
         rescue StandardError => e
           warn "[agent] Failed to configure provider #{provider}: #{e.message}"
           false
+        end
+
+        # Check if Claude Code PreToolUse hook is configured for the MCP server.
+        # If not, record a one-time advisory on the session so the user knows
+        # how to avoid permission prompts during autonomous operation.
+        def check_permission_advisory(provider)
+          return unless provider == 'claude_code'
+          return if @fallback_advisory_shown
+          return if claude_hook_configured?
+
+          @fallback_advisory_shown = true
+          mcp_name = detect_mcp_server_name
+          return unless mcp_name  # Can't advise without knowing the server name
+
+          matcher = "mcp__#{mcp_name}__*"
+
+          advisory = <<~MSG.strip
+            Claude Code fallback activated — using your Claude Code subscription instead of API.
+            For uninterrupted autonomous operation, a PreToolUse hook for "#{matcher}" is needed.
+
+            To auto-apply this setting, re-run agent_step with apply_permission_hook: true:
+              agent_step(session_id: "#{@session.session_id}", action: "approve", apply_permission_hook: true)
+
+            This auto-approves only #{mcp_name} MCP tools. Bash, file edits, and other tools still require confirmation.
+          MSG
+
+          @session.permission_advisory = advisory
+        end
+
+        def claude_hook_configured?
+          mcp_name = detect_mcp_server_name
+          return false unless mcp_name
+
+          matcher = "mcp__#{mcp_name}__*"
+          settings_candidates.each do |path|
+            next unless File.exist?(path)
+            settings = JSON.parse(File.read(path))
+            hooks = settings.dig('hooks', 'PreToolUse') || []
+            return true if hooks.any? { |h| h['matcher'] == matcher }
+          end
+          false
+        rescue StandardError
+          false
+        end
+
+        # Detect MCP server name from Claude Code settings.
+        # Scans project-level and global settings for mcpServers entries
+        # whose command/args include 'kairos-chain'.
+        def detect_mcp_server_name
+          settings_candidates.each do |path|
+            next unless File.exist?(path)
+            settings = JSON.parse(File.read(path))
+            (settings['mcpServers'] || {}).each do |name, config|
+              cmd_parts = Array(config['command']) + Array(config['args'])
+              return name if cmd_parts.any? { |part| part.to_s.include?('kairos-chain') }
+            end
+          end
+          nil
+        rescue StandardError
+          nil
+        end
+
+        def settings_candidates
+          project = File.join(Dir.pwd, '.claude', 'settings.json')
+          global = File.join(Dir.home, '.claude', 'settings.json')
+          [project, global]
         end
 
         def extract_json(content)
