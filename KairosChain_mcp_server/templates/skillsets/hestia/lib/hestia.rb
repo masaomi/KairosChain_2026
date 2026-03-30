@@ -26,6 +26,14 @@ module Hestia
   require_relative 'hestia/agent_registry'
   require_relative 'hestia/skill_board'
   require_relative 'hestia/heartbeat_manager'
+
+  # Skill Marketplace & Audit
+  require_relative 'hestia/public_rate_limiter'
+  require_relative 'hestia/public_presenter'
+  require_relative 'hestia/import_command_generator'
+  require_relative 'hestia/skill_auditor'
+  require_relative 'hestia/web_router'
+
   require_relative 'hestia/place_router'
 
   # Config resolution (supports both installed & template locations)

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><%= h(defined?(place_name) ? place_name : 'Meeting Place') %> &mdash; Skill Marketplace</title>
+  <link rel="stylesheet" href="/place/web/assets/pico.min.css">
+  <link rel="stylesheet" href="/place/web/assets/marketplace.css">
+</head>
+<body>
+  <header class="container">
+    <nav>
+      <ul>
+        <li><strong><%= h(defined?(place_name) ? place_name : 'Meeting Place') %></strong></li>
+      </ul>
+      <ul>
+        <li><a href="/place/web/">Skills</a></li>
+        <li><a href="/place/web/about">About</a></li>
+      </ul>
+    </nav>
+  </header>
+  <main class="container">
+    <%= content %>
+  </main>
+  <footer class="container">
+    <hr>
+    <small>
+      Powered by <strong>KairosChain</strong> Meeting Place
+      &middot; DEE Protocol &middot; No ranking, no recommendations &middot; Random sample browsing
+    </small>
+  </footer>
+</body>
+</html>

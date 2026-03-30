@@ -1,0 +1,64 @@
+<h2>Skill Catalog</h2>
+
+<form method="get" action="/place/web/" role="search">
+  <fieldset role="group">
+    <input type="search" name="search" placeholder="Search skills by name..."
+           value="<%= h(params['search'].to_s) %>">
+    <input type="submit" value="Search">
+  </fieldset>
+</form>
+
+<%- if available_tags.any? -%>
+<details>
+  <summary>Filter by tag (<%= available_tags.size %> available)</summary>
+  <div class="tags">
+    <%- available_tags.sort.each do |tag| -%>
+      <a href="/place/web/?tags=<%= h(tag) %>" class="tag"><%= h(tag) %></a>
+    <%- end -%>
+  </div>
+</details>
+<%- end -%>
+
+<p><small>
+  Showing <%= entries.size %> of <%= total %> skills
+  (random sample &mdash; <a href="/place/web/">reshuffle</a>)
+</small></p>
+
+<%- if entries.empty? -%>
+  <p>No skills deposited yet.</p>
+<%- else -%>
+  <div class="grid-skills">
+    <%- entries.each do |skill| -%>
+      <article>
+        <header>
+          <h3><a href="/place/web/skill/<%= h(skill[:deposit_id].to_s) %>"><%= h(skill[:name].to_s) %></a></h3>
+          <div class="badges">
+            <%- if skill[:audit_status] == 'scan_clear' -%>
+              <span class="badge badge-success">Scan: no issues</span>
+            <%- elsif skill[:audit_status] == 'flagged' -%>
+              <span class="badge badge-warning">Scan: flagged</span>
+            <%- end -%>
+            <%- if skill[:attestation_count].to_i > 0 -%>
+              <span class="badge badge-info"><%= skill[:attestation_count] %> attestation<%= skill[:attestation_count] > 1 ? 's' : '' %></span>
+            <%- end -%>
+          </div>
+        </header>
+        <p><%= h((skill[:description] || skill[:summary] || '').to_s) %></p>
+        <footer>
+          <%- if (skill[:tags] || []).any? -%>
+            <div class="tags">
+              <%- skill[:tags].each do |tag| -%>
+                <span class="tag"><%= h(tag) %></span>
+              <%- end -%>
+            </div>
+          <%- end -%>
+          <small>
+            by <%= h(skill[:depositor_id].to_s) %>
+            &middot; <%= h(skill[:format].to_s) %>
+            &middot; <%= h(skill[:deposited_at].to_s.slice(0, 10)) %>
+          </small>
+        </footer>
+      </article>
+    <%- end -%>
+  </div>
+<%- end -%>

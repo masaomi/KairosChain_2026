@@ -55,7 +55,8 @@ module Hestia
       end
     end
 
-    attr_reader :registry, :skill_board, :heartbeat_manager, :session_store, :started_at
+    attr_reader :registry, :skill_board, :heartbeat_manager, :session_store, :started_at,
+                :web_router, :auditor
 
     def initialize(config: nil)
       @config = config || ::Hestia.load_config
@@ -87,6 +88,17 @@ module Hestia
       intro = identity.introduce
       @self_id = intro.dig(:identity, :instance_id)
 
+      # Initialize SkillAuditor before SkillBoard (SkillBoard needs auditor DI)
+      audit_config = place_config['skill_audit'] || {}
+      if audit_config['enabled']
+        audit_persist = audit_config['persist_path'] || "#{default_storage}audit_results.json"
+        @auditor = SkillAuditor.new(
+          config: audit_config,
+          attestation_engine: nil,  # injected later if Synoptis loaded
+          persist_path: audit_persist
+        )
+      end
+
       deposit_policy = place_config['deposit_policy'] || {}
       deposit_storage = place_config['deposit_storage_path'] || "#{default_storage}skill_board_state.json"
       federation_config = place_config['federation'] || {}
@@ -96,7 +108,9 @@ module Hestia
         storage_path: deposit_storage,
         self_place_id: @self_id,
         federation_config: federation_config,
-        trust_scorer: trust_scorer
+        trust_scorer: trust_scorer,
+        auditor: @auditor,
+        audit_config: audit_config
       )
 
       @heartbeat_manager = HeartbeatManager.new(
@@ -108,6 +122,19 @@ module Hestia
 
       # Self-register: the Place IS also a participant (主客未分)
       @registry.self_register(identity)
+
+      # Initialize WebRouter for public web UI and API
+      web_config = {
+        'name' => place_config['name'] || 'KairosChain Meeting Place',
+        'place_url' => place_config['place_url'] || "http://localhost:8080",
+        'preview_lines' => place_config.dig('web_ui', 'preview_lines') || 20
+      }
+      @web_router = WebRouter.new(
+        skill_board: @skill_board,
+        agent_registry: @registry,
+        auditor: @auditor,
+        config: web_config
+      )
 
       @started = true
       @started_at = Time.now.utc
@@ -131,6 +158,13 @@ module Hestia
 
       request_method = env['REQUEST_METHOD']
       path = env['PATH_INFO']
+
+      # Public web UI and API — no authentication required
+      if path.start_with?('/place/web/') || path.start_with?('/place/web') ||
+         path.start_with?('/place/api/')
+        return @web_router.call(env) if @web_router
+        return json_response(404, { error: 'web_ui_not_available' })
+      end
 
       # Unauthenticated endpoints
       if request_method == 'GET' && path == '/place/v1/info'

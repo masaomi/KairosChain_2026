@@ -1,0 +1,132 @@
+<nav aria-label="breadcrumb">
+  <ul>
+    <li><a href="/place/web/">Skills</a></li>
+    <li><%= h(skill[:name].to_s) %></li>
+  </ul>
+</nav>
+
+<article>
+  <header>
+    <hgroup>
+      <h2><%= h(skill[:name].to_s) %></h2>
+      <p><%= h(skill[:description].to_s) %></p>
+    </hgroup>
+    <div class="badges">
+      <%- audit = skill[:audit_detail] || {} -%>
+      <%- if audit[:status] == 'scan_clear' -%>
+        <span class="badge badge-success">Automated scan: no high-risk findings</span>
+      <%- elsif audit[:status] == 'flagged' -%>
+        <span class="badge badge-warning">Automated scan: flagged &mdash; review before use</span>
+      <%- elsif audit[:status] == 'unaudited' -%>
+        <span class="badge badge-secondary">Not yet scanned</span>
+      <%- end -%>
+    </div>
+  </header>
+
+  <div class="grid">
+    <div>
+      <%- if skill[:summary] -%>
+        <h4>Summary</h4>
+        <p><%= h(skill[:summary].to_s) %></p>
+      <%- end -%>
+
+      <%- if skill[:sections]&.any? -%>
+        <h4>Sections</h4>
+        <ul>
+          <%- skill[:sections].each do |s| -%>
+            <li><%= h(s) %></li>
+          <%- end -%>
+        </ul>
+      <%- end -%>
+
+      <%- preview_lines = skill[:first_lines] -%>
+      <%- if preview_lines.is_a?(Array) && preview_lines.any? -%>
+        <h4>Preview</h4>
+        <pre><code><%- preview_lines.each do |line| -%><%= h(line) %>
+<%- end -%></code></pre>
+      <%- elsif preview_lines.is_a?(String) && !preview_lines.empty? -%>
+        <h4>Preview</h4>
+        <pre><code><%= h(preview_lines) %></code></pre>
+      <%- end -%>
+    </div>
+
+    <div>
+      <h4>Metadata</h4>
+      <table>
+        <tr><td>Format</td><td><%= h(skill[:format].to_s) %></td></tr>
+        <tr><td>Size</td><td><%= skill[:size_bytes] %> bytes</td></tr>
+        <tr><td>Version</td><td><%= h((skill[:version] || 'N/A').to_s) %></td></tr>
+        <tr><td>License</td><td><%= h((skill[:license] || 'N/A').to_s) %></td></tr>
+        <tr><td>Deposited</td><td><%= h(skill[:deposited_at].to_s) %></td></tr>
+        <tr><td>Hash</td><td><code><%= h(skill[:content_hash].to_s) %></code></td></tr>
+      </table>
+
+      <%- if (skill[:tags] || []).any? -%>
+        <h4>Tags</h4>
+        <div class="tags">
+          <%- skill[:tags].each do |tag| -%>
+            <span class="tag"><%= h(tag) %></span>
+          <%- end -%>
+        </div>
+      <%- end -%>
+
+      <h4>Depositor</h4>
+      <p><%= h(skill[:depositor_id].to_s) %></p>
+    </div>
+  </div>
+</article>
+
+<article id="import">
+  <header><h3>Import This Skill</h3></header>
+
+  <h4>Claude Code</h4>
+  <pre><code><%= h(import_commands[:claude_code].to_s) %></code></pre>
+
+  <h4>Codex</h4>
+  <pre><code><%= h(import_commands[:codex].to_s) %></code></pre>
+
+  <h4>kairos CLI</h4>
+  <pre><code><%= h(import_commands[:kairos_cli].to_s) %></code></pre>
+
+  <h4>Preview (curl)</h4>
+  <pre><code><%= h(import_commands[:curl_preview].to_s) %></code></pre>
+</article>
+
+<%- if skill[:attestations]&.any? -%>
+<article>
+  <header><h3>Attestations (<%= skill[:attestations].size %>)</h3></header>
+  <div class="overflow-auto">
+    <table>
+      <thead>
+        <tr><th>Claim</th><th>Attester</th><th>Role</th><th>Signed</th><th>Date</th></tr>
+      </thead>
+      <tbody>
+        <%- skill[:attestations].each do |att| -%>
+          <tr>
+            <td><%= h(att[:claim].to_s) %></td>
+            <td><%= h((att[:attester_name] || att[:attester_id]).to_s) %></td>
+            <td><%= h((att[:actor_role] || 'unknown').to_s) %></td>
+            <td><%= att[:has_signature] ? 'Yes' : 'No' %></td>
+            <td><%= h(att[:deposited_at].to_s.slice(0, 10)) %></td>
+          </tr>
+        <%- end -%>
+      </tbody>
+    </table>
+  </div>
+</article>
+<%- end -%>
+
+<article>
+  <header><h3>Trust Notice</h3></header>
+  <blockquote>
+    <%- notice = skill[:trust_notice] || {} -%>
+    <p><%= h(notice[:disclaimer] || 'Place verified format safety and depositor identity only. Content quality and safety are not guaranteed. Review skill content before use.') %></p>
+  </blockquote>
+  <ul>
+    <li>Depositor signed: <strong><%= notice[:depositor_signed] ? 'Yes' : 'No' %></strong></li>
+    <li>Verified by place: <strong><%= notice[:verified_by_place] ? 'Yes' : 'No' %></strong></li>
+    <%- if audit[:status] -%>
+      <li>Automated scan: <strong><%= h(audit[:status].to_s) %></strong></li>
+    <%- end -%>
+  </ul>
+</article>

@@ -1,0 +1,46 @@
+<nav aria-label="breadcrumb">
+  <ul>
+    <li><a href="/place/web/">Skills</a></li>
+    <li>Agent: <%= h(agent[:name].to_s) %></li>
+  </ul>
+</nav>
+
+<article>
+  <header>
+    <h2>Agent: <%= h(agent[:name].to_s) %></h2>
+  </header>
+  <table>
+    <tr><td>ID</td><td><code><%= h(agent[:agent_id].to_s) %></code></td></tr>
+    <%- if agent[:description] -%>
+      <tr><td>Description</td><td><%= h(agent[:description].to_s) %></td></tr>
+    <%- end -%>
+    <tr><td>Registered</td><td><%= h(agent[:registered_at].to_s) %></td></tr>
+  </table>
+</article>
+
+<h3>Deposited Skills (<%= deposits.size %>)</h3>
+
+<%- if deposits.empty? -%>
+  <p>No skills deposited by this agent.</p>
+<%- else -%>
+  <div class="grid-skills">
+    <%- deposits.each do |skill| -%>
+      <article>
+        <header>
+          <h4><a href="/place/web/skill/<%= h(skill[:deposit_id].to_s) %>"><%= h(skill[:name].to_s) %></a></h4>
+          <div class="badges">
+            <%- if skill[:audit_status] == 'scan_clear' -%>
+              <span class="badge badge-success">Scan: no issues</span>
+            <%- elsif skill[:audit_status] == 'flagged' -%>
+              <span class="badge badge-warning">Scan: flagged</span>
+            <%- end -%>
+          </div>
+        </header>
+        <p><%= h((skill[:description] || skill[:summary] || '').to_s) %></p>
+        <footer>
+          <small><%= h(skill[:format].to_s) %> &middot; <%= h(skill[:deposited_at].to_s.slice(0, 10)) %></small>
+        </footer>
+      </article>
+    <%- end -%>
+  </div>
+<%- end -%>

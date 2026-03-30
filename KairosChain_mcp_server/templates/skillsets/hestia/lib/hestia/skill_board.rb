@@ -33,14 +33,20 @@ module Hestia
     DEFAULT_DEPOSIT_RATE_LIMIT = 10  # per hour
     MAX_DESCRIPTION_BYTES = 500
 
+    # Strict skill_id format: alphanumeric, hyphens, underscores only (1-100 chars)
+    VALID_SKILL_ID = /\A[a-zA-Z0-9_-]{1,100}\z/.freeze
+
     def initialize(registry:, config: {}, storage_path: nil, self_place_id: nil,
-                   federation_config: {}, trust_scorer: nil)
+                   federation_config: {}, trust_scorer: nil, auditor: nil,
+                   audit_config: {})
       @registry = registry
       @posted_needs = []
       @deposited_skills = []
       @deposit_config = config
       @federation_config = federation_config
       @trust_scorer = trust_scorer  # Optional Synoptis::TrustScorer (DI)
+      @auditor = auditor            # Optional Hestia::SkillAuditor (DI)
+      @audit_config = audit_config  # skill_audit section from hestia.yml
       @exchange_counts = {}  # internal_key => count
       @total_exchange_count = 0
       @deposit_timestamps = {}  # agent_id => [Time] for rate limiting
@@ -75,6 +81,21 @@ module Hestia
         validation = validate_deposit(skill, agent_id: agent_id, public_key: public_key,
                                       replacing_key: is_replacement ? internal_key : nil)
         return validation unless validation[:valid]
+
+        # Gate 1: Synchronous audit scan (if auditor configured)
+        if @auditor && @audit_config.dig('gate1', 'enabled') != false
+          audit_result = @auditor.gate1_scan(
+            skill[:content].to_s,
+            metadata: { name: skill[:name], description: skill[:description],
+                        summary: skill[:summary], tags: skill[:tags],
+                        size_bytes: skill[:content]&.bytesize }
+          )
+          if !audit_result[:passed] && @audit_config.dig('gate1', 'block_on_high') != false
+            return { valid: false,
+                     errors: ['Skill failed automated security scan'],
+                     audit_findings: audit_result[:findings].select { |f| f[:severity] == 'high' } }
+          end
+        end
 
         # Replace existing deposit of same skill from same agent
         @deposited_skills.reject! { |d| d[:internal_key] == internal_key }
@@ -111,6 +132,14 @@ module Hestia
 
         save_content(internal_key, skill[:content])
         save_state
+      end
+
+      # Gate 2: Async LLM audit (enqueue after successful deposit, outside mutex)
+      if @auditor
+        deposit_id = "#{agent_id}__#{skill[:skill_id]}"
+        content_hash = skill[:content_hash] || Digest::SHA256.hexdigest(skill[:content].to_s)
+        @auditor.enqueue_gate2(deposit_id, content_hash, skill[:content].to_s,
+                               metadata: skill)
       end
 
       { valid: true, status: 'deposited', skill_id: skill[:skill_id], internal_key: internal_key }
@@ -471,6 +500,29 @@ module Hestia
       }
     end
 
+    # --- Public utility methods for WebRouter ---
+
+    # Returns all unique tags across all deposits (no frequency -- DEE compliant).
+    def all_unique_tags
+      @mutex.synchronize do
+        @deposited_skills.flat_map { |d| d[:tags] || [] }.uniq
+      end
+    end
+
+    # Returns deposits by a specific agent.
+    def deposits_by_agent(agent_id)
+      @mutex.synchronize do
+        @deposited_skills.select { |d| d[:agent_id] == agent_id }.map { |d| d.dup }
+      end
+    end
+
+    # Returns all deposits (shallow copy for audit/rescan).
+    def all_deposits
+      @mutex.synchronize do
+        @deposited_skills.map { |d| d.dup }
+      end
+    end
+
     # Deposit statistics for status reporting
     def deposit_stats
       federated = @deposited_skills.count { |d| d.dig(:provenance, :hop_count).to_i > 0 }
@@ -494,6 +546,11 @@ module Hestia
       errors = []
       content = skill[:content]
       format = skill[:format]
+
+      # Strict skill_id format validation
+      unless skill[:skill_id]&.match?(VALID_SKILL_ID)
+        errors << "Invalid skill_id: must be 1-100 chars of [a-zA-Z0-9_-]"
+      end
 
       # Format safety
       errors << "Unsafe format: #{format}" unless SAFE_FORMATS.include?(format)
