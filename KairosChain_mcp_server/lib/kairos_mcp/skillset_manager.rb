@@ -131,14 +131,18 @@ module KairosMcp
       { success: true, name: installed.name, version: installed.version, layer: installed.layer, path: dest }
     end
 
-    # Check for available SkillSet upgrades from gem templates
+    # Check for available SkillSet upgrades from gem templates.
+    # Also detects NEW SkillSets in templates that are not yet installed.
     #
-    # @return [Array<Hash>] List of upgradable skillsets with version info
+    # @return [Array<Hash>] List of upgradable/new skillsets with version info
     def upgrade_check
       results = []
       templates_dir = File.join(KairosMcp.gem_root, 'templates', 'skillsets')
       return results unless File.directory?(templates_dir)
 
+      installed_names = all_skillsets.map(&:name)
+
+      # Check existing installed SkillSets for upgrades
       all_skillsets.each do |installed|
         template_path = File.join(templates_dir, installed.name)
         next unless File.directory?(template_path)
@@ -157,17 +161,39 @@ module KairosMcp
             installed_version: installed.version,
             available_version: template_ss.version,
             version_bump: template_ver > installed_ver,
-            changed_files: changed_files
+            changed_files: changed_files,
+            new_skillset: false
           }
         end
+      end
+
+      # Detect NEW SkillSets in templates not yet installed
+      Dir.children(templates_dir).sort.each do |name|
+        template_path = File.join(templates_dir, name)
+        next unless File.directory?(template_path)
+        next if installed_names.include?(name)
+
+        template_ss = Skillset.new(template_path)
+        next unless template_ss.valid?
+
+        results << {
+          name: name,
+          installed_version: nil,
+          available_version: template_ss.version,
+          description: template_ss.description,
+          version_bump: false,
+          changed_files: [],
+          new_skillset: true
+        }
       end
 
       results
     end
 
-    # Apply SkillSet upgrades from gem templates
+    # Apply SkillSet upgrades from gem templates.
+    # Handles both upgrades (existing) and new installs.
     #
-    # @param names [Array<String>, nil] specific names to upgrade, or nil for all
+    # @param names [Array<String>, nil] specific names to upgrade/install, or nil for all
     # @return [Array<Hash>] results
     def upgrade_apply(names: nil)
       upgrades = upgrade_check
@@ -176,22 +202,59 @@ module KairosMcp
       results = []
       upgrades.each do |info|
         template_path = File.join(KairosMcp.gem_root, 'templates', 'skillsets', info[:name])
-        dest = File.join(@skillsets_dir, info[:name])
 
-        info[:changed_files].each do |rel_path|
-          src = File.join(template_path, rel_path)
-          dst = File.join(dest, rel_path)
-          FileUtils.mkdir_p(File.dirname(dst))
-          FileUtils.cp(src, dst) if File.exist?(src)
+        if info[:new_skillset]
+          # Install new SkillSet from template
+          result = install(template_path)
+          results << { name: info[:name], from: nil, to: info[:available_version],
+                       action: 'installed', files_updated: 0 }
+        else
+          # Upgrade existing: copy changed files
+          dest = File.join(@skillsets_dir, info[:name])
+          info[:changed_files].each do |rel_path|
+            src = File.join(template_path, rel_path)
+            dst = File.join(dest, rel_path)
+            FileUtils.mkdir_p(File.dirname(dst))
+            FileUtils.cp(src, dst) if File.exist?(src)
+          end
+
+          installed = Skillset.new(dest)
+          record_skillset_event(installed, 'upgrade')
+          results << { name: info[:name], from: info[:installed_version], to: info[:available_version],
+                       action: 'upgraded', files_updated: info[:changed_files].size }
         end
-
-        installed = Skillset.new(dest)
-        record_skillset_event(installed, 'upgrade')
-        results << { name: info[:name], from: info[:installed_version], to: info[:available_version],
-                     files_updated: info[:changed_files].size }
       end
 
       results
+    end
+
+    # List all available SkillSets from gem templates with install status.
+    #
+    # @return [Array<Hash>] list with name, version, description, installed status
+    def available_skillsets
+      templates_dir = File.join(KairosMcp.gem_root, 'templates', 'skillsets')
+      return [] unless File.directory?(templates_dir)
+
+      installed_map = all_skillsets.each_with_object({}) { |ss, h| h[ss.name] = ss }
+
+      Dir.children(templates_dir).sort.filter_map do |name|
+        template_path = File.join(templates_dir, name)
+        next unless File.directory?(template_path)
+
+        template_ss = Skillset.new(template_path)
+        next unless template_ss.valid?
+
+        installed = installed_map[name]
+        {
+          name: name,
+          available_version: template_ss.version,
+          description: template_ss.description,
+          installed: !installed.nil?,
+          installed_version: installed&.version,
+          enabled: installed ? enabled?(name) : false,
+          upgrade_available: installed ? Gem::Version.new(template_ss.version) > Gem::Version.new(installed.version) : false
+        }
+      end
     end
 
     # Remove a SkillSet

@@ -57,12 +57,18 @@ module KairosMcp
           properties: {
             command: {
               type: 'string',
-              description: 'Command: "check", "preview", "apply", or "status"',
-              enum: %w[check preview apply status]
+              description: 'Command: "check", "preview", "apply", "status", or "skillsets". ' \
+                '"skillsets" lists all available SkillSets with install status.',
+              enum: %w[check preview apply status skillsets]
             },
             approved: {
               type: 'boolean',
               description: 'Set to true to approve and apply the upgrade (required for apply command)'
+            },
+            names: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Specific SkillSet names to install/upgrade (optional, for apply command)'
             }
           },
           required: ['command']
@@ -72,6 +78,7 @@ module KairosMcp
       def call(arguments)
         command = arguments['command']
         approved = arguments['approved'] || false
+        names = arguments['names']
 
         case command
         when 'check'
@@ -79,11 +86,13 @@ module KairosMcp
         when 'preview'
           handle_preview
         when 'apply'
-          handle_apply(approved)
+          handle_apply(approved, names: names)
         when 'status'
           handle_status
+        when 'skillsets'
+          handle_skillsets
         else
-          text_content("Unknown command: #{command}. Use check, preview, apply, or status.")
+          text_content("Unknown command: #{command}. Use check, preview, apply, status, or skillsets.")
         end
       end
 
@@ -120,6 +129,18 @@ module KairosMcp
           output += "Run `system_upgrade command=\"apply\" approved=true` to apply.\n"
         else
           output += "No upgrade needed. Data directory is up to date.\n"
+        end
+
+        # SkillSet status (always show, even if no L0/L1 upgrade needed)
+        ss_info = skillset_upgrade_summary
+        if ss_info[:new_count] > 0 || ss_info[:upgrade_count] > 0
+          output += "\n### SkillSets\n"
+          output += "  New available: #{ss_info[:new_count]}\n" if ss_info[:new_count] > 0
+          output += "  Upgrades available: #{ss_info[:upgrade_count]}\n" if ss_info[:upgrade_count] > 0
+          ss_info[:new_names].each { |n| output += "    + #{n[:name]} (#{n[:version]}) — #{n[:description]}\n" }
+          output += "\nRun `system_upgrade command=\"skillsets\"` for full list.\n"
+          output += "Run `system_upgrade command=\"apply\" approved=true` to install all.\n"
+          output += "Run `system_upgrade command=\"apply\" approved=true names=[\"dream\"]` to install specific.\n"
         end
 
         text_content(output)
@@ -207,7 +228,7 @@ module KairosMcp
       # =====================================================================
       # apply — Execute the upgrade
       # =====================================================================
-      def handle_apply(approved)
+      def handle_apply(approved, names: nil)
         unless approved
           return text_content(
             "Upgrade requires approval.\n\n" \
@@ -318,6 +339,27 @@ module KairosMcp
           end
         end
 
+        # Apply SkillSet upgrades/installs
+        begin
+          ss_mgr = KairosMcp::SkillSetManager.new
+          ss_results = ss_mgr.upgrade_apply(names: names)
+          if ss_results.any?
+            output += "\n## SkillSets\n\n"
+            ss_results.each do |r|
+              if r[:action] == 'installed'
+                actions[:skillsets_installed] = (actions[:skillsets_installed] || []) << r[:name]
+                output += "  [INSTALLED] #{r[:name]} v#{r[:to]}\n"
+              else
+                actions[:skillsets_upgraded] = (actions[:skillsets_upgraded] || []) << r[:name]
+                output += "  [UPGRADED] #{r[:name]} v#{r[:from]} → v#{r[:to]} (#{r[:files_updated]} files)\n"
+              end
+            end
+          end
+        rescue => e
+          output += "\n## SkillSets\n\n"
+          output += "  [ERROR] SkillSet upgrade failed: #{e.message}\n"
+        end
+
         # Update .kairos_meta.yml
         update_meta(analyzer.gem_version)
         output += "\n  [UPDATED] .kairos_meta.yml → v#{analyzer.gem_version}\n"
@@ -393,8 +435,61 @@ module KairosMcp
       end
 
       # =====================================================================
+      # skillsets — List all available SkillSets with install status
+      # =====================================================================
+      def handle_skillsets
+        ss_mgr = KairosMcp::SkillSetManager.new
+        available = ss_mgr.available_skillsets
+
+        output = "# Available SkillSets\n\n"
+        output += "| Name | Available | Installed | Status |\n"
+        output += "|------|-----------|-----------|--------|\n"
+
+        available.each do |ss|
+          status = if !ss[:installed]
+                     'Not installed'
+                   elsif ss[:upgrade_available]
+                     "Upgrade: #{ss[:installed_version]} -> #{ss[:available_version]}"
+                   elsif ss[:enabled]
+                     'Installed, enabled'
+                   else
+                     'Installed, disabled'
+                   end
+          output += "| #{ss[:name]} | #{ss[:available_version]} | #{ss[:installed_version] || '-'} | #{status} |\n"
+        end
+
+        not_installed = available.select { |ss| !ss[:installed] }
+        if not_installed.any?
+          output += "\n## Not Installed\n\n"
+          not_installed.each do |ss|
+            output += "- **#{ss[:name]}** v#{ss[:available_version]}"
+            output += " — #{ss[:description]}" if ss[:description]
+            output += "\n"
+          end
+          output += "\nTo install: `system_upgrade command=\"apply\" approved=true names=[\"#{not_installed.first[:name]}\"]`\n"
+          output += "To install all: `system_upgrade command=\"apply\" approved=true`\n"
+        end
+
+        text_content(output)
+      end
+
+      # =====================================================================
       # Helpers
       # =====================================================================
+
+      def skillset_upgrade_summary
+        ss_mgr = KairosMcp::SkillSetManager.new
+        checks = ss_mgr.upgrade_check
+        new_ss = checks.select { |c| c[:new_skillset] }
+        upgrades = checks.reject { |c| c[:new_skillset] }
+        {
+          new_count: new_ss.size,
+          upgrade_count: upgrades.size,
+          new_names: new_ss.map { |s| { name: s[:name], version: s[:available_version], description: s[:description] } }
+        }
+      rescue StandardError
+        { new_count: 0, upgrade_count: 0, new_names: [] }
+      end
 
       def pattern_icon(pattern)
         case pattern
