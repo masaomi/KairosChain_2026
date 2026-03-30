@@ -1858,6 +1858,60 @@ KairosChainツールを発見し学ぶための動的ツールガイドシステ
 - `apply`: アップグレードを実行（`approved=true`が必要）
 - `status`: `.kairos_meta.yml`の状態を表示
 
+### SkillSetツール（オンデマンド読み込み）
+
+SkillSetは `kairos init` で読み込まれる拡張ツール群です。`.kairos/skillsets/` に格納され自動的に有効化されます。
+
+#### Agent（自律OODAループ）
+
+| ツール | 説明 |
+|--------|------|
+| `agent_start` | ゴール・マンデート制約・`autonomous: true`でエージェントセッション開始 |
+| `agent_step` | セッション進行: approve/revise/skip/stop。自律モードでは複数OODAサイクルを一括実行 |
+| `agent_status` | セッション状態・サイクル履歴・アクティブマンデート表示 |
+| `agent_stop` | エージェントセッション終了 |
+
+自律モード（`autonomous: true`）は8つの安全弁付きで複数OODAサイクルを単一MCPリクエスト内で実行: マンデート終了、ゴールドリフト、タイムアウト（300秒）、LLM予算（60回）、リスク予算、ACT後終了判定、信頼度早期終了、チェックポイント。`agent.yml`で設定可能。
+
+#### Autoexec（タスク計画・実行）
+
+| ツール | 説明 |
+|--------|------|
+| `autoexec_plan` | タスクJSONから実行計画を作成（リスク分類付き） |
+| `autoexec_run` | 計画実行: dry_run / execute / internal_execute |
+
+#### Autonomos（継続マンデートループ）
+
+| ツール | 説明 |
+|--------|------|
+| `autonomos_loop` | マンデート作成・チェックポイント付き継続OODAサイクル |
+| `autonomos_cycle` | 単一OODAサイクル実行 |
+| `autonomos_reflect` | サイクル結果の振り返り |
+
+#### Dream（L2メモリ統合）
+
+| ツール | 説明 |
+|--------|------|
+| `dream_scan` | L2セッション横断のパターン検出（陳腐化、重複、アーカイブ候補） |
+| `dream_archive` | L2コンテキストのソフトアーカイブ（SHA256検証付き） |
+| `dream_recall` | アーカイブ済みコンテキストの復元 |
+| `dream_propose` | L1昇格提案パッケージ生成 |
+
+#### ドキュメント作成
+
+| ツール | 説明 |
+|--------|------|
+| `write_section` | L1/L2コンテキスト注入によるLLM生成ドキュメントセクション |
+| `document_status` | ドラフトファイル一覧表示 |
+
+#### MCPクライアント（外部サーバー接続）
+
+| ツール | 説明 |
+|--------|------|
+| `mcp_connect` | 外部MCPサーバーへ接続（HTTP JSON-RPC） |
+| `mcp_disconnect` | 切断・プロキシツール解除 |
+| `mcp_list_remote` | 接続先サーバーのツール一覧 |
+
 ## 使用例
 
 ### 利用可能なスキルを一覧表示

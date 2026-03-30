@@ -4,6 +4,42 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.8.0] - 2026-03-30
+
+### Added
+
+- **Agent Autonomous Mode** — Multi-cycle OODA loop execution
+  - `agent_start(autonomous: true)`: Enable autonomous mode. Session starts at
+    `[observed]` as before; autonomous loop begins on `agent_step(approve)`.
+  - 8 safety gates: mandate termination, goal drift detection, wall-clock timeout
+    (300s), aggregate LLM budget (60 calls), risk budget, post-ACT termination,
+    confidence-based early exit, checkpoint pause.
+  - New session states: `autonomous_cycling`, `paused_risk`, `paused_error`
+  - Resume handlers: `approve` at `paused_risk` re-checks risk and resumes ACT;
+    `approve`/`skip` at `paused_error` skips failed cycle and continues.
+  - `agent.yml` autonomous config: `max_total_llm_calls`, `max_duration_seconds`,
+    `min_cycles_before_exit`, `confidence_exit_threshold`.
+  - Design: 2 rounds x 3 LLMs. Implementation: 1 round x 3 LLMs. All HIGH fixed.
+
+- **Mandate locking** — `Mandate.with_lock` for single-writer batch execution
+  - File-based exclusive lock (`flock`), non-blocking with `LockError`
+  - Atomic save via tmp+rename pattern
+  - `Mandate.reload` helper for in-lock refresh
+
+- **CognitiveLoop call tracking** — `total_calls` attribute for aggregate
+  LLM budget enforcement across autonomous cycles
+
+- **Goal drift detection** — Content-based hash (not name-only) at mandate
+  creation; per-cycle drift check with fail-open semantics
+
+### Changed
+
+- `run_orient_decide` / `run_act_reflect` refactored into `_internal` (Hash return)
+  + wrapper (text_content) pattern. Manual mode behavior unchanged.
+- Manual risk pause now sets session to `paused_risk` (was `terminated`),
+  enabling resume via `agent_step(approve)`.
+- `MandateAdapter.to_mandate_proposal` uses `dig` for nil safety.
+
 ## [3.7.0] - 2026-03-29
 
 ### Added

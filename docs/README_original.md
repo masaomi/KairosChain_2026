@@ -1874,6 +1874,60 @@ Commands:
 - `apply`: Execute upgrade (requires `approved=true`)
 - `status`: Show `.kairos_meta.yml` status
 
+### SkillSet Tools (Loaded on Demand)
+
+SkillSets extend KairosChain with additional tools loaded via `kairos init`. They are stored in `.kairos/skillsets/` and activated automatically.
+
+#### Agent (Autonomous OODA Loop)
+
+| Tool | Description |
+|------|-------------|
+| `agent_start` | Start agent session with goal, mandate bounds, optional `autonomous: true` |
+| `agent_step` | Advance session: approve/revise/skip/stop. Autonomous mode runs multi-cycle OODA loop |
+| `agent_status` | View session state, cycle history, active mandates |
+| `agent_stop` | Terminate agent session |
+
+Autonomous mode (`autonomous: true`) runs multiple OODA cycles in a single MCP request with 8 safety gates: mandate termination, goal drift, wall-clock timeout (300s), LLM budget (60 calls), risk budget, post-ACT termination, confidence exit, checkpoint pause. Configurable via `agent.yml`.
+
+#### Autoexec (Task Planning and Execution)
+
+| Tool | Description |
+|------|-------------|
+| `autoexec_plan` | Create execution plan from task JSON with risk classification |
+| `autoexec_run` | Execute plan: dry_run, execute, or internal_execute mode |
+
+#### Autonomos (Continuous Mandate Loop)
+
+| Tool | Description |
+|------|-------------|
+| `autonomos_loop` | Create mandate and run continuous OODA cycles with checkpoints |
+| `autonomos_cycle` | Run a single OODA cycle |
+| `autonomos_reflect` | Reflect on cycle outcomes |
+
+#### Dream (L2 Memory Consolidation)
+
+| Tool | Description |
+|------|-------------|
+| `dream_scan` | Pattern detection across L2 sessions (staleness, overlap, archive candidates) |
+| `dream_archive` | Soft-archive L2 contexts with SHA256 verification |
+| `dream_recall` | Restore archived contexts with integrity check |
+| `dream_propose` | Package L1 promotion proposals |
+
+#### Document Authoring
+
+| Tool | Description |
+|------|-------------|
+| `write_section` | LLM-generated document sections with L1/L2 context injection |
+| `document_status` | Show draft file inventory |
+
+#### MCP Client (External Server Connection)
+
+| Tool | Description |
+|------|-------------|
+| `mcp_connect` | Connect to external MCP server (HTTP JSON-RPC) |
+| `mcp_disconnect` | Disconnect and unregister proxy tools |
+| `mcp_list_remote` | List tools on connected server |
+
 ## Usage Examples
 
 ### List Available Skills
