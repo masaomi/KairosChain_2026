@@ -599,7 +599,7 @@ module KairosMcp
               'task_id' => task_id,
               'plan_hash' => plan_hash,
               'execution' => run_parsed,
-              'summary' => run_parsed['status'] == 'ok' ? 'completed' : 'failed'
+              'summary' => run_parsed['outcome']&.end_with?('_complete') ? 'completed' : 'failed'
             }
           end
 
