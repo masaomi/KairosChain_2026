@@ -4,6 +4,16 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.9.1] - 2026-03-30
+
+### Fixed
+
+- **llm_client SkillSet missing from gem templates** — `llm_client` files existed
+  only in the project-root `templates/` but not in the gem-bundled
+  `KairosChain_mcp_server/templates/skillsets/llm_client/`. This caused
+  `llm_call`, `llm_configure`, and `llm_status` tools to be unavailable on
+  fresh installs, breaking the `agent` SkillSet (`depends_on: ["llm_client"]`).
+
 ## [3.9.0] - 2026-03-30
 
 ### Added

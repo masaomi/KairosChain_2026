@@ -1,0 +1,22 @@
+{
+  "name": "llm_client",
+  "version": "0.1.0",
+  "description": "Pure LLM provider abstraction. One API call, returns response. No loop, no retry, no fallback.",
+  "author": "Masaomi Hatakeyama",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": [
+    "llm_api_call",
+    "llm_configuration",
+    "schema_conversion"
+  ],
+  "tool_classes": [
+    "KairosMcp::SkillSets::LlmClient::Tools::LlmCall",
+    "KairosMcp::SkillSets::LlmClient::Tools::LlmConfigure",
+    "KairosMcp::SkillSets::LlmClient::Tools::LlmStatus"
+  ],
+  "config_files": ["config/llm_client.yml"],
+  "knowledge_dirs": ["knowledge/llm_client_guide"],
+  "gem_dependencies": ["faraday"],
+  "min_core_version": "2.8.0"
+}
