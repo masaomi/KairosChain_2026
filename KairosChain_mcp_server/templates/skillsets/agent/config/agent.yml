@@ -35,6 +35,7 @@ tool_blacklist:
   - "challenge_*"
   - "autoexec_plan"
   - "autoexec_run"
+  - "agent_execute"
   # MCP client: user-only (requires token)
   - "mcp_connect"
   - "mcp_disconnect"
@@ -51,6 +52,15 @@ autonomous:
   max_duration_seconds: 300      # wall-clock timeout per batch (5 min)
   min_cycles_before_exit: 2      # confidence exit disabled for first N cycles
   confidence_exit_threshold: 0.9 # minimum confidence for early exit
+
+# agent_execute: Claude Code subprocess delegation for file operations
+agent_execute:
+  default_tools: ["Read", "Edit", "Write", "Glob", "Grep"]
+  default_model: "sonnet"
+  default_timeout: 120
+  max_timeout: 600
+  default_budget_usd: 0.50
+  max_budget_usd: 2.00
 
 # Audit
 audit_level: summary

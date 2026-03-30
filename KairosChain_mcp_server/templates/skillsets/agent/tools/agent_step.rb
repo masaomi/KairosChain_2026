@@ -553,11 +553,30 @@ module KairosMcp
           end
 
           def run_act(session, decision_payload)
+            task_json = decision_payload['task_json']
+
+            # Route: file operations → agent_execute; MCP tools → autoexec
+            if requires_file_operations?(task_json)
+              run_act_via_agent_execute(session, decision_payload)
+            else
+              run_act_via_autoexec(session, decision_payload)
+            end
+          rescue StandardError => e
+            { 'error' => "ACT failed: #{e.message}" }
+          end
+
+          FILE_TOOL_NAMES = %w[Edit Write Read Bash file_edit file_write file_read].freeze
+
+          def requires_file_operations?(task_json)
+            steps = task_json&.dig('steps') || []
+            steps.any? { |s| FILE_TOOL_NAMES.include?(s['tool_name']) }
+          end
+
+          def run_act_via_autoexec(session, decision_payload)
             act_ctx = session.invocation_context.derive(
               blacklist_remove: %w[autoexec_plan autoexec_run]
             )
 
-            # Create plan
             plan_result = invoke_tool('autoexec_plan', {
               'task_json' => JSON.generate(decision_payload['task_json'])
             }, context: act_ctx)
@@ -568,7 +587,6 @@ module KairosMcp
             task_id = plan_parsed['task_id']
             plan_hash = plan_parsed['plan_hash']
 
-            # Execute
             run_result = invoke_tool('autoexec_run', {
               'task_id' => task_id,
               'mode' => 'internal_execute',
@@ -583,8 +601,51 @@ module KairosMcp
               'execution' => run_parsed,
               'summary' => run_parsed['status'] == 'ok' ? 'completed' : 'failed'
             }
-          rescue StandardError => e
-            { 'error' => "ACT failed: #{e.message}" }
+          end
+
+          def run_act_via_agent_execute(session, decision_payload)
+            act_ctx = session.invocation_context.derive(
+              blacklist_remove: %w[agent_execute]
+            )
+
+            context = build_agent_execute_context(session)
+            task_summary = decision_payload['summary'] || ''
+            task_detail = format_steps_as_instructions(decision_payload['task_json'])
+
+            result = invoke_tool('agent_execute', {
+              'task' => "#{task_summary}\n\n#{task_detail}",
+              'context' => context
+            }, context: act_ctx)
+
+            parsed = JSON.parse(result.map { |b| b[:text] || b['text'] }.compact.join)
+            {
+              'execution' => parsed,
+              'files_modified' => parsed['files_modified'] || [],
+              'tool_calls_count' => parsed['tool_calls_count'] || 0,
+              'summary' => parsed['status'] == 'ok' ? 'completed' : 'failed'
+            }
+          end
+
+          def build_agent_execute_context(session)
+            parts = ["Goal: #{session.goal_name}",
+                     "Cycle: #{session.cycle_number + 1}"]
+            progress = session.load_progress
+            unless progress.empty?
+              parts << "Previous cycles:"
+              progress.last(3).each { |p|
+                parts << "  Cycle #{p['cycle']}: #{p['act_summary']} (confidence: #{p['confidence']})"
+              }
+            end
+            parts.join("\n")
+          end
+
+          def format_steps_as_instructions(task_json)
+            steps = task_json&.dig('steps') || []
+            return '(no steps)' if steps.empty?
+
+            steps.map.with_index(1) { |s, i|
+              "Step #{i}: #{s['action'] || s['tool_name']} — #{s.dig('tool_arguments', 'description') || s['tool_arguments'].to_json}"
+            }.join("\n")
           end
 
           # Parse REFLECT response, handling code fences and nested JSON

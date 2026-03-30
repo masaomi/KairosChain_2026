@@ -15,7 +15,7 @@ module KairosMcp
                  max_tokens: nil, temperature: nil)
           prompt = build_prompt(messages, system, tools)
 
-          args = ['claude', '-p', '--output-format', 'json', '--max-turns', '1']
+          args = ['claude', '-p', '--output-format', 'json']
           args += ['--model', model] if model
 
           stdout, stderr, status = Open3.capture3(*args, stdin_data: prompt)
