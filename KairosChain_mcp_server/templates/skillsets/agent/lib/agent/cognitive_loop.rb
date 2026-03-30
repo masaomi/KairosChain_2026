@@ -9,12 +9,15 @@ module KairosMcp
       class CognitiveLoop
         FALLBACK_PROVIDERS = %w[claude_code].freeze
 
+        attr_reader :total_calls
+
         # @param caller_tool [BaseTool] the agent_step tool instance (has invoke_tool)
         # @param session [Session] current agent session
         def initialize(caller_tool, session)
           @caller = caller_tool
           @session = session
           @fallback_attempted = false
+          @total_calls = 0
         end
 
         # Generic phase runner for ORIENT, REFLECT, and DECIDE_PREP.
@@ -32,6 +35,7 @@ module KairosMcp
                        'stop_reason' => 'budget' }
             end
 
+            @total_calls += 1
             parsed = call_llm_with_fallback(
               'messages' => messages,
               'system' => system_prompt,
@@ -79,6 +83,8 @@ module KairosMcp
             if attempts > phase_cfg[:max_llm_calls]
               return { 'error' => 'Budget exceeded for DECIDE phase' }
             end
+
+            @total_calls += 1
 
             parsed = call_llm_with_fallback(
               'messages' => messages,

@@ -52,6 +52,12 @@ module KairosMcp
                 risk_budget: {
                   type: 'string',
                   description: 'Maximum risk level: "low" or "medium" (default: "low")'
+                },
+                autonomous: {
+                  type: 'boolean',
+                  description: 'Enable autonomous mode (default: false). ' \
+                    'Session starts at [observed] regardless. ' \
+                    'Autonomous loop begins on first agent_step(approve).'
                 }
               },
               required: ['goal_name']
@@ -63,9 +69,13 @@ module KairosMcp
             max_cycles = arguments['max_cycles'] || 3
             checkpoint_every = arguments['checkpoint_every'] || 1
             risk_budget = arguments['risk_budget'] || 'low'
+            autonomous = arguments['autonomous'] == true
 
-            # Create mandate via Autonomos
-            goal_hash = Digest::SHA256.hexdigest(goal_name)[0..15]
+            # Pre-resolve goal content for content-based drift detection hash
+            pre_obs = run_observe(goal_name)
+            goal_content_for_hash = pre_obs['goal_content'] || goal_name
+            goal_hash = Digest::SHA256.hexdigest(goal_content_for_hash)[0..15]
+
             mandate = ::Autonomos::Mandate.create(
               goal_name: goal_name,
               goal_hash: goal_hash,
@@ -85,11 +95,12 @@ module KairosMcp
               mandate_id: mandate[:mandate_id],
               goal_name: goal_name,
               invocation_context: ctx,
-              config: config
+              config: config,
+              autonomous: autonomous
             )
 
-            # OBSERVE (no LLM — direct Ruby)
-            observation = run_observe(goal_name)
+            # OBSERVE: reuse pre-resolved observation (avoids duplicate L2/L1 lookups)
+            observation = pre_obs
 
             session.save_observation(observation)
             session.update_state('observed')
@@ -100,6 +111,7 @@ module KairosMcp
               'session_id' => session_id,
               'mandate_id' => mandate[:mandate_id],
               'state' => 'observed',
+              'autonomous' => autonomous,
               'observation' => observation
             }
 

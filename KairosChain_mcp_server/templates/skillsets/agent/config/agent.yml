@@ -45,5 +45,12 @@ tool_blacklist:
 orient_tools_extra: []
   # - document_status   # uncomment to enable draft checking during ORIENT
 
+# Autonomous mode limits
+autonomous:
+  max_total_llm_calls: 60        # across all cycles in one batch
+  max_duration_seconds: 300      # wall-clock timeout per batch (5 min)
+  min_cycles_before_exit: 2      # confidence exit disabled for first N cycles
+  confidence_exit_threshold: 0.9 # minimum confidence for early exit
+
 # Audit
 audit_level: summary

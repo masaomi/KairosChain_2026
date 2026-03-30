@@ -11,7 +11,7 @@ module KairosMcp
         def self.to_mandate_proposal(decision_payload)
           {
             autoexec_task: {
-              steps: (decision_payload['task_json']['steps'] || []).map { |s|
+              steps: (decision_payload.dig('task_json', 'steps') || []).map { |s|
                 { risk: s['risk'] || 'low', tool_name: s['tool_name'] }
               }
             },

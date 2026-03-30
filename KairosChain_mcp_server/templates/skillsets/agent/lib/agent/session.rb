@@ -8,17 +8,23 @@ module KairosMcp
     module Agent
       class Session
         attr_reader :session_id, :mandate_id, :goal_name, :invocation_context,
-                    :state, :cycle_number, :config
+                    :state, :cycle_number, :config, :autonomous
 
-        def initialize(session_id:, mandate_id:, goal_name:, invocation_context:, config:)
+        def initialize(session_id:, mandate_id:, goal_name:, invocation_context:, config:,
+                       autonomous: false)
           @session_id = session_id
           @mandate_id = mandate_id
           @goal_name = goal_name
           @invocation_context = invocation_context
           @config = config
+          @autonomous = autonomous
           @state = 'created'
           @cycle_number = 0
           @snapshots = []
+        end
+
+        def autonomous?
+          @autonomous == true
         end
 
         # Per-phase budget configuration.
@@ -109,7 +115,7 @@ module KairosMcp
           data = {
             session_id: @session_id, mandate_id: @mandate_id,
             goal_name: @goal_name, state: @state, cycle_number: @cycle_number,
-            config: @config,
+            config: @config, autonomous: @autonomous,
             invocation_context: @invocation_context.to_h
           }
           File.write(state_path, JSON.pretty_generate(data))
@@ -133,7 +139,8 @@ module KairosMcp
             mandate_id: data['mandate_id'],
             goal_name: data['goal_name'],
             invocation_context: ctx,
-            config: data['config']
+            config: data['config'],
+            autonomous: data['autonomous'] || false
           )
           session.instance_variable_set(:@state, data['state'])
           session.instance_variable_set(:@cycle_number, data['cycle_number'] || 0)

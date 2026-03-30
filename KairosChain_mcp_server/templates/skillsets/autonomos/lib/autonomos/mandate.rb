@@ -19,6 +19,8 @@ module Autonomos
 
     RISK_BUDGETS = %w[low medium].freeze
 
+    class LockError < StandardError; end
+
     class << self
       def create(goal_name:, goal_hash:, max_cycles:, checkpoint_every:, risk_budget:)
         validate_params!(max_cycles, checkpoint_every, risk_budget)
@@ -48,21 +50,43 @@ module Autonomos
 
       def load(mandate_id)
         validate_id!(mandate_id)
-        mandates_dir = Autonomos.storage_path('mandates')
-        path = File.join(mandates_dir, "#{mandate_id}.json")
+        path = mandate_path(mandate_id)
         return nil unless File.exist?(path)
 
         JSON.parse(File.read(path), symbolize_names: true)
       end
 
+      # Alias for clarity when reloading inside with_lock
+      def reload(mandate_id)
+        load(mandate_id)
+      end
+
       def save(mandate_id, mandate)
         validate_id!(mandate_id)
-        mandates_dir = Autonomos.storage_path('mandates')
+        path = mandate_path(mandate_id)
         mandate[:updated_at] = Time.now.iso8601
-        File.write(
-          File.join(mandates_dir, "#{mandate_id}.json"),
-          JSON.pretty_generate(mandate)
-        )
+        # Atomic write via tmp+rename
+        tmp = "#{path}.tmp.#{$$}.#{Thread.current.object_id}"
+        File.write(tmp, JSON.pretty_generate(mandate))
+        File.rename(tmp, path)
+      end
+
+      # Single-writer lock for autonomous batch execution.
+      # Yields the loaded mandate; caller must use reload() to refresh after internal saves.
+      def with_lock(mandate_id)
+        validate_id!(mandate_id)
+        lock_path = mandate_path(mandate_id) + '.lock'
+        File.open(lock_path, File::CREAT | File::RDWR) do |f|
+          unless f.flock(File::LOCK_EX | File::LOCK_NB)
+            raise LockError, "Mandate #{mandate_id} is locked by another process"
+          end
+          begin
+            mandate = load(mandate_id)
+            yield mandate
+          ensure
+            f.flock(File::LOCK_UN)
+          end
+        end
       end
 
       def update_status(mandate_id, new_status)
@@ -177,6 +201,11 @@ module Autonomos
 
       def generate_id
         "mnd_#{Time.now.strftime('%Y%m%d_%H%M%S')}_#{SecureRandom.hex(3)}"
+      end
+
+      def mandate_path(mandate_id)
+        mandates_dir = Autonomos.storage_path('mandates')
+        File.join(mandates_dir, "#{mandate_id}.json")
       end
 
       def validate_id!(mandate_id)
