@@ -5,6 +5,7 @@ require 'fileutils'
 require_relative 'base_tool'
 require_relative '../upgrade_analyzer'
 require_relative '../config_merger'
+require_relative '../skillset_manager'
 
 module KairosMcp
   module Tools

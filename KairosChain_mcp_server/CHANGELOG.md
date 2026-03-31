@@ -4,6 +4,29 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.10.0] - 2026-03-31
+
+### Added
+
+- **introspection SkillSet** (v0.1.0) — New self-inspection SkillSet with 3 tools:
+  - `introspection_check`: Full inspection (L1 health + blockchain integrity + safety mechanisms + recommendations)
+  - `introspection_health`: L1 knowledge health scores using Synoptis TrustScorer (optional, falls back to staleness-only)
+  - `introspection_safety`: 4-layer safety mechanism visibility (L0 approval workflow, RBAC policies, agent safety gates, blockchain recording)
+- **Dream SkillSet L1 dedup + confidence scoring** (v0.2.1) — `dream_scan` now checks promotion candidates against existing L1 knowledge (name similarity + tag Jaccard overlap) and scores candidates with 3-dimension confidence (recurrence, tag consistency, session diversity). New `include_l1_dedup` parameter.
+- **`skills_promote` attestation integration** — Successful L2→L1 promotions now automatically issue Synoptis attestations (`claim: "promoted_from_l2"`, `actor_role: "automated"`). Graceful degradation when Synoptis is not loaded.
+- **`Safety.registered_policy_names`** — New thread-safe public API for introspecting registered RBAC policies. Replaces `instance_variable_get(:@policies)` pattern.
+
+### Fixed
+
+- **`system_upgrade` SkillSet-only install** — When specific SkillSet names are provided via `names` parameter but L0 templates are already up-to-date, `system_upgrade apply` now correctly installs/upgrades the requested SkillSets instead of returning "No upgrade needed". Previously, the L0 upgrade check (`UpgradeAnalyzer.upgrade_needed?`) gated all operations including SkillSet installs.
+
+### Design Process
+
+- Design reviewed: 2 rounds x 3 LLMs (Claude Opus 4.6, Codex GPT-5.4, Cursor Composer-2)
+- Implementation reviewed: 1 round x 3 LLMs per phase
+- 8 P0/P1 bugs found and fixed during design review (before any code was written)
+- Inspired by oh-my-claudecode analysis; independently designed with KairosChain philosophy
+
 ## [3.9.4] - 2026-03-30
 
 ### Added
