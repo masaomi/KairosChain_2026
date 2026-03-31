@@ -1,0 +1,4 @@
+introspection:
+  health:
+    staleness_days: 180
+  report_format: "markdown"

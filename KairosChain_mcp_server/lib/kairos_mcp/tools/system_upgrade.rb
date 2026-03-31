@@ -240,6 +240,12 @@ module KairosMcp
         analyzer = UpgradeAnalyzer.new
         analyzer.analyze
 
+        # When specific SkillSet names are requested, skip L0 upgrade check
+        # and go directly to SkillSet install/upgrade
+        if names && !names.empty? && !analyzer.upgrade_needed?
+          return handle_skillset_only_install(names)
+        end
+
         unless analyzer.upgrade_needed?
           return text_content("No upgrade needed. Data directory is already up to date.")
         end
@@ -437,6 +443,32 @@ module KairosMcp
       # =====================================================================
       # skillsets — List all available SkillSets with install status
       # =====================================================================
+      # Install/upgrade specific SkillSets without requiring a full L0 upgrade.
+      # Called when names are specified but L0 templates are already up to date.
+      def handle_skillset_only_install(names)
+        ss_mgr = KairosMcp::SkillSetManager.new
+        ss_results = ss_mgr.upgrade_apply(names: names)
+
+        if ss_results.empty?
+          return text_content("No SkillSet changes needed for: #{names.join(', ')}")
+        end
+
+        output = "# SkillSet Install/Upgrade\n\n"
+        ss_results.each do |r|
+          if r[:action] == 'installed'
+            output += "  [INSTALLED] #{r[:name]} v#{r[:to]}\n"
+          else
+            output += "  [UPGRADED] #{r[:name]} v#{r[:from]} → v#{r[:to]} (#{r[:files_updated]} files)\n"
+          end
+        end
+        output += "\nNo L0 template changes needed.\n"
+        output += "Restart the MCP server to load new SkillSet tools.\n"
+
+        text_content(output)
+      rescue StandardError => e
+        text_content("SkillSet install failed: #{e.message}")
+      end
+
       def handle_skillsets
         ss_mgr = KairosMcp::SkillSetManager.new
         available = ss_mgr.available_skillsets
