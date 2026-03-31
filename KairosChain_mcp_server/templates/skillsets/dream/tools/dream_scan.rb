@@ -42,6 +42,10 @@ module KairosMcp
                 include_archive_candidates: {
                   type: 'boolean',
                   description: 'Whether to detect stale L2 contexts for archival. Default: true'
+                },
+                include_l1_dedup: {
+                  type: 'boolean',
+                  description: 'Check promotion candidates against existing L1 knowledge to mark duplicates. Default: true'
                 }
               },
               required: []
@@ -55,7 +59,8 @@ module KairosMcp
             scan_result = scanner.scan(
               scope: arguments['scope'] || config.dig('scan', 'default_scope') || 'l2',
               since_session: arguments['since_session'],
-              include_archive_candidates: arguments.fetch('include_archive_candidates', true)
+              include_archive_candidates: arguments.fetch('include_archive_candidates', true),
+              include_l1_dedup: arguments.fetch('include_l1_dedup', true)
             )
 
             # Record findings on blockchain if non-empty
@@ -131,7 +136,9 @@ module KairosMcp
               lines << "_No recurring patterns detected._"
             else
               promo.each do |c|
-                lines << "- **#{c[:tag]}**: #{c[:session_count]} sessions (strength: #{c[:strength].round(2)})"
+                dedup_marker = c[:already_in_l1] ? " [already in L1: #{c[:l1_match]}]" : ''
+                confidence_str = c[:confidence] ? " (confidence: #{c[:confidence]})" : ''
+                lines << "- **#{c[:tag]}**: #{c[:session_count]} sessions (strength: #{c[:strength].round(2)})#{confidence_str}#{dedup_marker}"
               end
             end
             lines << ""

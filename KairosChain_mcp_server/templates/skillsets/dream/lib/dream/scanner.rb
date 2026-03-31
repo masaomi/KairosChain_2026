@@ -25,8 +25,9 @@ module KairosMcp
         # @param scope [String] 'l2', 'l1', or 'all'
         # @param since_session [String, nil] Only scan sessions after this ID
         # @param include_archive_candidates [Boolean] Whether to detect stale L2
+        # @param include_l1_dedup [Boolean] Check promotion candidates against existing L1
         # @return [Hash] Structured scan result
-        def scan(scope: 'l2', since_session: nil, include_archive_candidates: true)
+        def scan(scope: 'l2', since_session: nil, include_archive_candidates: true, include_l1_dedup: true)
           result = {
             scope: scope,
             scanned_at: Time.now.iso8601,
@@ -38,7 +39,8 @@ module KairosMcp
 
           if %w[l2 all].include?(scope)
             scan_l2(result, since_session: since_session,
-                            include_archive_candidates: include_archive_candidates)
+                            include_archive_candidates: include_archive_candidates,
+                            include_l1_dedup: include_l1_dedup)
           end
 
           if %w[l1 all].include?(scope)
@@ -54,7 +56,7 @@ module KairosMcp
         # L2 scanning
         # ---------------------------------------------------------------
 
-        def scan_l2(result, since_session: nil, include_archive_candidates: true)
+        def scan_l2(result, since_session: nil, include_archive_candidates: true, include_l1_dedup: true)
           all_contexts = load_all_l2_contexts(since_session: since_session)
 
           # Partition: live contexts vs archived stubs
@@ -62,7 +64,20 @@ module KairosMcp
 
           # Promotion candidates: tag co-occurrence across sessions
           sessions_tags = build_sessions_tags(live)
-          result[:promotion_candidates] = detect_promotion_candidates(sessions_tags)
+          candidates = detect_promotion_candidates(sessions_tags, all_sessions_tags: sessions_tags)
+
+          # L1 dedup: mark candidates that already exist as L1 knowledge
+          if include_l1_dedup
+            kp = knowledge_provider
+            existing_l1 = kp ? kp.list : []
+            candidates.each do |candidate|
+              match = find_l1_match(candidate[:tag], Array(candidate[:tag]), existing_l1)
+              candidate[:already_in_l1] = !match.nil?
+              candidate[:l1_match] = match if match
+            end
+          end
+
+          result[:promotion_candidates] = candidates
 
           # Consolidation candidates: name token overlap
           result[:consolidation_candidates] = detect_consolidation_candidates(live)
@@ -132,8 +147,11 @@ module KairosMcp
         # Detect tags that recur across min_recurrence+ distinct sessions.
         #
         # @param sessions_tags [Hash] { session_id => { context_name => [tags] } }
-        # @return [Array<Hash>] promotion candidate hashes
-        def detect_promotion_candidates(sessions_tags)
+        # @param all_sessions_tags [Hash] same as sessions_tags (for scoring)
+        # @return [Array<Hash>] promotion candidate hashes with confidence scoring
+        def detect_promotion_candidates(sessions_tags, all_sessions_tags: nil)
+          all_sessions_tags ||= sessions_tags
+
           tag_sessions = Hash.new { |h, k| h[k] = Set.new }
 
           sessions_tags.each do |session_id, contexts|
@@ -148,12 +166,15 @@ module KairosMcp
                        .sort_by { |_tag, sids| -sids.size }
                        .first(@max_candidates)
                        .map do |tag, sids|
+            confidence = score_promotion_candidate(tag, sids, all_sessions_tags)
             {
               tag: tag,
               session_count: sids.size,
               sessions: sids.to_a,
               signal: 'tag_recurrence',
-              strength: sids.size.to_f / @min_recurrence
+              strength: sids.size.to_f / @min_recurrence,
+              confidence: confidence,
+              already_in_l1: false
             }
           end
 
@@ -272,6 +293,80 @@ module KairosMcp
             end
           end
           tags
+        end
+
+        # ---------------------------------------------------------------
+        # L1 dedup and confidence scoring (migrated from skills_promote auto_scan)
+        # ---------------------------------------------------------------
+
+        # Find an existing L1 entry that matches a candidate by name or tag overlap.
+        #
+        # @param candidate_name [String] suggested/tag name of the candidate
+        # @param candidate_tags [Array<String>] tags for the candidate
+        # @param existing_l1 [Array<Hash>] list from KnowledgeProvider#list
+        # @return [String, nil] matching L1 entry name or nil
+        def find_l1_match(candidate_name, candidate_tags, existing_l1)
+          existing_l1.each do |entry|
+            # Name match (normalized substring ratio)
+            name_sim = name_similarity(candidate_name, entry[:name])
+            return entry[:name] if name_sim > 0.8
+
+            # Tag overlap (Jaccard on name tokens vs entry tags)
+            entry_tags = Array(entry[:tags]).to_set
+            candidate_set = candidate_tags.to_set
+            sim = candidate_set.empty? && entry_tags.empty? ? 0.0 : (candidate_set & entry_tags).size.to_f / (candidate_set | entry_tags).size.to_f
+            return entry[:name] if sim > 0.8
+          end
+          nil
+        end
+
+        # Compute name similarity using token-level Jaccard.
+        #
+        # @param a [String]
+        # @param b [String]
+        # @return [Float] 0.0..1.0
+        def name_similarity(a, b)
+          a_parts = a.to_s.split('_').to_set
+          b_parts = b.to_s.split('_').to_set
+          return 0.0 if a_parts.empty? && b_parts.empty?
+          (a_parts & b_parts).size.to_f / [a_parts.size, b_parts.size].max
+        end
+
+        # Score a promotion candidate across 3 dimensions:
+        #   - recurrence: how many sessions the tag appears in (max 40)
+        #   - tag_consistency: co-occurrence consistency across sessions (max 30)
+        #   - session_diversity: distinct sessions (max 30)
+        #
+        # @param tag [String] the recurring tag
+        # @param sessions [Set<String>] session IDs where this tag appears
+        # @param all_sessions_tags [Hash] { session_id => { context_name => [tags] } }
+        # @return [Integer] 0..100
+        def score_promotion_candidate(tag, sessions, all_sessions_tags)
+          # Recurrence: 3=10, 4=20, 5=30, 6+=40 (max 40 points)
+          recurrence_score = [[sessions.size - 2, 4].min * 10, 40].min
+          recurrence_score = [recurrence_score, 0].max
+
+          # Tag consistency: what fraction of sessions containing this tag
+          # also share the same co-occurring tags?
+          co_tags_per_session = sessions.map do |sid|
+            contexts = all_sessions_tags[sid] || {}
+            contexts.values.flatten.uniq.reject { |t| t == tag }
+          end.reject(&:empty?)
+
+          if co_tags_per_session.size >= 2
+            co_sets = co_tags_per_session.map(&:to_set)
+            intersection = co_sets.reduce(:&)
+            union = co_sets.reduce(:|)
+            tag_consistency = union.empty? ? 0.0 : intersection.size.to_f / union.size
+          else
+            tag_consistency = 0.0
+          end
+          tag_score = (tag_consistency * 30).round
+
+          # Session diversity: distinct sessions (max 30 points)
+          session_score = [[sessions.size - 1, 3].min * 10, 30].min
+
+          [recurrence_score + tag_score + session_score, 100].min
         end
 
         # ---------------------------------------------------------------
