@@ -25,6 +25,12 @@ module KairosMcp
       @policy_mutex.synchronize { @policies[name.to_sym] }
     end
 
+    # Thread-safe list of registered policy names.
+    # Used by introspection SkillSet for safety visibility.
+    def self.registered_policy_names
+      @policy_mutex.synchronize { @policies.keys.map(&:to_s) }
+    end
+
     # For testing only
     def self.clear_policies!
       @policy_mutex.synchronize { @policies = {} }

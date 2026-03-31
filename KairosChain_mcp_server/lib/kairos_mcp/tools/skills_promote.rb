@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require 'json'
+require 'set'
+require 'yaml'
 require_relative 'base_tool'
 require_relative '../knowledge_provider'
 require_relative '../context_manager'
@@ -30,7 +33,8 @@ module KairosMcp
 
       def description
         'Promote knowledge between layers (L2→L1, L1→L0) with optional Persona Assembly for decision support. ' \
-        'Assembly generates a structured discussion from multiple perspectives before human decision.'
+        'Assembly generates a structured discussion from multiple perspectives before human decision. ' \
+        'Use auto_scan to detect recurring L2 patterns that are candidates for L1 promotion.'
       end
 
       def category
@@ -58,12 +62,16 @@ module KairosMcp
           {
             title: 'Suggest optimal personas for content',
             code: 'skills_promote(command: "suggest", source_name: "my_context", from_layer: "L2", to_layer: "L1", session_id: "session_123")'
+          },
+          {
+            title: 'Auto-scan L2 for promotion candidates',
+            code: 'skills_promote(command: "auto_scan", scan_depth: 10, confidence_threshold: 70)'
           }
         ]
       end
 
       def related_tools
-        %w[context_save knowledge_update skills_evolve skills_audit]
+        %w[context_save knowledge_update skills_evolve skills_audit attestation_issue]
       end
 
       def input_schema
@@ -72,8 +80,8 @@ module KairosMcp
           properties: {
             command: {
               type: 'string',
-              description: 'Command: "analyze" (with assembly), "promote" (direct promotion), "status" (check requirements), or "suggest" (LLM suggests optimal personas for content)',
-              enum: %w[analyze promote status suggest]
+              description: 'Command: "analyze" (with assembly), "promote" (direct promotion), "status" (check requirements), "suggest" (LLM suggests optimal personas), or "auto_scan" (detect recurring L2 patterns for promotion)',
+              enum: %w[analyze promote status suggest auto_scan]
             },
             source_name: {
               type: 'string',
@@ -122,6 +130,14 @@ module KairosMcp
             consensus_threshold: {
               type: 'number',
               description: 'Consensus threshold for early termination in discussion mode (default: 0.6 = 60%)'
+            },
+            scan_depth: {
+              type: 'integer',
+              description: 'Number of recent L2 sessions to scan (default: 10, max: 50). Used with auto_scan command.'
+            },
+            confidence_threshold: {
+              type: 'integer',
+              description: 'Minimum confidence to include in results (0-100, default: 70). Used with auto_scan command.'
             }
           },
           required: %w[command]
@@ -140,6 +156,8 @@ module KairosMcp
           handle_status(arguments)
         when 'suggest'
           handle_suggest(arguments)
+        when 'auto_scan'
+          handle_auto_scan(arguments)
         else
           text_content("Unknown command: #{command}")
         end
@@ -576,6 +594,9 @@ module KairosMcp
           # Track promotion event for state commit (this triggers auto-commit on promotion)
           track_promotion_change(from_layer: 'L2', to_layer: 'L1', skill_id: target_name, reason: reason)
 
+          # Issue attestation AFTER L1 exists
+          issue_promotion_attestation(target_name, reason)
+
           action = existing ? 'updated' : 'created'
           output = "## Promotion Successful\n\n"
           output += "**Target**: #{target_name} (L1)\n"
@@ -679,6 +700,250 @@ module KairosMcp
         else
           "Unknown transition requirements."
         end
+      end
+
+      # =========================================================================
+      # auto_scan: Detect recurring L2 patterns for L1 promotion
+      # =========================================================================
+
+      def handle_auto_scan(args)
+        depth = [[args['scan_depth'] || 10, 50].min, 1].max
+        threshold = [[args['confidence_threshold'] || 70, 100].min, 0].max
+
+        # 1. Load L2 contexts via correct API
+        contexts, actual_sessions = load_recent_l2_contexts(depth)
+        return format_empty_scan(actual_sessions) if contexts.empty?
+
+        # 2. Cluster by tags
+        clusters = cluster_by_tags(contexts, threshold: 0.5)
+
+        # 3. Dedup against L1 (name + tags, not tags-only)
+        provider = KnowledgeProvider.new(nil, user_context: @safety&.current_user)
+        existing_l1 = provider.list
+
+        candidates = []
+        already_in_l1 = 0
+
+        clusters.each do |cluster|
+          common = common_tags(cluster)
+          suggested = suggest_name(common, cluster)
+
+          # Dedup: check both name similarity AND tag overlap
+          match = find_l1_match(suggested, common, existing_l1)
+          if match
+            already_in_l1 += 1
+            next
+          end
+
+          confidence = score_cluster(cluster)
+          next if confidence < threshold
+
+          candidates << {
+            suggested_name: suggested,
+            confidence: confidence,
+            recurrence: cluster.size,
+            source_contexts: cluster.map { |c| { session: c[:session_id], name: c[:name] } },
+            common_tags: common,
+            summary: generate_cluster_summary(cluster),
+            suggested_action: confidence >= 70 ? 'promote_to_l1' : 'monitor'
+          }
+        end
+
+        format_auto_scan_result(candidates, actual_sessions, contexts.size, already_in_l1)
+      end
+
+      # Load recent L2 contexts using correct ContextManager API
+      # R2 fix #1: list_contexts_in_session returns only name/description;
+      #            use get_context to obtain md_file_path.
+      # R2 fix #3: list_sessions already returns sorted by modified_at desc.
+      # Returns [contexts_array, actual_session_count]
+      def load_recent_l2_contexts(depth)
+        manager = ContextManager.new(nil, user_context: @safety&.current_user)
+        sessions = manager.list_sessions
+        # Already sorted by modified_at descending — take first N
+        recent = sessions.first(depth)
+
+        contexts = recent.flat_map do |session|
+          sid = session[:session_id]
+          ctx_list = manager.list_contexts_in_session(sid)
+          ctx_list.filter_map do |ctx|
+            # Use get_context to obtain the full SkillEntry with md_file_path
+            entry = manager.get_context(sid, ctx[:name])
+            next unless entry
+
+            md_path = entry.md_file_path
+            next unless md_path && File.exist?(md_path)
+
+            content = File.read(md_path, encoding: 'UTF-8')
+            frontmatter = parse_yaml_frontmatter(content)
+
+            {
+              session_id: sid,
+              name: ctx[:name],
+              tags: Array(frontmatter['tags']),
+              content_preview: content.lines.first(20).join,
+              path: md_path
+            }
+          end
+        end
+
+        [contexts, recent.size]
+      end
+
+      def parse_yaml_frontmatter(content)
+        if content.start_with?("---\n")
+          parts = content.split("---\n", 3)
+          YAML.safe_load(parts[1]) || {}
+        else
+          {}
+        end
+      rescue StandardError
+        {}
+      end
+
+      # Jaccard similarity (self-contained, no Dream refactor)
+      def jaccard(set_a, set_b)
+        return 0.0 if set_a.empty? && set_b.empty?
+        (set_a & set_b).size.to_f / (set_a | set_b).size.to_f
+      end
+
+      def cluster_by_tags(items, threshold: 0.5)
+        clusters = []
+        assigned = Set.new
+
+        items.each_with_index do |item, i|
+          next if assigned.include?(i)
+          next if item[:tags].empty? # Skip tagless contexts
+
+          cluster = [item]
+          assigned << i
+
+          items.each_with_index do |other, j|
+            next if i == j || assigned.include?(j)
+            next if other[:tags].empty?
+            if jaccard(item[:tags].to_set, other[:tags].to_set) >= threshold
+              cluster << other
+              assigned << j
+            end
+          end
+
+          clusters << cluster if cluster.size >= 2
+        end
+        clusters
+      end
+
+      def common_tags(cluster)
+        all_tag_sets = cluster.map { |c| c[:tags].to_set }
+        all_tag_sets.reduce(:&).to_a
+      end
+
+      def suggest_name(common_tags_arr, cluster)
+        if common_tags_arr.size >= 2
+          common_tags_arr.sort.first(3).join('_') + '_pattern'
+        elsif !common_tags_arr.empty?
+          common_tags_arr.first + '_pattern'
+        else
+          # Fallback: use first context name
+          cluster.first[:name] + '_cluster'
+        end
+      end
+
+      def find_l1_match(candidate_name, candidate_tags, existing_l1)
+        existing_l1.each do |entry|
+          # Name match (normalized substring ratio)
+          name_sim = name_similarity(candidate_name, entry[:name])
+          return entry[:name] if name_sim > 0.8
+
+          # Tag overlap (Jaccard)
+          entry_tags = Array(entry[:tags]).to_set
+          tag_sim = jaccard(candidate_tags.to_set, entry_tags)
+          return entry[:name] if tag_sim > 0.8
+        end
+        nil
+      end
+
+      def name_similarity(a, b)
+        a_parts = a.to_s.split('_').to_set
+        b_parts = b.to_s.split('_').to_set
+        return 0.0 if a_parts.empty? && b_parts.empty?
+        (a_parts & b_parts).size.to_f / [a_parts.size, b_parts.size].max
+      end
+
+      def score_cluster(cluster)
+        # Recurrence: 2=10, 3=20, 4=30, 5+=40 (max 40 points)
+        recurrence_score = [[cluster.size - 1, 4].min * 10, 40].min
+
+        # Tag consistency: how many tags are shared across ALL contexts (max 30 points)
+        all_tags = cluster.map { |c| c[:tags].to_set }
+        intersection = all_tags.reduce(:&)
+        union = all_tags.reduce(:|)
+        tag_consistency = union.empty? ? 0.0 : (intersection.size.to_f / union.size)
+        tag_score = (tag_consistency * 30).round
+
+        # Session diversity: contexts from different sessions (max 30 points)
+        unique_sessions = cluster.map { |c| c[:session_id] }.uniq.size
+        session_score = [[unique_sessions - 1, 3].min * 10, 30].min
+
+        [recurrence_score + tag_score + session_score, 100].min
+      end
+
+      def generate_cluster_summary(cluster)
+        names = cluster.map { |c| c[:name] }.uniq.first(3)
+        common = common_tags(cluster)
+        "Recurring pattern across #{cluster.size} contexts (#{names.join(', ')}). " \
+        "Common tags: #{common.join(', ')}"
+      end
+
+      def format_auto_scan_result(candidates, sessions_scanned, contexts_loaded, already_in_l1)
+        result = {
+          scan_summary: {
+            sessions_scanned: sessions_scanned,
+            contexts_loaded: contexts_loaded,
+            clusters_found: candidates.size + already_in_l1,
+            already_in_l1: already_in_l1,
+            new_candidates: candidates.size
+          },
+          candidates: candidates.sort_by { |c| -c[:confidence] },
+          next_steps: "Use skills_promote(command: 'promote', source_name: '<context_name>', " \
+                      "from_layer: 'L2', to_layer: 'L1', session_id: '<session_id>') for each candidate you approve."
+        }
+        text_content(JSON.pretty_generate(result))
+      end
+
+      def format_empty_scan(sessions_scanned)
+        result = {
+          scan_summary: {
+            sessions_scanned: sessions_scanned,
+            contexts_loaded: 0,
+            clusters_found: 0,
+            already_in_l1: 0,
+            new_candidates: 0
+          },
+          candidates: [],
+          next_steps: 'No L2 contexts found. Use context_save to create L2 contexts first.'
+        }
+        text_content(JSON.pretty_generate(result))
+      end
+
+      # Issue attestation after successful promotion
+      def issue_promotion_attestation(target_name, reason)
+        return unless synoptis_available?
+
+        invoke_tool('attestation_issue', {
+          'subject_ref' => "knowledge://#{target_name}",
+          'claim' => 'promoted_from_l2',
+          'evidence' => reason.to_s,
+          'actor_role' => 'automated'
+        })
+      rescue StandardError => e
+        # Synoptis may not be loaded — silently skip
+        warn "[SkillsPromote] Attestation skipped: #{e.message}"
+      end
+
+      def synoptis_available?
+        @registry && true
+      rescue StandardError
+        false
       end
 
       # Track promotion event for state commit auto-commit

@@ -1,0 +1,17 @@
+{
+  "name": "introspection",
+  "version": "0.1.0",
+  "description": "Self-inspection and maintenance. Calculates knowledge health scores, checks blockchain integrity, and visualizes safety mechanisms.",
+  "author": "Masaomi Hatakeyama",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": ["health_scoring", "integrity_check", "safety_visibility"],
+  "tool_classes": [
+    "KairosMcp::SkillSets::Introspection::Tools::IntrospectionCheck",
+    "KairosMcp::SkillSets::Introspection::Tools::IntrospectionHealth",
+    "KairosMcp::SkillSets::Introspection::Tools::IntrospectionSafety"
+  ],
+  "config_files": ["config/introspection.yml"],
+  "knowledge_dirs": ["knowledge/introspection_guide"],
+  "min_core_version": "3.9.0"
+}
