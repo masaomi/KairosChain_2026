@@ -39,7 +39,9 @@ module KairosMcp
               properties: {
                 goal_name: {
                   type: 'string',
-                  description: 'Name of the goal (must exist as L1 knowledge or L2 context)'
+                  description: 'Name of the goal. Create it with context_save (L2) first. ' \
+                    'L1 knowledge is only for reusable goal templates. ' \
+                    'The agent searches L2 contexts first, then falls back to L1.'
                 },
                 max_cycles: {
                   type: 'integer',
