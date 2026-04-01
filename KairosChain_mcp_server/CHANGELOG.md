@@ -4,6 +4,35 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.11.0] - 2026-04-01
+
+### Added
+
+- **`llm_call` `output_schema` parameter** — Enables structured JSON output from LLMs.
+  When provided, the LLM is constrained to return JSON matching the given JSON Schema.
+  - Anthropic/Bedrock: system prompt injection with tools-aware qualifier
+    ("When you are NOT using a tool, respond with ONLY valid JSON...")
+  - OpenAI: native `response_format: { type: "json_schema", strict: true }`
+  - Claude Code CLI: prompt text injection
+  - Backward compatible: `nil` default preserves all existing behavior
+- **`SchemaConverter.normalize_for_openai` `required` auto-population** — When an
+  object schema has no `required` key, all property names are auto-populated into
+  `required` to satisfy OpenAI strict mode constraints. Existing `required` arrays
+  are preserved unchanged.
+- **Multi-LLM review XML block prompts** (`multi_llm_review_workflow` v3.2) — Five
+  XML blocks for structured review prompts:
+  `<task>`, `<structured_output_contract>`, `<grounding_rules>`,
+  `<verification_loop>`, `<default_follow_through_policy>`.
+  LLM-agnostic; works with Claude, GPT, and Composer models.
+
+### Design Process
+
+- Inspired by codex-plugin-cc (Claude Code Codex plugin) analysis — 4-agent team review
+- Implementation reviewed: 2 rounds x 3 LLMs (Claude Opus 4.6, Codex GPT-5.4, Cursor Composer-2)
+- R1: 3/3 APPROVE WITH CHANGES — 2 must-fix findings (tools+schema conflict, OpenAI required)
+- R2: 2/3 APPROVE, 1/3 AWC, 0 FAIL/HIGH — converged
+- Tests: 32 → 47 (all PASS)
+
 ## [3.10.0] - 2026-03-31
 
 ### Added
