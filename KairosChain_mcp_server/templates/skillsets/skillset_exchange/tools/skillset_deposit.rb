@@ -94,7 +94,8 @@ module KairosMcp
                 archive_base64: pkg[:archive_base64],
                 signature: signature,
                 file_list: pkg[:file_list],
-                tags: ss.metadata['tags'] || []
+                tags: ss.metadata['tags'] || [],
+                provides: ss.metadata['provides'] || []
               }
 
               result = post_to_place(url, token, '/place/v1/skillset_deposit', deposit_body)

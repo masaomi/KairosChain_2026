@@ -189,8 +189,15 @@ module SkillsetExchange
               message: 'Signature verification failed and require_signature is enabled'
             })
           end
+        else
+          # No key in registry — reject if require_signature is enabled
+          if require_sig
+            return json_response(422, {
+              error: 'public_key_unavailable',
+              message: 'Signature cannot be verified: depositor public key not in registry (require_signature: true)'
+            })
+          end
         end
-        # No key in registry: accept but flag as unsigned (key might be registered later)
       elsif require_sig
         return json_response(422, {
           error: 'signature_required',

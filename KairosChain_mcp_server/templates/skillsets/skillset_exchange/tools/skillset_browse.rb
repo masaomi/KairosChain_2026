@@ -116,6 +116,7 @@ module KairosMcp
               version: entry[:version],
               description: entry[:description],
               tags: entry[:tags] || [],
+              provides: entry[:provides] || [],
               file_count: entry[:file_count],
               depositor_id: entry[:depositor_id],
               content_hash: entry[:content_hash],
