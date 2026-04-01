@@ -186,10 +186,10 @@ class TestExtensionA
   def call(env, peer_id:)
     path = env['PATH_INFO']
     if path == '/place/v1/test_endpoint'
-      [200, { 'Content-Type' => 'application/json' },
-       [{ handled_by: 'TestExtensionA', peer_id: peer_id }.to_json]]
+      return [200, { 'Content-Type' => 'application/json' },
+              [{ handled_by: 'TestExtensionA', peer_id: peer_id }.to_json]]
     end
-    # return nil for unhandled paths
+    nil # unhandled paths
   end
 end
 

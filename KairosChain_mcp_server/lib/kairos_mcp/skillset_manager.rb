@@ -393,13 +393,23 @@ module KairosMcp
 
         next unless dep[:version]
 
-        requirement = Gem::Requirement.new(*dep[:version].split(',').map(&:strip))
-        unless requirement.satisfied_by?(Gem::Version.new(installed.version))
+        begin
+          requirement = Gem::Requirement.new(*dep[:version].split(',').map(&:strip))
+          unless requirement.satisfied_by?(Gem::Version.new(installed.version))
+            result[:satisfiable] = false
+            result[:version_mismatch] << {
+              name: dep[:name],
+              required: dep[:version],
+              installed: installed.version
+            }
+          end
+        rescue Gem::Requirement::BadRequirementError
           result[:satisfiable] = false
           result[:version_mismatch] << {
             name: dep[:name],
             required: dep[:version],
-            installed: installed.version
+            installed: installed.version,
+            error: 'invalid version constraint'
           }
         end
       end
