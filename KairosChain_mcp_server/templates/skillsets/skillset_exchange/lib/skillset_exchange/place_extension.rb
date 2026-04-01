@@ -65,6 +65,16 @@ module SkillsetExchange
     # POST /place/v1/skillset_deposit
     # -----------------------------------------------------------------------
     def handle_skillset_deposit(env, peer_id)
+      # 0. Content-Length pre-check (reject before reading body)
+      content_length = env['CONTENT_LENGTH']&.to_i || 0
+      max_body = (max_archive_size_bytes * 1.4 + 8192).to_i
+      if content_length > max_body
+        return json_response(413, {
+          error: 'payload_too_large',
+          message: "Request body too large (#{content_length} > #{max_body})"
+        })
+      end
+
       body = parse_body(env)
 
       name = body['name'].to_s.strip
@@ -75,6 +85,7 @@ module SkillsetExchange
       signature = body['signature']
       file_list = body['file_list'] || []
       tags = body['tags'] || []
+      provides = body['provides'] || []
 
       # 1. Name sanitization
       unless SAFE_NAME_PATTERN.match?(name)
@@ -112,11 +123,18 @@ module SkillsetExchange
       end
 
       # 6. Tar header scan: reject if any entry matches executable extensions
-      executable_found = tar_header_scan(archive_data)
-      if executable_found
+      begin
+        executable_found = tar_header_scan(archive_data)
+        if executable_found
+          return json_response(422, {
+            error: 'executable_content',
+            message: "Archive contains executable file: #{executable_found}"
+          })
+        end
+      rescue SecurityError => e
         return json_response(422, {
-          error: 'executable_content',
-          message: "Archive contains executable file: #{executable_found}"
+          error: 'tar_scan_failed',
+          message: "Tar header scan failed (archive rejected): #{e.message}"
         })
       end
 
@@ -152,8 +170,10 @@ module SkillsetExchange
         })
       end
 
-      # 8. Signature verification (if depositor public key available)
+      # 8. Signature verification
+      require_sig = @config.dig('deposit', 'require_signature') == true
       depositor_signed = false
+
       if signature
         public_key = @registry.public_key_for(peer_id)
         if public_key
@@ -163,10 +183,19 @@ module SkillsetExchange
           rescue StandardError
             depositor_signed = false
           end
-        else
-          # No key available — accept deposit but flag as unsigned
-          depositor_signed = false
+          if require_sig && !depositor_signed
+            return json_response(422, {
+              error: 'signature_invalid',
+              message: 'Signature verification failed and require_signature is enabled'
+            })
+          end
         end
+        # No key in registry: accept but flag as unsigned (key might be registered later)
+      elsif require_sig
+        return json_response(422, {
+          error: 'signature_required',
+          message: 'Deposit requires a signature (require_signature: true)'
+        })
       end
 
       # 9. Quota checks
@@ -205,6 +234,7 @@ module SkillsetExchange
         depositor_signed: depositor_signed,
         file_list: file_list,
         tags: tags,
+        provides: provides,
         archive_size_bytes: archive_data.bytesize,
         file_count: file_list.size,
         deposited_at: Time.now.utc.iso8601
@@ -259,12 +289,13 @@ module SkillsetExchange
       # Collect all deposited skillsets metadata
       results = @deposited_skillsets.values.dup
 
-      # Filter by search term (match name, description, provides)
+      # Filter by search term (match name, description, provides, tags)
       if search && !search.empty?
         search_down = search.downcase
         results = results.select do |meta|
           meta[:name].to_s.downcase.include?(search_down) ||
             meta[:description].to_s.downcase.include?(search_down) ||
+            (meta[:provides] || []).any? { |p| p.to_s.downcase.include?(search_down) } ||
             (meta[:tags] || []).any? { |t| t.to_s.downcase.include?(search_down) }
         end
       end
@@ -280,6 +311,7 @@ module SkillsetExchange
           version: meta[:version],
           description: meta[:description],
           tags: meta[:tags] || [],
+          provides: meta[:provides] || [],
           file_count: meta[:file_count] || 0,
           depositor_id: meta[:depositor_id],
           content_hash: meta[:content_hash],
@@ -336,19 +368,20 @@ module SkillsetExchange
             # Check for shebang in files under tools/ or lib/
             if filename.match?(%r{(?:^|/)(?:tools|lib)/}) && entry.file?
               begin
-                header = entry.read(2)
-                entry.rewind
-                return filename if header == '#!'
+                content = entry.read
+                return filename if content&.start_with?('#!')
               rescue StandardError
-                # Skip unreadable entries
+                # Fail-closed: unreadable tools/lib entries are treated as executable
+                return filename
               end
             end
           end
         end
       end
       nil
-    rescue StandardError
-      nil
+    rescue StandardError => e
+      # Fail-closed: scan errors must not pass silently as "clean"
+      raise SecurityError, "tar_header_scan failed (#{e.class}: #{e.message})"
     end
 
     # -----------------------------------------------------------------------
@@ -405,7 +438,7 @@ module SkillsetExchange
 
     def record_chain_event(event_type:, skillset_name:, content_hash:, participants:, extra: {})
       # Use PlaceRouter's chain recording pattern if trust_anchor is available
-      return unless @router.respond_to?(:send, true)
+      return unless @router.respond_to?(:record_chain_event, true)
 
       begin
         @router.send(:record_chain_event,

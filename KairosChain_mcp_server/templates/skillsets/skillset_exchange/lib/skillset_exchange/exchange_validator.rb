@@ -52,7 +52,7 @@ module SkillsetExchange
         .select { |f| File.file?(f) }
         .sum { |f| File.size(f) }
     rescue StandardError
-      0
+      Float::INFINITY  # fail-closed: unable to estimate size
     end
   end
 end
