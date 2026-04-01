@@ -534,17 +534,19 @@ section('4. MCP Tool Stubs Loadable') do
   acquire_tool = KairosMcp::SkillSets::SkillsetExchange::Tools::SkillsetAcquire.new(safety)
   assert('SkillsetAcquire instantiates') { !acquire_tool.nil? }
   assert('SkillsetAcquire name correct') { acquire_tool.name == 'skillset_acquire' }
-  assert('SkillsetAcquire returns stub message') {
-    result = acquire_tool.call({})
-    result.first[:text].include?('not yet implemented') || result.first[:text].include?('Not yet implemented')
+  assert('SkillsetAcquire returns structured error (no connection)') {
+    result = acquire_tool.call({ 'name' => 'test' })
+    parsed = JSON.parse(result.first[:text])
+    parsed['error'] == 'Not connected'
   }
 
   withdraw_tool = KairosMcp::SkillSets::SkillsetExchange::Tools::SkillsetWithdraw.new(safety)
   assert('SkillsetWithdraw instantiates') { !withdraw_tool.nil? }
   assert('SkillsetWithdraw name correct') { withdraw_tool.name == 'skillset_withdraw' }
-  assert('SkillsetWithdraw returns stub message') {
-    result = withdraw_tool.call({})
-    result.first[:text].include?('not yet implemented') || result.first[:text].include?('Not yet implemented')
+  assert('SkillsetWithdraw returns structured error (no connection)') {
+    result = withdraw_tool.call({ 'name' => 'test' })
+    parsed = JSON.parse(result.first[:text])
+    parsed['error'] == 'Not connected'
   }
 end
 

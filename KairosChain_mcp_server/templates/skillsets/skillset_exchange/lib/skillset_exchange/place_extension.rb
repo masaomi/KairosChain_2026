@@ -336,22 +336,171 @@ module SkillsetExchange
     end
 
     # -----------------------------------------------------------------------
-    # GET /place/v1/skillset_content — Phase 3 (stub)
+    # GET /place/v1/skillset_content?name=NAME&depositor=DEPOSITOR_ID
     # -----------------------------------------------------------------------
-    def handle_skillset_content(_env, _peer_id)
-      json_response(501, {
-        error: 'not_implemented',
-        message: 'skillset_content endpoint coming in Phase 3'
+    def handle_skillset_content(env, peer_id)
+      params = parse_query(env)
+      name = params['name'].to_s.strip
+      depositor = params['depositor']&.strip
+
+      # 1. Name required
+      if name.empty?
+        return json_response(400, {
+          error: 'missing_name',
+          message: 'Query parameter "name" is required'
+        })
+      end
+
+      # 2. Find matching deposits
+      matches = @deposited_skillsets.select { |_k, v| v[:name] == name }
+
+      # 3. Disambiguation
+      if matches.empty?
+        return json_response(404, {
+          error: 'not_found',
+          message: "No SkillSet deposited with name '#{name}'"
+        })
+      end
+
+      if depositor && !depositor.empty?
+        deposit_key = "#{name}:#{depositor}"
+        match = @deposited_skillsets[deposit_key]
+        unless match
+          return json_response(404, {
+            error: 'not_found',
+            message: "No SkillSet '#{name}' deposited by '#{depositor}'"
+          })
+        end
+        meta = match
+      else
+        if matches.size > 1
+          depositors = matches.values.map { |v| v[:depositor_id] }
+          return json_response(409, {
+            error: 'ambiguous',
+            message: "Multiple depositors for '#{name}'. Specify depositor parameter.",
+            depositors: depositors
+          })
+        end
+        meta = matches.values.first
+      end
+
+      # 4. Read archive from disk
+      deposit_dir = File.join(@storage_dir, "#{meta[:name]}_#{sanitize_id(meta[:depositor_id])}")
+      archive_path = File.join(deposit_dir, 'archive.tar.gz')
+
+      unless File.exist?(archive_path)
+        return json_response(500, {
+          error: 'archive_missing',
+          message: 'Archive file missing on server (storage inconsistency)'
+        })
+      end
+
+      archive_data = File.binread(archive_path)
+      archive_base64 = Base64.strict_encode64(archive_data)
+
+      # 5. Get depositor public key from registry (inline, no second round-trip)
+      depositor_public_key = @registry.public_key_for(meta[:depositor_id])
+
+      # 6. Record chain event (content served, not acquisition confirmed --
+      #    the client may still fail verification or install after this point)
+      record_chain_event(
+        event_type: 'skillset_content_served',
+        skillset_name: meta[:name],
+        content_hash: meta[:content_hash],
+        participants: [peer_id, meta[:depositor_id]],
+        extra: {
+          acquirer_id: peer_id,
+          depositor_id: meta[:depositor_id],
+          version: meta[:version]
+        }
+      )
+
+      # 7. Return content response
+      json_response(200, {
+        name: meta[:name],
+        version: meta[:version],
+        archive_base64: archive_base64,
+        content_hash: meta[:content_hash],
+        signature: meta[:signature],
+        depositor_id: meta[:depositor_id],
+        depositor_public_key: depositor_public_key,
+        provides: meta[:provides] || [],
+        file_list: meta[:file_list] || [],
+        trust_notice: {
+          verified_by_place: false,
+          depositor_signed: meta[:depositor_signed] || false,
+          tar_header_scanned: true,
+          disclaimer: 'SkillSet deposited by agent. Place verified format safety, tar header scan, and depositor identity. Review content before use.'
+        }
       })
     end
 
     # -----------------------------------------------------------------------
-    # POST /place/v1/skillset_withdraw — Phase 3 (stub)
+    # POST /place/v1/skillset_withdraw
     # -----------------------------------------------------------------------
-    def handle_skillset_withdraw(_env, _peer_id)
-      json_response(501, {
-        error: 'not_implemented',
-        message: 'skillset_withdraw endpoint coming in Phase 3'
+    def handle_skillset_withdraw(env, peer_id)
+      body = parse_body(env)
+      name = body['name'].to_s.strip
+      reason = body['reason'].to_s
+
+      # 1. Name required
+      if name.empty?
+        return json_response(400, {
+          error: 'missing_name',
+          message: 'Field "name" is required'
+        })
+      end
+
+      # 2. Find deposit by this peer
+      deposit_key = "#{name}:#{peer_id}"
+      meta = @deposited_skillsets[deposit_key]
+
+      unless meta
+        return json_response(404, {
+          error: 'not_found',
+          message: "No SkillSet '#{name}' deposited by you (#{peer_id})"
+        })
+      end
+
+      # 3. Verify caller is original depositor (defense in depth -- key already includes peer_id)
+      unless meta[:depositor_id] == peer_id
+        return json_response(403, {
+          error: 'not_depositor',
+          message: 'Only the original depositor can withdraw a SkillSet'
+        })
+      end
+
+      # 4. Remove from in-memory state
+      @deposited_skillsets.delete(deposit_key)
+
+      # 5. Delete disk files (use trusted metadata values, not raw request input)
+      deposit_dir = File.join(@storage_dir, "#{meta[:name]}_#{sanitize_id(meta[:depositor_id])}")
+      FileUtils.rm_rf(deposit_dir) if File.directory?(deposit_dir)
+
+      # 6. Save state
+      save_state
+
+      # 7. Record chain event
+      record_chain_event(
+        event_type: 'skillset_withdraw',
+        skillset_name: meta[:name],
+        content_hash: meta[:content_hash],
+        participants: [peer_id],
+        extra: {
+          depositor_id: peer_id,
+          version: meta[:version],
+          reason: reason.empty? ? nil : reason
+        }
+      )
+
+      # 8. Return success
+      json_response(200, {
+        status: 'withdrawn',
+        name: meta[:name],
+        version: meta[:version],
+        depositor_id: peer_id,
+        chain_recorded: true,
+        note: 'Agents who already acquired this SkillSet keep their copy.'
       })
     end
 
