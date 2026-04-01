@@ -1,0 +1,32 @@
+{
+  "name": "skillset_exchange",
+  "version": "0.1.0",
+  "description": "SkillSet deposit, browse, acquire, and withdraw via Meeting Place",
+  "author": "Masaomi Hatakeyama",
+  "layer": "L1",
+  "depends_on": [
+    {"name": "mmp", "version": ">= 1.0.0"},
+    {"name": "hestia", "version": ">= 0.1.0"}
+  ],
+  "provides": ["skillset_exchange", "skillset_deposit", "skillset_acquire"],
+  "tool_classes": [
+    "KairosMcp::SkillSets::SkillsetExchange::Tools::SkillsetDeposit",
+    "KairosMcp::SkillSets::SkillsetExchange::Tools::SkillsetBrowse",
+    "KairosMcp::SkillSets::SkillsetExchange::Tools::SkillsetAcquire",
+    "KairosMcp::SkillSets::SkillsetExchange::Tools::SkillsetWithdraw"
+  ],
+  "config_files": ["config/skillset_exchange.yml"],
+  "knowledge_dirs": ["knowledge/skillset_exchange_guide"],
+  "place_extensions": [
+    {
+      "class": "SkillsetExchange::PlaceExtension",
+      "require": "lib/skillset_exchange/place_extension.rb",
+      "route_actions": {
+        "skillset_deposit": "deposit_skill",
+        "skillset_browse": "browse",
+        "skillset_content": "browse",
+        "skillset_withdraw": "deposit_skill"
+      }
+    }
+  ]
+}

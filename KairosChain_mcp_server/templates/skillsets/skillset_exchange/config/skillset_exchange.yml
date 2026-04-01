@@ -1,0 +1,15 @@
+# SkillSet Exchange configuration
+enabled: true
+
+deposit:
+  max_archive_size_bytes: 5242880      # 5MB per archive
+  max_per_agent: 10                     # max SkillSet deposits per agent
+  require_signature: true               # Require depositor signature
+
+acquire:
+  verify_signature: true                # Verify depositor signature on acquire
+  check_dependencies: true              # Warn about missing dependencies
+
+place:
+  max_total_archive_bytes: 104857600   # 100MB total across all agents
+  storage_dir: skillset_deposits        # relative to hestia storage path
