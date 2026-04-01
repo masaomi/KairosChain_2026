@@ -55,7 +55,7 @@ module Hestia
       end
     end
 
-    attr_reader :registry, :skill_board, :heartbeat_manager, :session_store, :started_at
+    attr_reader :registry, :skill_board, :heartbeat_manager, :session_store, :started_at, :extensions
 
     def initialize(config: nil)
       @config = config || ::Hestia.load_config
@@ -66,6 +66,21 @@ module Hestia
       @started = false
       @started_at = nil
       @self_id = nil
+      @extensions = []
+      @extension_action_map = {}
+    end
+
+    # Register a PlaceRouter extension for additional endpoint handling.
+    # Extensions receive authenticated requests and return Rack responses or nil.
+    # Idempotent: skips if an extension of the same class is already registered.
+    #
+    # @param extension [Object] Extension instance responding to #call(env, peer_id:)
+    # @param route_action_map [Hash] Maps route segments to action names for access control
+    def register_extension(extension, route_action_map: {})
+      return if @extensions.any? { |e| e.class == extension.class }
+
+      @extensions << extension
+      @extension_action_map.merge!(route_action_map)
     end
 
     # Start the Meeting Place: initialize components and self-register.
@@ -203,6 +218,10 @@ module Hestia
         elsif request_method == 'GET' && path.start_with?('/place/v1/agent_profile/')
           handle_agent_profile(path)
         else
+          # Extension dispatch: check registered extensions before 404
+          ext_result = dispatch_extensions(env, peer_id: peer_id)
+          return ext_result if ext_result
+
           json_response(404, { error: 'not_found', message: "Unknown place endpoint: #{path}" })
         end
       end
@@ -859,8 +878,9 @@ module Hestia
     end
 
     # Map route segment to abstract action name for access control.
+    # Checks built-in ROUTE_ACTION_MAP first, then extension action map.
     def resolve_action(route_segment)
-      ROUTE_ACTION_MAP[route_segment] || route_segment
+      ROUTE_ACTION_MAP[route_segment] || @extension_action_map[route_segment] || route_segment
     end
 
     # Run registered place middlewares. Returns nil if all pass,
@@ -871,6 +891,16 @@ module Hestia
         mw.session_store = @session_store if mw.respond_to?(:session_store=)
         result = mw.check(peer_id: peer_id, action: action, service: service,
                           auth_token: auth_token, remote_ip: remote_ip)
+        return result if result
+      end
+      nil
+    end
+
+    # Dispatch request to registered extensions.
+    # Returns Rack response if an extension handles it, nil otherwise.
+    def dispatch_extensions(env, peer_id:)
+      @extensions.each do |ext|
+        result = ext.call(env, peer_id: peer_id)
         return result if result
       end
       nil

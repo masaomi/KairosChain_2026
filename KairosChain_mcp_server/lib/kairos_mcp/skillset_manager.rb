@@ -294,8 +294,9 @@ module KairosMcp
       }
     end
 
-    # Install a SkillSet from a Base64-encoded tar.gz archive
-    def install_from_archive(archive_data, layer_override: nil)
+    # Install a SkillSet from a Base64-encoded tar.gz archive.
+    # With force: true, replaces an existing SkillSet (preserves config/ files).
+    def install_from_archive(archive_data, layer_override: nil, force: false)
       archive_data = symbolize_keys(archive_data)
       name = archive_data[:name]
       raise ArgumentError, "Archive missing 'name'" unless name
@@ -303,7 +304,9 @@ module KairosMcp
       raise ArgumentError, "Archive missing 'archive_base64'" unless archive_data[:archive_base64]
 
       dest = File.join(@skillsets_dir, name)
-      raise ArgumentError, "SkillSet '#{name}' already installed at #{dest}" if File.directory?(dest)
+      if File.directory?(dest) && !force
+        raise ArgumentError, "SkillSet '#{name}' already installed at #{dest}. Use force: true to reinstall."
+      end
 
       Dir.mktmpdir('kairos_ss_install') do |tmpdir|
         tar_gz_data = Base64.strict_decode64(archive_data[:archive_base64])
@@ -330,19 +333,77 @@ module KairosMcp
           end
         end
 
-        FileUtils.mkdir_p(@skillsets_dir)
-        FileUtils.cp_r(extracted, dest)
+        # Force reinstall: stage in temp dir (already done above), then atomic swap
+        if File.directory?(dest) && force
+          # Preserve user config files
+          config_dir = File.join(dest, 'config')
+          saved_configs = {}
+          if File.directory?(config_dir)
+            Dir.glob(File.join(config_dir, '*')).each do |f|
+              saved_configs[File.basename(f)] = File.read(f) if File.file?(f)
+            end
+          end
+
+          # Atomic swap: remove old, move new into place
+          FileUtils.rm_rf(dest)
+          FileUtils.cp_r(extracted, dest)
+
+          # Restore preserved config
+          unless saved_configs.empty?
+            FileUtils.mkdir_p(File.join(dest, 'config'))
+            saved_configs.each do |fname, content|
+              File.write(File.join(dest, 'config', fname), content)
+            end
+          end
+        else
+          FileUtils.mkdir_p(@skillsets_dir)
+          FileUtils.cp_r(extracted, dest)
+        end
 
         installed = Skillset.new(dest)
         installed.layer = layer_override if layer_override
 
         set_config(installed.name, 'layer_override', layer_override.to_s) if layer_override
         set_config(installed.name, 'enabled', true)
-        record_skillset_event(installed, 'install_from_archive')
+        record_skillset_event(installed, force ? 'reinstall_from_archive' : 'install_from_archive')
 
         { success: true, name: installed.name, version: installed.version,
           layer: installed.layer, path: dest, content_hash: installed.content_hash }
       end
+    end
+
+    # Check if a SkillSet's dependencies can be satisfied locally.
+    # Returns a structured result (does NOT raise).
+    #
+    # @param skillset [Skillset] A Skillset object (from archive or installed)
+    # @return [Hash] { satisfiable:, missing:, version_mismatch:, disabled: }
+    def check_installable_dependencies(skillset)
+      result = { satisfiable: true, missing: [], version_mismatch: [], disabled: [] }
+      skillset.depends_on_with_versions.each do |dep|
+        installed = find_skillset(dep[:name])
+        if installed.nil?
+          result[:satisfiable] = false
+          result[:missing] << dep[:name]
+          next
+        end
+
+        unless enabled?(dep[:name])
+          result[:disabled] << dep[:name]
+        end
+
+        next unless dep[:version]
+
+        requirement = Gem::Requirement.new(*dep[:version].split(',').map(&:strip))
+        unless requirement.satisfied_by?(Gem::Version.new(installed.version))
+          result[:satisfiable] = false
+          result[:version_mismatch] << {
+            name: dep[:name],
+            required: dep[:version],
+            installed: installed.version
+          }
+        end
+      end
+      result
     end
 
     # Get info about a specific SkillSet

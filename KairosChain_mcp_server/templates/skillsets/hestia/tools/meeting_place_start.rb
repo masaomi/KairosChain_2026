@@ -90,6 +90,9 @@ module KairosMcp
               trust_scorer: scorer
             )
 
+            # Register place extensions from enabled SkillSets
+            register_extensions(place_router)
+
             text_content(JSON.pretty_generate(result))
           rescue StandardError => e
             text_content(JSON.pretty_generate({
@@ -99,6 +102,31 @@ module KairosMcp
           end
 
           private
+
+          # Register place extensions from enabled SkillSets that declare place_extensions.
+          # Iterates all enabled SkillSets, requires extension files, and registers with the router.
+          # Errors are logged but do not block Place startup.
+          def register_extensions(router)
+            manager = ::KairosMcp::SkillSetManager.new
+            manager.enabled_skillsets.each do |ss|
+              next unless ss.place_extensions.any?
+
+              ss.place_extensions.each do |ext_def|
+                require_path = File.join(ss.path, ext_def['require'])
+                require require_path
+                ext_class = Object.const_get(ext_def['class'])
+                router.register_extension(
+                  ext_class.new(router),
+                  route_action_map: ext_def['route_actions'] || {}
+                )
+              rescue StandardError => e
+                $stderr.puts "[MeetingPlaceStart] Failed to load extension '#{ext_def['class']}' " \
+                             "from SkillSet '#{ss.name}': #{e.message}"
+              end
+            end
+          rescue StandardError => e
+            $stderr.puts "[MeetingPlaceStart] Extension registration failed (non-fatal): #{e.message}"
+          end
 
           # Runtime detection of Synoptis SkillSet.
           # Returns a TrustScorer instance if Synoptis is loaded, nil otherwise.

@@ -283,6 +283,9 @@ module KairosMcp
         trust_anchor_client: trust_anchor_client
       )
       @place_router = router
+
+      # Register place extensions from enabled SkillSets
+      register_place_extensions(router)
     end
 
     # -----------------------------------------------------------------------
@@ -294,6 +297,30 @@ module KairosMcp
     end
 
     private
+
+    # Register place extensions from enabled SkillSets that declare place_extensions.
+    # Uses KairosMcp.http_server pattern for late registration access.
+    def register_place_extensions(router)
+      require_relative 'skillset_manager'
+      SkillSetManager.new.enabled_skillsets.each do |ss|
+        next unless ss.place_extensions.any?
+
+        ss.place_extensions.each do |ext_def|
+          require_path = File.join(ss.path, ext_def['require'])
+          require require_path
+          ext_class = Object.const_get(ext_def['class'])
+          router.register_extension(
+            ext_class.new(router),
+            route_action_map: ext_def['route_actions'] || {}
+          )
+        rescue StandardError => e
+          $stderr.puts "[HttpServer] Failed to load extension '#{ext_def['class']}' " \
+                       "from SkillSet '#{ss.name}': #{e.message}"
+        end
+      end
+    rescue StandardError => e
+      $stderr.puts "[HttpServer] Extension registration failed (non-fatal): #{e.message}"
+    end
 
     # Auto-start Meeting Place if hestia.yml has meeting_place.enabled: true
     def auto_start_meeting_place

@@ -78,6 +78,12 @@ module KairosMcp
       @metadata['knowledge_dirs'] || []
     end
 
+    # Place extension declarations for PlaceRouter integration.
+    # Returns Array of Hashes, each with 'class', 'require', 'route_actions'.
+    def place_extensions
+      @metadata['place_extensions'] || []
+    end
+
     def index_knowledge?
       return @metadata['index_knowledge'] == true if @metadata.key?('index_knowledge')
 
