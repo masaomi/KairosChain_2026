@@ -13,7 +13,7 @@ module KairosMcp
         API_VERSION = '2023-06-01'
 
         def call(messages:, system: nil, tools: nil, model: nil,
-                 max_tokens: nil, temperature: nil)
+                 max_tokens: nil, temperature: nil, output_schema: nil)
           api_key = resolve_api_key
 
           body = {
@@ -22,6 +22,12 @@ module KairosMcp
             messages: convert_messages(messages)
           }
           body[:system] = system if system
+          if output_schema
+            separator = body[:system] ? "\n\n" : ""
+            tool_qualifier = (tools && !tools.empty?) ? "When you are NOT using a tool, respond" : "Respond"
+            schema_instruction = "#{separator}You MUST: #{tool_qualifier} with ONLY valid JSON (no markdown fences, no explanation) matching this JSON Schema:\n#{JSON.generate(output_schema)}"
+            body[:system] = (body[:system] || '') + schema_instruction
+          end
           body[:temperature] = resolve_temperature(temperature) unless temperature.nil?
           body[:tools] = tools if tools && !tools.empty?
 

@@ -44,7 +44,9 @@ module KairosMcp
           { schemas: results, errors: errors }
         end
 
-        # Normalize JSON Schema for OpenAI strict mode compatibility
+        # Normalize JSON Schema for OpenAI strict mode compatibility.
+        # When strict: true, OpenAI requires additionalProperties: false and
+        # all properties listed in required on every object.
         def normalize_for_openai(schema)
           return schema unless schema.is_a?(Hash)
 
@@ -54,6 +56,15 @@ module KairosMcp
             # OpenAI requires explicit additionalProperties: false
             key = normalized.key?(:type) ? :additionalProperties : 'additionalProperties'
             normalized[key] = false unless normalized.key?(key) || normalized.key?(:additionalProperties) || normalized.key?('additionalProperties')
+
+            # OpenAI strict mode requires all properties in required array
+            props = normalized[:properties] || normalized['properties']
+            unless normalized.key?(:required) || normalized.key?('required')
+              if props.is_a?(Hash) && !props.empty?
+                req_key = normalized.key?(:type) ? :required : 'required'
+                normalized[req_key] = props.keys.map(&:to_s)
+              end
+            end
           end
 
           # Recursively normalize nested properties

@@ -69,6 +69,12 @@ module KairosMcp
                 temperature: {
                   type: 'number',
                   description: 'Temperature override (optional)'
+                },
+                output_schema: {
+                  type: 'object',
+                  description: 'JSON Schema for structured output (optional). When provided, ' \
+                    'the LLM is instructed to return only valid JSON matching this schema. ' \
+                    'Note: OpenAI strict mode requires all properties listed in "required" array.'
                 }
               },
               required: ['messages']
@@ -83,6 +89,7 @@ module KairosMcp
             model = arguments['model']
             max_tokens = arguments['max_tokens']
             temperature = arguments['temperature']
+            output_schema = arguments['output_schema']
 
             # Resolve tool schemas with policy filtering
             tool_schemas = nil
@@ -101,7 +108,8 @@ module KairosMcp
               tools: tool_schemas,
               model: model,
               max_tokens: max_tokens,
-              temperature: temperature
+              temperature: temperature,
+              output_schema: output_schema
             )
 
             # Track usage

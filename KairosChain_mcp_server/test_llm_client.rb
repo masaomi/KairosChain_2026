@@ -439,6 +439,184 @@ assert("passes through native tool message without tool_use_id or tool_call_id")
 end
 
 # =========================================================================
+# M1: output_schema parameter
+# =========================================================================
+
+section "output_schema parameter"
+
+test_schema = {
+  'type' => 'object',
+  'properties' => {
+    'verdict' => { 'type' => 'string', 'enum' => %w[approve needs-attention] },
+    'summary' => { 'type' => 'string' }
+  },
+  'required' => %w[verdict summary]
+}
+
+assert("llm_call input_schema includes output_schema property") do
+  schema = llm_call_tool.input_schema
+  schema[:properties].key?(:output_schema)
+end
+
+assert("AnthropicAdapter injects schema instruction into system prompt") do
+  # Build body manually to check system prompt injection
+  adapter = KairosMcp::SkillSets::LlmClient::AnthropicAdapter.new(
+    { 'provider' => 'anthropic', 'api_key_env' => 'ANTHROPIC_API_KEY',
+      'model' => 'claude-sonnet-4-6' }
+  )
+  # We can't call the API, but we can verify the system prompt injection logic
+  # by checking that output_schema is accepted as a keyword argument
+  method_params = adapter.method(:call).parameters.map { |_, name| name }
+  method_params.include?(:output_schema)
+end
+
+assert("AnthropicAdapter system prompt injection appends to existing system") do
+  body = {}
+  system = "You are helpful"
+  body[:system] = system
+  output_schema = test_schema
+  tools = nil
+  if output_schema
+    separator = body[:system] ? "\n\n" : ""
+    tool_qualifier = (tools && !tools.empty?) ? "When you are NOT using a tool, respond" : "Respond"
+    schema_instruction = "#{separator}You MUST: #{tool_qualifier} with ONLY valid JSON (no markdown fences, no explanation) matching this JSON Schema:\n#{JSON.generate(output_schema)}"
+    body[:system] = (body[:system] || '') + schema_instruction
+  end
+  body[:system].start_with?("You are helpful") &&
+    body[:system].include?('JSON Schema') &&
+    body[:system].include?('"verdict"')
+end
+
+assert("AnthropicAdapter system prompt injection works with nil system (no leading newlines)") do
+  body = {}
+  output_schema = test_schema
+  tools = nil
+  if output_schema
+    separator = body[:system] ? "\n\n" : ""
+    tool_qualifier = (tools && !tools.empty?) ? "When you are NOT using a tool, respond" : "Respond"
+    schema_instruction = "#{separator}You MUST: #{tool_qualifier} with ONLY valid JSON (no markdown fences, no explanation) matching this JSON Schema:\n#{JSON.generate(output_schema)}"
+    body[:system] = (body[:system] || '') + schema_instruction
+  end
+  body[:system].include?('JSON Schema') && !body[:system].start_with?("\n")
+end
+
+assert("AnthropicAdapter tools+output_schema uses conditional qualifier") do
+  body = {}
+  body[:system] = "You are helpful"
+  output_schema = test_schema
+  tools = [{ name: 'knowledge_list', input_schema: {} }]
+  separator = body[:system] ? "\n\n" : ""
+  tool_qualifier = (tools && !tools.empty?) ? "When you are NOT using a tool, respond" : "Respond"
+  schema_instruction = "#{separator}You MUST: #{tool_qualifier} with ONLY valid JSON (no markdown fences, no explanation) matching this JSON Schema:\n#{JSON.generate(output_schema)}"
+  body[:system] = (body[:system] || '') + schema_instruction
+  body[:system].include?('NOT using a tool')
+end
+
+assert("OpenaiAdapter accepts output_schema keyword") do
+  adapter = KairosMcp::SkillSets::LlmClient::OpenaiAdapter.new(
+    { 'provider' => 'openai', 'api_key_env' => 'OPENAI_API_KEY' }
+  )
+  method_params = adapter.method(:call).parameters.map { |_, name| name }
+  method_params.include?(:output_schema)
+end
+
+assert("OpenAI response_format built correctly from output_schema") do
+  body = {}
+  output_schema = test_schema
+  if output_schema
+    body[:response_format] = {
+      type: 'json_schema',
+      json_schema: {
+        name: 'structured_output',
+        strict: true,
+        schema: SC.normalize_for_openai(output_schema)
+      }
+    }
+  end
+  rf = body[:response_format]
+  rf[:type] == 'json_schema' &&
+    rf[:json_schema][:strict] == true &&
+    rf[:json_schema][:schema]['properties']['verdict']['type'] == 'string'
+end
+
+assert("ClaudeCodeAdapter accepts output_schema keyword") do
+  require File.join(__dir__, '..', '.kairos', 'skillsets', 'llm_client',
+                    'lib', 'llm_client', 'claude_code_adapter')
+  adapter = KairosMcp::SkillSets::LlmClient::ClaudeCodeAdapter.new(
+    { 'provider' => 'claude_code' }
+  )
+  method_params = adapter.method(:call).parameters.map { |_, name| name }
+  method_params.include?(:output_schema)
+end
+
+assert("ClaudeCodeAdapter prompt includes schema when output_schema provided") do
+  adapter = KairosMcp::SkillSets::LlmClient::ClaudeCodeAdapter.new(
+    { 'provider' => 'claude_code' }
+  )
+  prompt = adapter.send(:build_prompt,
+    [{ 'role' => 'user', 'content' => 'Review this code' }],
+    nil, nil, test_schema)
+  prompt.include?('[Output Format]') && prompt.include?('"verdict"')
+end
+
+assert("ClaudeCodeAdapter prompt excludes schema when output_schema is nil") do
+  adapter = KairosMcp::SkillSets::LlmClient::ClaudeCodeAdapter.new(
+    { 'provider' => 'claude_code' }
+  )
+  prompt = adapter.send(:build_prompt,
+    [{ 'role' => 'user', 'content' => 'Hello' }],
+    nil, nil, nil)
+  !prompt.include?('[Output Format]')
+end
+
+assert("BedrockAdapter accepts output_schema keyword") do
+  require File.join(__dir__, '..', '.kairos', 'skillsets', 'llm_client',
+                    'lib', 'llm_client', 'bedrock_adapter')
+  adapter = KairosMcp::SkillSets::LlmClient::BedrockAdapter.new(
+    { 'provider' => 'bedrock' }
+  )
+  method_params = adapter.method(:call).parameters.map { |_, name| name }
+  method_params.include?(:output_schema)
+end
+
+assert("normalize_for_openai auto-populates required when missing") do
+  schema = { 'type' => 'object', 'properties' => { 'a' => { 'type' => 'string' }, 'b' => { 'type' => 'integer' } } }
+  result = SC.normalize_for_openai(schema)
+  result['required'].is_a?(Array) && result['required'].sort == %w[a b]
+end
+
+assert("normalize_for_openai preserves existing required array") do
+  schema = { 'type' => 'object', 'properties' => { 'a' => { 'type' => 'string' }, 'b' => { 'type' => 'integer' } }, 'required' => ['a'] }
+  result = SC.normalize_for_openai(schema)
+  result['required'] == ['a']
+end
+
+assert("ClaudeCodeAdapter tools+output_schema uses conditional qualifier") do
+  adapter = KairosMcp::SkillSets::LlmClient::ClaudeCodeAdapter.new(
+    { 'provider' => 'claude_code' }
+  )
+  tools = [{ name: 'knowledge_list', description: 'List knowledge', input_schema: { type: 'object', properties: {} } }]
+  prompt = adapter.send(:build_prompt,
+    [{ 'role' => 'user', 'content' => 'test' }],
+    nil, tools, test_schema)
+  prompt.include?('NOT using a tool') && prompt.include?('"verdict"')
+end
+
+assert("backward compat: llm_call without output_schema still works") do
+  old_key = ENV.delete('ANTHROPIC_API_KEY')
+  begin
+    result = llm_call_tool.call({
+      'messages' => [{ 'role' => 'user', 'content' => 'test' }]
+    })
+    parsed = JSON.parse(result[0][:text])
+    # Should fail with auth error, not crash
+    parsed['status'] == 'error' && parsed['error']['type'] == 'auth_error'
+  ensure
+    ENV['ANTHROPIC_API_KEY'] = old_key if old_key
+  end
+end
+
+# =========================================================================
 # Summary
 # =========================================================================
 

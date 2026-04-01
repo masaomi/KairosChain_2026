@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.1"
+version: "3.2"
 tags:
   - workflow
   - review
@@ -242,6 +242,65 @@ Every review prompt MUST include these 7 items:
 7. **Severity ratings + output format** — structured template for review output
 
 All prompt content MUST be in **English** for consistent parsing across LLM tools.
+
+### XML Block Structure for Review Prompts
+
+Review prompts SHOULD use XML blocks to give LLMs explicit structural contracts.
+This reduces hallucination, enforces grounded findings, and standardizes output.
+
+```xml
+<task>
+Review the provided artifact for [review type: design correctness / implementation bugs / ...].
+Target: [artifact name and version]
+Scope: [what changed since last round, or "initial review"]
+</task>
+
+<structured_output_contract>
+Output a Markdown file with this structure:
+- **Reviewer**: [tool_name]
+- **Model**: [model_id]
+- **Date**: [ISO date]
+- **Overall Verdict**: APPROVE / APPROVE WITH CHANGES / REJECT
+
+For each finding:
+- **Severity**: FAIL / HIGH / MEDIUM / LOW
+- **Confidence**: 0.0-1.0 (how certain you are this is a real issue)
+- **Location**: file:line or section reference
+- **What can go wrong**: concrete failure scenario
+- **Why this is vulnerable**: code path or design gap
+- **Likely impact**: data loss, security breach, silent corruption, etc.
+- **Recommended fix**: specific change (not "consider improving")
+</structured_output_contract>
+
+<grounding_rules>
+Ground every finding in the provided artifact text or referenced source files.
+If a claim is an inference (not directly visible in the artifact), label it:
+  "[INFERRED] Based on X, this likely means Y."
+Do not invent files, methods, or runtime behavior not shown in the artifact.
+Keep confidence scores honest — 0.5 if uncertain, 0.9+ only if directly evidenced.
+</grounding_rules>
+
+<verification_loop>
+Before finalizing your review:
+1. Re-read each FAIL/HIGH finding. Is the failure scenario concrete and reproducible?
+2. Check for second-order failures: empty-state, retry, stale state, rollback risk.
+3. Verify file paths and line numbers are accurate.
+4. If you found zero issues, state that explicitly — do not manufacture findings.
+</verification_loop>
+
+<default_follow_through_policy>
+Complete the full review in one pass. Do not ask clarifying questions.
+If context is missing, note it as a finding with severity LOW and confidence 0.3.
+</default_follow_through_policy>
+```
+
+**Usage**: Include these XML blocks in the prompt body (rule #3 "Review instructions").
+They replace or supplement free-form review instructions. The blocks are
+LLM-agnostic and work with Claude, GPT, and Composer models.
+
+**When to use full XML blocks vs. lightweight**:
+- **Full** (all 5 blocks): Design review, implementation review, security-critical
+- **Lightweight** (`<task>` + `<structured_output_contract>` only): Fix plan review, document review
 
 ### Output Directive in Prompt Body
 

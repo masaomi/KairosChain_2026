@@ -14,7 +14,7 @@ module KairosMcp
         # Make one API call. Returns normalized response hash.
         # Subclasses MUST rescue provider errors and raise ApiError.
         def call(messages:, system: nil, tools: nil, model: nil,
-                 max_tokens: nil, temperature: nil)
+                 max_tokens: nil, temperature: nil, output_schema: nil)
           raise NotImplementedError, "#{self.class}#call not implemented"
         end
 

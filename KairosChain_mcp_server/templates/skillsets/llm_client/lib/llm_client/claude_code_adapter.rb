@@ -12,8 +12,8 @@ module KairosMcp
       # Invokes `claude -p --output-format json` as a subprocess.
       class ClaudeCodeAdapter < Adapter
         def call(messages:, system: nil, tools: nil, model: nil,
-                 max_tokens: nil, temperature: nil)
-          prompt = build_prompt(messages, system, tools)
+                 max_tokens: nil, temperature: nil, output_schema: nil)
+          prompt = build_prompt(messages, system, tools, output_schema)
 
           args = ['claude', '-p', '--output-format', 'json']
           args += ['--model', model] if model
@@ -41,7 +41,7 @@ module KairosMcp
 
         private
 
-        def build_prompt(messages, system, tools)
+        def build_prompt(messages, system, tools, output_schema = nil)
           parts = []
 
           if system
@@ -66,6 +66,13 @@ module KairosMcp
             parts << '```json'
             parts << '{"tool_use": [{"name": "tool_name", "input": {"param": "value"}}]}'
             parts << '```'
+            parts << ""
+          end
+
+          if output_schema
+            qualifier = (tools && !tools.empty?) ? "When you are NOT using a tool, respond" : "Respond"
+            parts << "[Output Format]: #{qualifier} with ONLY valid JSON (no markdown fences) matching this schema:"
+            parts << JSON.generate(output_schema)
             parts << ""
           end
 

@@ -12,7 +12,7 @@ module KairosMcp
         API_URL = 'https://api.openai.com'
 
         def call(messages:, system: nil, tools: nil, model: nil,
-                 max_tokens: nil, temperature: nil)
+                 max_tokens: nil, temperature: nil, output_schema: nil)
           api_key = resolve_api_key
 
           all_messages = []
@@ -27,6 +27,16 @@ module KairosMcp
             temperature: resolve_temperature(temperature)
           }
           body[:tools] = tools if tools && !tools.empty?
+          if output_schema
+            body[:response_format] = {
+              type: 'json_schema',
+              json_schema: {
+                name: 'structured_output',
+                strict: true,
+                schema: SchemaConverter.normalize_for_openai(output_schema)
+              }
+            }
+          end
 
           response = connection(api_key).post('/v1/chat/completions') do |req|
             req.body = JSON.generate(body)

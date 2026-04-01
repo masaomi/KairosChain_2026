@@ -12,7 +12,7 @@ module KairosMcp
       # Requires: gem 'aws-sdk-bedrockruntime'
       class BedrockAdapter < Adapter
         def call(messages:, system: nil, tools: nil, model: nil,
-                 max_tokens: nil, temperature: nil)
+                 max_tokens: nil, temperature: nil, output_schema: nil)
           client = bedrock_client
 
           converted_messages = convert_messages(messages)
@@ -23,6 +23,13 @@ module KairosMcp
             messages: converted_messages
           }
           payload[:system] = system if system
+          if output_schema
+            separator = payload[:system] ? "\n\n" : ""
+            has_tools = tools && !tools.empty?
+            tool_qualifier = has_tools ? "When you are NOT using a tool, respond" : "Respond"
+            schema_instruction = "#{separator}You MUST: #{tool_qualifier} with ONLY valid JSON (no markdown fences, no explanation) matching this JSON Schema:\n#{JSON.generate(output_schema)}"
+            payload[:system] = (payload[:system] || '') + schema_instruction
+          end
           payload[:temperature] = resolve_temperature(temperature) unless temperature.nil?
 
           if tools && !tools.empty?
