@@ -372,6 +372,105 @@ module KairosMcp
                   return finalize_autonomous(session, results, paused: 'risk_exceeded')
                 end
 
+                # Gate 5.5: Complexity-driven review
+                review_cfg = session.config['complexity_review'] || {}
+                complexity = assess_decision_complexity(decision_payload)
+                llm_hint = decision_payload['complexity_hint']
+                complexity = merge_complexity(complexity, llm_hint) if llm_hint
+
+                if review_enabled?(session)
+                  # Gate 5.5a: L0 escalation (before persona review — save LLM cost)
+                  if complexity[:signals].include?('l0_change') &&
+                     review_cfg.fetch('l0_always_checkpoint', true)
+                    multi_llm_prompt = generate_multi_llm_review_prompt(session, decision_payload)
+                    session.update_state('checkpoint')
+                    session.save
+                    return finalize_autonomous(session, results, checkpoint: true,
+                                               warning: 'l0_requires_external_review',
+                                               multi_llm_prompt: multi_llm_prompt)
+                  end
+
+                  # Gate 5.5b: High-complexity persona review (inner retry loop)
+                  if complexity[:level] == 'high'
+                    review_retries = 0
+                    max_retries = review_cfg['max_review_retries'] || 2
+
+                    loop do
+                      # Budget guard inside inner loop (P1-2 fix)
+                      if total_llm_calls >= max_total_llm
+                        session.update_state('checkpoint')
+                        session.save
+                        return finalize_autonomous(session, results, checkpoint: true,
+                                                   paused: 'llm_budget_exceeded')
+                      end
+
+                      review = run_persona_review(session, decision_payload, complexity)
+                      total_llm_calls += review[:llm_calls] || 0
+                      session.save_review_result(review)
+
+                      case review[:overall_verdict]
+                      when 'APPROVE'
+                        break
+                      when 'REJECT'
+                        session.update_state('checkpoint')
+                        session.save
+                        return finalize_autonomous(session, results, checkpoint: true,
+                                                   warning: 'review_rejected', review: review)
+                      else # REVISE or parse fallback
+                        review_retries += 1
+                        if review_retries > max_retries
+                          session.update_state('checkpoint')
+                          session.save
+                          return finalize_autonomous(session, results, checkpoint: true,
+                                                     warning: 'review_max_retries', review: review)
+                        end
+
+                        findings = Array(review[:key_findings]).join("\n- ")
+                        feedback = "Persona review (attempt #{review_retries}/#{max_retries}) found issues:\n- #{findings}\n\nRevise the plan to address these concerns."
+                        decide_result = run_decide_with_review_feedback_internal(session, feedback)
+                        total_llm_calls += decide_result[:llm_calls] || 0
+
+                        if decide_result[:error]
+                          session.update_state('paused_error')
+                          session.save
+                          return finalize_autonomous(session, results, error: decide_result[:error])
+                        end
+
+                        decision_payload = session.load_decision
+
+                        # Re-check loop detection with review-tagged summary
+                        tagged_summary = "#{decision_payload['summary']}_review_rev#{review_retries}"
+                        loop_term = check_loop_detection(
+                          session, nil,
+                          decision_payload.merge('summary' => tagged_summary),
+                          mandate_override: mandate
+                        )
+                        if loop_term
+                          session.update_state('terminated')
+                          return finalize_autonomous(session, results, terminated: 'loop_detected')
+                        end
+
+                        # Re-check risk budget on revised plan
+                        proposal = MandateAdapter.to_mandate_proposal(decision_payload)
+                        if ::Autonomos::Mandate.risk_exceeds_budget?(proposal, mandate[:risk_budget])
+                          mandate[:status] = 'paused_risk_exceeded'
+                          ::Autonomos::Mandate.save(session.mandate_id, mandate)
+                          session.update_state('paused_risk')
+                          session.save
+                          return finalize_autonomous(session, results, paused: 'risk_exceeded')
+                        end
+
+                        # Re-assess complexity for revised plan
+                        complexity = assess_decision_complexity(decision_payload)
+                        llm_hint = decision_payload['complexity_hint']
+                        complexity = merge_complexity(complexity, llm_hint) if llm_hint
+
+                        break unless complexity[:level] == 'high'
+                      end
+                    end
+                  end
+                end
+
                 # ACT + REFLECT
                 ar_result = run_act_reflect_internal(session)
                 total_llm_calls += ar_result[:llm_calls] || 0
@@ -389,6 +488,19 @@ module KairosMcp
                 if term_reason
                   session.update_state('terminated')
                   return finalize_autonomous(session, results, terminated: term_reason)
+                end
+
+                # Gate 6.5: Post-ACT advisory review for medium complexity
+                if review_enabled?(session) &&
+                   review_cfg.fetch('post_act_review', true) &&
+                   complexity[:level] == 'medium' &&
+                   ar_result[:act_succeeded]
+                  post_review = run_lightweight_review(session, decision_payload, ar_result)
+                  total_llm_calls += post_review[:llm_calls] || 0
+                  if Array(post_review[:concerns]).any?
+                    ar_result[:reflect]['review_concerns'] = post_review[:concerns]
+                    session.save_progress_amendment(post_review[:concerns])
+                  end
                 end
 
                 # Gate 7: Confidence-based early exit
@@ -425,7 +537,8 @@ module KairosMcp
           end
 
           def finalize_autonomous(session, cycle_results, terminated: nil, paused: nil,
-                                  checkpoint: nil, error: nil, warning: nil)
+                                  checkpoint: nil, error: nil, warning: nil,
+                                  review: nil, multi_llm_prompt: nil)
             session.save
 
             status = if checkpoint then 'checkpoint'
@@ -451,6 +564,8 @@ module KairosMcp
               }
             }
             response['permission_advisory'] = session.permission_advisory if session.permission_advisory
+            response['review'] = review if review
+            response['multi_llm_prompt'] = multi_llm_prompt if multi_llm_prompt
             text_content(JSON.generate(response))
           end
 
@@ -806,6 +921,216 @@ module KairosMcp
             warn "[agent] Failed to record cycle: #{e.message}"
           end
 
+          # ---- Complexity Assessment ----
+
+          L0_TOOLS = %w[skills_evolve skills_rollback instructions_update system_upgrade].freeze
+          STATE_MUTATION_TOOLS = %w[state_commit chain_record knowledge_update formalization_record].freeze
+
+          def assess_decision_complexity(decision_payload)
+            signals = []
+            steps = decision_payload.dig('task_json', 'steps') || []
+
+            signals << 'high_risk' if steps.any? { |s| s['risk'] == 'high' }
+            signals << 'many_steps' if steps.size > 5
+            signals << 'design_scope' if decision_payload['summary']&.match?(
+              ::Autonomos::Ooda::COMPLEX_KEYWORDS
+            )
+            signals << 'l0_change' if steps.any? { |s| L0_TOOLS.include?(s['tool_name']) }
+            signals << 'core_files' if steps.any? { |s|
+              path = s.dig('tool_arguments', 'file_path').to_s
+              path.include?('/lib/') && path.include?('kairos')
+            }
+            file_paths = steps.filter_map { |s| s.dig('tool_arguments', 'file_path') }.uniq
+            signals << 'multi_file' if file_paths.size > 3
+            signals << 'state_mutation' if steps.any? { |s| STATE_MUTATION_TOOLS.include?(s['tool_name']) }
+
+            level = case signals.size
+                    when 0 then 'low'
+                    when 1 then 'medium'
+                    else 'high'
+                    end
+
+            # L0 override: always high
+            level = 'high' if signals.include?('l0_change')
+
+            { level: level, signals: signals }
+          end
+
+          def merge_complexity(structural, llm_hint)
+            levels = { 'low' => 0, 'medium' => 1, 'high' => 2 }
+            s_val = levels[structural[:level]] || 0
+            l_val = levels[llm_hint&.dig('level') || llm_hint&.dig(:level)] || 0
+            # LLM can raise by at most 1 level
+            capped_llm = [l_val, s_val + 1].min
+            final_val = [s_val, capped_llm].max
+            final_level = levels.key(final_val) || 'low'
+            {
+              level: final_level,
+              signals: (structural[:signals] + Array(llm_hint&.dig('signals') || llm_hint&.dig(:signals))).uniq
+            }
+          end
+
+          def review_enabled?(session)
+            review_cfg = session.config['complexity_review'] || {}
+            review_cfg.fetch('enabled', true)
+          end
+
+          # ---- Persona Review ----
+
+          def run_persona_review(session, decision_payload, complexity)
+            review_cfg = session.config['complexity_review'] || {}
+            personas = if complexity[:signals].include?('l0_change')
+                         review_cfg['high_personas'] || %w[kairos pragmatic skeptic]
+                       else
+                         review_cfg['personas'] || %w[pragmatic skeptic]
+                       end
+
+            persona_defs = load_persona_definitions(personas, session)
+            prompt = build_persona_review_prompt(decision_payload, complexity, persona_defs)
+            review_loop = CognitiveLoop.new(self, session)
+            messages = [{ 'role' => 'user', 'content' => prompt }]
+            result = review_loop.run_phase('review', persona_review_system_prompt, messages, [])
+
+            parsed = parse_persona_review(result['content'])
+            parsed[:llm_calls] = review_loop.total_calls
+            parsed
+          end
+
+          def run_lightweight_review(session, decision_payload, ar_result)
+            prompt = build_lightweight_review_prompt(decision_payload, ar_result)
+            review_loop = CognitiveLoop.new(self, session)
+            messages = [{ 'role' => 'user', 'content' => prompt }]
+            result = review_loop.run_phase('review', lightweight_review_system_prompt, messages, [])
+
+            parsed = parse_lightweight_review(result['content'])
+            parsed[:llm_calls] = review_loop.total_calls
+            parsed
+          end
+
+          def parse_persona_review(content)
+            return review_parse_fallback('no content') unless content
+
+            json_str = extract_json_from_content(content)
+            return review_parse_fallback('no JSON found') unless json_str
+
+            parsed = JSON.parse(json_str)
+            verdict = parsed['overall_verdict']
+            unless verdict.is_a?(String)
+              return review_parse_fallback("invalid overall_verdict type: #{verdict.class}")
+            end
+            parsed['overall_verdict'] = verdict.upcase
+            parsed.transform_keys(&:to_sym)
+          rescue JSON::ParserError => e
+            review_parse_fallback("JSON parse error: #{e.message}")
+          end
+
+          def review_parse_fallback(reason)
+            {
+              overall_verdict: 'REVISE',
+              key_findings: ["Review parse failed (#{reason}) — defaulting to REVISE"],
+              parse_error: true,
+              personas: {}
+            }
+          end
+
+          def parse_lightweight_review(content)
+            return { concerns: [], llm_calls: 0 } unless content
+
+            json_str = extract_json_from_content(content)
+            if json_str
+              parsed = JSON.parse(json_str)
+              { concerns: Array(parsed['concerns']), suggestions: Array(parsed['suggestions']) }
+            else
+              { concerns: [], suggestions: [], parse_error: true }
+            end
+          rescue JSON::ParserError
+            { concerns: [], suggestions: [], parse_error: true }
+          end
+
+          def load_persona_definitions(persona_names, session)
+            result = invoke_tool('knowledge_get', { 'name' => 'persona_definitions' },
+                                 context: session.invocation_context)
+            parsed = JSON.parse(result.map { |b| b[:text] || b['text'] }.compact.join)
+            content = parsed['content'] || ''
+            extract_persona_sections(content, persona_names)
+          rescue StandardError
+            # Hardcoded fallback
+            {
+              'pragmatic' => 'Evaluate for real-world utility, implementation complexity, and maintenance burden.',
+              'skeptic' => 'Challenge assumptions, identify edge cases, failure modes, and unintended consequences.',
+              'kairos' => 'Evaluate alignment with KairosChain philosophy: self-referentiality, structural integrity, and layer boundaries.'
+            }.slice(*persona_names)
+          end
+
+          def extract_persona_sections(content, persona_names)
+            defs = {}
+            persona_names.each do |name|
+              # Try to find "### name" or "## name" section
+              if content =~ /##\s*#{Regexp.escape(name)}\s*\n(.*?)(?=\n##|\z)/mi
+                defs[name] = $1.strip[0..300]
+              end
+            end
+            defs
+          end
+
+          # ---- Internal DECIDE with Review Feedback ----
+
+          def run_decide_with_review_feedback_internal(session, feedback)
+            loop_inst = CognitiveLoop.new(self, session)
+
+            prior_decision = session.load_decision
+            prior_json = prior_decision ? JSON.generate(prior_decision) : '(none)'
+            catalog = build_tool_catalog(session)
+
+            messages = [
+              { 'role' => 'user', 'content' =>
+                "## Available Tools\n#{catalog}\n\n" \
+                "Previous plan:\n#{prior_json}\n\n" \
+                "This plan was flagged by persona review. Feedback:\n#{feedback}\n\n" \
+                "Revise the plan and output a new decision_payload as JSON. " \
+                "Include a complexity_hint key in your output. Use ONLY tools listed above." }
+            ]
+
+            decide_result = loop_inst.run_decide(decide_system_prompt, messages)
+            if decide_result['error']
+              return { error: decide_result['error'], llm_calls: loop_inst.total_calls }
+            end
+
+            session.save_decision(decide_result['decision_payload'])
+            { decision_payload: decide_result['decision_payload'],
+              llm_calls: loop_inst.total_calls, error: nil }
+          end
+
+          # ---- Multi-LLM Review Prompt Generation ----
+
+          def generate_multi_llm_review_prompt(session, decision_payload)
+            summary = decision_payload['summary'] || 'unknown'
+            steps = decision_payload.dig('task_json', 'steps') || []
+            step_desc = steps.map.with_index(1) { |s, i|
+              "  #{i}. #{s['action'] || s['tool_name']} (risk: #{s['risk']})"
+            }.join("\n")
+
+            <<~PROMPT
+              # L0 Change Review Required
+
+              An autonomous agent proposed the following L0-level change.
+              L0 changes modify the KairosChain framework itself and require external review.
+
+              ## Goal: #{session.goal_name}
+              ## Summary: #{summary}
+              ## Steps:
+              #{step_desc}
+
+              ## Review Criteria
+              1. Does this change preserve structural self-referentiality?
+              2. Is the change recorded on the blockchain?
+              3. Could this be a SkillSet instead of core infrastructure?
+              4. Are layer boundaries (L0/L1/L2) respected?
+
+              Please evaluate with APPROVE / REVISE / REJECT and explain your reasoning.
+            PROMPT
+          end
+
           # ---- Prompts ----
 
           def orient_system_prompt
@@ -828,6 +1153,19 @@ module KairosMcp
             "Assess the execution results against the original goal. " \
             "Output a JSON object: {confidence: 0.0-1.0, achieved: [...], " \
             "remaining: [...], learnings: [...], open_questions: [...]}."
+          end
+
+          def persona_review_system_prompt
+            "You are a multi-perspective review panel evaluating an autonomous agent's " \
+            "proposed action plan. Each persona has a distinct viewpoint. Evaluate " \
+            "independently, then synthesize. Output ONLY a JSON object with the " \
+            "structure specified in the prompt."
+          end
+
+          def lightweight_review_system_prompt
+            "You are a skeptical reviewer evaluating the results of an autonomous agent's " \
+            "execution. Identify any concerns, edge cases, or quality issues. " \
+            "Output a JSON object: {concerns: [...], suggestions: [...]}."
           end
 
           def build_orient_prompt(session, observation_text = nil)
@@ -858,7 +1196,69 @@ module KairosMcp
             "Based on this analysis:\n#{analysis}\n\n" \
             "## Available Tools\n#{catalog}\n\n" \
             "Create a task execution plan as JSON (decision_payload format). " \
+            "Include a 'complexity_hint' key: {\"level\": \"low\"|\"medium\"|\"high\", " \
+            "\"signals\": [\"reason1\"]}. Assess complexity based on risk, step count, " \
+            "architectural scope, and L0 framework changes. " \
             "Use ONLY tools listed above."
+          end
+
+          def build_persona_review_prompt(decision_payload, complexity, persona_defs)
+            summary = decision_payload['summary'] || 'unknown'
+            steps = decision_payload.dig('task_json', 'steps') || []
+            step_text = steps.map.with_index(1) { |s, i|
+              "  #{i}. #{s['action'] || s['tool_name']} (risk: #{s['risk']}, tool: #{s['tool_name']})"
+            }.join("\n")
+
+            persona_sections = persona_defs.map { |name, desc|
+              "### #{name}\n#{desc}\nEvaluate from this perspective."
+            }.join("\n\n")
+
+            <<~PROMPT
+              Evaluate the following proposed action plan from multiple perspectives.
+
+              ## Proposal
+              Summary: #{summary}
+              Complexity: #{complexity[:level]} (#{complexity[:signals].join(', ')})
+              Steps:
+              #{step_text}
+
+              ## Personas
+              #{persona_sections}
+
+              For EACH persona, provide:
+              - VERDICT: APPROVE | REVISE | REJECT
+              - CONCERNS: [list of specific concerns]
+              - SUGGESTIONS: [list of improvements]
+
+              Then provide:
+              - OVERALL_VERDICT: APPROVE (all approve) | REVISE (any revise) | REJECT (any reject)
+              - KEY_FINDINGS: [consolidated list of all concerns]
+
+              Output as a single JSON object.
+            PROMPT
+          end
+
+          def build_lightweight_review_prompt(decision_payload, ar_result)
+            summary = decision_payload['summary'] || 'unknown'
+            act_summary = ar_result.dig(:act, 'summary') || 'unknown'
+            confidence = ar_result.dig(:reflect, 'confidence') || 0.0
+            achieved = ar_result.dig(:reflect, 'achieved') || []
+
+            <<~PROMPT
+              Review the execution results of an autonomous agent cycle.
+
+              Plan summary: #{summary}
+              Execution result: #{act_summary}
+              Confidence: #{confidence}
+              Achieved: #{achieved.join(', ')}
+
+              As a skeptical reviewer, identify any concerns about:
+              1. Whether the execution actually achieved what was planned
+              2. Edge cases or error handling that may have been missed
+              3. Quality issues in the approach taken
+
+              Output a JSON object: {"concerns": [...], "suggestions": [...]}
+            PROMPT
           end
 
           def build_reflect_prompt(session, act_result)
@@ -926,6 +1326,34 @@ module KairosMcp
             return [] unless schema.is_a?(Hash)
             required = schema[:required] || schema['required'] || []
             required.map(&:to_s)
+          end
+
+          # ---- JSON Extraction ----
+
+          # Extract valid JSON from content that may include code fences or prose.
+          # Same logic as CognitiveLoop#extract_json but accessible from AgentStep.
+          def extract_json_from_content(content)
+            JSON.parse(content)
+            content
+          rescue JSON::ParserError
+            # Try code fences first
+            if content =~ /```(?:json)?\s*\n?(.*?)\n?```/m
+              begin
+                JSON.parse($1)
+                return $1
+              rescue JSON::ParserError
+                # fall through
+              end
+            end
+            # Bare JSON after prose: find first { to last }
+            if content =~ /(\{.*\})/m
+              begin
+                JSON.parse($1)
+                return $1
+              rescue JSON::ParserError
+                nil
+              end
+            end
           end
 
           # ---- Helpers ----

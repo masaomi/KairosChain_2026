@@ -161,7 +161,38 @@ module KairosMcp
           end
         end
 
+        # Save persona review result for audit trail.
+        def save_review_result(review)
+          File.write(review_path, JSON.pretty_generate(review))
+        end
+
+        # Load the last persona review result.
+        def load_review_result
+          return nil unless File.exist?(review_path)
+          JSON.parse(File.read(review_path), symbolize_names: true)
+        rescue JSON::ParserError
+          nil
+        end
+
+        # Append review concerns as a progress amendment entry.
+        # Append review concerns as a progress amendment entry.
+        # Called after run_act_reflect_internal which already incremented cycle_number,
+        # so @cycle_number is the current (post-increment) cycle.
+        def save_progress_amendment(concerns)
+          entry = {
+            'cycle'     => @cycle_number,
+            'timestamp' => Time.now.utc.iso8601,
+            'type'      => 'review_amendment',
+            'concerns'  => concerns
+          }
+          File.open(progress_path, 'a') { |f| f.puts(JSON.generate(entry)) }
+        end
+
         private
+
+        def review_path
+          File.join(session_dir, 'last_review.json')
+        end
 
         def session_dir
           dir = self.class.storage_path("agent_sessions/#{@session_id}")

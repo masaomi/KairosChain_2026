@@ -17,6 +17,10 @@ phases:
   reflect:
     max_llm_calls: 3
     max_tool_calls: 0
+  review:
+    max_llm_calls: 5
+    max_tool_calls: 0
+    max_repair_attempts: 1
 
 # Default policy
 tool_blacklist:
@@ -61,6 +65,16 @@ agent_execute:
   max_timeout: 600
   default_budget_usd: 0.50
   max_budget_usd: 2.00
+
+# Complexity-driven review (Gate 5.5 / Gate 6.5)
+complexity_review:
+  enabled: true
+  personas: [pragmatic, skeptic]              # default personas for review
+  high_personas: [kairos, pragmatic, skeptic] # personas for high complexity
+  max_review_retries: 2                       # max re-DECIDE from review feedback
+  # review_budget_llm is controlled by phases.review.max_llm_calls (above)
+  l0_always_checkpoint: true                  # L0 changes always pause for human
+  post_act_review: true                       # enable medium-complexity post-ACT review
 
 # Audit
 audit_level: summary
