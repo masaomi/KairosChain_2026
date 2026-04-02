@@ -173,7 +173,7 @@ module KairosMcp
 
               # 7. Install via SkillSetManager#install_from_archive
               archive_payload = {
-                name: ss_name,
+                name: confirmed_name,
                 archive_base64: content_result[:archive_base64],
                 content_hash: content_result[:content_hash]
               }

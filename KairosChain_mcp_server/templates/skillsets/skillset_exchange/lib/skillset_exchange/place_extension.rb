@@ -140,6 +140,7 @@ module SkillsetExchange
       # 7. Content hash verification (file-tree hash)
       # Extract to temp dir, create Skillset, compare content_hash
       hash_verified = false
+      canonical_metadata = {}
       begin
         Dir.mktmpdir('kairos_ss_deposit') do |tmpdir|
           extract_tar_gz(archive_data, tmpdir)
@@ -147,6 +148,13 @@ module SkillsetExchange
           if File.directory?(extracted_dir)
             temp_ss = ::KairosMcp::Skillset.new(extracted_dir)
             actual_hash = temp_ss.content_hash
+            # Canonicalize immutable metadata from verified archive
+            canonical_metadata = {
+              version: temp_ss.version,
+              file_list: temp_ss.file_list,
+              provides: temp_ss.provides,
+              file_count: temp_ss.file_list.size
+            }
             if actual_hash == content_hash
               hash_verified = true
             else
@@ -162,6 +170,11 @@ module SkillsetExchange
             })
           end
         end
+      rescue SecurityError => e
+        return json_response(422, {
+          error: 'path_traversal_detected',
+          message: "Archive rejected: #{e.message}"
+        })
       rescue StandardError => e
         return json_response(422, {
           error: 'archive_extraction_failed',
@@ -232,15 +245,15 @@ module SkillsetExchange
 
       metadata = {
         name: name,
-        version: version,
+        version: canonical_metadata[:version] || version,
         description: description,
         content_hash: content_hash,
         signature: signature,
         depositor_id: peer_id,
         depositor_signed: depositor_signed,
-        file_list: file_list,
+        file_list: canonical_metadata[:file_list] || file_list,
         tags: tags,
-        provides: provides,
+        provides: canonical_metadata[:provides] || provides,
         archive_size_bytes: archive_data.bytesize,
         file_count: file_list.size,
         deposited_at: Time.now.utc.iso8601
