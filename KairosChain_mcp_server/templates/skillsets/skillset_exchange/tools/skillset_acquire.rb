@@ -49,8 +49,9 @@ module KairosMcp
           end
 
           def call(arguments)
-            ss_name = arguments['name']
+            ss_name = arguments['name'].to_s.strip
             depositor_id = arguments['depositor_id']
+            depositor_id = nil if depositor_id.to_s.strip.empty?
             force = arguments['force'] == true
 
             # 1. Load connection state
@@ -124,14 +125,16 @@ module KairosMcp
               dep_warnings = nil
               manager = ::KairosMcp::SkillSetManager.new
 
+              # Use server-confirmed name for extraction (not raw user input)
+              confirmed_name = content_result[:name] || ss_name
               Dir.mktmpdir('kairos_ss_acquire') do |tmpdir|
                 extract_tar_gz(archive_data, tmpdir)
-                extracted_dir = File.join(tmpdir, ss_name)
+                extracted_dir = File.join(tmpdir, confirmed_name)
 
                 unless File.directory?(extracted_dir)
                   return text_content(JSON.pretty_generate({
                     error: 'Invalid archive structure',
-                    message: "Archive does not contain expected directory '#{ss_name}'"
+                    message: "Archive does not contain expected directory '#{confirmed_name}'"
                   }))
                 end
 

@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require 'digest'
 require 'fileutils'
 require 'json'
 require 'uri'
@@ -395,8 +394,15 @@ module SkillsetExchange
         })
       end
 
-      archive_data = File.binread(archive_path)
-      archive_base64 = Base64.strict_encode64(archive_data)
+      begin
+        archive_data = File.binread(archive_path)
+        archive_base64 = Base64.strict_encode64(archive_data)
+      rescue StandardError => e
+        return json_response(500, {
+          error: 'archive_read_failed',
+          message: "Failed to read archive: #{e.message}"
+        })
+      end
 
       # 5. Get depositor public key from registry (inline, no second round-trip)
       depositor_public_key = @registry.public_key_for(meta[:depositor_id])

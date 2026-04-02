@@ -118,7 +118,7 @@ module KairosMcp
               rescue StandardError
                 {}
               end
-              { error: parsed[:error] || "HTTP #{response.code}", message: parsed[:message] }
+              { error: parsed[:error] || "HTTP #{response.code}", message: parsed[:message], http_status: response.code.to_i }
             end
           rescue StandardError => e
             { error: e.message }
