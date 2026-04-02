@@ -4,6 +4,51 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.13.0] - 2026-04-02
+
+### Added
+
+- **Complexity-driven review for Agent auto mode** — New Gate 5.5a/b (pre-ACT) and
+  Gate 6.5 (post-ACT) in the Agent autonomous OODA loop.
+  - **Structural complexity assessment** with 7 signals: `high_risk`, `many_steps`,
+    `design_scope`, `l0_change`, `core_files`, `multi_file`, `state_mutation`
+  - **LLM self-assessment merge**: DECIDE prompt requests `complexity_hint`; merge rule
+    caps LLM at structural + 1 level (prevents over-reporting)
+  - **Gate 5.5a**: L0 changes always checkpoint with multi-LLM review prompt generation
+  - **Gate 5.5b**: High complexity triggers Persona Assembly review (inner retry loop
+    with max re-DECIDE attempts, risk/loop/complexity re-checks per revision)
+  - **Gate 6.5**: Medium complexity runs post-ACT lightweight advisory review
+  - Low complexity: no overhead (unchanged flow)
+  - Parse failures default to REVISE (never silent APPROVE)
+  - Persona definitions loaded from L1 knowledge with hardcoded fallback
+  - Configuration: `complexity_review` section in `agent.yml` (personas, retries,
+    L0 checkpoint policy, post-ACT toggle)
+  - New `review` phase config in `agent.yml` (max_llm_calls, max_tool_calls)
+  - Session: `save_review_result`, `load_review_result`, `save_progress_amendment`
+  - Tests: 37 new (complexity assessment, persona review parsing, config, session, prompts)
+
+### Fixed
+
+- **`llm_call.rb` eager adapter loading** — All provider adapters were unconditionally
+  required at startup, crashing with `LoadError` when optional gems (`faraday`,
+  `aws-sdk`) were not installed. Now lazy-loads adapters in `build_adapter()`;
+  only `claude_code_adapter` and base modules loaded at startup.
+- **`claude_code_adapter` recursive MCP server loading** — `claude -p` subprocess
+  loaded `.mcp.json` and spawned additional MCP server instances, causing deadlocks
+  (stdio) or port conflicts (HTTP). Fixed with `--mcp-config '{"mcpServers":{}}'`
+  and `--no-session-persistence`.
+- **`claude_code_adapter` missing timeout** — `Open3.capture3` had no timeout,
+  risking indefinite hangs. Wrapped with `Timeout.timeout` (default 120s,
+  configurable via `timeout_seconds` in `llm_client.yml`).
+
+### Design Process
+
+- Complexity review design: 2R x 2 LLMs (Claude Team, Cursor Composer) → APPROVED
+- Complexity review impl: R1 x 3 LLMs (Claude Team, Cursor, Codex) → fixes applied
+  - Codex found off-by-one in retry counter and cycle number (both fixed)
+  - R2 (Claude Team) → APPROVED
+- llm_client fixes: reported by SUSHI self-maintenance MCP project, verified in upstream
+
 ## [3.12.0] - 2026-04-02
 
 ### Added
