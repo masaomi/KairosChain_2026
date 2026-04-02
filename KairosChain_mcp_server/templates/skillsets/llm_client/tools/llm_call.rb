@@ -3,11 +3,11 @@
 require 'json'
 require 'digest'
 require 'time'
+# Only load always-needed modules at startup.
+# Provider adapters are lazy-loaded in build_adapter() to avoid
+# crashing when optional gems (faraday, aws-sdk) are not installed.
 require_relative '../lib/llm_client/adapter'
-require_relative '../lib/llm_client/anthropic_adapter'
-require_relative '../lib/llm_client/openai_adapter'
 require_relative '../lib/llm_client/claude_code_adapter'
-require_relative '../lib/llm_client/bedrock_adapter'
 require_relative '../lib/llm_client/schema_converter'
 
 module KairosMcp
@@ -172,12 +172,15 @@ module KairosMcp
           def build_adapter(config)
             case config['provider']
             when 'openai', 'local', 'openrouter'
+              require_relative '../lib/llm_client/openai_adapter'
               OpenaiAdapter.new(config)
             when 'claude_code'
               ClaudeCodeAdapter.new(config)
             when 'bedrock'
+              require_relative '../lib/llm_client/bedrock_adapter'
               BedrockAdapter.new(config)
             else
+              require_relative '../lib/llm_client/anthropic_adapter'
               AnthropicAdapter.new(config)
             end
           end

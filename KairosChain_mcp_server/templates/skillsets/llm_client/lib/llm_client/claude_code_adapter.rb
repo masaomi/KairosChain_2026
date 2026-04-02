@@ -2,6 +2,7 @@
 
 require 'json'
 require 'open3'
+require 'timeout'
 require_relative 'adapter'
 
 module KairosMcp
@@ -10,15 +11,30 @@ module KairosMcp
       # Adapter that uses Claude Code CLI as the LLM backend.
       # No API costs — uses the Claude Code subscription.
       # Invokes `claude -p --output-format json` as a subprocess.
+      #
+      # Key safety measures:
+      # - --mcp-config '{"mcpServers":{}}' prevents recursive MCP server loading
+      # - --no-session-persistence avoids polluting session state
+      # - Timeout.timeout prevents indefinite hangs
       class ClaudeCodeAdapter < Adapter
+        DEFAULT_TIMEOUT = 120
+
         def call(messages:, system: nil, tools: nil, model: nil,
                  max_tokens: nil, temperature: nil, output_schema: nil)
           prompt = build_prompt(messages, system, tools, output_schema)
+          timeout_seconds = @config&.dig('timeout_seconds') || DEFAULT_TIMEOUT
 
-          args = ['claude', '-p', '--output-format', 'json']
+          args = [
+            'claude', '-p',
+            '--output-format', 'json',
+            '--no-session-persistence',
+            '--mcp-config', '{"mcpServers":{}}'
+          ]
           args += ['--model', model] if model
 
-          stdout, stderr, status = Open3.capture3(*args, stdin_data: prompt)
+          stdout, stderr, status = Timeout.timeout(timeout_seconds) do
+            Open3.capture3(*args, stdin_data: prompt)
+          end
 
           unless status.success?
             raise ApiError.new(
@@ -28,6 +44,11 @@ module KairosMcp
           end
 
           parse_response(stdout)
+        rescue Timeout::Error
+          raise ApiError.new(
+            "Claude Code timed out after #{timeout_seconds}s",
+            provider: 'claude_code', retryable: true
+          )
         rescue Errno::ENOENT
           raise ApiError.new(
             "Claude Code CLI not found. Install: https://docs.anthropic.com/en/docs/claude-code",
