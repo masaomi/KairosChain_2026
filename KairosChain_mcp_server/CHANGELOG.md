@@ -4,6 +4,42 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.12.0] - 2026-04-02
+
+### Added
+
+- **`skillset_exchange` SkillSet** (v0.1.0) — New L1 SkillSet enabling knowledge-only
+  SkillSet deposit, browse, acquire, and withdraw via HestiaChain Meeting Places.
+  - **PlaceRouter extension mechanism** — Formal extension registry with `register_extension`,
+    `route_action_map`, dispatch after auth/middleware. Enables SkillSets to add HTTP
+    endpoints to HestiaChain PlaceRouter without modifying Hestia core.
+  - **4 MCP tools**: `skillset_deposit`, `skillset_browse`, `skillset_acquire`, `skillset_withdraw`
+  - **PlaceExtension**: 4 HTTP endpoints (`/place/v1/skillset_deposit`, `skillset_browse`,
+    `skillset_content`, `skillset_withdraw`) with disk-backed storage and quotas
+  - **Security**: Dual executable gate (server tar header scan + client `knowledge_only?`),
+    content hash verification (file-tree hash), signature verification with `require_signature`
+    enforcement, path traversal protection, Content-Length pre-check, metadata canonicalization
+    from verified archive contents
+  - **DEE compliance**: Random sampling for browse, no ranking or popularity metrics
+  - **ExchangeValidator**: Single gatekeeper for deposit eligibility
+  - Lazy extension registration for late SkillSet enablement
+  - Configurable quotas: 5MB/archive, 10/agent, 100MB total (default)
+- **`SkillSetManager#install_from_archive` `force:` parameter** — Atomic swap reinstall
+  with config preservation for SkillSet upgrades via exchange.
+- **`SkillSetManager#check_installable_dependencies`** — Public preflight method returning
+  structured result (`satisfiable`, `missing`, `version_mismatch`, `disabled`) without raising.
+- **`Skillset#place_extensions`** — Metadata accessor for PlaceRouter extension declarations.
+
+### Design Process
+
+- Design: 2 rounds x 3 LLMs → APPROVED (0 FAIL)
+- Phase 1 impl: 1R x 3 LLMs → fixes applied
+- Phase 2 impl: 2R x 3 LLMs → fixes applied (Codex REJECT resolved)
+- Phase 3 design: 2R x 3 LLMs → APPROVED
+- Phase 3 impl: 1R x 3 LLMs → fixes applied
+- Final comprehensive: 1R x 3 LLMs → fixes applied (SecurityError, metadata canonicalization)
+- Tests: 303 total (Phase 1: 44, Phase 2: 85, Phase 3: 80, Phase 4: 94)
+
 ## [3.11.0] - 2026-04-01
 
 ### Added
