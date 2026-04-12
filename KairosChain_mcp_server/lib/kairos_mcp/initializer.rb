@@ -2,6 +2,7 @@
 
 require 'fileutils'
 require 'digest'
+require 'json'
 require 'yaml'
 require 'time'
 require_relative '../kairos_mcp'
@@ -51,7 +52,8 @@ module KairosMcp
       copy_templates
       copy_knowledge_templates
       write_meta
-      
+      generate_mcp_json unless @quiet
+
       log ""
       log "KairosChain data directory initialized successfully!"
       log ""
@@ -61,7 +63,7 @@ module KairosMcp
       log "  kairos-chain                          # stdio mode (for Claude Code / Cursor)"
       log "  kairos-chain --http                   # HTTP mode (for remote)"
       log ""
-      print_mcp_config
+      print_mcp_config unless @generated_mcp_json
     end
 
     private
@@ -188,6 +190,59 @@ module KairosMcp
       log "      }"
       log "    }"
       log "  }"
+    end
+
+    # Generate .mcp.json in the project root (parent of .kairos/)
+    def generate_mcp_json
+      @generated_mcp_json = false
+      project_root = File.dirname(@data_dir)
+      mcp_json_path = File.join(project_root, '.mcp.json')
+      data_dir_relative = File.basename(@data_dir)  # typically ".kairos"
+
+      mcp_content = JSON.pretty_generate({
+        "mcpServers" => {
+          "kairos-chain" => {
+            "command" => "kairos-chain",
+            "args" => ["--data-dir", data_dir_relative]
+          }
+        }
+      })
+
+      if File.exist?(mcp_json_path)
+        existing = File.read(mcp_json_path)
+        if existing.include?('kairos-chain')
+          log "  .mcp.json: kairos-chain already configured (skipped)"
+          @generated_mcp_json = true
+          return
+        end
+
+        # .mcp.json exists but doesn't have kairos-chain
+        $stderr.puts ""
+        $stderr.puts "  .mcp.json already exists at: #{mcp_json_path}"
+        $stderr.puts "  Add kairos-chain MCP server to it? (y/N): "
+        answer = $stdin.gets&.strip
+        if answer&.downcase == 'y'
+          begin
+            existing_json = JSON.parse(existing)
+            existing_json['mcpServers'] ||= {}
+            existing_json['mcpServers']['kairos-chain'] = {
+              'command' => 'kairos-chain',
+              'args' => ['--data-dir', data_dir_relative]
+            }
+            File.write(mcp_json_path, JSON.pretty_generate(existing_json) + "\n")
+            log "  .mcp.json: kairos-chain added to existing configuration"
+            @generated_mcp_json = true
+          rescue JSON::ParserError
+            log "  .mcp.json: invalid JSON, skipping. Please add kairos-chain manually."
+          end
+        else
+          log "  .mcp.json: skipped. Add kairos-chain manually (see below)."
+        end
+      else
+        File.write(mcp_json_path, mcp_content + "\n")
+        log "  .mcp.json: created with kairos-chain MCP server configuration"
+        @generated_mcp_json = true
+      end
     end
 
     def relative_path(path)
