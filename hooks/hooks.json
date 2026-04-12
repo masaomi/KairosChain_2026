@@ -1,0 +1,14 @@
+{
+  "description": "KairosChain bootstrap hooks for Plugin mode",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__kairos-chain__.*",
+        "hooks": [{
+          "type": "command",
+          "command": "kairos-plugin-project --if-changed --json"
+        }]
+      }
+    ]
+  }
+}

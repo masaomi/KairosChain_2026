@@ -122,10 +122,23 @@ module KairosMcp
     end
 
     def project_plugin_artifacts
+      # Auto-init: initialize .kairos/ if it doesn't exist yet
+      unless KairosMcp.initialized?
+        require_relative 'initializer'
+        KairosMcp::Initializer.run(quiet: true)
+      end
+
+      manager = SkillSetManager.new
+
+      # Auto-install: install bundled SkillSets if none present
+      if manager.all_skillsets.empty?
+        manager.upgrade_apply
+      end
+
+      # Project plugin artifacts
       project_root = KairosMcp.project_root
       mode = KairosMcp.projection_mode
       projector = PluginProjector.new(project_root, mode: mode)
-      manager = SkillSetManager.new
       enabled = manager.enabled_skillsets
       knowledge_entries = collect_knowledge_entries
 
