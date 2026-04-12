@@ -138,7 +138,7 @@ when 'skillset'
     if upgrades.empty?
       puts "All SkillSets are up to date."
     elsif apply
-      results = manager.upgrade_apply
+      results = manager.upgrade_apply(core_only: true)
       results.each do |r|
         puts "Updated #{r[:name]}: v#{r[:from]} -> v#{r[:to]} (#{r[:files_updated]} files)"
       end

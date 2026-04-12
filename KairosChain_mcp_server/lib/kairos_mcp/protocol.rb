@@ -121,21 +121,6 @@ module KairosMcp
       result
     end
 
-    # Core SkillSets installed automatically on first connection.
-    # These have no external dependencies (no PostgreSQL, no networking).
-    # Users can install additional SkillSets via system_upgrade.
-    CORE_SKILLSETS = %w[
-      plugin_projector
-      agent
-      llm_client
-      autoexec
-      autonomos
-      skillset_creator
-      knowledge_creator
-      introspection
-      dream
-    ].freeze
-
     def project_plugin_artifacts
       # Auto-init: initialize .kairos/ if it doesn't exist yet
       unless KairosMcp.initialized?
@@ -147,7 +132,7 @@ module KairosMcp
 
       # Auto-install: install core SkillSets only (no external deps)
       if manager.all_skillsets.empty?
-        manager.upgrade_apply(names: CORE_SKILLSETS)
+        manager.upgrade_apply(core_only: true)
       end
 
       # Project plugin artifacts (only if .claude/ exists — avoids creating

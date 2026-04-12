@@ -349,7 +349,8 @@ module KairosMcp
         # Apply SkillSet upgrades/installs
         begin
           ss_mgr = KairosMcp::SkillSetManager.new
-          ss_results = ss_mgr.upgrade_apply(names: names)
+          # core_only: true unless user explicitly specified names
+          ss_results = ss_mgr.upgrade_apply(names: names, core_only: names.nil?)
           if ss_results.any?
             output += "\n## SkillSets\n\n"
             ss_results.each do |r|

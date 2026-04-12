@@ -190,14 +190,30 @@ module KairosMcp
       results
     end
 
+    # SkillSets with no external dependencies, safe for automatic installation.
+    # Others (multiuser, service_grant, hestia, mmp, skillset_exchange, mcp_client)
+    # require PostgreSQL or networking and must be installed explicitly.
+    CORE_SKILLSETS = %w[
+      plugin_projector agent llm_client autoexec autonomos
+      skillset_creator knowledge_creator introspection dream
+      document_authoring synoptis
+    ].freeze
+
     # Apply SkillSet upgrades from gem templates.
     # Handles both upgrades (existing) and new installs.
     #
     # @param names [Array<String>, nil] specific names to upgrade/install, or nil for all
+    # @param core_only [Boolean] if true, only auto-install CORE_SKILLSETS (skip external deps)
     # @return [Array<Hash>] results
-    def upgrade_apply(names: nil)
+    def upgrade_apply(names: nil, core_only: false)
       upgrades = upgrade_check
       upgrades = upgrades.select { |u| names.include?(u[:name]) } if names
+
+      # When core_only, skip new installs for non-core SkillSets
+      # (existing SkillSet upgrades are always applied)
+      if core_only
+        upgrades = upgrades.reject { |u| u[:new_skillset] && !CORE_SKILLSETS.include?(u[:name]) }
+      end
 
       results = []
       upgrades.each do |info|
