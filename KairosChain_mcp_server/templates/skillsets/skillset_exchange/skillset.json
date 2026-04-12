@@ -28,5 +28,10 @@
         "skillset_withdraw": "deposit_skill"
       }
     }
-  ]
+  ],
+  "plugin": {
+    "skill_md": "plugin/SKILL.md",
+    "hooks": "plugin/hooks.json",
+    "agents_dir": "plugin/agents"
+  }
 }

@@ -21,5 +21,8 @@
     "knowledge/development_guide",
     "knowledge/core_or_skillset_guide"
   ],
-  "min_core_version": "2.7.0"
+  "min_core_version": "2.7.0",
+  "plugin": {
+    "skill_md": "plugin/SKILL.md"
+  }
 }

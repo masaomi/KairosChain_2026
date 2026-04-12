@@ -17,5 +17,9 @@
   ],
   "config_files": ["config/agent.yml"],
   "knowledge_dirs": ["knowledge/agent_guide"],
-  "min_core_version": "2.8.0"
+  "min_core_version": "2.8.0",
+  "plugin": {
+    "skill_md": "plugin/SKILL.md",
+    "agents_dir": "plugin/agents"
+  }
 }

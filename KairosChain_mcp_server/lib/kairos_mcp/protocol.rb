@@ -2,6 +2,7 @@ require 'json'
 require_relative 'tool_registry'
 require_relative 'skills_config'
 require_relative 'upgrade_analyzer'
+require_relative 'plugin_projector'
 require_relative 'version'
 
 module KairosMcp
@@ -114,7 +115,31 @@ module KairosMcp
       notification = check_upgrade_available
       result[:notifications] = [notification] if notification
 
+      # Plugin projection: project SkillSet artifacts to Claude Code structure
+      project_plugin_artifacts
+
       result
+    end
+
+    def project_plugin_artifacts
+      project_root = KairosMcp.project_root
+      mode = KairosMcp.projection_mode
+      projector = PluginProjector.new(project_root, mode: mode)
+      manager = SkillSetManager.new
+      enabled = manager.enabled_skillsets
+      knowledge_entries = collect_knowledge_entries
+
+      if @user_context # HTTP mode
+        projector.project_if_changed!(enabled, knowledge_entries: knowledge_entries)
+      else # stdio mode
+        projector.project!(enabled, knowledge_entries: knowledge_entries)
+      end
+    rescue => e
+      warn "[PluginProjector] projection failed: #{e.message}"
+    end
+
+    def collect_knowledge_entries
+      KairosMcp.collect_knowledge_entries(user_context: @user_context)
     end
 
     # Load instructions based on instructions_mode in config.yml
