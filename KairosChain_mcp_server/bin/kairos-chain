@@ -143,6 +143,24 @@ when 'skillset'
         puts "Updated #{r[:name]}: v#{r[:from]} -> v#{r[:to]} (#{r[:files_updated]} files)"
       end
       puts "Done. #{results.size} SkillSet(s) upgraded."
+
+      # Re-project plugin artifacts if any SkillSets changed
+      if results.any?
+        begin
+          require 'kairos_mcp/plugin_projector'
+          project_root = KairosMcp.project_root
+          mode = KairosMcp.projection_mode
+          projector = KairosMcp::PluginProjector.new(project_root, mode: mode)
+          enabled = manager.enabled_skillsets
+          knowledge = KairosMcp.collect_knowledge_entries
+          if projector.project_if_changed!(enabled, knowledge_entries: knowledge)
+            puts "Plugin artifacts projected. Run /reload-plugins in Claude Code."
+          end
+        rescue => e
+          # Non-fatal: projection is optional
+          $stderr.puts "Plugin projection skipped: #{e.message}"
+        end
+      end
     else
       puts "SkillSet upgrades available:"
       puts ""
