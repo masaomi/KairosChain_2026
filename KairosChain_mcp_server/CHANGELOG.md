@@ -4,6 +4,18 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.14.1] - 2026-04-12
+
+### Fixed
+
+- **Core SkillSet auto-install restriction** — `system_upgrade apply` and
+  `kairos-chain upgrade --apply` now only auto-install core SkillSets (no external
+  dependencies). Previously, multiuser (PostgreSQL) and hestia (networking) were
+  installed automatically, causing connection errors. Non-core SkillSets must be
+  installed explicitly by name.
+- **CORE_SKILLSETS single source of truth** — moved from protocol.rb to
+  SkillSetManager, eliminating duplication.
+
 ## [3.14.0] - 2026-04-12
 
 ### Added
