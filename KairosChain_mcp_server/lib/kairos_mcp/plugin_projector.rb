@@ -176,7 +176,7 @@ module KairosMcp
 
       target = File.join(@output_root, 'skills', 'kairos-knowledge', 'SKILL.md')
       FileUtils.mkdir_p(File.dirname(target))
-      File.write(target, content)
+      atomic_write(target, content)
       outputs[target] = { 'type' => 'knowledge_meta_skill', 'knowledge_count' => knowledge_entries.size }
     end
 

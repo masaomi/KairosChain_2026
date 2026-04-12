@@ -46,8 +46,8 @@ module KairosMcp
           end
 
           def call(arguments)
-            require_relative '../../../../lib/kairos_mcp/plugin_projector'
-            require_relative '../../../../lib/kairos_mcp/skillset_manager'
+            require 'kairos_mcp/plugin_projector'
+            require 'kairos_mcp/skillset_manager'
 
             project_root = ::KairosMcp.project_root
             mode = ::KairosMcp.projection_mode

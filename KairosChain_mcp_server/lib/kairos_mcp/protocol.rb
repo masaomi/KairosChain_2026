@@ -150,9 +150,13 @@ module KairosMcp
         manager.upgrade_apply(names: CORE_SKILLSETS)
       end
 
-      # Project plugin artifacts
+      # Project plugin artifacts (only if .claude/ exists — avoids creating
+      # Claude Code artifacts for non-Claude clients like Cursor or Codex)
       project_root = KairosMcp.project_root
       mode = KairosMcp.projection_mode
+      output_root = mode == :plugin ? project_root : File.join(project_root, '.claude')
+      return unless File.directory?(output_root)
+
       projector = PluginProjector.new(project_root, mode: mode)
       enabled = manager.enabled_skillsets
       knowledge_entries = collect_knowledge_entries
