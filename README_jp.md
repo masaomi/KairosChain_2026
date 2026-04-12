@@ -456,6 +456,25 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | bin/kairos-c
 
 > **注意**: リポジトリから実行する場合、データディレクトリはデフォルトで現在のディレクトリの `.kairos/` になります。データディレクトリが存在しない場合、サーバーは初回起動時に自動初期化します。
 
+### Claude Code Plugin Projection（v3.14.0+）
+
+KairosChain は SkillSet のアーティファクトを Claude Code のネイティブ skill/agent/hook 構造に投影し、ワークフローガイド、サブエージェント、ライフサイクル自動化を提供します。
+
+**クイックセットアップ**（2ステップ）:
+```bash
+kairos-chain init    # .kairos/ 初期化 + .mcp.json 自動生成
+claude               # コア SkillSet 自動インストール + .claude/ に投影
+```
+
+初回起動後、`.claude/` に以下が生成されます：
+- `skills/agent/`, `skills/plugin_projector/` 等 — ワークフローガイド
+- `agents/agent-monitor.md` — セッションレビューエージェント
+- `settings.json` — ライフサイクル hooks（Skill 変化時の自動再投影）
+
+Claude Code 内で `/reload-plugins` を実行して有効化。詳細は [インストールガイド](log/plugin_projection_install_guide_20260412.md) を参照。
+
+> **Claude Code 以外のクライアント**（Cursor, Codex）：Plugin Projection はスキップされ、通常の MCP サーバーとして動作します。
+
 ### オプション：RAG（セマンティック検索）サポート
 
 KairosChainはベクトル埋め込みを使用したオプションのセマンティック検索をサポートしています。これにより、完全なキーワード一致ではなく意味でスキルを検索できます（例：「認証」で検索すると「ログイン」や「パスワード」に関するスキルも見つかります）。

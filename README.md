@@ -456,6 +456,25 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | bin/kairos-c
 
 > **Note**: When running from the repository, the data directory defaults to `.kairos/` in the current working directory. The server will auto-initialize on first run if the data directory doesn't exist.
 
+### Claude Code Plugin Projection (v3.14.0+)
+
+KairosChain can project SkillSet artifacts into Claude Code's native skill/agent/hook structure, providing workflow guides, sub-agents, and lifecycle automation.
+
+**Quick Setup** (2 steps):
+```bash
+kairos-chain init    # Initialize .kairos/ + auto-generate .mcp.json
+claude               # Auto-installs core SkillSets + projects to .claude/
+```
+
+After first launch, `.claude/` will contain:
+- `skills/agent/`, `skills/plugin_projector/`, etc. — workflow guides
+- `agents/agent-monitor.md` — post-session review agent
+- `settings.json` — lifecycle hooks (auto-projection on skill changes)
+
+Run `/reload-plugins` in Claude Code to activate. See [Install Guide](log/plugin_projection_install_guide_20260412.md) for details.
+
+> **Non-Claude clients** (Cursor, Codex): Plugin Projection is skipped. KairosChain operates as a standard MCP server.
+
 ### Optional: RAG (Semantic Search) Support
 
 KairosChain supports optional semantic search using vector embeddings. This enables finding skills by meaning rather than exact keyword matches (e.g., searching "authentication" can find skills about "login" or "password").

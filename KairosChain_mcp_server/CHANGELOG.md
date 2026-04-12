@@ -4,6 +4,47 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.14.0] - 2026-04-12
+
+### Added
+
+- **SkillSet Plugin Projection** — Self-referential dual-mode Claude Code integration.
+  Projects SkillSet artifacts (skills, agents, hooks) to `.claude/` structure.
+  - **PluginProjector** (`plugin_projector.rb`, ~430 lines): dual-mode (Project + Plugin),
+    atomic writes, digest-based no-op, manifest tracking, stale cleanup
+  - **Ruby introspection**: `<!-- AUTO_TOOLS -->` marker dynamically generates tool docs
+  - **L1 knowledge meta skill**: `<!-- AUTO_KNOWLEDGE_LIST -->` projects knowledge catalog
+  - **Self-referential SkillSet**: `plugin_projector` projects its own SKILL.md and hooks
+  - **Auto-init + auto-install**: first MCP connection initializes `.kairos/` and installs
+    9 core SkillSets (no external dependencies)
+  - **Auto-generate `.mcp.json`**: `kairos-chain init` creates MCP config with absolute paths
+  - **Plugin artifacts for 3 SkillSets**: agent (SKILL.md + monitor agent),
+    skillset_exchange (SKILL.md + reviewer agent + hooks), skillset_creator (SKILL.md)
+  - **Scaffold `has_plugin` option**: `sc_scaffold` generates `plugin/` directory
+  - **Auto-projection on upgrade**: `system_upgrade apply` and `skillset upgrade --apply`
+    trigger re-projection after SkillSet changes
+  - **Security**: SAFE_NAME_PATTERN, safe_path boundary checks, ALLOWED_HOOK_COMMANDS warning,
+    atomic writes for settings.json auto-reload safety
+  - **30 tests**, 3-LLM reviewed (Claude Opus 4.6 + Codex GPT-5.4 + Cursor Composer-2)
+
+- **2-step setup**: `kairos-chain init` + `claude` (no manual system_upgrade needed)
+
+### Changed
+
+- **Seed `skills/kairos-chain/SKILL.md`**: revised to delegate per-SkillSet workflow details
+  to individual SKILL.md files (agent, skillset_exchange, etc.)
+- **`collect_knowledge_entries`**: extracted to `KairosMcp` module (shared by protocol.rb,
+  plugin_project tool, and CLI)
+- **Core SkillSets**: auto-install limited to 9 SkillSets without external dependencies
+  (excludes multiuser/PostgreSQL, hestia/networking, etc.)
+
+### Fixed
+
+- **`.mcp.json` absolute paths**: relative `--data-dir` paths caused MCP connection failures
+  when Claude Code resolved from different working directory
+- **Non-Claude clients**: projection skipped when `.claude/` directory doesn't exist,
+  preventing unintended artifact creation for Cursor/Codex
+
 ## [3.13.0] - 2026-04-02
 
 ### Added
