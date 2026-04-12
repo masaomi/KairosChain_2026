@@ -1,0 +1,19 @@
+{
+  "name": "plugin_projector",
+  "version": "0.1.0",
+  "description": "Self-referential SkillSet that projects SkillSet plugin artifacts to Claude Code structure. Projects itself.",
+  "author": "Masaomi Hatakeyama",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": ["plugin_projection", "claude_code_integration"],
+  "tool_classes": [
+    "KairosMcp::SkillSets::PluginProjector::Tools::PluginProject"
+  ],
+  "config_files": [],
+  "knowledge_dirs": [],
+  "min_core_version": "3.13.0",
+  "plugin": {
+    "skill_md": "plugin/SKILL.md",
+    "hooks": "plugin/hooks.json"
+  }
+}

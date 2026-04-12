@@ -14,6 +14,8 @@ openclaw/
 .kairos_stale_backup_20260329/
 oh-my-claudecode/
 LITMUS/
+codex-plugin-cc/
+.mcp.json.bak*
 
 # Vector search index files (auto-generated)
 KairosChain_mcp_server/storage/embeddings/**/*.ann

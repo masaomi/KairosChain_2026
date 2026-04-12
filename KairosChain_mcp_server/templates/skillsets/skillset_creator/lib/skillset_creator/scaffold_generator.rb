@@ -19,12 +19,12 @@ module SkillsetCreator
       raise ArgumentError, "Parent directory does not exist: #{output_path}" unless File.directory?(output_path)
     end
 
-    def preview(name:, tools: [], knowledge: [], has_config: true, depends_on: [])
+    def preview(name:, tools: [], knowledge: [], has_config: true, depends_on: [], has_plugin: false)
       validate_name!(name)
-      build_tree(name: name, tools: tools, knowledge: knowledge, has_config: has_config, depends_on: depends_on)
+      build_tree(name: name, tools: tools, knowledge: knowledge, has_config: has_config, depends_on: depends_on, has_plugin: has_plugin)
     end
 
-    def generate(name:, output_path:, tools: [], knowledge: [], has_config: true, depends_on: [])
+    def generate(name:, output_path:, tools: [], knowledge: [], has_config: true, depends_on: [], has_plugin: false)
       validate_name!(name)
       validate_output!(output_path, name)
 
@@ -33,16 +33,17 @@ module SkillsetCreator
 
       FileUtils.mkdir_p(root)
 
-      created_files << write_skillset_json(root, name, tools, knowledge, has_config, depends_on)
+      created_files << write_skillset_json(root, name, tools, knowledge, has_config, depends_on, has_plugin)
       created_files << write_entry_point(root, name)
       created_files.concat(write_tool_skeletons(root, name, tools))
       created_files.concat(write_knowledge_skeletons(root, knowledge))
       created_files << write_config(root, name) if has_config
+      created_files.concat(write_plugin_skeleton(root, name)) if has_plugin
 
       created_files
     end
 
-    def build_tree(name:, tools: [], knowledge: [], has_config: true, depends_on: [])
+    def build_tree(name:, tools: [], knowledge: [], has_config: true, depends_on: [], has_plugin: false)
       lines = ["#{name}/"]
       lines << '├── skillset.json'
       lines << '├── lib/'
@@ -51,7 +52,7 @@ module SkillsetCreator
 
       lines << '├── tools/'
       tools.each_with_index do |tool, i|
-        prefix = (i == tools.length - 1 && knowledge.empty? && !has_config) ? '│   └── ' : '│   ├── '
+        prefix = (i == tools.length - 1 && knowledge.empty? && !has_config && !has_plugin) ? '│   └── ' : '│   ├── '
         lines << "#{prefix}#{tool}.rb"
       end
 
@@ -64,6 +65,12 @@ module SkillsetCreator
         end
       end
 
+      if has_plugin
+        last = !has_config
+        lines << (last ? '└── plugin/' : '├── plugin/')
+        lines << (last ? '    └── SKILL.md' : '│   └── SKILL.md')
+      end
+
       if has_config
         lines << '└── config/'
         lines << "    └── #{name}.yml"
@@ -72,7 +79,7 @@ module SkillsetCreator
       lines.join("\n")
     end
 
-    def write_skillset_json(root, name, tools, knowledge, has_config, depends_on)
+    def write_skillset_json(root, name, tools, knowledge, has_config, depends_on, has_plugin = false)
       module_name = to_module_name(name)
       tool_classes = tools.map { |t| "KairosMcp::SkillSets::#{module_name}::Tools::#{to_class_name(t)}" }
       knowledge_dirs = knowledge.map { |k| "knowledge/#{k}" }
@@ -90,6 +97,10 @@ module SkillsetCreator
         knowledge_dirs: knowledge_dirs,
         min_core_version: '2.7.0'
       }
+
+      if has_plugin
+        data[:plugin] = { skill_md: 'plugin/SKILL.md' }
+      end
 
       path = File.join(root, 'skillset.json')
       File.write(path, JSON.pretty_generate(data) + "\n", encoding: 'UTF-8')
@@ -235,6 +246,31 @@ module SkillsetCreator
       path = File.join(config_dir, "#{name}.yml")
       File.write(path, content, encoding: 'UTF-8')
       path
+    end
+
+    def write_plugin_skeleton(root, name)
+      plugin_dir = File.join(root, 'plugin')
+      FileUtils.mkdir_p(plugin_dir)
+
+      content = <<~SKILL
+        ---
+        name: #{name}
+        description: >
+          TODO: Describe when to use this skill and what it provides.
+        ---
+
+        # #{to_module_name(name)}
+
+        TODO: Describe the recommended workflow for this SkillSet.
+
+        ## Available Tools
+
+        <!-- AUTO_TOOLS -->
+      SKILL
+
+      path = File.join(plugin_dir, 'SKILL.md')
+      File.write(path, content, encoding: 'UTF-8')
+      [path]
     end
 
     def to_module_name(snake_case)

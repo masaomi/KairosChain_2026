@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__kairos-chain__skills_promote|mcp__kairos-chain__skills_evolve|mcp__kairos-chain__skills_rollback|mcp__kairos-chain__knowledge_update",
+        "hooks": [{
+          "type": "command",
+          "command": "kairos-plugin-project --if-changed --json"
+        }]
+      }
+    ]
+  }
+}

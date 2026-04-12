@@ -128,6 +128,17 @@ module KairosMcp
       !knowledge_dirs.empty?
     end
 
+    # Plugin projection support: Claude Code plugin artifacts in plugin/ directory
+    def plugin_config
+      @metadata['plugin']
+    end
+
+    def has_plugin?
+      return false unless plugin_config
+      plugin_dir = File.join(@path, 'plugin')
+      Dir.exist?(plugin_dir)
+    end
+
     # Compute content hash of all files in the SkillSet
     def content_hash
       Digest::SHA256.hexdigest(all_file_hashes.to_json)

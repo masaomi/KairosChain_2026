@@ -1,0 +1,57 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# CLI script for plugin projection.
+# Used by Claude Code hooks and manual invocation.
+#
+# Usage:
+#   kairos-plugin-project                   # Full projection
+#   kairos-plugin-project --if-changed      # Skip if digest unchanged
+#   kairos-plugin-project --json            # Output additionalContext JSON
+#   kairos-plugin-project --status          # Show projection status
+#   kairos-plugin-project --verify          # Verify projected files
+
+require_relative '../lib/kairos_mcp'
+require_relative '../lib/kairos_mcp/plugin_projector'
+require_relative '../lib/kairos_mcp/skillset_manager'
+
+project_root = KairosMcp.project_root
+mode = KairosMcp.projection_mode
+projector = KairosMcp::PluginProjector.new(project_root, mode: mode)
+
+if ARGV.include?('--status')
+  require 'json'
+  puts JSON.pretty_generate(projector.status)
+  exit 0
+end
+
+if ARGV.include?('--verify')
+  require 'json'
+  result = projector.verify
+  puts JSON.pretty_generate(result)
+  exit(result[:valid] ? 0 : 1)
+end
+
+manager = KairosMcp::SkillSetManager.new
+enabled = manager.enabled_skillsets
+knowledge_entries = KairosMcp.collect_knowledge_entries
+
+json_mode = ARGV.include?('--json')
+
+if ARGV.include?('--if-changed')
+  changed = projector.project_if_changed!(enabled, knowledge_entries: knowledge_entries)
+  if changed
+    if json_mode
+      puts '{"additionalContext": "Plugin projection updated. Run /reload-plugins to activate new skills."}'
+    else
+      $stderr.puts "Plugin projection updated. Run /reload-plugins to activate new skills."
+    end
+  end
+else
+  projector.project!(enabled, knowledge_entries: knowledge_entries)
+  if json_mode
+    puts '{"additionalContext": "Plugin projection complete. Run /reload-plugins to activate."}'
+  else
+    $stderr.puts "Plugin projection complete."
+  end
+end

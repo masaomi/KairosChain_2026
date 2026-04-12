@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__kairos-chain__skillset_acquire|mcp__kairos-chain__skillset_withdraw",
+        "hooks": [{
+          "type": "command",
+          "command": "kairos-plugin-project --if-changed --json"
+        }]
+      }
+    ]
+  }
+}

@@ -275,6 +275,54 @@ module KairosMcp
       File.exist?(dsl_path) && File.exist?(skills_config_path)
     end
 
+    # =========================================================================
+    # Plugin Projection support
+    # =========================================================================
+
+    # Project root: parent of .kairos/ data directory
+    def project_root
+      File.dirname(data_dir)
+    end
+
+    # Determine projection mode for PluginProjector
+    # :project (default) — writes to .claude/skills/, .claude/agents/, settings.json
+    # :plugin — writes to plugin root skills/, agents/, hooks/hooks.json
+    def projection_mode
+      return :plugin if ENV['KAIROS_PROJECTION_MODE'] == 'plugin'
+      root = project_root
+      plugin_json = File.join(root, '.claude-plugin', 'plugin.json')
+      claude_dir = File.join(root, '.claude')
+      return :plugin if File.exist?(plugin_json) && !File.exist?(claude_dir)
+      :project
+    end
+
+    # Collect L1 knowledge entries for plugin projection
+    # Shared by protocol.rb and plugin_project tool
+    def collect_knowledge_entries(user_context: nil)
+      kdir = knowledge_dir(user_context: user_context)
+      return [] unless Dir.exist?(kdir)
+      Dir.glob(File.join(kdir, '**', '*.md')).filter_map do |f|
+        fm = parse_frontmatter(f)
+        next unless fm
+        { name: fm['name'] || File.basename(f, '.md'),
+          description: fm['description'] || '',
+          version: fm['version'] || '0',
+          tags: fm['tags'] || [],
+          path: f }
+      end
+    end
+
+    def parse_frontmatter(path)
+      content = File.read(path, encoding: 'utf-8')
+      return nil unless content.start_with?('---')
+      parts = content.split('---', 3)
+      return nil if parts.length < 3
+      require 'yaml'
+      YAML.safe_load(parts[1])
+    rescue StandardError
+      nil
+    end
+
     private
 
     def resolve_path(type, user_context)

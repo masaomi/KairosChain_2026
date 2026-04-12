@@ -50,6 +50,10 @@ module KairosMcp
                   items: { type: 'string' },
                   description: 'Dependency SkillSet names'
                 },
+                has_plugin: {
+                  type: 'boolean',
+                  description: 'Include plugin/ directory with SKILL.md for Claude Code integration (default: false)'
+                },
                 output_path: {
                   type: 'string',
                   description: 'Absolute path for output directory. REQUIRED for generate command.'
@@ -78,6 +82,7 @@ module KairosMcp
             knowledge = arguments['knowledge'] || []
             has_config = arguments.fetch('has_config', true)
             depends_on = arguments['depends_on'] || []
+            has_plugin = arguments.fetch('has_plugin', false)
 
             case command
             when 'preview'
@@ -86,7 +91,8 @@ module KairosMcp
                 tools: tools,
                 knowledge: knowledge,
                 has_config: has_config,
-                depends_on: depends_on
+                depends_on: depends_on,
+                has_plugin: has_plugin
               )
               text_content("## SkillSet Structure Preview\n\n```\n#{tree}\n```\n\nUse command='generate' with output_path to create these files.")
 
@@ -100,7 +106,8 @@ module KairosMcp
                 tools: tools,
                 knowledge: knowledge,
                 has_config: has_config,
-                depends_on: depends_on
+                depends_on: depends_on,
+                has_plugin: has_plugin
               )
 
               result = {

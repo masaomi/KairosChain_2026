@@ -2,6 +2,7 @@ require 'json'
 require_relative 'tool_registry'
 require_relative 'skills_config'
 require_relative 'upgrade_analyzer'
+require_relative 'plugin_projector'
 require_relative 'version'
 
 module KairosMcp
@@ -114,7 +115,63 @@ module KairosMcp
       notification = check_upgrade_available
       result[:notifications] = [notification] if notification
 
+      # Plugin projection: project SkillSet artifacts to Claude Code structure
+      project_plugin_artifacts
+
       result
+    end
+
+    # Core SkillSets installed automatically on first connection.
+    # These have no external dependencies (no PostgreSQL, no networking).
+    # Users can install additional SkillSets via system_upgrade.
+    CORE_SKILLSETS = %w[
+      plugin_projector
+      agent
+      llm_client
+      autoexec
+      autonomos
+      skillset_creator
+      knowledge_creator
+      introspection
+      dream
+    ].freeze
+
+    def project_plugin_artifacts
+      # Auto-init: initialize .kairos/ if it doesn't exist yet
+      unless KairosMcp.initialized?
+        require_relative 'initializer'
+        KairosMcp::Initializer.run(quiet: true)
+      end
+
+      manager = SkillSetManager.new
+
+      # Auto-install: install core SkillSets only (no external deps)
+      if manager.all_skillsets.empty?
+        manager.upgrade_apply(names: CORE_SKILLSETS)
+      end
+
+      # Project plugin artifacts (only if .claude/ exists — avoids creating
+      # Claude Code artifacts for non-Claude clients like Cursor or Codex)
+      project_root = KairosMcp.project_root
+      mode = KairosMcp.projection_mode
+      output_root = mode == :plugin ? project_root : File.join(project_root, '.claude')
+      return unless File.directory?(output_root)
+
+      projector = PluginProjector.new(project_root, mode: mode)
+      enabled = manager.enabled_skillsets
+      knowledge_entries = collect_knowledge_entries
+
+      if @user_context # HTTP mode
+        projector.project_if_changed!(enabled, knowledge_entries: knowledge_entries)
+      else # stdio mode
+        projector.project!(enabled, knowledge_entries: knowledge_entries)
+      end
+    rescue => e
+      warn "[PluginProjector] projection failed: #{e.message}"
+    end
+
+    def collect_knowledge_entries
+      KairosMcp.collect_knowledge_entries(user_context: @user_context)
     end
 
     # Load instructions based on instructions_mode in config.yml
