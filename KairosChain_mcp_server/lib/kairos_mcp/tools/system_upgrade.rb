@@ -367,6 +367,28 @@ module KairosMcp
           output += "  [ERROR] SkillSet upgrade failed: #{e.message}\n"
         end
 
+        # Re-project plugin artifacts if any SkillSets changed
+        if ss_results&.any? { |r| r[:action] != 'skip' }
+          begin
+            require_relative '../plugin_projector'
+            require_relative '../skillset_manager'
+            project_root = KairosMcp.project_root
+            mode = KairosMcp.projection_mode
+            projector = KairosMcp::PluginProjector.new(project_root, mode: mode)
+            mgr = KairosMcp::SkillSetManager.new
+            enabled = mgr.enabled_skillsets
+            knowledge = KairosMcp.collect_knowledge_entries
+            changed = projector.project_if_changed!(enabled, knowledge_entries: knowledge)
+            if changed
+              output += "\n## Plugin Projection\n\n"
+              output += "  [PROJECTED] Plugin artifacts updated. Run /reload-plugins to activate.\n"
+            end
+          rescue => e
+            output += "\n## Plugin Projection\n\n"
+            output += "  [WARN] Plugin projection skipped: #{e.message}\n"
+          end
+        end
+
         # Update .kairos_meta.yml
         update_meta(analyzer.gem_version)
         output += "\n  [UPDATED] .kairos_meta.yml → v#{analyzer.gem_version}\n"
