@@ -197,13 +197,13 @@ module KairosMcp
       @generated_mcp_json = false
       project_root = File.dirname(@data_dir)
       mcp_json_path = File.join(project_root, '.mcp.json')
-      data_dir_relative = File.basename(@data_dir)  # typically ".kairos"
+      data_dir_absolute = File.expand_path(@data_dir)
 
       mcp_content = JSON.pretty_generate({
         "mcpServers" => {
           "kairos-chain" => {
             "command" => "kairos-chain",
-            "args" => ["--data-dir", data_dir_relative]
+            "args" => ["--data-dir", data_dir_absolute]
           }
         }
       })
@@ -227,7 +227,7 @@ module KairosMcp
             existing_json['mcpServers'] ||= {}
             existing_json['mcpServers']['kairos-chain'] = {
               'command' => 'kairos-chain',
-              'args' => ['--data-dir', data_dir_relative]
+              'args' => ['--data-dir', data_dir_absolute]
             }
             File.write(mcp_json_path, JSON.pretty_generate(existing_json) + "\n")
             log "  .mcp.json: kairos-chain added to existing configuration"
