@@ -78,7 +78,7 @@ module KairosMcp
           description: frontmatter['description'],
           version: frontmatter['version'],
           layer: frontmatter['layer'],
-          tags: frontmatter['tags'] || [],
+          tags: normalize_tags(frontmatter['tags']),
           content: body.strip,
           frontmatter: frontmatter,
           base_path: skill_dir,
@@ -203,6 +203,14 @@ module KairosMcp
       end
 
       private
+
+      def normalize_tags(tags)
+        case tags
+        when Array then tags
+        when String then tags.split(',').map(&:strip).reject(&:empty?)
+        else []
+        end
+      end
 
       def find_md_file(skill_dir)
         # First try to find a file with the same name as the directory

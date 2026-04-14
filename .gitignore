@@ -17,6 +17,7 @@ LITMUS/
 codex-plugin-cc/
 .mcp.json.bak*
 .claude/
+hermes-agent/
 
 # Vector search index files (auto-generated)
 KairosChain_mcp_server/storage/embeddings/**/*.ann
