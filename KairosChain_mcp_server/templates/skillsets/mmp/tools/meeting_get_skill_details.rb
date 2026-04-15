@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'net/http'
-require 'uri'
 require 'json'
 
 module KairosMcp
@@ -34,8 +32,7 @@ module KairosMcp
               type: 'object',
               properties: {
                 peer_id: { type: 'string', description: 'ID of the peer agent' },
-                skill_id: { type: 'string', description: 'ID of the skill' },
-                include_preview: { type: 'boolean', description: 'Include content preview (default: false)' }
+                skill_id: { type: 'string', description: 'ID of the skill' }
               },
               required: %w[peer_id skill_id]
             }
@@ -44,12 +41,6 @@ module KairosMcp
           def call(arguments)
             peer_id = arguments['peer_id']
             skill_id = arguments['skill_id']
-            include_preview = arguments['include_preview'] || false
-
-            config = ::MMP.load_config
-            unless config['enabled']
-              return text_content(JSON.pretty_generate({ error: 'Meeting Protocol is disabled' }))
-            end
 
             connection = load_connection_state
             unless connection
@@ -62,18 +53,23 @@ module KairosMcp
             end
 
             begin
-              relay_mode = connection['relay_mode'] || connection[:relay_mode]
-              url = connection['url'] || connection[:url]
+              # Target: peer endpoint if available, otherwise Place URL
               endpoint = peer['endpoint'] || peer[:endpoint]
-
-              # In relay mode, use the peer's endpoint if available,
-              # otherwise fall back to the connection URL (Meeting Place itself)
+              url = connection['url'] || connection[:url]
               target = endpoint || url
-              token = connection['session_token'] || connection[:session_token]
-              details = get_details_direct(target, skill_id, bearer_token: token)
 
-              unless details
+              client = build_meeting_client(url_override: target, timeout: 5)
+              return client if client.is_a?(Array)
+
+              raw = client.get_skill_details(skill_id: skill_id)
+              details = adapt_skill_details(raw)
+
+              if details.nil?
                 return text_content(JSON.pretty_generate({ error: "Skill not found: #{skill_id}" }))
+              end
+
+              if details[:error]
+                return text_content(JSON.pretty_generate({ error: details[:error], message: details[:message] }))
               end
 
               result = {
@@ -81,12 +77,12 @@ module KairosMcp
                 peer_name: peer['name'] || peer[:name],
                 skill: {
                   id: skill_id,
-                  name: details['name'] || details[:name],
-                  description: details['description'] || details[:description],
-                  version: details['version'] || details[:version] || '1.0.0',
-                  format: details['format'] || details[:format] || 'markdown',
-                  tags: details['tags'] || details[:tags] || [],
-                  size_bytes: details['size_bytes'] || details[:size_bytes]
+                  name: details[:name],
+                  description: details[:description],
+                  version: details[:version],
+                  format: details[:format],
+                  tags: details[:tags],
+                  size_bytes: details[:size_bytes]
                 },
                 hint: "To acquire: meeting_acquire_skill(peer_id: \"#{peer_id}\", skill_id: \"#{skill_id}\")"
               }
@@ -119,22 +115,52 @@ module KairosMcp
             (connection['peers'] || connection[:peers] || []).find { |p| (p['agent_id'] || p[:agent_id]) == peer_id }
           end
 
-          def get_details_relay(url, skill_id)
-            uri = URI.parse("#{url}/place/v1/skills/metadata/#{URI.encode_www_form_component(skill_id)}")
-            response = Net::HTTP.get_response(uri)
-            response.is_a?(Net::HTTPSuccess) ? JSON.parse(response.body, symbolize_names: true) : nil
-          rescue StandardError; nil
+          # Build PlaceClient with meeting_session_token for /meeting/v1/* endpoints
+          def build_meeting_client(url_override: nil, timeout: 10)
+            config = ::MMP.load_config
+            unless config['enabled']
+              return text_content(JSON.pretty_generate({ error: 'Meeting Protocol is disabled' }))
+            end
+            connection = load_connection_state
+            unless connection
+              return text_content(JSON.pretty_generate({ error: 'Not connected', hint: 'Use meeting_connect first' }))
+            end
+            url = url_override || connection['url'] || connection[:url]
+            token = connection['meeting_session_token'] || connection[:meeting_session_token]
+            unless token
+              return text_content(JSON.pretty_generate({
+                error: 'No meeting session token',
+                hint: 'meeting_connect may have failed the /meeting/v1/introduce handshake. Reconnect.'
+              }))
+            end
+            identity = ::MMP::Identity.new(config: config)
+            ::MMP::PlaceClient.reconnect(
+              place_url: url, identity: identity,
+              session_token: token, timeout: timeout
+            )
           end
 
-          def get_details_direct(endpoint, skill_id, bearer_token: nil)
-            uri = URI.parse("#{endpoint}/meeting/v1/skill_details?skill_id=#{URI.encode_www_form_component(skill_id)}")
-            http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = (uri.scheme == 'https')
-            http.open_timeout = 3; http.read_timeout = 5
-            req = Net::HTTP::Get.new(uri)
-            req['Authorization'] = "Bearer #{bearer_token}" if bearer_token
-            response = http.request(req)
-            response.is_a?(Net::HTTPSuccess) ? JSON.parse(response.body, symbolize_names: true) : nil
-          rescue StandardError; nil
+          # Adapter A3: skill_details response normalization
+          # Distinguishes "not found" from auth/network errors (R3-1 fix)
+          def adapt_skill_details(raw)
+            if raw[:error]
+              # Distinguish not_found from other errors
+              if raw[:error].to_s.include?('not_found') || raw[:error].to_s.include?('404')
+                nil
+              else
+                { error: raw[:error], message: raw[:message] }
+              end
+            else
+              meta = raw[:metadata] || raw
+              {
+                name: meta[:name],
+                description: meta[:description] || meta[:summary],
+                version: meta[:version] || '1.0',
+                format: meta[:format] || 'markdown',
+                tags: meta[:tags] || [],
+                size_bytes: meta[:size_bytes]
+              }
+            end
           end
         end
       end

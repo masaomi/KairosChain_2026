@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'net/http'
-require 'uri'
 require 'json'
 require 'digest'
 
@@ -64,13 +62,29 @@ module KairosMcp
             filter_tags = arguments['tags']
 
             begin
-              # Resolve Place IDs for provenance chain (prefer place_id, fallback to URL)
-              source_place_id = resolve_place_id(source_url) || source_url
+              source_client = build_client_for(url: source_url, token: source_token)
+              target_client = build_client_for(url: target_url, token: target_token, timeout: 15)
+
+              # Resolve Place ID for provenance chain
+              info_result = source_client.place_info
+              source_place_id = info_result[:place_id] || source_url
 
               # Step 1: Browse source Place for deposited skills
-              source_skills = browse_deposited_skills(source_url, source_token, tags: filter_tags)
-              if source_skills.nil?
-                return text_content(JSON.pretty_generate({ error: 'Failed to browse source Place' }))
+              source_result = source_client.browse(type: 'deposited_skill', tags: filter_tags, limit: 50)
+              if source_result[:error]
+                return text_content(JSON.pretty_generate({ error: 'Failed to browse source Place', message: source_result[:error] }))
+              end
+
+              source_skills = (source_result[:entries] || []).map do |e|
+                {
+                  skill_id: e[:skill_id],
+                  name: e[:name],
+                  description: e[:description],
+                  tags: e[:tags],
+                  owner_agent_id: e[:agent_id],
+                  deposited_at: e[:deposited_at],
+                  trust_metadata: e[:trust_metadata]
+                }
               end
 
               # Filter by skill_ids if specified
@@ -91,11 +105,11 @@ module KairosMcp
 
               source_skills.each do |skill_meta|
                 # GET full content from source
-                content_result = get_skill_content(
-                  source_url, source_token,
-                  skill_meta[:skill_id],
-                  owner_agent_id: skill_meta[:owner_agent_id]
+                raw = source_client.get_skill_content(
+                  skill_id: skill_meta[:skill_id],
+                  owner: skill_meta[:owner_agent_id]
                 )
+                content_result = adapt_place_skill_content(raw, skill_meta[:skill_id])
 
                 unless content_result[:success]
                   failed << { skill_id: skill_meta[:skill_id], error: content_result[:error] }
@@ -115,7 +129,7 @@ module KairosMcp
                 signature = crypto.has_keypair? ? crypto.sign(content) : nil
 
                 # POST to target Place with provenance
-                deposit_result = deposit_to_target(target_url, target_token, {
+                deposit_result = target_client.deposit({
                   skill_id: skill_meta[:skill_id],
                   name: content_result[:name] || skill_meta[:name],
                   description: skill_meta[:description],
@@ -163,83 +177,37 @@ module KairosMcp
 
           private
 
-          # Browse source Place for deposited_skill entries only
-          def browse_deposited_skills(url, token, tags: nil)
-            params = { 'type' => 'deposited_skill', 'limit' => '50' }
-            params['tags'] = tags.join(',') if tags && !tags.empty?
-
-            query = URI.encode_www_form(params)
-            uri = URI.parse("#{url}/place/v1/board/browse?#{query}")
-            http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = (uri.scheme == 'https')
-            http.open_timeout = 5; http.read_timeout = 10
-            req = Net::HTTP::Get.new(uri)
-            req['Authorization'] = "Bearer #{token}"
-            response = http.request(req)
-            return nil unless response.is_a?(Net::HTTPSuccess)
-
-            data = JSON.parse(response.body, symbolize_names: true)
-            (data[:entries] || []).map do |e|
-              {
-                skill_id: e[:skill_id],
-                name: e[:name],
-                description: e[:description],
-                tags: e[:tags],
-                owner_agent_id: e[:agent_id],
-                deposited_at: e[:deposited_at],
-                trust_metadata: e[:trust_metadata]
-              }
-            end
-          rescue StandardError
-            nil
+          # Build PlaceClient for explicit URL/token (federate uses explicit args, not connection state)
+          def build_client_for(url:, token:, timeout: 10)
+            identity = ::MMP::Identity.new(config: ::MMP.load_config)
+            ::MMP::PlaceClient.reconnect(
+              place_url: url, identity: identity,
+              session_token: token, timeout: timeout
+            )
           end
 
-          # GET skill content from source Place
-          def get_skill_content(url, token, skill_id, owner_agent_id: nil)
-            path = "/place/v1/skill_content/#{URI.encode_www_form_component(skill_id)}"
-            path += "?owner=#{URI.encode_www_form_component(owner_agent_id)}" if owner_agent_id
-            uri = URI.parse("#{url}#{path}")
-            http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = (uri.scheme == 'https')
-            http.open_timeout = 5; http.read_timeout = 10
-            req = Net::HTTP::Get.new(uri)
-            req['Authorization'] = "Bearer #{token}"
-            response = http.request(req)
-            if response.is_a?(Net::HTTPSuccess)
-              data = JSON.parse(response.body, symbolize_names: true)
+          # Adapter A1: Place deposit skill content
+          def adapt_place_skill_content(raw, skill_id)
+            if raw[:error]
+              { success: false, error: raw[:error] }
+            else
               {
                 success: true,
-                name: data[:name],
-                content: data[:content],
-                content_hash: data[:content_hash],
-                format: data[:format],
-                depositor_id: data[:depositor_id]
+                name: raw[:name] || skill_id,
+                skill_name: raw[:name] || skill_id,
+                format: raw[:format] || 'markdown',
+                content: raw[:content],
+                content_hash: raw[:content_hash],
+                size_bytes: raw[:content]&.bytesize || 0,
+                depositor_id: raw[:depositor_id],
+                trust_notice: raw[:trust_notice]
               }
-            else
-              { success: false, error: "HTTP #{response.code}" }
             end
-          rescue StandardError => e
-            { success: false, error: e.message }
-          end
-
-          # Resolve Place's instance ID from /place/v1/info (unauthenticated).
-          # Returns nil on failure (caller should fallback to URL).
-          def resolve_place_id(url)
-            uri = URI.parse("#{url}/place/v1/info")
-            http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = (uri.scheme == 'https')
-            http.open_timeout = 3; http.read_timeout = 5
-            req = Net::HTTP::Get.new(uri)
-            response = http.request(req)
-            return nil unless response.is_a?(Net::HTTPSuccess)
-            data = JSON.parse(response.body, symbolize_names: true)
-            data[:place_id]
-          rescue StandardError
-            nil
           end
 
           # Build provenance for the federated deposit.
-          # source_place_id: resolved Place instance ID (or URL as fallback).
           def build_federation_provenance(source_provenance, source_place_id, content_result, source_deposited_at)
             if source_provenance[:hop_count].to_i > 0
-              # Already federated: increment hop, append source to via
               {
                 origin_place_id: source_provenance[:origin_place_id],
                 origin_agent_id: source_provenance[:origin_agent_id] || content_result[:depositor_id],
@@ -248,7 +216,6 @@ module KairosMcp
                 deposited_at_origin: source_provenance[:deposited_at_origin]
               }
             else
-              # First federation: source Place is the origin
               {
                 origin_place_id: source_place_id,
                 origin_agent_id: content_result[:depositor_id],
@@ -257,21 +224,6 @@ module KairosMcp
                 deposited_at_origin: source_deposited_at || Time.now.utc.iso8601
               }
             end
-          end
-
-          # POST skill to target Place with provenance
-          def deposit_to_target(url, token, skill)
-            uri = URI.parse("#{url}/place/v1/deposit")
-            http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = (uri.scheme == 'https')
-            http.open_timeout = 5; http.read_timeout = 15
-            req = Net::HTTP::Post.new(uri.path)
-            req['Content-Type'] = 'application/json'
-            req['Authorization'] = "Bearer #{token}"
-            req.body = JSON.generate(skill)
-            response = http.request(req)
-            JSON.parse(response.body, symbolize_names: true)
-          rescue StandardError => e
-            { error: e.message }
           end
         end
       end

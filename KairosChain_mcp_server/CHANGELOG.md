@@ -4,6 +4,52 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.15.0] - 2026-04-15
+
+### Fixed
+
+- **PlaceClient browse drops tags** — `PlaceClient#browse` silently discarded the
+  `tags` parameter when building query params. Tag-filtered browse and federate
+  now work correctly.
+- **Silent error swallowing in 5 MMP tools** — `meeting_browse`, `meeting_deposit`,
+  `meeting_get_skill_details`, `meeting_acquire_skill`, and `meeting_federate`
+  used raw `Net::HTTP` with `rescue StandardError; nil`, hiding connection errors,
+  auth failures, and server errors. All 5 tools now use `PlaceClient` with
+  structured error reporting.
+- **Wrong auth token for /meeting/v1/* endpoints** — `meeting_get_skill_details`
+  and `meeting_acquire_skill` (peer path) sent the Place session token to
+  `/meeting/v1/*` endpoints instead of the meeting session token. Token routing
+  now matches endpoint prefix: `/place/v1/*` uses `session_token`,
+  `/meeting/v1/*` uses `meeting_session_token`.
+
+### Added
+
+- **PlaceClient.reconnect** — class method for restoring client state from saved
+  connection without re-registration. Replaces `instance_variable_set` pattern.
+- **PlaceClient new methods** — `deposit`, `get_skill_details`, `get_skill_content`,
+  `request_skill_content`, `place_info` (unauthenticated).
+- **Response adapters** — A1 (Place skill content), A2 (peer skill content with
+  nested payload unwrap), A3 (skill details with metadata envelope unwrap and
+  error/not_found distinction).
+- **Expanded network error handling** — `PlaceClient` now catches `SocketError`,
+  `Net::ReadTimeout`, `OpenSSL::SSL::SSLError`, `Errno::ECONNRESET`, `Errno::EPIPE`
+  in addition to `Errno::ECONNREFUSED` and `Net::OpenTimeout`.
+- **PlaceClient.parse_response preserves server error details** — non-success HTTP
+  responses now retain full server body (`:reasons`, `:status`, etc.) instead of
+  wrapping into a generic `{ error: "HTTP 4xx" }`.
+
+### Removed
+
+- **Dead code** — `get_details_relay` and `get_skill_from_relay` (unused relay
+  path methods) removed from `meeting_get_skill_details` and `meeting_acquire_skill`.
+
+### Review
+
+- Design: 3 rounds × 3 LLMs (Claude Opus 4.6, Codex GPT-5.4, Cursor Composer-2)
+- Implementation: 1 round × 3 LLMs
+- Key findings: browse tags bug (3/3), response format contract (3/3),
+  token routing (Codex FAIL → resolved), adapter key mismatch (Claude HIGH → resolved)
+
 ## [3.14.1] - 2026-04-12
 
 ### Fixed

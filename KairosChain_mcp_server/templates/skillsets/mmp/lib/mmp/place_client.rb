@@ -11,6 +11,12 @@ module MMP
     DEFAULT_MAX_SESSION_MINUTES = 60
     DEFAULT_WARN_AFTER_INTERACTIONS = 50
 
+    NETWORK_ERRORS = [
+      Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EPIPE,
+      Net::OpenTimeout, Net::ReadTimeout,
+      SocketError, OpenSSL::SSL::SSLError
+    ].freeze
+
     def initialize(place_url:, identity:, timeout: 10, crypto: nil, keypair_path: nil, config: {})
       @place_url = place_url.chomp('/')
       @identity = identity
@@ -24,6 +30,15 @@ module MMP
       @warn_after_interactions = config[:warn_after_interactions] || DEFAULT_WARN_AFTER_INTERACTIONS
       @crypto = crypto || Crypto.new(keypair_path: keypair_path, auto_generate: true)
       @peer_public_keys = {}
+    end
+
+    # Reconnect using saved connection state (no re-registration)
+    def self.reconnect(place_url:, identity:, session_token:, agent_id: nil, timeout: 10, config: {})
+      client = new(place_url: place_url, identity: identity, timeout: timeout, config: config)
+      client.instance_variable_set(:@bearer_token, session_token)
+      client.instance_variable_set(:@agent_id, agent_id)
+      client.instance_variable_set(:@connected, true)
+      client
     end
 
     def connect
@@ -88,8 +103,34 @@ module MMP
     end
 
     def browse(type: nil, search: nil, tags: nil, limit: nil)
-      params = {}; params[:type] = type if type; params[:search] = search if search; params[:limit] = limit if limit
+      params = {}
+      params[:type] = type if type
+      params[:search] = search if search
+      params[:tags] = tags.is_a?(Array) ? tags.join(',') : tags if tags
+      params[:limit] = limit if limit
       get('/place/v1/board/browse', params)
+    end
+
+    def deposit(skill)
+      post('/place/v1/deposit', skill)
+    end
+
+    def get_skill_details(skill_id:)
+      get('/meeting/v1/skill_details', { skill_id: skill_id })
+    end
+
+    def get_skill_content(skill_id:, owner: nil)
+      params = {}
+      params[:owner] = owner if owner
+      get("/place/v1/skill_content/#{URI.encode_www_form_component(skill_id)}", params)
+    end
+
+    def request_skill_content(skill_id:)
+      post('/meeting/v1/skill_content', { skill_id: skill_id })
+    end
+
+    def place_info
+      get_unauthenticated('/place/v1/info')
     end
 
     def withdraw(skill_id:, reason:)
@@ -160,7 +201,20 @@ module MMP
       response = http.request(req)
       @interaction_count += 1
       parse_response(response)
-    rescue Errno::ECONNREFUSED, Net::OpenTimeout => e
+    rescue *NETWORK_ERRORS => e
+      { error: "Connection failed: #{e.message}" }
+    end
+
+    def get_unauthenticated(path, params = {})
+      uri = URI.parse("#{@place_url}#{path}")
+      uri.query = URI.encode_www_form(params) unless params.empty?
+      http = Net::HTTP.new(uri.host, uri.port); http.open_timeout = @timeout; http.read_timeout = @timeout
+      http.use_ssl = (uri.scheme == 'https')
+      req = Net::HTTP::Get.new(uri)
+      response = http.request(req)
+      @interaction_count += 1
+      parse_response(response)
+    rescue *NETWORK_ERRORS => e
       { error: "Connection failed: #{e.message}" }
     end
 
@@ -186,15 +240,20 @@ module MMP
       req.body = JSON.generate(body) if body
       @interaction_count += 1
       parse_response(http.request(req))
-    rescue Errno::ECONNREFUSED, Net::OpenTimeout => e
+    rescue *NETWORK_ERRORS => e
       { error: "Connection failed: #{e.message}" }
     end
 
     def parse_response(response)
       data = JSON.parse(response.body, symbolize_names: true)
-      response.is_a?(Net::HTTPSuccess) ? data : { error: data[:error] || "HTTP #{response.code}" }
+      if response.is_a?(Net::HTTPSuccess)
+        data
+      else
+        data[:error] ||= "HTTP #{response.code}"
+        data
+      end
     rescue JSON::ParserError
-      { error: "Invalid JSON response" }
+      { error: "Invalid JSON response (HTTP #{response.code})" }
     end
   end
 end

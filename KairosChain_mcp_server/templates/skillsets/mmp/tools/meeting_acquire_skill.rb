@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'net/http'
-require 'uri'
 require 'json'
 require 'yaml'
 require 'digest'
@@ -52,11 +50,6 @@ module KairosMcp
             owner_agent_id = arguments['owner_agent_id']
             save_layer = arguments['save_to_layer'] || 'L1'
 
-            config = ::MMP.load_config
-            unless config['enabled']
-              return text_content(JSON.pretty_generate({ error: 'Meeting Protocol is disabled' }))
-            end
-
             connection = load_connection_state
             unless connection
               return text_content(JSON.pretty_generate({ error: 'Not connected', hint: 'Use meeting_connect first' }))
@@ -64,22 +57,30 @@ module KairosMcp
 
             begin
               url = connection['url'] || connection[:url]
-              token = connection['session_token'] || connection[:session_token]
 
               if peer_id
-                # Existing flow: acquire from specific peer
+                # Peer direct path: /meeting/v1/skill_content
                 peer = find_peer(connection, peer_id)
                 unless peer
                   return text_content(JSON.pretty_generate({ error: "Peer not found: #{peer_id}" }))
                 end
                 endpoint = peer['endpoint'] || peer[:endpoint]
                 target = endpoint || url
-                content_result = get_skill_direct(target, skill_id, bearer_token: token)
+
+                meeting_client = build_meeting_client(url_override: target)
+                return meeting_client if meeting_client.is_a?(Array)
+
+                raw = meeting_client.request_skill_content(skill_id: skill_id)
+                content_result = adapt_peer_skill_content(raw, skill_id)
                 source_id = peer_id
                 source_name = peer['name'] || peer[:name] || peer_id
               else
-                # A案: acquire from Place deposits
-                content_result = get_skill_from_place(url, skill_id, owner_agent_id: owner_agent_id, bearer_token: token)
+                # Place deposit path: /place/v1/skill_content/:id
+                place_client = build_place_client
+                return place_client if place_client.is_a?(Array)
+
+                raw = place_client.get_skill_content(skill_id: skill_id, owner: owner_agent_id)
+                content_result = adapt_place_skill_content(raw, skill_id)
                 source_id = content_result[:depositor_id] || owner_agent_id || 'place'
                 source_name = source_id
               end
@@ -155,10 +156,89 @@ module KairosMcp
             (connection['peers'] || connection[:peers] || []).find { |p| (p['agent_id'] || p[:agent_id]) == peer_id }
           end
 
+          # Build PlaceClient with session_token for /place/v1/* endpoints
+          def build_place_client(timeout: 10)
+            config = ::MMP.load_config
+            unless config['enabled']
+              return text_content(JSON.pretty_generate({ error: 'Meeting Protocol is disabled' }))
+            end
+            connection = load_connection_state
+            unless connection
+              return text_content(JSON.pretty_generate({ error: 'Not connected', hint: 'Use meeting_connect first' }))
+            end
+            url = connection['url'] || connection[:url]
+            token = connection['session_token'] || connection[:session_token]
+            agent_id = connection['agent_id'] || connection[:agent_id]
+            identity = ::MMP::Identity.new(config: config)
+            ::MMP::PlaceClient.reconnect(
+              place_url: url, identity: identity,
+              session_token: token, agent_id: agent_id, timeout: timeout
+            )
+          end
+
+          # Build PlaceClient with meeting_session_token for /meeting/v1/* endpoints
+          def build_meeting_client(url_override: nil, timeout: 10)
+            config = ::MMP.load_config
+            unless config['enabled']
+              return text_content(JSON.pretty_generate({ error: 'Meeting Protocol is disabled' }))
+            end
+            connection = load_connection_state
+            unless connection
+              return text_content(JSON.pretty_generate({ error: 'Not connected', hint: 'Use meeting_connect first' }))
+            end
+            url = url_override || connection['url'] || connection[:url]
+            token = connection['meeting_session_token'] || connection[:meeting_session_token]
+            unless token
+              return text_content(JSON.pretty_generate({
+                error: 'No meeting session token',
+                hint: 'meeting_connect may have failed the /meeting/v1/introduce handshake. Reconnect.'
+              }))
+            end
+            identity = ::MMP::Identity.new(config: config)
+            ::MMP::PlaceClient.reconnect(
+              place_url: url, identity: identity,
+              session_token: token, timeout: timeout
+            )
+          end
+
+          # Adapter A1: Place deposit skill content
+          def adapt_place_skill_content(raw, skill_id)
+            if raw[:error]
+              { success: false, error: raw[:error] }
+            else
+              {
+                success: true,
+                name: raw[:name] || skill_id,
+                skill_name: raw[:name] || skill_id,
+                format: raw[:format] || 'markdown',
+                content: raw[:content],
+                content_hash: raw[:content_hash],
+                size_bytes: raw[:content]&.bytesize || 0,
+                depositor_id: raw[:depositor_id],
+                trust_notice: raw[:trust_notice]
+              }
+            end
+          end
+
+          # Adapter A2: Peer direct skill content
+          def adapt_peer_skill_content(raw, skill_id)
+            if raw[:error]
+              { success: false, error: raw[:error] }
+            else
+              payload = raw.dig(:message, :payload) || raw[:payload] || raw
+              {
+                success: true,
+                skill_name: payload[:skill_name] || skill_id,
+                format: payload[:format] || 'markdown',
+                content: payload[:content],
+                content_hash: payload[:content_hash],
+                size_bytes: payload[:content]&.bytesize || 0
+              }
+            end
+          end
+
           MAX_TRUSTED_PEERS = 100
 
-          # Save or update a trusted peer in L1 knowledge.
-          # Returns true on success, false on failure.
           def save_trusted_peer(agent_id:, name:, place_url:, skill_acquired:)
             dir = File.join(KairosMcp.data_dir, 'knowledge', 'trusted_peers')
             FileUtils.mkdir_p(dir)
@@ -167,7 +247,6 @@ module KairosMcp
 
             peers = load_trusted_peers_data(filepath)
 
-            # Find or create peer entry
             existing = peers.find { |p| p['agent_id'] == agent_id }
             if existing
               existing['name'] = name
@@ -189,7 +268,6 @@ module KairosMcp
               }
             end
 
-            # LRU eviction: keep most recently interacted peers
             if peers.size > MAX_TRUSTED_PEERS
               peers = peers.sort_by { |p| p['last_interaction'] || '' }.last(MAX_TRUSTED_PEERS)
             end
@@ -221,68 +299,6 @@ module KairosMcp
             }
             content = "---\n#{frontmatter.to_yaml}---\n\n# Trusted Peers\n\nPeers from whom skills were successfully acquired.\nAuto-managed by meeting_acquire_skill. Max #{MAX_TRUSTED_PEERS} entries (LRU).\n"
             File.write(filepath, content)
-          end
-
-          # Acquire from Place's deposited skills (A案)
-          def get_skill_from_place(url, skill_id, owner_agent_id: nil, bearer_token: nil)
-            path = "/place/v1/skill_content/#{URI.encode_www_form_component(skill_id)}"
-            path += "?owner=#{URI.encode_www_form_component(owner_agent_id)}" if owner_agent_id
-            uri = URI.parse("#{url}#{path}")
-            http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = (uri.scheme == 'https')
-            http.open_timeout = 5; http.read_timeout = 10
-            req = Net::HTTP::Get.new(uri)
-            req['Authorization'] = "Bearer #{bearer_token}" if bearer_token
-            response = http.request(req)
-            if response.is_a?(Net::HTTPSuccess)
-              data = JSON.parse(response.body, symbolize_names: true)
-              {
-                success: true,
-                skill_name: data[:name] || skill_id,
-                format: data[:format] || 'markdown',
-                content: data[:content],
-                content_hash: data[:content_hash],
-                size_bytes: data[:content]&.bytesize || 0,
-                depositor_id: data[:depositor_id],
-                trust_notice: data[:trust_notice]
-              }
-            else
-              { success: false, error: "HTTP #{response.code}: #{response.body}" }
-            end
-          rescue StandardError => e
-            { success: false, error: e.message }
-          end
-
-          def get_skill_from_relay(url, skill_id)
-            uri = URI.parse("#{url}/place/v1/skills/content/#{URI.encode_www_form_component(skill_id)}")
-            response = Net::HTTP.get_response(uri)
-            if response.is_a?(Net::HTTPSuccess)
-              data = JSON.parse(response.body, symbolize_names: true)
-              { success: true, skill_name: data[:name] || skill_id, format: data[:format] || 'markdown', content: data[:content], content_hash: data[:content_hash], size_bytes: data[:content]&.bytesize || 0 }
-            else
-              { success: false, error: "HTTP #{response.code}" }
-            end
-          rescue StandardError => e
-            { success: false, error: e.message }
-          end
-
-          def get_skill_direct(endpoint, skill_id, bearer_token: nil)
-            uri = URI.parse("#{endpoint}/meeting/v1/skill_content")
-            http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = (uri.scheme == 'https')
-            http.open_timeout = 5; http.read_timeout = 10
-            req = Net::HTTP::Post.new(uri.path)
-            req['Content-Type'] = 'application/json'
-            req['Authorization'] = "Bearer #{bearer_token}" if bearer_token
-            req.body = JSON.generate({ skill_id: skill_id })
-            response = http.request(req)
-            if response.is_a?(Net::HTTPSuccess)
-              data = JSON.parse(response.body, symbolize_names: true)
-              payload = data.dig(:message, :payload) || data[:payload] || data
-              { success: true, skill_name: payload[:skill_name] || skill_id, format: payload[:format] || 'markdown', content: payload[:content], content_hash: payload[:content_hash], size_bytes: payload[:content]&.bytesize || 0 }
-            else
-              { success: false, error: response.body }
-            end
-          rescue StandardError => e
-            { success: false, error: e.message }
           end
         end
       end

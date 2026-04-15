@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'net/http'
-require 'uri'
 require 'json'
 
 module KairosMcp
@@ -43,30 +41,21 @@ module KairosMcp
           end
 
           def call(arguments)
-            config = ::MMP.load_config
-            unless config['enabled']
-              return text_content(JSON.pretty_generate({ error: 'Meeting Protocol is disabled' }))
-            end
-
-            connection = load_connection_state
-            unless connection
-              return text_content(JSON.pretty_generate({ error: 'Not connected', hint: 'Use meeting_connect first' }))
-            end
-
-            url = connection['url'] || connection[:url]
-            token = connection['session_token'] || connection[:session_token]
+            client = build_place_client
+            return client if client.is_a?(Array)
 
             begin
               page_size = [[arguments['page_size'] || 20, 50].min, 1].max
-              params = { 'limit' => page_size.to_s }
-              params['tags'] = arguments['tags'].join(',') if arguments['tags'] && !arguments['tags'].empty?
-              params['search'] = arguments['search'] if arguments['search']
-              params['type'] = arguments['type'] if arguments['type']
 
-              result = browse_place(url, token, params)
+              result = client.browse(
+                type: arguments['type'],
+                search: arguments['search'],
+                tags: arguments['tags'],
+                limit: page_size
+              )
 
-              unless result
-                return text_content(JSON.pretty_generate({ error: 'Failed to browse Meeting Place' }))
+              if result[:error]
+                return text_content(JSON.pretty_generate({ error: 'Failed to browse Meeting Place', message: result[:error] }))
               end
 
               entries = result[:entries] || []
@@ -79,7 +68,6 @@ module KairosMcp
                 hint: entries.empty? ? 'No skills found. Try different filters or wait for agents to deposit skills.' : 'Use meeting_acquire_skill(skill_id: "...") to acquire a skill.'
               }
 
-              # Pass through place-level trust info (factual metadata only)
               output[:place_trust] = result[:place_trust] if result[:place_trust]
 
               # Check for pending attestation nudge
@@ -100,23 +88,29 @@ module KairosMcp
 
           private
 
+          def build_place_client
+            config = ::MMP.load_config
+            unless config['enabled']
+              return text_content(JSON.pretty_generate({ error: 'Meeting Protocol is disabled' }))
+            end
+            connection = load_connection_state
+            unless connection
+              return text_content(JSON.pretty_generate({ error: 'Not connected', hint: 'Use meeting_connect first' }))
+            end
+            url = connection['url'] || connection[:url]
+            token = connection['session_token'] || connection[:session_token]
+            agent_id = connection['agent_id'] || connection[:agent_id]
+            identity = ::MMP::Identity.new(config: config)
+            ::MMP::PlaceClient.reconnect(
+              place_url: url, identity: identity,
+              session_token: token, agent_id: agent_id
+            )
+          end
+
           def load_connection_state
             f = File.join(KairosMcp.storage_dir, 'meeting_connection.json')
             File.exist?(f) ? JSON.parse(File.read(f)) : nil
           rescue StandardError; nil
-          end
-
-          def browse_place(url, token, params)
-            query = URI.encode_www_form(params)
-            uri = URI.parse("#{url}/place/v1/board/browse?#{query}")
-            http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = (uri.scheme == 'https')
-            http.open_timeout = 5; http.read_timeout = 10
-            req = Net::HTTP::Get.new(uri)
-            req['Authorization'] = "Bearer #{token}" if token
-            response = http.request(req)
-            response.is_a?(Net::HTTPSuccess) ? JSON.parse(response.body, symbolize_names: true) : nil
-          rescue StandardError
-            nil
           end
 
           def format_entry(entry)

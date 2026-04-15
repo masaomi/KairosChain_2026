@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'net/http'
-require 'uri'
 require 'json'
 require 'yaml'
 require 'digest'
@@ -42,20 +40,11 @@ module KairosMcp
           end
 
           def call(arguments)
-            config = ::MMP.load_config
-            unless config['enabled']
-              return text_content(JSON.pretty_generate({ error: 'Meeting Protocol is disabled' }))
-            end
-
-            connection = load_connection_state
-            unless connection
-              return text_content(JSON.pretty_generate({ error: 'Not connected', hint: 'Use meeting_connect first' }))
-            end
-
-            url = connection['url'] || connection[:url]
-            token = connection['session_token'] || connection[:session_token]
+            client = build_place_client(timeout: 15)
+            return client if client.is_a?(Array)
 
             begin
+              config = ::MMP.load_config
               identity = ::MMP::Identity.new(config: config)
               crypto = identity.crypto
 
@@ -79,7 +68,7 @@ module KairosMcp
                 content_hash = Digest::SHA256.hexdigest(content)
                 signature = crypto.has_keypair? ? crypto.sign(content) : nil
 
-                result = deposit_to_place(url, token, {
+                result = client.deposit({
                   skill_id: skill[:name],
                   name: skill[:name],
                   description: skill[:description],
@@ -116,6 +105,25 @@ module KairosMcp
           end
 
           private
+
+          def build_place_client(timeout: 10)
+            config = ::MMP.load_config
+            unless config['enabled']
+              return text_content(JSON.pretty_generate({ error: 'Meeting Protocol is disabled' }))
+            end
+            connection = load_connection_state
+            unless connection
+              return text_content(JSON.pretty_generate({ error: 'Not connected', hint: 'Use meeting_connect first' }))
+            end
+            url = connection['url'] || connection[:url]
+            token = connection['session_token'] || connection[:session_token]
+            agent_id = connection['agent_id'] || connection[:agent_id]
+            identity = ::MMP::Identity.new(config: config)
+            ::MMP::PlaceClient.reconnect(
+              place_url: url, identity: identity,
+              session_token: token, agent_id: agent_id, timeout: timeout
+            )
+          end
 
           def load_connection_state
             f = File.join(KairosMcp.storage_dir, 'meeting_connection.json')
@@ -169,20 +177,6 @@ module KairosMcp
             Dir.glob(File.join(knowledge_dir, '**', '*.md')).size
           rescue StandardError
             0
-          end
-
-          def deposit_to_place(url, token, skill)
-            uri = URI.parse("#{url}/place/v1/deposit")
-            http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = (uri.scheme == 'https')
-            http.open_timeout = 5; http.read_timeout = 15
-            req = Net::HTTP::Post.new(uri.path)
-            req['Content-Type'] = 'application/json'
-            req['Authorization'] = "Bearer #{token}" if token
-            req.body = JSON.generate(skill)
-            response = http.request(req)
-            JSON.parse(response.body, symbolize_names: true)
-          rescue StandardError => e
-            { error: e.message }
           end
         end
       end
