@@ -164,13 +164,16 @@ module MMP
       post('/place/v1/skillset_deposit', body)
     end
 
-    def skillset_browse(params = {})
+    def skillset_browse(search: nil, limit: 20)
+      params = {}
+      params[:search] = search if search
+      params[:limit] = limit if limit
       get('/place/v1/skillset_browse', params)
     end
 
     def skillset_content(name:, depositor: nil, timeout: 45)
-      params = { 'name' => name }
-      params['depositor'] = depositor if depositor
+      params = { name: name }
+      params[:depositor] = depositor if depositor && !depositor.to_s.empty?
       get('/place/v1/skillset_content', params, timeout: timeout)
     end
 

@@ -44,10 +44,8 @@ module KairosMcp
 
             begin
               page_size = [[arguments['page_size'] || 20, 50].min, 1].max
-              params = { 'limit' => page_size.to_s }
-              params['search'] = arguments['search'] if arguments['search']
 
-              result = client.skillset_browse(params)
+              result = client.skillset_browse(search: arguments['search'], limit: page_size)
 
               if result[:error]
                 return text_content(JSON.pretty_generate({
@@ -80,13 +78,15 @@ module KairosMcp
           private
 
           def build_place_client(timeout: 10)
+            if defined?(::MMP)
+              config = ::MMP.load_config
+              unless config['enabled']
+                return text_content(JSON.pretty_generate({ error: 'Meeting Protocol is disabled' }))
+              end
+            end
             connection = load_connection_state
             unless connection
               return text_content(JSON.pretty_generate({ error: 'Not connected', hint: 'Use meeting_connect first' }))
-            end
-            config = ::MMP.load_config
-            unless config['enabled']
-              return text_content(JSON.pretty_generate({ error: 'Meeting Protocol is disabled' }))
             end
             url = connection['url'] || connection[:url]
             token = connection['session_token'] || connection[:session_token]

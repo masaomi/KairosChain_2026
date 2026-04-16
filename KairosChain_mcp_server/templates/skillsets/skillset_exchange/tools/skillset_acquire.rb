@@ -67,6 +67,7 @@ module KairosMcp
                 return text_content(JSON.pretty_generate({
                   error: 'Failed to retrieve SkillSet',
                   details: content_result[:error],
+                  message: content_result[:message],
                   depositors: content_result[:depositors]
                 }.compact))
               end
@@ -213,13 +214,15 @@ module KairosMcp
           private
 
           def build_place_client(timeout: 30)
+            if defined?(::MMP)
+              config = ::MMP.load_config
+              unless config['enabled']
+                return text_content(JSON.pretty_generate({ error: 'Meeting Protocol is disabled' }))
+              end
+            end
             connection = load_connection_state
             unless connection
               return text_content(JSON.pretty_generate({ error: 'Not connected', hint: 'Use meeting_connect first' }))
-            end
-            config = ::MMP.load_config
-            unless config['enabled']
-              return text_content(JSON.pretty_generate({ error: 'Meeting Protocol is disabled' }))
             end
             url = connection['url'] || connection[:url]
             token = connection['session_token'] || connection[:session_token]
