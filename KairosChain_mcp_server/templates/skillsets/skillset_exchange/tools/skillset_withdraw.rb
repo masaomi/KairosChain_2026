@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'net/http'
-require 'uri'
 require 'json'
 require 'yaml'
 
@@ -45,29 +43,23 @@ module KairosMcp
             ss_name = arguments['name']
             reason = arguments['reason']
 
-            # 1. Load connection state
-            connection = load_connection_state
-            unless connection
-              return text_content(JSON.pretty_generate({
-                error: 'Not connected',
-                hint: 'Use meeting_connect first'
-              }))
-            end
-
-            url = connection['url'] || connection[:url]
-            token = connection['session_token'] || connection[:session_token]
+            # 1. Build PlaceClient (fail early)
+            client = build_place_client
+            return client if client.is_a?(Array) # text_content error
 
             begin
               # 2. Ensure extension is registered (withdraw POSTs to Place, may need local registration)
               ensure_extension_registered!
 
-              # 3. POST /place/v1/skillset_withdraw
-              withdraw_body = { name: ss_name }
-              withdraw_body[:reason] = reason if reason && !reason.empty?
+              # 3. POST /place/v1/skillset_withdraw via PlaceClient
+              result = client.skillset_withdraw(name: ss_name, reason: reason)
 
-              result = post_to_place(url, token, '/place/v1/skillset_withdraw', withdraw_body)
-
-              if result && result[:status] == 'withdrawn'
+              if result[:error]
+                text_content(JSON.pretty_generate({
+                  error: result[:error] || 'Withdrawal failed',
+                  details: result
+                }))
+              elsif result[:status] == 'withdrawn'
                 text_content(JSON.pretty_generate({
                   status: 'withdrawn',
                   name: result[:name],
@@ -92,36 +84,30 @@ module KairosMcp
 
           private
 
+          def build_place_client(timeout: 30)
+            connection = load_connection_state
+            unless connection
+              return text_content(JSON.pretty_generate({ error: 'Not connected', hint: 'Use meeting_connect first' }))
+            end
+            config = ::MMP.load_config
+            unless config['enabled']
+              return text_content(JSON.pretty_generate({ error: 'Meeting Protocol is disabled' }))
+            end
+            url = connection['url'] || connection[:url]
+            token = connection['session_token'] || connection[:session_token]
+            agent_id = connection['agent_id'] || connection[:agent_id]
+            identity = ::MMP::Identity.new(config: config)
+            ::MMP::PlaceClient.reconnect(
+              place_url: url, identity: identity,
+              session_token: token, agent_id: agent_id, timeout: timeout
+            )
+          end
+
           def load_connection_state
             f = File.join(KairosMcp.storage_dir, 'meeting_connection.json')
             File.exist?(f) ? JSON.parse(File.read(f)) : nil
           rescue StandardError
             nil
-          end
-
-          def post_to_place(url, token, path, body)
-            uri = URI.parse("#{url}#{path}")
-            http = Net::HTTP.new(uri.host, uri.port)
-            http.use_ssl = (uri.scheme == 'https')
-            http.open_timeout = 5
-            http.read_timeout = 30
-            req = Net::HTTP::Post.new(uri.path)
-            req['Content-Type'] = 'application/json'
-            req['Authorization'] = "Bearer #{token}" if token
-            req.body = JSON.generate(body)
-            response = http.request(req)
-            if response.is_a?(Net::HTTPSuccess)
-              JSON.parse(response.body, symbolize_names: true)
-            else
-              parsed = begin
-                JSON.parse(response.body, symbolize_names: true)
-              rescue StandardError
-                {}
-              end
-              { error: parsed[:error] || "HTTP #{response.code}", message: parsed[:message], http_status: response.code.to_i }
-            end
-          rescue StandardError => e
-            { error: e.message }
           end
 
           # Lazy extension registration (same pattern as skillset_deposit.rb)

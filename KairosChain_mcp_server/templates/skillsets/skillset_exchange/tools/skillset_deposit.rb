@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'net/http'
-require 'uri'
 require 'json'
 require 'yaml'
 require 'digest'
@@ -45,17 +43,9 @@ module KairosMcp
           def call(arguments)
             ss_name = arguments['name']
 
-            # 1. Load connection state
-            connection = load_connection_state
-            unless connection
-              return text_content(JSON.pretty_generate({
-                error: 'Not connected',
-                hint: 'Use meeting_connect first'
-              }))
-            end
-
-            url = connection['url'] || connection[:url]
-            token = connection['session_token'] || connection[:session_token]
+            # 1. Build PlaceClient (fail early before expensive packaging)
+            client = build_place_client
+            return client if client.is_a?(Array) # text_content error
 
             begin
               # 2. Validate with ExchangeValidator
@@ -84,7 +74,7 @@ module KairosMcp
               # 5. Ensure extension is registered (lazy registration)
               ensure_extension_registered!
 
-              # 6. POST to place
+              # 6. POST to place via PlaceClient
               ss = manager.find_skillset(ss_name)
               deposit_body = {
                 name: pkg[:name],
@@ -98,9 +88,14 @@ module KairosMcp
                 provides: ss.metadata['provides'] || []
               }
 
-              result = post_to_place(url, token, '/place/v1/skillset_deposit', deposit_body)
+              result = client.skillset_deposit(deposit_body)
 
-              if result && result[:status] == 'deposited'
+              if result[:error]
+                text_content(JSON.pretty_generate({
+                  error: 'Deposit failed',
+                  details: result
+                }))
+              elsif result[:status] == 'deposited'
                 text_content(JSON.pretty_generate({
                   status: 'deposited',
                   name: result[:name],
@@ -133,27 +128,30 @@ module KairosMcp
             nil
           end
 
+          def build_place_client(timeout: 30)
+            connection = load_connection_state
+            unless connection
+              return text_content(JSON.pretty_generate({ error: 'Not connected', hint: 'Use meeting_connect first' }))
+            end
+            config = ::MMP.load_config
+            unless config['enabled']
+              return text_content(JSON.pretty_generate({ error: 'Meeting Protocol is disabled' }))
+            end
+            url = connection['url'] || connection[:url]
+            token = connection['session_token'] || connection[:session_token]
+            agent_id = connection['agent_id'] || connection[:agent_id]
+            identity = ::MMP::Identity.new(config: config)
+            ::MMP::PlaceClient.reconnect(
+              place_url: url, identity: identity,
+              session_token: token, agent_id: agent_id, timeout: timeout
+            )
+          end
+
           def load_skillset_config
             config_path = File.join(KairosMcp.skillsets_dir, 'skillset_exchange', 'config', 'skillset_exchange.yml')
             File.exist?(config_path) ? (YAML.safe_load(File.read(config_path)) || {}) : {}
           rescue StandardError
             {}
-          end
-
-          def post_to_place(url, token, path, body)
-            uri = URI.parse("#{url}#{path}")
-            http = Net::HTTP.new(uri.host, uri.port)
-            http.use_ssl = (uri.scheme == 'https')
-            http.open_timeout = 5
-            http.read_timeout = 30
-            req = Net::HTTP::Post.new(uri.path)
-            req['Content-Type'] = 'application/json'
-            req['Authorization'] = "Bearer #{token}" if token
-            req.body = JSON.generate(body)
-            response = http.request(req)
-            JSON.parse(response.body, symbolize_names: true)
-          rescue StandardError => e
-            { error: e.message }
           end
 
           # Lazy extension registration for late enablement (design Section 9.B)
