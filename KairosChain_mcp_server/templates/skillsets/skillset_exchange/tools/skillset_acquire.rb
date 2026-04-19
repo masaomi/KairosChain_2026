@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'net/http'
-require 'uri'
 require 'json'
 require 'yaml'
 require 'base64'
@@ -54,29 +52,22 @@ module KairosMcp
             depositor_id = nil if depositor_id.to_s.strip.empty?
             force = arguments['force'] == true
 
-            # 1. Load connection state
-            connection = load_connection_state
-            unless connection
-              return text_content(JSON.pretty_generate({
-                error: 'Not connected',
-                hint: 'Use meeting_connect first'
-              }))
-            end
-
-            url = connection['url'] || connection[:url]
-            token = connection['session_token'] || connection[:session_token]
+            # 1. Build PlaceClient (fail early)
+            client = build_place_client
+            return client if client.is_a?(Array) # text_content error
 
             begin
               # 2. Ensure extension is registered (connection may target local Place)
               ensure_extension_registered!
 
-              # 3. GET /place/v1/skillset_content?name=...&depositor=...
-              content_result = get_skillset_content(url, token, ss_name, depositor_id)
+              # 3. GET /place/v1/skillset_content via PlaceClient
+              content_result = client.skillset_content(name: ss_name, depositor: depositor_id)
 
-              unless content_result[:success]
+              if content_result[:error]
                 return text_content(JSON.pretty_generate({
                   error: 'Failed to retrieve SkillSet',
                   details: content_result[:error],
+                  message: content_result[:message],
                   depositors: content_result[:depositors]
                 }.compact))
               end
@@ -222,6 +213,27 @@ module KairosMcp
 
           private
 
+          def build_place_client(timeout: 30)
+            if defined?(::MMP)
+              config = ::MMP.load_config
+              unless config['enabled']
+                return text_content(JSON.pretty_generate({ error: 'Meeting Protocol is disabled' }))
+              end
+            end
+            connection = load_connection_state
+            unless connection
+              return text_content(JSON.pretty_generate({ error: 'Not connected', hint: 'Use meeting_connect first' }))
+            end
+            url = connection['url'] || connection[:url]
+            token = connection['session_token'] || connection[:session_token]
+            agent_id = connection['agent_id'] || connection[:agent_id]
+            identity = ::MMP::Identity.new(config: config)
+            ::MMP::PlaceClient.reconnect(
+              place_url: url, identity: identity,
+              session_token: token, agent_id: agent_id, timeout: timeout
+            )
+          end
+
           def load_connection_state
             f = File.join(KairosMcp.storage_dir, 'meeting_connection.json')
             File.exist?(f) ? JSON.parse(File.read(f)) : nil
@@ -234,40 +246,6 @@ module KairosMcp
             File.exist?(config_path) ? (YAML.safe_load(File.read(config_path)) || {}) : {}
           rescue StandardError
             {}
-          end
-
-          # GET /place/v1/skillset_content?name=...&depositor=...
-          def get_skillset_content(url, token, name, depositor_id)
-            params = { 'name' => name }
-            params['depositor'] = depositor_id if depositor_id
-            query = URI.encode_www_form(params)
-            uri = URI.parse("#{url}/place/v1/skillset_content?#{query}")
-            http = Net::HTTP.new(uri.host, uri.port)
-            http.use_ssl = (uri.scheme == 'https')
-            http.open_timeout = 5
-            http.read_timeout = 45  # Higher than browse/POST -- archives can be up to 5MB base64
-            req = Net::HTTP::Get.new(uri)
-            req['Authorization'] = "Bearer #{token}" if token
-            response = http.request(req)
-
-            if response.is_a?(Net::HTTPSuccess)
-              data = JSON.parse(response.body, symbolize_names: true)
-              data.merge(success: true)
-            else
-              parsed = begin
-                JSON.parse(response.body, symbolize_names: true)
-              rescue StandardError
-                {}
-              end
-              {
-                success: false,
-                error: parsed[:error] || "HTTP #{response.code}",
-                message: parsed[:message],
-                depositors: parsed[:depositors]  # Propagate ambiguity list from 409
-              }
-            end
-          rescue StandardError => e
-            { success: false, error: e.message }
           end
 
           # Extract tar.gz into target directory

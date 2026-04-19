@@ -158,6 +158,31 @@ module MMP
       })
     end
 
+    # --- SkillSet Exchange methods ---
+
+    def skillset_deposit(body)
+      post('/place/v1/skillset_deposit', body)
+    end
+
+    def skillset_browse(search: nil, limit: 20)
+      params = {}
+      params[:search] = search if search
+      params[:limit] = limit if limit
+      get('/place/v1/skillset_browse', params)
+    end
+
+    def skillset_content(name:, depositor: nil, timeout: 45)
+      params = { name: name }
+      params[:depositor] = depositor if depositor && !depositor.to_s.empty?
+      get('/place/v1/skillset_content', params, timeout: timeout)
+    end
+
+    def skillset_withdraw(name:, reason: nil)
+      body = { name: name }
+      body[:reason] = reason if reason && !reason.to_s.empty?
+      post('/place/v1/skillset_withdraw', body)
+    end
+
     def send_encrypted(to:, message:, message_type: 'message')
       return { error: 'Not connected' } unless @connected
       return { error: 'No keypair' } unless @crypto&.has_keypair?
@@ -191,10 +216,11 @@ module MMP
       result[:public_key]
     end
 
-    def get(path, params = {})
+    def get(path, params = {}, timeout: nil)
+      effective_timeout = timeout || @timeout
       uri = URI.parse("#{@place_url}#{path}")
       uri.query = URI.encode_www_form(params) unless params.empty?
-      http = Net::HTTP.new(uri.host, uri.port); http.open_timeout = @timeout; http.read_timeout = @timeout
+      http = Net::HTTP.new(uri.host, uri.port); http.open_timeout = effective_timeout; http.read_timeout = effective_timeout
       http.use_ssl = (uri.scheme == 'https')
       req = Net::HTTP::Get.new(uri)
       req['Authorization'] = "Bearer #{@bearer_token}" if @bearer_token
