@@ -4,6 +4,40 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.16.0] - 2026-04-19
+
+### Changed
+
+- **SkillSet Exchange tools unified to PlaceClient** — All 4 SkillSet Exchange
+  tools (`skillset_deposit`, `skillset_browse`, `skillset_acquire`,
+  `skillset_withdraw`) refactored from raw `Net::HTTP` to `PlaceClient` methods.
+  Consistent error handling, auth token routing, and timeout support.
+
+### Added
+
+- **PlaceClient SkillSet methods** — 4 new public methods on `PlaceClient`:
+  `skillset_deposit(body)`, `skillset_browse(search:, limit:)`,
+  `skillset_content(name:, depositor:, timeout:)`,
+  `skillset_withdraw(name:, reason:)`. Timeout support added to private `get` method.
+- **`build_place_client` pattern** — All SkillSet Exchange tools now use the same
+  connection-building pattern as MMP tools, with `defined?(::MMP)` guard for
+  test environments.
+
+### Fixed
+
+- **Acquire depositors on 409** — `skillset_acquire` now preserves `depositors`
+  list in error response when content retrieval fails, enabling client retry
+  with alternative depositor.
+- **Symbol key handling** — `skillset_content` uses symbol keys internally and
+  handles blank-string depositor parameter.
+
+### Review
+
+- Design: 1 round × 3 LLMs (Claude Opus 4.6, Codex GPT-5.4, Cursor Composer-2)
+- Implementation: 1 round × 3 LLMs
+- Manual testing: deposit (knowledge-only ✅, executable rejected ✅),
+  browse (full/search/provides ✅), error paths ✅
+
 ## [3.15.0] - 2026-04-15
 
 ### Fixed
