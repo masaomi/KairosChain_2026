@@ -1,0 +1,20 @@
+id: code_generation
+domain: code_generation
+difficulty: medium
+prompt: |
+  Implement an LRU (Least Recently Used) Cache in Python with the following requirements:
+
+  1. Support `get(key)` and `put(key, value)` operations, both in O(1) time.
+  2. The cache has a fixed capacity; when full, evict the least recently used item.
+  3. Include type hints and docstrings.
+  4. Write at least 3 unit tests demonstrating correctness.
+  5. Explain the time and space complexity of your implementation.
+
+  Do NOT use `functools.lru_cache` or `collections.OrderedDict`.
+  Implement the underlying data structure yourself.
+expected_aspects:
+  - correct_implementation
+  - o1_time_complexity
+  - type_hints_and_docs
+  - unit_tests
+  - complexity_analysis

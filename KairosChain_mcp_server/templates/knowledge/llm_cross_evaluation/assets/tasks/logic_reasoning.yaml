@@ -1,0 +1,19 @@
+id: logic_reasoning
+domain: logic_reasoning
+difficulty: medium
+prompt: |
+  Consider the following premises and derive all logically valid conclusions.
+  Explain each step of your reasoning.
+
+  Premise 1: All mammals are warm-blooded.
+  Premise 2: All whales are mammals.
+  Premise 3: Some sea creatures are not whales.
+
+  Questions:
+  1. What can we conclude about whales and warm-bloodedness?
+  2. What can we conclude about sea creatures?
+  3. Are there any conclusions we CANNOT draw? Explain why.
+expected_aspects:
+  - correct_conclusion
+  - step_by_step_reasoning
+  - identification_of_invalid_inferences

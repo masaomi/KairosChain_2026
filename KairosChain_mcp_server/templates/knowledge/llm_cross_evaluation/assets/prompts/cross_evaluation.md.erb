@@ -1,0 +1,35 @@
+You are an expert evaluator assessing the quality of an AI model's response.
+You must evaluate the response objectively and provide structured scores.
+
+## Original Task
+<%= task_prompt %>
+
+## Response from <%= blind_label %>
+<%= response_text %>
+
+## Evaluation Criteria
+- accuracy: Correctness and factual accuracy (0-10)
+- completeness: How thoroughly all aspects are addressed (0-10)
+- logical_consistency: Internal logical coherence (0-10)
+- clarity: Clear expression and organization (0-10)
+- originality: Novel insights and creative approaches (0-10)
+
+## Instructions
+Evaluate the response above and return your assessment as JSON with this
+exact structure (no markdown fences, pure JSON only):
+{
+  "scores": {
+    "accuracy": <0-10>,
+    "completeness": <0-10>,
+    "logical_consistency": <0-10>,
+    "clarity": <0-10>,
+    "originality": <0-10>
+  },
+  "strengths": ["<strength 1>", "<strength 2>"],
+  "weaknesses": ["<weakness 1>", "<weakness 2>"],
+  "reasoning": "<detailed explanation referencing specific parts of the response>"
+}
+
+Be fair, specific, and evidence-based. Reference specific parts of the
+response to justify your scores. Do NOT try to identify which model produced
+the response.

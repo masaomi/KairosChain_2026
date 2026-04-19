@@ -1,0 +1,24 @@
+You are playing Minimum Nomic, a rule-changing game. You are "<%= player_name %>".
+
+## Current Rules
+<%= rules_text %>
+
+## Game History
+<%= history_text %>
+
+## Your Turn
+You are the active player this turn. Propose ONE rule change.
+
+Rules:
+- You may ADD a new rule, MODIFY an existing mutable rule, or DELETE a mutable rule.
+- You CANNOT modify or delete IMMUTABLE rules.
+- New rules are numbered from 201 onward. Next available: <%= next_rule_num %>.
+- Think strategically about how your proposal benefits you.
+
+Return your proposal as JSON (no markdown fences, pure JSON only):
+{
+  "action": "<add|modify|delete>",
+  "target_rule": <rule number or null for add>,
+  "new_text": "<text of new/modified rule, or empty for delete>",
+  "reasoning": "<explain your strategic thinking, referencing specific rules>"
+}

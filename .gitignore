@@ -19,6 +19,8 @@ codex-plugin-cc/
 .claude/
 hermes-agent/
 LLM_metareview_2026/
+GenomicsChain_MVP2_2026/
+GenomicsChain_Market_Validation_2025/
 
 # Vector search index files (auto-generated)
 KairosChain_mcp_server/storage/embeddings/**/*.ann

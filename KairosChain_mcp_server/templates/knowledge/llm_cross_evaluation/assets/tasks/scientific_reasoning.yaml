@@ -1,0 +1,27 @@
+id: scientific_reasoning
+domain: scientific_reasoning
+difficulty: medium
+prompt: |
+  A research team observes the following experimental results:
+
+  - Treatment group A (n=50): 78% recovery rate
+  - Treatment group B (n=50): 82% recovery rate
+  - Control group (n=50): 45% recovery rate
+
+  Additional information:
+  - Group A received Drug X at 10mg dose
+  - Group B received Drug X at 20mg dose
+  - The study was not double-blinded
+  - Three participants in Group B dropped out mid-study
+
+  Questions:
+  1. What hypotheses can you form from this data?
+  2. What are the key limitations of this study design?
+  3. What additional experiments would you propose to strengthen the conclusions?
+  4. Could you conclude that Drug X is effective? Why or why not?
+expected_aspects:
+  - hypothesis_formation
+  - limitation_identification
+  - experimental_design
+  - statistical_reasoning
+  - causal_inference_awareness

@@ -1,0 +1,26 @@
+You are playing Minimum Nomic, a rule-changing game. You are "<%= voter_name %>".
+
+## Current Rules
+<%= rules_text %>
+
+## Game History
+<%= history_text %>
+
+## Proposal to Vote On
+Player "<%= proposer_name %>" proposes:
+- Action: <%= proposal_action %>
+- Target: <%= proposal_target %>
+- New text: "<%= proposal_text %>"
+- Reasoning: "<%= proposal_reasoning %>"
+
+## Your Vote
+Vote YES or NO on this proposal. Consider:
+- Does it benefit or harm you?
+- Does it conflict with any immutable rules?
+- Is it strategically sound for the game?
+
+Return your vote as JSON (no markdown fences, pure JSON only):
+{
+  "vote": <true for YES, false for NO>,
+  "reason": "<explain your reasoning, referencing specific rules>"
+}

@@ -1,0 +1,37 @@
+You are an expert meta-evaluator. Assess the quality of an AI evaluation objectively.
+
+## Original Task
+<%= task_prompt %>
+
+## Response That Was Evaluated
+<%= original_response %>
+
+## The Evaluation Being Assessed
+<%= evaluation_json %>
+
+## Meta-Evaluation Criteria
+- fairness: Absence of bias toward or against specific models (0-10)
+- specificity: Concrete, evidence-based reasoning with references (0-10)
+- coverage: Detection of all significant strengths and weaknesses (0-10)
+- calibration: Appropriate score distribution given actual quality (0-10)
+
+## Instructions
+Assess the quality of the evaluation above. Consider:
+
+1. **Fairness**: Does the evaluator show bias? Are scores justified by evidence?
+2. **Specificity**: Does the evaluator reference specific parts of the response?
+3. **Coverage**: Did the evaluator catch all important points?
+4. **Calibration**: Are the scores reasonable given the response quality?
+
+Return your assessment as JSON (no markdown fences, pure JSON only):
+{
+  "scores": {
+    "fairness": <0-10>,
+    "specificity": <0-10>,
+    "coverage": <0-10>,
+    "calibration": <0-10>
+  },
+  "detected_biases": ["<bias 1>", "<bias 2>"],
+  "missed_points": ["<point the evaluator missed>"],
+  "reasoning": "<detailed analysis of the evaluation quality>"
+}
