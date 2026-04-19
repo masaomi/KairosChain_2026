@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.2"
+version: "3.3"
 tags:
   - workflow
   - review
@@ -118,19 +118,20 @@ likely to be missed by a single LLM reviewing its own design. For per-model prof
 
 ## Convergence Rules
 
-- **2/3 APPROVE** (no REJECT) = proceed to next step
+- **3/4 APPROVE** (no REJECT) = proceed to next step
 - **Any REJECT or FAIL** = revise and re-review
-- **3/3 APPROVE** = highest confidence, proceed
+- **4/4 APPROVE** = highest confidence, proceed
+- Legacy 3-reviewer mode: 2/3 APPROVE = proceed
 
 ### Consensus Patterns
 
 | Agreement | Meaning | Action |
 |-----------|---------|--------|
-| **3/3** | Architectural-level gap | Must fix |
-| **2/3** | Implementation-level issue | Should fix |
-| **1/3 only** | Specialty-specific insight | Do NOT ignore — often the most novel finding |
+| **4/4** (or **3/3**) | Architectural-level gap | Must fix |
+| **3/4** (or **2/3**) | Implementation-level issue | Should fix |
+| **1/4 only** | Specialty-specific insight | Do NOT ignore — often the most novel finding |
 
-1/3 findings are not "minority opinions to discard." They represent unique expertise.
+1/4 (or 1/N) findings are not "minority opinions to discard." They represent unique expertise.
 
 ### Majority Rule — Reference Only
 
@@ -197,10 +198,12 @@ Save to L2 context at these moments:
 ```bash
 which codex 2>/dev/null && echo "codex: available" || echo "codex: NOT FOUND"
 which agent 2>/dev/null && echo "agent: available" || echo "agent: NOT FOUND"
+which claude 2>/dev/null && echo "claude: available" || echo "claude: NOT FOUND"
 ```
 
-- Both available → Auto mode
-- Either missing → Manual mode
+- All three available → Auto mode (4 reviewers, default)
+- Codex + Agent only → Auto mode (3 reviewers, legacy)
+- Any of codex/agent missing → Manual mode
 - User override: `mode: manual` or `mode: auto`
 
 ### CLI Tool Matrix (Tested 2026-03-28)
@@ -210,6 +213,7 @@ which agent 2>/dev/null && echo "agent: available" || echo "agent: NOT FOUND"
 | **Codex** | `codex exec` | stdin pipe: `cat prompt.md \| codex exec -` | `-o /path/output.md` | GPT-5.4 (default) |
 | **Cursor Agent** | `agent -p` | File reference (stdin NOT supported) | stdout redirect: `> output.md` | Composer-2 (default) |
 | **Claude Code** | Agent tool (internal) | Direct prompt string | Write to workspace file | Opus 4.6 (session) |
+| **Claude CLI (4.7)** | `claude -p --model claude-opus-4-7 --bare` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-4-7 --bare` | stdout redirect: `> output.md` | Opus 4.7 |
 
 ### Model Detection
 
@@ -228,6 +232,9 @@ agent --list-models 2>&1 | grep "(current\|default)"
 - **Cursor Agent trust**: `--trust` required for headless/non-interactive mode
 - **Codex workspace**: `-C /path/to/workspace` to set working directory
 - **Claude Agent paths**: Write within workspace (e.g., `log/`), not `/tmp`
+- **Claude CLI (Opus 4.7)**: `claude -p --model claude-opus-4-7 --bare` runs as external process. Uses stdin pipe (like Codex). `--bare` required for review tasks (skips hooks, CLAUDE.md, avoids bias from project instructions). Without `--bare`, CLAUDE.md's three-layer response structure may distort review output
+- **Claude CLI parallelism**: Agent tool (internal, Opus 4.6) + Bash `claude -p` (external, Opus 4.7) run truly in parallel as separate processes
+- **Claude CLI file access**: `claude -p` with `--bare` has no MCP tools or file access. Ensure review prompt includes all artifact content inline (rule #6). Use `--add-dir` + `--allowedTools "Read,Glob,Grep"` if file access is needed (but note: this loads CLAUDE.md unless `--bare` is also used)
 
 ## Prompt Generation Rules
 
@@ -329,14 +336,15 @@ Step 1: Generate review prompt
   - Append full artifact content
 
 Step 2: Detect environment and models
-  - Run: which codex && which agent
+  - Run: which codex && which agent && which claude
   - Detect default models
-  - Report: "Auto mode: Codex (gpt-5.4), Agent (composer-2), Claude (opus-4.6)"
+  - Report: "Auto mode: Codex (gpt-5.4), Agent (composer-2), Claude (opus-4.6), Claude CLI (opus-4.7)"
 
-Step 3: Execute N reviews in parallel
+Step 3: Execute N reviews in parallel (default 4 reviewers)
   - Bash(background): cat prompt.md | codex exec -C workspace -o log/review_codex.md -
   - Bash(background): agent -p --trust "Read prompt and review..." > log/review_cursor.md
-  - Agent(background): Internal Claude review → write to log/review_claude.md
+  - Agent(background): Claude Team (Opus 4.6) → write to log/review_claude_opus4.6.md
+  - Bash(background): cat prompt.md | claude -p --model claude-opus-4-7 --bare > log/review_claude_opus4.7.md 2>log/review_claude_opus4.7.stderr.log
 
 Step 4: Collect and validate
   - Wait for all to complete (background task notifications)
@@ -373,8 +381,9 @@ log/{artifact}_review{N}_{llm_id}_{date}.md       # Individual reviews
 log/{artifact}_review{N}_consensus_{date}.md       # Consensus analysis
 ```
 
-LLM identifiers: `claude_opus4.6`, `claude_team_opus4.6`, `codex_gpt5.4`,
-`cursor_composer2`, `cursor_gpt5.4`, `cursor_premium`
+LLM identifiers: `claude_opus4.6`, `claude_team_opus4.6`,
+`claude_cli_opus4.7`, `codex_gpt5.4`, `cursor_composer2`, `cursor_gpt5.4`,
+`cursor_premium`
 
 ## Internal Agent Team Review
 
@@ -394,7 +403,7 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
 - Don't advance to Phase N+1 before Phase N review converges
 - Don't re-review from scratch — each round checks only the delta
 - Don't use only internal agent team — different providers catch different bugs
-- Don't dismiss 1/3 findings without evaluating substance
+- Don't dismiss 1/4 (or 1/N) findings without evaluating substance
 - Don't use Persona Assembly in every intermediate round (save for final gate)
 
 ---
@@ -412,6 +421,7 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
 - Final review + Persona Assembly: 3/3 APPROVE, 0 FAIL
 - Codex convergence: REJECT → REJECT → REJECT → APPROVE (4 rounds)
 - Self-referential review: v3.0 of this skill reviewed by its own process → v3.1
+- Self-referential review: v3.2 (4-reviewer update, 2026-04-19) reviewed with new 4-reviewer default (Opus 4.6 + 4.7 + Codex + Composer-2). 4/4 APPROVE WITH CHANGES R1. Findings integrated → v3.3
 
 **Key insight**: Design reviews and implementation reviews find
 **categorically different bugs**. Both phases are necessary.

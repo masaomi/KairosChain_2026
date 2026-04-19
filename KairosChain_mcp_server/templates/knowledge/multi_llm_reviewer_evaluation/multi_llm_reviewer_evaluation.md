@@ -1,7 +1,7 @@
 ---
 name: multi_llm_reviewer_evaluation
 description: "Multi-LLM reviewer performance evaluation — strengths, weaknesses, and recommended workflows based on 185+ reviews"
-version: "1.1"
+version: "1.2"
 tags:
   - multi-llm
   - review
@@ -24,6 +24,7 @@ Based on 185+ review files across KairosChain development (2026-02-24 to 2026-03
 | Cursor Composer-2 | 27 | 3/20-3/28 | 0% | Auto review |
 | Cursor GPT-5.4 | 16 | 3/21-3/25 | 12% | Manual review (Codex fallback) |
 | Cursor Premium | 26 | 3/19-3/21 | 12% | Manual review |
+| Claude CLI Opus 4.7 | 2 | 4/19- | 0% | Auto review (CLI) |
 | Antigravity Gemini 3.1 | ~18 | 2/24-3/08 | 0% | Design review + philosophy |
 
 ## Strength Matrix
@@ -40,6 +41,8 @@ Based on 185+ review files across KairosChain development (2026-02-24 to 2026-03
 | Test adequacy | Codex GPT-5.4 | Cursor GPT-5.4 | Cursor Premium |
 | Design-implementation seam | Codex GPT-5.4 | Claude Opus 4.6 | Composer-2 |
 | Fail-open/fail-closed detection | Codex GPT-5.4 | Claude Opus 4.6 | — |
+
+> Claude CLI Opus 4.7: not yet ranked. Pending evaluation data (added 2026-04-19).
 
 ## Per-Reviewer Profiles
 
@@ -93,6 +96,16 @@ Based on 185+ review files across KairosChain development (2026-02-24 to 2026-03
 - **Verdict bias**: Thorough but pragmatic; uses NOTES to distinguish severity
 - **Unique findings**: `@user_context` undefined reference, connection pool checkout leak, PgCB serialization bottleneck
 
+### Claude CLI Opus 4.7 (External CLI)
+
+- **Strength**: Operability and execution-layer issues — auth preconditions, stderr handling, prompt-vs-artifact drift, flag inconsistencies. Finds practical "will this actually run?" problems that internal reviewers miss
+- **Weakness**: May miss table/section completeness gaps that systematic reviewers (Opus 4.6) catch. Did not catch residual "1/3" wording in R2
+- **Pattern**: Deeply examines CLI execution constraints and cross-references project memory (MEMORY.md) against artifact claims. Produces structured verification tables
+- **Verdict bias**: Thorough; APPROVE WITH CHANGES is default. Provides blocking/non-blocking classification
+- **Unique findings**: `2>&1` stderr pollution (R1), `--bare` ANTHROPIC_API_KEY auth precondition (R2), Reviews=0 staleness on merge (R2)
+- **Note**: Uses `claude -p --model claude-opus-4-7` as external CLI process. `--bare` requires ANTHROPIC_API_KEY; omit in OAuth-only environments. Not an Agent Assembly — runs as single-shot independent reviewer
+- **Complementarity with Opus 4.6**: Highly complementary. Opus 4.6 = "is it complete?", Opus 4.7 = "will it work?". Different bug classes with minimal overlap
+
 ### Antigravity Gemini 3.1
 
 - **Strength**: KairosChain philosophy (9 propositions) alignment evaluation. Only reviewer that structurally maps review findings to each proposition. Future extensibility proposals (PageRank, Store-and-Forward, Merkle domain separation)
@@ -121,12 +134,17 @@ Final Review:    Codex APPROVE | Composer-2 APPROVE+ | Claude APPROVE+
 - When Codex finally APPROVEs, all prior FAIL/HIGH issues have been genuinely resolved
 - **Codex APPROVE = strongest merge-readiness signal** in the 3-LLM configuration
 
+> **Note**: The above convergence data is from the 3-reviewer configuration.
+> With the 4-reviewer default (Opus 4.7 added 2026-04-19), the convergence
+> pattern may shift. Update this section after accumulating 4-reviewer data.
+
 ### Convergence Rule (Updated)
 
-- 2/3 APPROVE (no REJECT) = proceed to next step
+- 3/4 APPROVE (no REJECT) = proceed to next step (4-reviewer default)
 - Any REJECT or FAIL = revise and re-review
-- **3/3 APPROVE (including Codex) = highest confidence, merge-ready**
-- Codex-only REJECT + 2 APPROVE = likely real issue, investigate before overriding
+- **4/4 APPROVE (including Codex) = highest confidence, merge-ready**
+- Legacy 3-reviewer mode: 2/3 APPROVE = proceed
+- Codex-only REJECT + others APPROVE = likely real issue, investigate before overriding
 
 ### Bug Category Differentiation Across Rounds
 
@@ -153,10 +171,12 @@ Final Review:    Codex APPROVE | Composer-2 APPROVE+ | Claude APPROVE+
 
 ## Recommended Workflow
 
+> Note: Workflows updated for 4-reviewer default (Opus 4.7 added 2026-04-19). Opus 4.7 profile is provisional pending evaluation data.
+
 ```
-Design phase:       Claude Opus 4.6 + Codex GPT-5.4 + Composer-2
-Implementation:     Codex GPT-5.4 + Composer-2 + Claude Opus 4.6
-Final merge gate:   Codex GPT-5.4 + Composer-2 + Claude Persona Assembly
+Design phase:       Claude Opus 4.6 + Claude CLI Opus 4.7 + Codex GPT-5.4 + Composer-2
+Implementation:     Codex GPT-5.4 + Composer-2 + Claude Opus 4.6 + Claude CLI Opus 4.7
+Final merge gate:   Codex GPT-5.4 + Composer-2 + Claude Opus 4.6 Assembly + Claude CLI Opus 4.7
 Philosophy/Grant:   Gemini 3.1 + Claude Team
 Deployment:         Composer-2 or Cursor GPT-5.4
 ```
@@ -171,13 +191,14 @@ Deployment:         Composer-2 or Cursor GPT-5.4
 | Composer-2 | Fastest pragmatist. First to determine if something is deployable |
 | Cursor GPT-5.4 | Binary sword. Clear approve-or-reject, strictest on test coverage |
 | Claude Team | Consensus philosopher. Best at integrating multiple viewpoints |
+| Claude CLI Opus 4.7 | Operability guardian. Finds auth, stderr, and execution-layer issues internal reviewers miss |
 | Gemini 3.1 | Visionary architect. Evaluates design in philosophical context |
 
 ## Key Insights
 
 1. The "design-implementation seam" layer is the most valuable and most likely
    to be missed by a single LLM reviewing its own design.
-2. Single-LLM findings (1/3) are NOT minority opinions to discard — they often
+2. Single-LLM findings (1/4 or 1/N) are NOT minority opinions to discard — they often
    represent the most novel and critical discoveries.
 3. Codex APPROVE after multiple REJECTs is the strongest quality signal available
    in the multi-LLM configuration.

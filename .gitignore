@@ -18,6 +18,7 @@ codex-plugin-cc/
 .mcp.json.bak*
 .claude/
 hermes-agent/
+LLM_metareview_2026/
 
 # Vector search index files (auto-generated)
 KairosChain_mcp_server/storage/embeddings/**/*.ann
