@@ -26,44 +26,107 @@ require "shellwords"
 # ──────────────────────────────────────────────────────────────
 
 MODELS = {
+  # ── Base models (default, effort=medium where supported) ──
   "claude_opus46" => {
     tool: :claude,
-    cmd: "claude --print --model claude-opus-4-6",
+    cmd: "claude --print --model claude-opus-4-6 --effort medium",
     label: "Claude Opus 4.6",
     provider: "anthropic",
-    input_mode: :stdin,   # echo prompt | cmd
+    input_mode: :stdin,
+    thinking_effort: "medium",
   },
   "claude_opus47" => {
     tool: :claude,
-    cmd: "claude --print --model claude-opus-4-7",
+    cmd: "claude --print --model claude-opus-4-7 --effort medium",
     label: "Claude Opus 4.7",
     provider: "anthropic",
     input_mode: :stdin,
+    thinking_effort: "medium",
   },
   "codex_gpt54" => {
     tool: :codex,
     cmd: "codex exec",
     label: "Codex GPT-5.4",
     provider: "openai",
-    input_mode: :stdin,   # echo prompt | codex exec -
+    input_mode: :stdin,
+    thinking_effort: nil,  # no effort control
   },
   "cursor_composer2" => {
     tool: :cursor,
     cmd: "agent -p --trust",
     label: "Cursor Composer-2",
-    provider: "cursor",   # Composer-2 provider unclear; use unique group
-    input_mode: :file,    # agent -p --trust "Read file..."
+    provider: "cursor",
+    input_mode: :file,
+    thinking_effort: nil,  # no effort control
   },
   "gemini_cli_31pro" => {
     tool: :gemini,
-    cmd: "gemini --model gemini-3.1-pro-preview --prompt",
+    cmd: "gemini --model gemini-3.1-pro-preview --thinking-level medium --prompt",
     label: "Gemini 3.1 Pro",
     provider: "google",
-    input_mode: :arg,    # gemini --prompt "text" (prompt as argument)
+    input_mode: :arg,
+    thinking_effort: "medium",
+  },
+
+  # ── Claude Opus 4.6 effort variants ──
+  "claude_opus46_low" => {
+    tool: :claude,
+    cmd: "claude --print --model claude-opus-4-6 --effort low",
+    label: "Claude Opus 4.6 (low)",
+    provider: "anthropic",
+    input_mode: :stdin,
+    thinking_effort: "low",
+  },
+  "claude_opus46_high" => {
+    tool: :claude,
+    cmd: "claude --print --model claude-opus-4-6 --effort high",
+    label: "Claude Opus 4.6 (high)",
+    provider: "anthropic",
+    input_mode: :stdin,
+    thinking_effort: "high",
+  },
+
+  # ── Claude Opus 4.7 effort variants ──
+  "claude_opus47_low" => {
+    tool: :claude,
+    cmd: "claude --print --model claude-opus-4-7 --effort low",
+    label: "Claude Opus 4.7 (low)",
+    provider: "anthropic",
+    input_mode: :stdin,
+    thinking_effort: "low",
+  },
+  "claude_opus47_high" => {
+    tool: :claude,
+    cmd: "claude --print --model claude-opus-4-7 --effort high",
+    label: "Claude Opus 4.7 (high)",
+    provider: "anthropic",
+    input_mode: :stdin,
+    thinking_effort: "high",
+  },
+
+  # ── Gemini effort variants ──
+  "gemini_cli_31pro_low" => {
+    tool: :gemini,
+    cmd: "gemini --model gemini-3.1-pro-preview --thinking-level low --prompt",
+    label: "Gemini 3.1 Pro (low)",
+    provider: "google",
+    input_mode: :arg,
+    thinking_effort: "low",
+  },
+  "gemini_cli_31pro_high" => {
+    tool: :gemini,
+    cmd: "gemini --model gemini-3.1-pro-preview --thinking-level high --prompt",
+    label: "Gemini 3.1 Pro (high)",
+    provider: "google",
+    input_mode: :arg,
+    thinking_effort: "high",
   },
 }.freeze
 
-BLIND_LABELS = ["Model A", "Model B", "Model C", "Model D", "Model E"].freeze
+# Default model set (base models only). Use --models for variants.
+DEFAULT_MODELS = %w[claude_opus46 claude_opus47 codex_gpt54 cursor_composer2 gemini_cli_31pro].freeze
+
+BLIND_LABELS = ("A".."Z").map { |c| "Model #{c}" }.freeze
 
 EVAL_CRITERIA_WEIGHTS = {
   "accuracy" => 0.25, "completeness" => 0.20,
@@ -684,7 +747,15 @@ class ReportGenerator
     report << "# LLM Cross-Evaluation Match Report"
     report << "Date: #{date}"
     report << "Tasks: #{tasks.map { |t| t['id'] }.join(', ')}"
-    report << "Models: #{model_keys.map { |k| MODELS[k][:label] }.join(', ')}"
+    report << ""
+    report << "### Model Configuration"
+    report << "| Key | Label | Provider | Thinking Effort |"
+    report << "|----|----|----|-----|"
+    model_keys.each do |k|
+      m = MODELS[k]
+      effort = m[:thinking_effort] || "N/A"
+      report << "| #{k} | #{m[:label]} | #{m[:provider]} | #{effort} |"
+    end
     report << ""
 
     # Executive Summary
@@ -1069,7 +1140,7 @@ if __FILE__ == $PROGRAM_NAME
     output_dir: "log/cross_eval_#{Time.now.strftime('%Y%m%d')}",
     nomic: false,
     nomic_rounds: 5,
-    models: MODELS.keys,
+    models: DEFAULT_MODELS.dup,
     skip_layer0: false,
     layer2_samples: nil,
     dry_run: false,
