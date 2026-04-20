@@ -1,0 +1,24 @@
+{
+  "name": "external_tools",
+  "version": "0.1.0",
+  "description": "Typed external tools for safe file and git operations. All paths confined to workspace_root; subprocess calls use array-form (no shell). Provides pre/post content hashes for WAL integration.",
+  "author": "Masaomi Hatakeyama",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": ["file_io", "git_ops", "workspace_confinement", "content_hashing"],
+  "tool_classes": [
+    "KairosMcp::SkillSets::ExternalTools::Tools::SafeFileRead",
+    "KairosMcp::SkillSets::ExternalTools::Tools::SafeFileWrite",
+    "KairosMcp::SkillSets::ExternalTools::Tools::SafeFileEdit",
+    "KairosMcp::SkillSets::ExternalTools::Tools::SafeFileList",
+    "KairosMcp::SkillSets::ExternalTools::Tools::SafeFileCopy",
+    "KairosMcp::SkillSets::ExternalTools::Tools::SafeFileDelete",
+    "KairosMcp::SkillSets::ExternalTools::Tools::SafeGitStatus",
+    "KairosMcp::SkillSets::ExternalTools::Tools::SafeGitCommit",
+    "KairosMcp::SkillSets::ExternalTools::Tools::SafeGitBranch",
+    "KairosMcp::SkillSets::ExternalTools::Tools::SafeGitPush"
+  ],
+  "config_files": [],
+  "knowledge_dirs": [],
+  "min_core_version": "3.9.0"
+}
