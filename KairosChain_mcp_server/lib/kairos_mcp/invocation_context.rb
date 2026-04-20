@@ -11,11 +11,12 @@ module KairosMcp
     MAX_DEPTH = 10
 
     attr_reader :depth, :caller_tool, :mandate_id, :token_budget,
-                :whitelist, :blacklist, :root_invocation_id
+                :whitelist, :blacklist, :root_invocation_id,
+                :mode, :idem_key
 
     def initialize(depth: 0, caller_tool: nil, mandate_id: nil,
                    token_budget: nil, whitelist: nil, blacklist: nil,
-                   root_invocation_id: nil)
+                   root_invocation_id: nil, mode: nil, idem_key: nil)
       @depth = depth
       @caller_tool = caller_tool
       @mandate_id = mandate_id
@@ -23,6 +24,13 @@ module KairosMcp
       @whitelist = whitelist
       @blacklist = blacklist
       @root_invocation_id = root_invocation_id || SecureRandom.hex(8)
+      # mode: :direct (default), :daemon, :agent, ... — identifies the
+      # top-level runner of the invocation chain.  Kept as a Symbol in
+      # Ruby space; serialized as a String in to_h/from_h.
+      @mode = mode.nil? ? nil : mode.to_sym
+      # idem_key: optional client-supplied key that lets the daemon
+      # deduplicate retries of the same logical command.
+      @idem_key = idem_key
     end
 
     # Create a child context for a nested invocation.
@@ -37,7 +45,9 @@ module KairosMcp
         token_budget: @token_budget,
         whitelist: @whitelist&.dup,
         blacklist: @blacklist&.dup,
-        root_invocation_id: @root_invocation_id
+        root_invocation_id: @root_invocation_id,
+        mode: @mode,
+        idem_key: @idem_key
       )
     end
 
@@ -57,7 +67,9 @@ module KairosMcp
         token_budget: @token_budget,
         whitelist: whitelist ? whitelist.dup : @whitelist&.dup,
         blacklist: new_blacklist.empty? ? nil : new_blacklist,
-        root_invocation_id: @root_invocation_id
+        root_invocation_id: @root_invocation_id,
+        mode: @mode,
+        idem_key: @idem_key
       )
     end
 
@@ -76,7 +88,9 @@ module KairosMcp
         token_budget: @token_budget,
         whitelist: @whitelist&.dup,
         blacklist: new_blacklist.empty? ? nil : new_blacklist,
-        root_invocation_id: @root_invocation_id
+        root_invocation_id: @root_invocation_id,
+        mode: @mode,
+        idem_key: @idem_key
       )
     end
 
@@ -87,7 +101,9 @@ module KairosMcp
         'whitelist' => @whitelist,
         'blacklist' => @blacklist,
         'mandate_id' => @mandate_id,
-        'token_budget' => @token_budget
+        'token_budget' => @token_budget,
+        'mode' => @mode&.to_s,
+        'idem_key' => @idem_key
       }
     end
 
@@ -105,7 +121,9 @@ module KairosMcp
         whitelist: hash['whitelist'],
         blacklist: hash['blacklist'],
         mandate_id: hash['mandate_id'],
-        token_budget: hash['token_budget']
+        token_budget: hash['token_budget'],
+        mode: hash['mode'],
+        idem_key: hash['idem_key']
       )
     end
 

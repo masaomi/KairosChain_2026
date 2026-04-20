@@ -8,6 +8,7 @@ require_relative 'logger'
 require_relative 'daemon/pid_lock'
 require_relative 'daemon/signal_handler'
 require_relative 'daemon/command_mailbox'
+require_relative 'daemon/daemon_policy'
 
 module KairosMcp
   # KairosChain long-running daemon (Phase 2 P2.1 skeleton).
@@ -330,18 +331,27 @@ module KairosMcp
       File.expand_path(path, @root)
     end
 
-    # CF-3 fix: Attempt Safety.build(mode: :daemon). If Safety is not
-    # available or build fails, log a warning and keep @safety = nil.
-    # Nil safety means deny-by-default — callers must check before use.
+    # CF-3 / P2.2: Build a Safety instance restricted by DaemonPolicy.
+    #
+    # DaemonPolicy registers deny-by-default authorization on the Safety
+    # class for L0, L1, token, and grant capabilities, and stamps the
+    # Safety *instance* with a synthetic `{ role: 'daemon' }` user so
+    # those policies actually fire (Safety's capability methods are
+    # permissive when @current_user is nil).
+    #
+    # If Safety is unavailable or initialization fails, log a warning and
+    # return nil — nil safety means deny-by-default at the caller level.
     def build_safety
-      # Try loading safety if not already available
       require_relative 'safety' unless defined?(KairosMcp::Safety)
 
-      if KairosMcp::Safety.respond_to?(:build)
-        KairosMcp::Safety.build(mode: :daemon)
-      else
-        KairosMcp::Safety.new
-      end
+      safety = if KairosMcp::Safety.respond_to?(:build)
+                 KairosMcp::Safety.build(mode: :daemon)
+               else
+                 KairosMcp::Safety.new
+               end
+
+      KairosMcp::Daemon::DaemonPolicy.apply!(safety)
+      safety
     rescue StandardError => e
       @logger.warn('daemon_safety_init_deferred',
                    source: 'daemon',
