@@ -36,7 +36,7 @@ multi-LLM CLI environment used in the KairosChain review workflow.
 | `claude_opus47` | Claude Code | `claude -p --model claude-opus-4-7 --bare` | Opus 4.7 |
 | `codex_gpt54` | Codex | `echo "..." \| codex exec -` | GPT-5.4 |
 | `cursor_composer2` | Cursor Agent | `agent -p --trust "..."` | Composer-2 |
-| `cursor_gemini31` | Cursor Agent | `agent -p --trust --model gemini-3.1-pro "..."` | Gemini 3.1 Pro |
+| `gemini_cli_31pro` | Gemini CLI | `gemini --model gemini-3.1-pro-preview --prompt "..."` | Gemini 3.1 Pro |
 
 ## Architecture: 4 Layers + Nomic
 
@@ -137,7 +137,7 @@ Three bias types are measured:
 - **Harshness index**: Is a model systematically harsh or lenient?
 
 Provider grouping for series-bias: `{claude_opus46, claude_opus47}` = Anthropic,
-`{codex_gpt54}` = OpenAI, `{cursor_gemini31}` = Google, `{cursor_composer2}` = Cursor (unique).
+`{codex_gpt54}` = OpenAI, `{gemini_cli_31pro}` = Google, `{cursor_composer2}` = Cursor (unique).
 Self-injected evaluations are excluded from series-bias calculation.
 
 ## Nomic Game Scoring

@@ -54,12 +54,12 @@ MODELS = {
     provider: "cursor",   # Composer-2 provider unclear; use unique group
     input_mode: :file,    # agent -p --trust "Read file..."
   },
-  "cursor_gemini31" => {
-    tool: :cursor,
-    cmd: "agent -p --trust --model gemini-3.1-pro",
-    label: "Cursor Gemini 3.1 Pro",
+  "gemini_cli_31pro" => {
+    tool: :gemini,
+    cmd: "gemini --model gemini-3.1-pro-preview --prompt",
+    label: "Gemini 3.1 Pro",
     provider: "google",
-    input_mode: :file,
+    input_mode: :arg,    # gemini --prompt "text" (prompt as argument)
   },
 }.freeze
 
@@ -121,6 +121,8 @@ class CLIRunner
                  run_stdin(config[:cmd], prompt, model_key)
                when :file
                  run_file(config[:cmd], prompt_file, model_key)
+               when :arg
+                 run_arg(config[:cmd], prompt, model_key)
                end
 
     # Save raw response
@@ -166,6 +168,27 @@ class CLIRunner
     abs_path = File.expand_path(prompt_file)
     instruction = "Read #{abs_path} and follow the instructions exactly. Output only your response."
     full_cmd = "#{cmd} #{Shellwords.escape(instruction)}"
+
+    Timeout.timeout(CLI_TIMEOUT) do
+      stdout, stderr, status = Open3.capture3(full_cmd)
+
+      unless status.success?
+        @io_mutex.synchronize { warn "  [WARN] #{model_key} exited #{status.exitstatus}: #{stderr[0..200]}" }
+      end
+
+      stdout.strip
+    end
+  rescue Errno::ENOENT => e
+    @io_mutex.synchronize { warn "  [ERROR] CLI not found for #{model_key}: #{e.message}" }
+    "[ERROR] CLI not found: #{e.message}"
+  rescue Timeout::Error
+    @io_mutex.synchronize { warn "  [TIMEOUT] #{model_key} exceeded #{CLI_TIMEOUT}s" }
+    "[TIMEOUT] Exceeded #{CLI_TIMEOUT}s limit"
+  end
+
+  # For CLIs that take prompt as a command-line argument (e.g. gemini --prompt "text")
+  def run_arg(cmd, prompt, model_key)
+    full_cmd = "#{cmd} #{Shellwords.escape(prompt)}"
 
     Timeout.timeout(CLI_TIMEOUT) do
       stdout, stderr, status = Open3.capture3(full_cmd)
