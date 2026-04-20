@@ -1,0 +1,74 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# bin/kairos-daemon — KairosChain long-running daemon entry point (P2.1).
+#
+# Usage:
+#   kairos-daemon                           # run with defaults
+#   kairos-daemon --config path/to/daemon.yml
+#   kairos-daemon --root /path/to/workspace
+#
+# The daemon:
+#   1. Acquires a single-instance flock on .kairos/run/daemon.pid.
+#   2. Installs SIGTERM/SIGINT/SIGHUP/SIGUSR1 handlers.
+#   3. Enters a single-threaded event loop (10s tick by default).
+#   4. Logs structured JSON to .kairos/logs/kairos.log.
+#
+# Exit codes:
+#   0  — clean shutdown
+#   1  — another daemon already holds the PID lock
+#   2  — unexpected error during startup
+#
+# See design: docs (v0.2) §3.1.
+
+require 'optparse'
+
+# Allow running directly from a source checkout without `gem install`.
+lib = File.expand_path('../KairosChain_mcp_server/lib', __dir__)
+$LOAD_PATH.unshift(lib) if File.directory?(lib) && !$LOAD_PATH.include?(lib)
+
+require 'kairos_mcp/daemon'
+
+options = { root: Dir.pwd, config: nil }
+
+OptionParser.new do |opts|
+  opts.banner = 'Usage: kairos-daemon [options]'
+
+  opts.on('-c', '--config PATH', 'Path to daemon.yml') do |path|
+    options[:config] = path
+  end
+
+  opts.on('-r', '--root PATH', 'Workspace root (default: cwd)') do |path|
+    options[:root] = path
+  end
+
+  opts.on('-h', '--help', 'Show this help') do
+    puts opts
+    exit 0
+  end
+
+  opts.on('-v', '--version', 'Show version') do
+    puts 'kairos-daemon 0.1.0 (P2.1)'
+    exit 0
+  end
+end.parse!(ARGV)
+
+daemon = KairosMcp::Daemon.new(
+  config_path: options[:config],
+  root: options[:root]
+)
+
+begin
+  daemon.run
+  exit 0
+rescue KairosMcp::Daemon::PidLock::AlreadyLocked => e
+  warn "[kairos-daemon] #{e.message}"
+  exit 1
+rescue Interrupt
+  # Ctrl-C before signal handlers were installed — fine.
+  exit 0
+rescue StandardError => e
+  warn "[kairos-daemon] Fatal: #{e.class}: #{e.message}"
+  warn e.backtrace.first(10).join("\n") if e.backtrace
+  exit 2
+end
