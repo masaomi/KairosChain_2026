@@ -215,6 +215,25 @@ which claude 2>/dev/null && echo "claude: available" || echo "claude: NOT FOUND"
 | **Claude Code** | Agent tool (internal) | Direct prompt string | Write to workspace file | Opus 4.6 (session) |
 | **Claude CLI (4.7)** | `claude -p --model claude-opus-4-7 --bare` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-4-7 --bare` | stdout redirect: `> output.md` | Opus 4.7 |
 
+### Thinking Effort Configuration (validated 2026-04-20)
+
+Based on cross-evaluation experiment (7 models × 4 tasks + Nomic, 518 CLI calls):
+
+| Role | Model | Effort Flag | Rationale |
+|------|-------|-------------|-----------|
+| **Primary (orchestrator)** | Opus 4.6 | `--effort medium` | Sufficient for integration, dialogue, judgment |
+| **Reviewer: Agent Team** | Opus 4.6 | `--effort medium` | Evaluator quality adequate at medium |
+| **Reviewer: Claude CLI** | Opus 4.7 | `--effort low` | Evaluator quality is effort-independent (low≈high: 8.35 vs 8.16) |
+| **Coding sub-agent** | Opus 4.7 | `--effort medium` | Cost-effective default; use `high` for complex tasks |
+| **Design sub-agent** | Opus 4.7 | `--effort medium` | Cost-effective default; use `high` for complex tasks |
+| **Codex** | GPT-5.4 | (no flag) | Fixed effort |
+| **Cursor Agent** | Composer-2 | (no flag) | Fixed effort |
+
+Key findings:
+- **Opus 4.6** high effort improves Evaluator/Strategy (+0.43/+0.200 Nomic), not Response
+- **Opus 4.7** high effort improves Response/Thinking (+0.81 code, +0.53 philosophy), not Evaluator
+- **Opus 4.7 low > Opus 4.6 high** in combined score — model generation > effort setting
+
 ### Model Detection
 
 Before executing reviews, detect and record models:
