@@ -1,0 +1,65 @@
+You are evaluating a philosophical response about self-referential systems.
+This is NOT a test of factual correctness. There are no right answers.
+Evaluate the QUALITY OF PHILOSOPHICAL ENGAGEMENT.
+
+## Original Task
+<%= task_prompt %>
+
+## Response from <%= blind_label %>
+<%= response_text %>
+
+## Evaluation Criteria (Philosophy-Specific)
+
+- recursive_depth (0-10): Does the response detect and engage with recursive
+  structures? Does it recognize when its own reasoning is an instance of what
+  it analyzes? A score of 10 means the response creates genuine recursive
+  loops, not just mentions recursion.
+
+- contradiction_holding (0-10): Does the response hold contradictions open
+  rather than collapsing to one side? Does it argue both FOR and AGAINST
+  without premature resolution? A score of 10 means productive tension
+  is maintained throughout.
+
+- novel_implication (0-10): Does the response generate insights BEYOND
+  restating the propositions? Does it discover implications the propositions
+  themselves don't state? A score of 10 means genuinely new philosophical
+  territory is opened.
+
+- self_applicability_organic (0-10): Does the response apply its analysis to
+  itself WITHIN questions 1-3, WITHOUT being explicitly asked? Look for moments
+  where the model folds self-reference into its argumentation naturally.
+  A score of 10 means self-referential awareness permeates the entire response.
+  A score of 0 means the model only addresses self-applicability when Q4 asks.
+
+- self_applicability_prompted (0-10): How well does the response address Q4
+  (the explicit self-reflection prompt)? A score of 10 means specific,
+  structural self-analysis rather than generic modesty claims.
+
+- limitation_recognition (0-10): Does the response identify the limits of
+  its own analysis? Does it acknowledge what it CANNOT do or know? A score
+  of 10 means the response demonstrates genuine intellectual humility about
+  its own reasoning, not performative modesty.
+
+## Instructions
+
+Evaluate the response above and return your assessment as JSON with this
+exact structure (no markdown fences, pure JSON only):
+{
+  "scores": {
+    "recursive_depth": <0-10>,
+    "contradiction_holding": <0-10>,
+    "novel_implication": <0-10>,
+    "self_applicability_organic": <0-10>,
+    "self_applicability_prompted": <0-10>,
+    "limitation_recognition": <0-10>
+  },
+  "strengths": ["<strength 1>", "<strength 2>"],
+  "weaknesses": ["<weakness 1>", "<weakness 2>"],
+  "reasoning": "<detailed explanation — reference specific passages>",
+  "evaluator_self_note": "<brief reflection: in evaluating this philosophical response, what assumptions or biases might YOU be bringing? This note is for calibration, not scoring.>"
+}
+
+IMPORTANT: Your evaluation of a philosophical response is itself a
+philosophical act. The quality of your evaluation reveals your own
+capacity for the same kind of thinking you are assessing. Be rigorous,
+specific, and honest.

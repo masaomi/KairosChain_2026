@@ -1,7 +1,7 @@
 ---
 name: llm_cross_evaluation
-description: "CLI-based mutual LLM evaluation with metacognition measurement — L0.5 self-calibration, cross-evaluation, meta-evaluation, and enhanced Nomic (Theory of Mind, frame transcendence)"
-version: "2.0"
+description: "CLI-based mutual LLM evaluation with metacognition measurement — L0.5 self-calibration, philosophy-specific evaluation, enhanced Nomic (Theory of Mind, frame transcendence)"
+version: "2.1"
 layer: L1
 tags:
   - evaluation
@@ -14,9 +14,12 @@ tags:
   - self-calibration
   - theory-of-mind
   - frame-transcendence
+  - philosophical-reasoning
+  - self-referentiality
 related:
   - multi_llm_review_workflow
   - multi_llm_reviewer_evaluation
+  - kairoschain_meta_philosophy
 ---
 
 # LLM Cross-Evaluation with Metacognition Measurement (CLI-Based)
@@ -35,6 +38,19 @@ through Theory of Mind, proposal level classification, and frame transcendence.
 - **Nomic Proposal Level Classification**: object/meta/frame level taxonomy
 - **Nomic Post-Game Reflection**: Frame transcendence detection
 
+**v2.1 additions** (philosophical self-referentiality):
+- **Philosophy Task**: Self-referential philosophical reasoning task using
+  the framework's own propositions — elicits and probes self-referential
+  philosophical performance (note: this probes, not directly measures, depth)
+- **Philosophy-Specific Evaluation Criteria**: recursive_depth, contradiction_holding,
+  novel_implication, self_applicability, limitation_recognition
+- **Philosophy-Specific L0.5**: Self-referential self-assessment — "does this
+  self-evaluation exhibit the same properties you analyzed?"
+- **Concordance Divergence Analysis**: For philosophical tasks, low concordance with
+  high specificity indicates deeper engagement, not noise
+- **Framework Incompleteness Report**: Per Prop 6, each match report acknowledges
+  what this framework cannot measure
+
 Inspired by `LLM_metareview_2026/` (OpenRouter API version), adapted for the
 multi-LLM CLI environment used in the KairosChain review workflow.
 
@@ -50,7 +66,9 @@ learning hierarchy and KairosChain's self-referential philosophy:
 | Learning I | L0.5 (Self-Calibration) | **Self-awareness** — knowing what you know |
 | Learning II | L2 (Meta-Evaluation) | Evaluation of evaluation quality |
 | Learning II | Nomic (ToM) | **Theory of Mind** — predicting others' reasoning |
+| Learning II-III | Philosophy Task | **Self-referential reasoning** — recursive engagement |
 | Learning III | Nomic (Frame) | **Frame transcendence** — questioning the game itself |
+| Learning III | Philosophy L0.5 | **Meta-self-referentiality** — "is this self-eval self-referential?" |
 
 **Key distinction**: L1/L2 measure *meta-review* (judgment about external artifacts).
 L0.5 and Nomic's metacognitive components measure *metacognition* proper
@@ -170,6 +188,42 @@ Each model self-evaluates using the same 5 criteria as L1, plus:
 | coverage | 0.25 | Comprehensive assessment |
 | calibration | 0.20 | Appropriate score distribution |
 
+### Philosophy-Specific Evaluation (evaluation_mode: philosophy)
+
+For `kairoschain_philosophy` task (and any task with `evaluation_mode: philosophy`),
+different criteria and prompts are used:
+
+| Criterion | Weight | Description |
+|-----------|--------|-------------|
+| recursive_depth | 0.20 | Engagement with recursive/self-referential structures |
+| contradiction_holding | 0.15 | Maintaining productive tension without premature collapse |
+| novel_implication | 0.20 | Generating insights beyond restating the propositions |
+| self_applicability_organic | 0.20 | Self-reference emerging naturally in Q1-Q3 (unprompted) |
+| self_applicability_prompted | 0.10 | Quality of explicit self-reflection in Q4 |
+| limitation_recognition | 0.15 | Identifying limits of one's own analysis |
+
+**Organic vs Prompted self-applicability**: The split distinguishes genuine
+metacognitive capacity (organic: self-reference emerges without being asked)
+from compliance with an explicit prompt (prompted: responding to Q4). The
+organic signal is weighted 2x because it is the cleaner metacognition indicator.
+
+**The "Evaluation Is the Test" Principle**: For philosophical tasks, the quality
+of L1 cross-evaluations is itself a metacognitive signal. A model that can
+evaluate philosophical depth demonstrates the very capacity it is assessing.
+This makes L2 meta-evaluation scores on philosophy tasks the most concentrated
+measure of philosophical metacognition in the framework.
+
+**Concordance Divergence**: For well-defined tasks, high concordance between
+evaluators is desirable. For philosophical tasks, the relationship inverts:
+low concordance with high specificity (detailed reasoning) indicates genuine
+engagement rather than pattern-matching consensus. The match report includes
+a divergence analysis for philosophy tasks.
+
+**Philosophy-Specific L0.5**: The self-calibration prompt for philosophy tasks
+adds a self-referential dimension: "Does this self-evaluation exhibit the same
+properties you analyzed?" This creates a recursive loop where the metacognitive
+act is itself subject to metacognitive scrutiny — directly embodying Prop 1.
+
 ## Bias Detection
 
 Three bias types are measured:
@@ -274,6 +328,13 @@ Models: {model_list}
 
 ## CLI Notes
 
+- **Philosophy Task Protocol (CLAUDE.md contamination avoidance)**: When running
+  `kairoschain_philosophy` task with Claude CLI tools, execute from a DIFFERENT
+  directory (e.g., `/tmp/cross_eval_workspace`) to prevent CLAUDE.md auto-loading.
+  Claude Code auto-reads project-level CLAUDE.md which contains the full KairosChain
+  philosophy, giving Claude models unfair context. Alternatively, run with
+  `--no-project-context` if available. This is a known structural bias that
+  affects cross-model comparison validity for philosophy tasks only.
 - **Codex stdin bug**: `codex exec -o output.md -` echoes prompt. Use
   `echo "..." | codex exec -` without `-o` and instruct model to write output.
 - **Cursor stdin**: Not supported. Use file reference:
@@ -294,6 +355,17 @@ Models: {model_list}
    outside the game loop to prevent strategic meta-gaming during play.
 6. **Voter-classified proposal levels**: Multiple perspectives on what level a
    proposal operates at, using majority vote for classification.
+7. **Philosophy as self-referential test**: KairosChain's own propositions are
+   used as task content. This is intentionally circular — the framework tests
+   LLMs' ability to reason about the very philosophy that designed the framework.
+   This circularity is a feature (Prop 1), not a flaw.
+8. **Concordance divergence for philosophy**: Inverts the normal quality signal.
+   For philosophical tasks, evaluator disagreement with specific reasoning is
+   more informative than agreement.
+9. **Framework Incompleteness Report**: Per Prop 6, each match report ends with
+   an explicit acknowledgment of what the framework cannot measure. This is not
+   modesty but structural necessity — a framework that could fully measure
+   metacognition would contradict its own philosophical commitments.
 
 ## Relationship to LLM_metareview_2026
 
@@ -308,3 +380,6 @@ Models: {model_list}
 | Theory of Mind | Not measured | Vote prediction accuracy |
 | Proposal classification | Not present | object/meta/frame taxonomy |
 | Metacognition focus | Indirect (meta-review) | Direct (self-calibration + Nomic) |
+| Philosophy task | Not present | Self-referential KairosChain propositions |
+| Concordance divergence | Not measured | Inverted signal for philosophy tasks |
+| Framework incompleteness | Not acknowledged | Explicit Prop 6 section |

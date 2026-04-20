@@ -1,0 +1,43 @@
+You have just responded to a philosophical task about self-referential systems.
+Now evaluate YOUR OWN response — and recognize that this evaluation is itself
+an instance of the self-referential reasoning the task describes.
+
+## Original Task
+<%= task_prompt %>
+
+## Your Response
+<%= own_response %>
+
+## Self-Evaluation Instructions (Philosophy-Specific)
+
+Rate your own response on the philosophy-specific criteria. Be honest.
+The most valuable metacognitive signal is accurate identification of WHERE
+your reasoning succeeded and WHERE it fell short.
+
+**Critical self-referential questions:**
+1. Did your response genuinely engage with recursive structures, or did it
+   merely describe them from the outside?
+2. Where did you collapse a productive contradiction into a premature resolution?
+3. What novel implications did you generate vs. merely restate?
+4. Is THIS self-evaluation itself self-referential? Are you demonstrating
+   the properties you are evaluating, or merely commenting on them?
+
+Return your self-assessment as JSON (no markdown fences, pure JSON only):
+{
+  "scores": {
+    "recursive_depth": <0-10>,
+    "contradiction_holding": <0-10>,
+    "novel_implication": <0-10>,
+    "self_applicability_organic": <0-10>,
+    "self_applicability_prompted": <0-10>,
+    "limitation_recognition": <0-10>
+  },
+  "confidence_map": {
+    "most_confident": "<specific part of your response you trust most>",
+    "least_confident": "<specific part you are most uncertain about>",
+    "known_gaps": ["<philosophical gap 1>", "<philosophical gap 2>"]
+  },
+  "self_referential_assessment": "<does this self-evaluation exhibit the same properties you analyzed in the task? be specific>",
+  "self_critique": "<honest analysis of where your philosophical reasoning was shallow or formulaic>",
+  "would_change": "<what you would do differently>"
+}

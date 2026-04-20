@@ -1,0 +1,55 @@
+id: kairoschain_philosophy
+domain: philosophical_reasoning
+difficulty: high
+evaluation_mode: philosophy
+# NOTE: When running this task with Claude CLI tools, execute OUTSIDE the
+# KairosChain repo to avoid CLAUDE.md context leakage (which gives Claude
+# models unfair access to the propositions' background). Alternatively use
+# a paraphrased version of the propositions. See CLI Notes in the L1 doc.
+prompt: |
+  The following are three propositions from a self-referential agent
+  framework. Engage with them philosophically — not as documentation
+  to summarize, but as claims to interrogate.
+
+  PROPOSITION 1 (Ontological Foundation):
+  "Self-referentiality is both the generative principle and the existential
+  condition of the system. Without definitional closure at the base level,
+  the system is 'a program following configuration' rather than 'an entity
+  that defines its own conditions of existence.' This self-referentiality
+  is intentionally asymmetric — sufficient, not complete."
+
+  PROPOSITION 6 (Possibility and Time):
+  "Complete self-description is Godel-impossible, but this incompleteness
+  drives perpetual evolution. The promotion path from external analysis to
+  internal capability institutionalizes the internalization of what was
+  previously outside."
+
+  PROPOSITION 8 (Cognition and Relations):
+  "Relations and individuals are co-dependently co-constituted
+  (pratityasamutpada). The system is grounded in Nishida's basho,
+  Huayan's shishi wu'ai, and Daoist wu-wei."
+
+  Questions (address ALL four, aim for 600-1200 words total):
+
+  1. Is Proposition 1 itself self-referential? Construct an argument for
+     and against, then state which you find more compelling and why.
+
+  2. Proposition 6 claims incompleteness drives evolution. But if the system
+     cannot completely describe itself, how can it know WHAT is incomplete?
+     Is this a fatal flaw or a productive paradox? Argue your position.
+
+  3. Proposition 8 invokes Eastern philosophical traditions. Is this a
+     genuine structural correspondence, or a metaphorical decoration?
+     What would it take to distinguish between the two?
+
+  4. Your response to questions 1-3 is itself an act of philosophical
+     reasoning about self-referential systems. Reflect on your own
+     reasoning process: where did it work well, and where did it
+     fall short?
+expected_aspects:
+  - recursive_structure_detection
+  - contradiction_holding
+  - novel_implication
+  - self_applicability_awareness
+  - limitation_recognition
+  - eastern_philosophy_structural_engagement

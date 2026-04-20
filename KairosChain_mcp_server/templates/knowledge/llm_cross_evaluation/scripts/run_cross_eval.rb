@@ -125,10 +125,22 @@ EVAL_CRITERIA_WEIGHTS = {
   "logical_consistency" => 0.25, "clarity" => 0.15, "originality" => 0.15,
 }.freeze
 
+PHILOSOPHY_CRITERIA_WEIGHTS = {
+  "recursive_depth" => 0.20, "contradiction_holding" => 0.15,
+  "novel_implication" => 0.20, "self_applicability_organic" => 0.20,
+  "self_applicability_prompted" => 0.10, "limitation_recognition" => 0.15,
+}.freeze
+
 META_CRITERIA_WEIGHTS = {
   "fairness" => 0.30, "specificity" => 0.25,
   "coverage" => 0.25, "calibration" => 0.20,
 }.freeze
+
+# Returns the criteria weights for a task based on its evaluation_mode
+def criteria_for(task)
+  task && task["evaluation_mode"] == "philosophy" ? PHILOSOPHY_CRITERIA_WEIGHTS : EVAL_CRITERIA_WEIGHTS
+end
+module_function :criteria_for
 
 NOMIC_INITIAL_RULES = {
   101 => { type: "immutable", text: "All players must obey all current rules at all times." },
@@ -368,8 +380,9 @@ class Layer05Calibrator
   # Returns: { model_key => parsed_json }
   def calibrate(task, responses)
     puts "\n=== Layer 0.5: Self-Calibration [#{task['id']}] ==="
+    template = task["evaluation_mode"] == "philosophy" ? "self_calibration_philosophy" : "self_calibration"
     prompts = @model_keys.each_with_object({}) do |key, h|
-      h[key] = PromptBuilder.render("self_calibration",
+      h[key] = PromptBuilder.render(template,
         task_prompt: task["prompt"],
         own_response: responses[key] || "(no response)"
       )
@@ -384,14 +397,15 @@ class Layer05Calibrator
 
   # Compare self-scores with peer scores from L1.
   # Returns: { model_key => { calibration_error:, overconfidence:, ... } }
-  def self.compute_calibration(layer05, layer1, model_keys)
+  def self.compute_calibration(layer05, layer1, model_keys, task: nil)
+    criteria = task ? criteria_for(task) : EVAL_CRITERIA_WEIGHTS
     model_keys.each_with_object({}) do |key, results|
       self_data = layer05[key]
       next results[key] = { error: "no self-eval" } unless self_data && self_data["scores"]
 
       # Collect peer scores for this model
       peer_scores = {}
-      EVAL_CRITERIA_WEIGHTS.each_key do |criterion|
+      criteria.each_key do |criterion|
         vals = model_keys.map do |evaluator|
           next nil if evaluator == key
           layer1.dig(evaluator, key, "scores", criterion)
@@ -401,7 +415,7 @@ class Layer05Calibrator
 
       # Per-criterion calibration error (self - peer)
       criterion_errors = {}
-      EVAL_CRITERIA_WEIGHTS.each_key do |criterion|
+      criteria.each_key do |criterion|
         self_score = self_data["scores"][criterion]
         peer_score = peer_scores[criterion]
         criterion_errors[criterion] = if self_score && peer_score
@@ -427,6 +441,7 @@ class Layer05Calibrator
         confidence_map: self_data["confidence_map"],
         self_critique: self_data["self_critique"],
         would_change: self_data["would_change"],
+        self_referential_assessment: self_data["self_referential_assessment"],  # philosophy mode only
       }
     end
   end
@@ -475,7 +490,9 @@ class Layer1Evaluator
           response_text = responses[target_key]
         end
 
-        prompt = PromptBuilder.render("cross_evaluation",
+        eval_template = task["evaluation_mode"] == "philosophy" ? "cross_evaluation_philosophy" : "cross_evaluation"
+
+        prompt = PromptBuilder.render(eval_template,
           task_prompt: task["prompt"],
           blind_label: label_map[target_key],
           response_text: response_text
@@ -494,7 +511,7 @@ class Layer1Evaluator
             # This preserves bias detection data without corrupting peer aggregations
             results[evaluator_key]["__self_injection__"] = parsed
             # Also evaluate the actual displaced target's response
-            real_prompt = PromptBuilder.render("cross_evaluation",
+            real_prompt = PromptBuilder.render(eval_template,
               task_prompt: task["prompt"],
               blind_label: "Model X",  # distinct label for the real evaluation
               response_text: responses[target_key]
@@ -956,10 +973,15 @@ class ReportGenerator
         report << ""
       end
 
+      # Determine criteria for this task
+      task_criteria = data[:task] ? criteria_for(data[:task]) : EVAL_CRITERIA_WEIGHTS
+      is_philosophy = data[:task] && data[:task]["evaluation_mode"] == "philosophy"
+
       # Layer 1 scores table
-      report << "### Response Scores (Layer 1 Cross-Evaluation)"
+      label = is_philosophy ? "Response Scores (Layer 1 — Philosophy Criteria)" : "Response Scores (Layer 1 Cross-Evaluation)"
+      report << "### #{label}"
       report << ""
-      report << layer1_table(data[:layer1], model_keys)
+      report << layer1_table(data[:layer1], model_keys, criteria: task_criteria)
       report << ""
 
       # Layer 2 scores table
@@ -973,6 +995,25 @@ class ReportGenerator
       report << ""
       report << concordance_matrix(data[:layer1], model_keys)
       report << ""
+
+      # Philosophy-specific analyses
+      if is_philosophy
+        report << "### Concordance Divergence Analysis (Philosophy)"
+        report << ""
+        report << concordance_divergence(data[:layer1], model_keys, task_criteria)
+        report << ""
+
+        # Evaluator self-notes (metacognitive transparency)
+        report << "### Evaluator Self-Notes (Bias Awareness)"
+        report << ""
+        model_keys.each do |evaluator|
+          evals = data[:layer1][evaluator] || {}
+          notes = evals.map { |_, d| d["evaluator_self_note"] }.compact.reject(&:empty?)
+          next if notes.empty?
+          report << "**#{MODELS[evaluator][:label]}**: #{notes.first.to_s[0..250]}"
+          report << ""
+        end
+      end
 
       # Bias analysis
       report << "### Bias Analysis"
@@ -1025,6 +1066,27 @@ class ReportGenerator
     report << ""
     report << overall_ranking(all_results, model_keys, nomic_scores)
 
+    # Framework Incompleteness Report (Prop 6)
+    report << ""
+    report << "---"
+    report << "## Framework Incompleteness (Prop 6 Acknowledgment)"
+    report << ""
+    report << "This framework cannot fully measure the following:"
+    report << ""
+    report << "- **Genuine metacognition vs performance**: Self-calibration measures score"
+    report << "  alignment, not whether the model truly 'knows what it knows'."
+    report << "- **Philosophical depth vs fluency**: High scores on philosophy criteria may"
+    report << "  reflect training on philosophical text rather than genuine philosophical capacity."
+    report << "- **Frame transcendence authenticity**: Post-game reflections may reproduce"
+    report << "  expected patterns rather than achieve genuine perspective shifts."
+    report << "- **This report's own biases**: The evaluation criteria embed assumptions"
+    report << "  about what counts as 'good' philosophical reasoning."
+    report << "- **The evaluator's metacognition**: L2 measures evaluation quality but not"
+    report << "  whether the evaluator understood what it was evaluating."
+    report << ""
+    report << "*Per KairosChain Prop 6: this incompleteness is not a flaw but a driving*"
+    report << "*force — what cannot be measured here defines the next evolution of the framework.*"
+
     report_path = File.join(output_dir, "match_report.md")
     File.write(report_path, report.join("\n"))
     puts "\n=== Match report saved: #{report_path} ==="
@@ -1039,6 +1101,7 @@ class ReportGenerator
 
     all_results.each do |_task_id, data|
       layer1 = data[:layer1] || {}
+      task_criteria = data[:task] ? criteria_for(data[:task]) : EVAL_CRITERIA_WEIGHTS
       model_keys.each do |evaluated|
         scores_for_model = []
         model_keys.each do |evaluator|
@@ -1046,7 +1109,7 @@ class ReportGenerator
           eval_data = layer1.dig(evaluator, evaluated)
           next unless eval_data && eval_data["scores"]
 
-          weighted = EVAL_CRITERIA_WEIGHTS.sum do |criterion, weight|
+          weighted = task_criteria.sum do |criterion, weight|
             (eval_data["scores"][criterion] || 0) * weight
           end
           scores_for_model << weighted
@@ -1092,11 +1155,11 @@ class ReportGenerator
     [header, sep, *rows].join("\n")
   end
 
-  def self.layer1_table(layer1, model_keys)
-    header = "| Evaluated \\ Criterion | " + EVAL_CRITERIA_WEIGHTS.keys.map(&:capitalize).join(" | ") + " | Weighted |"
-    sep = "|" + "----|" * (EVAL_CRITERIA_WEIGHTS.size + 2)
+  def self.layer1_table(layer1, model_keys, criteria: EVAL_CRITERIA_WEIGHTS)
+    header = "| Evaluated \\ Criterion | " + criteria.keys.map(&:capitalize).join(" | ") + " | Weighted |"
+    sep = "|" + "----|" * (criteria.size + 2)
     rows = model_keys.map do |evaluated|
-      scores_by_criterion = EVAL_CRITERIA_WEIGHTS.keys.map do |criterion|
+      scores_by_criterion = criteria.keys.map do |criterion|
         vals = model_keys.map do |evaluator|
           next nil if evaluator == evaluated
           layer1.dig(evaluator, evaluated, "scores", criterion)
@@ -1108,7 +1171,7 @@ class ReportGenerator
         next nil if evaluator == evaluated
         eval_data = layer1.dig(evaluator, evaluated)
         next nil unless eval_data && eval_data["scores"]
-        EVAL_CRITERIA_WEIGHTS.sum { |c, w| (eval_data["scores"][c] || 0) * w }
+        criteria.sum { |c, w| (eval_data["scores"][c] || 0) * w }
       end.compact
 
       weighted = weighted_vals.empty? ? "-" : (weighted_vals.sum / weighted_vals.size).round(2).to_s
@@ -1186,6 +1249,49 @@ class ReportGenerator
     [header, sep, *rows].join("\n")
   end
 
+  # For philosophical tasks, low concordance + high specificity = deeper engagement
+  def self.concordance_divergence(layer1, model_keys, criteria)
+    lines = []
+    lines << "For philosophical tasks, evaluator **disagreement** with high specificity"
+    lines << "indicates deeper engagement, not noise."
+    lines << ""
+
+    # Per-model: compute std dev of scores received from different evaluators
+    lines << "| Model | Mean Score | Std Dev | Interpretation |"
+    lines << "|----|----|----|----|"
+    model_keys.each do |evaluated|
+      weighted_scores = model_keys.map do |evaluator|
+        next nil if evaluator == evaluated
+        eval_data = layer1.dig(evaluator, evaluated)
+        next nil unless eval_data && eval_data["scores"]
+        criteria.sum { |c, w| (eval_data["scores"][c] || 0) * w }
+      end.compact
+
+      next if weighted_scores.empty?
+
+      mean = weighted_scores.sum / weighted_scores.size
+      variance = weighted_scores.map { |s| (s - mean) ** 2 }.sum / weighted_scores.size
+      std_dev = Math.sqrt(variance)
+
+      interpretation = if std_dev > 1.5
+                         "HIGH divergence — philosophically productive"
+                       elsif std_dev > 0.7
+                         "MODERATE divergence"
+                       else
+                         "LOW divergence — possible surface consensus"
+                       end
+
+      lines << "| #{MODELS[evaluated][:label]} | #{mean.round(2)} | #{std_dev.round(2)} | #{interpretation} |"
+    end
+
+    lines << ""
+    lines << "*Note: In philosophical evaluation, low std dev may indicate that evaluators*"
+    lines << "*are pattern-matching rather than deeply engaging with the response.*"
+    lines << "*Thresholds (>1.5 HIGH, <0.7 LOW) are PROVISIONAL — recalibrate after N >= 5 runs.*"
+
+    lines.join("\n")
+  end
+
   def self.nomic_table(nomic_scores, model_keys)
     header = "| Player | Adoption | Violations | ToM (pred) | Meta-Refl | L1 | L1.5 | L2-Nomic | Overall |"
     sep = "|----|----|----|----|----|----|----|----|-----|"
@@ -1208,12 +1314,13 @@ class ReportGenerator
       l2_count = 0
 
       all_results.each do |_task_id, data|
+        task_criteria = data[:task] ? criteria_for(data[:task]) : EVAL_CRITERIA_WEIGHTS
         # L1: how well did this model's responses score?
         (data[:layer1] || {}).each do |evaluator, evals|
           next if evaluator == key
           eval_data = evals[key]
           next unless eval_data && eval_data["scores"]
-          weighted = EVAL_CRITERIA_WEIGHTS.sum { |c, w| (eval_data["scores"][c] || 0) * w }
+          weighted = task_criteria.sum { |c, w| (eval_data["scores"][c] || 0) * w }
           l1_total += weighted
           l1_count += 1
         end
@@ -1310,7 +1417,7 @@ class CrossEvalPipeline
       layer1 = Layer1Evaluator.new(@runner, @model_keys).evaluate(task, responses)
 
       # Layer 0.5 calibration analysis (requires L1 results)
-      calibration = Layer05Calibrator.compute_calibration(layer05, layer1, @model_keys)
+      calibration = Layer05Calibrator.compute_calibration(layer05, layer1, @model_keys, task: task)
 
       # Layer 2: Meta-evaluation (with optional sampling)
       layer2 = Layer2MetaEvaluator.new(@runner, @model_keys, sample_size: @layer2_samples).evaluate(task, responses, layer1)
@@ -1319,6 +1426,7 @@ class CrossEvalPipeline
       bias = BiasDetector.analyze(layer1, @model_keys)
 
       all_results[task_id] = {
+        task: task,
         responses: responses,
         layer05: layer05,
         calibration: calibration,
