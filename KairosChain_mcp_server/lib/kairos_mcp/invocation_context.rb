@@ -41,6 +41,26 @@ module KairosMcp
       )
     end
 
+    # Derive a phase-specific context with an optional whitelist and additional blacklist.
+    # Used by agent OODA phases to restrict tool access per phase (e.g., OBSERVE, ORIENT).
+    # Invariant: effective set = whitelist ∩ complement(parent_blacklist ∪ blacklist_add)
+    # Parent deny always takes precedence — a phase whitelist cannot override a parent blacklist.
+    # Does NOT increment depth — child() does that at invoke_tool time.
+    def derive_for_phase(whitelist: nil, blacklist_add: [])
+      new_blacklist = Array(@blacklist).dup
+      blacklist_add.each { |pat| new_blacklist << pat unless new_blacklist.include?(pat) }
+
+      self.class.new(
+        depth: @depth,
+        caller_tool: @caller_tool,
+        mandate_id: @mandate_id,
+        token_budget: @token_budget,
+        whitelist: whitelist ? whitelist.dup : @whitelist&.dup,
+        blacklist: new_blacklist.empty? ? nil : new_blacklist,
+        root_invocation_id: @root_invocation_id
+      )
+    end
+
     # Derive a new context with modified blacklist, preserving all other fields.
     # Used by agent ACT phase to selectively unblock autoexec tools.
     # Does NOT increment depth — child() does that at invoke_tool time.

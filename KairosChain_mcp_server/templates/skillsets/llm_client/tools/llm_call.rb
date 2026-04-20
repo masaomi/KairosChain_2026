@@ -9,6 +9,7 @@ require 'time'
 require_relative '../lib/llm_client/adapter'
 require_relative '../lib/llm_client/claude_code_adapter'
 require_relative '../lib/llm_client/schema_converter'
+require_relative '../lib/llm_client/error_taxonomy'
 
 module KairosMcp
   module SkillSets
@@ -131,10 +132,11 @@ module KairosMcp
             UsageTracker.record(usage)
             text_content(JSON.generate(payload))
           rescue KairosMcp::SkillSets::LlmClient::ApiError => e
+            # CF-7 fix: use ErrorTaxonomy for consistent type classification
             text_content(JSON.generate({
               'status' => 'error',
               'error' => {
-                'type' => e.is_a?(AuthError) ? 'auth_error' : 'api_error',
+                'type' => ErrorTaxonomy.classify_as_string(e),
                 'message' => e.message,
                 'provider' => e.provider,
                 'retryable' => e.retryable,
@@ -248,11 +250,7 @@ module KairosMcp
           end
 
           def classify_error(error)
-            case error
-            when JSON::ParserError then 'parse_error'
-            when Errno::ENOENT, Errno::EACCES then 'config_error'
-            else 'api_error'
-            end
+            ErrorTaxonomy.classify_as_string(error)
           end
         end
 

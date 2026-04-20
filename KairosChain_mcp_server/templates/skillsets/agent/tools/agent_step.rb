@@ -98,6 +98,7 @@ module KairosMcp
           def handle_stop(session)
             session.update_state('terminated')
             session.save
+            log_agent(:info, 'session_stopped', session, reason: 'user_stop')
             text_content(JSON.generate({
               'status' => 'ok', 'session_id' => session.session_id,
               'state' => 'terminated', 'reason' => 'user_stop'
@@ -160,6 +161,7 @@ module KairosMcp
           # Used by both manual wrapper and autonomous loop.
           # mandate_override: pass in-memory mandate from autonomous loop to avoid stale reads.
           def run_orient_decide_internal(session, mandate_override: nil)
+            log_agent(:info, 'phase_orient_decide_start', session)
             loop_inst = CognitiveLoop.new(self, session)
 
             observation = session.load_observation
@@ -169,7 +171,9 @@ module KairosMcp
             orient_prompt = build_orient_prompt(session, observation_text)
             messages = [{ 'role' => 'user', 'content' => orient_prompt }]
 
-            orient_result = loop_inst.run_phase('orient', orient_system_prompt, messages, orient_tools(session))
+            orient_ctx = phase_context(session, 'orient')
+            orient_result = loop_inst.run_phase('orient', orient_system_prompt, messages, orient_tools(session),
+                                                invocation_context: orient_ctx)
             if orient_result['error']
               session.update_state('observed')
               session.save
@@ -228,6 +232,9 @@ module KairosMcp
           def run_act_reflect_internal(session)
             decision_payload = session.load_decision
             return { act_error: 'No decision payload found', llm_calls: 0 } unless decision_payload
+
+            log_agent(:info, 'phase_act_reflect_start', session,
+                      summary: decision_payload['summary'].to_s[0..80])
 
             session.update_state('acting')
             act_result = run_act(session, decision_payload)
@@ -540,6 +547,11 @@ module KairosMcp
                                   checkpoint: nil, error: nil, warning: nil,
                                   review: nil, multi_llm_prompt: nil)
             session.save
+
+            reason = terminated || paused || warning || (error ? 'error' : 'checkpoint')
+            log_agent(:info, 'autonomous_finalized', session,
+                      terminated: terminated, paused: paused, error: error&.to_s&.[](0..100),
+                      cycles_completed: session.cycle_number, reason: reason)
 
             status = if checkpoint then 'checkpoint'
                      elsif paused then 'paused'
@@ -1267,6 +1279,31 @@ module KairosMcp
             "Evaluate: what was achieved, what remains, confidence level (0.0-1.0)."
           end
 
+          # ---- Phase Context (Enhancement D: Phase Tool Filter) ----
+
+          # Build a phase-specific InvocationContext from agent.yml phase_tools config.
+          # Returns the session's base context if phase_tool_filter is disabled or
+          # no config exists for the given phase.
+          def phase_context(session, phase_name)
+            return session.invocation_context unless feature_enabled?(session, 'phase_tool_filter')
+
+            phase_tools = session&.config&.dig('phase_tools', phase_name)
+            return session.invocation_context unless phase_tools
+
+            whitelist = phase_tools['include']
+            return session.invocation_context if whitelist.nil? || whitelist.empty?
+
+            session.invocation_context.derive_for_phase(
+              whitelist: whitelist,
+              blacklist_add: phase_tools['exclude'] || []
+            )
+          end
+
+          # Check if a v1.1c feature is enabled in agent.yml
+          def feature_enabled?(session, feature_name)
+            session&.config&.dig('features', feature_name) != false
+          end
+
           # ---- Capability Discovery ----
 
           # Config-driven ORIENT tools: base + optional extras from agent.yml
@@ -1354,6 +1391,20 @@ module KairosMcp
                 nil
               end
             end
+          end
+
+          # ---- Structured Logging ----
+
+          # Log an agent event via KairosMcp.logger (non-fatal).
+          def log_agent(level, event, session, **fields)
+            return unless defined?(::KairosMcp) && ::KairosMcp.respond_to?(:logger) && ::KairosMcp.logger
+            fields[:source] = 'agent_step'
+            fields[:session_id] = session&.session_id
+            fields[:goal] = session&.goal_name
+            fields[:cycle] = session&.cycle_number
+            ::KairosMcp.logger.send(level, event, **fields)
+          rescue StandardError
+            # Logger must never crash the agent
           end
 
           # ---- Helpers ----

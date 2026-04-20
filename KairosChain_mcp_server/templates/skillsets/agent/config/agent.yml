@@ -44,9 +44,39 @@ tool_blacklist:
   - "mcp_connect"
   - "mcp_disconnect"
 
+# Feature toggles for OODA enhancements (v1.1c)
+# Each enhancement can be independently enabled/disabled.
+# Disabled = existing code path, no behavior change.
+features:
+  active_observe: false    # Enhancement A (default: false = legacy observe)
+  task_dag: false          # Enhancement B (default: false = linear progress)
+  error_taxonomy: true     # Enhancement C (default: true = low risk, drop-in)
+  phase_tool_filter: true  # Enhancement D (default: true = low risk, config-only)
+
+# Per-phase tool filtering (Enhancement D).
+# When features.phase_tool_filter is true, each OODA phase gets a restricted
+# InvocationContext derived from the session context.
+# 'include' = whitelist (fnmatch patterns). Empty or absent = no restriction.
+# 'exclude' = additional blacklist entries for this phase.
+# Parent blacklist always takes precedence (cannot whitelist a blacklisted tool).
+phase_tools:
+  observe:
+    include: [knowledge_*, chain_*, resource_*, state_status,
+              meeting_place_status, mcp_list_remote, skills_list,
+              introspection_health]
+  orient:
+    include: [knowledge_*, chain_history, resource_read,
+              context_save, mcp_list_remote]
+  decide:
+    include: []   # No tools — DECIDE is pure LLM reasoning
+  reflect:
+    include: []   # No tools — REFLECT is pure LLM reasoning
+
 # Additional tools available during ORIENT phase (opt-in from SkillSets).
 # Adding tools here increases the set the LLM can call during ORIENT;
 # the per-phase budget (max_tool_calls) is unchanged.
+# NOTE: When phase_tool_filter is enabled, orient_tools_extra tools must also
+# appear in phase_tools.orient.include to be available.
 orient_tools_extra: []
   # - document_status   # uncomment to enable draft checking during ORIENT
 

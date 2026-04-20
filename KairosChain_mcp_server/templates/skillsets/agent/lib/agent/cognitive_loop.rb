@@ -6,8 +6,13 @@ require_relative 'message_format'
 module KairosMcp
   module SkillSets
     module Agent
+      # Raised by ErrorTaxonomy-aware error handler when context is too long.
+      # Caught by run_phase to trigger message compression.
+      class ContextOverflowError < StandardError; end
+
       class CognitiveLoop
         FALLBACK_PROVIDERS = %w[claude_code].freeze
+        MAX_BACKOFF_SECONDS = 5  # MCP thread blocking mitigation
 
         attr_reader :total_calls
 
@@ -24,10 +29,16 @@ module KairosMcp
         # Generic phase runner for ORIENT, REFLECT, and DECIDE_PREP.
         # Runs the LLM loop with tool_use until the LLM stops requesting tools.
         # Returns the final LLM response hash.
-        def run_phase(phase_name, system_prompt, messages, available_tools)
+        #
+        # @param invocation_context [InvocationContext, nil] phase-specific context
+        #   for tool filtering. If nil, uses the session's base context.
+        def run_phase(phase_name, system_prompt, messages, available_tools,
+                      invocation_context: nil)
           phase_cfg = @session.phase_config(phase_name)
+          ctx = invocation_context || @session.invocation_context
           iteration = 0
           tool_call_count = 0
+          compressed = false
 
           loop do
             iteration += 1
@@ -37,12 +48,22 @@ module KairosMcp
             end
 
             @total_calls += 1
-            parsed = call_llm_with_fallback(
-              'messages' => messages,
-              'system' => system_prompt,
-              'tools' => available_tools,
-              'invocation_context_json' => @session.invocation_context.to_json
-            )
+            begin
+              parsed = call_llm_with_fallback(
+                'messages' => messages,
+                'system' => system_prompt,
+                'tools' => available_tools,
+                'invocation_context_json' => ctx.to_json
+              )
+            rescue ContextOverflowError
+              # Compress once per phase; if already compressed, propagate as error
+              if compressed
+                return { 'error' => 'Context overflow after compression' }
+              end
+              compressed = true
+              messages = compress_messages(messages)
+              next
+            end
             return { 'error' => parsed['error'] } if parsed['status'] == 'error'
 
             response = parsed['response']
@@ -63,7 +84,7 @@ module KairosMcp
               tool_call_count += 1
 
               tool_result = @caller.invoke_tool(tu['name'], tu['input'] || {},
-                                                 context: @session.invocation_context)
+                                                 context: ctx)
               tool_text = tool_result.map { |b| b[:text] || b['text'] }.compact.join("\n")
 
               messages << MessageFormat.assistant_tool_use(tu)
@@ -133,23 +154,103 @@ module KairosMcp
 
         private
 
-        # Call llm_call with automatic provider fallback on auth errors.
-        # Tries the configured provider first. On auth_error, switches to
-        # fallback providers (claude_code) via llm_configure, then retries once.
+        # Call llm_call with taxonomy-aware error recovery.
+        # When error_taxonomy feature is enabled, classifies errors via
+        # ErrorTaxonomy and takes type-appropriate action (backoff, retry,
+        # switch provider, compress, disable thinking).
+        # Falls back to legacy auth_error-only handling when disabled.
         def call_llm_with_fallback(arguments)
           llm_result = @caller.invoke_tool('llm_call', arguments,
                                             context: @session.invocation_context)
           parsed = JSON.parse(llm_result.map { |b| b[:text] || b['text'] }.compact.join)
 
-          # If not an auth error, or already tried fallback, return as-is
           error_info = parsed['error']
-          if !error_info || !error_info.is_a?(Hash) || error_info['type'] != 'auth_error' || @fallback_attempted
+          return parsed unless error_info.is_a?(Hash)
+
+          if error_taxonomy_enabled?
+            handle_error_with_taxonomy(parsed, arguments)
+          else
+            handle_error_legacy(parsed, arguments)
+          end
+        end
+
+        # Taxonomy-aware error handler (Enhancement C).
+        # Classifies error via ErrorTaxonomy and dispatches recovery action.
+        def handle_error_with_taxonomy(parsed, arguments)
+          error_info = parsed['error']
+          # CF-2 fix: lazy-require ErrorTaxonomy to avoid NameError when
+          # llm_client SkillSet hasn't been loaded yet.
+          unless defined?(::KairosMcp::SkillSets::LlmClient::ErrorTaxonomy)
+            return handle_error_legacy(parsed, arguments)
+          end
+          taxonomy = ::KairosMcp::SkillSets::LlmClient::ErrorTaxonomy
+          classification = taxonomy.classify(error_info)
+
+          log_event(:warn, 'llm_error_classified',
+                    error_type: classification[:type].to_s,
+                    action: classification[:action].to_s,
+                    message: classification[:original_message].to_s[0..100])
+
+          record_error_event(classification)
+
+          # CF-1 fix: only count @total_calls when a new LLM call is actually issued.
+          # retry_llm_call increments @total_calls internally.
+          # :compress raises (no LLM call), :rephrase/:report return as-is (no LLM call).
+          case classification[:action]
+          when :switch_provider
+            return try_provider_fallback(parsed, arguments)
+          when :backoff
+            backoff = (classification[:suggested_backoff] || MAX_BACKOFF_SECONDS).to_i
+            sleep([backoff, MAX_BACKOFF_SECONDS].min)
+            return retry_llm_call(arguments)
+          when :compress
+            raise ContextOverflowError, classification[:original_message]
+          when :fallback_model
+            return retry_with_fallback_model(arguments)
+          when :retry
+            return retry_llm_call(arguments)
+          when :disable_thinking
+            new_args = arguments.dup
+            new_args['extended_thinking'] = false
+            return retry_llm_call(new_args)
+          else # :rephrase, :report — no new LLM call
+            parsed
+          end
+        end
+
+        # Legacy error handler (pre-taxonomy): auth_error only.
+        def handle_error_legacy(parsed, arguments)
+          error_info = parsed['error']
+          if error_info['type'] != 'auth_error' || @fallback_attempted
             return parsed
           end
+          try_provider_fallback(parsed, arguments)
+        end
 
-          # Attempt provider fallback
+        # Retry a single llm_call and return parsed result.
+        # CF-1 fix: counts toward @total_calls budget.
+        def retry_llm_call(arguments)
+          @total_calls += 1
+          result = @caller.invoke_tool('llm_call', arguments,
+                                        context: @session.invocation_context)
+          JSON.parse(result.map { |b| b[:text] || b['text'] }.compact.join)
+        end
+
+        # Try switching to a fallback model (for model_not_found errors).
+        # Currently delegates to provider fallback since model selection
+        # is provider-coupled.
+        def retry_with_fallback_model(arguments)
+          new_args = arguments.dup
+          new_args.delete('model')  # let provider use its default
+          retry_llm_call(new_args)
+        end
+
+        # Provider fallback for auth/billing errors.
+        # Extracted from legacy call_llm_with_fallback for reuse.
+        def try_provider_fallback(parsed, arguments)
+          error_info = parsed['error']
           original_provider = error_info['provider'] || 'configured'
-          warn "[agent] Auth error from #{original_provider}, attempting provider fallback"
+          warn "[agent] Error from #{original_provider} (#{error_info['type']}), attempting provider fallback"
 
           FALLBACK_PROVIDERS.each do |fallback|
             @fallback_attempted = true
@@ -157,11 +258,8 @@ module KairosMcp
             next unless configure_result
 
             warn "[agent] Switched to provider: #{fallback}"
-            retry_result = @caller.invoke_tool('llm_call', arguments,
-                                                context: @session.invocation_context)
-            retry_parsed = JSON.parse(retry_result.map { |b| b[:text] || b['text'] }.compact.join)
+            retry_parsed = retry_llm_call(arguments)
 
-            # If this provider also fails with auth_error, try next
             retry_error = retry_parsed['error']
             if retry_error.is_a?(Hash) && retry_error['type'] == 'auth_error'
               warn "[agent] Fallback provider #{fallback} also failed: #{retry_error['message']}"
@@ -172,10 +270,71 @@ module KairosMcp
             return retry_parsed
           end
 
-          # All fallbacks exhausted — return original error with fallback info
           parsed['error']['fallback_attempted'] = true
           parsed['error']['fallback_exhausted'] = true
           parsed
+        end
+
+        # Record error classification event on blockchain (non-fatal).
+        def record_error_event(classification)
+          @caller.invoke_tool('chain_record', {
+            'logs' => [JSON.generate({
+              'event_type' => 'llm_error',
+              'error_type' => classification[:type].to_s,
+              'action_taken' => classification[:action].to_s,
+              'session_id' => @session.session_id
+            })]
+          }, context: @session.invocation_context)
+        rescue StandardError => e
+          warn "[agent] Failed to record error event: #{e.message}"
+        end
+
+        def error_taxonomy_enabled?
+          @session&.config&.dig('features', 'error_taxonomy') != false
+        end
+
+        # Compress messages by keeping head + tail and summarizing middle.
+        # v1.0: no LLM calls — pure truncation.
+        # CF-3 fix: ensures tool_use/tool_result pairs are never split at boundaries.
+        def compress_messages(messages)
+          return messages if messages.length <= 5
+
+          # Find safe head boundary: expand forward to avoid ending on a tool_use
+          head_end = 1
+          while head_end < messages.length - 3 && tool_use_message?(messages[head_end])
+            head_end += 1
+          end
+
+          # Find safe tail boundary: expand backward to avoid starting on a tool_result
+          tail_start = messages.length - 3
+          while tail_start > head_end + 1 && tool_result_message?(messages[tail_start])
+            tail_start -= 1
+          end
+
+          # If boundaries overlap, just return all messages (too short to compress)
+          return messages if tail_start <= head_end + 1
+
+          head = messages[0..head_end]
+          tail = messages[tail_start..]
+          middle_count = tail_start - head_end - 1
+
+          head + [{
+            'role' => 'user',
+            'content' => "[Compressed: #{middle_count} intermediate messages removed. " \
+                         "Focus on the goal and recent context.]"
+          }] + tail
+        end
+
+        def tool_use_message?(msg)
+          msg.is_a?(Hash) && (msg['role'] == 'assistant') &&
+            (msg.key?('tool_use') || msg.dig('content').is_a?(Array) &&
+             msg['content'].any? { |b| b.is_a?(Hash) && b['type'] == 'tool_use' })
+        end
+
+        def tool_result_message?(msg)
+          msg.is_a?(Hash) && (msg['role'] == 'user') &&
+            (msg.key?('tool_use_id') || msg.dig('content').is_a?(Array) &&
+             msg['content'].any? { |b| b.is_a?(Hash) && b['type'] == 'tool_result' })
         end
 
         def try_configure_provider(provider)
@@ -253,6 +412,16 @@ module KairosMcp
           project = File.join(Dir.pwd, '.claude', 'settings.json')
           global = File.join(Dir.home, '.claude', 'settings.json')
           [project, global]
+        end
+
+        # Structured logging helper. Uses KairosMcp.logger if available.
+        def log_event(level, event, **fields)
+          return unless defined?(::KairosMcp) && ::KairosMcp.respond_to?(:logger) && ::KairosMcp.logger
+          fields[:source] = 'cognitive_loop'
+          fields[:session_id] = @session&.session_id
+          ::KairosMcp.logger.send(level, event, **fields)
+        rescue StandardError
+          # Logger must never crash the agent
         end
 
         def extract_json(content)
