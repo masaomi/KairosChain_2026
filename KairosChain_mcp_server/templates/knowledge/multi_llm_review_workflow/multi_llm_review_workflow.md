@@ -234,6 +234,11 @@ Key findings:
 - **Opus 4.7** high effort improves Response/Thinking (+0.81 code, +0.53 philosophy), not Evaluator
 - **Opus 4.7 low > Opus 4.6 high** in combined score — model generation > effort setting
 
+**Effort escalation**: For particularly complex tasks (Tier 3+ architecture, security-critical
+code, multi-component refactoring), the LLM accessing this skill SHOULD escalate to `--effort high`
+at its own judgment. No human approval is needed for effort escalation — it is a cost/quality
+tradeoff that the executing LLM is best positioned to evaluate in context.
+
 ### Model Detection
 
 Before executing reviews, detect and record models:
