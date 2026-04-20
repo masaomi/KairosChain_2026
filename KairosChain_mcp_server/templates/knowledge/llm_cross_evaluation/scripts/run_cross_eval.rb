@@ -582,8 +582,8 @@ class Layer2MetaEvaluator
         evals = layer1_results[orig_evaluator]
         next if evals.nil? || evals.empty?
 
-        # Filter valid evaluations, then sample if configured
-        valid_evals = evals.reject { |_, d| d["error"] }.to_a
+        # Filter valid evaluations: exclude errors and self-injection entries
+        valid_evals = evals.reject { |k, d| d["error"] || k == "__self_injection__" }.to_a
         selected = if @sample_size && @sample_size < valid_evals.size
                      valid_evals.sample(@sample_size)
                    else
@@ -1284,26 +1284,30 @@ class ReportGenerator
     lines << "gate uses L2 evaluator scores to disambiguate."
     lines << ""
 
-    # Compute mean L2 specificity across all evaluators (quality gate)
-    l2_quality = nil
+    # Compute per-model L2 quality (scoped to evaluators OF that specific model)
+    per_model_l2 = {}
     if layer2 && meta_criteria
-      all_l2_scores = []
-      model_keys.each do |meta_eval|
-        (layer2[meta_eval] || {}).each do |_, data|
-          next unless data && data["scores"]
-          all_l2_scores << meta_criteria.sum { |c, w| (data["scores"][c] || 0) * w }
+      model_keys.each do |evaluated|
+        scores = []
+        model_keys.each do |meta_eval|
+          next if meta_eval == evaluated
+          (layer2[meta_eval] || {}).each do |composite_key, data|
+            # Only L2 scores about evaluations of THIS model, skip __self_injection__
+            next unless composite_key.match?(/:#{Regexp.escape(evaluated)}\z/)
+            next if composite_key.include?("__self_injection__")
+            next unless data && data["scores"]
+            scores << meta_criteria.sum { |c, w| (data["scores"][c] || 0) * w }
+          end
         end
+        per_model_l2[evaluated] = scores.empty? ? nil : (scores.sum / scores.size).round(2)
       end
-      l2_quality = all_l2_scores.empty? ? nil : all_l2_scores.sum / all_l2_scores.size
-      lines << "**L2 quality gate**: mean evaluator score = #{l2_quality&.round(2) || 'N/A'}/10"
+      lines << "**L2 quality gate** (per-model, PROVISIONAL >= 6.0):"
+      model_keys.each { |k| lines << "  #{MODELS[k][:label]}: #{per_model_l2[k] || 'N/A'}" }
       lines << ""
     end
 
-    # PROVISIONAL threshold — recalibrate after N >= 5 runs
-    quality_gate_passed = l2_quality.nil? || l2_quality >= 6.0
-
-    lines << "| Model | Mean Score | Std Dev | Interpretation |"
-    lines << "|----|----|----|----|"
+    lines << "| Model | Mean Score | Std Dev | L2 Quality | Interpretation |"
+    lines << "|----|----|----|----|----|"
     model_keys.each do |evaluated|
       weighted_scores = model_keys.map do |evaluator|
         next nil if evaluator == evaluated
@@ -1318,22 +1322,26 @@ class ReportGenerator
       variance = weighted_scores.map { |s| (s - mean) ** 2 }.sum / weighted_scores.size
       std_dev = Math.sqrt(variance)
 
+      # Per-model gate: fail CLOSED (nil L2 → AMBIGUOUS, not productive)
+      model_l2 = per_model_l2[evaluated]
+      gate_passed = !model_l2.nil? && model_l2 >= 6.0
+
       interpretation = if std_dev > 1.5
-                         quality_gate_passed ?
-                           "HIGH divergence — productive (L2 quality gate passed)" :
-                           "HIGH divergence — AMBIGUOUS (L2 quality too low to confirm)"
+                         gate_passed ?
+                           "HIGH — productive (L2=#{model_l2} >= 6.0)" :
+                           "HIGH — AMBIGUOUS (L2=#{model_l2 || 'N/A'}, gate not passed)"
                        elsif std_dev > 0.7
                          "MODERATE divergence"
                        else
-                         "LOW divergence — possible surface consensus"
+                         "LOW — possible surface consensus"
                        end
 
-      lines << "| #{MODELS[evaluated][:label]} | #{mean.round(2)} | #{std_dev.round(2)} | #{interpretation} |"
+      lines << "| #{MODELS[evaluated][:label]} | #{mean.round(2)} | #{std_dev.round(2)} | #{model_l2 || 'N/A'} | #{interpretation} |"
     end
 
     lines << ""
     lines << "*Thresholds (>1.5 HIGH, <0.7 LOW) are PROVISIONAL — recalibrate after N >= 5 runs.*"
-    lines << "*Quality gate: L2 mean >= 6.0 required to classify HIGH divergence as productive.*"
+    lines << "*Quality gate: per-model L2 >= 6.0, fail-closed (missing L2 → AMBIGUOUS).*"
 
     lines.join("\n")
   end
@@ -1584,11 +1592,30 @@ class CrossEvalPipeline
         end
       end
 
+      # L2 meta-evaluation summary
+      l2_stats = []
+      task_meta_crit = data[:task] ? meta_criteria_for(data[:task]) : META_CRITERIA_WEIGHTS
+      (data[:layer2] || {}).each do |meta_eval, meta_evals|
+        meta_scores = meta_evals.map do |_, d|
+          next nil unless d && d["scores"]
+          task_meta_crit.sum { |c, w| (d["scores"][c] || 0) * w }
+        end.compact
+        next if meta_scores.empty?
+        l2_stats << "#{MODELS[meta_eval][:label]}: avg=#{(meta_scores.sum / meta_scores.size).round(1)}"
+      end
+
+      # Bias summary
+      bias_summary = (data[:bias] || {}).map do |k, b|
+        "#{MODELS[k][:label]}: harshness=#{b[:harshness]}, self_bias=#{b[:self_bias]}"
+      end
+
       summary_parts << "Task: #{task_id} (#{is_phil ? 'philosophy' : 'standard'})"
       summary_parts << "  L1 parse failures: #{parse_failures}"
       summary_parts << "  Score range: #{score_range}"
       summary_parts << "  Criterion dispersion: #{criterion_dispersions.join('; ')}"
       summary_parts << "  Calibration: #{cal_stats.join('; ')}"
+      summary_parts << "  L2 meta-eval: #{l2_stats.join('; ')}" unless l2_stats.empty?
+      summary_parts << "  Bias: #{bias_summary.join('; ')}" unless bias_summary.empty?
       summary_parts << "  Evaluator self-notes: #{self_notes.join(' | ')}" unless self_notes.empty?
     end
 
