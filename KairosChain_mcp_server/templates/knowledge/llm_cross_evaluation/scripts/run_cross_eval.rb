@@ -141,20 +141,23 @@ META_PHILOSOPHY_CRITERIA_WEIGHTS = {
   "surface_consensus_avoidance" => 0.25, "self_awareness" => 0.20,
 }.freeze
 
-# Returns the criteria weights for a task based on its evaluation_mode
-def criteria_for(task)
-  task && task["evaluation_mode"] == "philosophy" ? PHILOSOPHY_CRITERIA_WEIGHTS : EVAL_CRITERIA_WEIGHTS
+module EvalMode
+  module_function
+
+  def criteria_for(task)
+    task && task["evaluation_mode"] == "philosophy" ? PHILOSOPHY_CRITERIA_WEIGHTS : EVAL_CRITERIA_WEIGHTS
+  end
+
+  def meta_criteria_for(task)
+    task && task["evaluation_mode"] == "philosophy" ? META_PHILOSOPHY_CRITERIA_WEIGHTS : META_CRITERIA_WEIGHTS
+  end
+
+  def philosophy_mode?(task)
+    task && task["evaluation_mode"] == "philosophy"
+  end
 end
 
-def meta_criteria_for(task)
-  task && task["evaluation_mode"] == "philosophy" ? META_PHILOSOPHY_CRITERIA_WEIGHTS : META_CRITERIA_WEIGHTS
-end
-
-def philosophy_mode?(task)
-  task && task["evaluation_mode"] == "philosophy"
-end
-
-module_function :criteria_for, :meta_criteria_for, :philosophy_mode?
+include EvalMode
 
 NOMIC_INITIAL_RULES = {
   101 => { type: "immutable", text: "All players must obey all current rules at all times." },
@@ -516,33 +519,36 @@ class Layer1Evaluator
         response = @runner.execute(evaluator_key, prompt, label: eval_label)
         parsed = JSONParser.parse(response)
 
-        if parsed
-          parsed["_blind_label"] = label_map[target_key]
-          parsed["_self_injected"] = is_injected
-
-          if is_injected
-            # Store self-injection under a dedicated key (not the target's key)
-            # This preserves bias detection data without corrupting peer aggregations
+        if is_injected
+          # Self-injection path: ALWAYS evaluate the real target regardless of injected parse result
+          # Store injected evaluation (or error) under dedicated key
+          if parsed
+            parsed["_blind_label"] = label_map[target_key]
+            parsed["_self_injected"] = true
             results[evaluator_key]["__self_injection__"] = parsed
-            # Also evaluate the actual displaced target's response
-            real_prompt = PromptBuilder.render(eval_template,
-              task_prompt: task["prompt"],
-              blind_label: "Model X",  # distinct label for the real evaluation
-              response_text: responses[target_key]
-            )
-            real_label = "layer1_#{task['id']}_#{evaluator_key}_evals_#{target_key}_real"
-            real_response = @runner.execute(evaluator_key, real_prompt, label: real_label)
-            real_parsed = JSONParser.parse(real_response)
-            if real_parsed
-              real_parsed["_blind_label"] = "Model X"
-              real_parsed["_self_injected"] = false
-              results[evaluator_key][target_key] = real_parsed
-            else
-              results[evaluator_key][target_key] = { "error" => "JSON parse failed", "raw" => real_response[0..500] }
-            end
           else
-            results[evaluator_key][target_key] = parsed
+            results[evaluator_key]["__self_injection__"] = { "error" => "JSON parse failed", "_self_injected" => true }
           end
+          # Evaluate the actual displaced target's response (unconditional)
+          real_prompt = PromptBuilder.render(eval_template,
+            task_prompt: task["prompt"],
+            blind_label: "Model X",
+            response_text: responses[target_key]
+          )
+          real_label = "layer1_#{task['id']}_#{evaluator_key}_evals_#{target_key}_real"
+          real_response = @runner.execute(evaluator_key, real_prompt, label: real_label)
+          real_parsed = JSONParser.parse(real_response)
+          if real_parsed
+            real_parsed["_blind_label"] = "Model X"
+            real_parsed["_self_injected"] = false
+            results[evaluator_key][target_key] = real_parsed
+          else
+            results[evaluator_key][target_key] = { "error" => "JSON parse failed", "raw" => real_response[0..500] }
+          end
+        elsif parsed
+          parsed["_blind_label"] = label_map[target_key]
+          parsed["_self_injected"] = false
+          results[evaluator_key][target_key] = parsed
         else
           results[evaluator_key][target_key] = { "error" => "JSON parse failed", "raw" => response[0..500] }
         end
@@ -916,9 +922,10 @@ class BiasDetector
       end
 
       mean_given = scores_given.empty? ? 0 : scores_given.sum / scores_given.size
-      # Dynamic global mean: computed from all scores in this task (not hardcoded)
+      # Dynamic global mean: computed from all scores in this task (excluding self-injection)
       all_scores_flat = model_keys.flat_map do |ev|
-        (layer1_results[ev] || {}).flat_map do |_, d|
+        (layer1_results[ev] || {}).flat_map do |target, d|
+          next [] if target == "__self_injection__"
           next [] if d["error"] || d["scores"].nil?
           d["scores"].values
         end
