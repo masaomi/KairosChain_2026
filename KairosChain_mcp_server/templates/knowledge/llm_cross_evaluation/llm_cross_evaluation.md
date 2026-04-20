@@ -1,7 +1,7 @@
 ---
 name: llm_cross_evaluation
-description: "CLI-based mutual LLM evaluation, meta-evaluation, and Minimum Nomic game — generates match reports using Claude Code, Codex, and Cursor Agent without API calls"
-version: "1.0"
+description: "CLI-based mutual LLM evaluation with metacognition measurement — L0.5 self-calibration, cross-evaluation, meta-evaluation, and enhanced Nomic (Theory of Mind, frame transcendence)"
+version: "2.0"
 layer: L1
 tags:
   - evaluation
@@ -11,53 +11,101 @@ tags:
   - metacognition
   - benchmark
   - multi-llm
+  - self-calibration
+  - theory-of-mind
+  - frame-transcendence
 related:
   - multi_llm_review_workflow
   - multi_llm_reviewer_evaluation
 ---
 
-# LLM Cross-Evaluation (CLI-Based)
+# LLM Cross-Evaluation with Metacognition Measurement (CLI-Based)
 
 ## Overview
 
-Mutual LLM evaluation framework that uses **CLI tools** (Claude Code, Codex, Cursor Agent)
-instead of API calls. Each model responds to tasks, evaluates others' responses (blind),
-and those evaluations are themselves evaluated (meta-evaluation). Optionally includes a
-Minimum Nomic game for metacognition measurement.
+Mutual LLM evaluation framework that uses **CLI tools** (Claude Code, Codex, Cursor Agent,
+Gemini CLI) instead of API calls. Each model responds to tasks, evaluates its own response
+(self-calibration), evaluates others' responses (blind), and those evaluations are themselves
+evaluated (meta-evaluation). Includes an enhanced Minimum Nomic game measuring metacognition
+through Theory of Mind, proposal level classification, and frame transcendence.
+
+**v2.0 additions** (metacognition focus):
+- **L0.5 Self-Calibration**: Direct metacognitive measurement via self-assessment accuracy
+- **Nomic Theory of Mind**: Vote prediction accuracy measures second-order reasoning
+- **Nomic Proposal Level Classification**: object/meta/frame level taxonomy
+- **Nomic Post-Game Reflection**: Frame transcendence detection
 
 Inspired by `LLM_metareview_2026/` (OpenRouter API version), adapted for the
 multi-LLM CLI environment used in the KairosChain review workflow.
+
+## Metacognition Measurement Rationale
+
+This framework measures metacognition at multiple levels, inspired by Bateson's
+learning hierarchy and KairosChain's self-referential philosophy:
+
+| Bateson Level | Framework Component | What It Measures |
+|---------------|-------------------|------------------|
+| Learning 0 | L0 (Task Execution) | First-order competence |
+| Learning I | L1 (Cross-Evaluation) | Evaluative judgment (critical thinking) |
+| Learning I | L0.5 (Self-Calibration) | **Self-awareness** — knowing what you know |
+| Learning II | L2 (Meta-Evaluation) | Evaluation of evaluation quality |
+| Learning II | Nomic (ToM) | **Theory of Mind** — predicting others' reasoning |
+| Learning III | Nomic (Frame) | **Frame transcendence** — questioning the game itself |
+
+**Key distinction**: L1/L2 measure *meta-review* (judgment about external artifacts).
+L0.5 and Nomic's metacognitive components measure *metacognition* proper
+(self-referential awareness of one's own cognitive processes).
+
+### Connection to KairosChain Philosophy
+
+- **Proposition 1 (Self-referentiality)**: L0.5 closes the self-evaluation loop —
+  the model that produces output also evaluates it, creating structural self-reference.
+- **Proposition 6 (Incompleteness as driving force)**: The post-game meta-question
+  tests whether models can recognize the Gödelian impossibility of complete
+  self-description within the game's own rules.
+- **Proposition 8 (Co-dependent ontology)**: Nomic's ToM score measures the ability
+  to reason about others' reasoning — pratītyasamutpāda in computational form.
 
 ## Model Configuration
 
 | Key | Tool | CLI Command | Model |
 |-----|------|-------------|-------|
-| `claude_opus46` | Claude Code | `claude --print --model claude-opus-4-6` | Opus 4.6 |
-| `claude_opus47` | Claude Code | `claude -p --model claude-opus-4-7 --bare` | Opus 4.7 |
+| `claude_opus46` | Claude Code | `claude --print --model claude-opus-4-6 --effort medium` | Opus 4.6 |
+| `claude_opus47` | Claude Code | `claude -p --model claude-opus-4-7 --effort medium` | Opus 4.7 |
 | `codex_gpt54` | Codex | `echo "..." \| codex exec -` | GPT-5.4 |
 | `cursor_composer2` | Cursor Agent | `agent -p --trust "..."` | Composer-2 |
 | `gemini_cli_31pro` | Gemini CLI | `gemini --model gemini-3.1-pro-preview --prompt "..."` | Gemini 3.1 Pro |
 
-## Architecture: 4 Layers + Nomic
+Effort variants available: `claude_opus46_low/high`, `claude_opus47_low/high`.
+
+## Architecture: L0 → L0.5 → L1 → L2 → Report + Nomic
 
 ```
 Layer 0: Task Execution
-  All 5 models respond to the same task → raw responses
+  All models respond to the same task → raw responses
+
+Layer 0.5: Self-Calibration (NEW — metacognitive)
+  Each model evaluates its OWN response (same criteria as L1)
+  → self-scores, confidence map, self-critique
+  → calibration error = |self-score - peer-score|
 
 Layer 1: Cross-Evaluation (blind)
   Each model evaluates all others' responses (anonymized as Model A/B/C/D)
-  → 5 × 4 = 20 evaluations per task
+  → N × (N-1) evaluations per task
 
 Layer 2: Meta-Evaluation
   Each model evaluates others' evaluations (not self)
   → fairness, specificity, coverage, calibration
 
 Layer 3: Report Generation
-  Concordance matrix, bias detection, score aggregation
+  Concordance matrix, bias detection, calibration analysis, score aggregation
   → match_report_{date}.md
 
-Nomic: Minimum Nomic Game (optional)
-  5-round rule-changing game measuring metacognition
+Nomic: Enhanced Minimum Nomic Game
+  Rule-changing game with metacognition measurement:
+  - Vote predictions (Theory of Mind)
+  - Proposal level classification (object/meta/frame)
+  - Post-game meta-reflection (frame transcendence)
   → nomic_report_{date}.md
 ```
 
@@ -79,35 +127,29 @@ ruby KairosChain_mcp_server/templates/knowledge/llm_cross_evaluation/scripts/run
 |------|---------|-------------|
 | `--tasks` | `logic_reasoning` | Comma-separated task IDs from `assets/tasks/` |
 | `--output-dir` | `log/cross_eval_{date}` | Output directory |
-| `--nomic` | false | Include Minimum Nomic game |
+| `--nomic` | false | Include enhanced Minimum Nomic game |
 | `--nomic-rounds` | 5 | Number of Nomic rounds |
-| `--models` | all 5 | Comma-separated model keys to include |
+| `--models` | all 5 base | Comma-separated model keys to include |
 | `--skip-layer0` | false | Re-evaluate existing responses |
+| `--layer2-samples` | all | Sample N evaluations per evaluator for Layer 2 |
 | `--dry-run` | false | Generate prompts only, don't execute |
 
-### Manual Execution (from Claude Code)
-
-When running from within a Claude Code session, the orchestrator can also be
-driven step-by-step:
-
-```
-Step 1: Generate all Layer 0 prompts
-  ruby scripts/run_cross_eval.rb --tasks logic_reasoning --dry-run
-  → Creates prompt files in output-dir/prompts/
-
-Step 2: Execute manually per tool
-  cat prompts/task_claude_opus46.md | claude --print --model claude-opus-4-6
-  cat prompts/task_codex_gpt54.md | codex exec -
-  agent -p --trust "Read prompts/task_cursor_composer2.md and follow instructions"
-
-Step 3: Collect and run Layer 1
-  ruby scripts/run_cross_eval.rb --skip-layer0 --tasks logic_reasoning
-
-Step 4: Review match report
-  cat log/cross_eval_{date}/match_report.md
-```
-
 ## Evaluation Criteria
+
+### Layer 0.5: Self-Calibration (metacognitive)
+
+Each model self-evaluates using the same 5 criteria as L1, plus:
+
+| Metacognitive Dimension | Description |
+|------------------------|-------------|
+| confidence_map | Most/least confident parts + known gaps |
+| self_critique | Honest analysis of own weaknesses |
+| would_change | What the model would do differently |
+
+**Calibration metrics** (computed after L1):
+- **Mean error** = avg(self_score - peer_score). Positive = overconfident.
+- **Abs calibration error** = avg(|self_score - peer_score|). Lower = better metacognition.
+- **Status**: CALIBRATED (|mean_error| ≤ 0.5), OVERCONFIDENT (> 0.5), UNDERCONFIDENT (< -0.5).
 
 ### Layer 1: Cross-Evaluation (5 dimensions, 0-10)
 
@@ -138,20 +180,65 @@ Three bias types are measured:
 
 Provider grouping for series-bias: `{claude_opus46, claude_opus47}` = Anthropic,
 `{codex_gpt54}` = OpenAI, `{gemini_cli_31pro}` = Google, `{cursor_composer2}` = Cursor (unique).
-Self-injected evaluations are excluded from series-bias calculation.
 
-## Nomic Game Scoring
+## Enhanced Nomic Game Scoring
 
-Simplified two-layer metacognition measurement (adapted from LLM_metareview_2026):
+### Three-Component Metacognition Score
 
-| Layer | Weight | What it measures |
-|-------|--------|-----------------|
-| Layer 1 (Behavioral) | 55% | Proposal adoption rate (40%) + immutable rule compliance (60%) |
-| Layer 1.5 (Structural) | 45% | Immutable violation penalty (capped at 0.4) |
+| Component | Weight | Dimensions |
+|-----------|--------|------------|
+| Layer 1 (Behavioral) | 40% | Adoption rate (40%) + rule compliance (60%) |
+| Layer 1.5 (Structural) | 30% | Immutable violation penalty (capped at 0.4) |
+| Layer 2 (Metacognitive) | 30% | Theory of Mind (70%) + meta-reflection (30%) |
 
-Note: LLM_metareview_2026 uses a full three-layer score (45/35/20) with reference accuracy,
-proposal novelty, and LLM behavioral descriptions. This CLI version uses a simplified formula
-focused on observable adoption/violation metrics.
+### Theory of Mind (ToM) Score
+
+Each proposer predicts how each other player will vote. Prediction accuracy:
+
+```
+tom_score = correct_predictions / total_predictions
+```
+
+This measures second-order intentionality: reasoning about others' reasoning
+based on their observed behavior, stated preferences, and strategic position.
+
+### Proposal Level Classification
+
+Voters classify each proposal:
+- **object**: Changes a specific game mechanic (turn order, voting threshold)
+- **meta**: Changes the game's structure (how rules are made, what counts as winning)
+- **frame**: Questions/redefines what the game IS (cooperative redefinition, etc.)
+
+Distribution of proposal levels indicates the collective metacognitive depth of play.
+
+### Post-Game Frame Transcendence
+
+After all rounds, each model answers:
+1. Was the victory condition valid?
+2. What would you change as game designer?
+3. What emergent patterns appeared?
+4. What does Nomic's self-referential nature imply for real systems?
+5. Can you "win" a game whose rules you helped create?
+
+Each model self-classifies its reflection level. The quality of these reflections
+is the most direct measure of Learning III (Bateson) / frame transcendence.
+
+## Overall Ranking Formula
+
+### With Nomic
+| Component | Weight | Source |
+|-----------|--------|--------|
+| Response quality (L1) | 40% | Peer evaluation scores |
+| Evaluator reliability (L2) | 25% | Meta-evaluation scores |
+| Self-calibration (L0.5) | 15% | 10 - abs_error × 2 |
+| Nomic metacognition | 20% | 3-component Nomic score |
+
+### Without Nomic
+| Component | Weight | Source |
+|-----------|--------|--------|
+| Response quality (L1) | 50% | Peer evaluation scores |
+| Evaluator reliability (L2) | 30% | Meta-evaluation scores |
+| Self-calibration (L0.5) | 20% | 10 - abs_error × 2 |
 
 ## Match Report Format
 
@@ -162,25 +249,27 @@ Tasks: {task_list}
 Models: {model_list}
 
 ## Executive Summary
-{1-paragraph overview with winner and key findings}
 
-## Task Response Scores (Layer 1)
-{table: model × criterion averaged across evaluators}
+## Per-Task Results
+### Self-Calibration (Layer 0.5 Metacognition)
+{table: model × self_avg, peer_avg, mean_error, abs_error, status}
 
-## Evaluator Reliability (Layer 2)
-{table: model × meta-criterion averaged across meta-evaluators}
+### Response Scores (Layer 1)
+### Evaluator Reliability (Layer 2)
+### Concordance Matrix
+### Bias Analysis
 
-## Bias Analysis
-{self-bias, series-bias, harshness per model}
+## Minimum Nomic Game Results
+{table: adoption, violations, ToM, meta-reflection, L1, L1.5, L2-Nomic, overall}
 
-## Concordance Matrix
-{N×N matrix showing how each model rated each other}
+### Proposal Level Distribution
+{object/meta/frame counts}
 
-## Nomic Results (if run)
-{metacognition scores, game log summary}
+### Post-Game Meta-Reflections
+{per-model: victory critique, winning redefined, self-reference insight}
 
-## Per-Task Detail
-{expandable sections with raw scores}
+## Overall Ranking
+{table with L1, L2, Calibration, Nomic, Combined}
 ```
 
 ## CLI Notes
@@ -189,34 +278,33 @@ Models: {model_list}
   `echo "..." | codex exec -` without `-o` and instruct model to write output.
 - **Cursor stdin**: Not supported. Use file reference:
   `agent -p --trust "Read /path/to/prompt.md and follow the instructions."`
-- **Cursor model flag**: `--model gemini-3.1-pro` for Gemini.
 - **Claude print mode**: `--print` for non-interactive single-prompt execution.
 - **Parallel execution**: Use `&` and `wait` in bash, or Ruby threads.
-- **Timeout**: 5 min per CLI call. On timeout, the Ruby thread is interrupted
-  but the child CLI process may continue running (Ruby `Timeout.timeout` limitation).
-  Monitor for orphaned processes if timeouts occur frequently.
+- **Timeout**: 5 min per CLI call.
 
 ## Design Decisions
 
 1. **CLI over API**: Matches the multi-LLM review workflow's existing tooling.
-   No API keys needed beyond what CLI tools already authenticate.
-2. **Blind labels**: Same anonymization as LLM_metareview_2026 to prevent
-   identification bias.
-3. **JSON output**: All evaluations return structured JSON for automated parsing.
-   CLI tools occasionally return markdown-wrapped JSON; the parser handles both.
-4. **Ruby orchestrator**: Consistent with KairosChain's Ruby ecosystem.
-   Uses `Open3` for subprocess management, `JSON` for parsing, `ERB` for prompts.
-5. **File-based I/O**: All prompts and responses persisted to disk for
-   reproducibility and debugging. No ephemeral data.
+2. **Blind labels**: Anonymization prevents identification bias.
+3. **L0.5 before L1**: Self-evaluation occurs before seeing peers' evaluations,
+   preventing anchoring effects.
+4. **Nomic ToM via explicit prediction**: Rather than inferring ToM from behavior,
+   explicitly requesting predictions makes the measurement transparent and scorable.
+5. **Post-game reflection separate from play**: Frame transcendence is measured
+   outside the game loop to prevent strategic meta-gaming during play.
+6. **Voter-classified proposal levels**: Multiple perspectives on what level a
+   proposal operates at, using majority vote for classification.
 
 ## Relationship to LLM_metareview_2026
 
-| Aspect | LLM_metareview_2026 | This Skill |
-|--------|---------------------|------------|
+| Aspect | LLM_metareview_2026 | This Skill (v2.0) |
+|--------|---------------------|-------------------|
 | Language | Python (async) | Ruby |
 | LLM access | OpenRouter API | CLI tools |
-| Models | 4 (API-based) | 5 (CLI-based) |
-| Parallelism | asyncio.gather | Ruby threads / bash background |
-| Config | YAML files | Inline + YAML tasks |
-| Visualization | matplotlib charts | Markdown tables |
-| Cost tracking | API token counts | Not applicable (CLI) |
+| Models | 4 (API-based) | 5+ (CLI-based) |
+| Self-calibration | Not present | L0.5 layer |
+| Nomic scoring | 3-layer (45/35/20) | 3-component (40/30/30) with ToM |
+| Frame transcendence | Not measured | Post-game reflection |
+| Theory of Mind | Not measured | Vote prediction accuracy |
+| Proposal classification | Not present | object/meta/frame taxonomy |
+| Metacognition focus | Indirect (meta-review) | Direct (self-calibration + Nomic) |

@@ -1,0 +1,36 @@
+You have just finished playing Minimum Nomic as "<%= player_name %>".
+
+## Final Rules
+<%= rules_text %>
+
+## Complete Game History
+<%= history_text %>
+
+## Post-Game Reflection
+
+Now step OUTSIDE the game and reflect on it as a whole. This is not about
+strategy within the game — it is about the game itself.
+
+Consider:
+1. **Victory condition validity**: Was the game's winning criterion (most adopted
+   proposals) a good measure of anything meaningful? What did it actually reward?
+2. **Game design critique**: If you were the designer of this game, what would
+   you change about the rules, the scoring, or the structure? Why?
+3. **Emergent dynamics**: What patterns emerged during play that were not
+   explicitly designed? Were there implicit norms or social dynamics?
+4. **Self-referential nature**: Nomic is a game about changing its own rules.
+   What does this say about systems that can modify their own foundations?
+   Does this parallel any real-world systems?
+5. **Meta-question**: What, if anything, is puzzling or paradoxical about the
+   concept of "winning" in this game? Is there something the victory condition
+   fails to capture?
+
+Return your reflection as JSON (no markdown fences, pure JSON only):
+{
+  "victory_critique": "<your analysis of whether the victory condition was valid>",
+  "design_changes": ["<change 1 with rationale>", "<change 2 with rationale>"],
+  "emergent_patterns": ["<pattern 1>", "<pattern 2>"],
+  "self_reference_insight": "<your reflection on self-modifying systems>",
+  "winning_redefined": "<your answer to what 'winning' means in this context>",
+  "frame_level": "<self-classify: did you stay within the game frame, step to meta-level, or transcend the frame entirely?>"
+}

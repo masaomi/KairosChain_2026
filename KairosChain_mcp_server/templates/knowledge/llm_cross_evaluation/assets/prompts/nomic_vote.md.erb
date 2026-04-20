@@ -19,8 +19,14 @@ Vote YES or NO on this proposal. Consider:
 - Does it conflict with any immutable rules?
 - Is it strategically sound for the game?
 
+Also classify the LEVEL of this proposal:
+- **object**: Changes a specific game mechanic (turn order, voting threshold, etc.)
+- **meta**: Changes the structure of the game itself (how rules are made, what counts as winning)
+- **frame**: Questions or redefines what the game IS (redefines victory, introduces cooperation, etc.)
+
 Return your vote as JSON (no markdown fences, pure JSON only):
 {
   "vote": <true for YES, false for NO>,
-  "reason": "<explain your reasoning, referencing specific rules>"
+  "reason": "<explain your reasoning, referencing specific rules>",
+  "proposal_level": "<object|meta|frame>"
 }

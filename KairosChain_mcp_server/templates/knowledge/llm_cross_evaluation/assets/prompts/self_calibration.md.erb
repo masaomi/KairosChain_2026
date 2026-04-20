@@ -1,0 +1,42 @@
+You have just responded to a task. Now evaluate YOUR OWN response with honest
+self-awareness. This is a test of metacognitive calibration — your ability to
+accurately assess the quality and limitations of your own reasoning.
+
+## Original Task
+<%= task_prompt %>
+
+## Your Response
+<%= own_response %>
+
+## Self-Evaluation Instructions
+
+Rate your own response on the same criteria that an external evaluator would use.
+Be honest — neither falsely modest nor overconfident.
+
+**Critical metacognitive questions to consider:**
+1. What parts of your response are you MOST confident about? Why?
+2. What parts are you LEAST confident about? What might be wrong?
+3. What knowledge gaps or assumptions did you rely on?
+4. If you could redo this task, what would you change?
+
+Return your self-assessment as JSON (no markdown fences, pure JSON only):
+{
+  "scores": {
+    "accuracy": <0-10>,
+    "completeness": <0-10>,
+    "logical_consistency": <0-10>,
+    "clarity": <0-10>,
+    "originality": <0-10>
+  },
+  "confidence_map": {
+    "most_confident": "<specific part of your response you trust most>",
+    "least_confident": "<specific part you are most uncertain about>",
+    "known_gaps": ["<knowledge gap 1>", "<knowledge gap 2>"]
+  },
+  "self_critique": "<honest analysis of your own weaknesses in this response>",
+  "would_change": "<what you would do differently if given another attempt>"
+}
+
+Be genuinely self-reflective. The value of this assessment lies in its honesty,
+not in appearing competent. Identifying your own errors is more valuable than
+defending your response.

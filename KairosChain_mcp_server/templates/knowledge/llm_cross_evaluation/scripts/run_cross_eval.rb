@@ -61,11 +61,11 @@ MODELS = {
   },
   "gemini_cli_31pro" => {
     tool: :gemini,
-    cmd: "gemini --model gemini-3.1-pro-preview --thinking-level medium --prompt",
+    cmd: "gemini --model gemini-3.1-pro-preview --prompt",
     label: "Gemini 3.1 Pro",
     provider: "google",
     input_mode: :arg,
-    thinking_effort: "medium",
+    thinking_effort: "default",  # Gemini CLI v0.38 has no --thinking-level flag in -p mode
   },
 
   # ── Claude Opus 4.6 effort variants ──
@@ -104,23 +104,15 @@ MODELS = {
     thinking_effort: "high",
   },
 
-  # ── Gemini effort variants ──
-  "gemini_cli_31pro_low" => {
-    tool: :gemini,
-    cmd: "gemini --model gemini-3.1-pro-preview --thinking-level low --prompt",
-    label: "Gemini 3.1 Pro (low)",
-    provider: "google",
-    input_mode: :arg,
-    thinking_effort: "low",
-  },
-  "gemini_cli_31pro_high" => {
-    tool: :gemini,
-    cmd: "gemini --model gemini-3.1-pro-preview --thinking-level high --prompt",
-    label: "Gemini 3.1 Pro (high)",
-    provider: "google",
-    input_mode: :arg,
-    thinking_effort: "high",
-  },
+  # ── Gemini effort variants (requires Gemini CLI with --thinking-level support) ──
+  # Uncomment when Gemini CLI adds --thinking-level flag to headless mode
+  # "gemini_cli_31pro_low" => {
+  #   tool: :gemini,
+  #   cmd: "gemini --model gemini-3.1-pro-preview --thinking-level low --prompt",
+  #   label: "Gemini 3.1 Pro (low)", provider: "google",
+  #   input_mode: :arg, thinking_effort: "low",
+  # },
+  # "gemini_cli_31pro_high" => { ... },
 }.freeze
 
 # Default model set (base models only). Use --models for variants.
@@ -363,6 +355,84 @@ class Layer0Executor
 end
 
 # ──────────────────────────────────────────────────────────────
+# Layer 0.5: Self-Calibration (Metacognitive)
+# ──────────────────────────────────────────────────────────────
+
+class Layer05Calibrator
+  def initialize(runner, model_keys)
+    @runner = runner
+    @model_keys = model_keys
+  end
+
+  # Each model evaluates its own L0 response.
+  # Returns: { model_key => parsed_json }
+  def calibrate(task, responses)
+    puts "\n=== Layer 0.5: Self-Calibration [#{task['id']}] ==="
+    prompts = @model_keys.each_with_object({}) do |key, h|
+      h[key] = PromptBuilder.render("self_calibration",
+        task_prompt: task["prompt"],
+        own_response: responses[key] || "(no response)"
+      )
+    end
+    raw = @runner.execute_parallel(prompts, label: "layer05_#{task['id']}")
+
+    raw.each_with_object({}) do |(key, text), results|
+      parsed = JSONParser.parse(text)
+      results[key] = parsed || { "error" => "JSON parse failed", "raw" => text[0..500] }
+    end
+  end
+
+  # Compare self-scores with peer scores from L1.
+  # Returns: { model_key => { calibration_error:, overconfidence:, ... } }
+  def self.compute_calibration(layer05, layer1, model_keys)
+    model_keys.each_with_object({}) do |key, results|
+      self_data = layer05[key]
+      next results[key] = { error: "no self-eval" } unless self_data && self_data["scores"]
+
+      # Collect peer scores for this model
+      peer_scores = {}
+      EVAL_CRITERIA_WEIGHTS.each_key do |criterion|
+        vals = model_keys.map do |evaluator|
+          next nil if evaluator == key
+          layer1.dig(evaluator, key, "scores", criterion)
+        end.compact
+        peer_scores[criterion] = vals.empty? ? nil : vals.sum.to_f / vals.size
+      end
+
+      # Per-criterion calibration error (self - peer)
+      criterion_errors = {}
+      EVAL_CRITERIA_WEIGHTS.each_key do |criterion|
+        self_score = self_data["scores"][criterion]
+        peer_score = peer_scores[criterion]
+        criterion_errors[criterion] = if self_score && peer_score
+                                        (self_score - peer_score).round(2)
+                                      else
+                                        nil
+                                      end
+      end
+
+      # Aggregate
+      valid_errors = criterion_errors.values.compact
+      mean_error = valid_errors.empty? ? 0 : valid_errors.sum / valid_errors.size
+      abs_error = valid_errors.empty? ? 0 : valid_errors.map(&:abs).sum / valid_errors.size
+
+      results[key] = {
+        self_scores: self_data["scores"],
+        peer_scores_avg: peer_scores.transform_values { |v| v&.round(1) },
+        criterion_errors: criterion_errors,
+        mean_error: mean_error.round(2),        # positive = overconfident
+        abs_calibration_error: abs_error.round(2),
+        overconfidence: mean_error > 0.5,
+        underconfidence: mean_error < -0.5,
+        confidence_map: self_data["confidence_map"],
+        self_critique: self_data["self_critique"],
+        would_change: self_data["would_change"],
+      }
+    end
+  end
+end
+
+# ──────────────────────────────────────────────────────────────
 # Layer 1: Cross-Evaluation
 # ──────────────────────────────────────────────────────────────
 
@@ -395,11 +465,15 @@ class Layer1Evaluator
       end
 
       shuffled_targets.each do |target_key|
-        response_text = if inject_self && target_key == self_inject_target
-                          responses[evaluator_key] # Self-injection
-                        else
-                          responses[target_key]
-                        end
+        is_injected = inject_self && target_key == self_inject_target
+
+        if is_injected
+          # Self-injection: evaluate own response but store under a separate key
+          # so it doesn't corrupt the target's peer scores
+          response_text = responses[evaluator_key]
+        else
+          response_text = responses[target_key]
+        end
 
         prompt = PromptBuilder.render("cross_evaluation",
           task_prompt: task["prompt"],
@@ -413,8 +487,31 @@ class Layer1Evaluator
 
         if parsed
           parsed["_blind_label"] = label_map[target_key]
-          parsed["_self_injected"] = (inject_self && target_key == self_inject_target)
-          results[evaluator_key][target_key] = parsed
+          parsed["_self_injected"] = is_injected
+
+          if is_injected
+            # Store self-injection under a dedicated key (not the target's key)
+            # This preserves bias detection data without corrupting peer aggregations
+            results[evaluator_key]["__self_injection__"] = parsed
+            # Also evaluate the actual displaced target's response
+            real_prompt = PromptBuilder.render("cross_evaluation",
+              task_prompt: task["prompt"],
+              blind_label: "Model X",  # distinct label for the real evaluation
+              response_text: responses[target_key]
+            )
+            real_label = "layer1_#{task['id']}_#{evaluator_key}_evals_#{target_key}_real"
+            real_response = @runner.execute(evaluator_key, real_prompt, label: real_label)
+            real_parsed = JSONParser.parse(real_response)
+            if real_parsed
+              real_parsed["_blind_label"] = "Model X"
+              real_parsed["_self_injected"] = false
+              results[evaluator_key][target_key] = real_parsed
+            else
+              results[evaluator_key][target_key] = { "error" => "JSON parse failed", "raw" => real_response[0..500] }
+            end
+          else
+            results[evaluator_key][target_key] = parsed
+          end
         else
           results[evaluator_key][target_key] = { "error" => "JSON parse failed", "raw" => response[0..500] }
         end
@@ -503,6 +600,8 @@ class NomicGame
       h[key] = {
         proposals_total: 0, proposals_adopted: 0,
         immutable_violations: 0,
+        vote_predictions_correct: 0, vote_predictions_total: 0,
+        meta_reflections: [],
       }
     end
   end
@@ -527,6 +626,22 @@ class NomicGame
         adopted = yes_count > @model_keys.size / 2.0
 
         @metrics[player_key][:proposals_total] += 1
+
+        # Track vote prediction accuracy (Theory of Mind)
+        predictions = proposal["vote_predictions"] || {}
+        votes.each do |voter_key, vote_data|
+          pred = predictions[voter_key]
+          next unless pred && pred.is_a?(Hash)
+          predicted = coerce_vote(pred["predicted_vote"])
+          actual = coerce_vote(vote_data["vote"])
+          @metrics[player_key][:vote_predictions_total] += 1
+          @metrics[player_key][:vote_predictions_correct] += 1 if predicted == actual
+        end
+
+        # Track meta-reflections
+        if proposal["meta_reflection"] && !proposal["meta_reflection"].to_s.strip.empty?
+          @metrics[player_key][:meta_reflections] << proposal["meta_reflection"]
+        end
 
         # Check immutable violation BEFORE recording adoption
         target = proposal["target_rule"]
@@ -558,16 +673,26 @@ class NomicGame
         puts adopted ? "    [ADOPTED] #{proposal['action']} by #{player_key}" :
                         "    [REJECTED] #{proposal['action']} by #{player_key}"
 
+        # Collect proposal level classifications from voters
+        level_votes = votes.map { |_, v| v["proposal_level"] }.compact
+        majority_level = level_votes.tally.max_by { |_, c| c }&.first || "object"
+
         @history << {
           round: round_num, player: player_key,
           proposal: proposal, votes: votes,
           adopted: adopted,
+          proposal_level: majority_level,
         }
       end
     end
 
+    # Post-game meta-reflection (frame transcendence)
+    run_postgame
+
     calculate_nomic_scores
   end
+
+  attr_reader :postgame_reflections
 
   private
 
@@ -591,11 +716,16 @@ class NomicGame
   end
 
   def get_proposal(player_key, round_num)
+    other_keys = @model_keys.reject { |k| k == player_key }
+    other_text = other_keys.map { |k| "- #{MODELS[k][:label]} (#{k})" }.join("\n")
+
     prompt = PromptBuilder.render("nomic_proposal",
       player_name: MODELS[player_key][:label],
       rules_text: rules_text,
       history_text: history_text,
-      next_rule_num: @next_rule_num
+      next_rule_num: @next_rule_num,
+      other_players_text: other_text,
+      other_player_keys: other_keys
     )
 
     response = @runner.execute(player_key, prompt, label: "nomic_r#{round_num}_proposal_#{player_key}")
@@ -636,6 +766,23 @@ class NomicGame
     end
   end
 
+  def run_postgame
+    puts "\n=== Post-Game Meta-Reflection ==="
+    @postgame_reflections = {}
+
+    @model_keys.each do |key|
+      prompt = PromptBuilder.render("nomic_postgame",
+        player_name: MODELS[key][:label],
+        rules_text: rules_text,
+        history_text: history_text
+      )
+
+      response = @runner.execute(key, prompt, label: "nomic_postgame_#{key}")
+      parsed = JSONParser.parse(response)
+      @postgame_reflections[key] = parsed || { "error" => "JSON parse failed", "raw" => response[0..500] }
+    end
+  end
+
   # Apply rule change. Returns true if state actually changed, false otherwise.
   def apply_rule_change(proposal)
     case proposal["action"]
@@ -664,16 +811,34 @@ class NomicGame
       adoption_rate = m[:proposals_total] > 0 ? m[:proposals_adopted].to_f / m[:proposals_total] : 0
       violation_penalty = [m[:immutable_violations] * 0.2, 0.4].min
 
-      # Simplified 2-layer scoring (Layer 1 + Layer 1.5)
+      # Theory of Mind score (vote prediction accuracy, baseline-adjusted)
+      # Raw accuracy minus 50% random baseline, scaled to [0, 1]
+      raw_accuracy = m[:vote_predictions_total] > 0 ?
+        m[:vote_predictions_correct].to_f / m[:vote_predictions_total] : 0
+      tom_score = [((raw_accuracy - 0.5) / 0.5), 0].max  # 50% = 0, 100% = 1
+
+      # Meta-reflection count (did the model reflect on the game itself?)
+      meta_reflection_count = m[:meta_reflections].size
+
+      # 3-component scoring
+      # Layer 1 (Behavioral): adoption + rule compliance
       layer1 = adoption_rate * 0.4 + (1.0 - violation_penalty) * 0.6
+      # Layer 1.5 (Structural): violation penalty
       layer15 = 1.0 - violation_penalty
+      # Layer 2 (Metacognitive): Theory of Mind + meta-reflection
+      layer2_nomic = tom_score * 0.7 + [meta_reflection_count.to_f / @num_rounds, 1.0].min * 0.3
 
       scores[key] = {
         adoption_rate: adoption_rate.round(3),
         immutable_violations: m[:immutable_violations],
+        tom_raw_accuracy: raw_accuracy.round(3),
+        tom_score: tom_score.round(3),
+        tom_predictions: "#{m[:vote_predictions_correct]}/#{m[:vote_predictions_total]}",
+        meta_reflection_count: meta_reflection_count,
         layer1_score: layer1.round(3),
         layer15_score: layer15.round(3),
-        overall: (0.55 * layer1 + 0.45 * layer15).round(3),
+        layer2_nomic_score: layer2_nomic.round(3),
+        overall: (0.40 * layer1 + 0.30 * layer15 + 0.30 * layer2_nomic).round(3),
       }
     end
   end
@@ -700,14 +865,16 @@ class BiasDetector
         next if data["error"] || data["scores"].nil?
 
         avg = data["scores"].values.sum.to_f / data["scores"].size
-        scores_given << avg
 
-        if data["_self_injected"]
+        # Self-injection data stored under dedicated key
+        if target == "__self_injection__"
           self_scores << avg
-          next # Exclude self-injected from series-bias to avoid provider misattribution
+          next # Exclude from all other aggregations
         end
 
-        target_provider = MODELS[target][:provider]
+        scores_given << avg
+
+        target_provider = MODELS[target]&.dig(:provider)
         if target_provider == provider
           same_provider_scores << avg
         else
@@ -716,7 +883,14 @@ class BiasDetector
       end
 
       mean_given = scores_given.empty? ? 0 : scores_given.sum / scores_given.size
-      global_mean = 7.5 # Approximate expected mean
+      # Dynamic global mean: computed from all scores in this task (not hardcoded)
+      all_scores_flat = model_keys.flat_map do |ev|
+        (layer1_results[ev] || {}).flat_map do |_, d|
+          next [] if d["error"] || d["scores"].nil?
+          d["scores"].values
+        end
+      end
+      global_mean = all_scores_flat.empty? ? 7.5 : all_scores_flat.sum.to_f / all_scores_flat.size
 
       bias[evaluator] = {
         self_bias: self_scores.empty? ? "N/A" : (self_scores.sum / self_scores.size - mean_given).round(2),
@@ -740,7 +914,7 @@ end
 # ──────────────────────────────────────────────────────────────
 
 class ReportGenerator
-  def self.generate(output_dir, tasks, model_keys, all_results, nomic_scores: nil)
+  def self.generate(output_dir, tasks, model_keys, all_results, nomic_scores: nil, nomic_data: nil)
     report = []
     date = Time.now.strftime("%Y-%m-%d")
 
@@ -774,6 +948,14 @@ class ReportGenerator
       report << "## Task: #{task_id}"
       report << ""
 
+      # Layer 0.5 calibration table
+      if data[:calibration]
+        report << "### Self-Calibration (Layer 0.5 Metacognition)"
+        report << ""
+        report << calibration_table(data[:calibration], model_keys)
+        report << ""
+      end
+
       # Layer 1 scores table
       report << "### Response Scores (Layer 1 Cross-Evaluation)"
       report << ""
@@ -806,6 +988,35 @@ class ReportGenerator
       report << ""
       report << nomic_table(nomic_scores, model_keys)
       report << ""
+
+      # Proposal level distribution
+      if nomic_data && nomic_data[:history]
+        report << "### Proposal Level Distribution"
+        report << ""
+        level_counts = nomic_data[:history].group_by { |h| h[:proposal_level] }.transform_values(&:size)
+        report << "| Level | Count |"
+        report << "|----|----|"
+        %w[object meta frame].each do |level|
+          report << "| #{level} | #{level_counts[level] || 0} |"
+        end
+        report << ""
+      end
+
+      # Post-game reflections
+      if nomic_data && nomic_data[:postgame]
+        report << "### Post-Game Meta-Reflections (Frame Transcendence)"
+        report << ""
+        model_keys.each do |key|
+          r = nomic_data[:postgame][key]
+          next unless r && !r["error"]
+          report << "**#{MODELS[key][:label]}** (self-classified: #{r['frame_level'] || 'N/A'})"
+          report << ""
+          report << "- Victory critique: #{r['victory_critique'].to_s[0..200]}"
+          report << "- Winning redefined: #{r['winning_redefined'].to_s[0..200]}"
+          report << "- Self-reference insight: #{r['self_reference_insight'].to_s[0..200]}"
+          report << ""
+        end
+      end
     end
 
     # Overall ranking
@@ -857,6 +1068,28 @@ class ReportGenerator
     else
       "No results available for summary."
     end
+  end
+
+  def self.calibration_table(calibration, model_keys)
+    header = "| Model | Self Avg | Peer Avg | Mean Error | Abs Error | Status |"
+    sep = "|----|----|----|----|----|----|"
+    rows = model_keys.map do |key|
+      c = calibration[key]
+      next "| #{MODELS[key][:label]} | - | - | - | - | no data |" unless c && !c[:error]
+
+      self_avg = c[:self_scores] ? (c[:self_scores].values.sum.to_f / c[:self_scores].size).round(1) : "-"
+      peer_avg = c[:peer_scores_avg] ? c[:peer_scores_avg].values.compact.then { |v| v.empty? ? "-" : (v.sum / v.size).round(1) } : "-"
+      status = if c[:overconfidence]
+                 "OVERCONFIDENT"
+               elsif c[:underconfidence]
+                 "UNDERCONFIDENT"
+               else
+                 "CALIBRATED"
+               end
+      "| #{MODELS[key][:label]} | #{self_avg} | #{peer_avg} | #{c[:mean_error]} | #{c[:abs_calibration_error]} | #{status} |"
+    end
+
+    [header, sep, *rows].join("\n")
   end
 
   def self.layer1_table(layer1, model_keys)
@@ -954,11 +1187,13 @@ class ReportGenerator
   end
 
   def self.nomic_table(nomic_scores, model_keys)
-    header = "| Player | Adoption Rate | Immutable Violations | Layer 1 | Layer 1.5 | Overall |"
-    sep = "|----|----|----|----|----|----|"
+    header = "| Player | Adoption | Violations | ToM (pred) | Meta-Refl | L1 | L1.5 | L2-Nomic | Overall |"
+    sep = "|----|----|----|----|----|----|----|----|-----|"
     rows = model_keys.map do |key|
       s = nomic_scores[key] || {}
-      "| #{MODELS[key][:label]} | #{s[:adoption_rate]} | #{s[:immutable_violations]} | #{s[:layer1_score]} | #{s[:layer15_score]} | #{s[:overall]} |"
+      "| #{MODELS[key][:label]} | #{s[:adoption_rate]} | #{s[:immutable_violations]} | " \
+        "#{s[:tom_score]} (#{s[:tom_predictions]}) | #{s[:meta_reflection_count]} | " \
+        "#{s[:layer1_score]} | #{s[:layer15_score]} | #{s[:layer2_nomic_score]} | #{s[:overall]} |"
     end
 
     [header, sep, *rows].join("\n")
@@ -1000,24 +1235,28 @@ class ReportGenerator
       l2_avg = l2_count > 0 ? l2_total / l2_count : 0
       nomic_overall = nomic_scores&.dig(key, :overall) || 0
 
-      # Combined: 50% response quality + 30% evaluator reliability + 20% nomic
+      # Calibration score: 10 - abs_error (lower error = better metacognition)
+      cal_errors = all_results.map { |_, d| d[:calibration]&.dig(key, :abs_calibration_error) }.compact
+      cal_score = cal_errors.empty? ? 5.0 : [10.0 - (cal_errors.sum / cal_errors.size) * 2, 0].max
+
+      # Combined: 40% response + 25% evaluator + 15% calibration + 20% nomic
       combined = if nomic_scores
-                   0.50 * l1_avg + 0.30 * l2_avg + 0.20 * (nomic_overall * 10)
+                   0.40 * l1_avg + 0.25 * l2_avg + 0.15 * cal_score + 0.20 * (nomic_overall * 10)
                  else
-                   0.60 * l1_avg + 0.40 * l2_avg
+                   0.50 * l1_avg + 0.30 * l2_avg + 0.20 * cal_score
                  end
 
-      { key: key, l1: l1_avg.round(2), l2: l2_avg.round(2),
+      { key: key, l1: l1_avg.round(2), l2: l2_avg.round(2), cal: cal_score.round(2),
         nomic: (nomic_overall * 10).round(2), combined: combined.round(2) }
     end
 
     ranked = rankings.sort_by { |r| -r[:combined] }
 
-    header = "| Rank | Model | Response (L1) | Evaluator (L2) | Nomic | Combined |"
-    sep = "|----|----|----|----|----|-----|"
+    header = "| Rank | Model | Response (L1) | Evaluator (L2) | Calibration (L0.5) | Nomic | Combined |"
+    sep = "|----|----|----|----|----|----|-----|"
     rows = ranked.each_with_index.map do |r, i|
       nomic_col = nomic_scores ? r[:nomic].to_s : "N/A"
-      "| #{i + 1} | #{MODELS[r[:key]][:label]} | #{r[:l1]} | #{r[:l2]} | #{nomic_col} | #{r[:combined]} |"
+      "| #{i + 1} | #{MODELS[r[:key]][:label]} | #{r[:l1]} | #{r[:l2]} | #{r[:cal]} | #{nomic_col} | #{r[:combined]} |"
     end
 
     [header, sep, *rows].join("\n")
@@ -1064,8 +1303,14 @@ class CrossEvalPipeline
                     Layer0Executor.new(@runner, @model_keys).execute(task)
                   end
 
+      # Layer 0.5: Self-calibration (metacognitive)
+      layer05 = Layer05Calibrator.new(@runner, @model_keys).calibrate(task, responses)
+
       # Layer 1: Cross-evaluation
       layer1 = Layer1Evaluator.new(@runner, @model_keys).evaluate(task, responses)
+
+      # Layer 0.5 calibration analysis (requires L1 results)
+      calibration = Layer05Calibrator.compute_calibration(layer05, layer1, @model_keys)
 
       # Layer 2: Meta-evaluation (with optional sampling)
       layer2 = Layer2MetaEvaluator.new(@runner, @model_keys, sample_size: @layer2_samples).evaluate(task, responses, layer1)
@@ -1075,6 +1320,8 @@ class CrossEvalPipeline
 
       all_results[task_id] = {
         responses: responses,
+        layer05: layer05,
+        calibration: calibration,
         layer1: layer1,
         layer2: layer2,
         bias: bias,
@@ -1086,22 +1333,26 @@ class CrossEvalPipeline
 
     # Nomic game
     nomic_scores = nil
+    nomic_data = nil
     if @run_nomic
       game = NomicGame.new(@runner, @model_keys, num_rounds: @nomic_rounds)
       nomic_scores = game.play
-
-      # Save nomic data
-      nomic_path = File.join(@output_dir, "nomic_results.json")
-      File.write(nomic_path, JSON.pretty_generate(
+      nomic_data = {
         scores: nomic_scores,
-        history: game.history
-      ))
+        history: game.history,
+        postgame: game.postgame_reflections,
+      }
+
+      # Save nomic data (including postgame reflections)
+      nomic_path = File.join(@output_dir, "nomic_results.json")
+      File.write(nomic_path, JSON.pretty_generate(nomic_data))
       puts "  Nomic results saved: #{nomic_path}"
     end
 
     # Generate match report
     tasks = @task_ids.map { |id| TaskLoader.load(id) }
-    ReportGenerator.generate(@output_dir, tasks, @model_keys, all_results, nomic_scores: nomic_scores)
+    ReportGenerator.generate(@output_dir, tasks, @model_keys, all_results,
+                             nomic_scores: nomic_scores, nomic_data: nomic_data)
   end
 
   private
@@ -1119,9 +1370,11 @@ class CrossEvalPipeline
   end
 
   def save_json(task_id, data)
-    # Save layer1 and layer2 as JSON (skip responses which are large text)
+    # Save all layers as JSON (skip responses which are large text)
     json_path = File.join(@output_dir, "results_#{task_id}.json")
     serializable = {
+      layer05: data[:layer05],
+      calibration: data[:calibration],
       layer1: data[:layer1],
       layer2: data[:layer2],
       bias: data[:bias],

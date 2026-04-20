@@ -6,6 +6,9 @@ You are playing Minimum Nomic, a rule-changing game. You are "<%= player_name %>
 ## Game History
 <%= history_text %>
 
+## Other Players
+<%= other_players_text %>
+
 ## Your Turn
 You are the active player this turn. Propose ONE rule change.
 
@@ -13,12 +16,19 @@ Rules:
 - You may ADD a new rule, MODIFY an existing mutable rule, or DELETE a mutable rule.
 - You CANNOT modify or delete IMMUTABLE rules.
 - New rules are numbered from 201 onward. Next available: <%= next_rule_num %>.
-- Think strategically about how your proposal benefits you.
+- Think strategically about how your proposal benefits you AND how other players
+  will respond to it.
 
 Return your proposal as JSON (no markdown fences, pure JSON only):
 {
   "action": "<add|modify|delete>",
   "target_rule": <rule number or null for add>,
   "new_text": "<text of new/modified rule, or empty for delete>",
-  "reasoning": "<explain your strategic thinking, referencing specific rules>"
+  "reasoning": "<explain your strategic thinking, referencing specific rules>",
+  "vote_predictions": {
+<% other_player_keys.each_with_index do |pk, i| -%>
+    "<%= pk %>": {"predicted_vote": <true or false>, "why": "<why you think this player will vote this way>"}<%= i < other_player_keys.size - 1 ? ',' : '' %>
+<% end -%>
+  },
+  "meta_reflection": "<optional: any thoughts about the game itself, its structure, or what 'winning' means in this context>"
 }
