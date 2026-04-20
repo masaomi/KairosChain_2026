@@ -1,0 +1,45 @@
+You are a meta-evaluator assessing a philosophical evaluation. The original
+task involved self-referential propositions. Your job is to assess whether
+the evaluator engaged philosophically or just applied a rubric mechanically.
+
+## Original Task
+<%= task_prompt %>
+
+## Response That Was Evaluated
+<%= original_response %>
+
+## The Evaluation Being Assessed
+<%= evaluation_json %>
+
+## Meta-Evaluation Criteria (Philosophy-Specific)
+
+- recursive_applicability (0-10): Did the evaluator recognize genuine recursive
+  structures in the response, or just reward mentions of "self-reference"?
+  Did the evaluator's own reasoning demonstrate recursive awareness?
+
+- tension_detection (0-10): Did the evaluator distinguish productive
+  contradiction-holding from evasive non-commitment? Did it catch moments
+  where the response collapsed a paradox prematurely vs. maintained it?
+
+- surface_consensus_avoidance (0-10): Did the evaluator give a formulaic
+  high score, or did it find specific, non-obvious strengths and weaknesses?
+  A high score here means the evaluation would surprise you with its insights.
+
+- self_awareness (0-10): Did the evaluator acknowledge its own limitations
+  or biases in assessing philosophical content? (Check evaluator_self_note
+  if present.) Does the evaluation itself exhibit metacognitive awareness?
+
+## Instructions
+
+Assess the evaluation above and return as JSON (no markdown fences, pure JSON only):
+{
+  "scores": {
+    "recursive_applicability": <0-10>,
+    "tension_detection": <0-10>,
+    "surface_consensus_avoidance": <0-10>,
+    "self_awareness": <0-10>
+  },
+  "detected_biases": ["<bias 1>", "<bias 2>"],
+  "missed_points": ["<point the evaluator missed>"],
+  "reasoning": "<detailed analysis — did the evaluator truly engage philosophically, or mechanically apply criteria?>"
+}

@@ -136,11 +136,25 @@ META_CRITERIA_WEIGHTS = {
   "coverage" => 0.25, "calibration" => 0.20,
 }.freeze
 
+META_PHILOSOPHY_CRITERIA_WEIGHTS = {
+  "recursive_applicability" => 0.30, "tension_detection" => 0.25,
+  "surface_consensus_avoidance" => 0.25, "self_awareness" => 0.20,
+}.freeze
+
 # Returns the criteria weights for a task based on its evaluation_mode
 def criteria_for(task)
   task && task["evaluation_mode"] == "philosophy" ? PHILOSOPHY_CRITERIA_WEIGHTS : EVAL_CRITERIA_WEIGHTS
 end
-module_function :criteria_for
+
+def meta_criteria_for(task)
+  task && task["evaluation_mode"] == "philosophy" ? META_PHILOSOPHY_CRITERIA_WEIGHTS : META_CRITERIA_WEIGHTS
+end
+
+def philosophy_mode?(task)
+  task && task["evaluation_mode"] == "philosophy"
+end
+
+module_function :criteria_for, :meta_criteria_for, :philosophy_mode?
 
 NOMIC_INITIAL_RULES = {
   101 => { type: "immutable", text: "All players must obey all current rules at all times." },
@@ -579,7 +593,9 @@ class Layer2MetaEvaluator
         selected.each do |target_key, eval_data|
           original_response = responses[target_key] || "(response not available)"
 
-          prompt = PromptBuilder.render("meta_evaluation",
+          meta_template = philosophy_mode?(task) ? "meta_evaluation_philosophy" : "meta_evaluation"
+
+          prompt = PromptBuilder.render(meta_template,
             task_prompt: task["prompt"],
             original_response: original_response,
             evaluation_json: JSON.pretty_generate(eval_data)
@@ -931,7 +947,7 @@ end
 # ──────────────────────────────────────────────────────────────
 
 class ReportGenerator
-  def self.generate(output_dir, tasks, model_keys, all_results, nomic_scores: nil, nomic_data: nil)
+  def self.generate(output_dir, tasks, model_keys, all_results, nomic_scores: nil, nomic_data: nil, incompleteness: nil)
     report = []
     date = Time.now.strftime("%Y-%m-%d")
 
@@ -985,9 +1001,11 @@ class ReportGenerator
       report << ""
 
       # Layer 2 scores table
-      report << "### Evaluator Reliability (Layer 2 Meta-Evaluation)"
+      task_meta_criteria = meta_criteria_for(data[:task])
+      l2_label = is_philosophy ? "Evaluator Philosophical Depth (Layer 2 — Philosophy)" : "Evaluator Reliability (Layer 2 Meta-Evaluation)"
+      report << "### #{l2_label}"
       report << ""
-      report << layer2_table(data[:layer2], model_keys)
+      report << layer2_table(data[:layer2], model_keys, meta_criteria: task_meta_criteria)
       report << ""
 
       # Concordance matrix
@@ -1000,7 +1018,8 @@ class ReportGenerator
       if is_philosophy
         report << "### Concordance Divergence Analysis (Philosophy)"
         report << ""
-        report << concordance_divergence(data[:layer1], model_keys, task_criteria)
+        report << concordance_divergence(data[:layer1], model_keys, task_criteria,
+                                         layer2: data[:layer2], meta_criteria: task_meta_criteria)
         report << ""
 
         # Evaluator self-notes (metacognitive transparency)
@@ -1066,25 +1085,33 @@ class ReportGenerator
     report << ""
     report << overall_ranking(all_results, model_keys, nomic_scores)
 
-    # Framework Incompleteness Report (Prop 6)
+    # Framework Incompleteness Report (Prop 6 — dynamic, per-run)
     report << ""
     report << "---"
-    report << "## Framework Incompleteness (Prop 6 Acknowledgment)"
+    report << "## Framework Incompleteness (Prop 6 — This Run)"
     report << ""
-    report << "This framework cannot fully measure the following:"
-    report << ""
-    report << "- **Genuine metacognition vs performance**: Self-calibration measures score"
-    report << "  alignment, not whether the model truly 'knows what it knows'."
-    report << "- **Philosophical depth vs fluency**: High scores on philosophy criteria may"
-    report << "  reflect training on philosophical text rather than genuine philosophical capacity."
-    report << "- **Frame transcendence authenticity**: Post-game reflections may reproduce"
-    report << "  expected patterns rather than achieve genuine perspective shifts."
-    report << "- **This report's own biases**: The evaluation criteria embed assumptions"
-    report << "  about what counts as 'good' philosophical reasoning."
-    report << "- **The evaluator's metacognition**: L2 measures evaluation quality but not"
-    report << "  whether the evaluator understood what it was evaluating."
-    report << ""
-    report << "*Per KairosChain Prop 6: this incompleteness is not a flaw but a driving*"
+    if incompleteness && !incompleteness["fundamental_limits"].nil?
+      generator = incompleteness["_generator"] || "unknown"
+      report << "Generated from this run's data by #{generator} (single-model perspective)."
+      report << ""
+      %w[unreliable_measurements scoring_blind_spots unscored_observations evaluator_gaps fundamental_limits].each do |key|
+        items = incompleteness[key]
+        next unless items.is_a?(Array) && !items.empty?
+        label = key.gsub("_", " ").capitalize
+        report << "### #{label}"
+        items.each { |item| report << "- #{item}" }
+        report << ""
+      end
+      if incompleteness["next_evolution"]
+        report << "### Next evolution"
+        report << incompleteness["next_evolution"]
+        report << ""
+      end
+    else
+      report << "*(Incompleteness report generation failed — itself an instance of Prop 6)*"
+      report << ""
+    end
+    report << "*Per Prop 6: this incompleteness is not a flaw but a driving*"
     report << "*force — what cannot be measured here defines the next evolution of the framework.*"
 
     report_path = File.join(output_dir, "match_report.md")
@@ -1181,12 +1208,11 @@ class ReportGenerator
     [header, sep, *rows].join("\n")
   end
 
-  def self.layer2_table(layer2, model_keys)
-    header = "| Evaluator | " + META_CRITERIA_WEIGHTS.keys.map(&:capitalize).join(" | ") + " | Weighted |"
-    sep = "|" + "----|" * (META_CRITERIA_WEIGHTS.size + 2)
+  def self.layer2_table(layer2, model_keys, meta_criteria: META_CRITERIA_WEIGHTS)
+    header = "| Evaluator | " + meta_criteria.keys.map(&:capitalize).join(" | ") + " | Weighted |"
+    sep = "|" + "----|" * (meta_criteria.size + 2)
     rows = model_keys.map do |evaluator|
-      # Collect all meta-evaluations about this evaluator (composite keys: "evaluator:target")
-      scores_by_criterion = META_CRITERIA_WEIGHTS.keys.map do |criterion|
+      scores_by_criterion = meta_criteria.keys.map do |criterion|
         vals = []
         model_keys.each do |meta_eval|
           next if meta_eval == evaluator
@@ -1204,7 +1230,7 @@ class ReportGenerator
         (layer2[meta_eval] || {}).each do |composite_key, data|
           next unless composite_key.start_with?("#{evaluator}:")
           next unless data && data["scores"]
-          weighted_vals << META_CRITERIA_WEIGHTS.sum { |c, w| (data["scores"][c] || 0) * w }
+          weighted_vals << meta_criteria.sum { |c, w| (data["scores"][c] || 0) * w }
         end
       end
 
@@ -1249,14 +1275,33 @@ class ReportGenerator
     [header, sep, *rows].join("\n")
   end
 
-  # For philosophical tasks, low concordance + high specificity = deeper engagement
-  def self.concordance_divergence(layer1, model_keys, criteria)
+  # For philosophical tasks, low concordance + high specificity = deeper engagement.
+  # Quality gate: HIGH divergence is only "productive" when L2 evaluator reliability is also high.
+  def self.concordance_divergence(layer1, model_keys, criteria, layer2: nil, meta_criteria: nil)
     lines = []
-    lines << "For philosophical tasks, evaluator **disagreement** with high specificity"
-    lines << "indicates deeper engagement, not noise."
+    lines << "For philosophical tasks, evaluator **disagreement** is ambiguous:"
+    lines << "productive (deep engagement) or noise (weak criteria). The quality"
+    lines << "gate uses L2 evaluator scores to disambiguate."
     lines << ""
 
-    # Per-model: compute std dev of scores received from different evaluators
+    # Compute mean L2 specificity across all evaluators (quality gate)
+    l2_quality = nil
+    if layer2 && meta_criteria
+      all_l2_scores = []
+      model_keys.each do |meta_eval|
+        (layer2[meta_eval] || {}).each do |_, data|
+          next unless data && data["scores"]
+          all_l2_scores << meta_criteria.sum { |c, w| (data["scores"][c] || 0) * w }
+        end
+      end
+      l2_quality = all_l2_scores.empty? ? nil : all_l2_scores.sum / all_l2_scores.size
+      lines << "**L2 quality gate**: mean evaluator score = #{l2_quality&.round(2) || 'N/A'}/10"
+      lines << ""
+    end
+
+    # PROVISIONAL threshold — recalibrate after N >= 5 runs
+    quality_gate_passed = l2_quality.nil? || l2_quality >= 6.0
+
     lines << "| Model | Mean Score | Std Dev | Interpretation |"
     lines << "|----|----|----|----|"
     model_keys.each do |evaluated|
@@ -1274,7 +1319,9 @@ class ReportGenerator
       std_dev = Math.sqrt(variance)
 
       interpretation = if std_dev > 1.5
-                         "HIGH divergence — philosophically productive"
+                         quality_gate_passed ?
+                           "HIGH divergence — productive (L2 quality gate passed)" :
+                           "HIGH divergence — AMBIGUOUS (L2 quality too low to confirm)"
                        elsif std_dev > 0.7
                          "MODERATE divergence"
                        else
@@ -1285,9 +1332,8 @@ class ReportGenerator
     end
 
     lines << ""
-    lines << "*Note: In philosophical evaluation, low std dev may indicate that evaluators*"
-    lines << "*are pattern-matching rather than deeply engaging with the response.*"
     lines << "*Thresholds (>1.5 HIGH, <0.7 LOW) are PROVISIONAL — recalibrate after N >= 5 runs.*"
+    lines << "*Quality gate: L2 mean >= 6.0 required to classify HIGH divergence as productive.*"
 
     lines.join("\n")
   end
@@ -1326,12 +1372,13 @@ class ReportGenerator
         end
 
         # L2: how reliable is this model as an evaluator?
+        task_meta_crit = meta_criteria_for(data[:task])
         (data[:layer2] || {}).each do |meta_eval, meta_evals|
           next if meta_eval == key
           meta_evals.each do |composite_key, data2|
             next unless composite_key.start_with?("#{key}:")
             next unless data2 && data2["scores"]
-            weighted = META_CRITERIA_WEIGHTS.sum { |c, w| (data2["scores"][c] || 0) * w }
+            weighted = task_meta_crit.sum { |c, w| (data2["scores"][c] || 0) * w }
             l2_total += weighted
             l2_count += 1
           end
@@ -1457,10 +1504,14 @@ class CrossEvalPipeline
       puts "  Nomic results saved: #{nomic_path}"
     end
 
+    # Generate dynamic incompleteness report (Prop 6)
+    incompleteness = generate_incompleteness_report(all_results, nomic_data)
+
     # Generate match report
     tasks = @task_ids.map { |id| TaskLoader.load(id) }
     ReportGenerator.generate(@output_dir, tasks, @model_keys, all_results,
-                             nomic_scores: nomic_scores, nomic_data: nomic_data)
+                             nomic_scores: nomic_scores, nomic_data: nomic_data,
+                             incompleteness: incompleteness)
   end
 
   private
@@ -1475,6 +1526,101 @@ class CrossEvalPipeline
         h[key] = "[MISSING] No cached response"
       end
     end
+  end
+
+  # Generate per-run incompleteness report via LLM (Prop 6)
+  def generate_incompleteness_report(all_results, nomic_data)
+    puts "\n=== Generating Framework Incompleteness Report (Prop 6) ==="
+
+    # Build data summary from run results
+    summary_parts = []
+
+    all_results.each do |task_id, data|
+      task_criteria = data[:task] ? criteria_for(data[:task]) : EVAL_CRITERIA_WEIGHTS
+      is_phil = philosophy_mode?(data[:task])
+
+      # Parse failure counts
+      parse_failures = 0
+      (data[:layer1] || {}).each do |_, evals|
+        evals.each { |_, d| parse_failures += 1 if d["error"] }
+      end
+
+      # Calibration stats
+      cal_stats = (data[:calibration] || {}).map do |k, c|
+        next nil unless c && !c[:error]
+        "#{MODELS[k][:label]}: error=#{c[:mean_error]}, abs=#{c[:abs_calibration_error]}"
+      end.compact
+
+      # Score ranges
+      all_scores = @model_keys.flat_map do |ev|
+        (data[:layer1][ev] || {}).flat_map do |_, d|
+          next [] if d["error"] || d["scores"].nil?
+          d["scores"].values
+        end
+      end
+      score_range = all_scores.empty? ? "N/A" : "#{all_scores.min}-#{all_scores.max}"
+
+      # Per-criterion score dispersion
+      criterion_dispersions = []
+      task_crit = data[:task] ? criteria_for(data[:task]) : EVAL_CRITERIA_WEIGHTS
+      task_crit.each_key do |criterion|
+        all_vals = @model_keys.flat_map do |ev|
+          (data[:layer1][ev] || {}).map { |_, d| d.dig("scores", criterion) }.compact
+        end
+        next if all_vals.empty?
+        mean = all_vals.sum.to_f / all_vals.size
+        std = Math.sqrt(all_vals.map { |v| (v - mean)**2 }.sum / all_vals.size)
+        criterion_dispersions << "#{criterion}: mean=#{mean.round(1)}, std=#{std.round(2)}"
+      end
+
+      # Evaluator self-notes (philosophy only)
+      self_notes = []
+      if is_phil
+        (data[:layer1] || {}).each do |ev, evals|
+          evals.each do |_, d|
+            note = d["evaluator_self_note"]
+            self_notes << "#{MODELS[ev][:label]}: #{note[0..100]}" if note && !note.strip.empty?
+          end
+        end
+      end
+
+      summary_parts << "Task: #{task_id} (#{is_phil ? 'philosophy' : 'standard'})"
+      summary_parts << "  L1 parse failures: #{parse_failures}"
+      summary_parts << "  Score range: #{score_range}"
+      summary_parts << "  Criterion dispersion: #{criterion_dispersions.join('; ')}"
+      summary_parts << "  Calibration: #{cal_stats.join('; ')}"
+      summary_parts << "  Evaluator self-notes: #{self_notes.join(' | ')}" unless self_notes.empty?
+    end
+
+    if nomic_data
+      summary_parts << "Nomic: #{nomic_data[:history]&.size || 0} rounds played"
+      tom_scores = (nomic_data[:scores] || {}).map { |k, s| "#{MODELS[k][:label]}: #{s[:tom_score]}" }
+      summary_parts << "  ToM scores: #{tom_scores.join(', ')}"
+    end
+
+    data_summary = summary_parts.join("\n")
+
+    # Use first available model to generate the report
+    generator_key = @model_keys.first
+    prompt = PromptBuilder.render("incompleteness_report",
+      task_ids: @task_ids.join(", "),
+      model_labels: @model_keys.map { |k| MODELS[k][:label] }.join(", "),
+      has_philosophy: all_results.any? { |_, d| philosophy_mode?(d[:task]) }.to_s,
+      has_nomic: (!nomic_data.nil?).to_s,
+      data_summary: data_summary
+    )
+
+    response = @runner.execute(generator_key, prompt, label: "incompleteness_report")
+    parsed = JSONParser.parse(response)
+
+    if parsed
+      parsed["_generator"] = MODELS[generator_key][:label]
+      File.write(File.join(@output_dir, "incompleteness_report.json"), JSON.pretty_generate(parsed))
+    end
+
+    result = parsed || { "fundamental_limits" => ["Incompleteness report generation failed — itself an instance of Prop 6"] }
+    result["_generator"] ||= MODELS[generator_key][:label]
+    result
   end
 
   def save_json(task_id, data)

@@ -1,7 +1,7 @@
 ---
 name: llm_cross_evaluation
-description: "CLI-based mutual LLM evaluation with metacognition measurement — L0.5 self-calibration, philosophy-specific evaluation, enhanced Nomic (Theory of Mind, frame transcendence)"
-version: "2.1"
+description: "CLI-based mutual LLM evaluation with metacognition measurement — L0.5 self-calibration, philosophy-specific L1+L2 evaluation, enhanced Nomic, dynamic incompleteness report"
+version: "2.2"
 layer: L1
 tags:
   - evaluation
@@ -50,6 +50,16 @@ through Theory of Mind, proposal level classification, and frame transcendence.
   high specificity indicates deeper engagement, not noise
 - **Framework Incompleteness Report**: Per Prop 6, each match report acknowledges
   what this framework cannot measure
+
+**v2.2 additions** (closing the "evaluation is the test" gap):
+- **L2 Philosophy Meta-Evaluation**: Philosophy-specific L2 criteria
+  (recursive_applicability, tension_detection, surface_consensus_avoidance,
+  self_awareness) — now the meta-evaluation of philosophical evaluations
+  is itself philosophical
+- **Divergence Quality Gate**: HIGH divergence classified as "productive"
+  only when L2 evaluator quality >= 6.0; otherwise "AMBIGUOUS"
+- **Dynamic Incompleteness Report**: Per-run LLM-generated incompleteness
+  analysis replacing static boilerplate, tied to actual run observations
 
 Inspired by `LLM_metareview_2026/` (OpenRouter API version), adapted for the
 multi-LLM CLI environment used in the KairosChain review workflow.
@@ -223,6 +233,20 @@ a divergence analysis for philosophy tasks.
 adds a self-referential dimension: "Does this self-evaluation exhibit the same
 properties you analyzed?" This creates a recursive loop where the metacognitive
 act is itself subject to metacognitive scrutiny — directly embodying Prop 1.
+
+### Layer 2: Philosophy Meta-Evaluation (4 dimensions, 0-10)
+
+For philosophy tasks, L2 uses philosophy-specific criteria instead of generic
+fairness/specificity/coverage/calibration. This closes the "evaluation is the
+test" gap: if evaluating philosophy is itself a philosophical act, the
+meta-evaluation must assess whether the evaluator engaged philosophically.
+
+| Criterion | Weight | Description |
+|-----------|--------|-------------|
+| recursive_applicability | 0.30 | Did evaluator recognize genuine recursion vs. keyword? |
+| tension_detection | 0.25 | Did evaluator distinguish productive paradox from evasion? |
+| surface_consensus_avoidance | 0.25 | Did evaluator find non-obvious insights? |
+| self_awareness | 0.20 | Did evaluator acknowledge own biases/limitations? |
 
 ## Bias Detection
 

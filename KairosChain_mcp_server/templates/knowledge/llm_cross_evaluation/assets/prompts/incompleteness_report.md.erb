@@ -1,0 +1,36 @@
+You are generating a Framework Incompleteness Report for a metacognition
+benchmark run. Per KairosChain Proposition 6, this framework CANNOT fully
+measure what it claims to measure — and acknowledging this is structurally
+necessary, not a disclaimer.
+
+Analyze the following run data and identify SPECIFIC gaps, failures, and
+unmeasurable aspects FROM THIS RUN. Do NOT produce generic philosophical
+disclaimers. Every point must reference concrete observations.
+
+## Run Summary
+- Tasks: <%= task_ids %>
+- Models: <%= model_labels %>
+- Philosophy tasks included: <%= has_philosophy %>
+- Nomic included: <%= has_nomic %>
+
+## Observed Data Points
+<%= data_summary %>
+
+## Instructions
+
+Based on the data above, identify:
+1. Which measurements are unreliable in THIS run (low sample size, parse failures, etc.)
+2. What the scoring formula rewards that may not correspond to genuine metacognition
+3. What observable behaviors occurred that the framework has no metric for
+4. What the evaluators consistently missed or disagreed about
+5. What this framework fundamentally cannot measure, regardless of run quality
+
+Return as JSON (no markdown fences, pure JSON only):
+{
+  "unreliable_measurements": ["<specific measurement + why>"],
+  "scoring_blind_spots": ["<what the formula rewards without validating>"],
+  "unscored_observations": ["<observable phenomenon with no metric>"],
+  "evaluator_gaps": ["<systematic evaluator blind spot>"],
+  "fundamental_limits": ["<what no version of this framework can measure>"],
+  "next_evolution": "<one concrete suggestion for the next framework version>"
+}
