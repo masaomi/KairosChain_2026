@@ -44,6 +44,9 @@ module KairosMcp
         @shell    = shell
         @wal_factory = wal_factory
         @logger   = logger
+        # NOTE: @usage counters are stubbed at zero in P3.5 validation.
+        # Real LLM usage tracking will be wired when orient_fn/decide_fn
+        # are connected to CognitiveLoop (which reports usage per call).
         @usage    = { llm_calls: 0, input_tokens: 0, output_tokens: 0 }
       end
 
@@ -51,6 +54,9 @@ module KairosMcp
       # @return [Hash] { status:, llm_calls:, input_tokens:, output_tokens:, phases: }
       def call(mandate)
         @usage = { llm_calls: 0, input_tokens: 0, output_tokens: 0 }
+
+        # Flush any pending chain records (always, including resume paths)
+        @chain.retry_pending
 
         # Step 0: Check for pending proposal resume
         resolved = @cg_handler.resume_if_pending
@@ -60,21 +66,25 @@ module KairosMcp
         when :still_pending
           return result_hash('paused', phases: [])
         when Hash
-          if resolved[:status] == 'applied'
-            # Proposal was applied — run post-commit + reflect
-            maybe_run_post_commit(mandate, resolved)
-            record_to_chain(resolved, mandate)
-            reflect_result = run_reflect(resolved, mandate)
-            return result_hash('ok', phases: [:resume, :reflect])
-          else
-            # rejected/expired/not_found — reflect on failure
-            run_reflect(resolved, mandate)
-            return result_hash(resolved[:status], phases: [:resume, :reflect])
+          # F1 fix: Open WAL for resume path
+          mandate_id = mandate[:id] || mandate['id'] || 'unknown'
+          wal = @wal_factory.call(mandate_id)
+          cycle = (mandate[:cycles_completed] || mandate['cycles_completed'] || 0) + 1
+          recorder = WalPhaseRecorder.new(wal: wal, cycle: cycle)
+          begin
+            if resolved[:status] == 'applied'
+              maybe_run_post_commit(mandate, resolved)
+              # F3 fix: chain recording already done by CodeGenAct — don't duplicate
+              run_reflect(resolved, mandate, recorder)
+              return result_hash('ok', phases: [:resume, :reflect])
+            else
+              run_reflect(resolved, mandate, recorder)
+              return result_hash(resolved[:status], phases: [:resume, :reflect])
+            end
+          ensure
+            wal.close rescue nil if wal.respond_to?(:close)
           end
         end
-
-        # Flush any pending chain records from previous cycles
-        @chain.retry_pending
 
         # Open WAL
         mandate_id = mandate[:id] || mandate['id'] || 'unknown'
@@ -103,8 +113,7 @@ module KairosMcp
           # Post-commit shell (git add/commit)
           maybe_run_post_commit(mandate, act_result, decision: decision)
 
-          # Chain recording
-          record_to_chain(act_result, mandate)
+          # Chain recording handled by CodeGenAct internally (no duplication)
 
           # Step 5: REFLECT
           run_reflect(act_result, mandate, recorder)
@@ -192,20 +201,6 @@ module KairosMcp
             log(:warn, "post_commit shell failed: #{argv.inspect} status=#{result.status}")
           end
         end
-      end
-
-      def record_to_chain(act_result, mandate)
-        return unless act_result[:status] == 'applied'
-        scope = act_result[:scope]&.to_s
-        return unless %w[l0 l1].include?(scope)
-
-        @chain.record(
-          proposal_id: act_result[:proposal_id],
-          mandate_id: mandate[:id] || mandate['id'],
-          scope: scope,
-          pre_hash: act_result[:pre_hash],
-          post_hash: act_result[:post_hash]
-        )
       end
 
       def result_hash(status, phases: [], proposal_id: nil)
