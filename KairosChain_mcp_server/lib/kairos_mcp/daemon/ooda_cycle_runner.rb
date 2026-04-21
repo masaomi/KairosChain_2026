@@ -30,6 +30,7 @@ module KairosMcp
         chain_recorder:,
         shell:,
         wal_factory:,
+        usage_accumulator: nil,
         logger: nil
       )
         @ws       = workspace_root
@@ -44,16 +45,16 @@ module KairosMcp
         @shell    = shell
         @wal_factory = wal_factory
         @logger   = logger
-        # NOTE: @usage counters are stubbed at zero in P3.5 validation.
-        # Real LLM usage tracking will be wired when orient_fn/decide_fn
-        # are connected to CognitiveLoop (which reports usage per call).
-        @usage    = { llm_calls: 0, input_tokens: 0, output_tokens: 0 }
+        # Usage accumulator: if orient_fn/decide_fn/reflect_fn use
+        # LlmPhaseFunctions with a shared UsageAccumulator, inject it here
+        # to enable per-cycle budget tracking. Otherwise falls back to zeros.
+        @usage_accumulator = usage_accumulator
       end
 
       # @param mandate [Hash]
       # @return [Hash] { status:, llm_calls:, input_tokens:, output_tokens:, phases: }
       def call(mandate)
-        @usage = { llm_calls: 0, input_tokens: 0, output_tokens: 0 }
+        @usage_accumulator&.reset! if @usage_accumulator.respond_to?(:reset!)
 
         # Flush any pending chain records (always, including resume paths)
         @chain.retry_pending
@@ -204,11 +205,16 @@ module KairosMcp
       end
 
       def result_hash(status, phases: [], proposal_id: nil)
+        usage = if @usage_accumulator.respond_to?(:to_h)
+                  @usage_accumulator.to_h
+                else
+                  { llm_calls: 0, input_tokens: 0, output_tokens: 0 }
+                end
         h = {
           status: status,
-          llm_calls: @usage[:llm_calls],
-          input_tokens: @usage[:input_tokens],
-          output_tokens: @usage[:output_tokens],
+          llm_calls: usage[:llm_calls],
+          input_tokens: usage[:input_tokens],
+          output_tokens: usage[:output_tokens],
           phases: phases
         }
         h[:proposal_id] = proposal_id if proposal_id
