@@ -13,7 +13,7 @@ module KairosMcp
 
         def self.run_with_timeout(wrapped_cmd:, env:, cwd:, timeout:,
                                   stdin_data: nil, max_output_bytes:,
-                                  cmd_for_hash: nil)
+                                  cmd_for_hash: nil, sandbox_driver: :sandbox_exec)
           r_out, w_out = IO.pipe
           r_err, w_err = IO.pipe
           r_in, w_in = stdin_data ? IO.pipe : [nil, nil]
@@ -132,7 +132,7 @@ module KairosMcp
             stdout: stdout_buf, stderr: stderr_buf,
             duration_ms: elapsed,
             stdout_truncated: stdout_trunc, stderr_truncated: stderr_trunc,
-            sandbox_driver: :sandbox_exec,
+            sandbox_driver: sandbox_driver,
             cmd_hash: cmd_hash
           )
         end

@@ -24,13 +24,15 @@ module KairosMcp
       # Git: allowlisted subcommands + env scrub + forbidden flags.
       class GitArgvValidator < BaseArgvValidator
         ALLOWED_SUBCOMMANDS = %w[status diff log show rev-parse ls-files].freeze
-        FORBIDDEN_FLAGS = %w[-c --exec-path --git-dir --work-tree].freeze
+        FORBIDDEN_FLAGS = %w[-c -C --exec-path --git-dir --work-tree].freeze
 
         def self.validate_specific!(argv)
-          # Check global forbidden flags (exact match for -c)
+          # Check global forbidden flags
           argv.each do |arg|
-            raise PolicyViolation, "forbidden git flag: -c" if arg == '-c'
-            FORBIDDEN_FLAGS[1..].each do |f|
+            # Exact match for short flags (-c, -C)
+            raise PolicyViolation, "forbidden git flag: #{arg}" if arg == '-c' || arg == '-C'
+            # Prefix match for long flags
+            %w[--exec-path --git-dir --work-tree].each do |f|
               raise PolicyViolation, "forbidden git flag: #{arg}" if arg.start_with?(f)
             end
           end

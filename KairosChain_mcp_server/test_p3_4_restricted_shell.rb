@@ -443,6 +443,58 @@ Dir.mktmpdir('rs_integ') do |ws|
 end
 
 # ---------------------------------------------------------------------------
+# R1 fix tests
+# ---------------------------------------------------------------------------
+
+section 'R1 fixes: path prefix bypass + SBPL injection + git -C'
+
+assert('F1: /tmp/repo does NOT accept /tmp/repo_evil') do
+  begin
+    RS.send(:validate_paths!, '/tmp/repo_evil', ['/tmp/repo'])
+    false
+  rescue RS::PolicyViolation => e
+    e.message.include?('not under')
+  end
+end
+
+assert('F1b: /tmp/repo accepts /tmp/repo/subdir') do
+  RS.send(:validate_paths!, '/tmp/repo/subdir', ['/tmp/repo'])
+  true
+end
+
+assert('F1c: /tmp/repo accepts /tmp/repo itself') do
+  RS.send(:validate_paths!, '/tmp/repo', ['/tmp/repo'])
+  true
+end
+
+assert('F2: SBPL rejects path with double-quote') do
+  begin
+    SF.render_sbpl(cwd: '/tmp/test"evil', allowed_paths: ['/tmp'], network: :deny)
+    false
+  rescue RS::SandboxError => e
+    e.message.include?('SBPL-unsafe')
+  end
+end
+
+assert('F2b: SBPL rejects path with backslash') do
+  begin
+    SF.render_sbpl(cwd: '/tmp/test\\evil', allowed_paths: ['/tmp'], network: :deny)
+    false
+  rescue RS::SandboxError => e
+    e.message.include?('SBPL-unsafe')
+  end
+end
+
+assert('F4: git -C → PolicyViolation') do
+  begin
+    GV.validate!(%w[-C /elsewhere status])
+    false
+  rescue RS::PolicyViolation => e
+    e.message.include?('-C')
+  end
+end
+
+# ---------------------------------------------------------------------------
 # summary
 # ---------------------------------------------------------------------------
 

@@ -74,7 +74,8 @@ module KairosMcp
             env: env, cwd: cwd, timeout: timeout,
             stdin_data: stdin_data,
             max_output_bytes: max_output_bytes,
-            cmd_for_hash: cmd
+            cmd_for_hash: cmd,
+            sandbox_driver: sandbox_ctx.driver
           )
         ensure
           sandbox_ctx.cleanup!
@@ -89,8 +90,9 @@ module KairosMcp
           raise PolicyViolation, "allowed_path must be absolute: #{p}" unless p.start_with?('/')
         end
         # cwd must be under one of allowed_paths
-        cwd_real = File.expand_path(cwd)
-        unless allowed_paths.any? { |p| cwd_real.start_with?(File.expand_path(p)) }
+        # F1 fix: directory-boundary check (append / to prevent prefix bypass)
+        cwd_real = File.expand_path(cwd) + '/'
+        unless allowed_paths.any? { |p| cwd_real.start_with?(File.expand_path(p) + '/') }
           raise PolicyViolation, "cwd #{cwd} is not under any allowed_path"
         end
       end

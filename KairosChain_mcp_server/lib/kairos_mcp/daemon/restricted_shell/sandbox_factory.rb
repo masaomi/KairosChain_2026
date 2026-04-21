@@ -39,6 +39,13 @@ module KairosMcp
         end
 
         def self.render_sbpl(cwd:, allowed_paths:, network:)
+          # F2 fix: validate + escape paths for SBPL injection prevention
+          all_paths = [cwd, *allowed_paths]
+          all_paths.each do |p|
+            if p.match?(/["\\()\n\r]/)
+              raise SandboxError, "path contains SBPL-unsafe characters: #{p.inspect}"
+            end
+          end
           allowed_read = allowed_paths.map { |p| "(subpath \"#{p}\")" }.join("\n  ")
           network_clause = network == :allow ? '(allow network-outbound)' : ''
 
