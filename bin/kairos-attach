@@ -1,0 +1,229 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# kairos-attach — Interactive CLI for daemon proposal management.
+#
+# Design (Phase 4 v0.3 §3):
+#   Connects to the daemon's AttachServer HTTP API (127.0.0.1 only).
+#   Bearer token auth via ~/.kairos/run/attach_token or KAIROS_ATTACH_TOKEN env.
+#
+# Usage:
+#   kairos-attach                        # interactive mode
+#   kairos-attach list                   # list pending proposals
+#   kairos-attach show <id>              # show proposal details
+#   kairos-attach approve <id>           # approve proposal (with diff preview)
+#   kairos-attach reject <id> [reason]   # reject proposal
+#   kairos-attach status                 # daemon status
+
+require 'net/http'
+require 'json'
+require 'uri'
+
+class KairosAttach
+  VERSION = '0.1.0'
+  DEFAULT_PORT = 9847
+  DEFAULT_HOST = '127.0.0.1'
+
+  def initialize(port: nil, host: nil, token: nil, token_file: nil)
+    @port = Integer(port || ENV['KAIROS_ATTACH_PORT'] || DEFAULT_PORT)
+    @host = host || ENV['KAIROS_ATTACH_HOST'] || DEFAULT_HOST
+    @token = token || ENV['KAIROS_ATTACH_TOKEN'] || read_token_file(token_file)
+  end
+
+  def run(args)
+    case args.first
+    when 'list', 'ls'       then list_proposals
+    when 'show'             then show_proposal(args[1])
+    when 'approve', 'ok'    then approve(args[1])
+    when 'reject', 'no'     then reject(args[1], args[2..].join(' '))
+    when 'status', 'st'     then show_status
+    when 'version', '-v'    then puts "kairos-attach #{VERSION}"
+    when 'help', '-h', nil  then args.first.nil? ? interactive_mode : usage
+    else
+      $stderr.puts "Unknown command: #{args.first}"
+      usage
+      exit 1
+    end
+  rescue Errno::ECONNREFUSED
+    $stderr.puts "Error: daemon not running (connection refused on #{@host}:#{@port})"
+    exit 1
+  rescue => e
+    $stderr.puts "Error: #{e.message}"
+    exit 1
+  end
+
+  private
+
+  def list_proposals
+    data = api_get('/v1/proposals')
+    proposals = data['proposals'] || []
+    if proposals.empty?
+      puts 'No pending proposals.'
+      return
+    end
+    puts "#{proposals.size} pending proposal(s):\n\n"
+    proposals.each do |p|
+      id_short = (p['id'] || p['proposal_id'] || '?').to_s[0..7]
+      # scope/target may be nested hashes from ApprovalGate
+      scope_raw = p['scope']
+      scope = scope_raw.is_a?(Hash) ? (scope_raw['scope'] || scope_raw['level'] || '?') : (scope_raw || '?')
+      scope_label = scope.to_s.upcase == 'L0' ? "\e[31m#{scope}\e[0m" : "\e[33m#{scope}\e[0m"
+      target_raw = p['target']
+      target = target_raw.is_a?(Hash) ? (target_raw['path'] || target_raw.to_s) : (target_raw || p['path'] || '?')
+      intent = p['intent'] || p.dig('metadata', 'intent') || ''
+      puts "  #{id_short}  #{scope_label}  #{target}  #{intent}"
+    end
+  end
+
+  def show_proposal(id)
+    abort 'Usage: kairos-attach show <proposal_id>' unless id
+    data = api_get("/v1/proposals/#{id}")
+    puts JSON.pretty_generate(data)
+  end
+
+  def approve(id)
+    abort 'Usage: kairos-attach approve <proposal_id>' unless id
+
+    # Show diff before confirmation
+    proposal = api_get("/v1/proposals/#{id}")
+    puts "\n--- Proposal #{id[0..7]} ---"
+    puts "Scope:  #{proposal['scope']}"
+    puts "Target: #{proposal['target'] || proposal['path']}"
+    puts "Intent: #{proposal['intent']}"
+    if proposal['diff']
+      puts "\nDiff:"
+      puts proposal['diff']
+    end
+    print "\nApprove? [y/N] "
+    answer = $stdin.gets&.strip&.downcase
+    unless answer == 'y'
+      puts 'Cancelled.'
+      return
+    end
+
+    result = api_post("/v1/proposals/#{id}/approve", { reviewer: current_user })
+    puts "Approved: #{result['enqueued'] ? 'enqueued' : result['status'] || 'ok'}"
+  end
+
+  def reject(id, reason = nil)
+    abort 'Usage: kairos-attach reject <proposal_id> [reason]' unless id
+    body = { reviewer: current_user }
+    body[:reason] = reason unless reason.nil? || reason.empty?
+    result = api_post("/v1/proposals/#{id}/reject", body)
+    puts "Rejected: #{result['enqueued'] ? 'enqueued' : result['status'] || 'ok'}"
+  end
+
+  def show_status
+    status = api_get('/v1/status')
+    puts "State:    #{status['state']}"
+    puts "PID:      #{status['pid']}"
+    puts "Mandate:  #{status['active_mandate_id'] || 'none'}"
+    puts "Queue:    #{status['queue_depth'] || 0}"
+    puts "Tick:     #{status['tick_count'] || 0}"
+    if status['budget_calls'] || status['budget']
+      budget = status['budget'] || {}
+      puts "Budget:   #{budget['llm_calls'] || status['budget_calls'] || 0}/#{budget['limit'] || '?'}"
+    end
+  end
+
+  def interactive_mode
+    puts "kairos-attach v#{VERSION} (#{@host}:#{@port})"
+    puts 'Commands: list, show <id>, approve <id>, reject <id> [reason], status, quit'
+    puts ''
+    loop do
+      print 'kairos> '
+      line = $stdin.gets&.strip
+      break if line.nil? || %w[quit exit q].include?(line)
+      next if line.empty?
+      begin
+        run(line.split)
+      rescue SystemExit
+        # Don't exit interactive mode on sub-command exit
+      rescue Errno::ECONNREFUSED
+        puts "Error: daemon not running (connection refused on #{@host}:#{@port})"
+      rescue => e
+        puts "Error: #{e.message}"
+      end
+    end
+    puts 'Bye.'
+  end
+
+  def usage
+    puts <<~USAGE
+      Usage: kairos-attach [command] [args]
+
+      Commands:
+        list, ls              List pending proposals
+        show <id>             Show proposal details
+        approve, ok <id>      Approve proposal (shows diff first)
+        reject, no <id> [r]   Reject proposal with optional reason
+        status, st            Daemon status
+        help, -h              This help
+        version, -v           Version
+
+      Options (env vars):
+        KAIROS_ATTACH_PORT    Daemon port (default: #{DEFAULT_PORT})
+        KAIROS_ATTACH_HOST    Daemon host (default: #{DEFAULT_HOST})
+        KAIROS_ATTACH_TOKEN   Bearer token (or reads from token file)
+    USAGE
+  end
+
+  # ------------------------------------------------------------------ HTTP
+
+  def api_get(path)
+    uri = URI("http://#{@host}:#{@port}#{path}")
+    req = Net::HTTP::Get.new(uri)
+    req['Authorization'] = "Bearer #{@token}" if @token
+    resp = Net::HTTP.start(uri.hostname, uri.port) { |h| h.request(req) }
+    handle_response(resp)
+  end
+
+  def api_post(path, body = {})
+    uri = URI("http://#{@host}:#{@port}#{path}")
+    req = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json')
+    req['Authorization'] = "Bearer #{@token}" if @token
+    req.body = JSON.generate(body)
+    resp = Net::HTTP.start(uri.hostname, uri.port) { |h| h.request(req) }
+    handle_response(resp)
+  end
+
+  def handle_response(resp)
+    body = JSON.parse(resp.body) rescue { 'raw' => resp.body }
+    code = resp.code.to_i
+    case code
+    when 200..299
+      body
+    when 401
+      abort 'Error: authentication failed (check KAIROS_ATTACH_TOKEN or token file)'
+    when 404
+      abort "Error: #{body['message'] || 'not found'}"
+    else
+      abort "Error: HTTP #{code}: #{body['message'] || body['error'] || resp.body[0..200]}"
+    end
+  end
+
+  # ------------------------------------------------------------------ helpers
+
+  def read_token_file(override_path = nil)
+    candidates = [
+      override_path,
+      File.join(Dir.pwd, '.kairos', 'run', 'attach_token'),
+      File.join(ENV['HOME'] || '~', '.kairos', 'run', 'attach_token')
+    ].compact
+
+    candidates.each do |path|
+      next unless File.exist?(path)
+      return File.read(path).strip
+    end
+    nil
+  end
+
+  def current_user
+    ENV['USER'] || ENV['LOGNAME'] || 'attach_user'
+  end
+end
+
+# Run if invoked directly
+if __FILE__ == $PROGRAM_NAME
+  KairosAttach.new.run(ARGV)
+end

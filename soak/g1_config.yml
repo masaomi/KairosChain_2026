@@ -1,0 +1,22 @@
+# G1 Soak Test Configuration (8h)
+# Phase 4 v0.3 §2.2
+daemon:
+  llm_model: claude-sonnet-4-6-20260514
+  llm_timeout: 5
+  workspace_root: /tmp/kairos-soak-g1
+budget:
+  # Derivation (F1: retries count as attempts):
+  #   10min interval × 48 cycles × 3 phases = 144 base calls
+  #   With 0% retries: 144
+  #   With 20% one-retry: ~173
+  #   With MAX_RETRIES=2 on all calls (pathological 429): 144 × 3 = 432
+  #   Headroom for restart probes: +10
+  daily_limit: 300
+chronos:
+  schedules:
+    - name: site_maintenance
+      cron: "*/10 * * * *"  # 10min interval for G1
+      mandate_template: templates/mandates/site_maintenance.yml
+      allowed_actions: [code_edit, noop, read_only]
+heartbeat:
+  interval: 10

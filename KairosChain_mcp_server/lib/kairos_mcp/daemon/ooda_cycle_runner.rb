@@ -154,9 +154,21 @@ module KairosMcp
       def run_act(decision, mandate, recorder)
         recorder.around_phase(:act) do
           action = decision[:action] || decision['action'] || 'noop'
+
+          # P4.4: allowed_actions gate — mandate can restrict which actions are permitted
+          allowed = mandate[:allowed_actions] || mandate['allowed_actions']
+          if allowed && !allowed.include?(action)
+            log(:warn, "action '#{action}' denied by allowed_actions gate")
+            # `next` (not `return`) to yield from the block — WalPhaseRecorder
+            # marks the phase completed with this result. `return` would skip mark_completed.
+            next { status: 'denied', action: action, reason: 'not in allowed_actions' }
+          end
+
           case action
           when 'code_edit'
             @cg_handler.handle_act(decision, mandate)
+          when 'pdf_build'
+            handle_pdf_build(decision, mandate)
           when 'noop', 'read_only'
             { status: 'noop' }
           else
@@ -172,6 +184,37 @@ module KairosMcp
         else
           phase_body.call
         end
+      end
+
+      # P4.4: PDF generation via PdfBuild + RestrictedShell
+      def handle_pdf_build(decision, mandate)
+        source_rel = decision[:source] || decision['source']
+        output_rel = decision[:output] || decision['output']
+        raise ArgumentError, 'pdf_build requires :source and :output' unless source_rel && output_rel
+
+        input  = File.expand_path(File.join(@ws, source_rel))
+        output = File.expand_path(File.join(@ws, output_rel))
+
+        # Path boundary enforcement — prevent LLM from traversing outside workspace
+        ws_prefix = @ws.end_with?(File::SEPARATOR) ? @ws : "#{@ws}#{File::SEPARATOR}"
+        unless input.start_with?(ws_prefix) || input == @ws
+          raise SecurityError, "pdf_build source outside workspace: #{source_rel}"
+        end
+        unless output.start_with?(ws_prefix) || output == @ws
+          raise SecurityError, "pdf_build output outside workspace: #{output_rel}"
+        end
+
+        require_relative 'pdf_build' unless defined?(KairosMcp::Daemon::PdfBuild)
+        result = KairosMcp::Daemon::PdfBuild.build(
+          markdown_path: input,
+          output_path: output,
+          workspace_root: @ws,
+          template: decision[:template] || decision['template']
+        )
+        result.merge(action: 'pdf_build')
+      rescue => e
+        log(:error, "pdf_build failed: #{e.class}: #{e.message}")
+        { status: 'failed', action: 'pdf_build', error: e.message }
       end
 
       def maybe_run_post_commit(mandate, act_result, decision: nil)

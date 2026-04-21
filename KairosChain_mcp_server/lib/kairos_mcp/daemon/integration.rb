@@ -61,6 +61,7 @@ module KairosMcp
                 attach_server: nil,
                 wal_dir: nil,
                 cycle_runner: nil,
+                usage_accumulator: nil,
                 clock: nil,
                 heartbeat_interval: Heartbeat::DEFAULT_INTERVAL)
         clock ||= -> { Time.now.utc }
@@ -72,6 +73,7 @@ module KairosMcp
           attach_server: attach_server,
           wal_dir: wal_dir,
           cycle_runner: cycle_runner,
+          usage_accumulator: usage_accumulator,
           clock: clock,
           heartbeat_interval: heartbeat_interval
         )
@@ -107,6 +109,7 @@ module KairosMcp
         :wal_dir, :cycle_runner, :clock, :heartbeat_interval,
         :active_mandate_id, :last_cycle_at, :last_heartbeat_at,
         :current_wal,
+        :usage_accumulator,  # P4.1: shared UsageAccumulator for partial-usage recovery
         keyword_init: true
       )
 
@@ -185,10 +188,23 @@ module KairosMcp
             result = KairosMcp::Daemon::Integration.invoke_cycle_runner(s, mandate)
             KairosMcp::Daemon::Integration.apply_usage(s, result)
           rescue StandardError => e
-            @logger&.error('daemon_cycle_runner_failed',
-                           source: 'daemon',
-                           details: { mandate: mandate_id,
-                                      error: "#{e.class}: #{e.message}" })
+            partial = KairosMcp::Daemon::Integration.partial_usage_from_accumulator(s)
+
+            if KairosMcp::Daemon::Integration.shutdown_error?(e)
+              # P4.1: Shutdown mid-cycle — apply partial usage, don't log as error
+              partial[:status] = 'interrupted'
+              @logger&.info('daemon_cycle_interrupted',
+                            source: 'daemon',
+                            details: { mandate: mandate_id, usage: partial })
+            else
+              # P4.1: Recover partial usage even on failure
+              partial[:status] = 'error'
+              @logger&.error('daemon_cycle_runner_failed',
+                             source: 'daemon',
+                             details: { mandate: mandate_id,
+                                        error: "#{e.class}: #{e.message}" })
+            end
+            KairosMcp::Daemon::Integration.apply_usage(s, partial)
           ensure
             s.current_wal = nil
             s.last_cycle_at = s.clock.call
@@ -224,6 +240,26 @@ module KairosMcp
 
       def self.default_cycle_result
         { status: 'ok', llm_calls: 0, input_tokens: 0, output_tokens: 0 }
+      end
+
+      # P4.1: Check if an error is a shutdown request without hard-coupling
+      # to DaemonLlmCaller (which may not be loaded in test environments).
+      def self.shutdown_error?(error)
+        return true if defined?(KairosMcp::Daemon::DaemonLlmCaller::ShutdownRequested) &&
+                        error.is_a?(KairosMcp::Daemon::DaemonLlmCaller::ShutdownRequested)
+        false
+      end
+
+      # P4.1: Extract partial usage from the shared UsageAccumulator.
+      # Used on exception paths (ShutdownRequested, LlmCallError) to ensure
+      # partial LLM spend is still recorded into Budget.
+      def self.partial_usage_from_accumulator(state)
+        ua = state.usage_accumulator
+        if ua && ua.respond_to?(:to_h)
+          ua.to_h  # { llm_calls:, input_tokens:, output_tokens: }
+        else
+          { llm_calls: 0, input_tokens: 0, output_tokens: 0 }
+        end
       end
 
       def self.apply_usage(state, result)

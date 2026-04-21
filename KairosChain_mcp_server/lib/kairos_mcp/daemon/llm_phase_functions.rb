@@ -27,8 +27,11 @@ module KairosMcp
           @output_tokens = 0
         end
 
+        # Record LLM usage from a response.
+        # When DaemonLlmCaller returns `attempts: N` (including retries),
+        # llm_calls is incremented by N. Callers without `attempts` default to 1.
         def record(response)
-          @llm_calls += 1
+          @llm_calls += Integer(response[:attempts] || response['attempts'] || 1)
           @input_tokens += Integer(response[:input_tokens] || response['input_tokens'] || 0)
           @output_tokens += Integer(response[:output_tokens] || response['output_tokens'] || 0)
         end
@@ -68,12 +71,11 @@ module KairosMcp
             Return JSON with keys: summary (string), priorities (array of strings), risk_level (low/medium/high).
           PROMPT
 
-          response = llm_caller.call(
+          response = call_and_record(llm_caller, usage,
             messages: [{ role: 'user', content: prompt }],
             system: 'You are a KairosChain daemon agent. Return only valid JSON.',
             max_tokens: max_tokens
           )
-          usage.record(response)
           parse_json_response(response, fallback: { summary: 'no orientation', priorities: [], risk_level: 'low' })
         end
       end
@@ -108,12 +110,11 @@ module KairosMcp
             Target path must be relative to workspace root.
           PROMPT
 
-          response = llm_caller.call(
+          response = call_and_record(llm_caller, usage,
             messages: [{ role: 'user', content: prompt }],
             system: 'You are a KairosChain daemon agent. Return only valid JSON.',
             max_tokens: max_tokens
           )
-          usage.record(response)
           decision = parse_json_response(response, fallback: { action: 'noop', reason: 'LLM parse failure' })
           symbolize_keys(decision)
         end
@@ -138,17 +139,30 @@ module KairosMcp
             - confidence: 0.0 to 1.0
           PROMPT
 
-          response = llm_caller.call(
+          response = call_and_record(llm_caller, usage,
             messages: [{ role: 'user', content: prompt }],
             system: 'You are a KairosChain daemon agent. Return only valid JSON.',
             max_tokens: max_tokens
           )
-          usage.record(response)
           parse_json_response(response, fallback: { assessment: 'unknown', lessons: [], confidence: 0.5 })
         end
       end
 
       # ---------------------------------------------------------------- helpers
+
+      # Call llm_caller and record usage. On failure, record the failed
+      # attempts into usage before re-raising so Budget stays accurate.
+      def self.call_and_record(llm_caller, usage, **kwargs)
+        response = llm_caller.call(**kwargs)
+        usage.record(response)
+        response
+      rescue StandardError => e
+        # Record failed attempts if the error carries attempt count
+        if e.respond_to?(:attempts) && e.attempts.is_a?(Integer) && e.attempts > 0
+          usage.record({ attempts: e.attempts, input_tokens: 0, output_tokens: 0 })
+        end
+        raise
+      end
 
       def self.parse_json_response(response, fallback:)
         content = response[:content] || response['content'] || ''
