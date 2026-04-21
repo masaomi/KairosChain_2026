@@ -187,7 +187,8 @@ module KairosMcp
         return unless %i[l0 l1].include?(scope)
         return unless @chain
 
-        @chain.call(
+        chain_method = @chain.respond_to?(:record) ? :record : :call
+        @chain.public_send(chain_method,
           type: 'code_edit',
           scope: scope.to_s,
           proposal_id: proposal[:proposal_id],
