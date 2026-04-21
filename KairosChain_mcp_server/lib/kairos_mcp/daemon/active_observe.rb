@@ -63,6 +63,8 @@ module KairosMcp
         raise ArgumentError, 'tool_invoker must respond to call' unless tool_invoker.respond_to?(:call)
 
         policies = Array(mandate_hash[:observe_policies] || mandate_hash['observe_policies'])
+        # Deduplicate by normalized tool name — first-wins for args if dupes exist.
+        policies = policies.uniq { |e| normalize_policy(e).first }
         invoked = []
         skipped = []
         results = {}
@@ -169,7 +171,9 @@ module KairosMcp
       def log(level, event, **fields)
         return unless @logger && @logger.respond_to?(level)
 
-        @logger.public_send(level, event, **fields)
+        @logger.public_send(level, "#{event} #{fields.inspect}")
+      rescue StandardError
+        # Never let a logger crash mask the original tool error.
       end
     end
   end

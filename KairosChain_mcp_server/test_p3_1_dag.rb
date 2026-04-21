@@ -380,6 +380,35 @@ assert(':continue still allows B to be scheduled') do
   d.next_runnable&.id == 'B'
 end
 
+assert(':continue allows dependent to run after failed dep (no deadlock)') do
+  d = DAG.new([
+                { id: 'A', tool: 't.a', depends_on: [], failure_policy: :continue },
+                { id: 'B', tool: 't.b', depends_on: %w[A], failure_policy: :continue }
+              ])
+  d.mark('A', :failed)
+  d.next_runnable&.id == 'B'
+end
+
+assert(':continue chain A(fail)->B->C all runnable') do
+  d = DAG.new([
+                { id: 'A', tool: 't.a', depends_on: [], failure_policy: :continue },
+                { id: 'B', tool: 't.b', depends_on: %w[A], failure_policy: :continue },
+                { id: 'C', tool: 't.c', depends_on: %w[B], failure_policy: :continue }
+              ])
+  d.mark('A', :failed)
+  d.mark('B', :completed)
+  d.next_runnable&.id == 'C'
+end
+
+assert(':halt dep failure still blocks dependent (not affected by :continue fix)') do
+  d = DAG.new([
+                { id: 'A', tool: 't.a', depends_on: [], failure_policy: :halt },
+                { id: 'B', tool: 't.b', depends_on: %w[A], failure_policy: :halt }
+              ])
+  d.mark('A', :failed)
+  d.node('B').cancelled? && d.next_runnable.nil?
+end
+
 # ---------------------------------------------------------------------------
 # TaskDag — all_completed?
 # ---------------------------------------------------------------------------
@@ -557,6 +586,113 @@ assert('non-Hash mandate raises ArgumentError') do
   rescue ArgumentError
     true
   end
+end
+
+# ---------------------------------------------------------------------------
+# R1 fix: monotonic transition guard
+# ---------------------------------------------------------------------------
+
+section 'TaskDag: transition guard (R1 fix)'
+
+assert('completed -> pending raises InvalidTransitionError') do
+  d = DAG.new(linear_nodes)
+  d.mark('A', :completed)
+  begin
+    d.mark('A', :pending)
+    false
+  rescue DAG::InvalidTransitionError => e
+    e.message.include?('completed -> pending')
+  end
+end
+
+assert('failed -> running raises InvalidTransitionError') do
+  d = DAG.new([{ id: 'A', tool: 't', failure_policy: :continue }])
+  d.mark('A', :failed)
+  begin
+    d.mark('A', :running)
+    false
+  rescue DAG::InvalidTransitionError => e
+    e.message.include?('failed -> running')
+  end
+end
+
+assert('cancelled -> completed raises InvalidTransitionError') do
+  d = DAG.new(linear_nodes(policy: :halt))
+  d.mark('A', :failed) # cancels B and C
+  begin
+    d.mark('B', :completed)
+    false
+  rescue DAG::InvalidTransitionError => e
+    e.message.include?('cancelled -> completed')
+  end
+end
+
+assert('running -> pending raises InvalidTransitionError') do
+  d = DAG.new(linear_nodes)
+  d.mark('A', :running)
+  begin
+    d.mark('A', :pending)
+    false
+  rescue DAG::InvalidTransitionError => e
+    e.message.include?('running -> pending')
+  end
+end
+
+assert('pending -> completed is allowed (skip running)') do
+  d = DAG.new(linear_nodes)
+  d.mark('A', :completed)
+  d.node('A').completed?
+end
+
+assert('pending -> running -> completed is the full lifecycle') do
+  d = DAG.new(linear_nodes)
+  d.mark('A', :running)
+  d.mark('A', :completed)
+  d.node('A').completed?
+end
+
+# ---------------------------------------------------------------------------
+# R1 fix: duplicate tool dedup in ActiveObserve
+# ---------------------------------------------------------------------------
+
+section 'ActiveObserve: duplicate tool dedup (R1 fix)'
+
+assert('duplicate tool policies are deduplicated (first wins)') do
+  calls = []
+  invoker = ->(tool, args) { calls << [tool, args]; "result_#{args[:key] || 'default'}" }
+  obs = AO.new.observe(
+    { observe_policies: [
+      { tool: 'knowledge_get', args: { key: 'a' } },
+      { tool: 'knowledge_get', args: { key: 'b' } }
+    ] },
+    tool_invoker: invoker
+  )
+  # Should only invoke once (first entry wins via uniq)
+  calls.size == 1 &&
+    obs[:policies_invoked] == %w[knowledge_get] &&
+    obs[:results].key?('knowledge_get')
+end
+
+# ---------------------------------------------------------------------------
+# R1 fix: logger compatibility
+# ---------------------------------------------------------------------------
+
+section 'ActiveObserve: logger compatibility (R1 fix)'
+
+assert('stdlib Logger does not crash ActiveObserve on error path') do
+  require 'logger'
+  logger = Logger.new(File.open(File::NULL, 'w'))
+  invoker = lambda do |tool, _args|
+    raise 'kaboom' if tool == 'knowledge_list'
+    'ok'
+  end
+  ao = AO.new(logger: logger)
+  obs = ao.observe(
+    { observe_policies: %w[chain_status knowledge_list] },
+    tool_invoker: invoker
+  )
+  obs[:policies_invoked] == %w[chain_status] &&
+    obs[:errors]['knowledge_list'].include?('kaboom')
 end
 
 # ---------------------------------------------------------------------------

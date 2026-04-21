@@ -17,9 +17,10 @@ module KairosMcp
     #   * Graph is acyclic (validated via Kahn's algorithm at construction).
     #   * No self-dependency (depends_on must not contain the node's own id).
     #   * All referenced dependency ids exist in the node set.
-    #   * Status transitions are monotonic per node:
-    #       :pending  → :running → {:completed, :failed, :cancelled}
-    #       :pending  → :cancelled (propagated)
+    #   * Status transitions are forward-only per node:
+    #       :pending  → :running | :completed | :failed | :cancelled
+    #       :running  → :completed | :failed | :cancelled
+    #       Terminal states (:completed, :failed, :cancelled) are sticky.
     #
     # Failure propagation policies (attached to each node):
     #   :halt             — on failure, cancel ALL remaining :pending nodes
@@ -46,6 +47,15 @@ module KairosMcp
 
       VALID_STATUSES = %i[pending running completed failed cancelled].freeze
       VALID_POLICIES = %i[halt skip_dependents continue].freeze
+
+      # Forward-only transition table. Terminal states have no outgoing edges.
+      ALLOWED_TRANSITIONS = {
+        pending:   %i[running completed failed cancelled],
+        running:   %i[completed failed cancelled],
+        completed: [],
+        failed:    [],
+        cancelled: []
+      }.freeze
 
       class CyclicGraphError < StandardError; end
       class InvalidNodeError < StandardError; end
@@ -104,6 +114,10 @@ module KairosMcp
         raise InvalidTransitionError, "invalid status: #{status}" unless VALID_STATUSES.include?(status)
 
         node = @nodes[id.to_s]
+        unless ALLOWED_TRANSITIONS[node.status].include?(status)
+          raise InvalidTransitionError,
+                "node #{id}: #{node.status} -> #{status} not allowed"
+        end
         node.status = status
         node.error  = error if error
 
@@ -238,24 +252,31 @@ module KairosMcp
         end
 
         ready = @nodes.each_value.select { |n| in_degree[n.id].zero? }.map(&:id)
-        processed = 0
+        processed_ids = []
         until ready.empty?
           id = ready.shift
-          processed += 1
+          processed_ids << id
           children[id].each do |child_id|
             in_degree[child_id] -= 1
             ready << child_id if in_degree[child_id].zero?
           end
         end
 
-        return if processed == @nodes.size
+        return if processed_ids.size == @nodes.size
 
-        remaining = @nodes.keys - @nodes.keys.first(processed)
+        remaining = @nodes.keys - processed_ids
         raise CyclicGraphError, "cycle detected involving: #{remaining.inspect}"
       end
 
+      # A dependency is satisfied when it is :completed, OR when it is :failed
+      # with :continue policy (the failure was explicitly absorbed).
       def deps_satisfied?(node)
-        node.depends_on.all? { |d| @nodes[d]&.completed? }
+        node.depends_on.all? do |d|
+          dep = @nodes[d]
+          next false unless dep
+
+          dep.completed? || (dep.failed? && dep.failure_policy == :continue)
+        end
       end
 
       # When a node fails, apply its policy. For :halt we sweep all pending
