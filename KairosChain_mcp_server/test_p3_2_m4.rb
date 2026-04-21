@@ -292,6 +292,85 @@ with_workspace do |ws|
 end
 
 # ---------------------------------------------------------------------------
+# ScopeDrift test (T37c — R1 consensus fix)
+# ---------------------------------------------------------------------------
+
+section 'CodeGenAct: ScopeDrift'
+
+with_workspace do |ws|
+  # Create file in L2 scope (context)
+  path = File.join(ws, '.kairos', 'context', 'movable.md')
+  File.write(path, "original content\n")
+
+  safety = StubSafety.new
+  gate = AG.new(dir: File.join(ws, '.kairos', 'run', 'proposals'))
+
+  content = File.binread(path)
+  pre_hash = KairosMcp::Daemon::EditKernel.hash_bytes(content)
+  result = KairosMcp::Daemon::EditKernel.compute(content, old_string: 'original', new_string: 'modified')
+
+  # Stage proposal with WRONG stored scope (:l0) for a file that's actually :l2
+  # This simulates: scope was L0 at propose time, but path now classifies as L2
+  # (or vice versa — the point is the mismatch triggers ScopeDrift)
+  proposal = {
+    proposal_id: 'prop_drift1',
+    mandate_id: 'm_drift',
+    target: { path: '.kairos/context/movable.md', pre_hash: pre_hash },
+    edit: { old_string: 'original', new_string: 'modified',
+            replace_all: false, proposed_post_hash: result[:post_hash] },
+    scope: { scope: :l0, auto_approve: false, reason: 'test', matched_rule: :core_code }
+  }
+  gate.auto_approve(proposal)
+
+  assert('T37c: ScopeDrift raised when stored scope differs from re-classified') do
+    begin
+      EC.current_elevation_token = nil
+      cga = CGA.new(workspace_root: ws, safety: safety, invoker: ->(_,_){{}},
+                      approval_gate: gate)
+      cga.resume('prop_drift1')
+      false
+    rescue CGA::ScopeDrift => e
+      e.message.include?('l0') && e.message.include?('l2')
+    end
+  end
+end
+
+# ---------------------------------------------------------------------------
+# Resume: rejected proposal
+# ---------------------------------------------------------------------------
+
+section 'CodeGenAct: resume rejected'
+
+with_workspace do |ws|
+  path = File.join(ws, '.kairos', 'knowledge', 'rejected.md')
+  File.write(path, "data\n")
+
+  safety = StubSafety.new
+  gate = AG.new(dir: File.join(ws, '.kairos', 'run', 'proposals'))
+  cga = CGA.new(workspace_root: ws, safety: safety, invoker: ->(_,_){{}},
+                 approval_gate: gate)
+
+  proposal = {
+    proposal_id: 'prop_rej1',
+    mandate_id: 'm_rej',
+    target: { path: '.kairos/knowledge/rejected.md', pre_hash: 'sha256:abc' },
+    edit: { old_string: 'data', new_string: 'info', replace_all: false, proposed_post_hash: 'sha256:def' },
+    scope: { scope: :l1, auto_approve: false, reason: 'test', matched_rule: :knowledge }
+  }
+  gate.stage(proposal)
+  gate.record_decision('prop_rej1', decision: 'reject', reviewer: 'masa', reason: 'not now')
+
+  assert('T37e: resume returns :rejected for rejected proposal') do
+    EC.current_elevation_token = nil
+    cga.resume('prop_rej1') == :rejected
+  end
+
+  assert('T37f: resume returns :not_found for unknown proposal') do
+    cga.resume('prop_nonexistent') == :not_found
+  end
+end
+
+# ---------------------------------------------------------------------------
 # summary
 # ---------------------------------------------------------------------------
 

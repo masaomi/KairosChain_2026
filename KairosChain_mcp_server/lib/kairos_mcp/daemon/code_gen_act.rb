@@ -102,6 +102,11 @@ module KairosMcp
       # Re-entry after pause.
       # @return [Hash, :still_pending]
       def resume(proposal_id)
+        status = @gate.status_of(proposal_id)
+        return :rejected if status == :rejected
+        return :expired  if status == :expired
+        return :not_found if status == :not_found
+
         grant = @gate.consume_grant(proposal_id)
         return :still_pending if grant.nil?
 
@@ -120,7 +125,7 @@ module KairosMcp
       def apply_with_grant(proposal, grant, abs)
         scope = proposal[:scope][:scope].to_sym
 
-        if scope == :l2 || scope == :skillset_draft
+        if scope == :l2
           perform_apply(proposal, abs)
         else
           granted_by = grant.decision['reviewer']
@@ -139,7 +144,9 @@ module KairosMcp
         target = proposal[:target]
         edit   = proposal[:edit]
 
-        # CAS: read + verify pre_hash BEFORE write
+        # CAS: read + verify pre_hash BEFORE write.
+        # NOTE: Single-threaded daemon assumption — no concurrent writer between
+        # binread and atomic_write (rename). See policy_elevation.rb §Design.
         content = File.binread(abs)
         current_hash = EditKernel.hash_bytes(content)
         raise PreHashMismatch, "expected #{target[:pre_hash]}, got #{current_hash}" \

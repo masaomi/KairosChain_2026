@@ -219,7 +219,10 @@ module KairosMcp
 
       def check_backpressure!
         count = Dir.glob(File.join(@dir, '*.json')).count do |f|
-          !f.end_with?('.decision.json') && !f.end_with?('.applied.json')
+          next false if f.end_with?('.decision.json') || f.end_with?('.applied.json')
+          # Only count proposals that have no decision file (truly pending)
+          proposal_id = File.basename(f, '.json')
+          !File.exist?(decision_file(proposal_id))
         end
         raise BackpressureError, "max pending proposals (#{MAX_PENDING}) exceeded" if count >= MAX_PENDING
       end
