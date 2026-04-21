@@ -238,6 +238,46 @@ Dir.mktmpdir('cgh_test') do |ws|
   end
 end
 
+section 'CodeGenPhaseHandler: reject flow (F1/F9 fix)'
+
+Dir.mktmpdir('cgh_test') do |ws|
+  FileUtils.mkdir_p(File.join(ws, '.kairos', 'knowledge'))
+  FileUtils.mkdir_p(File.join(ws, '.kairos', 'run', 'proposals'))
+
+  path = File.join(ws, '.kairos', 'knowledge', 'rej.md')
+  File.write(path, "old text\n")
+
+  safety = StubSafety.new
+  gate = AG.new(dir: File.join(ws, '.kairos', 'run', 'proposals'))
+  cga = CGA.new(workspace_root: ws, safety: safety, invoker: ->(_,_){{}},
+                 approval_gate: gate)
+  handler = CGH.new(code_gen_act: cga)
+
+  decision = { action: 'code_edit', target: '.kairos/knowledge/rej.md',
+               old_string: 'old text', new_string: 'new text' }
+  mandate = { id: 'mandate_rej', allow_llm_upload: %w[l1 l2] }
+
+  EC.current_elevation_token = nil
+  handler.handle_act(decision, mandate)
+  pid = handler.pending_proposal_id
+
+  gate.record_decision(pid, decision: 'reject', reviewer: 'masa', reason: 'nope')
+
+  assert('F9: resume_if_pending returns rejected with correct proposal_id') do
+    EC.current_elevation_token = nil
+    result = handler.resume_if_pending
+    result.is_a?(Hash) && result[:status] == 'rejected' && result[:proposal_id] == pid
+  end
+
+  assert('F9b: handler.paused? is false after reject') do
+    !handler.paused?
+  end
+
+  assert('F9c: file was NOT changed') do
+    File.read(path) == "old text\n"
+  end
+end
+
 section 'CodeGenPhaseHandler: L2 auto-approve (no pause)'
 
 Dir.mktmpdir('cgh_test') do |ws|

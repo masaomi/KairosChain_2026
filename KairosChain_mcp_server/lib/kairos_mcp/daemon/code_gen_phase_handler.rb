@@ -53,8 +53,9 @@ module KairosMcp
           @pending_proposal_id = nil
           result
         when :rejected, :expired, :not_found
+          pid = @pending_proposal_id
           @pending_proposal_id = nil
-          { status: result.to_s, proposal_id: @pending_proposal_id }
+          { status: result.to_s, proposal_id: pid }
         when :still_pending
           :still_pending
         else

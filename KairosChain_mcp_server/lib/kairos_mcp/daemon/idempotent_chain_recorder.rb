@@ -2,6 +2,7 @@
 
 require 'json'
 require 'fileutils'
+require 'set'
 
 module KairosMcp
   class Daemon
@@ -12,7 +13,9 @@ module KairosMcp
     #   - Uses proposal_id as externally-supplied idempotency key.
     #   - Tracks recorded proposal_ids in a local ledger file.
     #   - Retries up to MAX_RETRIES on failure, then pauses mandate.
-    #   - Pending chain records survive daemon restart via ledger.
+    #   - Recorded (successful) proposal_ids survive restart via ledger.
+    #   - Pending retries and exhausted entries are in-memory only;
+    #     restart resets the retry budget (intentional: fresh attempt).
     class IdempotentChainRecorder
       MAX_RETRIES = 3
 
@@ -52,7 +55,7 @@ module KairosMcp
 
         @pending.each do |entry|
           result = attempt_record(entry[:proposal_id], entry[:payload],
-                                  retry_count: entry[:retries])
+                                  retry_count: entry[:retries], from_retry: true)
           results << result
           case result[:status]
           when 'pending_retry'
@@ -78,7 +81,8 @@ module KairosMcp
 
       private
 
-      def attempt_record(proposal_id, payload, retry_count: 0)
+      # @param from_retry [Boolean] true when called from retry_pending (skip @pending append)
+      def attempt_record(proposal_id, payload, retry_count: 0, from_retry: false)
         if retry_count >= MAX_RETRIES
           log(:error, "chain_record_exhausted proposal=#{proposal_id} retries=#{MAX_RETRIES}")
           return { status: 'failed', proposal_id: proposal_id,
@@ -88,13 +92,18 @@ module KairosMcp
         begin
           result = @chain_tool.call(payload)
           @recorded << proposal_id
-          save_ledger
+          unless save_ledger
+            # Ledger write failed — rollback in-memory to prevent false idempotency
+            @recorded.delete(proposal_id)
+            log(:error, "chain_record_ledger_failed proposal=#{proposal_id} — rolling back")
+            raise "ledger persistence failed for #{proposal_id}"
+          end
           log(:info, "chain_record_ok proposal=#{proposal_id}")
           { status: 'recorded', proposal_id: proposal_id, tx: result }
         rescue StandardError => e
           log(:warn, "chain_record_failed proposal=#{proposal_id} retry=#{retry_count} error=#{e.message}")
-          # Queue for retry if not already queued
-          unless @pending.any? { |p| p[:proposal_id] == proposal_id }
+          # Queue for retry only on first attempt (not when called from retry_pending)
+          unless from_retry || @pending.any? { |p| p[:proposal_id] == proposal_id }
             @pending << { proposal_id: proposal_id, payload: payload, retries: retry_count + 1 }
           end
           { status: 'pending_retry', proposal_id: proposal_id, error: e.message }
@@ -108,13 +117,16 @@ module KairosMcp
         Set.new
       end
 
+      # @return [Boolean] true if ledger was successfully persisted
       def save_ledger
         FileUtils.mkdir_p(File.dirname(@ledger_path))
         tmp = "#{@ledger_path}.tmp"
         File.open(tmp, 'w', 0o600) { |f| f.write(JSON.generate(@recorded.to_a)) }
         File.rename(tmp, @ledger_path)
+        true
       rescue StandardError => e
         log(:warn, "ledger_save_failed: #{e.message}")
+        false
       end
 
       def log(level, msg)
