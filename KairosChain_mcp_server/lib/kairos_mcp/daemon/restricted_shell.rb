@@ -103,12 +103,22 @@ module KairosMcp
         if short_name == 'git'
           git_home = Dir.mktmpdir('kairos_git_home')
           env.merge!(
-            'GIT_CONFIG_NOSYSTEM' => '1',
+            # Config isolation
+            'GIT_CONFIG_NOSYSTEM' => '1',       # no /etc/gitconfig
+            'GIT_CONFIG_GLOBAL'   => '/dev/null', # no ~/.gitconfig (belt + suspenders with HOME)
+            'HOME'               => git_home,    # empty home = no user config
+            # Neutralize arbitrary command execution paths
             'GIT_TERMINAL_PROMPT' => '0',
             'PAGER'              => 'cat',
             'GIT_PAGER'          => 'cat',
-            'GIT_DIFF_EXTERNAL'  => '',  # R2 residual: neutralize repo-local diff driver
-            'HOME'               => git_home
+            'GIT_DIFF_EXTERNAL'  => '',          # external diff program
+            'GIT_EXTERNAL_DIFF'  => '',          # alternative external diff
+            'GIT_SSH_COMMAND'    => '/usr/bin/true', # neutralize SSH
+            'GIT_ASKPASS'        => '/usr/bin/true', # neutralize credential helpers
+            'GIT_PROXY_COMMAND'  => '',           # no proxy
+            'GIT_EDITOR'         => '/usr/bin/true', # no editor spawn
+            # Attribute isolation (textconv, diff drivers from .gitattributes)
+            'GIT_ATTR_NOSYSTEM'  => '1',         # no system gitattributes
           )
           env[:_git_home_tmpdir] = git_home  # cleanup handle (removed before spawn)
         end

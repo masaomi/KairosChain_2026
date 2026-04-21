@@ -485,6 +485,29 @@ assert('F2b: SBPL rejects path with backslash') do
   end
 end
 
+assert('F5: git env scrub includes all security vars') do
+  env = RS.send(:build_env, RS::DEFAULT_ENV_ALLOWLIST, 'git')
+  env['GIT_CONFIG_NOSYSTEM'] == '1' &&
+    env['GIT_CONFIG_GLOBAL'] == '/dev/null' &&
+    env['GIT_EXTERNAL_DIFF'] == '' &&
+    env['GIT_DIFF_EXTERNAL'] == '' &&
+    env['GIT_SSH_COMMAND'] == '/usr/bin/true' &&
+    env['GIT_ASKPASS'] == '/usr/bin/true' &&
+    env['GIT_PROXY_COMMAND'] == '' &&
+    env['GIT_EDITOR'] == '/usr/bin/true' &&
+    env['GIT_ATTR_NOSYSTEM'] == '1' &&
+    env['PAGER'] == 'cat' &&
+    env['GIT_PAGER'] == 'cat' &&
+    env['HOME']&.include?('kairos_git_home')
+ensure
+  FileUtils.rm_rf(env[:_git_home_tmpdir]) if env&.dig(:_git_home_tmpdir)
+end
+
+assert('F5b: non-git binary does NOT get git env scrub') do
+  env = RS.send(:build_env, RS::DEFAULT_ENV_ALLOWLIST, 'pandoc')
+  !env.key?('GIT_CONFIG_NOSYSTEM') && !env.key?('GIT_PAGER')
+end
+
 assert('F4: git -C → PolicyViolation') do
   begin
     GV.validate!(%w[-C /elsewhere status])
