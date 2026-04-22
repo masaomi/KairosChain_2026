@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'json'
-require 'fileutils'
 require 'securerandom'
 require_relative 'adapter'
 require_relative 'safe_subprocess'
@@ -9,31 +8,25 @@ require_relative 'safe_subprocess'
 module KairosMcp
   module SkillSets
     module LlmClient
-      # Adapter that uses Cursor Agent (`agent -p --mode plan`) as the LLM backend.
-      # HOME is redirected to an empty sandbox dir to prevent the agent from
-      # reading the caller's Cursor state. Env sanitized via SafeSubprocess.
+      # Adapter that uses Cursor Agent (`agent -p`) as the LLM backend.
+      # Uses CLI auth from ~/.cursor/ (via `cursor login`); HOME is preserved
+      # so CLI auth state is accessible. `-p` (print) mode is non-interactive.
       class CursorAdapter < Adapter
         DEFAULT_TIMEOUT = 180
-        SANDBOX_HOME = '/tmp/kairos_empty_home'
 
         def call(messages:, system: nil, tools: nil, model: nil,
                  max_tokens: nil, temperature: nil, output_schema: nil)
-          prepare_sandbox!
           prompt = build_prompt(messages, system, tools, output_schema)
           timeout_seconds = @config&.dig('timeout_seconds') || DEFAULT_TIMEOUT
 
-          args = ['agent', '-p', '--mode', 'plan']
+          args = ['agent', '-p']
 
           stdout, stderr, status = SafeSubprocess.safe_capture(
             args,
             stdin_data: prompt,
             timeout_seconds: timeout_seconds,
-            env: {
-              '_auth_env_key' => 'CURSOR_API_KEY',
-              'HOME' => SANDBOX_HOME
-            },
-            dispatch_id: @config&.dig('dispatch_id'),
-            chdir: SANDBOX_HOME
+            env: {},
+            dispatch_id: @config&.dig('dispatch_id')
           )
 
           unless status && status.success?
@@ -61,17 +54,6 @@ module KairosMcp
         end
 
         private
-
-        def prepare_sandbox!
-          FileUtils.mkdir_p(SANDBOX_HOME)
-          # Clean leftover state from prior runs
-          %w[.cursor .cursorrc .config].each do |name|
-            path = File.join(SANDBOX_HOME, name)
-            FileUtils.rm_rf(path) if File.exist?(path)
-          end
-        rescue StandardError
-          nil
-        end
 
         def build_prompt(messages, system, tools, output_schema = nil)
           parts = []

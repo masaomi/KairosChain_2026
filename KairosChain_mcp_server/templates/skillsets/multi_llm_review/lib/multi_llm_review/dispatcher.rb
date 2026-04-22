@@ -130,6 +130,11 @@ module KairosMcp
           }
           args['model'] = model if model
 
+          # Per-reviewer effort override (memory-documented strategy:
+          # Opus 4.7 reviewer = low, Opus 4.6 reviewer = medium)
+          effort = reviewer[:effort] || reviewer['effort']
+          args['effort'] = effort if effort
+
           # Pass dispatch_id and sandbox_mode to llm_call for adapter config.
           args['dispatch_id'] = dispatch_id
           args['sandbox_mode'] = true if review_context == 'independent'

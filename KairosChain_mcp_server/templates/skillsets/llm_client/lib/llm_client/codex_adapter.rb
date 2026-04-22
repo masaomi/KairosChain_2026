@@ -19,13 +19,21 @@ module KairosMcp
           prompt = build_prompt(messages, system, tools, output_schema)
           timeout_seconds = @config&.dig('timeout_seconds') || DEFAULT_TIMEOUT
 
-          args = ['codex', 'exec', '--sandbox', 'read-only', '-']
+          args = ['codex', 'exec', '--sandbox', 'read-only']
+          # Reasoning effort: minimal / low / medium / high
+          effort = @config&.dig('effort')
+          if effort && !effort.to_s.empty?
+            args += ['-c', "model_reasoning_effort=#{effort}"]
+          end
+          args << '-'
 
+          # Uses CLI auth from ~/.codex/ (via `codex login`). HOME is preserved
+          # by SafeSubprocess SAFE_ENV_KEYS, so CLI auth state is accessible.
           stdout, stderr, status = SafeSubprocess.safe_capture(
             args,
             stdin_data: prompt,
             timeout_seconds: timeout_seconds,
-            env: { '_auth_env_key' => 'OPENAI_API_KEY' },
+            env: {},
             dispatch_id: @config&.dig('dispatch_id')
           )
 

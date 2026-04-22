@@ -83,6 +83,14 @@ module KairosMcp
                 timeout_seconds_override: {
                   type: 'integer',
                   description: 'Override dispatch timeout in seconds (default from config)'
+                },
+                complexity: {
+                  type: 'string',
+                  enum: %w[auto low medium high critical],
+                  description: 'Review complexity level. Controls reviewer effort via effort_map in config. ' \
+                    'auto (default) = derive from review_type + artifact size. ' \
+                    'critical = security-critical, maximum effort.',
+                  default: 'auto'
                 }
               },
               required: %w[artifact_content artifact_name review_type]
@@ -98,6 +106,10 @@ module KairosMcp
             convergence_rule = arguments['convergence_rule_override'] ||
                                config['convergence_rule'] || '3/4 APPROVE'
             min_quorum = config['min_quorum'] || 2
+
+            # Auto-detect complexity + apply effort_map to reviewers
+            complexity = resolve_complexity(arguments, config)
+            reviewers = apply_effort_map(reviewers, complexity, config)
 
             # Build prompts
             system_prompt = PromptBuilder.build_system_prompt(
@@ -126,17 +138,11 @@ module KairosMcp
               max_concurrent: max_concurrent
             )
 
-            ctx = @invocation_context
-            unless ctx
-              return text_content(JSON.generate({
-                'status' => 'error',
-                'error' => 'No invocation context available — multi_llm_review requires MCP tool execution context'
-              }))
-            end
-
+            # @invocation_context may be nil for direct MCP calls (no parent tool).
+            # BaseTool#invoke_tool handles nil by creating a default InvocationContext.
             raw_results = dispatcher.dispatch(
               reviewers, messages, system_prompt,
-              context: ctx,
+              context: @invocation_context,
               review_context: review_context
             )
 
@@ -165,6 +171,7 @@ module KairosMcp
               'review_round' => review_round,
               'review_type' => arguments['review_type'],
               'artifact_name' => arguments['artifact_name'],
+              'complexity' => complexity,
               'llm_calls' => raw_results.count { |r| r[:status] == :success }
             }
 
@@ -199,6 +206,44 @@ module KairosMcp
                 { 'provider' => 'cursor', 'role_label' => 'cursor' }
               ]
             }
+          end
+
+          # Resolve complexity: explicit arg > auto-detection.
+          def resolve_complexity(arguments, config)
+            explicit = arguments['complexity']
+            return explicit if explicit && explicit != 'auto'
+
+            auto_cfg = config['auto_complexity'] || {}
+            review_type = arguments['review_type'].to_s
+            artifact_size = arguments['artifact_content'].to_s.length
+            small = auto_cfg['small_artifact_chars'] || 500
+            large = auto_cfg['large_artifact_chars'] || 5000
+
+            # review_type overrides take precedence
+            return auto_cfg['document_review_type'] || 'low' if review_type == 'document'
+            return auto_cfg['design_review_type'] || 'high' if review_type == 'design'
+
+            # Size-based detection for implementation/fix_plan
+            return 'low' if artifact_size <= small
+            return 'high' if artifact_size > large
+            'medium'
+          end
+
+          # Apply complexity → effort_map: override each reviewer's effort
+          # based on their provider. If no mapping exists, keep roster default.
+          def apply_effort_map(reviewers, complexity, config)
+            effort_map = config.dig('effort_map', complexity) || {}
+            return reviewers if effort_map.empty?
+
+            reviewers.map do |r|
+              provider = (r[:provider] || r['provider']).to_s
+              mapped = effort_map[provider]
+              if mapped
+                r.merge(effort: mapped)
+              else
+                r
+              end
+            end
           end
 
           def resolve_reviewers(arguments, config)

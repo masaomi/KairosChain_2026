@@ -19,6 +19,10 @@ module KairosMcp
       # - SafeSubprocess handles subprocess lifecycle (PID tracking, env sanitization)
       class ClaudeCodeAdapter < Adapter
         DEFAULT_TIMEOUT = 120
+        # Default to Opus 4.7 explicitly. Without --model, Claude Code may
+        # auto-route to Haiku for simple/long-context prompts, silently
+        # downgrading reviewer quality.
+        DEFAULT_MODEL = 'claude-opus-4-7'
         SANDBOX_CWD = '/tmp/kairos_sandbox'
         SANDBOX_HOME = '/tmp/kairos_claude_home'
 
@@ -26,24 +30,30 @@ module KairosMcp
                  max_tokens: nil, temperature: nil, output_schema: nil)
           prompt = build_prompt(messages, system, tools, output_schema)
           timeout_seconds = @config&.dig('timeout_seconds') || DEFAULT_TIMEOUT
+          effective_model = model || @config&.dig('model') || DEFAULT_MODEL
+          effort = @config&.dig('effort')
 
           args = [
             'claude', '-p',
             '--output-format', 'json',
             '--no-session-persistence',
-            '--mcp-config', '{"mcpServers":{}}'
+            '--mcp-config', '{"mcpServers":{}}',
+            '--model', effective_model
           ]
-          args += ['--model', model] if model
+          # Effort: low / medium / high / xhigh / max
+          args += ['--effort', effort.to_s] if effort && !effort.to_s.empty?
 
           sandbox_mode = @config&.dig('sandbox_mode')
           spawn_env = { '_auth_env_key' => 'ANTHROPIC_API_KEY' }
           spawn_chdir = nil
 
-          # Review/sandbox mode: lock down tools, cwd, and HOME
+          # Review/sandbox mode: lock down tools + chdir to empty sandbox
+          # (prevents project-level CLAUDE.md contamination).
+          # HOME is preserved so CLI OAuth auth (~/.claude/) works.
+          # --mcp-config '{}' (always on) prevents MCP recursion.
           if sandbox_mode
             prepare_sandbox!
-            args += ['--disallowedTools', '*', '--cwd', SANDBOX_CWD]
-            spawn_env['HOME'] = SANDBOX_HOME
+            args += ['--disallowedTools', '*']
             spawn_chdir = SANDBOX_CWD
           end
 
@@ -63,7 +73,7 @@ module KairosMcp
             )
           end
 
-          parse_response(stdout)
+          parse_response(stdout, requested_model: effective_model)
         rescue Timeout::Error
           raise ApiError.new(
             "Claude Code timed out after #{timeout_seconds}s",
@@ -150,7 +160,7 @@ module KairosMcp
           parts.join("\n")
         end
 
-        def parse_response(stdout)
+        def parse_response(stdout, requested_model: nil)
           data = JSON.parse(stdout)
 
           unless data['type'] == 'result'
@@ -175,7 +185,7 @@ module KairosMcp
             'content' => tool_use ? nil : result_text,
             'tool_use' => tool_use,
             'stop_reason' => tool_use ? 'tool_use' : map_stop_reason(data['stop_reason']),
-            'model' => data.dig('modelUsage')&.keys&.first || 'claude_code',
+            'model' => requested_model || data.dig('modelUsage')&.keys&.first || 'claude_code',
             'input_tokens' => usage['input_tokens'],
             'output_tokens' => usage['output_tokens']
           }

@@ -92,18 +92,27 @@ module KairosMcp
                   type: 'boolean',
                   description: 'Enable sandbox mode for CLI adapters (e.g., --disallowedTools, --cwd). ' \
                     'Used by multi_llm_review for independent review context.'
+                },
+                effort: {
+                  type: 'string',
+                  description: 'Reasoning/thinking effort level. ' \
+                    'claude_code: low/medium/high/xhigh/max. ' \
+                    'codex: minimal/low/medium/high. ' \
+                    'Ignored by providers that do not support it.'
                 }
               },
               required: ['messages']
             }
           end
 
-          # Per-provider credential defaults for provider_override
+          # Per-provider credential defaults for provider_override.
+          # nil = adapter uses CLI-based auth (e.g., `codex login`, `cursor login`)
+          # and does not require API key env vars.
           PROVIDER_API_KEY_DEFAULTS = {
             'anthropic' => 'ANTHROPIC_API_KEY',
             'openai' => 'OPENAI_API_KEY',
-            'codex' => 'OPENAI_API_KEY',
-            'cursor' => 'CURSOR_API_KEY',
+            'codex' => nil,              # uses `codex login` CLI auth (~/.codex/)
+            'cursor' => nil,             # uses `cursor login` CLI auth (~/.cursor/)
             'claude_code' => nil,        # uses subscription auth
             'bedrock' => nil,            # uses AWS credentials
             'local' => nil,
@@ -124,6 +133,7 @@ module KairosMcp
             # Pass through dispatch control arguments to adapter config
             config['dispatch_id'] = arguments['dispatch_id'] if arguments['dispatch_id']
             config['sandbox_mode'] = true if arguments['sandbox_mode']
+            config['effort'] = arguments['effort'] if arguments['effort']
 
             actual_provider = config['provider']
             adapter = build_adapter(config)

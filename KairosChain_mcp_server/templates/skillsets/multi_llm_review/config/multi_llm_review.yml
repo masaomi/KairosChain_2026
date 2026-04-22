@@ -12,25 +12,56 @@ timeout_seconds: 300              # global deadline for all reviewers
 max_concurrent: 2                 # semaphore limit (2 for laptop, 4 for CI)
 
 # Reviewer roster
-# Each entry specifies a provider (maps to llm_client adapter) and optional model.
-# role_label is used in consensus output for identification.
+# Each entry specifies a provider (maps to llm_client adapter), optional model,
+# and optional effort level. role_label is used in consensus output.
+#
+# Default effort per reviewer (medium baseline). When the multi_llm_review
+# tool receives a `complexity` argument (or auto-detects it), these defaults
+# are overridden per-dispatch by the effort_map below.
 reviewers:
   - provider: claude_code
-    role_label: claude_team
-    # model: claude-sonnet-4-6  # uses llm_client default
+    model: claude-opus-4-7
+    effort: medium
+    role_label: claude_team_opus4.7
+
+  - provider: claude_code
+    model: claude-opus-4-6
+    effort: medium
+    role_label: claude_cli_opus4.6
 
   - provider: codex
-    role_label: codex
-    # model: gpt-5.4  # codex default
+    effort: medium
+    role_label: codex_gpt5.4
 
   - provider: cursor
-    role_label: cursor
-    # model: composer-2  # cursor default
+    role_label: cursor_composer2
 
-  # Uncomment to add a 4th reviewer (Claude CLI via claude_code with model override)
-  # - provider: claude_code
-  #   model: claude-opus-4-7
-  #   role_label: claude_cli_opus4.7
+# Complexity → per-provider effort mapping.
+# multi_llm_review tool auto-detects complexity from review_type + artifact size,
+# or accepts an explicit `complexity` input. The mapped effort overrides the
+# reviewer roster's default.
+effort_map:
+  low:
+    claude_code: low
+    codex: low
+  medium:
+    claude_code: medium
+    codex: medium
+  high:
+    claude_code: high
+    codex: high
+  critical:
+    claude_code: xhigh
+    codex: high  # codex max is "high"
+
+# Auto-detection thresholds (used when complexity arg not given)
+auto_complexity:
+  small_artifact_chars: 500    # <= this → complexity=low
+  large_artifact_chars: 5000   # > this → complexity=high
+  # Documents can be philosophically deep; default to medium not low.
+  # Size-based rules still apply (very short doc → low, very long doc → high).
+  document_review_type: medium
+  design_review_type: high     # review_type=design → complexity=high
 
 # Review context default
 # 'independent' = reviewers don't see CLAUDE.md, project instructions
