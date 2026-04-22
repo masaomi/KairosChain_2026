@@ -1,9 +1,10 @@
 # frozen_string_literal: true
 
 require 'json'
-require 'open3'
-require 'timeout'
+require 'fileutils'
+require 'securerandom'
 require_relative 'adapter'
+require_relative 'safe_subprocess'
 
 module KairosMcp
   module SkillSets
@@ -15,9 +16,11 @@ module KairosMcp
       # Key safety measures:
       # - --mcp-config '{"mcpServers":{}}' prevents recursive MCP server loading
       # - --no-session-persistence avoids polluting session state
-      # - Timeout.timeout prevents indefinite hangs
+      # - SafeSubprocess handles subprocess lifecycle (PID tracking, env sanitization)
       class ClaudeCodeAdapter < Adapter
         DEFAULT_TIMEOUT = 120
+        SANDBOX_CWD = '/tmp/kairos_sandbox'
+        SANDBOX_HOME = '/tmp/kairos_claude_home'
 
         def call(messages:, system: nil, tools: nil, model: nil,
                  max_tokens: nil, temperature: nil, output_schema: nil)
@@ -32,13 +35,30 @@ module KairosMcp
           ]
           args += ['--model', model] if model
 
-          stdout, stderr, status = Timeout.timeout(timeout_seconds) do
-            Open3.capture3(*args, stdin_data: prompt)
+          sandbox_mode = @config&.dig('sandbox_mode')
+          spawn_env = { '_auth_env_key' => 'ANTHROPIC_API_KEY' }
+          spawn_chdir = nil
+
+          # Review/sandbox mode: lock down tools, cwd, and HOME
+          if sandbox_mode
+            prepare_sandbox!
+            args += ['--disallowedTools', '*', '--cwd', SANDBOX_CWD]
+            spawn_env['HOME'] = SANDBOX_HOME
+            spawn_chdir = SANDBOX_CWD
           end
 
-          unless status.success?
+          stdout, stderr, status = SafeSubprocess.safe_capture(
+            args,
+            stdin_data: prompt,
+            timeout_seconds: timeout_seconds,
+            env: spawn_env,
+            dispatch_id: @config&.dig('dispatch_id'),
+            chdir: spawn_chdir
+          )
+
+          unless status && status.success?
             raise ApiError.new(
-              "Claude Code exited with status #{status.exitstatus}: #{stderr[0..200]}",
+              "Claude Code exited with status #{status&.exitstatus}: #{stderr[0..200]}",
               provider: 'claude_code', retryable: false
             )
           end
@@ -61,6 +81,22 @@ module KairosMcp
         end
 
         private
+
+        def prepare_sandbox!
+          [SANDBOX_CWD, SANDBOX_HOME].each { |d| FileUtils.mkdir_p(d) }
+          # Clean CWD to prevent CLAUDE.md contamination
+          %w[CLAUDE.md .claude .mcp.json].each do |name|
+            path = File.join(SANDBOX_CWD, name)
+            FileUtils.rm_rf(path) if File.exist?(path)
+          end
+          # Clean HOME to prevent settings leakage
+          %w[.claude .config].each do |name|
+            path = File.join(SANDBOX_HOME, name)
+            FileUtils.rm_rf(path) if File.exist?(path)
+          end
+        rescue StandardError
+          nil
+        end
 
         def build_prompt(messages, system, tools, output_schema = nil)
           parts = []

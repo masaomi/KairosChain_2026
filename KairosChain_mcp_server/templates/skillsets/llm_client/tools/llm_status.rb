@@ -51,6 +51,7 @@ module KairosMcp
               'provider' => config['provider'] || 'not configured',
               'model' => model,
               'api_key_configured' => api_key_set || false,
+              'cli_providers' => verify_cli_providers,
               'session_usage' => {
                 'total_calls' => stats[:calls],
                 'total_input_tokens' => stats[:input_tokens],
@@ -58,6 +59,50 @@ module KairosMcp
                 'total_cost_estimate_usd' => estimated_cost.round(4)
               }
             }))
+          end
+
+          private
+
+          # Discover CLI adapters' availability (which, version).
+          def verify_cli_providers
+            {
+              'claude_code' => probe_cli('claude', %w[--version]),
+              'codex'       => probe_cli('codex',  %w[--version]),
+              'cursor'      => probe_cli('agent',  %w[--version])
+            }
+          end
+
+          def probe_cli(cmd, version_args)
+            path = which(cmd)
+            return { 'available' => false, 'path' => nil, 'version' => nil } unless path
+
+            version = capture_version(path, version_args)
+            { 'available' => true, 'path' => path, 'version' => version }
+          rescue StandardError => e
+            { 'available' => false, 'path' => path, 'version' => nil, 'error' => e.message }
+          end
+
+          def which(cmd)
+            exts = ENV['PATHEXT'] ? ENV['PATHEXT'].split(';') : ['']
+            ENV.fetch('PATH', '').split(File::PATH_SEPARATOR).each do |dir|
+              exts.each do |ext|
+                candidate = File.join(dir, "#{cmd}#{ext}")
+                return candidate if File.executable?(candidate) && !File.directory?(candidate)
+              end
+            end
+            nil
+          end
+
+          def capture_version(path, args)
+            # Use SafeSubprocess for env consistency (no secret leakage)
+            require_relative '../lib/llm_client/safe_subprocess'
+            out, _err, status = KairosMcp::SkillSets::LlmClient::SafeSubprocess.safe_capture(
+              [path, *args], stdin_data: '', timeout_seconds: 10
+            )
+            return nil unless status&.success?
+            out.to_s.strip.lines.first&.strip
+          rescue StandardError
+            nil
           end
         end
       end

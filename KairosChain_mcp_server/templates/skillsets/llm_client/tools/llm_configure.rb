@@ -27,8 +27,8 @@ module KairosMcp
               properties: {
                 provider: {
                   type: 'string',
-                  description: 'Provider: "anthropic", "openai", or "local"',
-                  enum: %w[anthropic openai local claude_code]
+                  description: 'LLM provider',
+                  enum: %w[anthropic openai local openrouter bedrock claude_code codex cursor]
                 },
                 model: { type: 'string', description: 'Model name' },
                 api_key_env: { type: 'string', description: 'Environment variable name for API key' },
@@ -55,7 +55,15 @@ module KairosMcp
             # Remove base_url if nil (reset to default)
             config.delete('base_url') if config['base_url'].nil?
 
-            File.write(config_path, YAML.dump(config))
+            # Atomic write: tmpfile in same dir + rename (crash-safe)
+            dir = File.dirname(config_path)
+            tmp = File.join(dir, ".llm_client.yml.tmp.#{Process.pid}.#{rand(1 << 32).to_s(16)}")
+            begin
+              File.open(tmp, 'w', 0o600) { |f| f.write(YAML.dump(config)); f.fsync }
+              File.rename(tmp, config_path)
+            ensure
+              File.unlink(tmp) if File.exist?(tmp)
+            end
 
             text_content(JSON.generate({
               'status' => 'ok',

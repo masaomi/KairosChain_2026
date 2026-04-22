@@ -76,14 +76,41 @@ module KairosMcp
                   description: 'JSON Schema for structured output (optional). When provided, ' \
                     'the LLM is instructed to return only valid JSON matching this schema. ' \
                     'Note: OpenAI strict mode requires all properties listed in "required" array.'
+                },
+                provider_override: {
+                  type: 'string',
+                  description: 'Override configured provider for this call only ' \
+                    '(e.g., "codex", "cursor", "claude_code"). Useful for multi-LLM review.',
+                  enum: %w[anthropic openai local openrouter bedrock claude_code codex cursor]
                 }
               },
               required: ['messages']
             }
           end
 
+          # Per-provider credential defaults for provider_override
+          PROVIDER_API_KEY_DEFAULTS = {
+            'anthropic' => 'ANTHROPIC_API_KEY',
+            'openai' => 'OPENAI_API_KEY',
+            'codex' => 'OPENAI_API_KEY',
+            'cursor' => 'CURSOR_API_KEY',
+            'claude_code' => nil,        # uses subscription auth
+            'bedrock' => nil,            # uses AWS credentials
+            'local' => nil,
+            'openrouter' => 'OPENROUTER_API_KEY'
+          }.freeze
+
           def call(arguments)
             config = load_config
+            requested_provider = arguments['provider_override']
+            if requested_provider && !requested_provider.empty?
+              overrides = { 'provider' => requested_provider }
+              # Set provider-specific api_key_env if not already in config
+              default_key = PROVIDER_API_KEY_DEFAULTS[requested_provider]
+              overrides['api_key_env'] = default_key if default_key
+              config = config.merge(overrides)
+            end
+            actual_provider = config['provider']
             adapter = build_adapter(config)
             messages = arguments['messages']
             system = arguments['system']
@@ -117,6 +144,7 @@ module KairosMcp
               # P4 fix: auto-fallback to claude_code adapter when API key is missing
               if config['provider'] != 'claude_code'
                 warn "[llm_call] AuthError from #{config['provider']}, falling back to claude_code: #{e.message}"
+                actual_provider = 'claude_code'
                 adapter = ClaudeCodeAdapter.new(config)
                 adapter.call(
                   messages: messages,
@@ -139,7 +167,8 @@ module KairosMcp
             actual_model = raw_response['model'] || model || config['model'] || 'unknown'
             payload = {
               'status' => 'ok',
-              'provider' => config['provider'],
+              'provider' => actual_provider,
+              'requested_provider' => requested_provider,
               'model' => actual_model,
               'response' => raw_response,
               'usage' => usage,
@@ -197,6 +226,12 @@ module KairosMcp
               OpenaiAdapter.new(config)
             when 'claude_code'
               ClaudeCodeAdapter.new(config)
+            when 'codex'
+              require_relative '../lib/llm_client/codex_adapter'
+              CodexAdapter.new(config)
+            when 'cursor'
+              require_relative '../lib/llm_client/cursor_adapter'
+              CursorAdapter.new(config)
             when 'bedrock'
               require_relative '../lib/llm_client/bedrock_adapter'
               BedrockAdapter.new(config)
