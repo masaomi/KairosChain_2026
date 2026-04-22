@@ -114,7 +114,7 @@ module KairosMcp
             'content' => tool_use ? nil : text,
             'tool_use' => tool_use,
             'stop_reason' => tool_use ? 'tool_use' : 'end_turn',
-            'model' => model || @config&.dig('model') || 'cursor',
+            'model' => model || 'cursor-cli-default',
             'input_tokens' => nil,
             'output_tokens' => nil
           }
