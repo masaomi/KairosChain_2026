@@ -192,7 +192,8 @@ module MMP
 
       @crypto_checked = true
       @crypto = begin
-        keypair_dir = File.join(@workspace_root || '.', 'keys')
+        base_dir = @workspace_root || (defined?(KairosMcp) && KairosMcp.respond_to?(:data_dir) ? KairosMcp.data_dir : '.')
+        keypair_dir = File.join(base_dir, 'keys')
         keypair_path = File.join(keypair_dir, 'mmp_keypair.pem')
         c = MMP::Crypto.new(keypair_path: keypair_path, auto_generate: true)
         unless File.exist?(keypair_path)
