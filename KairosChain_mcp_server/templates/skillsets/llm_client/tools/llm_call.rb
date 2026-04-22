@@ -102,16 +102,35 @@ module KairosMcp
               )
             end
 
-            # Make the API call
-            raw_response = adapter.call(
-              messages: messages,
-              system: system,
-              tools: tool_schemas,
-              model: model,
-              max_tokens: max_tokens,
-              temperature: temperature,
-              output_schema: output_schema
-            )
+            # Make the API call (with auto-fallback to claude_code on AuthError)
+            raw_response = begin
+              adapter.call(
+                messages: messages,
+                system: system,
+                tools: tool_schemas,
+                model: model,
+                max_tokens: max_tokens,
+                temperature: temperature,
+                output_schema: output_schema
+              )
+            rescue AuthError => e
+              # P4 fix: auto-fallback to claude_code adapter when API key is missing
+              if config['provider'] != 'claude_code'
+                warn "[llm_call] AuthError from #{config['provider']}, falling back to claude_code: #{e.message}"
+                adapter = ClaudeCodeAdapter.new(config)
+                adapter.call(
+                  messages: messages,
+                  system: system,
+                  tools: tool_schemas,
+                  model: model,
+                  max_tokens: max_tokens,
+                  temperature: temperature,
+                  output_schema: output_schema
+                )
+              else
+                raise
+              end
+            end
 
             # Track usage
             usage = extract_usage(raw_response, adapter)

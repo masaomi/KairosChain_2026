@@ -28,7 +28,7 @@ module KairosMcp
                 provider: {
                   type: 'string',
                   description: 'Provider: "anthropic", "openai", or "local"',
-                  enum: %w[anthropic openai local]
+                  enum: %w[anthropic openai local claude_code]
                 },
                 model: { type: 'string', description: 'Model name' },
                 api_key_env: { type: 'string', description: 'Environment variable name for API key' },

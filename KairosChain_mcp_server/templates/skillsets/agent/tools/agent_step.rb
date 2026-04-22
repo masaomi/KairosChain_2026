@@ -128,11 +128,12 @@ module KairosMcp
           end
 
           def handle_skip(session)
-            return error_result("skip not valid in state: #{session.state}") unless %w[proposed paused_error].include?(session.state)
+            return error_result("skip not valid in state: #{session.state}") unless %w[proposed paused_error paused_risk].include?(session.state)
             return handle_resume_from_error(session) if session.state == 'paused_error'
-            # Skip ACT, go directly to REFLECT with "skipped"
+            # Skip ACT, go directly to REFLECT with skip reason
+            skip_reason = session.state == 'paused_risk' ? 'skipped_risk' : 'skipped'
             session.update_state('reflecting')
-            act_result = { 'skipped' => true, 'summary' => 'skipped' }
+            act_result = { 'skipped' => true, 'summary' => skip_reason, 'reason' => skip_reason }
             reflect_loop = CognitiveLoop.new(self, session)
             messages = [{ 'role' => 'user', 'content' => build_reflect_prompt(session, act_result) }]
             reflect_raw = reflect_loop.run_phase('reflect', reflect_system_prompt, messages, [])
@@ -143,7 +144,7 @@ module KairosMcp
             record_agent_cycle(session, decision_payload, act_result, reflect_result)
             session.save_progress(
               reflect_result, session.cycle_number + 1,
-              'skipped', decision_payload['summary'] || ''
+              act_result['summary'] || 'skipped', decision_payload['summary'] || ''
             )
 
             session.increment_cycle
