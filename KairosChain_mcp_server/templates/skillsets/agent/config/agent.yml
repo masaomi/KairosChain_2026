@@ -105,6 +105,15 @@ complexity_review:
   # review_budget_llm is controlled by phases.review.max_llm_calls (above)
   l0_always_checkpoint: true                  # L0 changes always pause for human
   post_act_review: true                       # enable medium-complexity post-ACT review
+  # Multi-LLM review integration (Gate 5.5c)
+  multi_llm_review:
+    enabled: false              # opt-in: enable for multi-LLM review during autonomous mode
+    trigger_on:                 # complexity signals that trigger multi-LLM review
+      - l0_change
+      - design_scope
+    max_concurrent: 2           # override Dispatcher default
+    timeout_seconds: 300
+    # Reviewer roster delegates to multi_llm_review/config/multi_llm_review.yml
 
 # Audit
 audit_level: summary

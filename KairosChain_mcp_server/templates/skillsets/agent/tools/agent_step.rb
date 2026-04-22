@@ -398,6 +398,68 @@ module KairosMcp
                                                multi_llm_prompt: multi_llm_prompt)
                   end
 
+                  # Gate 5.5c: Multi-LLM review (before persona review)
+                  multi_cfg = review_cfg['multi_llm_review']
+                  if multi_cfg && multi_cfg['enabled'] &&
+                     (Array(multi_cfg['trigger_on']) & complexity[:signals]).any?
+                    mreview = run_multi_llm_review(session, decision_payload, complexity, multi_cfg)
+                    total_llm_calls += mreview[:llm_calls] || 0
+                    session.save_review_result(mreview.merge(kind: 'multi_llm'))
+
+                    case mreview[:verdict]
+                    when 'APPROVE'
+                      # proceed to persona review or ACT
+                    when 'REVISE'
+                      findings_list = Array(mreview[:aggregated_findings]).map { |f|
+                        "#{f[:severity] || f['severity']}: #{f[:issue] || f['issue']}"
+                      }
+                      findings_text = if findings_list.empty?
+                                        "Multi-LLM review verdict was REVISE but no specific findings were extracted. " \
+                                        "Review the plan for potential issues and revise."
+                                      else
+                                        "Multi-LLM review found issues:\n- #{findings_list.join("\n- ")}\n\nRevise plan."
+                                      end
+                      decide_result = run_decide_with_review_feedback_internal(
+                        session, findings_text
+                      )
+                      total_llm_calls += decide_result[:llm_calls] || 0
+                      if decide_result[:error]
+                        session.update_state('paused_error')
+                        session.save
+                        return finalize_autonomous(session, results, error: decide_result[:error])
+                      end
+                      decision_payload = session.load_decision
+
+                      # Re-check loop detection on revised plan (mirrors persona-review path)
+                      tagged_summary = "#{decision_payload['summary']}_mreview_rev1"
+                      loop_term = check_loop_detection(
+                        session, nil,
+                        decision_payload.merge('summary' => tagged_summary),
+                        mandate_override: mandate
+                      )
+                      if loop_term
+                        session.update_state('terminated')
+                        return finalize_autonomous(session, results, terminated: 'loop_detected')
+                      end
+
+                      # Re-check risk budget on revised plan
+                      proposal = MandateAdapter.to_mandate_proposal(decision_payload)
+                      if ::Autonomos::Mandate.risk_exceeds_budget?(proposal, mandate[:risk_budget])
+                        mandate[:status] = 'paused_risk_exceeded'
+                        ::Autonomos::Mandate.save(session.mandate_id, mandate)
+                        session.update_state('paused_risk')
+                        session.save
+                        return finalize_autonomous(session, results, paused: 'risk_exceeded')
+                      end
+
+                      complexity = assess_decision_complexity(decision_payload)
+                      llm_hint = decision_payload['complexity_hint']
+                      complexity = merge_complexity(complexity, llm_hint) if llm_hint
+                    when 'INSUFFICIENT'
+                      warn "[agent_step] multi_llm_review quorum not met; falling back to persona review"
+                    end
+                  end
+
                   # Gate 5.5b: High-complexity persona review (inner retry loop)
                   if complexity[:level] == 'high'
                     review_retries = 0
@@ -1018,6 +1080,70 @@ module KairosMcp
             parsed = parse_lightweight_review(result['content'])
             parsed[:llm_calls] = review_loop.total_calls
             parsed
+          end
+
+          # ---- Multi-LLM Review (Gate 5.5c) ----
+
+          def run_multi_llm_review(session, decision_payload, complexity, multi_cfg)
+            summary = decision_payload['summary'] || 'unknown'
+            steps = decision_payload.dig('task_json', 'steps') || []
+            step_desc = steps.map.with_index(1) { |s, i|
+              "#{i}. #{s['action'] || s['tool_name']} (risk: #{s['risk']}, tool: #{s['tool_name']})"
+            }.join("\n")
+
+            artifact_content = <<~ARTIFACT
+              # Decision Payload Review
+
+              ## Summary
+              #{summary}
+
+              ## Complexity: #{complexity[:level]} (#{complexity[:signals].join(', ')})
+
+              ## Steps
+              #{step_desc}
+
+              ## Full Payload
+              ```json
+              #{JSON.pretty_generate(decision_payload)}
+              ```
+            ARTIFACT
+
+            review_ctx = session.invocation_context.derive(
+              blacklist_remove: %w[multi_llm_review llm_call llm_status]
+            )
+
+            review_args = {
+              'artifact_content' => artifact_content,
+              'artifact_name' => "decision_cycle#{session.cycle_number}_#{session.session_id[0..7]}",
+              'review_type' => 'design',
+              'review_context' => 'independent'
+            }
+
+            # Apply agent.yml overrides
+            review_args['max_concurrent_override'] = multi_cfg['max_concurrent'] if multi_cfg['max_concurrent']
+            review_args['timeout_seconds_override'] = multi_cfg['timeout_seconds'] if multi_cfg['timeout_seconds']
+
+            raw = invoke_tool('multi_llm_review', review_args, context: review_ctx)
+            parsed = JSON.parse(raw.map { |b| b[:text] || b['text'] }.compact.join)
+
+            if parsed['status'] == 'error'
+              { verdict: 'INSUFFICIENT', error: parsed['error'], llm_calls: 0,
+                aggregated_findings: [] }
+            else
+              {
+                verdict: parsed['verdict'],
+                convergence: parsed['convergence'],
+                aggregated_findings: (parsed['aggregated_findings'] || []).map { |f|
+                  f.transform_keys(&:to_sym)
+                },
+                llm_calls: parsed['llm_calls'] || 0,
+                reviews: parsed['reviews']
+              }
+            end
+          rescue StandardError => e
+            warn "[agent_step] multi_llm_review failed: #{e.message}"
+            { verdict: 'INSUFFICIENT', error: e.message, llm_calls: 0,
+              aggregated_findings: [] }
           end
 
           def parse_persona_review(content)

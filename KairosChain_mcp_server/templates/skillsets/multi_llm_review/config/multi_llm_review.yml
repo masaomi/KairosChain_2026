@@ -1,0 +1,38 @@
+# Multi-LLM Review SkillSet configuration
+#
+# This is the canonical reviewer roster. agent.yml delegates here
+# to avoid duplication.
+
+# Convergence rules
+convergence_rule: "3/4 APPROVE"  # ratio applied to successful reviewer count
+min_quorum: 2                     # minimum successful reviews for any verdict
+
+# Dispatch settings
+timeout_seconds: 300              # global deadline for all reviewers
+max_concurrent: 2                 # semaphore limit (2 for laptop, 4 for CI)
+
+# Reviewer roster
+# Each entry specifies a provider (maps to llm_client adapter) and optional model.
+# role_label is used in consensus output for identification.
+reviewers:
+  - provider: claude_code
+    role_label: claude_team
+    # model: claude-sonnet-4-6  # uses llm_client default
+
+  - provider: codex
+    role_label: codex
+    # model: gpt-5.4  # codex default
+
+  - provider: cursor
+    role_label: cursor
+    # model: composer-2  # cursor default
+
+  # Uncomment to add a 4th reviewer (Claude CLI via claude_code with model override)
+  # - provider: claude_code
+  #   model: claude-opus-4-7
+  #   role_label: claude_cli_opus4.7
+
+# Review context default
+# 'independent' = reviewers don't see CLAUDE.md, project instructions
+# 'project_aware' = reviewers see project context (use for project-specific reviews)
+default_review_context: independent

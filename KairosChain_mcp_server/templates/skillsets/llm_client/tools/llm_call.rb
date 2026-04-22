@@ -82,6 +82,16 @@ module KairosMcp
                   description: 'Override configured provider for this call only ' \
                     '(e.g., "codex", "cursor", "claude_code"). Useful for multi-LLM review.',
                   enum: %w[anthropic openai local openrouter bedrock claude_code codex cursor]
+                },
+                dispatch_id: {
+                  type: 'string',
+                  description: 'Dispatch group ID for subprocess PID tracking. ' \
+                    'Enables per-dispatch cleanup on timeout (used by multi_llm_review dispatcher).'
+                },
+                sandbox_mode: {
+                  type: 'boolean',
+                  description: 'Enable sandbox mode for CLI adapters (e.g., --disallowedTools, --cwd). ' \
+                    'Used by multi_llm_review for independent review context.'
                 }
               },
               required: ['messages']
@@ -110,6 +120,11 @@ module KairosMcp
               overrides['api_key_env'] = default_key if default_key
               config = config.merge(overrides)
             end
+
+            # Pass through dispatch control arguments to adapter config
+            config['dispatch_id'] = arguments['dispatch_id'] if arguments['dispatch_id']
+            config['sandbox_mode'] = true if arguments['sandbox_mode']
+
             actual_provider = config['provider']
             adapter = build_adapter(config)
             messages = arguments['messages']

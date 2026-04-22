@@ -1,0 +1,18 @@
+{
+  "name": "multi_llm_review",
+  "version": "0.1.0",
+  "description": "Parallel multi-LLM review orchestration. Dispatches review prompts to N LLM backends via llm_client, collects verdicts, and computes consensus.",
+  "author": "Masaomi Hatakeyama",
+  "layer": "L1",
+  "depends_on": ["llm_client"],
+  "provides": [
+    "multi_llm_review_orchestration",
+    "review_consensus"
+  ],
+  "tool_classes": [
+    "KairosMcp::SkillSets::MultiLlmReview::Tools::MultiLlmReview"
+  ],
+  "config_files": ["config/multi_llm_review.yml"],
+  "knowledge_dirs": [],
+  "min_core_version": "2.8.0"
+}
