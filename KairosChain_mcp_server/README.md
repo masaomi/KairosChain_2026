@@ -20,6 +20,7 @@ A self-referential [Model Context Protocol (MCP)](https://modelcontextprotocol.i
 - **Attestation System (Synoptis)** — Cryptographic attestation and trust scoring
 - **Dream Mode** — Speculative knowledge proposals with community review
 - **Claude Code Plugin Projection** — Auto-project SkillSets as Claude Code plugins (hooks, agents, slash commands)
+- **Multi-LLM Review** — Parallel dispatch to heterogeneous LLMs (Claude, Codex, Cursor) via CLI subprocesses; consensus verdict with aggregated findings
 
 ## Installation
 

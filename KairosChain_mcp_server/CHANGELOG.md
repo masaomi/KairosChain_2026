@@ -4,6 +4,48 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.17.0] - 2026-04-22
+
+### Added
+
+- **Multi-LLM Review SkillSet** — New `multi_llm_review` tool dispatching review
+  tasks in parallel to heterogeneous LLMs (Claude Opus 4.6/4.7 via Agent tool
+  and CLI, OpenAI Codex GPT-5.4, Cursor Composer-2). Returns consensus verdict
+  with aggregated findings. Convergence rule configurable (default `3/4 APPROVE`).
+  Complexity auto-detection from `review_type` + artifact size. Sandbox mode
+  via `review_context: independent` prevents CLAUDE.md contamination.
+- **LLM adapter extensions** — `codex_adapter` (`codex exec` subprocess) and
+  `cursor_adapter` (`agent -p` subprocess) join the existing `claude_code_adapter`.
+  All share the `SafeSubprocess` wrapper with timeout, stderr isolation, and
+  ANSI stripping. `provider_override` parameter on `llm_call` routes to a
+  specific adapter independent of the default config.
+- **Agent SkillSet integration** — Agent OODA loop can invoke `multi_llm_review`
+  as an ACT step for design/implementation review cycles.
+
+### Fixed
+
+- **Adapter model label** — `codex_adapter` and `cursor_adapter` no longer fall
+  back to `llm_client.yml`'s Anthropic default model (`claude-opus-4-6`) when
+  the caller omits `model`. They now report `codex-cli-default` /
+  `cursor-cli-default` in response JSON, honestly reflecting that the CLI's
+  own default model was used. No change to dispatch behavior.
+- **Runtime integration** — CLI auth flow, effort control per provider,
+  auto-complexity mapping (`low`/`medium`/`high`/`xhigh`) validated end-to-end.
+- **MMP keypair persistence** — Keypair saved to `.kairos/keys/` instead of
+  ephemeral CWD, preventing loss on directory change.
+- **paused_risk skip transition** — Agent state machine correctly handles
+  `skip` action from `paused_risk` state.
+- **llm_call AuthError fallback** — Auto-switch to `claude_code` provider
+  when Anthropic API auth fails.
+
+### Review
+
+- Design: 2 rounds × 4 LLMs (Claude Opus 4.6, Claude Opus 4.7, Codex GPT-5.4,
+  Cursor Composer-2)
+- Implementation: 2 rounds × 4 LLMs
+- Runtime test: 4-LLM diversity verified on buggy Fibonacci artifact
+  (4/4 REJECT with distinct findings per reviewer characteristic)
+
 ## [3.16.0] - 2026-04-19
 
 ### Changed
