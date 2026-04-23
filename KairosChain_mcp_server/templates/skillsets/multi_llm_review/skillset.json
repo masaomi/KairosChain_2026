@@ -10,7 +10,8 @@
     "review_consensus"
   ],
   "tool_classes": [
-    "KairosMcp::SkillSets::MultiLlmReview::Tools::MultiLlmReview"
+    "KairosMcp::SkillSets::MultiLlmReview::Tools::MultiLlmReview",
+    "KairosMcp::SkillSets::MultiLlmReview::Tools::MultiLlmReviewCollect"
   ],
   "config_files": ["config/multi_llm_review.yml"],
   "knowledge_dirs": [],

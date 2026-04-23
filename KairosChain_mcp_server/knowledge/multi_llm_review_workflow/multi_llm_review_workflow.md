@@ -225,6 +225,97 @@ agent --list-models 2>&1 | grep "(current\|default)"
 # Claude Code: known from session
 ```
 
+### Orchestrator Self-Identification (Self-Referential Model Reporting)
+
+**Rule**: When invoking `multi_llm_review` (or running this workflow manually), the
+orchestrating LLM MUST pass its own model identifier as `orchestrator_model`.
+
+**Rationale**: The reviewer roster typically contains both Opus 4.6 and Opus 4.7
+entries. To avoid the orchestrator reviewing its own output (no independent signal),
+the dispatcher excludes any roster entry whose `model` matches `orchestrator_model`.
+This keeps the same SkillSet useful regardless of which Opus version the user has
+toggled to via `/model` — review composition adapts automatically.
+
+**Why "argument-passing" not "file-introspection"**:
+- The orchestrator's model identity lives in *its own context* (system prompt
+  declares e.g. "You are powered by Opus 4.7"). No external file or env var is
+  authoritative — `/model` switches change context immediately.
+- MCP protocol does not transmit caller-model info; only the orchestrator can
+  truthfully report its own identity. This is genuine self-reference: the system
+  reports its own state to itself.
+- Reading `~/.claude/projects/<cwd>/<sessionId>.jsonl` works but depends on
+  Claude Code internals (format may change between versions). Argument-passing
+  has zero internal-format dependency.
+
+**How orchestrator obtains its model ID**:
+- Claude Code sessions: read the system prompt line "You are powered by the
+  model named ... The exact model ID is `claude-opus-X-Y`". Use the exact ID.
+- Other hosts: use whatever introspection the host provides; if none, pass
+  `null` and accept that no exclusion happens.
+
+**Tool invocation example**:
+```
+multi_llm_review(
+  artifact_path: "log/design.md",
+  review_type: "design",
+  orchestrator_model: "claude-opus-4-7"   # MUST be set by caller
+)
+```
+
+**Dispatcher behavior** (config: `exclude_orchestrator_model: true`, default `true`):
+- If `orchestrator_model` matches a roster entry's `model`, that entry is skipped.
+- `min_quorum` and `convergence_rule` apply to the remaining reviewers.
+- 4-reviewer roster → 3 reviewer; recommended `convergence_rule: "2/3 APPROVE"`
+  when one Opus is excluded.
+- If `orchestrator_model` is `null` or unmatched, full roster runs (back-compat).
+
+**Manual-mode equivalent**: When orchestrating by hand, do not assign yourself
+as a reviewer. Pick the *other* Opus version for the Claude CLI subprocess
+reviewer (4.6 if you are 4.7, and vice versa).
+
+### Orchestrator Delegation Protocol (Two-Phase, opt-in)
+
+The `delegate` strategy lets the orchestrator perform persona-based "Agent Team"
+review in its own context — preserving inherited project context that a fresh
+`claude -p` subprocess loses. Subprocess reviewers (codex, cursor, opposite-Opus)
+remain single-LLM.
+
+**Why**: The orchestrator already holds the artifact in context with full project
+awareness. Re-shipping it to a sandboxed subprocess discards that context. Same-
+model persona switching gives stylistic / framing diversity (validated empirically);
+cross-model subprocess reviewers give epistemic diversity. The two are complementary.
+
+**Call 1**: `multi_llm_review(orchestrator_strategy: "delegate", orchestrator_model: "...")`
+- SkillSet drops the orchestrator-matching reviewer from dispatch
+- Subprocess reviewers run synchronously (no background threads)
+- Subprocess results persisted to `.kairos/multi_llm_review/pending/<uuid>.json`
+- Returns `status: "delegation_pending"`, `collect_token`, `persona_count_min/max`
+
+**Orchestrator's obligation** (between calls):
+- Recognize the `delegation_pending` status
+- Spawn 2-4 parallel `Agent` tool calls with self-chosen personas appropriate to
+  the artifact (e.g. design → architect/security/operability; code → correctness/
+  performance/api-design; doc → ontologist/skeptic/integration)
+- Collect persona results: each as `{persona, verdict (APPROVE|REVISE|REJECT),
+  reasoning, findings: [{severity, issue}, ...]}`
+
+**Call 2**: `multi_llm_review_collect(collect_token, orchestrator_reviews: [...])`
+- Persona Assembly: any REJECT → REJECT; else any REVISE → REVISE; else APPROVE
+- Assembled into one synthetic reviewer entry `claude_team_<orchestrator_model>`
+- Combined with persisted subprocess results, run Consensus, return final verdict
+- Idempotent: repeated calls with the same token return the cached result
+
+**Failure modes**:
+- `expired_or_unknown_token`: orchestrator missed `must_collect_by` deadline
+  (default 600s), or token never existed. The pending review is gone; call
+  `multi_llm_review` again from scratch.
+- `error: invalid orchestrator_reviews`: persona count outside 2-4 or missing
+  required fields. Fix and retry collect with the same token.
+- All-subprocess-failed at Call 1: returns error immediately; no token issued.
+
+**Default**: `orchestrator_strategy` defaults to `"exclude"` (back-compat). Use
+`"delegate"` explicitly until validated by use.
+
 ### Critical CLI Notes
 
 - **Cursor Agent stdin**: `cat file | agent -p -` does NOT work. Use file-reference:

@@ -7,6 +7,25 @@
 convergence_rule: "3/4 APPROVE"  # ratio applied to successful reviewer count
 min_quorum: 2                     # minimum successful reviews for any verdict
 
+# Self-referential orchestrator exclusion.
+# When the caller passes orchestrator_model (e.g. "claude-opus-4-7"), any
+# roster entry with that exact model is dropped before dispatch — the
+# orchestrator should not review its own output.
+# When at least one entry is excluded, convergence_rule_after_exclusion
+# replaces convergence_rule for that dispatch (4 reviewers → 3 reviewers
+# makes "3/4 APPROVE" require unanimity, which is too strict).
+exclude_orchestrator_model: true
+convergence_rule_after_exclusion: "2/3 APPROVE"
+
+# Two-phase delegation (orchestrator_strategy: "delegate").
+# Phase 1 dispatches subprocess reviewers synchronously, persists their
+# results under a UUID v4 token, and returns a delegation manifest.
+# Phase 2 (multi_llm_review_collect) receives the orchestrator's persona
+# team review and computes final consensus.
+delegation:
+  collect_deadline_seconds: 600  # how long the orchestrator has to call collect
+  retain_collected_seconds: 3600 # how long collected results stay for idempotent replay
+
 # Dispatch settings
 timeout_seconds: 300              # global deadline for all reviewers
 max_concurrent: 2                 # semaphore limit (2 for laptop, 4 for CI)

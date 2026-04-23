@@ -6,6 +6,21 @@ require_relative '../lib/multi_llm_review/consensus'
 require_relative '../lib/multi_llm_review/prompt_builder'
 require_relative '../lib/multi_llm_review/dispatcher'
 
+# Stub out BaseTool so we can load the tool file in isolation.
+module KairosMcp
+  module Tools
+    class BaseTool
+      def text_content(s); [{ text: s }]; end
+    end
+  end unless defined?(KairosMcp::Tools::BaseTool)
+end
+require_relative '../tools/multi_llm_review'
+require_relative '../lib/multi_llm_review/pending_state'
+require_relative '../lib/multi_llm_review/persona_assembly'
+require_relative '../tools/multi_llm_review_collect'
+require 'tmpdir'
+require 'fileutils'
+
 module KairosMcp
   module SkillSets
     module MultiLlmReview
@@ -328,6 +343,505 @@ module KairosMcp
           assert_includes content, 'R2'
           assert_includes content, 'Missing validation'
           assert_includes content, 'r1, r2'
+        end
+      end
+
+      class TestOrchestratorExclusion < Minitest::Test
+        def setup
+          @tool = Tools::MultiLlmReview.new
+          @reviewers = [
+            { provider: 'claude_code', model: 'claude-opus-4-7', role_label: 'team_47' },
+            { provider: 'claude_code', model: 'claude-opus-4-6', role_label: 'cli_46' },
+            { provider: 'codex', role_label: 'codex' },
+            { provider: 'cursor', role_label: 'cursor' }
+          ]
+        end
+
+        def test_excludes_matching_model
+          kept, n = @tool.send(:exclude_orchestrator, @reviewers,
+                               'claude-opus-4-7',
+                               { 'exclude_orchestrator_model' => true })
+          assert_equal 1, n
+          assert_equal 3, kept.size
+          refute(kept.any? { |r| r[:model] == 'claude-opus-4-7' })
+        end
+
+        def test_excludes_other_opus
+          kept, n = @tool.send(:exclude_orchestrator, @reviewers,
+                               'claude-opus-4-6',
+                               { 'exclude_orchestrator_model' => true })
+          assert_equal 1, n
+          assert(kept.any? { |r| r[:model] == 'claude-opus-4-7' })
+          refute(kept.any? { |r| r[:model] == 'claude-opus-4-6' })
+        end
+
+        def test_no_match_keeps_all
+          kept, n = @tool.send(:exclude_orchestrator, @reviewers,
+                               'claude-sonnet-4-6',
+                               { 'exclude_orchestrator_model' => true })
+          assert_equal 0, n
+          assert_equal 4, kept.size
+        end
+
+        def test_nil_orchestrator_is_noop
+          kept, n = @tool.send(:exclude_orchestrator, @reviewers, nil,
+                               { 'exclude_orchestrator_model' => true })
+          assert_equal 0, n
+          assert_equal 4, kept.size
+        end
+
+        def test_empty_orchestrator_is_noop
+          kept, n = @tool.send(:exclude_orchestrator, @reviewers, '',
+                               { 'exclude_orchestrator_model' => true })
+          assert_equal 0, n
+          assert_equal 4, kept.size
+        end
+
+        def test_disabled_flag_keeps_all
+          kept, n = @tool.send(:exclude_orchestrator, @reviewers,
+                               'claude-opus-4-7',
+                               { 'exclude_orchestrator_model' => false })
+          assert_equal 0, n
+          assert_equal 4, kept.size
+        end
+
+        def test_default_when_flag_missing_excludes
+          # Missing key defaults to true (opt-out, not opt-in)
+          kept, n = @tool.send(:exclude_orchestrator, @reviewers,
+                               'claude-opus-4-7', {})
+          assert_equal 1, n
+          assert_equal 3, kept.size
+        end
+      end
+
+      class TestPendingState < Minitest::Test
+        def setup
+          @tmp = Dir.mktmpdir('mlr-pending-')
+          @orig_cwd = Dir.pwd
+          Dir.chdir(@tmp)
+        end
+
+        def teardown
+          Dir.chdir(@orig_cwd)
+          FileUtils.rm_rf(@tmp)
+        end
+
+        def test_generate_token_is_uuid_v4
+          token = PendingState.generate_token
+          assert PendingState.valid_token?(token), "expected #{token} to be valid UUID v4"
+        end
+
+        def test_invalid_token_rejects_path_traversal
+          refute PendingState.valid_token?('../../etc/passwd')
+          refute PendingState.valid_token?('not-a-uuid')
+          refute PendingState.valid_token?('a' * 36)
+          refute PendingState.valid_token?(nil)
+        end
+
+        def test_write_and_load_roundtrip
+          token = PendingState.generate_token
+          PendingState.write(token, { 'token' => token, 'foo' => 'bar' })
+          loaded = PendingState.load(token)
+          assert_equal token, loaded['token']
+          assert_equal 'bar', loaded['foo']
+        end
+
+        def test_load_returns_nil_for_missing
+          assert_nil PendingState.load(PendingState.generate_token)
+        end
+
+        def test_load_returns_nil_for_invalid_token
+          assert_nil PendingState.load('not-a-uuid')
+        end
+
+        def test_atomic_write_no_partial_file
+          token = PendingState.generate_token
+          PendingState.write(token, { 'token' => token, 'data' => 'x' * 100 })
+          # No tmp file should remain after successful write
+          tmp_files = Dir.glob(File.join(PendingState.root_dir, '*.tmp.*'))
+          assert_empty tmp_files
+        end
+
+        def test_cleanup_expired_removes_uncollected_past_deadline
+          token = PendingState.generate_token
+          PendingState.write(token, {
+            'token' => token,
+            'collect_deadline' => (Time.now - 100).iso8601,
+            'collected' => false
+          })
+          removed = PendingState.cleanup_expired!
+          assert_equal 1, removed
+          assert_nil PendingState.load(token)
+        end
+
+        def test_cleanup_keeps_collected_within_retention
+          token = PendingState.generate_token
+          PendingState.write(token, {
+            'token' => token,
+            'collect_deadline' => (Time.now - 100).iso8601,
+            'collected' => true
+          })
+          removed = PendingState.cleanup_expired!(retain_collected_seconds: 3600)
+          assert_equal 0, removed
+          refute_nil PendingState.load(token)
+        end
+
+        def test_cleanup_removes_collected_past_retention
+          token = PendingState.generate_token
+          PendingState.write(token, {
+            'token' => token,
+            'collect_deadline' => (Time.now - 7200).iso8601,
+            'collected' => true
+          })
+          removed = PendingState.cleanup_expired!(retain_collected_seconds: 3600)
+          assert_equal 1, removed
+        end
+      end
+
+      class TestPersonaAssembly < Minitest::Test
+        def base_review(persona, verdict, **extras)
+          { 'persona' => persona, 'verdict' => verdict,
+            'reasoning' => "#{persona} reasoning", 'findings' => [] }.merge(extras)
+        end
+
+        def test_all_approve_assembles_to_approve
+          reviews = [base_review('a', 'APPROVE'), base_review('b', 'APPROVE')]
+          entry = PersonaAssembly.assemble(reviews, 'claude-opus-4-7')
+          assert_match(/APPROVE/, entry[:raw_text])
+          assert_equal 'claude_team_claude-opus-4-7', entry[:role_label]
+          assert_equal 'claude-opus-4-7', entry[:model]
+          assert_equal :success, entry[:status]
+        end
+
+        def test_any_reject_dominates
+          reviews = [
+            base_review('a', 'APPROVE'),
+            base_review('b', 'REJECT'),
+            base_review('c', 'REVISE')
+          ]
+          entry = PersonaAssembly.assemble(reviews, 'claude-opus-4-7')
+          assert_includes entry[:raw_text], 'Overall Verdict**: REJECT'
+        end
+
+        def test_any_revise_without_reject
+          reviews = [base_review('a', 'APPROVE'), base_review('b', 'REVISE')]
+          entry = PersonaAssembly.assemble(reviews, 'claude-opus-4-7')
+          assert_includes entry[:raw_text], 'Overall Verdict**: REVISE'
+        end
+
+        def test_below_min_personas_raises
+          assert_raises(ArgumentError) do
+            PersonaAssembly.assemble([base_review('only', 'APPROVE')], 'claude-opus-4-7')
+          end
+        end
+
+        def test_above_max_personas_raises
+          reviews = (1..5).map { |i| base_review("p#{i}", 'APPROVE') }
+          assert_raises(ArgumentError) do
+            PersonaAssembly.assemble(reviews, 'claude-opus-4-7')
+          end
+        end
+
+        def test_missing_persona_raises
+          reviews = [
+            { 'verdict' => 'APPROVE' },
+            base_review('b', 'APPROVE')
+          ]
+          assert_raises(ArgumentError) do
+            PersonaAssembly.assemble(reviews, 'claude-opus-4-7')
+          end
+        end
+
+        def test_missing_verdict_raises
+          reviews = [
+            { 'persona' => 'a' },
+            base_review('b', 'APPROVE')
+          ]
+          assert_raises(ArgumentError) do
+            PersonaAssembly.assemble(reviews, 'claude-opus-4-7')
+          end
+        end
+
+        def test_findings_appear_in_raw_text
+          reviews = [
+            base_review('a', 'REVISE',
+              'findings' => [{ 'severity' => 'P1', 'issue' => 'missing-X' }]),
+            base_review('b', 'APPROVE')
+          ]
+          entry = PersonaAssembly.assemble(reviews, 'claude-opus-4-7')
+          assert_includes entry[:raw_text], 'P1'
+          assert_includes entry[:raw_text], 'missing-X'
+        end
+      end
+
+      class TestDelegateStrategy < Minitest::Test
+        def setup
+          @tmp = Dir.mktmpdir('mlr-delegate-')
+          @orig_cwd = Dir.pwd
+          Dir.chdir(@tmp)
+          @tool = Tools::MultiLlmReview.new
+        end
+
+        def teardown
+          Dir.chdir(@orig_cwd)
+          FileUtils.rm_rf(@tmp)
+        end
+
+        def test_partition_for_strategy_delegate_drops_match
+          reviewers = [
+            { provider: 'claude_code', model: 'claude-opus-4-7', role_label: 'r47' },
+            { provider: 'claude_code', model: 'claude-opus-4-6', role_label: 'r46' },
+            { provider: 'codex', role_label: 'codex' }
+          ]
+          kept, n = @tool.send(:partition_for_strategy,
+                               reviewers, 'claude-opus-4-7', 'delegate', {})
+          assert_equal 1, n
+          assert_equal 2, kept.size
+          refute(kept.any? { |r| r[:model] == 'claude-opus-4-7' })
+        end
+
+        def test_partition_for_strategy_subprocess_keeps_all
+          reviewers = [
+            { provider: 'claude_code', model: 'claude-opus-4-7', role_label: 'r47' },
+            { provider: 'codex', role_label: 'codex' }
+          ]
+          kept, n = @tool.send(:partition_for_strategy,
+                               reviewers, 'claude-opus-4-7', 'subprocess', {})
+          assert_equal 0, n
+          assert_equal 2, kept.size
+        end
+
+        def test_partition_for_strategy_exclude_uses_config_flag
+          reviewers = [
+            { provider: 'claude_code', model: 'claude-opus-4-7', role_label: 'r47' },
+            { provider: 'codex', role_label: 'codex' }
+          ]
+          kept, n = @tool.send(:partition_for_strategy, reviewers,
+                               'claude-opus-4-7', 'exclude',
+                               { 'exclude_orchestrator_model' => true })
+          assert_equal 1, n
+          assert_equal 1, kept.size
+        end
+
+        def test_delegate_response_writes_pending_state
+          subprocess_results = [
+            { role_label: 'codex', provider: 'codex', model: 'codex-default',
+              raw_text: 'APPROVE', elapsed_seconds: 10, error: nil, status: :success }
+          ]
+          result = @tool.send(:delegate_response,
+            raw_results: subprocess_results,
+            arguments: { 'review_type' => 'design', 'artifact_name' => 'test' },
+            config: {},
+            orchestrator_model: 'claude-opus-4-7',
+            convergence_rule: '3/4 APPROVE',
+            min_quorum: 2,
+            review_round: 1,
+            complexity: 'high'
+          )
+          payload = JSON.parse(result.first[:text])
+          assert_equal 'delegation_pending', payload['status']
+          assert PendingState.valid_token?(payload['collect_token'])
+          assert_equal 1, payload['subprocess_done']
+          assert_equal 'claude-opus-4-7', payload['orchestrator_model']
+
+          # Pending state contains orchestrator_model + convergence_rule
+          state = PendingState.load(payload['collect_token'])
+          assert_equal 'claude-opus-4-7', state['orchestrator_model']
+          assert_equal '3/4 APPROVE', state['convergence_rule']
+          assert_equal 1, state['subprocess_results'].size
+        end
+
+        def test_delegate_response_requires_orchestrator_model
+          result = @tool.send(:delegate_response,
+            raw_results: [],
+            arguments: { 'review_type' => 'design', 'artifact_name' => 'test' },
+            config: {},
+            orchestrator_model: nil,
+            convergence_rule: '3/4 APPROVE',
+            min_quorum: 2,
+            review_round: 1,
+            complexity: 'high'
+          )
+          payload = JSON.parse(result.first[:text])
+          assert_equal 'error', payload['status']
+          assert_match(/requires orchestrator_model/, payload['error'])
+        end
+
+        def test_delegate_response_fails_when_all_subprocess_failed
+          failed = [
+            { role_label: 'codex', provider: 'codex', error: 'boom', status: :error }
+          ]
+          result = @tool.send(:delegate_response,
+            raw_results: failed,
+            arguments: { 'review_type' => 'design', 'artifact_name' => 'test' },
+            config: {},
+            orchestrator_model: 'claude-opus-4-7',
+            convergence_rule: '3/4 APPROVE',
+            min_quorum: 2,
+            review_round: 1,
+            complexity: 'high'
+          )
+          payload = JSON.parse(result.first[:text])
+          assert_equal 'error', payload['status']
+          assert_match(/all subprocess reviewers failed/, payload['error'])
+        end
+
+        def test_delegate_uses_config_deadline
+          subprocess_results = [
+            { role_label: 'codex', provider: 'codex', model: 'm',
+              raw_text: 'APPROVE', elapsed_seconds: 1, error: nil, status: :success }
+          ]
+          result = @tool.send(:delegate_response,
+            raw_results: subprocess_results,
+            arguments: { 'review_type' => 'design', 'artifact_name' => 'x' },
+            config: { 'delegation' => { 'collect_deadline_seconds' => 60 } },
+            orchestrator_model: 'claude-opus-4-7',
+            convergence_rule: '3/4 APPROVE',
+            min_quorum: 2,
+            review_round: 1,
+            complexity: 'high'
+          )
+          payload = JSON.parse(result.first[:text])
+          deadline = Time.iso8601(payload['must_collect_by'])
+          # Should be ~60s from now, not the default 600s
+          assert_in_delta 60, deadline - Time.now, 5
+        end
+      end
+
+      class TestCollectTool < Minitest::Test
+        def setup
+          @tmp = Dir.mktmpdir('mlr-collect-')
+          @orig_cwd = Dir.pwd
+          Dir.chdir(@tmp)
+          @collect = Tools::MultiLlmReviewCollect.new
+        end
+
+        def teardown
+          Dir.chdir(@orig_cwd)
+          FileUtils.rm_rf(@tmp)
+        end
+
+        def write_state(token, overrides = {})
+          PendingState.write(token, {
+            'token' => token,
+            'created_at' => Time.now.iso8601,
+            'collect_deadline' => (Time.now + 600).iso8601,
+            'review_type' => 'design',
+            'artifact_name' => 'test',
+            'review_round' => 1,
+            'complexity' => 'high',
+            'orchestrator_model' => 'claude-opus-4-7',
+            'convergence_rule' => '3/4 APPROVE',
+            'min_quorum' => 2,
+            'collected' => false,
+            'subprocess_results' => [
+              { 'role_label' => 'codex', 'provider' => 'codex', 'model' => 'codex-default',
+                'raw_text' => 'APPROVE - looks good', 'elapsed_seconds' => 10,
+                'error' => nil, 'status' => 'success' },
+              { 'role_label' => 'cursor', 'provider' => 'cursor', 'model' => 'cursor-default',
+                'raw_text' => 'APPROVE', 'elapsed_seconds' => 5,
+                'error' => nil, 'status' => 'success' }
+            ]
+          }.merge(overrides))
+        end
+
+        def good_reviews
+          [
+            { 'persona' => 'architect', 'verdict' => 'APPROVE',
+              'reasoning' => 'looks fine', 'findings' => [] },
+            { 'persona' => 'security', 'verdict' => 'APPROVE',
+              'reasoning' => 'no issues', 'findings' => [] }
+          ]
+        end
+
+        def test_invalid_token_format
+          result = @collect.call({
+            'collect_token' => 'not-a-uuid',
+            'orchestrator_reviews' => good_reviews
+          })
+          payload = JSON.parse(result.first[:text])
+          assert_equal 'error', payload['status']
+          assert_match(/invalid collect_token/, payload['error'])
+        end
+
+        def test_unknown_token
+          result = @collect.call({
+            'collect_token' => PendingState.generate_token,
+            'orchestrator_reviews' => good_reviews
+          })
+          payload = JSON.parse(result.first[:text])
+          assert_equal 'expired_or_unknown_token', payload['status']
+        end
+
+        def test_happy_path_merges_subprocess_and_orchestrator
+          token = PendingState.generate_token
+          write_state(token)
+          result = @collect.call({
+            'collect_token' => token,
+            'orchestrator_reviews' => good_reviews
+          })
+          payload = JSON.parse(result.first[:text])
+          assert_equal 'ok', payload['status']
+          assert_equal 'APPROVE', payload['verdict']
+          # 2 subprocess + 1 assembled orchestrator = 3 reviews
+          assert_equal 3, payload['reviews'].size
+          # Orchestrator entry has the synthesized role_label
+          assert(payload['reviews'].any? { |r| r['role_label'] == 'claude_team_claude-opus-4-7' })
+          assert_equal 2, payload['persona_count']
+        end
+
+        def test_idempotent_replay
+          token = PendingState.generate_token
+          write_state(token)
+          first = JSON.parse(@collect.call({
+            'collect_token' => token, 'orchestrator_reviews' => good_reviews
+          }).first[:text])
+          second = JSON.parse(@collect.call({
+            'collect_token' => token, 'orchestrator_reviews' => good_reviews
+          }).first[:text])
+          assert_equal first['verdict'], second['verdict']
+          assert second['idempotent_replay'], 'expected idempotent_replay flag on second call'
+        end
+
+        def test_expired_deadline_returns_expired
+          token = PendingState.generate_token
+          write_state(token, 'collect_deadline' => (Time.now - 60).iso8601)
+          result = @collect.call({
+            'collect_token' => token, 'orchestrator_reviews' => good_reviews
+          })
+          payload = JSON.parse(result.first[:text])
+          assert_equal 'expired_or_unknown_token', payload['status']
+        end
+
+        def test_too_few_personas_rejected
+          token = PendingState.generate_token
+          write_state(token)
+          result = @collect.call({
+            'collect_token' => token,
+            'orchestrator_reviews' => [good_reviews.first]
+          })
+          payload = JSON.parse(result.first[:text])
+          assert_equal 'error', payload['status']
+          assert_match(/at least #{PersonaAssembly::MIN_PERSONAS}/, payload['error'])
+        end
+
+        def test_orchestrator_reject_propagates_to_consensus
+          token = PendingState.generate_token
+          write_state(token)
+          rejecting = [
+            { 'persona' => 'architect', 'verdict' => 'REJECT',
+              'reasoning' => 'broken', 'findings' => [
+                { 'severity' => 'P0', 'issue' => 'critical-bug' }
+              ] },
+            { 'persona' => 'security', 'verdict' => 'APPROVE',
+              'reasoning' => 'fine', 'findings' => [] }
+          ]
+          result = @collect.call({
+            'collect_token' => token, 'orchestrator_reviews' => rejecting
+          })
+          payload = JSON.parse(result.first[:text])
+          # subprocess approved, orchestrator team rejected → REVISE per any-REJECT rule
+          assert_equal 'REVISE', payload['verdict']
         end
       end
     end
