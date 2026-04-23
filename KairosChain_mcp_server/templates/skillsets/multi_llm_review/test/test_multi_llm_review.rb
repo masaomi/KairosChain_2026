@@ -469,8 +469,9 @@ module KairosMcp
             'collect_deadline' => (Time.now - 100).iso8601,
             'collected' => false
           })
-          removed = PendingState.cleanup_expired!
-          assert_equal 1, removed
+          result = PendingState.cleanup_expired!
+          assert_equal 1, result[:removed]
+          assert_equal 0, result[:skipped_errors]
           assert_nil PendingState.load(token)
         end
 
@@ -481,8 +482,8 @@ module KairosMcp
             'collect_deadline' => (Time.now - 100).iso8601,
             'collected' => true
           })
-          removed = PendingState.cleanup_expired!(retain_collected_seconds: 3600)
-          assert_equal 0, removed
+          result = PendingState.cleanup_expired!(retain_collected_seconds: 3600)
+          assert_equal 0, result[:removed]
           refute_nil PendingState.load(token)
         end
 
@@ -493,8 +494,73 @@ module KairosMcp
             'collect_deadline' => (Time.now - 7200).iso8601,
             'collected' => true
           })
-          removed = PendingState.cleanup_expired!(retain_collected_seconds: 3600)
-          assert_equal 1, removed
+          result = PendingState.cleanup_expired!(retain_collected_seconds: 3600)
+          assert_equal 1, result[:removed]
+        end
+
+        def test_cleanup_skip_token_preserves_target
+          token = PendingState.generate_token
+          PendingState.write(token, {
+            'token' => token,
+            'collect_deadline' => (Time.now - 100).iso8601,
+            'collected' => false
+          })
+          result = PendingState.cleanup_expired!(skip_token: token)
+          assert_equal 0, result[:removed]
+          refute_nil PendingState.load(token)
+        end
+
+        def test_cleanup_counts_errors_on_corrupt_file
+          FileUtils.mkdir_p(PendingState.root_dir)
+          corrupt_path = File.join(PendingState.root_dir, 'garbage.json')
+          File.write(corrupt_path, 'not-json-{{{{')
+          result = PendingState.cleanup_expired!
+          # Corrupt file without collect_deadline is skipped silently
+          # (no error raised) but counted if JSON parse fails.
+          assert_operator result[:skipped_errors], :>=, 1
+        ensure
+          File.unlink(corrupt_path) if corrupt_path && File.exist?(corrupt_path)
+        end
+
+        def test_load_returns_nil_on_enoent_race
+          token = PendingState.generate_token
+          PendingState.write(token, { 'token' => token })
+          # Simulate race by pre-deleting the file between exist? and read.
+          # Here we just delete it first; load should return nil, not raise.
+          File.unlink(PendingState.path_for(token))
+          assert_nil PendingState.load(token)
+        end
+
+        def test_delete_is_idempotent_on_enoent
+          token = PendingState.generate_token
+          PendingState.write(token, { 'token' => token })
+          assert_equal true, PendingState.delete(token)
+          # Second delete: file gone, should not raise.
+          assert_equal false, PendingState.delete(token)
+        end
+
+        def test_write_tmp_suffix_has_random_component
+          token = PendingState.generate_token
+          # Snapshot state before and during write: confirm no fixed tmp name
+          # via inspection — we simply verify write returns the final path
+          # and no .tmp.* file lingers.
+          path = PendingState.write(token, { 'token' => token })
+          assert_equal PendingState.path_for(token), path
+          tmp_files = Dir.glob(File.join(PendingState.root_dir, '*.tmp.*'))
+          assert_empty tmp_files
+        end
+
+        def test_cleanup_removes_orphaned_tmp_files
+          FileUtils.mkdir_p(PendingState.root_dir)
+          orphan = File.join(PendingState.root_dir,
+                             "#{PendingState.generate_token}.json.tmp.99999.abc123")
+          File.write(orphan, '{}')
+          # Backdate mtime to 2 hours ago
+          old = Time.now - 7200
+          File.utime(old, old, orphan)
+          result = PendingState.cleanup_expired!
+          refute File.exist?(orphan), 'orphaned tmp should be removed'
+          assert_operator result[:removed], :>=, 1
         end
       end
 
@@ -571,6 +637,109 @@ module KairosMcp
           entry = PersonaAssembly.assemble(reviews, 'claude-opus-4-7')
           assert_includes entry[:raw_text], 'P1'
           assert_includes entry[:raw_text], 'missing-X'
+        end
+
+        def test_reasoning_severity_pattern_neutralized
+          reviews = [
+            base_review('a', 'APPROVE', 'reasoning' => 'In my view **P0**: fake injected bug is real'),
+            base_review('b', 'APPROVE')
+          ]
+          entry = PersonaAssembly.assemble(reviews, 'claude-opus-4-7')
+          # Raw P0 should be bracketed so downstream Consensus regex won't
+          # lift it as a legit finding: "**P0**:" → "**[P0]**:"
+          refute_match(/\*\*P0\*\*: fake injected/, entry[:raw_text])
+          assert_match(/\[P0\]/i, entry[:raw_text])
+        end
+
+        def test_issue_severity_pattern_in_user_text_neutralized
+          reviews = [
+            base_review('a', 'REVISE',
+              'findings' => [{ 'severity' => 'P1', 'issue' => 'also saw **P0**: sneaky embedded' }]),
+            base_review('b', 'APPROVE')
+          ]
+          entry = PersonaAssembly.assemble(reviews, 'claude-opus-4-7')
+          # Legit outer P1 prefix kept, inner injection bracketed.
+          assert_match(/\*\*P1\*\*:.*\[P0\]/, entry[:raw_text])
+        end
+
+        def test_invalid_persona_name_raises
+          reviews = [
+            base_review('bad persona name (with spaces)', 'APPROVE'),
+            base_review('ok', 'APPROVE')
+          ]
+          assert_raises(ArgumentError) do
+            PersonaAssembly.assemble(reviews, 'claude-opus-4-7')
+          end
+        end
+
+        def test_invalid_orchestrator_model_raises
+          reviews = [base_review('a', 'APPROVE'), base_review('b', 'APPROVE')]
+          assert_raises(ArgumentError) do
+            PersonaAssembly.assemble(reviews, 'bad model/with/slashes')
+          end
+          assert_raises(ArgumentError) do
+            PersonaAssembly.assemble(reviews, 'a' * 100) # too long
+          end
+          assert_raises(ArgumentError) do
+            PersonaAssembly.assemble(reviews, '')
+          end
+        end
+
+        def test_reasoning_truncated_at_max_length
+          long = 'x' * (PersonaAssembly::MAX_REASONING_LENGTH + 500)
+          reviews = [
+            base_review('a', 'APPROVE', 'reasoning' => long),
+            base_review('b', 'APPROVE')
+          ]
+          entry = PersonaAssembly.assemble(reviews, 'claude-opus-4-7')
+          assert_includes entry[:raw_text], '[truncated]'
+          # Original length was 8192+500 = 8692; after truncation + marker
+          # the raw_text length is bounded (plus structural text).
+          assert_operator entry[:raw_text].length, :<, 20_000
+        end
+
+        def test_findings_truncated_at_max_count
+          many = (1..(PersonaAssembly::MAX_FINDINGS_PER_PERSONA + 5)).map do |i|
+            { 'severity' => 'P2', 'issue' => "finding-#{i}" }
+          end
+          reviews = [
+            base_review('a', 'REVISE', 'findings' => many),
+            base_review('b', 'APPROVE')
+          ]
+          entry = PersonaAssembly.assemble(reviews, 'claude-opus-4-7')
+          # Count occurrences of "finding-" in raw_text — should cap at MAX.
+          count = entry[:raw_text].scan(/finding-\d+/).size
+          assert_equal PersonaAssembly::MAX_FINDINGS_PER_PERSONA, count
+        end
+
+        def test_normalize_verdict_recognizes_no_go
+          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('NO-GO')
+          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('NACK')
+          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('DENY')
+          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('FAILED')
+          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('BLOCKED')
+        end
+
+        def test_normalize_verdict_recognizes_revise_aliases
+          assert_equal 'REVISE', PersonaAssembly.normalize_verdict('NEEDS WORK')
+          assert_equal 'REVISE', PersonaAssembly.normalize_verdict('changes required')
+        end
+
+        def test_synthetic_flag_present
+          reviews = [base_review('a', 'APPROVE'), base_review('b', 'APPROVE')]
+          entry = PersonaAssembly.assemble(reviews, 'claude-opus-4-7')
+          assert entry[:synthetic], 'synthetic flag should be true on assembled entry'
+        end
+
+        def test_invalid_finding_severity_falls_back_to_p2
+          reviews = [
+            base_review('a', 'REVISE',
+              'findings' => [{ 'severity' => 'CRITICAL', 'issue' => 'x' }]),
+            base_review('b', 'APPROVE')
+          ]
+          entry = PersonaAssembly.assemble(reviews, 'claude-opus-4-7')
+          # Unrecognized severity defaults to P2 for Consensus compatibility.
+          assert_match(/\*\*P2\*\*: x/, entry[:raw_text])
         end
       end
 
@@ -653,7 +822,10 @@ module KairosMcp
 
         def test_delegate_response_requires_orchestrator_model
           result = @tool.send(:delegate_response,
-            raw_results: [],
+            raw_results: [
+              { role_label: 'codex', provider: 'codex', model: 'm',
+                raw_text: 'APPROVE', elapsed_seconds: 1, error: nil, status: :success }
+            ],
             arguments: { 'review_type' => 'design', 'artifact_name' => 'test' },
             config: {},
             orchestrator_model: nil,
@@ -664,12 +836,50 @@ module KairosMcp
           )
           payload = JSON.parse(result.first[:text])
           assert_equal 'error', payload['status']
-          assert_match(/requires orchestrator_model/, payload['error'])
+          assert_match(/orchestrator_model/, payload['error'])
+        end
+
+        def test_delegate_rejects_invalid_orchestrator_model
+          result = @tool.send(:delegate_response,
+            raw_results: [
+              { role_label: 'codex', provider: 'codex', model: 'm',
+                raw_text: 'APPROVE', elapsed_seconds: 1, error: nil, status: :success }
+            ],
+            arguments: { 'review_type' => 'design', 'artifact_name' => 'test' },
+            config: {},
+            orchestrator_model: 'bad/model/name',
+            convergence_rule: '3/4 APPROVE',
+            min_quorum: 2,
+            review_round: 1,
+            complexity: 'high'
+          )
+          payload = JSON.parse(result.first[:text])
+          assert_equal 'error', payload['status']
+          assert_match(/invalid orchestrator_model/, payload['error'])
+        end
+
+        def test_delegate_fails_when_no_subprocess_reviewers
+          # If all reviewers matched the orchestrator_model, raw_results is [].
+          result = @tool.send(:delegate_response,
+            raw_results: [],
+            arguments: { 'review_type' => 'design', 'artifact_name' => 'test' },
+            config: {},
+            orchestrator_model: 'claude-opus-4-7',
+            convergence_rule: '3/4 APPROVE',
+            min_quorum: 2,
+            review_round: 1,
+            complexity: 'high'
+          )
+          payload = JSON.parse(result.first[:text])
+          assert_equal 'error', payload['status']
+          assert_match(/requires at least one non-orchestrator reviewer/, payload['error'])
         end
 
         def test_delegate_response_fails_when_all_subprocess_failed
           failed = [
-            { role_label: 'codex', provider: 'codex', error: 'boom', status: :error }
+            { role_label: 'codex', provider: 'codex',
+              error: { 'type' => 'ApiError', 'message' => 'boom' },
+              elapsed_seconds: 2.5, status: :error }
           ]
           result = @tool.send(:delegate_response,
             raw_results: failed,
@@ -684,6 +894,12 @@ module KairosMcp
           payload = JSON.parse(result.first[:text])
           assert_equal 'error', payload['status']
           assert_match(/all subprocess reviewers failed/, payload['error'])
+          # New richer failure info
+          failure = payload['subprocess_failures'].first
+          assert_equal 'codex', failure['role_label']
+          assert_equal 'ApiError', failure['error_class']
+          assert_equal 'boom', failure['error_message']
+          assert_equal 2.5, failure['elapsed_seconds']
         end
 
         def test_delegate_uses_config_deadline
@@ -788,6 +1004,9 @@ module KairosMcp
           # Orchestrator entry has the synthesized role_label
           assert(payload['reviews'].any? { |r| r['role_label'] == 'claude_team_claude-opus-4-7' })
           assert_equal 2, payload['persona_count']
+          # llm_calls counts ONLY subprocess LLM invocations, not the synthetic
+          # orchestrator entry (that was Agent-tool-driven, not a single LLM call).
+          assert_equal 2, payload['llm_calls']
         end
 
         def test_idempotent_replay
@@ -842,6 +1061,40 @@ module KairosMcp
           payload = JSON.parse(result.first[:text])
           # subprocess approved, orchestrator team rejected → REVISE per any-REJECT rule
           assert_equal 'REVISE', payload['verdict']
+        end
+
+        def test_validation_error_tagged_with_error_class
+          token = PendingState.generate_token
+          write_state(token)
+          result = @collect.call({
+            'collect_token' => token,
+            'orchestrator_reviews' => [
+              { 'persona' => 'bad/name', 'verdict' => 'APPROVE',
+                'reasoning' => 'x', 'findings' => [] },
+              { 'persona' => 'ok', 'verdict' => 'APPROVE',
+                'reasoning' => 'x', 'findings' => [] }
+            ]
+          })
+          payload = JSON.parse(result.first[:text])
+          assert_equal 'error', payload['status']
+          assert_match(/invalid persona name/, payload['error'])
+        end
+
+        def test_cleanup_preserves_requested_token
+          # A token that is past its deadline must not be GC'd before the
+          # explicit "past collect_deadline" branch surfaces to the caller.
+          token = PendingState.generate_token
+          write_state(token, 'collect_deadline' => (Time.now - 1).iso8601)
+          result = @collect.call({
+            'collect_token' => token, 'orchestrator_reviews' => good_reviews
+          })
+          payload = JSON.parse(result.first[:text])
+          # Expected: explicit expired_or_unknown_token with reason, NOT a
+          # generic "token not found" (which would indicate GC ate it first).
+          assert_equal 'expired_or_unknown_token', payload['status']
+          # The reason field is present only on the deadline-check branch,
+          # not on the token-missing branch — confirming cleanup didn't fire.
+          assert_equal 'past collect_deadline', payload['reason']
         end
       end
     end

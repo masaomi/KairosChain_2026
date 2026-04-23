@@ -147,7 +147,12 @@ module KairosMcp
                                end
 
             # Best-effort GC of expired pending tokens on every call.
-            PendingState.cleanup_expired! rescue nil
+            # Errors are logged to STDERR; they do not fail the tool call.
+            begin
+              PendingState.cleanup_expired!
+            rescue StandardError => e
+              warn "[multi_llm_review] cleanup_expired failed: #{e.class}: #{e.message}"
+            end
 
             # Auto-detect complexity + apply effort_map to reviewers
             complexity = resolve_complexity(arguments, config)
@@ -348,22 +353,42 @@ module KairosMcp
           # its persona team review via multi_llm_review_collect.
           def delegate_response(raw_results:, arguments:, config:, orchestrator_model:,
                                 convergence_rule:, min_quorum:, review_round:, complexity:)
-            if orchestrator_model.nil? || orchestrator_model.to_s.empty?
+            # Validate orchestrator_model charset/length early (defense in
+            # depth — partition_for_strategy also guards empty/nil).
+            begin
+              PersonaAssembly.validate_orchestrator_model!(orchestrator_model)
+            rescue ArgumentError => e
               return text_content(JSON.generate({
                 'status' => 'error',
-                'error' => 'orchestrator_strategy=delegate requires orchestrator_model'
+                'error' => e.message
+              }))
+            end
+
+            # If no subprocess reviewers remain after excluding the orchestrator
+            # (e.g., roster has only the orchestrator's model), delegate mode
+            # degenerates to "just the orchestrator's persona team" which
+            # defeats the multi-model purpose. Fail fast.
+            if raw_results.empty?
+              return text_content(JSON.generate({
+                'status' => 'error',
+                'error' => 'orchestrator_strategy=delegate requires at least one non-orchestrator reviewer; roster is empty after exclusion'
               }))
             end
 
             # If all subprocess reviewers errored out, fail Call 1 instead of
             # writing pending state — there's nothing useful for collect to merge.
             successful = raw_results.count { |r| r[:status] == :success }
-            if successful == 0 && !raw_results.empty?
+            if successful == 0
               return text_content(JSON.generate({
                 'status' => 'error',
                 'error' => 'all subprocess reviewers failed',
                 'subprocess_failures' => raw_results.map { |r|
-                  { 'role_label' => r[:role_label], 'error' => r[:error] }
+                  {
+                    'role_label' => r[:role_label],
+                    'error_class' => (r[:error].is_a?(Hash) ? r[:error]['type'] || r[:error][:type] : nil),
+                    'error_message' => (r[:error].is_a?(Hash) ? r[:error]['message'] || r[:error][:message] : r[:error].to_s),
+                    'elapsed_seconds' => r[:elapsed_seconds]
+                  }
                 }
               }))
             end

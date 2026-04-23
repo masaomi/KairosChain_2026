@@ -13,12 +13,30 @@ module KairosMcp
         MIN_PERSONAS = 2
         MAX_PERSONAS = 4
 
+        # Size bounds to prevent pathological inputs (hallucinating LLMs,
+        # adversarial callers) from exploding pending state file size.
+        MAX_REASONING_LENGTH = 8192
+        MAX_ISSUE_LENGTH = 1024
+        MAX_FINDINGS_PER_PERSONA = 50
+
+        # Safe identifier shape for persona names and orchestrator_model when
+        # interpolated into raw_text headers / role_label / JSON identifiers.
+        IDENT_RE = /\A[A-Za-z0-9_.\-]{1,64}\z/
+
+        # Canonical verdicts recognized by downstream Consensus.
+        ALLOWED_VERDICTS = %w[APPROVE REVISE REJECT].freeze
+        # Additional verdict synonyms recognized during normalization.
+        APPROVE_ALIASES = /\b(?:APPROVE[D]?|PASS|ACCEPT)\b/
+        REJECT_ALIASES  = /\b(?:REJECT(?:ED)?|FAIL(?:ED)?|BLOCK(?:ED)?|NO-GO|NACK|DENY)\b/
+        REVISE_ALIASES  = /\b(?:REVISE|CHANGES?\s*REQUIRED|NEEDS?\s*(?:WORK|REVISION))\b/
+
         module_function
 
         # @param orchestrator_reviews [Array<Hash>] each: {persona, verdict, findings, reasoning}
         # @param orchestrator_model [String]
         # @return [Hash] reviewer entry with :status, :verdict, :raw_text, :role_label, :provider, :model
         def assemble(orchestrator_reviews, orchestrator_model)
+          validate_orchestrator_model!(orchestrator_model)
           validate!(orchestrator_reviews)
 
           verdicts = orchestrator_reviews.map { |r| normalize_verdict(r['verdict'] || r[:verdict]) }
@@ -39,8 +57,16 @@ module KairosMcp
             raw_text: raw_text,
             elapsed_seconds: 0,
             error: nil,
-            status: :success
+            status: :success,
+            synthetic: true
           }
+        end
+
+        def validate_orchestrator_model!(model)
+          unless model.is_a?(String) && IDENT_RE.match?(model)
+            raise ArgumentError,
+              "invalid orchestrator_model (must match /\\A[A-Za-z0-9_.\\-]{1,64}\\z/): #{model.inspect}"
+          end
         end
 
         def validate!(reviews)
@@ -62,6 +88,10 @@ module KairosMcp
             if persona.nil? || persona.to_s.empty?
               raise ArgumentError, "review #{i} missing required field: persona"
             end
+            unless IDENT_RE.match?(persona.to_s)
+              raise ArgumentError,
+                "review #{i} invalid persona name (must match /\\A[A-Za-z0-9_.\\-]{1,64}\\z/): #{persona.inspect}"
+            end
             if verdict.nil? || verdict.to_s.empty?
               raise ArgumentError, "review #{i} missing required field: verdict"
             end
@@ -70,30 +100,59 @@ module KairosMcp
 
         def normalize_verdict(raw)
           upper = raw.to_s.upcase
-          return 'APPROVE' if upper.match?(/\b(?:APPROVE|PASS|ACCEPT)\b/)
-          return 'REJECT'  if upper.match?(/\b(?:REJECT|FAIL|BLOCK)\b/)
+          return 'APPROVE' if upper.match?(APPROVE_ALIASES)
+          return 'REJECT'  if upper.match?(REJECT_ALIASES)
+          return 'REVISE'  if upper.match?(REVISE_ALIASES)
+          # Conservative fallback: unknown verdicts are logged and treated as
+          # REVISE (do not let them silently pass as APPROVE or silently block
+          # as REJECT; REVISE requires orchestrator attention).
+          warn "[multi_llm_review::PersonaAssembly] unknown verdict #{raw.inspect} → REVISE"
           'REVISE'
+        end
+
+        # Prevent user-supplied text from spoofing Consensus finding extraction.
+        # Downstream Consensus.aggregate_findings matches /\*{0,2}(P[0-3])\*{0,2}[-\s]*\d*[.:]/i,
+        # so we wrap any P0..P3 token in user-controlled text with brackets so
+        # the regex no longer matches it. A legitimate "**P1**: issue" line
+        # emitted BY the formatter itself uses a separate safe path.
+        def neutralize_severity_patterns(text)
+          text.to_s.gsub(/(P[0-3])/i, '[\1]')
         end
 
         def build_raw_text(reviews, combined_verdict)
           parts = ["**Overall Verdict**: #{combined_verdict}", '']
           reviews.each do |r|
-            persona = r['persona'] || r[:persona]
-            verdict = r['verdict'] || r[:verdict]
-            reasoning = r['reasoning'] || r[:reasoning] || ''
-            findings = r['findings'] || r[:findings] || []
+            persona_raw = (r['persona'] || r[:persona]).to_s
+            verdict_raw = (r['verdict'] || r[:verdict]).to_s
+            reasoning = (r['reasoning'] || r[:reasoning] || '').to_s
+            findings = Array(r['findings'] || r[:findings])
 
-            parts << "## Persona: #{persona} (verdict: #{verdict})"
+            # Truncate oversized reasoning (validated upstream; defense in depth).
+            if reasoning.length > MAX_REASONING_LENGTH
+              reasoning = reasoning[0, MAX_REASONING_LENGTH] + "\n...[truncated]"
+            end
+            findings = findings[0, MAX_FINDINGS_PER_PERSONA]
+
+            # persona was validated by IDENT_RE, so safe for header interpolation.
+            parts << "## Persona: #{persona_raw} (verdict: #{normalize_verdict(verdict_raw)})"
             parts << ''
-            parts << reasoning.to_s unless reasoning.to_s.empty?
+            unless reasoning.empty?
+              parts << neutralize_severity_patterns(reasoning)
+            end
             parts << ''
             findings.each do |f|
               if f.is_a?(Hash)
-                sev = f['severity'] || f[:severity] || 'P2'
-                issue = f['issue'] || f[:issue] || f.to_s
-                parts << "**#{sev}**: #{issue}"
+                sev = (f['severity'] || f[:severity] || 'P2').to_s
+                sev = 'P2' unless sev.match?(/\AP[0-3]\z/i)
+                issue = (f['issue'] || f[:issue] || '').to_s
+                issue = issue[0, MAX_ISSUE_LENGTH] if issue.length > MAX_ISSUE_LENGTH
+                # sev is emitted as a legit Consensus marker; issue is user-
+                # content so neutralize internal severity patterns.
+                parts << "**#{sev.upcase}**: #{neutralize_severity_patterns(issue)}"
               else
-                parts << "**P2**: #{f}"
+                issue = f.to_s
+                issue = issue[0, MAX_ISSUE_LENGTH] if issue.length > MAX_ISSUE_LENGTH
+                parts << "**P2**: #{neutralize_severity_patterns(issue)}"
               end
             end
             parts << ''

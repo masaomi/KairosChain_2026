@@ -37,24 +37,41 @@ module KairosMcp
         end
 
         # Atomic write: tmp file + rename. Survives mid-write interrupt.
+        # Tmp name includes pid AND a random suffix to avoid collisions
+        # from concurrent writers with the same pid (fork, thread).
         def write(token, data)
           FileUtils.mkdir_p(root_dir)
           path = path_for(token)
-          tmp = "#{path}.tmp.#{Process.pid}"
+          tmp = nil
+          tmp = "#{path}.tmp.#{Process.pid}.#{SecureRandom.hex(4)}"
           File.write(tmp, JSON.pretty_generate(data))
           File.rename(tmp, path)
           path
         ensure
-          File.unlink(tmp) if tmp && File.exist?(tmp)
+          begin
+            File.unlink(tmp) if tmp && File.exist?(tmp)
+          rescue Errno::ENOENT
+            nil
+          end
         end
 
-        # Returns parsed Hash, or nil if missing/invalid token.
+        # Returns parsed Hash, or nil if missing/invalid token or unparseable.
+        # Distinguishes three cases internally but surfaces two to caller:
+        #   nil  -> missing / invalid token
+        #   nil  -> JSON unparseable (logged)
+        # Callers that need to distinguish corruption from absence should use
+        # load_detailed instead.
         def load(token)
           return nil unless valid_token?(token)
           path = path_for(token)
           return nil unless File.exist?(path)
           JSON.parse(File.read(path))
-        rescue JSON::ParserError
+        rescue JSON::ParserError => e
+          warn "[multi_llm_review::PendingState#load] JSON parse error for #{token}: #{e.message}"
+          nil
+        rescue Errno::ENOENT
+          # TOCTOU: file deleted between exist? and read (e.g. by concurrent
+          # cleanup_expired! or external process).
           nil
         end
 
@@ -64,6 +81,9 @@ module KairosMcp
           return false unless File.exist?(path)
           File.unlink(path)
           true
+        rescue Errno::ENOENT
+          # TOCTOU: concurrent deletion.
+          false
         end
 
         # Garbage-collect expired pending files. A file is expired iff:
@@ -72,24 +92,62 @@ module KairosMcp
         #   - now > collect_deadline
         # Collected entries persist for idempotency replay until that retention
         # window also expires.
-        def cleanup_expired!(now: Time.now, retain_collected_seconds: 3600)
-          return 0 unless Dir.exist?(root_dir)
+        #
+        # Also removes orphaned .tmp.* files older than 1 hour (crashed writes).
+        #
+        # Per-file failures are logged to STDERR and counted; they do NOT raise.
+        # Returns a Hash {removed:, skipped_errors:}.
+        def cleanup_expired!(now: Time.now, retain_collected_seconds: 3600,
+                             skip_token: nil)
+          return { removed: 0, skipped_errors: 0 } unless Dir.exist?(root_dir)
+
           removed = 0
+          skipped_errors = 0
+
           Dir.glob(File.join(root_dir, '*.json')).each do |path|
-            data = (JSON.parse(File.read(path)) rescue nil)
-            next unless data
-            deadline = (Time.iso8601(data['collect_deadline']) rescue nil)
-            next unless deadline
-            collected = data['collected'] == true
-            cutoff = collected ? deadline + retain_collected_seconds : deadline
-            if now > cutoff
-              File.unlink(path)
-              removed += 1
+            begin
+              basename = File.basename(path, '.json')
+              next if skip_token && basename == skip_token
+
+              data = JSON.parse(File.read(path))
+              deadline = Time.iso8601(data['collect_deadline']) rescue nil
+              next unless deadline
+
+              collected = data['collected'] == true
+              cutoff = collected ? deadline + retain_collected_seconds : deadline
+              if now > cutoff
+                File.unlink(path)
+                removed += 1
+              end
+            rescue Errno::ENOENT
+              # Concurrent deletion — benign.
+              next
+            rescue StandardError => e
+              skipped_errors += 1
+              warn "[multi_llm_review::PendingState#cleanup_expired] skipping #{File.basename(path)}: #{e.class}: #{e.message}"
+              next
             end
-          rescue StandardError
-            next
           end
-          removed
+
+          # Orphaned tmp files (crashed writes) older than 1 hour.
+          Dir.glob(File.join(root_dir, '*.json.tmp.*')).each do |path|
+            begin
+              mtime = File.mtime(path) rescue nil
+              next unless mtime
+              if now - mtime > 3600
+                File.unlink(path)
+                removed += 1
+              end
+            rescue Errno::ENOENT
+              next
+            rescue StandardError => e
+              skipped_errors += 1
+              warn "[multi_llm_review::PendingState#cleanup_expired] tmp skip #{File.basename(path)}: #{e.class}: #{e.message}"
+              next
+            end
+          end
+
+          { removed: removed, skipped_errors: skipped_errors }
         end
       end
     end

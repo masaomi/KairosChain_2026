@@ -80,14 +80,22 @@ module KairosMcp
           end
 
           def call(arguments)
-            PendingState.cleanup_expired! rescue nil
-
             token = arguments['collect_token']
             unless PendingState.valid_token?(token)
               return text_content(JSON.generate({
                 'status' => 'error',
                 'error' => 'invalid collect_token format (expected UUID v4)'
               }))
+            end
+
+            # GC other expired pending files, but DO NOT touch the token we
+            # were asked to collect — otherwise an already-expired but still-
+            # readable token is deleted before we can surface the explicit
+            # "past collect_deadline" branch below.
+            begin
+              PendingState.cleanup_expired!(skip_token: token)
+            rescue StandardError => e
+              warn "[multi_llm_review_collect] cleanup_expired failed: #{e.class}: #{e.message}"
             end
 
             state = PendingState.load(token)
@@ -140,6 +148,12 @@ module KairosMcp
               min_quorum: state['min_quorum'] || 2
             )
 
+            # llm_calls counts actual LLM invocations (subprocess reviewers).
+            # The synthetic orchestrator team entry is not a distinct LLM call
+            # — the orchestrator ran N persona sub-agents that are attributed
+            # separately by persona_count.
+            actual_llm_calls = subprocess_entries.count { |r| r[:status] == :success }
+
             payload = {
               'status' => 'ok',
               'verdict' => consensus[:verdict],
@@ -162,10 +176,10 @@ module KairosMcp
               'review_type' => state['review_type'],
               'artifact_name' => state['artifact_name'],
               'complexity' => state['complexity'],
-              'llm_calls' => all_reviews.count { |r| r[:status] == :success },
+              'llm_calls' => actual_llm_calls,
+              'persona_count' => reviews.size,
               'orchestrator_model' => state['orchestrator_model'],
-              'orchestrator_strategy' => 'delegate',
-              'persona_count' => reviews.size
+              'orchestrator_strategy' => 'delegate'
             }
 
             # Cache for idempotent replay; mark collected so GC keeps it
@@ -173,12 +187,32 @@ module KairosMcp
             state['collected'] = true
             state['collected_at'] = Time.now.iso8601
             state['final_payload'] = payload
-            PendingState.write(token, state)
+            begin
+              PendingState.write(token, state)
+            rescue StandardError => e
+              # State write failure is serious but should not obscure the
+              # review result the orchestrator just computed. Log and return
+              # the payload anyway; idempotency just won't work for this token.
+              warn "[multi_llm_review_collect] cache write failed: #{e.class}: #{e.message}"
+            end
 
             text_content(JSON.generate(payload))
-          rescue StandardError => e
+          rescue ArgumentError, KeyError, TypeError => e
+            # Validation-class errors: surface to caller.
             text_content(JSON.generate({
               'status' => 'error',
+              'error_class' => 'validation',
+              'error' => "#{e.class}: #{e.message}"
+            }))
+          rescue StandardError => e
+            # Programming bugs / unexpected system errors: log full backtrace
+            # to STDERR so it's not silently lost, but still surface to caller
+            # (marked distinctly so the orchestrator can flag it as a bug).
+            warn "[multi_llm_review_collect] INTERNAL ERROR: #{e.class}: #{e.message}"
+            warn e.backtrace.first(10).join("\n") if e.backtrace
+            text_content(JSON.generate({
+              'status' => 'error',
+              'error_class' => 'internal',
               'error' => "#{e.class}: #{e.message}"
             }))
           end
