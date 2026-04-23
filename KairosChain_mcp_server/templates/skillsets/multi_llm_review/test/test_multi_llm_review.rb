@@ -783,6 +783,8 @@ module KairosMcp
           assert_equal 'REJECT', PersonaAssembly.normalize_verdict('BLOCKED')
           # BLOCKER previously fell through to REVISE fallback — round 2 fix.
           assert_equal 'REJECT', PersonaAssembly.normalize_verdict('BLOCKER')
+          # BLOCKING added in round 3 polish.
+          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('BLOCKING')
         end
 
         def test_normalize_verdict_recognizes_revise_aliases

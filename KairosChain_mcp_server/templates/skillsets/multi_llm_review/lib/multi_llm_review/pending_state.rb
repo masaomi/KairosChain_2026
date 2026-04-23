@@ -55,9 +55,12 @@ module KairosMcp
           end
         end
 
-        # Returns parsed Hash, or nil if missing/invalid token or unparseable.
-        # Callers that need to distinguish corruption from absence should use
-        # load_detailed instead.
+        # Back-compat thin wrapper returning parsed Hash, or nil for any of:
+        # missing token, invalid token format, corrupt JSON. Collapses all
+        # failure modes to a single nil — use load_detailed to distinguish
+        # them (missing vs corrupt matters for observability and error
+        # classification; see multi_llm_review_collect for an example caller
+        # that routes corrupt → internal error vs missing → expired_token).
         def load(token)
           result = load_detailed(token)
           result[:data]

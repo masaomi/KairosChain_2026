@@ -29,7 +29,7 @@ module KairosMcp
         # The regexes accept underscore / hyphen / space as separators so
         # variants like NO_GO, NO-GO, NO GO, NEEDS_REVISION all normalize.
         APPROVE_ALIASES = /\b(?:APPROVE[DS]?|PASS(?:ED)?|ACCEPT(?:ED)?|LGTM|SHIP[_\s]*IT)\b/i
-        REJECT_ALIASES  = /\b(?:REJECT(?:ED)?|FAIL(?:ED|URE)?|BLOCK(?:ED|ER)?|NO[_\s\-]*GO|NACK|DENY|VETO)\b/i
+        REJECT_ALIASES  = /\b(?:REJECT(?:ED)?|FAIL(?:ED|URE)?|BLOCK(?:ED|ER|ING)?|NO[_\s\-]*GO|NACK|DENY|VETO)\b/i
         REVISE_ALIASES  = /\b(?:REVISE|CHANGES?[_\s]*REQUIRED|NEEDS?[_\s]*(?:WORK|REVISION|CHANGES?)|REWORK)\b/i
 
         module_function
