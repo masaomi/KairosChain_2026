@@ -1,0 +1,111 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+# encoding: utf-8
+
+# KairosChain 24/7 daemon entry point (Bootstrap layer, v0.4 §2.2).
+#
+# Bootstrap's job:
+#   1. Load the gem and scan .kairos/skillsets/.
+#   2. Find a SkillSet that declares the :daemon_main lifecycle hook.
+#   3. Install OS signal traps for TERM/INT (shutdown), HUP (reload),
+#      USR2 (diagnostic snapshot) and forward them as flags on the
+#      Bootstrap SignalHandle.
+#   4. Hand control to the SkillSet's main loop.
+#
+# Everything substantive (OODA cycle, Chronos, WAL, attach endpoint,
+# safe-mode, canary promotion) lives in SkillSets — not here.
+
+Encoding.default_external = Encoding::UTF_8
+Encoding.default_internal = Encoding::UTF_8
+
+require 'optparse'
+
+options = { data_dir: nil }
+OptionParser.new do |opts|
+  opts.banner = 'Usage: kairos-chain-daemon [--data-dir PATH]'
+  opts.on('--data-dir PATH', 'Override .kairos/ location') { |v| options[:data_dir] = v }
+  opts.on('-h', '--help') do
+    puts opts
+    exit 0
+  end
+end.parse!
+
+if options[:data_dir]
+  if options[:data_dir].to_s.strip.empty?
+    warn '[kairos-chain-daemon] --data-dir must not be empty'
+    exit 4
+  end
+  expanded = File.expand_path(options[:data_dir])
+  # R2 P3 (Codex/4.7): reject a path that points to an existing regular
+  # file (or any non-directory). Either the directory exists, or its
+  # parent exists (so the daemon can create it), and in no case may the
+  # path itself be a non-directory.
+  if File.exist?(expanded) && !File.directory?(expanded)
+    warn "[kairos-chain-daemon] --data-dir is not a directory: #{expanded}"
+    exit 4
+  end
+  unless File.directory?(expanded) || File.directory?(File.dirname(expanded))
+    warn "[kairos-chain-daemon] --data-dir parent does not exist: #{expanded}"
+    exit 4
+  end
+  options[:data_dir] = expanded
+end
+
+$LOAD_PATH.unshift File.expand_path('../lib', __dir__)
+require 'kairos_mcp'
+require 'kairos_mcp/signal_handle'
+require 'kairos_mcp/lifecycle_hook'
+require 'kairos_mcp/tool_registry'
+
+KairosMcp.data_dir = options[:data_dir] if options[:data_dir]
+
+begin
+  registry = KairosMcp::ToolRegistry.new
+rescue KairosMcp::LifecycleHook::Conflict => e
+  warn "[kairos-chain-daemon] #{e.message}"
+  warn '[kairos-chain-daemon] Disable one of the conflicting SkillSets and retry.'
+  exit 3
+end
+
+begin
+  klass = registry.lifecycle_hook_class(:daemon_main)
+rescue KairosMcp::LifecycleHook::UnknownClass => e
+  warn "[kairos-chain-daemon] lifecycle hook lookup failed: #{e.message}"
+  exit 3
+end
+
+unless klass
+  warn '[kairos-chain-daemon] 24/7 daemon runtime SkillSet not installed.'
+  warn '[kairos-chain-daemon] Install a SkillSet declaring lifecycle_hooks.daemon_main ' \
+       '(e.g. daemon_runtime).'
+  exit 2
+end
+
+# R9→R10 (Codex P1 / 4.6 P2): use the shared helper so bin/ gets the
+# pathological-return guard. Narrow rescue around ONLY the instantiation
+# (not the class lookup). Distinct exit codes:
+#   3 = lookup failure
+#   9 = instantiation failure (R9 P3 4.7 distinction ask)
+begin
+  runtime = registry.instantiate_lifecycle_hook(klass)
+rescue KairosMcp::LifecycleHook::InstanceViolation => e
+  # R10→R11 (Codex P1): distinct exception class for wrong-type return.
+  warn "[kairos-chain-daemon] lifecycle hook produced wrong type: #{e.message}"
+  exit 9
+rescue StandardError => e
+  warn "[kairos-chain-daemon] lifecycle hook instantiation failed: " \
+       "#{e.class}: #{e.message}"
+  exit 9
+end
+
+signal = KairosMcp::SignalHandle.new
+# R1 P1 (3-voice): trap HUP and USR2 so the reload/diagnostic paths in
+# SignalCoordinator are actually reachable from the real process.
+{ 'TERM' => :request_shutdown,
+  'INT'  => :request_shutdown,
+  'HUP'  => :request_reload,
+  'USR2' => :request_diagnostic }.each do |sig, m|
+  Signal.trap(sig) { signal.public_send(m) }
+end
+
+runtime.run_main_loop(registry: registry, signal: signal)

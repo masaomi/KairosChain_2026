@@ -70,6 +70,19 @@ module KairosMcp
       @metadata['tool_classes'] || []
     end
 
+    # 24/7 v0.4 §2.3 — LifecycleHook declarations.
+    # Returns a Hash of { hook_name(String) => class_name(String) }.
+    # Non-Hash values and entries with non-string values are coerced away
+    # so downstream registration never encounters malformed input.
+    def lifecycle_hooks
+      raw = @metadata['lifecycle_hooks'] || {}
+      return {} unless raw.is_a?(Hash)
+      raw.each_with_object({}) do |(k, v), acc|
+        next unless k.is_a?(String) && v.is_a?(String) && !k.empty? && !v.empty?
+        acc[k] = v
+      end
+    end
+
     def config_files
       @metadata['config_files'] || []
     end

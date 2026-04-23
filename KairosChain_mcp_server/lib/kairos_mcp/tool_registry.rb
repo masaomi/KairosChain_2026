@@ -1,6 +1,7 @@
 require_relative 'safety'
 require_relative 'tools/base_tool'
 require_relative 'skills_config'
+require_relative 'lifecycle_hook'
 
 module KairosMcp
   class ToolRegistry
@@ -50,7 +51,133 @@ module KairosMcp
       @safety = Safety.new
       @safety.set_user(user_context) if user_context
       @tools = {}
+      @lifecycle_hooks = {}  # { hook_name(Symbol) => { skillset:, class_name: } }
       register_tools
+    end
+
+    # 24/7 v0.4 §2.3 — LifecycleHook registry.
+    #
+    # Register a hook declaration from a SkillSet. Conflicts (same hook
+    # name claimed by two SkillSets) raise LifecycleHook::Conflict — the
+    # Bootstrap layer refuses to silently pick a winner.
+    def register_lifecycle_hook(hook_name, class_name, skillset_name:)
+      key = hook_name.to_sym
+      # R1 P1 (2-voice security): validate class name + enforce namespace
+      # allowlist before trusting any skillset-sourced class identifier.
+      validated = LifecycleHook.validate_class_name!(class_name)
+
+      existing = @lifecycle_hooks[key]
+      if existing && existing[:skillset] != skillset_name
+        raise LifecycleHook::Conflict,
+              "LifecycleHook '#{hook_name}' claimed by both " \
+              "'#{existing[:skillset]}' and '#{skillset_name}'"
+      end
+      # R1 P2 (3-voice): same-skillset re-registration must not silently
+      # overwrite with a DIFFERENT class. Same-class re-registration is a
+      # harmless idempotent load (tests, reload).
+      if existing && existing[:class_name] != validated
+        raise LifecycleHook::Conflict,
+              "LifecycleHook '#{hook_name}' re-registered by " \
+              "'#{skillset_name}' with different class " \
+              "('#{existing[:class_name]}' → '#{validated}')"
+      end
+      @lifecycle_hooks[key] = { skillset: skillset_name, class_name: validated }
+    end
+
+    # Resolve a registered hook to its Class (without instantiating).
+    # Returns nil if no SkillSet declared the hook. Raises
+    # `LifecycleHook::UnknownClass` if the registered class name cannot
+    # be constantized or does not include `LifecycleHook`.
+    #
+    # R8→R9 (3-voice: Codex P1 / 4.6 P2 / 4.7 P2): split class-resolution
+    # from instantiation so bin/ can `.new` under a precise rescue. The
+    # broad `rescue StandardError` in the entrypoint otherwise mislabels
+    # any registry-logic bug as an instantiation failure.
+    def lifecycle_hook_class(hook_name)
+      entry = @lifecycle_hooks[hook_name.to_sym]
+      return nil unless entry
+      begin
+        klass = Object.const_get(entry[:class_name])
+      rescue NameError => e
+        raise LifecycleHook::UnknownClass,
+              "lifecycle hook class '#{entry[:class_name]}' is not defined " \
+              "(declared by '#{entry[:skillset]}'): #{e.message}"
+      end
+      unless klass.is_a?(Class) && klass.include?(KairosMcp::LifecycleHook)
+        raise LifecycleHook::UnknownClass,
+              "class '#{entry[:class_name]}' does not include KairosMcp::LifecycleHook"
+      end
+      klass
+    end
+
+    # Instantiate a pre-resolved lifecycle hook class and verify the
+    # resulting instance actually includes LifecycleHook (guards against
+    # pathological `.new` overrides that return unrelated objects).
+    #
+    # Raises `LifecycleHook::InstanceViolation` if `.new` returns the
+    # wrong type (a distinct contract violation, separate from lookup
+    # failures that raise UnknownClass). Any other error from `.new`
+    # propagates unchanged so the caller's rescue stays precise.
+    #
+    # R9→R10 (Codex P1 / 4.6 P2): shared helper so both `find_lifecycle_hook`
+    # and bin/ get the same pathological-return guard.
+    # R10→R11 (Codex P1 / 4.6 P3 / 4.7 P3): distinct exception class for
+    # wrong-type returns — UnknownClass is semantically wrong here (the
+    # class IS known; it violates the contract at instantiation).
+    # R12→R13: `.new` return values may be arbitrary — including
+    # `BasicObject` descendants that don't respond to `.class`, `.is_a?`,
+    # or `.inspect`. Use `Module#===` for the type check (works on
+    # BasicObject) and `Object.instance_method(:…).bind_call(obj)` with
+    # rescue-everything fallbacks for error-message formatting.
+    KERNEL_CLASS  = Object.instance_method(:class).freeze
+    KERNEL_INSPECT = Object.instance_method(:inspect).freeze
+    private_constant :KERNEL_CLASS, :KERNEL_INSPECT
+
+    def instantiate_lifecycle_hook(klass)
+      instance = klass.new
+      # `KairosMcp::LifecycleHook === instance` uses Module#=== — does
+      # not call any method on `instance`, so it works on BasicObject.
+      unless KairosMcp::LifecycleHook === instance
+        class_label =
+          (klass.name && !klass.name.empty?) ? klass.name : klass.inspect
+        raise LifecycleHook::InstanceViolation,
+              "#{class_label}.new returned #{safe_inspect(instance)} " \
+              "(#{safe_class_name(instance)}) which does not include " \
+              'KairosMcp::LifecycleHook'
+      end
+      instance
+    end
+
+    # Safely render the class of an arbitrary object — including
+    # BasicObject descendants — without calling methods that may be
+    # missing on the object.
+    def safe_class_name(obj)
+      KERNEL_CLASS.bind_call(obj).to_s
+    rescue Exception # rubocop:disable Lint/RescueException
+      '<class unavailable>'
+    end
+    private :safe_class_name
+
+    # Safe .inspect — tolerates pathological objects whose inspect or
+    # class is undefined/raises.
+    def safe_inspect(obj)
+      KERNEL_INSPECT.bind_call(obj)
+    rescue Exception # rubocop:disable Lint/RescueException
+      "<#{safe_class_name(obj)} (inspect raised)>"
+    end
+    private :safe_inspect
+
+    # Convenience: resolve the class and instantiate. Retained for tests
+    # and callers that do not need to distinguish lookup failures from
+    # constructor failures.
+    def find_lifecycle_hook(hook_name)
+      klass = lifecycle_hook_class(hook_name)
+      return nil unless klass
+      instantiate_lifecycle_hook(klass)
+    end
+
+    def lifecycle_hook_names
+      @lifecycle_hooks.keys
     end
 
     def register_tools
@@ -145,7 +272,13 @@ module KairosMcp
         skillset.tool_class_names.each do |cls|
           register_if_defined(cls)
         end
+        # 24/7 v0.4 §2.3 — register lifecycle hooks declared by this SkillSet.
+        skillset.lifecycle_hooks.each do |hook_name, class_name|
+          register_lifecycle_hook(hook_name, class_name, skillset_name: skillset.name)
+        end
       end
+    rescue LifecycleHook::Conflict
+      raise  # never swallow — Bootstrap integrity depends on detection
     rescue StandardError => e
       warn "[ToolRegistry] Failed to load SkillSet tools: #{e.message}"
     end

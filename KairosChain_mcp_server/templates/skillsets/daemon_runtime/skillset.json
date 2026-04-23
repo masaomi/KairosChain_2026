@@ -1,0 +1,16 @@
+{
+  "name": "daemon_runtime",
+  "version": "0.1.0-scaffold",
+  "description": "KairosChain 24/7 autonomous daemon runtime. Provides MainLoopSupervisor, SignalCoordinator, and SafeModeLoop (v0.4 §2.4–§2.7). Step 1.2 scaffold: signal path + supervise loop shell.",
+  "author": "Masaomi Hatakeyama",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": ["daemon_main_loop", "signal_coordination"],
+  "tool_classes": [],
+  "lifecycle_hooks": {
+    "daemon_main": "KairosMcp::SkillSets::DaemonRuntime::MainLoop"
+  },
+  "config_files": [],
+  "knowledge_dirs": [],
+  "min_core_version": "3.17.0"
+}
