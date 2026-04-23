@@ -56,23 +56,33 @@ module KairosMcp
         end
 
         # Returns parsed Hash, or nil if missing/invalid token or unparseable.
-        # Distinguishes three cases internally but surfaces two to caller:
-        #   nil  -> missing / invalid token
-        #   nil  -> JSON unparseable (logged)
         # Callers that need to distinguish corruption from absence should use
         # load_detailed instead.
         def load(token)
-          return nil unless valid_token?(token)
+          result = load_detailed(token)
+          result[:data]
+        end
+
+        # Richer load that distinguishes missing vs corrupt.
+        # Returns Hash with :status (:ok | :missing | :invalid_token | :corrupt)
+        # and :data (parsed Hash or nil). Corrupt files are also logged.
+        def load_detailed(token)
+          unless valid_token?(token)
+            return { status: :invalid_token, data: nil }
+          end
           path = path_for(token)
-          return nil unless File.exist?(path)
-          JSON.parse(File.read(path))
+          unless File.exist?(path)
+            return { status: :missing, data: nil }
+          end
+          data = JSON.parse(File.read(path))
+          { status: :ok, data: data }
         rescue JSON::ParserError => e
-          warn "[multi_llm_review::PendingState#load] JSON parse error for #{token}: #{e.message}"
-          nil
+          warn "[multi_llm_review::PendingState#load] JSON parse error at #{path}: #{e.message}"
+          { status: :corrupt, data: nil, error: e.message, path: path }
         rescue Errno::ENOENT
           # TOCTOU: file deleted between exist? and read (e.g. by concurrent
           # cleanup_expired! or external process).
-          nil
+          { status: :missing, data: nil }
         end
 
         def delete(token)
@@ -97,7 +107,13 @@ module KairosMcp
         #
         # Per-file failures are logged to STDERR and counted; they do NOT raise.
         # Returns a Hash {removed:, skipped_errors:}.
+        # Stale files with no collect_deadline (schema drift, truncated write,
+        # or corrupt JSON) are considered orphaned after this many seconds
+        # based on file mtime. Default 24h.
+        STALE_NO_DEADLINE_SECONDS = 86_400
+
         def cleanup_expired!(now: Time.now, retain_collected_seconds: 3600,
+                             stale_no_deadline_seconds: STALE_NO_DEADLINE_SECONDS,
                              skip_token: nil)
           return { removed: 0, skipped_errors: 0 } unless Dir.exist?(root_dir)
 
@@ -109,15 +125,37 @@ module KairosMcp
               basename = File.basename(path, '.json')
               next if skip_token && basename == skip_token
 
-              data = JSON.parse(File.read(path))
-              deadline = Time.iso8601(data['collect_deadline']) rescue nil
-              next unless deadline
+              # Parse attempt. If JSON is unreadable/corrupt, fall back to
+              # mtime-based orphan cleanup so we don't accumulate forever.
+              data = begin
+                JSON.parse(File.read(path))
+              rescue JSON::ParserError => e
+                skipped_errors += 1
+                warn "[multi_llm_review::PendingState#cleanup_expired] corrupt JSON at #{File.basename(path)}: #{e.message}"
+                nil
+              end
 
-              collected = data['collected'] == true
-              cutoff = collected ? deadline + retain_collected_seconds : deadline
-              if now > cutoff
-                File.unlink(path)
-                removed += 1
+              deadline = nil
+              if data.is_a?(Hash)
+                deadline = Time.iso8601(data['collect_deadline']) rescue nil
+              end
+
+              if deadline
+                collected = data['collected'] == true
+                cutoff = collected ? deadline + retain_collected_seconds : deadline
+                if now > cutoff
+                  File.unlink(path)
+                  removed += 1
+                end
+              else
+                # No usable deadline (missing field or corrupt JSON).
+                # Don't keep forever — treat as orphan after stale window.
+                mtime = File.mtime(path) rescue nil
+                if mtime && now - mtime > stale_no_deadline_seconds
+                  File.unlink(path)
+                  removed += 1
+                  warn "[multi_llm_review::PendingState#cleanup_expired] removed stale file without deadline: #{File.basename(path)}"
+                end
               end
             rescue Errno::ENOENT
               # Concurrent deletion — benign.
@@ -125,6 +163,7 @@ module KairosMcp
             rescue StandardError => e
               skipped_errors += 1
               warn "[multi_llm_review::PendingState#cleanup_expired] skipping #{File.basename(path)}: #{e.class}: #{e.message}"
+              warn e.backtrace.first(3).join("\n") if e.backtrace
               next
             end
           end

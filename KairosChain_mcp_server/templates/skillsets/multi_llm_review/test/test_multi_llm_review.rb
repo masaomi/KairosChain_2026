@@ -562,6 +562,65 @@ module KairosMcp
           refute File.exist?(orphan), 'orphaned tmp should be removed'
           assert_operator result[:removed], :>=, 1
         end
+
+        def test_cleanup_removes_stale_file_without_deadline
+          # Simulates schema-drift / partial-write where a .json file lacks
+          # collect_deadline. Round 1 bug: these lived forever.
+          token = PendingState.generate_token
+          PendingState.write(token, { 'token' => token, 'unrelated' => 'x' })
+          path = PendingState.path_for(token)
+          old = Time.now - 90_000 # > 24h
+          File.utime(old, old, path)
+          result = PendingState.cleanup_expired!
+          refute File.exist?(path), 'stale no-deadline file should be removed'
+          assert_operator result[:removed], :>=, 1
+        end
+
+        def test_cleanup_keeps_fresh_file_without_deadline
+          # A file that lacks deadline but is recent should NOT be removed
+          # (could be mid-creation by another process).
+          token = PendingState.generate_token
+          PendingState.write(token, { 'token' => token })
+          result = PendingState.cleanup_expired!
+          refute_nil PendingState.load(token), 'fresh no-deadline file must survive'
+        end
+
+        def test_cleanup_removes_stale_corrupt_json
+          # Corrupt JSON without deadline should also age out via stale window.
+          FileUtils.mkdir_p(PendingState.root_dir)
+          corrupt = File.join(PendingState.root_dir,
+                              "#{PendingState.generate_token}.json")
+          File.write(corrupt, 'not-valid-json-{{{')
+          old = Time.now - 90_000
+          File.utime(old, old, corrupt)
+          result = PendingState.cleanup_expired!
+          refute File.exist?(corrupt), 'stale corrupt json should be removed'
+        end
+
+        def test_load_detailed_distinguishes_missing_from_corrupt
+          token = PendingState.generate_token
+          # Missing
+          result = PendingState.load_detailed(token)
+          assert_equal :missing, result[:status]
+
+          # Invalid token
+          result = PendingState.load_detailed('not-a-uuid')
+          assert_equal :invalid_token, result[:status]
+
+          # Corrupt
+          FileUtils.mkdir_p(PendingState.root_dir)
+          File.write(PendingState.path_for(token), 'not-json')
+          result = PendingState.load_detailed(token)
+          assert_equal :corrupt, result[:status]
+          assert_nil result[:data]
+          refute_nil result[:error]
+
+          # OK
+          PendingState.write(token, { 'token' => token, 'data' => 'x' })
+          result = PendingState.load_detailed(token)
+          assert_equal :ok, result[:status]
+          assert_equal 'x', result[:data]['data']
+        end
       end
 
       class TestPersonaAssembly < Minitest::Test
@@ -714,15 +773,59 @@ module KairosMcp
 
         def test_normalize_verdict_recognizes_no_go
           assert_equal 'REJECT', PersonaAssembly.normalize_verdict('NO-GO')
+          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('NO_GO')
+          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('NO GO')
           assert_equal 'REJECT', PersonaAssembly.normalize_verdict('NACK')
           assert_equal 'REJECT', PersonaAssembly.normalize_verdict('DENY')
+          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('VETO')
           assert_equal 'REJECT', PersonaAssembly.normalize_verdict('FAILED')
+          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('FAILURE')
           assert_equal 'REJECT', PersonaAssembly.normalize_verdict('BLOCKED')
+          # BLOCKER previously fell through to REVISE fallback — round 2 fix.
+          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('BLOCKER')
         end
 
         def test_normalize_verdict_recognizes_revise_aliases
           assert_equal 'REVISE', PersonaAssembly.normalize_verdict('NEEDS WORK')
           assert_equal 'REVISE', PersonaAssembly.normalize_verdict('changes required')
+          # NEEDS_REVISION previously fell through — round 2 fix.
+          assert_equal 'REVISE', PersonaAssembly.normalize_verdict('NEEDS_REVISION')
+          assert_equal 'REVISE', PersonaAssembly.normalize_verdict('NEEDS CHANGES')
+          assert_equal 'REVISE', PersonaAssembly.normalize_verdict('REWORK')
+          assert_equal 'REVISE', PersonaAssembly.normalize_verdict('changes_required')
+        end
+
+        def test_normalize_verdict_approve_aliases
+          assert_equal 'APPROVE', PersonaAssembly.normalize_verdict('LGTM')
+          assert_equal 'APPROVE', PersonaAssembly.normalize_verdict('ship it')
+          assert_equal 'APPROVE', PersonaAssembly.normalize_verdict('APPROVED')
+        end
+
+        def test_normalize_verdict_reject_dominates_in_ambiguous
+          # "approve but reject on security" → REJECT wins (safe default)
+          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('approve but reject on security')
+        end
+
+        def test_safe_truncate_handles_multibyte_utf8
+          # Japanese string where characters are multi-byte
+          text = 'あいうえお' * 100  # 500 codepoints, ~1500 UTF-8 bytes
+          truncated = PersonaAssembly.safe_truncate(text, 50)
+          # Must end cleanly on a char boundary + have marker
+          assert truncated.valid_encoding?, 'truncated string must be valid UTF-8'
+          assert_includes truncated, '[truncated]'
+        end
+
+        def test_safe_truncate_scrubs_ascii_8bit_input
+          # Simulate JSON parser returning binary-tagged string with non-UTF8 bytes
+          bad = "\xFF\xFE hello \xE3\x81\x82".dup.force_encoding('ASCII-8BIT')
+          truncated = PersonaAssembly.safe_truncate(bad, 100)
+          assert truncated.valid_encoding?
+        end
+
+        def test_safe_truncate_short_text_unchanged
+          truncated = PersonaAssembly.safe_truncate('short', 100)
+          assert_equal 'short', truncated
+          refute_includes truncated, '[truncated]'
         end
 
         def test_synthetic_flag_present
@@ -1078,6 +1181,19 @@ module KairosMcp
           payload = JSON.parse(result.first[:text])
           assert_equal 'error', payload['status']
           assert_match(/invalid persona name/, payload['error'])
+        end
+
+        def test_corrupt_state_returns_internal_error
+          token = PendingState.generate_token
+          FileUtils.mkdir_p(PendingState.root_dir)
+          File.write(PendingState.path_for(token), 'not-valid-json-{{{')
+          result = @collect.call({
+            'collect_token' => token, 'orchestrator_reviews' => good_reviews
+          })
+          payload = JSON.parse(result.first[:text])
+          assert_equal 'error', payload['status']
+          assert_equal 'internal', payload['error_class']
+          assert_match(/corrupt/, payload['error'])
         end
 
         def test_cleanup_preserves_requested_token

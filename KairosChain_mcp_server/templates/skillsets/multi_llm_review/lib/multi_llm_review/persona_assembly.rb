@@ -26,9 +26,11 @@ module KairosMcp
         # Canonical verdicts recognized by downstream Consensus.
         ALLOWED_VERDICTS = %w[APPROVE REVISE REJECT].freeze
         # Additional verdict synonyms recognized during normalization.
-        APPROVE_ALIASES = /\b(?:APPROVE[D]?|PASS|ACCEPT)\b/
-        REJECT_ALIASES  = /\b(?:REJECT(?:ED)?|FAIL(?:ED)?|BLOCK(?:ED)?|NO-GO|NACK|DENY)\b/
-        REVISE_ALIASES  = /\b(?:REVISE|CHANGES?\s*REQUIRED|NEEDS?\s*(?:WORK|REVISION))\b/
+        # The regexes accept underscore / hyphen / space as separators so
+        # variants like NO_GO, NO-GO, NO GO, NEEDS_REVISION all normalize.
+        APPROVE_ALIASES = /\b(?:APPROVE[DS]?|PASS(?:ED)?|ACCEPT(?:ED)?|LGTM|SHIP[_\s]*IT)\b/i
+        REJECT_ALIASES  = /\b(?:REJECT(?:ED)?|FAIL(?:ED|URE)?|BLOCK(?:ED|ER)?|NO[_\s\-]*GO|NACK|DENY|VETO)\b/i
+        REVISE_ALIASES  = /\b(?:REVISE|CHANGES?[_\s]*REQUIRED|NEEDS?[_\s]*(?:WORK|REVISION|CHANGES?)|REWORK)\b/i
 
         module_function
 
@@ -98,16 +100,37 @@ module KairosMcp
           end
         end
 
-        def normalize_verdict(raw)
+        def normalize_verdict(raw, context: nil)
           upper = raw.to_s.upcase
-          return 'APPROVE' if upper.match?(APPROVE_ALIASES)
+          # Order: REJECT first, then APPROVE, then REVISE — if a string
+          # contains both (e.g. "I approve but with concerns that may lead to
+          # reject"), REJECT wins to stay on the safe side of precedence.
           return 'REJECT'  if upper.match?(REJECT_ALIASES)
+          return 'APPROVE' if upper.match?(APPROVE_ALIASES)
           return 'REVISE'  if upper.match?(REVISE_ALIASES)
           # Conservative fallback: unknown verdicts are logged and treated as
           # REVISE (do not let them silently pass as APPROVE or silently block
           # as REJECT; REVISE requires orchestrator attention).
-          warn "[multi_llm_review::PersonaAssembly] unknown verdict #{raw.inspect} → REVISE"
+          ctx = context ? " (#{context})" : ''
+          warn "[multi_llm_review::PersonaAssembly] unknown verdict#{ctx} #{raw.inspect} → REVISE"
           'REVISE'
+        end
+
+        # Truncate a string to at most `max_chars` Unicode codepoints,
+        # handling ASCII-8BIT-forced inputs safely so multibyte codepoints
+        # are never split. Returns a scrubbed UTF-8 string.
+        def safe_truncate(text, max_chars)
+          s = text.to_s.dup
+          # Force UTF-8 interpretation; scrub any invalid sequences.
+          if s.encoding == Encoding::ASCII_8BIT
+            s.force_encoding(Encoding::UTF_8)
+          end
+          s = s.scrub('') unless s.valid_encoding?
+          if s.each_char.count > max_chars
+            s.each_char.first(max_chars).join + "\n...[truncated]"
+          else
+            s
+          end
         end
 
         # Prevent user-supplied text from spoofing Consensus finding extraction.
@@ -128,9 +151,7 @@ module KairosMcp
             findings = Array(r['findings'] || r[:findings])
 
             # Truncate oversized reasoning (validated upstream; defense in depth).
-            if reasoning.length > MAX_REASONING_LENGTH
-              reasoning = reasoning[0, MAX_REASONING_LENGTH] + "\n...[truncated]"
-            end
+            reasoning = safe_truncate(reasoning, MAX_REASONING_LENGTH)
             findings = findings[0, MAX_FINDINGS_PER_PERSONA]
 
             # persona was validated by IDENT_RE, so safe for header interpolation.
@@ -144,14 +165,12 @@ module KairosMcp
               if f.is_a?(Hash)
                 sev = (f['severity'] || f[:severity] || 'P2').to_s
                 sev = 'P2' unless sev.match?(/\AP[0-3]\z/i)
-                issue = (f['issue'] || f[:issue] || '').to_s
-                issue = issue[0, MAX_ISSUE_LENGTH] if issue.length > MAX_ISSUE_LENGTH
+                issue = safe_truncate(f['issue'] || f[:issue] || '', MAX_ISSUE_LENGTH)
                 # sev is emitted as a legit Consensus marker; issue is user-
                 # content so neutralize internal severity patterns.
                 parts << "**#{sev.upcase}**: #{neutralize_severity_patterns(issue)}"
               else
-                issue = f.to_s
-                issue = issue[0, MAX_ISSUE_LENGTH] if issue.length > MAX_ISSUE_LENGTH
+                issue = safe_truncate(f, MAX_ISSUE_LENGTH)
                 parts << "**P2**: #{neutralize_severity_patterns(issue)}"
               end
             end

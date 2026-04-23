@@ -1,6 +1,6 @@
 {
   "name": "multi_llm_review",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Parallel multi-LLM review orchestration. Dispatches review prompts to N LLM backends via llm_client, collects verdicts, and computes consensus.",
   "author": "Masaomi Hatakeyama",
   "layer": "L1",

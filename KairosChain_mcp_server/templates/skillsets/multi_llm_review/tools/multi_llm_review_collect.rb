@@ -98,13 +98,23 @@ module KairosMcp
               warn "[multi_llm_review_collect] cleanup_expired failed: #{e.class}: #{e.message}"
             end
 
-            state = PendingState.load(token)
-            unless state
+            load_result = PendingState.load_detailed(token)
+            case load_result[:status]
+            when :corrupt
+              return text_content(JSON.generate({
+                'status' => 'error',
+                'error_class' => 'internal',
+                'error' => 'pending state file is corrupt',
+                'collect_token' => token,
+                'detail' => load_result[:error]
+              }))
+            when :missing, :invalid_token
               return text_content(JSON.generate({
                 'status' => 'expired_or_unknown_token',
                 'collect_token' => token
               }))
             end
+            state = load_result[:data]
 
             # Idempotency: replay cached final result on duplicate collect.
             if state['collected'] && state['final_payload']
