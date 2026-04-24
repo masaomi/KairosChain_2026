@@ -5,6 +5,8 @@ require 'time'
 require_relative '../lib/multi_llm_review/consensus'
 require_relative '../lib/multi_llm_review/pending_state'
 require_relative '../lib/multi_llm_review/persona_assembly'
+require_relative '../lib/multi_llm_review/wait_for_worker'
+require_relative '../lib/multi_llm_review/worker_reaper'
 
 module KairosMcp
   module SkillSets
@@ -88,45 +90,83 @@ module KairosMcp
               }))
             end
 
-            # GC other expired pending files, but DO NOT touch the token we
-            # were asked to collect — otherwise an already-expired but still-
-            # readable token is deleted before we can surface the explicit
-            # "past collect_deadline" branch below.
             begin
               PendingState.cleanup_expired!(skip_token: token)
             rescue StandardError => e
               warn "[multi_llm_review_collect] cleanup_expired failed: #{e.class}: #{e.message}"
             end
 
-            load_result = PendingState.load_detailed(token)
-            case load_result[:status]
-            when :corrupt
-              return text_content(JSON.generate({
-                'status' => 'error',
-                'error_class' => 'internal',
-                'error' => 'pending state file is corrupt',
-                'collect_token' => token,
-                'detail' => load_result[:error]
-              }))
-            when :missing, :invalid_token
+            # v0.3.0 parallel path: flock the token dir's collect.lock so two
+            # concurrent collects serialize (F-IDP). Missing token falls
+            # through flock (no lock file) to idempotent replay / missing branch.
+            lock_path = PendingState.collect_lock_path(token) rescue nil
+            if lock_path && File.exist?(File.dirname(lock_path))
+              File.open(lock_path, File::RDWR | File::CREAT) do |lock|
+                lock.flock(File::LOCK_EX)
+                return call_locked(token, arguments)
+              end
+            else
+              # Legacy v0.2.x single-file or missing token: no lock, proceed.
+              return call_locked(token, arguments)
+            end
+          rescue ArgumentError, KeyError, TypeError => e
+            text_content(JSON.generate({
+              'status' => 'error',
+              'error_class' => 'validation',
+              'error' => "#{e.class}: #{e.message}"
+            }))
+          rescue StandardError => e
+            warn "[multi_llm_review_collect] INTERNAL ERROR: #{e.class}: #{e.message}"
+            warn e.backtrace.first(10).join("\n") if e.backtrace
+            text_content(JSON.generate({
+              'status' => 'error',
+              'error_class' => 'internal',
+              'error' => "#{e.class}: #{e.message}"
+            }))
+          end
+
+          def call_locked(token, arguments)
+            # Idempotent replay via collected.json (v0.3) — check FIRST inside
+            # the flock so a concurrent second caller sees the committed cache.
+            collected_path = PendingState.collected_path(token) rescue nil
+            if collected_path && File.exist?(collected_path)
+              cached = PendingState.load_collected(token)
+              if cached && cached['final_payload']
+                payload = cached['final_payload'].dup
+                payload['idempotent_replay'] = true
+                return text_content(JSON.generate(payload))
+              end
+            end
+
+            state = PendingState.load_state(token)
+            if state.nil?
+              # Distinguish corrupt legacy single-file from simply-missing so
+              # v0.2.3 tests pass (test_corrupt_state_returns_internal_error).
+              legacy_path = File.join(PendingState.root_dir, "#{token}.json")
+              if File.exist?(legacy_path)
+                return text_content(JSON.generate({
+                  'status' => 'error',
+                  'error_class' => 'internal',
+                  'error' => 'pending state file is corrupt',
+                  'collect_token' => token
+                }))
+              end
               return text_content(JSON.generate({
                 'status' => 'expired_or_unknown_token',
                 'collect_token' => token
               }))
             end
-            state = load_result[:data]
 
-            # Idempotency: replay cached final result on duplicate collect.
+            # v0.2.x legacy idempotent replay (inline cache in state).
             if state['collected'] && state['final_payload']
               cached = state['final_payload'].dup
               cached['idempotent_replay'] = true
               return text_content(JSON.generate(cached))
             end
 
-            # Deadline check (defense-in-depth; GC also handles this).
+            # Deadline check
             deadline = (Time.iso8601(state['collect_deadline']) rescue nil)
             if deadline && Time.now > deadline
-              PendingState.delete(token)
               return text_content(JSON.generate({
                 'status' => 'expired_or_unknown_token',
                 'collect_token' => token,
@@ -146,8 +186,57 @@ module KairosMcp
               }))
             end
 
-            subprocess_entries = (state['subprocess_results'] || []).map do |r|
-              deserialize_review(r)
+            # Resolve subprocess_results: v0.3 parallel → WaitForWorker;
+            # v0.2.x legacy (or parallel=false) → inline state['subprocess_results'].
+            parallel = state['parallel']
+            parallel = false if parallel.nil?      # legacy default (R1-K)
+
+            subprocess_entries = nil
+            if parallel == false
+              subprocess_entries = (state['subprocess_results'] || []).map do |r|
+                deserialize_review(r)
+              end
+            else
+              outcome = WaitForWorker.wait(token, {
+                max_wait_seconds: arguments['collect_max_wait_seconds'] ||
+                                  config_parallel_key('collect_max_wait_seconds', 420),
+                poll_interval_seconds: config_parallel_key('poll_interval_seconds', 0.5),
+                startup_grace_seconds: config_parallel_key('startup_grace_seconds', 30),
+                heartbeat_stale_threshold_seconds: config_parallel_key('heartbeat_stale_threshold_seconds', 15)
+              })
+              case outcome[:status]
+              when :ready
+                subprocess_entries = outcome[:results].map { |r| deserialize_review(r) }
+              when :crashed
+                return text_content(JSON.generate({
+                  'status' => 'subprocess_worker_crashed',
+                  'collect_token' => token,
+                  'reason' => outcome[:reason],
+                  'pid' => outcome[:pid],
+                  'heartbeat_age' => outcome[:heartbeat_age],
+                  'log_tail' => outcome[:log_tail].to_s
+                }))
+              when :timeout
+                reaper_outcome = WorkerReaper.terminate!(token, outcome[:pid], outcome[:pgid])
+                if %i[terminated killed already_dead].include?(reaper_outcome)
+                  begin
+                    File.open(PendingState.gc_eligible_path(token),
+                              File::CREAT | File::EXCL | File::WRONLY) { }
+                  rescue Errno::EEXIST
+                    # Idempotent: prior collect already created the marker.
+                  rescue StandardError => e
+                    warn "[multi_llm_review_collect] gc.eligible write: #{e.class}: #{e.message}"
+                  end
+                end
+                return text_content(JSON.generate({
+                  'status' => 'worker_timeout',
+                  'collect_token' => token,
+                  'waited_seconds' => outcome[:waited_seconds],
+                  'pid' => outcome[:pid],
+                  'reaper_outcome' => reaper_outcome.to_s,
+                  'log_tail' => outcome[:log_tail].to_s
+                }))
+              end
             end
 
             all_reviews = subprocess_entries + [orchestrator_entry]
@@ -192,42 +281,64 @@ module KairosMcp
               'orchestrator_strategy' => 'delegate'
             }
 
-            # Cache for idempotent replay; mark collected so GC keeps it
-            # for the retention window.
-            state['collected'] = true
-            state['collected_at'] = Time.now.iso8601
-            state['final_payload'] = payload
-            begin
-              PendingState.write(token, state)
-            rescue StandardError => e
-              # State write failure is serious but should not obscure the
-              # review result the orchestrator just computed. Log and return
-              # the payload anyway; idempotency just won't work for this token.
-              warn "[multi_llm_review_collect] cache write failed: #{e.class}: #{e.message}"
+            # v0.3 path: cache via collected.json sidecar (never touches
+            # state.json → preserves single-writer invariant §6.3).
+            if parallel
+              collected_ok = false
+              begin
+                PendingState.write_collected(token, {
+                  'schema_version' => 1,
+                  'token' => token,
+                  'collected_at' => Time.now.iso8601,
+                  'final_payload' => payload
+                })
+                collected_ok = true
+              rescue StandardError => e
+                warn "[multi_llm_review_collect] collected write failed: #{e.class}: #{e.message}"
+              end
+
+              # F-USR: replay usage ONLY after collected.json committed.
+              # If write failed, skip replay — a retry will hit the non-replay
+              # path and get a fresh chance; idempotent replay (collected.json
+              # exists) short-circuits further usage calls. This prevents
+              # double-counting on retries (PR4 R1-impl P1 from codex 5.5).
+              if collected_ok
+                subprocess_entries.each do |r|
+                  next unless r[:usage]
+                  begin
+                    if defined?(KairosMcp::SkillSets::LlmClient::Tools::UsageTracker)
+                      KairosMcp::SkillSets::LlmClient::Tools::UsageTracker.record(r[:usage])
+                    end
+                  rescue StandardError => e
+                    warn "[multi_llm_review_collect] UsageTracker skipped: #{e.class}: #{e.message}"
+                  end
+                end
+              end
+            else
+              # Legacy back-compat: keep old inline cache behavior.
+              state['collected'] = true
+              state['collected_at'] = Time.now.iso8601
+              state['final_payload'] = payload
+              begin
+                PendingState.write(token, state)
+              rescue StandardError => e
+                warn "[multi_llm_review_collect] legacy cache write failed: #{e.class}: #{e.message}"
+              end
             end
 
             text_content(JSON.generate(payload))
-          rescue ArgumentError, KeyError, TypeError => e
-            # Validation-class errors: surface to caller.
-            text_content(JSON.generate({
-              'status' => 'error',
-              'error_class' => 'validation',
-              'error' => "#{e.class}: #{e.message}"
-            }))
-          rescue StandardError => e
-            # Programming bugs / unexpected system errors: log full backtrace
-            # to STDERR so it's not silently lost, but still surface to caller
-            # (marked distinctly so the orchestrator can flag it as a bug).
-            warn "[multi_llm_review_collect] INTERNAL ERROR: #{e.class}: #{e.message}"
-            warn e.backtrace.first(10).join("\n") if e.backtrace
-            text_content(JSON.generate({
-              'status' => 'error',
-              'error_class' => 'internal',
-              'error' => "#{e.class}: #{e.message}"
-            }))
           end
 
           private
+
+          def config_parallel_key(key, default)
+            @cfg ||= begin
+              p = File.expand_path('../config/multi_llm_review.yml', __dir__)
+              require 'yaml'
+              File.exist?(p) ? (YAML.safe_load(File.read(p)) || {}) : {}
+            end
+            (@cfg.dig('delegation', 'parallel', key) || default)
+          end
 
           def deserialize_review(h)
             {
@@ -237,7 +348,8 @@ module KairosMcp
               raw_text: h['raw_text'].to_s,
               elapsed_seconds: h['elapsed_seconds'] || 0,
               error: h['error'],
-              status: (h['status'] || 'success').to_sym
+              status: (h['status'] || 'success').to_sym,
+              usage: h['usage']    # v0.3 F-USR: preserved for UsageTracker replay
             }
           end
 

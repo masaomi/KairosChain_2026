@@ -4,8 +4,13 @@
 # to avoid duplication.
 
 # Convergence rules
-convergence_rule: "3/4 APPROVE"  # ratio applied to successful reviewer count
-min_quorum: 2                     # minimum successful reviews for any verdict
+# Roster has 5 reviewers (claude_team_opus4.7, claude_cli_opus4.6,
+# codex_gpt5.4, codex_gpt5.5, cursor_composer2). Rules are ratio-based
+# (parser interprets "N/M" as N/M fraction applied to successful count),
+# so the literal numerator/denominator is informational; what matters is
+# the ratio.
+convergence_rule: "3/5 APPROVE"  # 60% of successful reviewers must APPROVE
+min_quorum: 2                    # minimum successful reviews for any verdict
 
 # Self-referential orchestrator exclusion.
 # When the caller passes orchestrator_model (e.g. "claude-opus-4-7"), any
@@ -15,7 +20,9 @@ min_quorum: 2                     # minimum successful reviews for any verdict
 # replaces convergence_rule for that dispatch (4 reviewers → 3 reviewers
 # makes "3/4 APPROVE" require unanimity, which is too strict).
 exclude_orchestrator_model: true
-convergence_rule_after_exclusion: "2/3 APPROVE"
+# After excluding 1 orchestrator from 5 → 4 reviewers. Maintain the same
+# 60% ratio (ceil(4 * 0.6) = 3 → 3 of 4 must APPROVE).
+convergence_rule_after_exclusion: "3/4 APPROVE"
 
 # Two-phase delegation (orchestrator_strategy: "delegate").
 # Phase 1 dispatches subprocess reviewers synchronously, persists their
@@ -25,6 +32,31 @@ convergence_rule_after_exclusion: "2/3 APPROVE"
 delegation:
   collect_deadline_seconds: 600  # how long the orchestrator has to call collect
   retain_collected_seconds: 3600 # how long collected results stay for idempotent replay
+  # v0.3.0 parallel subprocess worker (Phase 11.5). When default:true, Phase 1
+  # returns a delegation_pending token immediately and a detached OS worker
+  # runs subprocess reviewers in parallel with orchestrator persona Agents.
+  # Budget constraint:
+  #   collect_max_wait_seconds >
+  #     main_call_max_timeout_seconds + main_call_timeout_margin_seconds
+  #     + poll_interval_seconds × 20
+  # else healthy long reviewers get reaped as worker_timeout.
+  parallel:
+    default: true
+    startup_grace_seconds: 30
+    heartbeat_interval_seconds: 2
+    heartbeat_stale_threshold_seconds: 15      # pulse-based liveness ceiling
+    tick_stale_threshold_seconds: 30           # main-thread liveness (pulse gating)
+    collect_max_wait_seconds: 420              # R4 C3a: > worker pulse budget
+    poll_interval_seconds: 0.5
+    suspend_detection_jump_seconds: 5
+    worker_log_max_bytes: 1048576
+    worker_log_rotate_check_seconds: 1
+    reaper_graceful_wait_seconds: 3
+    reaper_esrch_confirm_count: 2
+    worker_self_timeout_multiplier: 1.5
+    worker_self_timeout_floor_seconds: 60
+    main_call_max_timeout_seconds: 300
+    main_call_timeout_margin_seconds: 60
 
 # Dispatch settings
 timeout_seconds: 300              # global deadline for all reviewers
@@ -49,8 +81,17 @@ reviewers:
     role_label: claude_cli_opus4.6
 
   - provider: codex
+    model: gpt-5.4
     effort: medium
     role_label: codex_gpt5.4
+
+  # GPT-5.5 added 2026-04-24 for benchmarking against gpt-5.4. Both codex
+  # entries dispatch via the same `codex exec` CLI; the adapter passes
+  # `-m <model>` so the response can be attributed per-model.
+  - provider: codex
+    model: gpt-5.5
+    effort: medium
+    role_label: codex_gpt5.5
 
   - provider: cursor
     role_label: cursor_composer2

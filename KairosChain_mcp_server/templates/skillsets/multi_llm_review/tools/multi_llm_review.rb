@@ -6,8 +6,10 @@ require 'time'
 require_relative '../lib/multi_llm_review/prompt_builder'
 require_relative '../lib/multi_llm_review/consensus'
 require_relative '../lib/multi_llm_review/dispatcher'
+require 'fileutils'
 require_relative '../lib/multi_llm_review/pending_state'
 require_relative '../lib/multi_llm_review/persona_assembly'
+require_relative '../lib/multi_llm_review/worker_spawner'
 
 module KairosMcp
   module SkillSets
@@ -112,6 +114,13 @@ module KairosMcp
                     'orchestrator runs persona-based Agent Team review in its own context, ' \
                     'then submits results via multi_llm_review_collect with the returned token.',
                   default: 'exclude'
+                },
+                parallel: {
+                  type: 'boolean',
+                  description: 'v0.3.0: when strategy=delegate, run subprocess reviewers ' \
+                    'in a DETACHED WORKER process so orchestrator persona reviewers can ' \
+                    'run in parallel (wall-clock ~30% faster). Default true (from config). ' \
+                    'Set false for v0.2.x synchronous behavior.'
                 }
               },
               required: %w[artifact_content artifact_name review_type]
@@ -184,6 +193,24 @@ module KairosMcp
               timeout_seconds: timeout_secs,
               max_concurrent: max_concurrent
             )
+
+            # v0.3.0 parallel async path: spawn detached worker, return token
+            # immediately so orchestrator can run persona Agents concurrently.
+            parallel_cfg = config.dig('delegation', 'parallel') || {}
+            parallel_default = parallel_cfg.fetch('default', true)
+            parallel_flag = arguments.key?('parallel') ? arguments['parallel'] : parallel_default
+            if strategy == 'delegate' && partitioned_count > 0 && parallel_flag
+              return delegate_response_async(
+                reviewers: reviewers, messages: messages, system_prompt: system_prompt,
+                arguments: arguments, config: config,
+                orchestrator_model: orchestrator_model,
+                convergence_rule: convergence_rule, min_quorum: min_quorum,
+                review_round: review_round, complexity: complexity,
+                review_context: review_context,
+                max_concurrent: max_concurrent, timeout_secs: timeout_secs,
+                parallel_cfg: parallel_cfg
+              )
+            end
 
             # @invocation_context may be nil for direct MCP calls (no parent tool).
             # BaseTool#invoke_tool handles nil by creating a default InvocationContext.
@@ -426,6 +453,112 @@ module KairosMcp
               },
               'subprocess_done' => successful,
               'subprocess_total' => raw_results.size,
+              'must_collect_by' => (now + deadline_secs).iso8601,
+              'orchestrator_model' => orchestrator_model
+            }))
+          end
+
+          # v0.3.0 parallel delegation path (Phase 11.5).
+          # Writes request.json + state.json (with self_timeout_at) + spawns
+          # a detached worker that runs dispatcher.dispatch in parallel with
+          # the orchestrator's persona Agent reviews. Returns a delegation
+          # manifest immediately (~50ms).
+          def delegate_response_async(reviewers:, messages:, system_prompt:,
+                                      arguments:, config:, orchestrator_model:,
+                                      convergence_rule:, min_quorum:, review_round:,
+                                      complexity:, review_context:,
+                                      max_concurrent:, timeout_secs:, parallel_cfg:)
+            begin
+              PersonaAssembly.validate_orchestrator_model!(orchestrator_model)
+            rescue ArgumentError => e
+              return text_content(JSON.generate({ 'status' => 'error', 'error' => e.message }))
+            end
+
+            if reviewers.empty?
+              return text_content(JSON.generate({
+                'status' => 'error',
+                'error' => 'delegate+parallel requires at least one non-orchestrator reviewer; roster is empty after exclusion'
+              }))
+            end
+
+            deadline_secs = config.dig('delegation', 'collect_deadline_seconds') || 600
+            multiplier = parallel_cfg['worker_self_timeout_multiplier'] || 1.5
+            floor      = parallel_cfg['worker_self_timeout_floor_seconds'] || 60
+            now = Time.now
+            self_timeout_at = (now + timeout_secs * multiplier + floor).iso8601
+
+            # UUID collision retry (EEXIST on Dir.mkdir per PendingState§token_dir).
+            token = nil
+            10.times do
+              t = PendingState.generate_token
+              begin
+                PendingState.create_token_dir!(t)
+                token = t
+                break
+              rescue Errno::EEXIST
+                next
+              end
+            end
+            raise 'could not generate unique token dir after 10 attempts' unless token
+
+            PendingState.write_request(token, {
+              'token' => token,
+              'reviewers' => reviewers.map { |r| r.transform_keys(&:to_s) },
+              'system_prompt' => system_prompt,
+              'messages' => messages,
+              'review_context' => review_context,
+              'timeout_seconds' => timeout_secs,
+              'max_concurrent' => max_concurrent,
+              'spawned_at' => now.iso8601
+            })
+
+            PendingState.write_state(token, {
+              'schema_version' => 4,
+              'token' => token,
+              'created_at' => now.iso8601,
+              'collect_deadline' => (now + deadline_secs).iso8601,
+              'review_type' => arguments['review_type'],
+              'artifact_name' => arguments['artifact_name'],
+              'review_round' => review_round,
+              'complexity' => complexity,
+              'orchestrator_model' => orchestrator_model,
+              'convergence_rule' => convergence_rule,
+              'min_quorum' => min_quorum,
+              'parallel' => true,
+              'subprocess_status' => 'pending',
+              'crash_reason' => nil,
+              'crashed_at' => nil,
+              'self_timeout_at' => self_timeout_at
+            })
+
+            # Ensure collect.lock exists for Phase 2's flock.
+            FileUtils.touch(PendingState.collect_lock_path(token))
+
+            begin
+              WorkerSpawner.spawn(token: token, dir: PendingState.token_dir(token))
+            rescue StandardError => e
+              return text_content(JSON.generate({
+                'status' => 'error',
+                'error_class' => 'internal',
+                'error' => "worker spawn failed: #{e.class}: #{e.message}"
+              }))
+            end
+
+            text_content(JSON.generate({
+              'status' => 'delegation_pending',
+              'collect_token' => token,
+              'parallel' => true,
+              'delegation' => {
+                'instruction' => 'Run persona-based review using your Agent tool. ' \
+                  "Choose #{PersonaAssembly::MIN_PERSONAS}-#{PersonaAssembly::MAX_PERSONAS} " \
+                  'personas appropriate to the artifact and review_type. ' \
+                  'Submit findings via multi_llm_review_collect with the collect_token below.',
+                'review_type' => arguments['review_type'],
+                'persona_count_min' => PersonaAssembly::MIN_PERSONAS,
+                'persona_count_max' => PersonaAssembly::MAX_PERSONAS
+              },
+              'subprocess_status' => 'pending',
+              'subprocess_total' => reviewers.size,
               'must_collect_by' => (now + deadline_secs).iso8601,
               'orchestrator_model' => orchestrator_model
             }))

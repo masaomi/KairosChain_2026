@@ -30,9 +30,18 @@ module KairosMcp
           )
 
           unless status && status.success?
+            msg = strip_ansi(stderr)[0..200]
+            # v0.3.1 meta-review bonus: Cursor composer-2 sporadically returns
+            # "Provider Error" / "We're having trouble connecting to the model
+            # provider. This might be temporary". Mark these as retryable so
+            # dispatcher/caller can retry. Non-transient (auth, args) stay false.
+            transient = msg.include?('Provider Error') ||
+                        msg.include?('trouble connecting') ||
+                        msg.include?('model provider') ||
+                        msg.downcase.include?('temporary')
             raise ApiError.new(
-              "cursor agent exited with status #{status&.exitstatus}: #{strip_ansi(stderr)[0..200]}",
-              provider: 'cursor', retryable: false
+              "cursor agent exited with status #{status&.exitstatus}: #{msg}",
+              provider: 'cursor', retryable: transient
             )
           end
 

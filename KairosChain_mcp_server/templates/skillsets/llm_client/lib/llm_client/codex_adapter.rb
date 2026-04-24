@@ -20,6 +20,12 @@ module KairosMcp
           timeout_seconds = @config&.dig('timeout_seconds') || DEFAULT_TIMEOUT
 
           args = ['codex', 'exec', '--sandbox', 'read-only']
+          # Explicit model selection (e.g. "gpt-5.4", "gpt-5.5"). When nil,
+          # codex CLI uses the default from ~/.codex/config.toml. Required
+          # for benchmarking multiple model versions of the same provider.
+          if model && !model.to_s.empty?
+            args += ['-m', model.to_s]
+          end
           # Reasoning effort: minimal / low / medium / high
           effort = @config&.dig('effort')
           if effort && !effort.to_s.empty?
@@ -123,6 +129,9 @@ module KairosMcp
             'tool_use' => tool_use,
             'stop_reason' => tool_use ? 'tool_use' : 'end_turn',
             'model' => model || 'codex-cli-default',
+            # NOTE: when model is explicitly set, the response keeps it so
+            # downstream consumers (multi_llm_review consensus) can attribute
+            # the review to the exact model version (e.g. gpt-5.4 vs gpt-5.5).
             'input_tokens' => nil,
             'output_tokens' => nil
           }

@@ -14,7 +14,7 @@ model: claude-opus-4-6
 # api_key_env not needed for claude_code provider — uses Claude Code subscription
 default_max_tokens: 4096
 default_temperature: 0.7
-timeout_seconds: 120
+timeout_seconds: 600
 
 # --- Provider-specific examples (uncomment one) ---
 

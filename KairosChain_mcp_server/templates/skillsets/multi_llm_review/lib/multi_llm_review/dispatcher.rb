@@ -110,11 +110,34 @@ module KairosMcp
           # Kill in-flight subprocesses from this dispatch
           kill_dispatch_pids(dispatch_id)
 
-          # Wait for threads to finish naturally
-          threads.each { |t| t.join(10) }
+          # Wait for threads to finish naturally.
+          # v0.3.1 meta-review bug #1 fix: during this cleanup the main thread
+          # was silent for up to ~10s × N, which let MAIN_STATE.counter stall,
+          # the worker's pulse thread to stop touching worker.tick, and Phase 2
+          # to false-positive heartbeat_stale. Bump the counter here so the
+          # pulse observes progress during the join loop. Works as a no-op
+          # in non-worker contexts (MainState simply not required).
+          threads.each do |t|
+            loop do
+              break if t.join(1)
+              bump_main_state_counter
+            end
+          end
+          bump_main_state_counter   # final bump after all joined
 
           results
         end
+
+        private
+
+        def bump_main_state_counter
+          return unless defined?(KairosMcp::SkillSets::MultiLlmReview::MainState)
+          KairosMcp::SkillSets::MultiLlmReview::MainState.exit_call!
+        rescue StandardError
+          nil
+        end
+
+        public
 
         private
 
@@ -151,7 +174,11 @@ module KairosMcp
             raw_text: llm_response.dig('response', 'content') || '',
             elapsed_seconds: elapsed.round(1),
             error: nil,
-            status: :success
+            status: :success,
+            # v0.3.1 meta-review bug #2 fix (codex 5.5): preserve usage for F-USR
+            # replay. CallRouter.perform returns {'usage' => {...}} at top-level;
+            # dropping it here broke Prop #2 consumption-loop closure.
+            usage: llm_response['usage']
           }
         end
 
