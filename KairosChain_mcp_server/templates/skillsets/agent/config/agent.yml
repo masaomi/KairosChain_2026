@@ -107,12 +107,16 @@ complexity_review:
   post_act_review: true                       # enable medium-complexity post-ACT review
   # Multi-LLM review integration (Gate 5.5c)
   multi_llm_review:
-    enabled: false              # opt-in: enable for multi-LLM review during autonomous mode
-    trigger_on:                 # complexity signals that trigger multi-LLM review
+    # Phase 12 PR1: stays opt-in. PR2 will flip default to true per
+    # KairosChain framework default policy (see knowledge: project_multi_llm_review_default_philosophy).
+    enabled: false
+    trigger_mode: rule_only     # PR1 default; PR2 introduces rule_or_hint
+    trigger_on:                 # validated against KNOWN_SIGNALS at session start (§12)
       - l0_change
       - design_scope
     max_concurrent: 2           # override Dispatcher default
     timeout_seconds: 300
+    insufficient_first_attempt: retry  # retry | checkpoint (§3.8)
     # Reviewer roster delegates to multi_llm_review/config/multi_llm_review.yml
 
 # Audit

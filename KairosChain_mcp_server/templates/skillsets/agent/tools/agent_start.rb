@@ -88,6 +88,19 @@ module KairosMcp
 
             # Build session invocation context from config blacklist
             config = load_config
+
+            # Phase 12 §12: validate trigger_on against KNOWN_SIGNALS at session start.
+            # Fail-loud here; do not let typos silently bypass the review gate at runtime.
+            trigger_on = config.dig('complexity_review', 'multi_llm_review', 'trigger_on') || []
+            begin
+              ::KairosMcp::SkillSets::Agent::TriggerValidator.validate!(trigger_on)
+            rescue ::KairosMcp::SkillSets::Agent::TriggerValidator::ConfigurationError => e
+              return text_content(JSON.generate(
+                'status' => 'error',
+                'error' => "agent.yml configuration error: #{e.message}"
+              ))
+            end
+
             ctx = build_session_context(config, mandate[:mandate_id])
 
             # Create session

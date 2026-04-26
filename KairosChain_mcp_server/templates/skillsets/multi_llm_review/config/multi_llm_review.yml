@@ -20,6 +20,15 @@ min_quorum: 2                    # minimum successful reviews for any verdict
 # replaces convergence_rule for that dispatch (4 reviewers → 3 reviewers
 # makes "3/4 APPROVE" require unanimity, which is too strict).
 exclude_orchestrator_model: true
+
+# Default orchestrator_strategy when the caller does not specify one.
+# "delegate" (default): orchestrator runs persona Agent Team review in its own
+#   context, in parallel with subprocess reviewers (detached worker). Empirically
+#   same-model persona review still surfaces findings subprocess-only misses
+#   because LLM metacognition is structurally limited.
+# "exclude": legacy behavior — drop the matching reviewer entirely.
+# "subprocess": spawn fresh claude -p for the matching reviewer.
+default_orchestrator_strategy: "delegate"
 # After excluding 1 orchestrator from 5 → 4 reviewers. Maintain the same
 # 60% ratio (ceil(4 * 0.6) = 3 → 3 of 4 must APPROVE).
 convergence_rule_after_exclusion: "3/4 APPROVE"

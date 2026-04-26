@@ -10,6 +10,9 @@ require 'fileutils'
 require_relative '../lib/multi_llm_review/pending_state'
 require_relative '../lib/multi_llm_review/persona_assembly'
 require_relative '../lib/multi_llm_review/worker_spawner'
+require_relative '../lib/multi_llm_review/feedback_formatter'
+require_relative '../lib/multi_llm_review/sanitizer'
+require_relative '../lib/multi_llm_review/build_review_bundle'
 
 module KairosMcp
   module SkillSets
@@ -108,12 +111,13 @@ module KairosMcp
                   type: 'string',
                   enum: %w[exclude subprocess delegate],
                   description: 'How to handle the orchestrator-matching reviewer. ' \
-                    '"exclude" (default): drop the matching reviewer entirely. ' \
+                    '"delegate" (default): two-call protocol — subprocess reviewers run ' \
+                    'in a detached worker (parallel with orchestrator persona Agent Team), ' \
+                    'then results are submitted via multi_llm_review_collect. ' \
+                    '"exclude": drop the matching reviewer entirely (legacy default). ' \
                     '"subprocess": treat like any other reviewer (spawn fresh claude -p). ' \
-                    '"delegate": two-call protocol — subprocess reviewers run synchronously, ' \
-                    'orchestrator runs persona-based Agent Team review in its own context, ' \
-                    'then submits results via multi_llm_review_collect with the returned token.',
-                  default: 'exclude'
+                    'Config key: default_orchestrator_strategy in multi_llm_review.yml.',
+                  default: 'delegate'
                 },
                 parallel: {
                   type: 'boolean',
@@ -143,7 +147,14 @@ module KairosMcp
             #   delegate   - drop matching reviewer here; orchestrator submits
             #                its persona team review later via collect.
             orchestrator_model = arguments['orchestrator_model']
-            strategy = arguments['orchestrator_strategy'] || 'exclude'
+            # Default strategy resolves from (1) explicit arg, (2) config, (3) 'delegate'.
+            # Rationale: same-model persona review still surfaces findings subprocess
+            # reviewers miss — LLM metacognition is structurally limited, so self-review
+            # is net-positive. Flip from v0.3.x 'exclude' default after empirical
+            # validation across Phase 11.5 / Phase 12 design reviews.
+            strategy = arguments['orchestrator_strategy'] ||
+                       config['default_orchestrator_strategy'] ||
+                       'delegate'
             reviewers, partitioned_count = partition_for_strategy(
               reviewers, orchestrator_model, strategy, config
             )
@@ -174,8 +185,12 @@ module KairosMcp
             )
 
             prior_findings = symbolize_findings(arguments['prior_findings'])
+            # PR1 review fix: sanitize artifact_content at boundary (NFKC + delimiter
+            # escape + control-char strip) before reviewer prompt assembly. Prevents
+            # adversarial artifacts from breaking <artifact>...</artifact> framing.
+            sanitized_artifact = Sanitizer.sanitize_artifact(arguments['artifact_content'])
             messages = PromptBuilder.build_messages(
-              artifact_content: arguments['artifact_content'],
+              artifact_content: sanitized_artifact,
               artifact_name: arguments['artifact_name'],
               review_type: arguments['review_type'],
               review_round: review_round,
@@ -240,9 +255,25 @@ module KairosMcp
             consensus = Consensus.aggregate(raw_results, convergence_rule,
                                             min_quorum: min_quorum)
 
+            findings_string_keys = consensus[:aggregated_findings].map { |f| hash_to_string_keys(f) }
+            sanitized_findings = findings_string_keys.map do |f|
+              f.merge('issue' => Sanitizer.sanitize_finding_text(f['issue']))
+            end
+            feedback_text =
+              case consensus[:verdict]
+              when 'APPROVE' then nil
+              when 'INSUFFICIENT'
+                FeedbackFormatter.build_insufficient(consensus[:convergence][:reason] || 'quorum not met')
+              else
+                FeedbackFormatter.build(sanitized_findings)
+              end
+
             payload = {
               'status' => 'ok',
+              'verdict_schema_version' => BuildReviewBundle::VERDICT_SCHEMA_VERSION,
+              'feedback_text_schema_version' => FeedbackFormatter::SCHEMA_VERSION,
               'verdict' => consensus[:verdict],
+              'feedback_text' => feedback_text,
               'convergence' => hash_to_string_keys(consensus[:convergence]),
               'reviews' => consensus[:reviews].map { |r|
                 {
@@ -255,9 +286,7 @@ module KairosMcp
                   'raw_text_length' => r[:raw_text].to_s.length
                 }
               },
-              'aggregated_findings' => consensus[:aggregated_findings].map { |f|
-                hash_to_string_keys(f)
-              },
+              'aggregated_findings' => sanitized_findings,
               'review_round' => review_round,
               'review_type' => arguments['review_type'],
               'artifact_name' => arguments['artifact_name'],

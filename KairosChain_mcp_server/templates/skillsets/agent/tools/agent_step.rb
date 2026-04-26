@@ -410,15 +410,27 @@ module KairosMcp
                     when 'APPROVE'
                       # proceed to persona review or ACT
                     when 'REVISE'
-                      findings_list = Array(mreview[:aggregated_findings]).map { |f|
-                        "#{f[:severity] || f['severity']}: #{f[:issue] || f['issue']}"
-                      }
-                      findings_text = if findings_list.empty?
-                                        "Multi-LLM review verdict was REVISE but no specific findings were extracted. " \
-                                        "Review the plan for potential issues and revise."
-                                      else
-                                        "Multi-LLM review found issues:\n- #{findings_list.join("\n- ")}\n\nRevise plan."
-                                      end
+                      # Phase 12 §3.3: prefer SkillSet-emitted feedback_text (sanitized,
+                      # severity-prefixed, capped). Fall back to local construction for
+                      # v0.3.x multi_llm_review responses that lack this field.
+                      findings_text = mreview[:feedback_text]
+                      if findings_text.nil? || findings_text.empty?
+                        findings_list = Array(mreview[:aggregated_findings]).map { |f|
+                          sev = (f[:severity] || f['severity']).to_s
+                          # PR1 review fix: sanitize fallback path so reviewer-controlled
+                          # text cannot inject framing into re-DECIDE prompt. Mirrors the
+                          # multi_llm_review SkillSet sanitization contract (§3.7) but
+                          # without cross-SkillSet require (layer hygiene).
+                          issue = sanitize_review_fallback(f[:issue] || f['issue'])
+                          "#{sev}: #{issue}"
+                        }
+                        findings_text = if findings_list.empty?
+                                          "Multi-LLM review verdict was REVISE but no specific findings were extracted. " \
+                                          "Review the plan for potential issues and revise."
+                                        else
+                                          "Multi-LLM review found issues:\n- #{findings_list.join("\n- ")}\n\nRevise plan."
+                                        end
+                      end
                       decide_result = run_decide_with_review_feedback_internal(
                         session, findings_text
                       )
@@ -456,7 +468,10 @@ module KairosMcp
                       llm_hint = decision_payload['complexity_hint']
                       complexity = merge_complexity(complexity, llm_hint) if llm_hint
                     when 'INSUFFICIENT'
-                      warn "[agent_step] multi_llm_review quorum not met; falling back to persona review"
+                      # Phase 12 §3.8: fail-closed. INSUFFICIENT never auto-treated as APPROVE.
+                      # Falls through to persona review (single-Agent reviewers) which is the
+                      # in-process safety net. Persona REVISE/REJECT will block ACT.
+                      warn "[agent_step] multi_llm_review INSUFFICIENT (#{mreview[:error] || 'quorum not met'}); falling through to persona review"
                     end
                   end
 
@@ -1039,9 +1054,19 @@ module KairosMcp
             capped_llm = [l_val, s_val + 1].min
             final_val = [s_val, capped_llm].max
             final_level = levels.key(final_val) || 'low'
+            # Phase 12 §3.2 / v0.4 P-2 trust boundary fix:
+            # `signals` is the input to OR-floor's rule_fired computation. It MUST
+            # be deterministic (produced by assess_decision_complexity from task_json
+            # structure), never sourced from LLM output. Previously this method
+            # union'd llm_hint signals into `:signals`, which let a compromised
+            # DECIDE LLM influence the rule_fired left side of the OR.
+            # LLM-emitted signals are now kept in a separate `:complexity_hint_signals`
+            # field for UI/log purposes only — NOT consumed by any review-trigger logic.
+            llm_hint_signals = Array(llm_hint&.dig('signals') || llm_hint&.dig(:signals))
             {
               level: final_level,
-              signals: (structural[:signals] + Array(llm_hint&.dig('signals') || llm_hint&.dig(:signals))).uniq
+              signals: structural[:signals],            # TRUSTED — deterministic only
+              complexity_hint_signals: llm_hint_signals # advisory; never feeds OR-floor
             }
           end
 
@@ -1128,7 +1153,7 @@ module KairosMcp
 
             if parsed['status'] == 'error'
               { verdict: 'INSUFFICIENT', error: parsed['error'], llm_calls: 0,
-                aggregated_findings: [] }
+                aggregated_findings: [], feedback_text: nil }
             else
               {
                 verdict: parsed['verdict'],
@@ -1137,13 +1162,46 @@ module KairosMcp
                   f.transform_keys(&:to_sym)
                 },
                 llm_calls: parsed['llm_calls'] || 0,
-                reviews: parsed['reviews']
+                reviews: parsed['reviews'],
+                # Phase 12 §3.3: prefer SkillSet-emitted feedback_text. Nil fallback preserved
+                # for compat with v0.3.x callers; Gate 5.5c builds locally when nil.
+                feedback_text: parsed['feedback_text'],
+                verdict_schema_version: parsed['verdict_schema_version'],
+                feedback_text_schema_version: parsed['feedback_text_schema_version']
               }
             end
           rescue StandardError => e
             warn "[agent_step] multi_llm_review failed: #{e.message}"
             { verdict: 'INSUFFICIENT', error: e.message, llm_calls: 0,
-              aggregated_findings: [] }
+              aggregated_findings: [], feedback_text: nil }
+          end
+
+          # Inline sanitize for the v0.3.x fallback path. Mirrors multi_llm_review's
+          # Sanitizer.sanitize_finding_text (NFKC + control-char strip + delimiter
+          # escape) but inlined to avoid cross-SkillSet require. New v0.4+ responses
+          # bring already-sanitized findings via feedback_text and bypass this.
+          REVIEW_FALLBACK_DELIMITER_RE =
+            Regexp.union(
+              %w[artifact review_feedback finding persona].flat_map do |t|
+                ["<\\s*#{t}\\s*>", "<\\s*/\\s*#{t}\\s*>"]
+              end.map { |p| Regexp.new(p, Regexp::IGNORECASE) }
+            ).freeze
+
+          def sanitize_review_fallback(s, max_len: 500)
+            return '' if s.nil?
+            s = s.to_s
+            s = s.unicode_normalize(:nfkc) if s.respond_to?(:unicode_normalize)
+            # C0/C1 controls + key invisible/bidi chars (subset of multi_llm_review Sanitizer)
+            s = s.each_char.reject do |c|
+              o = c.ord
+              (o <= 0x08) || (o == 0x0B) || (o == 0x0C) ||
+                (o >= 0x0E && o <= 0x1F) || (o >= 0x7F && o <= 0x9F) ||
+                (o >= 0x200B && o <= 0x200F) || (o >= 0x202A && o <= 0x202E) ||
+                (o >= 0x2060 && o <= 0x2064) || (o >= 0x2066 && o <= 0x2069) ||
+                o == 0xFEFF || o == 0x00AD
+            end.join
+            s = s.gsub(REVIEW_FALLBACK_DELIMITER_RE) { |m| "[escaped:#{m.gsub(/[<>\s\/]/, '')}]" }
+            s[0, max_len]
           end
 
           def parse_persona_review(content)

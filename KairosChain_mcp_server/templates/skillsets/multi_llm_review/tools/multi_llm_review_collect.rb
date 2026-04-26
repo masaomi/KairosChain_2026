@@ -7,6 +7,9 @@ require_relative '../lib/multi_llm_review/pending_state'
 require_relative '../lib/multi_llm_review/persona_assembly'
 require_relative '../lib/multi_llm_review/wait_for_worker'
 require_relative '../lib/multi_llm_review/worker_reaper'
+require_relative '../lib/multi_llm_review/feedback_formatter'
+require_relative '../lib/multi_llm_review/sanitizer'
+require_relative '../lib/multi_llm_review/build_review_bundle'
 
 module KairosMcp
   module SkillSets
@@ -253,9 +256,25 @@ module KairosMcp
             # separately by persona_count.
             actual_llm_calls = subprocess_entries.count { |r| r[:status] == :success }
 
+            findings_string_keys = consensus[:aggregated_findings].map { |f| hash_to_string_keys(f) }
+            sanitized_findings = findings_string_keys.map do |f|
+              f.merge('issue' => Sanitizer.sanitize_finding_text(f['issue']))
+            end
+            feedback_text =
+              case consensus[:verdict]
+              when 'APPROVE' then nil
+              when 'INSUFFICIENT'
+                FeedbackFormatter.build_insufficient(consensus[:convergence][:reason] || 'quorum not met')
+              else
+                FeedbackFormatter.build(sanitized_findings)
+              end
+
             payload = {
               'status' => 'ok',
+              'verdict_schema_version' => BuildReviewBundle::VERDICT_SCHEMA_VERSION,
+              'feedback_text_schema_version' => FeedbackFormatter::SCHEMA_VERSION,
               'verdict' => consensus[:verdict],
+              'feedback_text' => feedback_text,
               'convergence' => hash_to_string_keys(consensus[:convergence]),
               'reviews' => consensus[:reviews].map { |r|
                 {
@@ -268,9 +287,7 @@ module KairosMcp
                   'raw_text_length' => r[:raw_text].to_s.length
                 }
               },
-              'aggregated_findings' => consensus[:aggregated_findings].map { |f|
-                hash_to_string_keys(f)
-              },
+              'aggregated_findings' => sanitized_findings,
               'review_round' => state['review_round'],
               'review_type' => state['review_type'],
               'artifact_name' => state['artifact_name'],

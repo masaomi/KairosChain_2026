@@ -345,11 +345,17 @@ assert "test_merge_llm_cannot_lower: LLM low + structural high → final high" d
   result[:level] == 'high'
 end
 
-assert "test_merge_llm_same_level: LLM medium + structural medium → final medium" do
+assert "test_merge_llm_same_level: LLM medium + structural medium → final medium (signals trust-quarantined)" do
+  # Phase 12 §3.2 / v0.4 P-2 trust boundary: LLM-emitted signals MUST NOT enter
+  # :signals (which is the OR-floor input). They go into :complexity_hint_signals
+  # (advisory only). This test verifies the quarantine.
   structural = { level: 'medium', signals: ['high_risk'] }
   llm_hint = { 'level' => 'medium', 'signals' => ['moderate_scope'] }
   result = step.send(:merge_complexity, structural, llm_hint)
-  result[:level] == 'medium' && result[:signals].include?('moderate_scope')
+  result[:level] == 'medium' &&
+    result[:signals] == ['high_risk'] &&
+    !result[:signals].include?('moderate_scope') &&
+    result[:complexity_hint_signals].include?('moderate_scope')
 end
 
 assert "test_merge_nil_hint: nil LLM hint → structural unchanged" do
@@ -358,11 +364,13 @@ assert "test_merge_nil_hint: nil LLM hint → structural unchanged" do
   result[:level] == 'medium'
 end
 
-assert "test_merge_symbol_keys: symbol-key llm_hint works" do
+assert "test_merge_symbol_keys: symbol-key llm_hint works (signals quarantined to hint field)" do
   structural = { level: 'low', signals: [] }
   llm_hint = { level: 'high', signals: ['deep'] }
   result = step.send(:merge_complexity, structural, llm_hint)
-  result[:level] == 'medium' && result[:signals].include?('deep')
+  result[:level] == 'medium' &&
+    result[:signals] == [] &&
+    result[:complexity_hint_signals].include?('deep')
 end
 
 # ============================================================

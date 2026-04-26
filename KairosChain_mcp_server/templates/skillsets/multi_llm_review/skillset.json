@@ -1,17 +1,19 @@
 {
   "name": "multi_llm_review",
-  "version": "0.2.3",
-  "description": "Parallel multi-LLM review orchestration. Dispatches review prompts to N LLM backends via llm_client, collects verdicts, and computes consensus.",
+  "version": "0.4.0",
+  "description": "Parallel multi-LLM review orchestration. Dispatches review prompts to N LLM backends via llm_client, collects verdicts, and computes consensus. v0.4.0 (Phase 12): adds feedback_text + schema_version to response, sanitization contract for prompt-injection defense, and multi_llm_review_bundle tool for human-handoff paths without dispatch.",
   "author": "Masaomi Hatakeyama",
   "layer": "L1",
   "depends_on": ["llm_client"],
   "provides": [
     "multi_llm_review_orchestration",
-    "review_consensus"
+    "review_consensus",
+    "review_bundle_human_handoff"
   ],
   "tool_classes": [
     "KairosMcp::SkillSets::MultiLlmReview::Tools::MultiLlmReview",
-    "KairosMcp::SkillSets::MultiLlmReview::Tools::MultiLlmReviewCollect"
+    "KairosMcp::SkillSets::MultiLlmReview::Tools::MultiLlmReviewCollect",
+    "KairosMcp::SkillSets::MultiLlmReview::Tools::MultiLlmReviewBundle"
   ],
   "config_files": ["config/multi_llm_review.yml"],
   "knowledge_dirs": [],
