@@ -21,6 +21,15 @@ module KairosMcp
 
           args = ['agent', '-p']
 
+          # Multi-model support: pass --model to `agent -p` when caller specified
+          # a model. Backward compat: nil/empty → no flag → cursor's default
+          # (currently composer2). This lets multi_llm_review roster N cursor
+          # reviewers each pinned to a different model (e.g. gpt-5.4-high,
+          # claude-sonnet-4-6) while still attributing responses per-model.
+          if model && !model.to_s.strip.empty?
+            args << '--model' << model.to_s
+          end
+
           stdout, stderr, status = SafeSubprocess.safe_capture(
             args,
             stdin_data: prompt,

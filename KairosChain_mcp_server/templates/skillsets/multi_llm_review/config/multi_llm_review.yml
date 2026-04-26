@@ -104,6 +104,26 @@ reviewers:
 
   - provider: cursor
     role_label: cursor_composer2
+    # No `model` key → cursor adapter omits --model → cursor's default (composer2).
+    # This entry preserves the original 5-reviewer roster behavior.
+
+  # ----------------------------------------------------------------------
+  # Multi-model cursor option (Phase 12 PR3-β, available since v3.22.1).
+  # cursor_adapter passes --model when set. To run all reviewers via Cursor
+  # (e.g., when only Cursor login is available), add entries below and
+  # disable other providers' entries above. Models supported by `agent`
+  # depend on your Cursor subscription/CLI version. Verified examples:
+  #   - composer-2 (default; no --model needed)
+  #   - gpt-5.4-high
+  #   - claude-sonnet-4-6 (if available)
+  # role_label is what shows up in convergence output.
+  # ----------------------------------------------------------------------
+  # - provider: cursor
+  #   model: gpt-5.4-high
+  #   role_label: cursor_gpt5.4
+  # - provider: cursor
+  #   model: claude-sonnet-4-6
+  #   role_label: cursor_sonnet4.6
 
 # Complexity → per-provider effort mapping.
 # multi_llm_review tool auto-detects complexity from review_type + artifact size,
