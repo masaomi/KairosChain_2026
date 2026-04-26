@@ -4,6 +4,21 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.23.2] - 2026-04-26
+
+### Fixed
+
+- **multi_llm_review collect_deadline bug** — `timeout_seconds_override` no longer
+  leaves the orchestrator's submission window shorter than the worker lifespan.
+  In the async/parallel path, `collect_deadline` is now auto-extended to cover
+  `worker self_timeout + poll margin` so raising `timeout_seconds_override`
+  alone keeps the token alive while the worker is healthy.
+- New `collect_deadline_seconds_override` argument on `multi_llm_review` for
+  explicit control of the orchestrator's submission window.
+- Default `delegation.collect_deadline_seconds` raised from `600` (10 min) to
+  `1800` (30 min) to better fit interactive runs where user dialogue intervenes
+  between Phase 1 and `multi_llm_review_collect`.
+
 ## [3.17.0] - 2026-04-22
 
 ### Added

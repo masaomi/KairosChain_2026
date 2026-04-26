@@ -92,6 +92,16 @@ module KairosMcp
                   type: 'integer',
                   description: 'Override dispatch timeout in seconds (default from config)'
                 },
+                collect_deadline_seconds_override: {
+                  type: 'integer',
+                  description: 'Override how long the orchestrator has to call ' \
+                    'multi_llm_review_collect before the pending token expires ' \
+                    '(default from config: delegation.collect_deadline_seconds). ' \
+                    'In the async/parallel path, the effective deadline is also ' \
+                    'auto-extended to cover the worker self_timeout plus a poll margin, ' \
+                    'so raising timeout_seconds_override alone no longer leaves the ' \
+                    'collect deadline shorter than the worker lifespan.'
+                },
                 complexity: {
                   type: 'string',
                   enum: %w[auto low medium high critical],
@@ -446,7 +456,8 @@ module KairosMcp
               }))
             end
 
-            deadline_secs = config.dig('delegation', 'collect_deadline_seconds') || 600
+            deadline_secs = arguments['collect_deadline_seconds_override'] ||
+                            config.dig('delegation', 'collect_deadline_seconds') || 1800
             now = Time.now
             token = PendingState.generate_token
 
@@ -507,11 +518,22 @@ module KairosMcp
               }))
             end
 
-            deadline_secs = config.dig('delegation', 'collect_deadline_seconds') || 600
+            deadline_secs = arguments['collect_deadline_seconds_override'] ||
+                            config.dig('delegation', 'collect_deadline_seconds') || 1800
             multiplier = parallel_cfg['worker_self_timeout_multiplier'] || 1.5
             floor      = parallel_cfg['worker_self_timeout_floor_seconds'] || 60
+            poll_interval = parallel_cfg['poll_interval_seconds'] || 0.5
             now = Time.now
-            self_timeout_at = (now + timeout_secs * multiplier + floor).iso8601
+            worker_lifespan_secs = (timeout_secs * multiplier + floor).to_f
+            self_timeout_at = (now + worker_lifespan_secs).iso8601
+
+            # Auto-extend collect_deadline to cover the worker's self_timeout plus
+            # a polling margin. Without this, raising timeout_seconds_override alone
+            # leaves the orchestrator's submission window shorter than the worker
+            # lifespan — the collect token expires while the worker is still healthy.
+            # Only kicks in for the async path; sync delegate_response has no worker.
+            min_deadline_secs = (worker_lifespan_secs + (poll_interval * 20)).ceil
+            deadline_secs = [deadline_secs.to_i, min_deadline_secs].max
 
             # UUID collision retry (EEXIST on Dir.mkdir per PendingState§token_dir).
             token = nil

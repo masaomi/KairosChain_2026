@@ -861,6 +861,19 @@ module KairosMcp
           FileUtils.rm_rf(@tmp)
         end
 
+        # Replace WorkerSpawner.spawn with a no-op for the duration of the block.
+        # Avoids actually forking a detached worker process during async tests.
+        def with_stubbed_worker_spawner
+          singleton = WorkerSpawner.singleton_class
+          original = WorkerSpawner.method(:spawn)
+          singleton.send(:define_method, :spawn) { |**_kwargs| true }
+          begin
+            yield
+          ensure
+            singleton.send(:define_method, :spawn, original)
+          end
+        end
+
         def test_partition_for_strategy_delegate_drops_match
           reviewers = [
             { provider: 'claude_code', model: 'claude-opus-4-7', role_label: 'r47' },
@@ -1024,8 +1037,149 @@ module KairosMcp
           )
           payload = JSON.parse(result.first[:text])
           deadline = Time.iso8601(payload['must_collect_by'])
-          # Should be ~60s from now, not the default 600s
+          # Should be ~60s from now, not the default 1800s
           assert_in_delta 60, deadline - Time.now, 5
+        end
+
+        # Bug #1 fix: collect_deadline_seconds_override must extend the sync
+        # delegate_response deadline beyond the config default.
+        def test_delegate_sync_respects_collect_deadline_override
+          subprocess_results = [
+            { role_label: 'codex', provider: 'codex', model: 'm',
+              raw_text: 'APPROVE', elapsed_seconds: 1, error: nil, status: :success }
+          ]
+          result = @tool.send(:delegate_response,
+            raw_results: subprocess_results,
+            arguments: {
+              'review_type' => 'design', 'artifact_name' => 'x',
+              'collect_deadline_seconds_override' => 3000
+            },
+            config: { 'delegation' => { 'collect_deadline_seconds' => 60 } },
+            orchestrator_model: 'claude-opus-4-7',
+            convergence_rule: '3/4 APPROVE',
+            min_quorum: 2,
+            review_round: 1,
+            complexity: 'high'
+          )
+          payload = JSON.parse(result.first[:text])
+          deadline = Time.iso8601(payload['must_collect_by'])
+          # Override (3000s) wins over config (60s)
+          assert_in_delta 3000, deadline - Time.now, 5
+        end
+
+        # Bug #3 fix: when no override and no config, default is now 1800s (was 600s).
+        def test_delegate_sync_default_deadline_is_1800
+          subprocess_results = [
+            { role_label: 'codex', provider: 'codex', model: 'm',
+              raw_text: 'APPROVE', elapsed_seconds: 1, error: nil, status: :success }
+          ]
+          result = @tool.send(:delegate_response,
+            raw_results: subprocess_results,
+            arguments: { 'review_type' => 'design', 'artifact_name' => 'x' },
+            config: {},
+            orchestrator_model: 'claude-opus-4-7',
+            convergence_rule: '3/4 APPROVE',
+            min_quorum: 2,
+            review_round: 1,
+            complexity: 'high'
+          )
+          payload = JSON.parse(result.first[:text])
+          deadline = Time.iso8601(payload['must_collect_by'])
+          assert_in_delta 1800, deadline - Time.now, 5
+        end
+
+        # Bug #1 fix (async): when timeout_seconds_override raises the worker
+        # self_timeout above the configured collect_deadline, the deadline must
+        # auto-extend to cover the worker lifespan + poll margin. Otherwise the
+        # token expires while the worker is still healthy.
+        def test_delegate_async_auto_extends_deadline_to_worker_lifespan
+          reviewers = [{ provider: 'codex', model: 'codex-default', role_label: 'codex' }]
+          arguments = {
+            'review_type' => 'design',
+            'artifact_name' => 'x',
+            'timeout_seconds_override' => 1500
+          }
+          config = {
+            'delegation' => {
+              'collect_deadline_seconds' => 600,
+              'parallel' => {
+                'worker_self_timeout_multiplier' => 1.5,
+                'worker_self_timeout_floor_seconds' => 60,
+                'poll_interval_seconds' => 0.5
+              }
+            }
+          }
+          parallel_cfg = config.dig('delegation', 'parallel')
+
+          result = nil
+          with_stubbed_worker_spawner do
+            result = @tool.send(:delegate_response_async,
+              reviewers: reviewers,
+              messages: [{ 'role' => 'user', 'content' => 'x' }],
+              system_prompt: 'sys',
+              arguments: arguments,
+              config: config,
+              orchestrator_model: 'claude-opus-4-7',
+              convergence_rule: '3/4 APPROVE',
+              min_quorum: 2,
+              review_round: 1,
+              complexity: 'high',
+              review_context: 'independent',
+              max_concurrent: 2,
+              timeout_secs: 1500,
+              parallel_cfg: parallel_cfg
+            )
+          end
+          payload = JSON.parse(result.first[:text])
+          assert_equal 'delegation_pending', payload['status']
+          deadline = Time.iso8601(payload['must_collect_by'])
+          # worker_lifespan = 1500*1.5 + 60 = 2310; +10s poll margin = 2320
+          # Deadline must be at least worker_lifespan + margin, NOT 600
+          assert_operator deadline - Time.now, :>=, 2320 - 5
+        end
+
+        # Async: explicit collect_deadline_seconds_override above the auto-min wins.
+        def test_delegate_async_respects_explicit_override
+          reviewers = [{ provider: 'codex', model: 'codex-default', role_label: 'codex' }]
+          arguments = {
+            'review_type' => 'design',
+            'artifact_name' => 'x',
+            'collect_deadline_seconds_override' => 5000
+          }
+          config = {
+            'delegation' => {
+              'collect_deadline_seconds' => 600,
+              'parallel' => {
+                'worker_self_timeout_multiplier' => 1.5,
+                'worker_self_timeout_floor_seconds' => 60,
+                'poll_interval_seconds' => 0.5
+              }
+            }
+          }
+          parallel_cfg = config.dig('delegation', 'parallel')
+
+          result = nil
+          with_stubbed_worker_spawner do
+            result = @tool.send(:delegate_response_async,
+              reviewers: reviewers,
+              messages: [{ 'role' => 'user', 'content' => 'x' }],
+              system_prompt: 'sys',
+              arguments: arguments,
+              config: config,
+              orchestrator_model: 'claude-opus-4-7',
+              convergence_rule: '3/4 APPROVE',
+              min_quorum: 2,
+              review_round: 1,
+              complexity: 'high',
+              review_context: 'independent',
+              max_concurrent: 2,
+              timeout_secs: 300,
+              parallel_cfg: parallel_cfg
+            )
+          end
+          payload = JSON.parse(result.first[:text])
+          deadline = Time.iso8601(payload['must_collect_by'])
+          assert_in_delta 5000, deadline - Time.now, 5
         end
       end
 

@@ -39,7 +39,7 @@ convergence_rule_after_exclusion: "3/4 APPROVE"
 # Phase 2 (multi_llm_review_collect) receives the orchestrator's persona
 # team review and computes final consensus.
 delegation:
-  collect_deadline_seconds: 600  # how long the orchestrator has to call collect
+  collect_deadline_seconds: 1800 # how long the orchestrator has to call collect (30min — interactive runs often have user dialogue between Phase 1 and collect)
   retain_collected_seconds: 3600 # how long collected results stay for idempotent replay
   # v0.3.0 parallel subprocess worker (Phase 11.5). When default:true, Phase 1
   # returns a delegation_pending token immediately and a detached OS worker
