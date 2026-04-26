@@ -399,9 +399,13 @@ module KairosMcp
                   end
 
                   # Gate 5.5c: Multi-LLM review (before persona review)
+                  # Phase 12 §3.2 trust boundary + OR-floor:
+                  #   review_needed = rule_fired || hint_needed
+                  # rule_fired uses ONLY trusted (deterministic) complexity[:signals];
+                  # hint_needed comes from validated review_hint and is ADDITIVE — cannot
+                  # suppress the rule. Unknown trigger_mode fails-closed to rule_only.
                   multi_cfg = review_cfg['multi_llm_review']
-                  if multi_cfg && multi_cfg['enabled'] &&
-                     (Array(multi_cfg['trigger_on']) & complexity[:signals]).any?
+                  if multi_cfg && multi_cfg['enabled'] && multi_llm_review_needed?(multi_cfg, complexity, decision_payload)
                     mreview = run_multi_llm_review(session, decision_payload, complexity, multi_cfg)
                     total_llm_calls += mreview[:llm_calls] || 0
                     session.save_review_result(mreview.merge(kind: 'multi_llm'))
@@ -1109,6 +1113,28 @@ module KairosMcp
 
           # ---- Multi-LLM Review (Gate 5.5c) ----
 
+          # Phase 12 §3.2 OR-floor trigger.
+          #   rule_fired = (trigger_on ∩ complexity[:signals]).any?
+          #   hint_needed = parse_review_hint(decision_payload['review_hint'])
+          #   review_needed = rule_fired || hint_needed
+          # Property: hint cannot suppress rule. needed:false + l0_change still fires.
+          # Trust: complexity[:signals] is deterministic (assess_decision_complexity);
+          # LLM hint signals live in :complexity_hint_signals (not consulted here).
+          def multi_llm_review_needed?(multi_cfg, complexity, decision_payload)
+            mode = (multi_cfg['trigger_mode'] || 'rule_or_hint').to_s
+            unless %w[rule_only rule_or_hint].include?(mode)
+              warn "[agent_step] unknown trigger_mode #{mode.inspect}; failing closed to rule_only"
+              mode = 'rule_only'
+            end
+            rule_fired = (Array(multi_cfg['trigger_on']) & Array(complexity[:signals])).any?
+            return rule_fired if mode == 'rule_only'
+
+            hint_needed = ::KairosMcp::SkillSets::Agent::ReviewHint.parse(
+              decision_payload['review_hint']
+            )
+            rule_fired || hint_needed
+          end
+
           def run_multi_llm_review(session, decision_payload, complexity, multi_cfg)
             summary = decision_payload['summary'] || 'unknown'
             steps = decision_payload.dig('task_json', 'steps') || []
@@ -1154,6 +1180,14 @@ module KairosMcp
             if parsed['status'] == 'error'
               { verdict: 'INSUFFICIENT', error: parsed['error'], llm_calls: 0,
                 aggregated_findings: [], feedback_text: nil }
+            elsif (skew = schema_version_check(parsed))
+              # Phase 12 §3.10 fail-closed: missing or newer-than-supported schema
+              # version → INSUFFICIENT. Never silently misinterpret an APPROVE that
+              # may carry semantics this Agent version doesn't understand.
+              warn "[agent_step] multi_llm_review schema rejected: #{skew}"
+              { verdict: 'INSUFFICIENT', error: "schema_version: #{skew}",
+                llm_calls: parsed['llm_calls'] || 0,
+                aggregated_findings: [], feedback_text: nil }
             else
               {
                 verdict: parsed['verdict'],
@@ -1174,6 +1208,21 @@ module KairosMcp
             warn "[agent_step] multi_llm_review failed: #{e.message}"
             { verdict: 'INSUFFICIENT', error: e.message, llm_calls: 0,
               aggregated_findings: [], feedback_text: nil }
+          end
+
+          # Phase 12 §3.10 fail-closed schema versioning.
+          # Returns nil if response schema is acceptable, else a string reason.
+          SUPPORTED_VERDICT_SCHEMA_VERSION = 1
+          SUPPORTED_FEEDBACK_TEXT_SCHEMA_VERSION = 1
+
+          def schema_version_check(parsed)
+            v_ver = parsed['verdict_schema_version']
+            f_ver = parsed['feedback_text_schema_version']
+            return 'verdict_schema_version missing' if v_ver.nil?
+            return "verdict_schema_version newer than supported (got #{v_ver}, max #{SUPPORTED_VERDICT_SCHEMA_VERSION})" if v_ver.is_a?(Integer) && v_ver > SUPPORTED_VERDICT_SCHEMA_VERSION
+            return 'feedback_text_schema_version missing' if f_ver.nil?
+            return "feedback_text_schema_version newer than supported (got #{f_ver}, max #{SUPPORTED_FEEDBACK_TEXT_SCHEMA_VERSION})" if f_ver.is_a?(Integer) && f_ver > SUPPORTED_FEEDBACK_TEXT_SCHEMA_VERSION
+            nil
           end
 
           # Inline sanitize for the v0.3.x fallback path. Mirrors multi_llm_review's
@@ -1338,11 +1387,23 @@ module KairosMcp
           end
 
           def decide_system_prompt
+            # Phase 12 §3.2 / §11: review_hint is REQUIRED but ADVISORY.
+            # The OR-floor in Gate 5.5c uses (rule_fired || hint_needed); a hint of
+            # `needed:false` cannot suppress rule-based triggers. Use it to RAISE
+            # the gate when you (the planner) sense a subtle risk the structural
+            # rule would miss. Use `false` for routine plans.
             "You are a planning assistant in the DECIDE phase of an OODA loop. " \
             "Based on the orientation analysis, create a concrete execution plan. " \
-            "Output ONLY a JSON object with keys 'summary' (string) and 'task_json' " \
-            "(object with task_id, meta, steps array). Each step needs: step_id, action, " \
-            "tool_name, tool_arguments, risk (low/medium/high), depends_on, requires_human_cognition."
+            "Output ONLY a JSON object with these keys:\n" \
+            "  - summary (string)\n" \
+            "  - task_json (object with task_id, meta, steps array). Each step needs: " \
+            "step_id, action, tool_name, tool_arguments, risk (low/medium/high), " \
+            "depends_on, requires_human_cognition.\n" \
+            "  - review_hint (object) — REQUIRED. Shape: { needed: <bool>, " \
+            "reason: <string|null>, urgency: \"low\"|\"medium\"|\"high\"|null }. " \
+            "Set needed:true to REQUEST multi-LLM review for subtle high-impact " \
+            "decisions; set needed:false for routine plans. The hint is advisory " \
+            "and additive — structural rules may still fire review independently."
           end
 
           def reflect_system_prompt

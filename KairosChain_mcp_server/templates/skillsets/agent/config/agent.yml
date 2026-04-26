@@ -107,10 +107,19 @@ complexity_review:
   post_act_review: true                       # enable medium-complexity post-ACT review
   # Multi-LLM review integration (Gate 5.5c)
   multi_llm_review:
-    # Phase 12 PR1: stays opt-in. PR2 will flip default to true per
-    # KairosChain framework default policy (see knowledge: project_multi_llm_review_default_philosophy).
-    enabled: false
-    trigger_mode: rule_only     # PR1 default; PR2 introduces rule_or_hint
+    # Phase 12 PR2: KairosChain framework default — multi-LLM review is on by
+    # default as structural compensation for current LLM metacognition limits.
+    # See knowledge: project_multi_llm_review_default_philosophy.
+    # Override with `enabled: false` if you specifically need legacy single-LLM
+    # behavior; `system_upgrade` 3-way merge preserves user overrides.
+    enabled: true
+    # rule_or_hint (default): OR-floor — review fires when EITHER the deterministic
+    #   rule (trigger_on ∩ complexity[:signals]) fires OR the LLM-emitted
+    #   review_hint.needed=true. The hint is ADDITIVE only; it cannot suppress the
+    #   rule (Phase 12 §3.2 trust boundary).
+    # rule_only: legacy/diagnostic — ignore review_hint, rule path only.
+    # unknown values: fail-closed to rule_only (most restrictive).
+    trigger_mode: rule_or_hint
     trigger_on:                 # validated against KNOWN_SIGNALS at session start (§12)
       - l0_change
       - design_scope

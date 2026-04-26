@@ -582,6 +582,112 @@ assert "test_multi_llm_review_prompt: L0 review prompt generated" do
 end
 
 # ============================================================
+# Phase 12 §3.10 schema_version validation (PR2)
+# ============================================================
+section "Schema version validation (fail-closed)"
+
+assert "current schema (v=1, f=1) → no error" do
+  step.send(:schema_version_check, {
+    'verdict_schema_version' => 1, 'feedback_text_schema_version' => 1
+  }).nil?
+end
+
+assert "missing verdict_schema_version → reject" do
+  msg = step.send(:schema_version_check, { 'feedback_text_schema_version' => 1 })
+  msg && msg.include?('verdict_schema_version missing')
+end
+
+assert "missing feedback_text_schema_version → reject" do
+  msg = step.send(:schema_version_check, { 'verdict_schema_version' => 1 })
+  msg && msg.include?('feedback_text_schema_version missing')
+end
+
+assert "newer verdict_schema_version → reject (fail-closed)" do
+  msg = step.send(:schema_version_check, {
+    'verdict_schema_version' => 99, 'feedback_text_schema_version' => 1
+  })
+  msg && msg.include?('newer than supported')
+end
+
+assert "newer feedback_text_schema_version → reject" do
+  msg = step.send(:schema_version_check, {
+    'verdict_schema_version' => 1, 'feedback_text_schema_version' => 99
+  })
+  msg && msg.include?('newer than supported')
+end
+
+# ============================================================
+# Phase 12 §3.2 OR-floor trigger (PR2)
+# ============================================================
+section "OR-floor trigger logic"
+
+assert "rule_or_hint: rule fires (l0_change in signals) → review needed" do
+  cfg = { 'enabled' => true, 'trigger_mode' => 'rule_or_hint',
+          'trigger_on' => ['l0_change', 'design_scope'] }
+  complexity = { signals: ['l0_change'] }
+  decision = { 'review_hint' => { 'needed' => false } }
+  step.send(:multi_llm_review_needed?, cfg, complexity, decision) == true
+end
+
+assert "rule_or_hint: needed:false CANNOT suppress rule (critical OR-floor property)" do
+  cfg = { 'enabled' => true, 'trigger_mode' => 'rule_or_hint',
+          'trigger_on' => ['l0_change'] }
+  complexity = { signals: ['l0_change'] }                    # rule fires
+  decision = { 'review_hint' => { 'needed' => false } }      # hint suppresses... but rule wins
+  step.send(:multi_llm_review_needed?, cfg, complexity, decision) == true
+end
+
+assert "rule_or_hint: hint:true raises gate when rule does NOT fire" do
+  cfg = { 'enabled' => true, 'trigger_mode' => 'rule_or_hint',
+          'trigger_on' => ['l0_change'] }
+  complexity = { signals: ['high_risk'] }                    # rule does not fire
+  decision = { 'review_hint' => { 'needed' => true, 'urgency' => 'high' } }
+  step.send(:multi_llm_review_needed?, cfg, complexity, decision) == true
+end
+
+assert "rule_or_hint: neither rule nor hint → no review" do
+  cfg = { 'enabled' => true, 'trigger_mode' => 'rule_or_hint',
+          'trigger_on' => ['l0_change'] }
+  complexity = { signals: ['high_risk'] }
+  decision = { 'review_hint' => { 'needed' => false } }
+  step.send(:multi_llm_review_needed?, cfg, complexity, decision) == false
+end
+
+assert "rule_or_hint: malformed review_hint falls through to rule (additive contract)" do
+  cfg = { 'enabled' => true, 'trigger_mode' => 'rule_or_hint',
+          'trigger_on' => ['l0_change'] }
+  complexity = { signals: ['l0_change'] }
+  decision = { 'review_hint' => { 'needed' => 'yes' } }      # malformed string
+  # ReviewHint.parse → false; OR-floor still uses rule which fires
+  step.send(:multi_llm_review_needed?, cfg, complexity, decision) == true
+end
+
+assert "rule_only: ignores review_hint even when needed:true" do
+  cfg = { 'enabled' => true, 'trigger_mode' => 'rule_only',
+          'trigger_on' => ['l0_change'] }
+  complexity = { signals: ['high_risk'] }                    # rule does NOT fire
+  decision = { 'review_hint' => { 'needed' => true, 'urgency' => 'high' } }
+  step.send(:multi_llm_review_needed?, cfg, complexity, decision) == false
+end
+
+assert "unknown trigger_mode → fail-closed to rule_only" do
+  cfg = { 'enabled' => true, 'trigger_mode' => 'evil_typo',
+          'trigger_on' => ['l0_change'] }
+  complexity = { signals: ['high_risk'] }                    # rule does not fire
+  decision = { 'review_hint' => { 'needed' => true } }       # would have raised under rule_or_hint
+  # fails closed to rule_only → hint ignored → false
+  step.send(:multi_llm_review_needed?, cfg, complexity, decision) == false
+end
+
+assert "missing review_hint key in payload is treated as no hint" do
+  cfg = { 'enabled' => true, 'trigger_mode' => 'rule_or_hint',
+          'trigger_on' => ['l0_change'] }
+  complexity = { signals: ['high_risk'] }
+  decision = {}  # no review_hint
+  step.send(:multi_llm_review_needed?, cfg, complexity, decision) == false
+end
+
+# ============================================================
 # Summary
 # ============================================================
 
