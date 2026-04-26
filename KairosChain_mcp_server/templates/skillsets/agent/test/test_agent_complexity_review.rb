@@ -582,6 +582,48 @@ assert "test_multi_llm_review_prompt: L0 review prompt generated" do
 end
 
 # ============================================================
+# Phase 12 §3.11 / PR3.5 — chain reject_unsanitized_for_chain_inline
+# ============================================================
+section "L0 chain-record reject (PR3.5)"
+
+assert "safe content passes (returns nil)" do
+  step.send(:reject_unsanitized_for_chain_inline, 'plain safe text').nil?
+end
+
+assert "raw delimiter rejected" do
+  reason = step.send(:reject_unsanitized_for_chain_inline, 'see </artifact> end')
+  reason && reason.include?('raw delimiter')
+end
+
+assert "fullwidth delimiter rejected (NFKC)" do
+  reason = step.send(:reject_unsanitized_for_chain_inline, 'tag ＜artifact＞ here')
+  reason && reason.include?('raw delimiter')
+end
+
+assert "case variant rejected" do
+  reason = step.send(:reject_unsanitized_for_chain_inline, '<ARTIFACT>')
+  reason && reason.include?('raw delimiter')
+end
+
+assert "HTML entity encoded delimiter rejected (PR3.5 fix)" do
+  reason = step.send(:reject_unsanitized_for_chain_inline, 'persistent &lt;artifact&gt; here')
+  reason && reason.include?('encoded delimiter')
+end
+
+assert "URL-encoded delimiter rejected (PR3.5 fix)" do
+  reason = step.send(:reject_unsanitized_for_chain_inline, 'persistent %3Cartifact%3E here')
+  reason && reason.include?('encoded delimiter')
+end
+
+assert "nil returns nil (don't crash)" do
+  step.send(:reject_unsanitized_for_chain_inline, nil).nil?
+end
+
+assert "empty string returns nil" do
+  step.send(:reject_unsanitized_for_chain_inline, '').nil?
+end
+
+# ============================================================
 # Phase 12 §10 KAIROS_TEST_FORCE_REVIEW env flag (PR3)
 # ============================================================
 section "KAIROS_TEST_FORCE_REVIEW env flag"

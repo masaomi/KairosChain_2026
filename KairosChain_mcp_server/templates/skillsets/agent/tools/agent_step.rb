@@ -1260,6 +1260,39 @@ module KairosMcp
               end.map { |p| Regexp.new(p, Regexp::IGNORECASE) }
             ).freeze
 
+          # PR3.5 (smoke-test finding): inline mirror of multi_llm_review's
+          # Sanitizer.reject_unsanitized_for_chain! — rejects payloads containing
+          # HTML-entity (&lt;artifact&gt;) or URL-encoded (%3Cartifact%3E) delimiter
+          # forms before write. Inlined (not cross-SkillSet require'd) to keep agent
+          # SkillSet boundary clean. Patterns must stay synchronized with
+          # multi_llm_review/lib/multi_llm_review/sanitizer.rb ENCODED_DELIMITER_PATTERN.
+          CHAIN_REJECT_ENCODED_RE =
+            Regexp.union(
+              %w[artifact review_feedback finding persona].flat_map do |t|
+                [
+                  Regexp.new("&lt;\\s*#{t}\\s*&gt;",       Regexp::IGNORECASE),
+                  Regexp.new("&lt;\\s*/\\s*#{t}\\s*&gt;", Regexp::IGNORECASE),
+                  Regexp.new("%3C\\s*#{t}\\s*%3E",         Regexp::IGNORECASE),
+                  Regexp.new("%3C\\s*/\\s*#{t}\\s*%3E",   Regexp::IGNORECASE)
+                ]
+              end
+            ).freeze
+
+          # Returns nil if content is safe for chain write, otherwise a string
+          # describing the offending match (for logging). NFKC normalize first so
+          # fullwidth angle bracket variants are caught.
+          def reject_unsanitized_for_chain_inline(content)
+            return nil if content.nil? || content.empty?
+            normalized = content.respond_to?(:unicode_normalize) ? content.unicode_normalize(:nfkc) : content
+            if (m = normalized.match(REVIEW_FALLBACK_DELIMITER_RE))
+              return "raw delimiter #{m[0].inspect}"
+            end
+            if (m = normalized.match(CHAIN_REJECT_ENCODED_RE))
+              return "encoded delimiter #{m[0].inspect}"
+            end
+            nil
+          end
+
           def sanitize_review_fallback(s, max_len: 500)
             return '' if s.nil?
             s = s.to_s
@@ -1407,6 +1440,21 @@ module KairosMcp
             inline = payload_json.bytesize <= 16_384
 
             bundle = bundle_response['bundle'] || {}
+
+            # PR3.5 (smoke-test finding): reject content carrying encoded delimiter
+            # forms (HTML entity / URL-encoded) before chain write. These cannot
+            # break Agent's prompt framing directly (they require a downstream
+            # decoder), but persisting them on chain creates a replay-time
+            # injection vector for any future audit/replay tool that decodes.
+            # Mirrors multi_llm_review's Sanitizer.reject_unsanitized_for_chain!
+            # (kept inline to preserve agent SkillSet boundary).
+            content_to_check = [payload_json, JSON.generate(bundle)].join("\n")
+            if (reason = reject_unsanitized_for_chain_inline(content_to_check))
+              warn "[agent_step] L0 chain_record rejected: #{reason}. " \
+                   'Bundle/payload contains unsanitized delimiter; checkpoint proceeds without on-chain record.'
+              return false
+            end
+
             record = {
               'kind'                    => 'l0_checkpoint_review_bundle',
               'session_id'              => session.session_id,
