@@ -15,6 +15,12 @@ module KairosMcp
       #   REVISE       — any rejection, or not enough approvals
       #   INSUFFICIENT — fewer than min_quorum successful reviews
       class Consensus
+        # Phase 12 §3.7.2 / PR3 hardening: hard cap on aggregated_findings.
+        # FeedbackFormatter also caps the *displayed* slice at 50, but the API
+        # contract returns aggregated_findings as a separate array which would
+        # otherwise grow unbounded under adversarial reviewer behavior.
+        MAX_AGGREGATED_FINDINGS = 200
+
         VERDICT_PATTERNS = {
           approve: /\b(?:APPROVE[D]?|PASS|ACCEPT)\b/i,
           reject:  /\b(?:REJECT(?:ED)?|FAIL(?:ED)?|BLOCK(?:ED)?)\b/i,
@@ -59,8 +65,20 @@ module KairosMcp
               rule: rule_str
             },
             reviews: parsed,
-            aggregated_findings: findings
+            aggregated_findings: cap_findings(findings)
           }
+        end
+
+        # Cap aggregated_findings to MAX_AGGREGATED_FINDINGS, preserving the
+        # highest-severity entries. Excess entries are dropped with a warning
+        # to STDERR (audit-visible). Severity ordering: P0 > P1 > P2 > P3 > others.
+        def self.cap_findings(findings)
+          return findings if findings.nil? || findings.size <= MAX_AGGREGATED_FINDINGS
+          severity_order = { 'P0' => 0, 'P1' => 1, 'P2' => 2, 'P3' => 3 }
+          sorted = findings.sort_by { |f| severity_order[f[:severity] || f['severity']] || 99 }
+          dropped = sorted.size - MAX_AGGREGATED_FINDINGS
+          warn "[multi_llm_review::Consensus] aggregated_findings capped: #{dropped} entries dropped (kept highest-severity #{MAX_AGGREGATED_FINDINGS})"
+          sorted.first(MAX_AGGREGATED_FINDINGS)
         end
 
         # Extract verdict from a single review result.

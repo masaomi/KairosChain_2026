@@ -167,6 +167,42 @@ module KairosMcp
           end
         end
 
+        def test_strips_variation_selector_vs15
+          # U+FE0E (text presentation selector)
+          input = "ascii︎text"
+          assert_equal 'asciitext', S.sanitize_finding_text(input)
+        end
+
+        def test_strips_variation_selector_vs16
+          # U+FE0F (emoji presentation selector)
+          input = "char️more"
+          assert_equal 'charmore', S.sanitize_finding_text(input)
+        end
+
+        def test_strips_supplementary_variation_selector
+          # U+E0100 VS-17
+          input = "ab" + [0xE0100].pack('U*') + "cd"
+          assert_equal 'abcd', S.sanitize_finding_text(input)
+        end
+
+        def test_reject_html_entity_delimiter_on_chain
+          assert_raises(Sanitizer::SanitizationError) do
+            S.reject_unsanitized_for_chain!('safe &lt;artifact&gt; tail')
+          end
+        end
+
+        def test_reject_url_encoded_delimiter_on_chain
+          assert_raises(Sanitizer::SanitizationError) do
+            S.reject_unsanitized_for_chain!('safe %3Cartifact%3E tail')
+          end
+        end
+
+        def test_reject_html_entity_case_insensitive
+          assert_raises(Sanitizer::SanitizationError) do
+            S.reject_unsanitized_for_chain!('&LT;Artifact&GT;')
+          end
+        end
+
         def test_re_sanitize_preserves_non_strings
           input = { 'count' => 5, 'flag' => true, 'pi' => 3.14 }
           assert_equal input, S.re_sanitize(input)

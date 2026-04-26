@@ -390,7 +390,18 @@ module KairosMcp
                   # Gate 5.5a: L0 escalation (before persona review — save LLM cost)
                   if complexity[:signals].include?('l0_change') &&
                      review_cfg.fetch('l0_always_checkpoint', true)
-                    multi_llm_prompt = generate_multi_llm_review_prompt(session, decision_payload)
+                    # Phase 12 §3.4 + §3.11 (PR3): obtain ready-to-paste bundle from
+                    # multi_llm_review_bundle SkillSet (single source of truth) and
+                    # record on chain so the L0 Kairotic moment is constitutive
+                    # (Proposition 5). Falls back to hand-rolled prompt if bundle
+                    # tool unavailable (e.g., older runtime).
+                    bundle_response = build_l0_bundle_for_checkpoint(session, decision_payload)
+                    if bundle_response
+                      record_l0_checkpoint_bundle(session, decision_payload, bundle_response)
+                      multi_llm_prompt = format_bundle_for_human(bundle_response)
+                    else
+                      multi_llm_prompt = generate_multi_llm_review_prompt(session, decision_payload)
+                    end
                     session.update_state('checkpoint')
                     session.save
                     return finalize_autonomous(session, results, checkpoint: true,
@@ -405,7 +416,7 @@ module KairosMcp
                   # hint_needed comes from validated review_hint and is ADDITIVE — cannot
                   # suppress the rule. Unknown trigger_mode fails-closed to rule_only.
                   multi_cfg = review_cfg['multi_llm_review']
-                  if multi_cfg && multi_cfg['enabled'] && multi_llm_review_needed?(multi_cfg, complexity, decision_payload)
+                  if multi_cfg && (multi_cfg['enabled'] || review_force_enabled?) && multi_llm_review_needed?(multi_cfg, complexity, decision_payload)
                     mreview = run_multi_llm_review(session, decision_payload, complexity, multi_cfg)
                     total_llm_calls += mreview[:llm_calls] || 0
                     session.save_review_result(mreview.merge(kind: 'multi_llm'))
@@ -1113,6 +1124,19 @@ module KairosMcp
 
           # ---- Multi-LLM Review (Gate 5.5c) ----
 
+          # Phase 12 §10 / PR3 hardening: test/CI affordance to force-enable review
+          # regardless of agent.yml. MUST be no-op when KAIROS_ENV=production.
+          # Use case: PR1 bake tests need to exercise INSUFFICIENT/budget paths
+          # without flipping enabled:true in production agent.yml.
+          def review_force_enabled?
+            return false unless ENV['KAIROS_TEST_FORCE_REVIEW'] == 'true'
+            if ENV['KAIROS_ENV'].to_s.downcase == 'production'
+              warn '[agent_step] KAIROS_TEST_FORCE_REVIEW ignored: KAIROS_ENV=production'
+              return false
+            end
+            true
+          end
+
           # Phase 12 §3.2 OR-floor trigger.
           #   rule_fired = (trigger_on ∩ complexity[:signals]).any?
           #   hint_needed = parse_review_hint(decision_payload['review_hint'])
@@ -1345,6 +1369,114 @@ module KairosMcp
             session.save_decision(decide_result['decision_payload'])
             { decision_payload: decide_result['decision_payload'],
               llm_calls: loop_inst.total_calls, error: nil }
+          end
+
+          # ---- Phase 12 §3.4 + §3.11 (PR3): L0 checkpoint bundle + chain_record ----
+
+          # Invoke multi_llm_review_bundle tool to get a ready-to-paste prompt bundle
+          # for human-driven external review. Returns the parsed response Hash, or
+          # nil if the tool is unavailable / errors (caller falls back to legacy path).
+          def build_l0_bundle_for_checkpoint(session, decision_payload)
+            artifact_content = build_decision_artifact(session, decision_payload)
+            args = {
+              'artifact_content' => artifact_content,
+              'artifact_name'    => "l0_checkpoint_cycle#{session.cycle_number}_#{session.session_id[0..7]}",
+              'review_type'      => 'design',
+              'review_context'   => 'independent'
+            }
+            ctx = session.invocation_context.derive(
+              blacklist_remove: %w[multi_llm_review_bundle]
+            )
+            raw = invoke_tool('multi_llm_review_bundle', args, context: ctx)
+            parsed = JSON.parse(raw.map { |b| b[:text] || b['text'] }.compact.join)
+            return nil if parsed['status'] != 'ok'
+            parsed
+          rescue StandardError => e
+            warn "[agent_step] multi_llm_review_bundle unavailable, falling back: #{e.class}: #{e.message}"
+            nil
+          end
+
+          # Phase 12 §3.11: record the L0 checkpoint constitutively on chain.
+          # Includes decision_payload_hash + bundle_hash + reviewer_roster_hash +
+          # config_hash for replay/audit. Decision payload itself recorded inline
+          # if ≤16KB (rare for a single decision); larger payloads are rejected
+          # rather than silently CAS'd in PR3 (CAS infrastructure is PR4 scope).
+          def record_l0_checkpoint_bundle(session, decision_payload, bundle_response)
+            payload_json = JSON.generate(decision_payload)
+            payload_hash = "sha256:#{Digest::SHA256.hexdigest(payload_json)}"
+            inline = payload_json.bytesize <= 16_384
+
+            bundle = bundle_response['bundle'] || {}
+            record = {
+              'kind'                    => 'l0_checkpoint_review_bundle',
+              'session_id'              => session.session_id,
+              'cycle_number'            => session.cycle_number,
+              'decision_payload_hash'   => payload_hash,
+              'decision_payload_inline' => inline ? decision_payload : nil,
+              'bundle_schema_version'   => bundle_response['bundle_schema_version'],
+              'bundle_hash'             => bundle_response['bundle_hash'],
+              'bundle_size_bytes'       => bundle_response['size_bytes'],
+              'reviewer_roster_hash'    => bundle['reviewer_roster_hash'],
+              'config_hash'             => bundle['config_hash'],
+              'recorded_at'             => Time.now.utc.iso8601
+            }
+            log_str = JSON.generate(record)
+            invoke_tool('chain_record', { 'logs' => [log_str] })
+            true
+          rescue StandardError => e
+            # Recording failures must NOT block the checkpoint (the human still needs
+            # the prompt bundle). Log + carry on.
+            warn "[agent_step] chain_record failed for L0 checkpoint: #{e.class}: #{e.message}"
+            false
+          end
+
+          def format_bundle_for_human(bundle_response)
+            bundle = bundle_response['bundle'] || {}
+            prompts = bundle['per_reviewer_prompts'] || []
+            sections = ["# L0 Change Review — Multi-LLM Bundle",
+                        "Bundle hash: #{bundle_response['bundle_hash']}",
+                        "Reviewer roster hash: #{bundle['reviewer_roster_hash']}",
+                        "Config hash: #{bundle['config_hash']}",
+                        '',
+                        '## Run each reviewer independently and aggregate per the convergence rule below.',
+                        '',
+                        "Convergence rule: #{bundle['convergence_rule']}",
+                        '',
+                        '## Aggregation instructions',
+                        bundle['aggregation_instructions'].to_s,
+                        '']
+            prompts.each_with_index do |r, i|
+              sections << "### Reviewer #{i + 1}: #{r['role_label']} (#{r['provider']}/#{r['model'] || 'default'})"
+              sections << '```'
+              sections << "[System]\n#{r['system_prompt']}\n"
+              sections << "[Prompt]\n#{r['prompt']}"
+              sections << '```'
+              sections << ''
+            end
+            sections.join("\n")
+          end
+
+          def build_decision_artifact(session, decision_payload)
+            summary = decision_payload['summary'] || 'unknown'
+            steps = decision_payload.dig('task_json', 'steps') || []
+            step_desc = steps.map.with_index(1) { |s, i|
+              "  #{i}. #{s['action'] || s['tool_name']} (risk: #{s['risk']})"
+            }.join("\n")
+            <<~ART
+              # L0 Change Review Required
+
+              Goal: #{session.goal_name}
+              Cycle: #{session.cycle_number}
+              Summary: #{summary}
+
+              Steps:
+              #{step_desc}
+
+              Full decision payload:
+              ```json
+              #{JSON.pretty_generate(decision_payload)}
+              ```
+            ART
           end
 
           # ---- Multi-LLM Review Prompt Generation ----

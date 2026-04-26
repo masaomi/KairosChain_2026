@@ -37,27 +37,22 @@ module KairosMcp
         def self.build(artifact_content:, artifact_name:, review_type:, reviewers:,
                        review_context: 'independent', review_round: 1,
                        prior_findings: nil, config: {})
-          # PR1 review fix: sanitize artifact_content at the boundary so reviewer
-          # LLM prompts cannot be hijacked by adversarial artifacts containing
-          # </artifact> or fullwidth/case-variant delimiters. Same path serves
-          # both dispatch and bundle tools (single source of truth for sanitization).
-          artifact_content = Sanitizer.sanitize_artifact(artifact_content)
+          canonical = build_canonical_prompts(
+            artifact_content: artifact_content,
+            artifact_name: artifact_name,
+            review_type: review_type,
+            review_context: review_context,
+            review_round: review_round,
+            prior_findings: prior_findings
+          )
 
           per_reviewer = reviewers.map do |r|
             {
               'role_label'    => r[:role_label] || r['role_label'],
               'provider'      => r[:provider]   || r['provider'],
               'model'         => r[:model]      || r['model'],
-              'system_prompt' => PromptBuilder.build_system_prompt(
-                                   review_type, review_context: review_context
-                                 ),
-              'prompt'        => render_user_message(
-                                   artifact_content: artifact_content,
-                                   artifact_name: artifact_name,
-                                   review_type: review_type,
-                                   review_round: review_round,
-                                   prior_findings: prior_findings
-                                 )
+              'system_prompt' => canonical[:system_prompt],
+              'prompt'        => canonical[:user_message]
             }
           end
 
@@ -131,6 +126,33 @@ module KairosMcp
           )
           # build_messages returns array of { role:, content: } — bundle_tool emits as single string
           msgs.map { |m| m[:content] || m['content'] }.compact.join("\n")
+        end
+
+        # PR3 hardening / DRY: canonical prompt pair used by BOTH dispatch path
+        # (returns the messages array sent to llm_call) AND bundle path (replicated
+        # per-reviewer in `per_reviewer_prompts`). Single source of truth ensures
+        # dispatch + bundle stay aligned across schema/wording evolution.
+        # Sanitization is applied here so callers cannot accidentally bypass it.
+        # Returns: { system_prompt:, user_message:, messages: [PromptBuilder format] }
+        def self.build_canonical_prompts(artifact_content:, artifact_name:, review_type:,
+                                         review_context: 'independent', review_round: 1,
+                                         prior_findings: nil)
+          sanitized_artifact = Sanitizer.sanitize_artifact(artifact_content)
+          system_prompt = PromptBuilder.build_system_prompt(review_type, review_context: review_context)
+          messages = PromptBuilder.build_messages(
+            artifact_content: sanitized_artifact,
+            artifact_name: artifact_name,
+            review_type: review_type,
+            review_round: review_round,
+            prior_findings: prior_findings
+          )
+          user_message = messages.map { |m| m[:content] || m['content'] }.compact.join("\n")
+          {
+            system_prompt: system_prompt,
+            user_message: user_message,
+            messages: messages,
+            sanitized_artifact: sanitized_artifact
+          }
         end
 
         def self.aggregation_instructions(review_type, review_round)

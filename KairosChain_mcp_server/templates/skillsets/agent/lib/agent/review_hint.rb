@@ -19,34 +19,56 @@ module KairosMcp
       class ReviewHint
         VALID_URGENCY = %w[low medium high].freeze
 
+        # PR3 hardening: per-process counter of validation failures, exposed for
+        # observability. agent_status / introspection tools may read this to
+        # surface drift (e.g., DECIDE LLM repeatedly emitting malformed hints).
+        # Reset by tests via reset_failure_count!.
+        @failure_count = 0
+        class << self
+          attr_reader :failure_count
+        end
+
+        def self.reset_failure_count!
+          @failure_count = 0
+        end
+
         # Parse and validate. Returns boolean.
-        # On any validation failure, returns false (and logs for audit).
+        # On any validation failure, returns false (and logs + increments counter).
+        # The counter exposes audit signal without forcing a chain_record dependency
+        # in this hot path (Phase 12 kairos Prop 3: recognition without raise/break,
+        # but observable through @failure_count + log).
         def self.parse(raw, logger: nil)
           return false unless raw.is_a?(Hash)
 
           needed = raw['needed']
           unless needed == true || needed == false
-            log(logger, "review_hint.needed must be boolean, got #{needed.inspect}")
+            note_failure(logger, "review_hint.needed must be boolean, got #{needed.inspect}")
             return false
           end
 
           reason = raw['reason']
           unless reason.nil? || reason.is_a?(String)
-            log(logger, "review_hint.reason must be string or nil, got #{reason.class}")
+            note_failure(logger, "review_hint.reason must be string or nil, got #{reason.class}")
             return false
           end
 
           urgency = raw['urgency']
           unless urgency.nil? || VALID_URGENCY.include?(urgency)
-            log(logger, "review_hint.urgency must be one of #{VALID_URGENCY} or nil, got #{urgency.inspect}")
+            note_failure(logger, "review_hint.urgency must be one of #{VALID_URGENCY} or nil, got #{urgency.inspect}")
             return false
           end
 
           needed
         rescue StandardError => e
-          log(logger, "review_hint parse error: #{e.class}: #{e.message}")
+          note_failure(logger, "review_hint parse error: #{e.class}: #{e.message}")
           false
         end
+
+        def self.note_failure(logger, msg)
+          @failure_count += 1
+          log(logger, msg)
+        end
+        private_class_method :note_failure
 
         def self.log(logger, msg)
           if logger

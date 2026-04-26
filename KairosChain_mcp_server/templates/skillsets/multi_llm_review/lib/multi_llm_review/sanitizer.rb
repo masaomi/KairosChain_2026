@@ -23,13 +23,16 @@ module KairosMcp
           0x0000..0x0008, 0x000B..0x000C, 0x000E..0x001F, 0x007F..0x009F,  # C0/C1 control
           0x00AD..0x00AD,                                                    # Soft Hyphen
           0x061C..0x061C,                                                    # Arabic Letter Mark (ALM)
+          0x180B..0x180D, 0x180E..0x180E,                                    # Mongolian Free Variation Selectors + MVS
           0x200B..0x200F,                                                    # Zero-width + LRM/RLM
           0x2028..0x2029,                                                    # Line/Paragraph separator
           0x202A..0x202E,                                                    # Bidi overrides (LRE/RLE/PDF/LRO/RLO)
           0x2060..0x2064,                                                    # Word Joiner + invisible operators
           0x2066..0x2069,                                                    # Bidi isolates (LRI/RLI/FSI/PDI)
+          0xFE00..0xFE0F,                                                    # Variation Selectors VS-1..VS-16 (PR3 hardening)
           0xFEFF..0xFEFF,                                                    # BOM / ZWNBSP
-          0xE0000..0xE007F                                                   # Tag chars
+          0xE0000..0xE007F,                                                  # Tag chars
+          0xE0100..0xE01EF                                                   # VS-17..VS-256 (supplementary)
         ].freeze
 
         # Wrapper delimiters that the Agent uses to frame untrusted content. Reviewer
@@ -60,6 +63,25 @@ module KairosMcp
           %w[artifact review_feedback finding persona].flat_map do |tag|
             ["<\\s*#{tag}\\s*>", "<\\s*/\\s*#{tag}\\s*>"]
           end.map { |p| Regexp.new(p, Regexp::IGNORECASE) }
+        )
+
+        # PR3 hardening: encoded delimiter forms that some downstream consumer
+        # might decode (HTML renderer, URL parser, web log viewer). Detected
+        # SEPARATELY from DELIMITER_PATTERN so they can be rejected at chain
+        # boundary without false-positive escaping of legitimate text discussing
+        # HTML entities. We only REJECT (not auto-escape) — encoded forms
+        # appearing in artifact_content are a strong signal of injection intent.
+        ENCODED_DELIMITER_PATTERN = Regexp.union(
+          %w[artifact review_feedback finding persona].flat_map do |tag|
+            [
+              # HTML entity: &lt;artifact&gt;
+              Regexp.new("&lt;\\s*#{tag}\\s*&gt;", Regexp::IGNORECASE),
+              Regexp.new("&lt;\\s*/\\s*#{tag}\\s*&gt;", Regexp::IGNORECASE),
+              # URL-encoded: %3Cartifact%3E
+              Regexp.new("%3C\\s*#{tag}\\s*%3E", Regexp::IGNORECASE),
+              Regexp.new("%3C\\s*/\\s*#{tag}\\s*%3E", Regexp::IGNORECASE)
+            ]
+          end
         )
 
         class SanitizationError < StandardError; end
@@ -116,12 +138,19 @@ module KairosMcp
         # @raise [SanitizationError] if unsanitized delimiters present
         def self.reject_unsanitized_for_chain!(content)
           return if content.nil? || content.empty?
-          # Use the same NFKC + case/whitespace tolerant detector as the sanitizer,
-          # so attackers cannot route fullwidth/case variants through CAS.
+          # NFKC normalization collapses fullwidth angle brackets to ASCII so
+          # attackers cannot route '＜artifact＞' through CAS.
           normalized = content.respond_to?(:unicode_normalize) ? content.unicode_normalize(:nfkc) : content
           if normalized =~ DELIMITER_PATTERN
             raise SanitizationError,
                   "chain_record refused: content contains unsanitized delimiter #{Regexp.last_match(0).inspect}"
+          end
+          # PR3 hardening: also reject encoded forms (HTML entity, URL-encoded).
+          # These have no legitimate reason to appear in chain bundle bodies and
+          # are a strong injection signal if a downstream tool decodes them.
+          if normalized =~ ENCODED_DELIMITER_PATTERN
+            raise SanitizationError,
+                  "chain_record refused: content contains encoded delimiter #{Regexp.last_match(0).inspect}"
           end
           nil
         end

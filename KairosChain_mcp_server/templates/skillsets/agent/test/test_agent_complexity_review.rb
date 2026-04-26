@@ -582,6 +582,51 @@ assert "test_multi_llm_review_prompt: L0 review prompt generated" do
 end
 
 # ============================================================
+# Phase 12 §10 KAIROS_TEST_FORCE_REVIEW env flag (PR3)
+# ============================================================
+section "KAIROS_TEST_FORCE_REVIEW env flag"
+
+assert "flag unset → not forced" do
+  ENV.delete('KAIROS_TEST_FORCE_REVIEW')
+  ENV.delete('KAIROS_ENV')
+  step.send(:review_force_enabled?) == false
+end
+
+assert "flag=true outside production → forced" do
+  ENV['KAIROS_TEST_FORCE_REVIEW'] = 'true'
+  ENV['KAIROS_ENV'] = 'development'
+  result = step.send(:review_force_enabled?)
+  ENV.delete('KAIROS_TEST_FORCE_REVIEW')
+  ENV.delete('KAIROS_ENV')
+  result == true
+end
+
+assert "flag=true with KAIROS_ENV=production → IGNORED" do
+  ENV['KAIROS_TEST_FORCE_REVIEW'] = 'true'
+  ENV['KAIROS_ENV'] = 'production'
+  result = step.send(:review_force_enabled?)
+  ENV.delete('KAIROS_TEST_FORCE_REVIEW')
+  ENV.delete('KAIROS_ENV')
+  result == false
+end
+
+assert "flag=true with KAIROS_ENV=PRODUCTION (case insensitive) → IGNORED" do
+  ENV['KAIROS_TEST_FORCE_REVIEW'] = 'true'
+  ENV['KAIROS_ENV'] = 'PRODUCTION'
+  result = step.send(:review_force_enabled?)
+  ENV.delete('KAIROS_TEST_FORCE_REVIEW')
+  ENV.delete('KAIROS_ENV')
+  result == false
+end
+
+assert "flag=anything-else → not forced" do
+  ENV['KAIROS_TEST_FORCE_REVIEW'] = '1'  # not 'true' literally
+  result = step.send(:review_force_enabled?)
+  ENV.delete('KAIROS_TEST_FORCE_REVIEW')
+  result == false
+end
+
+# ============================================================
 # Phase 12 §3.10 schema_version validation (PR2)
 # ============================================================
 section "Schema version validation (fail-closed)"

@@ -178,24 +178,21 @@ module KairosMcp
             complexity = resolve_complexity(arguments, config)
             reviewers = apply_effort_map(reviewers, complexity, config)
 
-            # Build prompts
-            system_prompt = PromptBuilder.build_system_prompt(
-              arguments['review_type'],
-              review_context: review_context
-            )
-
+            # PR3 DRY: dispatch path uses BuildReviewBundle.build_canonical_prompts
+            # (shared with multi_llm_review_bundle tool). Same sanitization, same
+            # framing, same prompt wording for both paths. Contract: identical
+            # input → identical bundle (verified by test_build_review_bundle).
             prior_findings = symbolize_findings(arguments['prior_findings'])
-            # PR1 review fix: sanitize artifact_content at boundary (NFKC + delimiter
-            # escape + control-char strip) before reviewer prompt assembly. Prevents
-            # adversarial artifacts from breaking <artifact>...</artifact> framing.
-            sanitized_artifact = Sanitizer.sanitize_artifact(arguments['artifact_content'])
-            messages = PromptBuilder.build_messages(
-              artifact_content: sanitized_artifact,
+            canonical = BuildReviewBundle.build_canonical_prompts(
+              artifact_content: arguments['artifact_content'],
               artifact_name: arguments['artifact_name'],
               review_type: arguments['review_type'],
+              review_context: review_context,
               review_round: review_round,
               prior_findings: prior_findings
             )
+            system_prompt = canonical[:system_prompt]
+            messages = canonical[:messages]
 
             # Dispatch to all reviewers (argument overrides take precedence)
             max_concurrent = arguments['max_concurrent_override'] ||

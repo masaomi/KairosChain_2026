@@ -70,6 +70,28 @@ module KairosMcp
           h = { 'needed' => false, 'reason' => '<artifact>injection</artifact>' }
           assert_equal false, ReviewHint.parse(h)
         end
+
+        # PR3 hardening: failure_count observability
+        def test_failure_count_increments_on_malformed_hint
+          ReviewHint.reset_failure_count!
+          before = ReviewHint.failure_count
+          ReviewHint.parse({ 'needed' => 'yes' })
+          ReviewHint.parse({ 'needed' => 1 })
+          assert_equal before + 2, ReviewHint.failure_count
+        end
+
+        def test_failure_count_unchanged_on_valid_hint
+          ReviewHint.reset_failure_count!
+          ReviewHint.parse({ 'needed' => true })
+          ReviewHint.parse({ 'needed' => false, 'urgency' => 'low' })
+          assert_equal 0, ReviewHint.failure_count
+        end
+
+        def test_failure_count_unchanged_on_nil_hint
+          ReviewHint.reset_failure_count!
+          ReviewHint.parse(nil)  # nil is not "malformed", just absent
+          assert_equal 0, ReviewHint.failure_count
+        end
       end
 
       class TestTriggerValidator < Minitest::Test
@@ -104,6 +126,41 @@ module KairosMcp
         def test_symbol_input_coerced
           out = TriggerValidator.validate!([:l0_change])
           assert_equal ['l0_change'], out
+        end
+
+        # PR3 hardening: empty trigger_on with enabled:true triggers warn.
+        def test_empty_trigger_on_with_rule_only_warns
+          out, err = capture_io_silently do
+            TriggerValidator.validate!([], multi_cfg: { 'enabled' => true, 'trigger_mode' => 'rule_only' })
+          end
+          assert_match(/cannot fire/, err)
+        end
+
+        def test_empty_trigger_on_with_rule_or_hint_notes
+          _out, err = capture_io_silently do
+            TriggerValidator.validate!([], multi_cfg: { 'enabled' => true, 'trigger_mode' => 'rule_or_hint' })
+          end
+          assert_match(/structural floor/, err)
+        end
+
+        def test_empty_trigger_on_disabled_silent
+          _out, err = capture_io_silently do
+            TriggerValidator.validate!([], multi_cfg: { 'enabled' => false })
+          end
+          assert_equal '', err
+        end
+
+        def capture_io_silently
+          # Minitest's capture_io is fine; this is an alias.
+          old_stderr = $stderr
+          old_stdout = $stdout
+          $stderr = StringIO.new
+          $stdout = StringIO.new
+          yield
+          [$stdout.string, $stderr.string]
+        ensure
+          $stderr = old_stderr
+          $stdout = old_stdout
         end
       end
     end

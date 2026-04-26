@@ -77,6 +77,46 @@ module KairosMcp
           out = BuildReviewBundle.canonical_json(input)
           assert_equal '{"a":2,"b":1}', out
         end
+
+        # PR3 DRY contract: dispatch path's canonical prompts MUST equal what
+        # bundle path wraps per-reviewer. Single source of truth for prompt
+        # framing across both code paths.
+        def test_dispatch_and_bundle_share_canonical_prompts
+          args = {
+            artifact_content: 'review me',
+            artifact_name: 'doc1',
+            review_type: 'design',
+            review_context: 'independent',
+            review_round: 1,
+            prior_findings: nil
+          }
+          canonical = BuildReviewBundle.build_canonical_prompts(**args)
+          bundle = BuildReviewBundle.build(**args.merge(reviewers: reviewers, config: {}))
+          # Each per_reviewer entry's system_prompt + prompt MUST match canonical
+          bundle['per_reviewer_prompts'].each do |r|
+            assert_equal canonical[:system_prompt], r['system_prompt']
+            assert_equal canonical[:user_message],  r['prompt']
+          end
+        end
+
+        def test_canonical_prompts_sanitize_artifact
+          # Adversarial inner content (`<artifact>x</artifact>` injected by attacker
+          # within the artifact body) must be escaped, while the LEGITIMATE outer
+          # <artifact>...</artifact> framing wrapper added by PromptBuilder remains.
+          canonical = BuildReviewBundle.build_canonical_prompts(
+            artifact_content: 'see <artifact>x</artifact>',
+            artifact_name: 'n',
+            review_type: 'design'
+          )
+          # sanitized_artifact has only the inner content (no PromptBuilder wrapper)
+          refute_includes canonical[:sanitized_artifact], '<artifact>'
+          assert_includes canonical[:sanitized_artifact], '[escaped:artifact]'
+          # user_message has the wrapper but not the unescaped inner injection
+          assert_includes canonical[:user_message], '[escaped:artifact]'
+          # Exactly one occurrence of literal '</artifact>' (the closing wrapper)
+          assert_equal 1, canonical[:user_message].scan('</artifact>').size,
+                       'exactly one closing wrapper, no leaked inner injection'
+        end
       end
 
       class TestMultiLlmReviewBundleTool < Minitest::Test
