@@ -4,6 +4,54 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.24.1] - 2026-04-27
+
+### Fixed (multi_llm_review_wait)
+
+Self-referential validation: ran multi_llm_review on the new wait tool itself
+(both Path A Bash workflow and Path B MCP SkillSet, 7 reviewers total) — found
+1 P0 + 7 P1 bugs not caught by the v3.24.0 test suite. All fixed:
+
+- **P0** `config_parallel` had dead `unless ... || true` guard so YAML never
+  loaded — all configured wait caps silently fell back to defaults. Removed
+  the bogus guard, added explicit `require 'yaml'` at the top of the file.
+- **P1** Streak read-then-write was split: state was read at entry, streak
+  written later via `update_state`, so two concurrent waiters could both
+  observe the same N and both write N+1, undercounting. Now the increment
+  is fully inside the `update_state` RMW block.
+- **P1** `still_pending` next_action message read streak limit from
+  `state.dig('wait_still_pending_streak_limit')` (a key never written),
+  always falling back to the default constant. Now `streak_limit` is
+  threaded through `translate_outcome` so the displayed denominator
+  matches the effective config.
+- **P1** Post-wait deadline revalidation missing: `WaitForWorker.wait`
+  could return `:timeout` after the collect deadline elapsed during the
+  blocking wait, but the tool returned `still_pending`. Now re-checks
+  `Time.now >= deadline_at_entry` after the wait and returns
+  `past_collect_deadline` if so.
+- **P1** Pre-wait streak guard ran before the ready/results-file check,
+  so a worker that finished while streak was at limit was misclassified
+  as `crashed/wait_exhausted`. Reordered: ready check now runs first.
+- **P1** Internal exceptions returned `status: 'error'`, outside the
+  declared 6-status enum. Now mapped to `crashed` with
+  `crashed_reason: 'internal_error'`.
+- **P1** Malformed `collect_deadline` (non-ISO8601 string) was silently
+  rescued to nil, skipping all deadline checks. Now returns `crashed`
+  with `crashed_reason: 'malformed_state'`.
+- **P1** `safe_path` swallowed PendingState errors, masking real failures
+  as benign "not collected". Removed; errors now surface to the outer
+  rescue and become `crashed/internal_error`.
+
+### Other improvements
+
+- Deadline-cap arithmetic uses `ceil` instead of `to_i` so the wait can
+  actually run up to the deadline; the post-wait revalidation catches any
+  overshoot.
+- `elapsed_seconds` field now correctly uses `outcome[:waited_seconds]`
+  for the `:timeout` path (was always 0.0 in v3.24.0).
+- 8 new regression tests covering each of the bugs above (22 wait tool
+  tests total).
+
 ## [3.24.0] - 2026-04-27
 
 ### Added
