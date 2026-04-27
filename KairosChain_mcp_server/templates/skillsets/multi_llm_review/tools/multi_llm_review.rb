@@ -600,7 +600,7 @@ module KairosMcp
                 'instruction' => 'Run persona-based review using your Agent tool. ' \
                   "Choose #{PersonaAssembly::MIN_PERSONAS}-#{PersonaAssembly::MAX_PERSONAS} " \
                   'personas appropriate to the artifact and review_type. ' \
-                  'Submit findings via multi_llm_review_collect with the collect_token below.',
+                  'Then call multi_llm_review_wait, then multi_llm_review_collect.',
                 'review_type' => arguments['review_type'],
                 'persona_count_min' => PersonaAssembly::MIN_PERSONAS,
                 'persona_count_max' => PersonaAssembly::MAX_PERSONAS
@@ -608,7 +608,18 @@ module KairosMcp
               'subprocess_status' => 'pending',
               'subprocess_total' => reviewers.size,
               'must_collect_by' => (now + deadline_secs).iso8601,
-              'orchestrator_model' => orchestrator_model
+              'orchestrator_model' => orchestrator_model,
+              # next_action hint (R1, R8): MCP does not enforce ordering, but
+              # the LLM is highly likely to follow this hint. Calling wait is
+              # optional — collect alone still works via its internal polling —
+              # but wait surfaces structural completion deterministically.
+              'next_action' => {
+                'tool' => 'multi_llm_review_wait',
+                'args' => { 'collect_token' => token, 'max_wait_seconds' => 600 },
+                'purpose' => 'Phase 1.5: block until subprocess reviewers complete. Call ' \
+                  'AFTER spawning persona Agent reviews, BEFORE multi_llm_review_collect. ' \
+                  'Optional but strongly recommended for deterministic recovery hints.'
+              }
             }))
           end
 

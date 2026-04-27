@@ -66,6 +66,11 @@ delegation:
     worker_self_timeout_floor_seconds: 60
     main_call_max_timeout_seconds: 300
     main_call_timeout_margin_seconds: 60
+    # multi_llm_review_wait tool (Phase 1.5) — see tools/multi_llm_review_wait.rb
+    wait_poll_interval_seconds: 1.0           # wait tool polling cadence (separate from collect's 0.5s)
+    wait_max_default_seconds: 600             # default per-call blocking ceiling
+    wait_max_hard_cap_seconds: 1800           # per-call hard cap (clamps max_wait_seconds arg)
+    wait_still_pending_streak_limit: 3        # consecutive still_pending returns before crashed/wait_exhausted
 
 # Dispatch settings
 timeout_seconds: 300              # global deadline for all reviewers

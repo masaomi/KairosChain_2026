@@ -4,6 +4,49 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.24.0] - 2026-04-27
+
+### Added
+
+- **multi_llm_review_wait MCP tool** (Phase 1.5) — optional blocking gate
+  between `multi_llm_review` (Phase 1) and `multi_llm_review_collect`
+  (Phase 2). Wraps the existing `WaitForWorker.wait` polling loop and
+  exposes 6 distinct status codes (`ready`, `still_pending`, `crashed`,
+  `unknown_token`, `already_collected`, `past_collect_deadline`) each with
+  a `next_action` recovery hint pointing at the right next tool.
+- **`next_action` hint on `multi_llm_review` delegation_pending response** —
+  structured `{tool, args, purpose}` field nudging the orchestrator to call
+  `multi_llm_review_wait` after persona Agent dispatch. MCP does not enforce
+  ordering; this is a hint, not a constraint, but in practice LLMs follow
+  it reliably.
+- **Path A vs Path B disambiguation in workflow knowledge doc** — surfaces
+  the long-implicit distinction between the host-tracked Bash workflow
+  (Claude Code's `Bash(background)` pattern, statusbar shows `XX shells`)
+  and the MCP-managed SkillSet (detached worker, no host-side tracking,
+  polling required).
+- New config keys under `delegation.parallel`:
+  `wait_poll_interval_seconds: 1.0`, `wait_max_default_seconds: 600`,
+  `wait_max_hard_cap_seconds: 1800`, `wait_still_pending_streak_limit: 3`.
+- Streak guard: 3 consecutive `still_pending` returns escalate to
+  `crashed/wait_exhausted` so a wedged worker cannot trap the orchestrator
+  in an infinite wait loop.
+- 14 new tests in `test_multi_llm_review_wait.rb` covering all status
+  paths, streak persistence/reset, hard cap clamping, deadline-remaining
+  clamping, and backward compatibility (collect still works without wait).
+
+### Changed
+
+- `multi_llm_review` SkillSet version 0.4.0 → 0.5.0.
+- `delegation` instruction text now mentions wait → collect chain.
+
+### Notes
+
+- Backward compatible: callers that skip wait and call collect directly
+  still work via collect's existing internal polling.
+- Design review (Codex GPT-5.5 + Cursor Composer-2 + Claude Team Opus 4.7)
+  produced 3/3 REVISE with 6-7 P1 issues; revisions R1-R14 captured in
+  handoff L2 `multi_llm_review_wait_tool_handoff` before implementation.
+
 ## [3.23.3] - 2026-04-27
 
 ### Documentation

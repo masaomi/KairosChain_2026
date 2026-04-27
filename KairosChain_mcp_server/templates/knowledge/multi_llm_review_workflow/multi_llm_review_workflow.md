@@ -29,6 +29,54 @@ This skill covers:
 For **WHO** (which LLM is good at what), see: `multi_llm_reviewer_evaluation`
 For **development lifecycle** (design → implement → verify), see: `design_to_implementation_workflow`
 
+## Two Execution Paths (read this first)
+
+There are **two distinct execution paths** with the same name "multi-LLM review".
+They differ in subprocess lifecycle ownership and completion-detection mechanics.
+Pick the right one for your environment:
+
+### Path A — Host-tracked (Bash workflow)
+
+- **Trigger**: orchestrator (LLM) calls Claude Code's `Bash` tool with
+  `run_in_background: true` to spawn `claude -p`, `codex exec`, `agent -p` directly.
+- **Process parent**: Claude Code (the host harness).
+- **Completion detection**: **event-driven**. Claude Code's shell tracker monitors
+  the spawned shells; when they exit, the LLM is notified through the standard
+  tool-result mechanism. Statusbar shows `XX shells` while reviewers are running.
+- **When to use**: interactive Claude Code sessions for one-off Tier 3 reviews.
+- **Reference**: see "Orchestration Template" section below for the canonical
+  `Bash(background)` pattern.
+
+### Path B — MCP-managed (multi_llm_review SkillSet)
+
+- **Trigger**: orchestrator calls the MCP tool `multi_llm_review`.
+- **Process parent**: the kairos-chain Ruby gem (MCP server). The gem forks a
+  detached worker (`bin/dispatch_worker.rb`) which calls `Process.setsid` and
+  spawns CLI reviewers as a separate session leader.
+- **Completion detection**: **polling required**. Claude Code is not the parent,
+  so the spawned subprocesses do NOT appear in the `XX shells` statusbar count.
+  The orchestrator must call `multi_llm_review_collect` (and optionally
+  `multi_llm_review_wait` first) to observe completion.
+- **When to use**: portable execution (other MCP hosts, autonomous Agent SkillSet),
+  or any case where you want the consensus computation done server-side.
+- **Recommended chain (3-step)**: `multi_llm_review` → `multi_llm_review_wait` →
+  `multi_llm_review_collect`. Each Phase-1/1.5 response carries a `next_action`
+  hint pointing at the next tool. wait is optional but recommended — without it,
+  collect's internal polling still covers worker completion, but recovery hints
+  for `still_pending`, `crashed`, and `past_collect_deadline` are less explicit.
+- **Reference**: see "Orchestrator Delegation Protocol" + "Async/Parallel Collect
+  Timing — Iron Rule" sections below.
+
+### Quick selector
+
+| Question | Answer |
+|----------|--------|
+| Are you in an interactive Claude Code session and just need one review? | **Path A** |
+| Do you need this to work in Cursor / autonomous mode / other MCP host? | **Path B** |
+| Do you want the consensus result inside the MCP tool response? | **Path B** |
+| Did you observe `XX shells` in the statusbar last time it worked? | That was Path A |
+| Did the run produce a `collect_token` and a `pending/<token>/` directory? | That was Path B |
+
 ## Roles
 
 | Role | Who | Responsibility |
