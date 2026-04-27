@@ -331,14 +331,70 @@ cross-model subprocess reviewers give epistemic diversity. The two are complemen
 
 **Failure modes**:
 - `expired_or_unknown_token`: orchestrator missed `must_collect_by` deadline
-  (default 600s), or token never existed. The pending review is gone; call
-  `multi_llm_review` again from scratch.
+  (default 1800s since v3.23.2; was 600s), or token never existed. The pending
+  review is gone; call `multi_llm_review` again from scratch.
 - `error: invalid orchestrator_reviews`: persona count outside 2-4 or missing
   required fields. Fix and retry collect with the same token.
 - All-subprocess-failed at Call 1: returns error immediately; no token issued.
 
 **Default**: `orchestrator_strategy` defaults to `"exclude"` (back-compat). Use
 `"delegate"` explicitly until validated by use.
+
+#### Async/Parallel Collect Timing — Iron Rule
+
+When `delegation.parallel.default: true` (the v3.x default), Call 1 returns
+`delegation_pending` **immediately** (~50ms) and a detached worker runs the
+subprocess reviewers in parallel with the orchestrator's persona Agent
+reviews. This is faster, but introduces a timing trap:
+
+> **The orchestrator MUST call `multi_llm_review_collect` immediately after
+> the persona Agent reviews complete — without intervening user dialogue,
+> unrelated tool calls, or context switches.**
+
+Why this matters:
+
+- The LLM is **not event-driven**. When the worker finishes writing
+  `subprocess_status: "done"` to `state.json`, nothing wakes the orchestrator.
+  The orchestrator only notices when it next calls `multi_llm_review_collect`.
+- `multi_llm_review_collect` already polls internally at
+  `poll_interval_seconds: 0.5` for up to `collect_max_wait_seconds: 420` (7min)
+  per call. Polling is not the bottleneck — the bottleneck is the orchestrator
+  forgetting to call collect at all.
+- The token expires at `collect_deadline` (default 30min since v3.23.2). If
+  user dialogue or other work intervenes between persona Agent completion and
+  the collect call, the token can expire while the subprocess results sit
+  ready and unread on disk.
+
+Recommended orchestrator flow (single LLM turn, no detours):
+
+```
+1. multi_llm_review(...) → receive delegation_pending + collect_token
+2. Spawn persona Agent reviews (Agent tool, parallel, 2-4 personas)
+3. As soon as ALL personas return → multi_llm_review_collect(collect_token, ...)
+4. Return final consensus to user
+```
+
+Anti-pattern (do NOT do this):
+
+```
+1. multi_llm_review(...) → delegation_pending
+2. Run persona Agent reviews
+3. ❌ "By the way, while we wait, let me explain X to the user…"
+4. ❌ User asks an unrelated question, conversation drifts
+5. ❌ 30+ minutes later, finally try collect → expired_or_unknown_token
+```
+
+If the orchestrator is genuinely interrupted (user explicitly switches topic,
+or persona Agent itself takes a long time and the orchestrator wants to
+report progress), it should still **call collect first** — collect returns
+quickly if the worker is already done, or blocks up to 7min if not. Either
+way, the token stays alive and consensus is captured before resuming side
+work.
+
+Manual recovery if expiry happens: subprocess results are persisted at
+`.kairos/multi_llm_review/pending/<token>/subprocess_results.json` and remain
+readable until GC. Read them directly and synthesize manually, then re-run
+`multi_llm_review` for fresh results if needed.
 
 ### Critical CLI Notes
 

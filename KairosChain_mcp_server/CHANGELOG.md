@@ -4,6 +4,19 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.23.3] - 2026-04-27
+
+### Documentation
+
+- **multi_llm_review_workflow knowledge** — Added "Async/Parallel Collect
+  Timing — Iron Rule" subsection. Documents the workflow constraint that the
+  orchestrator must call `multi_llm_review_collect` immediately after persona
+  Agent reviews complete, without intervening user dialogue. Explains the
+  underlying mechanics (LLM is not event-driven; collect already polls
+  internally at 0.5s intervals; token expiry vs subprocess completion). Adds
+  recommended flow, anti-pattern, and manual recovery instructions.
+- Updated stale `must_collect_by` default reference (600s → 1800s).
+
 ## [3.23.2] - 2026-04-26
 
 ### Fixed
