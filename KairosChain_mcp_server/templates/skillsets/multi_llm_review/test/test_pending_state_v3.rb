@@ -328,80 +328,80 @@ module KairosMcp
         end
       end
 
-      # ── MainState ordering invariant ─────────────────────────────────
+      # ── MainState (v3.24.3 per-thread invariants) ───────────────────
+      # Replaces v0.3.2 C3b ordering tests. v3.24.3 uses Mutex-bracketed
+      # per-thread ts_by_thread Hash; the prior "counter-before-ts" ordering
+      # invariant no longer applies (Mutex provides atomicity). Tests now
+      # cover: snapshot 3-tuple shape, with_call ensure semantics, private
+      # enter_call!/exit_call!, and bump_counter! semantics. Comprehensive
+      # parallel-thread coverage is in test_main_state.rb.
 
       class TestMainState < Minitest::Test
         def setup
           MainState.reset!
         end
 
-        def test_initial_state
-          assert_equal [0, nil], MainState.snapshot
+        def test_initial_snapshot_is_idle
+          counter, in_flight, oldest_ts = MainState.snapshot
+          assert_equal 0, counter
+          assert_equal 0, in_flight
+          assert_nil oldest_ts
         end
 
-        def test_enter_call_sets_monotonic_timestamp
-          MainState.enter_call!
-          counter, ts = MainState.snapshot
-          assert_equal 0, counter, 'enter_call! should not bump counter'
-          refute_nil ts
-          assert_kind_of Float, ts
-        end
+        def test_with_call_brackets_counter_and_ts
+          before, in_flight_before, ts_before = MainState.snapshot
+          assert_equal 0, in_flight_before
+          assert_nil ts_before
 
-        def test_exit_call_increments_counter_first
-          MainState.enter_call!
-          before = MAIN_STATE.counter
-          MainState.exit_call!
-          counter, ts = MainState.snapshot
-          assert_equal before + 1, counter
-          assert_nil ts
-        end
-
-        def test_exit_call_idempotent_without_enter
-          MainState.exit_call!
-          MainState.exit_call!
-          counter, ts = MainState.snapshot
-          assert_equal 2, counter
-          assert_nil ts
-        end
-
-        def test_multiple_enter_exit_cycles
-          3.times do
-            MainState.enter_call!
-            refute_nil MAIN_STATE.in_llm_call_since_mono
-            MainState.exit_call!
-            assert_nil MAIN_STATE.in_llm_call_since_mono
+          ts_during_block = nil
+          MainState.with_call do
+            _c, in_flight, oldest_ts = MainState.snapshot
+            ts_during_block = oldest_ts
+            assert_equal 1, in_flight
+            refute_nil oldest_ts
           end
-          assert_equal 3, MAIN_STATE.counter
+
+          counter, in_flight, oldest_ts = MainState.snapshot
+          assert_equal before + 1, counter, 'with_call must bump counter on exit'
+          assert_equal 0, in_flight
+          assert_nil oldest_ts, 'ts must be cleared after with_call returns'
+          assert_kind_of Float, ts_during_block
         end
 
-        # Ordering invariant (v0.3.2 C3b): exit_call! writes counter BEFORE
-        # clearing in_llm_call_since_mono. Verified by instrumenting the
-        # setter methods to record their invocation order — this avoids the
-        # flakiness of GVL-dependent contention tests.
-        def test_exit_call_writes_counter_before_clearing_timestamp
+        def test_with_call_ensures_cleanup_on_exception
+          assert_raises(RuntimeError) do
+            MainState.with_call { raise 'boom' }
+          end
+          counter, in_flight, oldest_ts = MainState.snapshot
+          assert_equal 1, counter, 'counter still bumps on exception (ensure)'
+          assert_equal 0, in_flight, 'ts_by_thread must be cleaned on exception'
+          assert_nil oldest_ts
+        end
+
+        def test_bump_counter_does_not_touch_ts_by_thread
+          before_counter, before_in_flight, _ = MainState.snapshot
+          MainState.bump_counter!
+          counter, in_flight, oldest_ts = MainState.snapshot
+          assert_equal before_counter + 1, counter
+          assert_equal before_in_flight, in_flight, 'bump_counter! must not touch ts_by_thread'
+          assert_nil oldest_ts
+        end
+
+        def test_enter_call_is_private
+          assert_raises(NoMethodError) { MainState.enter_call! }
+        end
+
+        def test_exit_call_is_private
+          assert_raises(NoMethodError) { MainState.exit_call! }
+        end
+
+        def test_reset_clears_all_state
+          MainState.with_call { } # bumps counter to 1
           MainState.reset!
-          MainState.enter_call!
-          calls = []
-          MAIN_STATE.singleton_class.class_eval do
-            alias_method :_orig_counter=, :counter=
-            alias_method :_orig_ts=, :in_llm_call_since_mono=
-            define_method(:counter=) { |v| calls << :counter; send(:_orig_counter=, v) }
-            define_method(:in_llm_call_since_mono=) { |v| calls << :ts; send(:_orig_ts=, v) }
-          end
-          begin
-            MainState.exit_call!
-          ensure
-            MAIN_STATE.singleton_class.class_eval do
-              remove_method :counter=
-              remove_method :in_llm_call_since_mono=
-              alias_method :counter=, :_orig_counter=
-              alias_method :in_llm_call_since_mono=, :_orig_ts=
-              remove_method :_orig_counter=
-              remove_method :_orig_ts=
-            end
-          end
-          assert_equal %i[counter ts], calls,
-            'exit_call! must write counter BEFORE clearing ts (C3b ordering invariant)'
+          counter, in_flight, oldest_ts = MainState.snapshot
+          assert_equal 0, counter
+          assert_equal 0, in_flight
+          assert_nil oldest_ts
         end
       end
     end

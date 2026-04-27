@@ -168,6 +168,47 @@ module KairosMcp
           assert_equal 'multi_llm_review', payload['next_action']['tool']
         end
 
+        # v3.24.2: state == 'done' must NOT be misclassified as
+        # heartbeat_stale. Worker kills the heartbeat thread on exit, so
+        # mtime stops advancing the moment status becomes 'done'. Without
+        # the fix, a stale heartbeat ages past the threshold and wait
+        # returns crashed even though the worker completed successfully.
+        def test_done_with_stale_heartbeat_does_not_false_positive_crash
+          write_state('subprocess_status' => 'done')
+          # Heartbeat present but stale (older than 15s threshold).
+          hb_path = PendingState.worker_heartbeat_path(@token)
+          FileUtils.touch(hb_path)
+          File.utime(Time.now - 60, Time.now - 60, hb_path)
+          PendingState.write_worker_pid(@token, { 'pid' => Process.pid, 'pgid' => Process.pid })
+
+          # No subprocess_results.json yet — simulates the parse-mid-rename
+          # window. wait should NOT return heartbeat_stale; it should poll
+          # until budget exhausts and return done_but_no_results.
+          payload = call_wait('max_wait_seconds' => 1)
+          assert_equal 'crashed', payload['status']
+          assert_equal 'done_but_no_results', payload['crashed_reason']
+          refute_equal 'heartbeat_stale', payload['crashed_reason']
+        end
+
+        def test_done_with_results_returns_ready
+          write_state('subprocess_status' => 'done')
+          # Heartbeat is stale (worker killed its thread) but results are present.
+          hb_path = PendingState.worker_heartbeat_path(@token)
+          FileUtils.touch(hb_path)
+          File.utime(Time.now - 60, Time.now - 60, hb_path)
+          PendingState.write_subprocess_results(@token, {
+            'token' => @token,
+            'completed_at' => Time.now.iso8601,
+            'elapsed_seconds' => 12.3,
+            'results' => [{ 'role_label' => 'r1', 'status' => 'success' }],
+            'exit_summary' => { 'successful' => 1, 'errored' => 0, 'skipped' => 0 }
+          })
+
+          payload = call_wait('max_wait_seconds' => 1)
+          assert_equal 'ready', payload['status']
+          assert_equal 1, payload['subprocess_done']
+        end
+
         # ── hard cap ─────────────────────────────────────────────────────
         # Hard cap is enforced before WaitForWorker is invoked. We verify the
         # clamping logic without actually waiting for the cap by checking the

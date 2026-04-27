@@ -132,7 +132,10 @@ module KairosMcp
 
         def bump_main_state_counter
           return unless defined?(KairosMcp::SkillSets::MultiLlmReview::MainState)
-          KairosMcp::SkillSets::MultiLlmReview::MainState.exit_call!
+          # v3.24.3: counter-only bump. exit_call! is private; bump_counter!
+          # is the public counter-only progress signal (does not touch
+          # ts_by_thread).
+          KairosMcp::SkillSets::MultiLlmReview::MainState.bump_counter!
         rescue StandardError
           nil
         end

@@ -6,16 +6,44 @@ module KairosMcp
       # Phase 2's polling loop for the detached worker's subprocess_results.json.
       # Returns one of four outcomes:
       #   :ready       — subprocess_results.json parsed successfully
-      #   :crashed     — state.subprocess_status terminal OR heartbeat stale
+      #   :crashed     — state.subprocess_status == crashed/self_timed_out
+      #                  OR state == done but results never parseable within
+      #                     wall-clock budget (reason: done_but_no_results)
+      #                  OR heartbeat stale (only while non-terminal state)
       #                  OR pid present but no heartbeat within grace OR
       #                  no pid/heartbeat within startup grace
       #   :timeout     — wall-clock max_wait exceeded with live worker
       #   (raises on unexpected errors from PendingState)
+      #
+      # v3.24.2: 'done' state now bypasses the heartbeat staleness check.
+      # The heartbeat thread is killed in the worker's ensure block, so
+      # mtime stops advancing the moment the worker transitions to 'done'.
+      # Without this bypass, a transient parse-mid-rename of
+      # subprocess_results.json combined with the killed heartbeat could
+      # surface a false-positive 'heartbeat_stale' for a successfully
+      # completed worker.
       module WaitForWorker
         STARTUP_GRACE_DEFAULT        = 30
         HEARTBEAT_STALE_DEFAULT      = 15
         POLL_INTERVAL_DEFAULT        = 0.5
         SUSPEND_JUMP_THRESHOLD       = 5.0
+
+        # All possible :crashed outcome reasons. Single source of truth for
+        # the crash-reason taxonomy; operators grep these in worker.log and
+        # next_action redispatch hints. v3.24.3 declares the constant; usage
+        # sites still use string literals (replacement scheduled for v3.24.4
+        # to avoid bundling unrelated refactors).
+        CRASH_REASONS = %w[
+          heartbeat_stale
+          heartbeat_never_started
+          worker_never_started
+          done_but_no_results
+          crashed
+          self_timed_out
+          wait_exhausted
+          internal_error
+          malformed_state
+        ].freeze
 
         module_function
 
@@ -48,17 +76,40 @@ module KairosMcp
               # transient parse mid-rename — keep polling
             end
 
-            # 2. Explicit crash marker from worker
+            # 2. Explicit terminal status from worker
             state = PendingState.load_state(token)
-            if state && (state['subprocess_status'] == 'crashed' ||
-                         state['subprocess_status'] == 'self_timed_out')
-              return {
-                status: :crashed,
-                reason: state['crash_reason'] || state['subprocess_status'],
-                pid: read_pid(token),
-                pgid: read_pgid_from_file(token),
-                log_tail: tail_log(token)
-              }
+            if state
+              status = state['subprocess_status']
+              if status == 'crashed' || status == 'self_timed_out'
+                return {
+                  status: :crashed,
+                  reason: state['crash_reason'] || status,
+                  pid: read_pid(token),
+                  pgid: read_pgid_from_file(token),
+                  log_tail: tail_log(token)
+                }
+              end
+
+              # Worker exited cleanly. subprocess_results.json should be (or
+              # imminently become) loadable via step 1 on a subsequent poll.
+              # The heartbeat thread is intentionally killed at worker exit
+              # (dispatch_worker.rb ensure block), so the heartbeat-stale
+              # check below would false-positive. Skip liveness checks while
+              # 'done', and rely on step 1 retry until results parse or the
+              # wall-clock budget exhausts.
+              if status == 'done'
+                if now_mono > deadline
+                  return {
+                    status: :crashed,
+                    reason: 'done_but_no_results',
+                    pid: read_pid(token),
+                    pgid: read_pgid_from_file(token),
+                    log_tail: tail_log(token)
+                  }
+                end
+                sleep poll_interval
+                next
+              end
             end
 
             # 3. Heartbeat-based liveness checks

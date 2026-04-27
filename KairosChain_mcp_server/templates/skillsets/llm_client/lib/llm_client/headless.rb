@@ -53,16 +53,16 @@ module KairosMcp
           # from codex 5.5 + cursor).
           # Guarded by `defined?` so non-worker consumers (MCP direct call)
           # that never load multi_llm_review/main_state don't NameError.
-          bracket = defined?(KairosMcp::SkillSets::MultiLlmReview::MainState)
-          if bracket
-            KairosMcp::SkillSets::MultiLlmReview::MainState.enter_call!
-          end
-          begin
-            result = CallRouter.perform(args, @config)
-          ensure
-            if bracket
-              KairosMcp::SkillSets::MultiLlmReview::MainState.exit_call!
+          # v3.24.3: use with_call to enforce ensure-bracketed enter/exit.
+          # enter_call!/exit_call! are now private; with_call is the only
+          # supported pattern. defined?-guard preserved so non-worker
+          # consumers (MCP direct call) don't NameError.
+          if defined?(KairosMcp::SkillSets::MultiLlmReview::MainState)
+            result = KairosMcp::SkillSets::MultiLlmReview::MainState.with_call do
+              CallRouter.perform(args, @config)
             end
+          else
+            result = CallRouter.perform(args, @config)
           end
           # Shape matches BaseTool#text_content (symbol :text key) — what
           # Dispatcher consumes today via `b[:text] || b['text']`.

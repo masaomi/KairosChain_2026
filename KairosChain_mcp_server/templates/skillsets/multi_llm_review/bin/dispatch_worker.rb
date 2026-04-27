@@ -103,28 +103,31 @@ def self_timeout_at_from_state(token, request)
   end
 end
 
-# Pulse thread: touches worker.tick IFF main is alive (counter advanced OR
-# still inside an adapter.call within its expected timeout).  (C3b/P0-3)
+# Pulse thread: touches worker.tick IFF main is alive. v3.24.3 uses the
+# per-thread (counter, in_flight, oldest_ts) snapshot from MainState and
+# delegates the alive decision to MainState.compute_alive (pure function,
+# unit-testable). Emits a diagnostic log line every ~5s so future incidents
+# can be diagnosed from worker.log without filesystem mtime archaeology.
 pulse_thread = Thread.new do
   begin
     last_counter = -1
-    # Loaded below; read now for the timeout window
-    max_call_t = 300
-    call_margin = 60
+    log_emit_at = 0
+    threshold = 360  # max_call_t (300) + call_margin (60)
     loop do
-      # MainState.snapshot reads ts FIRST then counter, per the v0.3.2
-      # reader-ordering invariant. Pulse must use snapshot (not raw struct
-      # reads) so any future change to the invariant is observed here.
-      counter, ts = MLR::MainState.snapshot
-      alive =
-        if counter != last_counter
-          true
-        elsif ts
-          (Process.clock_gettime(Process::CLOCK_MONOTONIC) - ts) < (max_call_t + call_margin)
-        else
-          false
-        end
+      counter, in_flight, oldest_ts = MLR::MainState.snapshot
+      now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      alive = MLR::MainState.compute_alive(
+        counter, last_counter, in_flight, oldest_ts, now, threshold
+      )
       FileUtils.touch(PS.worker_tick_path(token)) if alive
+
+      if now - log_emit_at >= 5
+        oldest_age = oldest_ts ? (now - oldest_ts).round(1) : nil
+        warn "[pulse] counter=#{counter} in_flight=#{in_flight} " \
+             "oldest_age=#{oldest_age || 'nil'}s alive=#{alive}"
+        log_emit_at = now
+      end
+
       last_counter = counter
       sleep 2
     end
@@ -263,8 +266,9 @@ begin
     review_context: request['review_context'] || 'independent'
   )
 
-  # Advance counter so pulse observes "progress since dispatch entered".
-  MLR::MainState.exit_call!
+  # v3.24.3: counter-only signal (no enter_call!/exit_call! pair). bump_counter!
+  # advances pulse's progress signal without touching ts_by_thread.
+  MLR::MainState.bump_counter!
   check_shutdown!(token)
 
   elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0
