@@ -134,32 +134,37 @@ reviewers:
 # multi_llm_review tool auto-detects complexity from review_type + artifact size,
 # or accepts an explicit `complexity` input. The mapped effort overrides the
 # reviewer roster's default.
+#
+# Policy (2026-04-29): Reviewers stay at each LLM's DEFAULT effort regardless of
+# review_type or artifact size. Cross-evaluation experiments showed reviewer
+# verdict quality is effort-independent. Pushing reviewers above default wastes
+# cost without quality gain. High effort is reserved for the post-aggregation
+# REVISION phase (separate orchestrator action, not this SkillSet).
 effort_map:
   low:
-    claude_code: low
-    codex: low
+    claude_code: medium   # was: low — collapsed to default per new policy
+    codex: medium
   medium:
     claude_code: medium
     codex: medium
   high:
-    claude_code: high
-    codex: high
+    claude_code: medium   # was: high — reviewers stay at default
+    codex: medium
   critical:
-    claude_code: high   # NOT xhigh: 12-author experiment (2026-04-28) confirmed
-                        # effort gradient is inverse-U for design authoring;
-                        # for reviewers 4.7 is effort-independent so high is the
-                        # ceiling. xhigh/max cause subprocess regression and add
-                        # cost without quality gain.
-    codex: high  # codex max is "high"
+    claude_code: medium   # was: high — reviewers stay at default. critical work
+                          # belongs in revision phase (high+directive+anti-enum),
+                          # not in reviewer effort.
+    codex: medium
 
 # Auto-detection thresholds (used when complexity arg not given)
+# Note: per the policy above, all complexity levels currently map to medium for
+# reviewers. The thresholds remain so that explicit `complexity` inputs and
+# future per-pool overrides (e.g. revision-phase callers) can still differentiate.
 auto_complexity:
-  small_artifact_chars: 500    # <= this → complexity=low
-  large_artifact_chars: 5000   # > this → complexity=high
-  # Documents can be philosophically deep; default to medium not low.
-  # Size-based rules still apply (very short doc → low, very long doc → high).
+  small_artifact_chars: 500
+  large_artifact_chars: 5000
   document_review_type: medium
-  design_review_type: high     # review_type=design → complexity=high
+  design_review_type: medium   # was: high — reviewers default per new policy
 
 # Review context default
 # 'independent' = reviewers don't see CLAUDE.md, project instructions
