@@ -145,7 +145,11 @@ effort_map:
     claude_code: high
     codex: high
   critical:
-    claude_code: xhigh
+    claude_code: high   # NOT xhigh: 12-author experiment (2026-04-28) confirmed
+                        # effort gradient is inverse-U for design authoring;
+                        # for reviewers 4.7 is effort-independent so high is the
+                        # ceiling. xhigh/max cause subprocess regression and add
+                        # cost without quality gain.
     codex: high  # codex max is "high"
 
 # Auto-detection thresholds (used when complexity arg not given)

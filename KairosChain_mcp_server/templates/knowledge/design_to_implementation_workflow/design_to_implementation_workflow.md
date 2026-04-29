@@ -149,11 +149,26 @@ Claude Persona Assembly (4 personas):
 
 | Phase | Effort | Rationale |
 |-------|--------|-----------|
+| **Design authoring (4.7)** | **High** | 12-author 実験 (2026-04-28) で effort gradient は逆 U 字、high が peak。medium は persona unanimity 未達、xhigh/max は subprocess 退化 (cursor flip / 4.6 dropoff)。必ず `design_by_invariant` + `anti_enumeration` directive と併用。 |
 | Design review | High | Maximize gap detection |
 | Implementation | Medium | Design is detailed; faithful translation |
 | Self-review | Low | Quick Agent pass, fix obvious issues |
 | Implementation review | High | Find wiring/integration bugs |
 | Final review | High | Merge gate with Persona Assembly |
+
+### Effort 適用ルール (重要)
+
+Effort は **per-invocation parameter** として渡す。orchestrator session の `/effort` 等で global 変更してはいけない (settings.json 永続化で日常対話まで波及するため):
+
+```bash
+# OK: subprocess flag for design authoring
+claude -p --model claude-opus-4-7 --effort high "..." < prompt.md > out.md
+
+# OK: Agent tool 経由の prompt cue (think hard / ultrathink)
+# NG: Orchestrator session 内で /effort high を実行
+```
+
+Reviewer 側 (Opus 4.7) は effort-independent なので high が天井。xhigh/max は使わない (multi_llm_review SkillSet の `effort_map` も同方針: critical → high)。
 
 ## Tool Usage During Implementation
 
