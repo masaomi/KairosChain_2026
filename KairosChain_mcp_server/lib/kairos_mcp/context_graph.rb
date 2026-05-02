@@ -41,6 +41,12 @@ module KairosMcp
     ].freeze
 
     DEFAULT_MAX_DEPTH = 3
+    MAX_DEPTH_CLAMP = 16
+    # Recursion depth cap for assert_safe_value!. Pathological deeply-nested
+    # YAML in user-supplied frontmatter can otherwise blow Ruby's call stack
+    # (SystemStackError) before validation completes. 32 is well above any
+    # legitimate usage and far below Ruby's default stack limit.
+    MAX_VALUE_NESTING = 32
 
     # Error hierarchy. All inherit from a single base so callers can
     # rescue ContextGraph::Error to surface uniformly.
@@ -137,7 +143,7 @@ module KairosMcp
         raise MalformedTargetError, "relations[#{idx}].target does not match canonical form: #{target.inspect}" unless TARGET_RE.match?(target)
 
         item.each do |k, v|
-          assert_safe_value!(v, "relations[#{idx}].#{k}")
+          assert_safe_value!(v, "relations[#{idx}].#{k}", 0)
         end
       end
 
@@ -145,15 +151,19 @@ module KairosMcp
     end
 
     # Recursively check that a value tree contains only SAFE_VALUE_TYPES.
-    def assert_safe_value!(value, location)
+    # Bounded by MAX_VALUE_NESTING to prevent SystemStackError from
+    # pathological frontmatter input.
+    def assert_safe_value!(value, location, depth)
+      raise UnsafeRelationValueError, "value nesting exceeds MAX_VALUE_NESTING=#{MAX_VALUE_NESTING} at #{location}" if depth > MAX_VALUE_NESTING
+
       case value
       when Hash
         value.each do |k, v|
-          assert_safe_value!(k, "#{location}.<key>")
-          assert_safe_value!(v, "#{location}.#{k}")
+          assert_safe_value!(k, "#{location}.<key>", depth + 1)
+          assert_safe_value!(v, "#{location}.#{k}", depth + 1)
         end
       when Array
-        value.each_with_index { |v, i| assert_safe_value!(v, "#{location}[#{i}]") }
+        value.each_with_index { |v, i| assert_safe_value!(v, "#{location}[#{i}]", depth + 1) }
       else
         return if SAFE_VALUE_TYPES.any? { |t| value.is_a?(t) }
 
@@ -211,6 +221,7 @@ module KairosMcp
     # @param max_depth [Integer]
     # @return [Hash] { root:, nodes: [...], warnings: [...] }
     def traverse_informed_by(start_sid:, start_name:, context_root:, max_depth: DEFAULT_MAX_DEPTH)
+      depth_limit = sanitize_max_depth(max_depth)
       root_target = "v1:#{start_sid}/#{start_name}"
       result = { root: root_target, nodes: [], warnings: [] }
       visited = {}
@@ -228,10 +239,14 @@ module KairosMcp
         result[:nodes] << node
 
         next if node[:status] != :ok
-        next if depth >= max_depth
+        next if depth >= depth_limit
 
         outgoing = read_relations(node[:path], result[:warnings])
-        outgoing.each do |edge|
+        outgoing.each_with_index do |edge, idx|
+          unless edge.is_a?(Hash)
+            result[:warnings] << "skip relations item #{idx} of #{node[:target]}: not a Hash"
+            next
+          end
           next unless edge['type'] == 'informed_by' || edge[:type] == 'informed_by'
           edge_target = edge['target'] || edge[:target]
           next unless edge_target.is_a?(String)
@@ -242,6 +257,15 @@ module KairosMcp
       end
 
       result
+    end
+
+    # Coerce caller-supplied max_depth into [0, MAX_DEPTH_CLAMP]. Non-Integer
+    # input falls back to DEFAULT_MAX_DEPTH (avoids ArgumentError /
+    # NoMethodError on string or nil from tool args).
+    def sanitize_max_depth(value)
+      n = Integer(value) rescue DEFAULT_MAX_DEPTH
+      return 0 if n < 0
+      [n, MAX_DEPTH_CLAMP].min
     end
 
     # Visit one node: resolve, classify status. Returns node hash.
@@ -272,9 +296,17 @@ module KairosMcp
       return [] unless m
 
       begin
-        front = YAML.safe_load(m[1], permitted_classes: [Symbol, Date, Time]) || {}
+        # permitted_classes intentionally symmetric with write-side
+        # SAFE_VALUE_TYPES (no Symbol). Legacy files containing Symbol values
+        # parse-fail loudly here rather than feed asymmetric data into BFS.
+        front = YAML.safe_load(m[1], permitted_classes: [Date, Time]) || {}
       rescue StandardError => e
         warnings << "skip relations of #{md_path}: parse_failed (#{e.message})"
+        return []
+      end
+
+      unless front.is_a?(Hash)
+        warnings << "skip relations of #{md_path}: frontmatter root is not a Hash (got #{front.class})"
         return []
       end
 

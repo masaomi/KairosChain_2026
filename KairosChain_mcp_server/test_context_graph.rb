@@ -439,6 +439,254 @@ Dir.mktmpdir do |root|
   end
 end
 
+# ============================================================
+section('8. v2.1.1 patch regression tests')
+# ============================================================
+
+# F1: non-Hash YAML root in frontmatter → skip+warn, no crash
+Dir.mktmpdir do |root|
+  sid = 'session_20260501_080000_88888888'
+
+  # Target context with frontmatter that is a YAML list (non-Hash root)
+  list_dir = File.join(root, sid, 'list_root')
+  FileUtils.mkdir_p(list_dir)
+  File.write(File.join(list_dir, 'list_root.md'), "---\n- just\n- a list\n---\nbody")
+
+  # Source pointing at it
+  src_dir = File.join(root, sid, 'src1')
+  FileUtils.mkdir_p(src_dir)
+  File.write(File.join(src_dir, 'src1.md'), <<~MD)
+    ---
+    name: src1
+    relations_schema: 1
+    relations:
+      - type: informed_by
+        target: v1:#{sid}/list_root
+    ---
+    body
+  MD
+
+  result = nil
+  assert('F1: traverse with non-Hash YAML root does not crash') do
+    result = CG.traverse_informed_by(start_sid: sid, start_name: 'src1',
+                                     context_root: root, max_depth: 3)
+    true
+  end
+  assert('F1: warning emitted for non-Hash root') do
+    result[:warnings].any? { |w| w.include?('frontmatter root is not a Hash') }
+  end
+end
+
+# F2: non-Hash relation entry in read-side relations[] → skip+warn, no crash
+Dir.mktmpdir do |root|
+  sid = 'session_20260501_090000_99999999'
+
+  # Source manually crafted with a string item inside relations[]
+  src_dir = File.join(root, sid, 'src2')
+  FileUtils.mkdir_p(src_dir)
+  File.write(File.join(src_dir, 'src2.md'), <<~MD)
+    ---
+    name: src2
+    relations_schema: 1
+    relations:
+      - type: informed_by
+        target: v1:#{sid}/whatever
+      - "naked string item"
+    ---
+    body
+  MD
+
+  result = nil
+  assert('F2: traverse with non-Hash relation item does not crash') do
+    result = CG.traverse_informed_by(start_sid: sid, start_name: 'src2',
+                                     context_root: root, max_depth: 3)
+    true
+  end
+  assert('F2: warning emitted for non-Hash relation item') do
+    result[:warnings].any? { |w| w.include?('not a Hash') }
+  end
+end
+
+# F3: assert_safe_value! depth-bounded (no SystemStackError)
+deep_hash = 'leaf'
+40.times { deep_hash = { 'wrap' => deep_hash } }
+assert_raises('F3: deeply-nested value rejected with bounded recursion', CG::UnsafeRelationValueError) do
+  CG.validate_relations!([{ 'type' => 'informed_by', 'target' => 'v1:a/b', 'extra' => deep_hash }])
+end
+
+# F4: max_depth invalid input → coerced safely
+Dir.mktmpdir do |root|
+  sid = 'session_20260501_111111_44444444'
+  ctx_dir = File.join(root, sid, 'only_node')
+  FileUtils.mkdir_p(ctx_dir)
+  File.write(File.join(ctx_dir, 'only_node.md'), "---\nname: only_node\n---\nbody")
+
+  assert('F4: max_depth=string falls back to default (no crash)') do
+    res = CG.traverse_informed_by(start_sid: sid, start_name: 'only_node',
+                                  context_root: root, max_depth: 'garbage')
+    res[:nodes].size == 1
+  end
+
+  assert('F4: max_depth=nil coerces to default') do
+    res = CG.traverse_informed_by(start_sid: sid, start_name: 'only_node',
+                                  context_root: root, max_depth: nil)
+    res[:nodes].size == 1
+  end
+
+  assert('F4: max_depth=-5 clamped to 0') do
+    res = CG.traverse_informed_by(start_sid: sid, start_name: 'only_node',
+                                  context_root: root, max_depth: -5)
+    res[:nodes].size == 1 && res[:nodes].first[:depth] == 0
+  end
+
+  assert('F4: max_depth=999 clamped to MAX_DEPTH_CLAMP') do
+    # No way to observe clamp directly with single node, but no crash + result intact
+    res = CG.traverse_informed_by(start_sid: sid, start_name: 'only_node',
+                                  context_root: root, max_depth: 999)
+    res[:nodes].size == 1
+  end
+end
+
+# F5: read-side rejects Symbol via parse failure (symmetric with write)
+Dir.mktmpdir do |root|
+  sid = 'session_20260501_121212_55555555'
+
+  # Manually create a context whose frontmatter contains a Symbol value
+  # YAML.safe_load with permitted_classes=[Date,Time] (no Symbol) will reject it
+  sym_dir = File.join(root, sid, 'sym_node')
+  FileUtils.mkdir_p(sym_dir)
+  File.write(File.join(sym_dir, 'sym_node.md'), "---\nname: sym_node\nfoo: !ruby/symbol bar\n---\nbody")
+
+  src_dir = File.join(root, sid, 'src5')
+  FileUtils.mkdir_p(src_dir)
+  File.write(File.join(src_dir, 'src5.md'), <<~MD)
+    ---
+    name: src5
+    relations_schema: 1
+    relations:
+      - type: informed_by
+        target: v1:#{sid}/sym_node
+    ---
+    body
+  MD
+
+  result = CG.traverse_informed_by(start_sid: sid, start_name: 'src5',
+                                   context_root: root, max_depth: 3)
+  assert('F5: Symbol-containing target produces parse_failed warning') do
+    result[:warnings].any? { |w| w.include?('parse_failed') }
+  end
+end
+
+# F6: atomic_write crash durability — simulate File.rename failure
+Dir.mktmpdir do |dir|
+  target = File.join(dir, 'target.md')
+  File.write(target, 'original')
+
+  # Stub File.rename to raise mid-flight
+  klass = (class << File; self; end)
+  alias_name = :__test_orig_rename
+  klass.alias_method(alias_name, :rename) unless klass.method_defined?(alias_name) || klass.private_method_defined?(alias_name)
+  klass.define_method(:rename) { |_a, _b| raise Errno::EIO, 'simulated' }
+
+  begin
+    raised = false
+    begin
+      CG.atomic_write(target, 'new content')
+    rescue Errno::EIO
+      raised = true
+    end
+    assert('F6: rename failure propagates') { raised }
+    assert('F6: original target unchanged after rename failure') { File.read(target) == 'original' }
+    leftover = Dir[File.join(dir, '*.tmp.*')]
+    assert('F6: tempfile cleaned up by ensure block') { leftover.empty? }
+  ensure
+    klass.define_method(:rename) { |a, b| File.send(alias_name, a, b) }
+  end
+end
+
+# F7a: hash key Symbol rejection
+assert_raises('F7a: hash sub-value with Symbol key rejected', CG::UnsafeRelationValueError) do
+  CG.validate_relations!([{
+    'type' => 'informed_by',
+    'target' => 'v1:a/b',
+    'extra' => { sym_key: 'value' }
+  }])
+end
+
+# F7b: traverse skips non-informed_by edges
+Dir.mktmpdir do |root|
+  KairosMcp._test_context_dir = root
+  cm = KairosMcp::ContextManager.new(root)
+  sid = 'session_20260501_131313_77777777'
+
+  cm.save_context(sid, 'leaf_x', "---\nname: leaf_x\n---\nbody")
+
+  # Source with one informed_by + one supersedes (forward-compat type)
+  cm.save_context(sid, 'src7', <<~MD)
+    ---
+    name: src7
+    relations_schema: 1
+    relations:
+      - type: informed_by
+        target: v1:#{sid}/leaf_x
+      - type: supersedes
+        target: v1:#{sid}/leaf_x
+    ---
+    body
+  MD
+
+  result = CG.traverse_informed_by(start_sid: sid, start_name: 'src7',
+                                   context_root: root, max_depth: 3)
+  # leaf_x reached only via informed_by (visited once)
+  leaf_count = result[:nodes].count { |n| n[:target] == "v1:#{sid}/leaf_x" }
+  assert('F7b: supersedes edge skipped during traverse') { leaf_count == 1 }
+end
+
+# F7c: max_depth=0 → only root visited
+Dir.mktmpdir do |root|
+  KairosMcp._test_context_dir = root
+  cm = KairosMcp::ContextManager.new(root)
+  sid = 'session_20260501_141414_66666666'
+
+  cm.save_context(sid, 'child', "---\nname: child\n---\nbody")
+  cm.save_context(sid, 'parent', <<~MD)
+    ---
+    name: parent
+    relations_schema: 1
+    relations:
+      - type: informed_by
+        target: v1:#{sid}/child
+    ---
+    body
+  MD
+
+  result = CG.traverse_informed_by(start_sid: sid, start_name: 'parent',
+                                   context_root: root, max_depth: 0)
+  assert('F7c: max_depth=0 visits only root') { result[:nodes].size == 1 && result[:nodes].first[:target] == "v1:#{sid}/parent" }
+end
+
+# F7d: empty relations[] array → traverse single node
+Dir.mktmpdir do |root|
+  KairosMcp._test_context_dir = root
+  cm = KairosMcp::ContextManager.new(root)
+  sid = 'session_20260501_151515_aaaaaaaa'
+
+  # Save context with explicit empty relations
+  cm.save_context(sid, 'lone', <<~MD)
+    ---
+    name: lone
+    relations_schema: 1
+    relations: []
+    ---
+    body
+  MD
+
+  result = CG.traverse_informed_by(start_sid: sid, start_name: 'lone',
+                                   context_root: root, max_depth: 3)
+  assert('F7d: empty relations[] produces single-node result') { result[:nodes].size == 1 }
+  assert('F7d: empty relations[] produces no warnings') { result[:warnings].empty? }
+end
+
 # ===== Summary =====
 puts "\n===== RESULTS ====="
 puts "  PASS: #{$pass}"
