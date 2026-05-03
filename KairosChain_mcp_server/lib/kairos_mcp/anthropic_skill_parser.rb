@@ -2,6 +2,7 @@
 
 require 'yaml'
 require 'fileutils'
+require 'securerandom'
 
 module KairosMcp
   # AnthropicSkillParser: Parses Anthropic skills format (YAML frontmatter + Markdown)
@@ -101,7 +102,7 @@ module KairosMcp
         FileUtils.mkdir_p(skill_dir)
 
         md_file = File.join(skill_dir, "#{name}.md")
-        File.write(md_file, content)
+        atomic_write(md_file, content)
 
         if create_subdirs
           FileUtils.mkdir_p(File.join(skill_dir, 'scripts'))
@@ -121,8 +122,25 @@ module KairosMcp
         md_file = find_md_file(skill_dir)
         raise "No markdown file found in #{skill_dir}" unless md_file
 
-        File.write(md_file, new_content)
+        atomic_write(md_file, new_content)
         parse(skill_dir)
+      end
+
+      # Atomic-rename write. Tempfile in same directory then File.rename to
+      # the target. Crash mid-write leaves target either fully replaced or
+      # untouched — never truncated. Security-grounded (don't destroy
+      # someone else's valid record), not durability-grounded.
+      def atomic_write(target_path, content)
+        dir = File.dirname(target_path)
+        FileUtils.mkdir_p(dir) unless File.directory?(dir)
+        tempname = "#{File.basename(target_path)}.tmp.#{Process.pid}.#{SecureRandom.hex(4)}"
+        temp_path = File.join(dir, tempname)
+        begin
+          File.write(temp_path, content)
+          File.rename(temp_path, target_path)
+        ensure
+          File.delete(temp_path) if File.exist?(temp_path)
+        end
       end
 
       # List all scripts in a skill

@@ -50,6 +50,26 @@ module KairosMcp
           result
         end
 
+        # Traverse informed_by edges starting from a given L2 context.
+        # Delegates to KairosMcp::ContextGraph.traverse_informed_by.
+        #
+        # @param start_sid [String]
+        # @param start_name [String]
+        # @param max_depth [Integer]
+        # @return [Hash] { root:, nodes: [...], warnings: [...] }
+        def traverse_informed_by(start_sid:, start_name:, max_depth: 3)
+          unless defined?(KairosMcp::ContextGraph)
+            require_relative '../../../../../lib/kairos_mcp/context_graph'
+          end
+
+          KairosMcp::ContextGraph.traverse_informed_by(
+            start_sid: start_sid,
+            start_name: start_name,
+            context_root: context_dir,
+            max_depth: max_depth
+          )
+        end
+
         private
 
         # ---------------------------------------------------------------

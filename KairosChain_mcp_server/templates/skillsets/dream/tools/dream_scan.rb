@@ -30,22 +30,39 @@ module KairosMcp
             {
               type: 'object',
               properties: {
+                mode: {
+                  type: 'string',
+                  enum: %w[scan traverse],
+                  description: 'Operation mode. scan (default) = pattern/staleness scan. traverse = BFS Context Graph informed_by edges from a given L2 context.'
+                },
                 scope: {
                   type: 'string',
                   enum: %w[l2 l1 all],
-                  description: 'Scan scope: l2 (contexts only), l1 (knowledge health), all (both). Default: l2'
+                  description: '[scan mode] Scan scope: l2 (contexts only), l1 (knowledge health), all (both). Default: l2'
                 },
                 since_session: {
                   type: 'string',
-                  description: 'Only scan sessions after this session ID (lexicographic comparison)'
+                  description: '[scan mode] Only scan sessions after this session ID (lexicographic comparison)'
                 },
                 include_archive_candidates: {
                   type: 'boolean',
-                  description: 'Whether to detect stale L2 contexts for archival. Default: true'
+                  description: '[scan mode] Whether to detect stale L2 contexts for archival. Default: true'
                 },
                 include_l1_dedup: {
                   type: 'boolean',
-                  description: 'Check promotion candidates against existing L1 knowledge to mark duplicates. Default: true'
+                  description: '[scan mode] Check promotion candidates against existing L1 knowledge to mark duplicates. Default: true'
+                },
+                start_sid: {
+                  type: 'string',
+                  description: '[traverse mode] Starting L2 session_id for BFS.'
+                },
+                start_name: {
+                  type: 'string',
+                  description: '[traverse mode] Starting L2 context name for BFS.'
+                },
+                max_depth: {
+                  type: 'integer',
+                  description: '[traverse mode] BFS depth limit. Default: 3.'
                 }
               },
               required: []
@@ -55,6 +72,9 @@ module KairosMcp
           def call(arguments)
             config = load_dream_config
             scanner = KairosMcp::SkillSets::Dream::Scanner.new(config: config)
+
+            mode = arguments['mode'] || 'scan'
+            return call_traverse(scanner, arguments) if mode == 'traverse'
 
             scan_result = scanner.scan(
               scope: arguments['scope'] || config.dig('scan', 'default_scope') || 'l2',
@@ -69,6 +89,20 @@ module KairosMcp
             text_content(format_output(scan_result))
           rescue StandardError => e
             text_content(JSON.pretty_generate({ error: e.message, backtrace: e.backtrace&.first(5) }))
+          end
+
+          # Traverse mode: Phase 1 Context Graph BFS over informed_by edges.
+          # Does NOT record to blockchain (Phase 1 §5.4).
+          def call_traverse(scanner, arguments)
+            sid = arguments['start_sid']
+            name = arguments['start_name']
+            return text_content(JSON.pretty_generate(error: 'traverse mode requires start_sid and start_name')) if sid.nil? || name.nil?
+
+            depth = arguments['max_depth'] || 3
+            result = scanner.traverse_informed_by(start_sid: sid, start_name: name, max_depth: depth)
+            text_content(JSON.pretty_generate(result))
+          rescue StandardError => e
+            text_content(JSON.pretty_generate(error: e.message, error_class: e.class.name))
           end
 
           private

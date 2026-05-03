@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
 require 'fileutils'
+require 'yaml'
 require_relative 'anthropic_skill_parser'
+require_relative 'context_graph'
 require_relative '../kairos_mcp'
 
 module KairosMcp
@@ -78,11 +80,13 @@ module KairosMcp
     # @param create_subdirs [Boolean] Whether to create scripts/assets/references
     # @return [Hash] Result with success status
     def save_context(session_id, name, content, create_subdirs: false)
+      validate_relations_in_content!(content)
+
       session_dir = File.join(@context_dir, session_id)
       FileUtils.mkdir_p(session_dir)
 
       context_dir = File.join(session_dir, name)
-      
+
       if File.directory?(context_dir)
         # Update existing
         skill = AnthropicSkillParser.update(context_dir, content)
@@ -92,8 +96,41 @@ module KairosMcp
         skill = AnthropicSkillParser.create(session_dir, name, content, create_subdirs: create_subdirs)
         { success: true, action: 'created', context: skill.to_h }
       end
+    rescue ContextGraph::Error => e
+      { success: false, error: "#{e.class.name.split('::').last}: #{e.message}" }
     rescue StandardError => e
       { success: false, error: e.message }
+    end
+
+    # Parse the incoming content's frontmatter, and if it carries relations[]
+    # (Context Graph Phase 1), enforce the v2.1 §1.1 schema rules and
+    # path-containment guard. Pure validation — does not mutate content.
+    #
+    # @raise ContextGraph::* on any violation
+    def validate_relations_in_content!(content)
+      return unless content.is_a?(String)
+
+      m = content.match(/\A---\r?\n(.+?)\r?\n---\r?\n/m)
+      return unless m
+
+      begin
+        front = YAML.safe_load(m[1], permitted_classes: [Symbol, Date, Time]) || {}
+      rescue StandardError => e
+        raise ContextGraph::InvalidFrontmatterError, "frontmatter parse failed: #{e.message}"
+      end
+
+      relations = front['relations'] || front[:relations]
+      return if relations.nil?
+
+      ContextGraph.validate_relations!(relations)
+
+      # For each target, run the path-containment guard. PathEscape and
+      # SymlinkRejected are hard fails on the write path. ENOENT (dangling)
+      # is allowed (forward references are part of L2-evidential ontology).
+      relations.each do |item|
+        target = item['target'] || item[:target]
+        ContextGraph.resolve_target(target, @context_dir)
+      end
     end
 
     # Delete a context
