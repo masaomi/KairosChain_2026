@@ -57,4 +57,4 @@ docker/.env
 
 # MCP server config (environment-specific)
 .mcp.json
-
+__pycache__/
