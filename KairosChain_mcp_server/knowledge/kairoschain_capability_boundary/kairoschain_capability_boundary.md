@@ -123,8 +123,13 @@ This doctrine updates on:
 - **Tier classification changes** (each tool maintainer when modifying their tool's `harness_requirement`)
 - **Delivery channel additions** (when a new harness or a new auto-load mechanism is recognized)
 
+## Related doctrines
+
+- **`context_graph_recall`** (Phase 2 Case A): recall doctrine specializing 3 of the 8 invariants here (Honest unknown → Honest absence, Acknowledgment → Recall-source acknowledgment, Declare-not-enforce → Doctrine-not-mechanism) for the L2 graph traversal layer. The recall layer's Acknowledgment continuity inherits Phase 1.5's external-dependence Acknowledgment at the skill layer.
+
 ## Related references
 
 - Design source: `docs/drafts/capability_boundary_design_v1.1.md`
 - Phase 1 (Context Graph) precursor: `docs/drafts/context_graph_l2_mapping_design_v2.1.md`
+- Phase 2 Case A doctrine source: `docs/drafts/context_graph_recall_design_v1.3.md`
 - KairosChain 9 propositions: `CLAUDE.md` (Generative Principle + Nine Propositions)
