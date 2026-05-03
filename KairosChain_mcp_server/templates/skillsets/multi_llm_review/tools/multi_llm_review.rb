@@ -40,6 +40,37 @@ module KairosMcp
             %w[llm_call llm_status]
           end
 
+          # Phase 1.5 — Capability Boundary canonical example.
+          # multi_llm_review depends on:
+          #   - subprocess CLIs (claude_cli, codex_cli, cursor_cli) for advisory reviewers
+          #   - harness-specific Agent tool (Claude Code) for the persona unanimity gate
+          # The persona Agent path IS the blocking gate (Anthropic unanimity doctrine);
+          # subprocess advisory degrades gracefully but the gate path is harness_specific.
+          def harness_requirement
+            {
+              tier: :harness_assisted,
+              requires_externals: %i[claude_cli codex_cli cursor_cli],
+              requires_harness_features: [
+                {
+                  feature: :agent_tool,
+                  target_harness: :claude_code,
+                  used_for: 'persona unanimity gate (Anthropic doctrine, blocking gate)',
+                  degrades_to: 'direct API persona invocation (Phase 2+ candidate)'
+                }
+              ],
+              fallback_chain: [
+                { path: 'claude_code_agent_personas', tier: :harness_specific,
+                  target_harness: :claude_code,
+                  condition: 'running under Claude Code with Agent tool available' },
+                { path: 'direct_api_personas', tier: :harness_assisted,
+                  condition: 'API credentials configured for direct LLM calls' },
+                { path: 'manual_suggestion', tier: :core,
+                  condition: 'always available; KairosChain provides procedure, human executes' }
+              ],
+              acknowledgment: 'multi_llm_review primary value (persona unanimity gate) is harness-coupled; this declaration makes that explicit per Acknowledgment invariant'
+            }
+          end
+
           def input_schema
             {
               type: 'object',
@@ -304,6 +335,14 @@ module KairosMcp
               'excluded_reviewers' => (strategy == 'exclude' ? partitioned_count : 0)
             }
 
+            # Phase 1.5 — Acknowledgment invariant: articulate which fallback path
+            # was actually taken during this invocation. Subprocess reviewers may
+            # be present but the persona unanimity gate path is harness_specific
+            # (Claude Code Agent tool). When strategy='delegate', the orchestrator
+            # delegates to its own harness for personas — that is the harness_specific
+            # path. When subprocess-only ran, the path is harness_assisted.
+            payload['harness_assistance_used'] = build_acknowledgment(strategy, raw_results)
+
             text_content(JSON.generate(payload))
           rescue StandardError => e
             text_content(JSON.generate({
@@ -313,6 +352,34 @@ module KairosMcp
           end
 
           private
+
+          # Phase 1.5 — articulate which fallback_chain path actually ran.
+          # Returns Hash with path_taken/tier_actually_used/target_harness/acknowledgment.
+          def build_acknowledgment(strategy, raw_results)
+            successful_subprocess = raw_results.count { |r| r[:status] == :success }
+            if strategy == 'delegate'
+              {
+                'path_taken' => 'claude_code_agent_personas',
+                'tier_actually_used' => 'harness_specific',
+                'target_harness' => 'claude_code',
+                'subprocess_reviewers_succeeded' => successful_subprocess,
+                'acknowledgment' => 'orchestrator delegated persona reviews to its own harness (Claude Code Agent tool); subprocess CLIs ran in parallel as advisory. Anthropic unanimity gate path is harness-coupled.'
+              }
+            elsif successful_subprocess > 0
+              {
+                'path_taken' => 'subprocess_only',
+                'tier_actually_used' => 'harness_assisted',
+                'subprocess_reviewers_succeeded' => successful_subprocess,
+                'acknowledgment' => 'subprocess CLI reviewers ran (advisory); persona unanimity gate path was NOT exercised this invocation.'
+              }
+            else
+              {
+                'path_taken' => 'manual_suggestion',
+                'tier_actually_used' => 'core',
+                'acknowledgment' => 'no harness path succeeded; KairosChain returns review with reduced reviewer set or guidance for manual review.'
+              }
+            end
+          end
 
           def load_review_config
             config_path = File.join(__dir__, '..', 'config', 'multi_llm_review.yml')
