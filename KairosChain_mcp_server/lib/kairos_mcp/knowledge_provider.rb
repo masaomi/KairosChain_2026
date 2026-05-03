@@ -25,6 +25,9 @@ module KairosMcp
   class KnowledgeProvider
     ARCHIVED_DIR = '.archived'
     ARCHIVE_META_FILE = '.archive_meta.yml'
+    # Backup directories created by upgrade flow (`.bak.<timestamp>`).
+    # Loader must skip these — they may contain old/broken frontmatter.
+    BACKUP_DIR_PATTERN = /(?:^|\.)bak(?:\.|$)/.freeze
 
     # Initialize the KnowledgeProvider
     #
@@ -594,7 +597,9 @@ module KairosMcp
 
     def skill_dirs
       Dir[File.join(@knowledge_dir, '*')].select do |f|
-        File.directory?(f) && File.basename(f) != ARCHIVED_DIR
+        File.directory?(f) &&
+          File.basename(f) != ARCHIVED_DIR &&
+          !backup_dir?(f)
       end
     end
 
@@ -602,7 +607,15 @@ module KairosMcp
     def external_skill_dirs(dir)
       return [] unless File.directory?(dir)
 
-      Dir[File.join(dir, '*')].select { |f| File.directory?(f) }
+      Dir[File.join(dir, '*')].select { |f| File.directory?(f) && !backup_dir?(f) }
+    end
+
+    # Detect upgrade backup directories (`.bak.<timestamp>`, `<name>.bak.<timestamp>`).
+    # These are produced by `kairos-chain upgrade` and may contain stale/broken frontmatter
+    # from prior gem versions; loader must not scan them.
+    def backup_dir?(path)
+      basename = File.basename(path)
+      basename.match?(BACKUP_DIR_PATTERN)
     end
 
     def record_hash_reference(name:, action:, prev_hash:, next_hash:, reason:)
