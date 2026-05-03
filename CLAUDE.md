@@ -79,7 +79,77 @@ Never return commands alone. If potential problems exist, include remediation.
 
 Do not embed phase-specific information (test counts, version numbers) in this file. Refer to plans in `log/`.
 
-## About This Document
+## Multi-LLM Review Philosophy Briefing (this project only, experimental 2026-04-30)
+
+### Status
+
+EXPERIMENTAL / test-scope. Applies only to KairosChain_2026 project. NOT intended for adoption in other projects without independent validation. Revert criteria at the end of this section. Pre-test in progress.
+
+### Why this exists
+
+Hypothesis (from session 2026-04-30 user observation): cross-provider reviewers (Codex, Cursor) may evaluate against their own value system rather than this project's design philosophy, causing review divergence and loop non-convergence. Both 4.6/4.7 orchestrator experiments and the real Context Graph v1.0-f-high → v1.1 → v1.2 loop showed Codex never reaching APPROVE (24/24 reviews) and新 P0 emerging every round (D,E → J,K → L,M). This briefing tests whether prepending the project philosophy to reviewer prompts shifts findings from value-divergent (advisory) to philosophy-aligned (signal).
+
+Background L2: `opus_4_6_vs_4_7_role_division_analysis_and_recommendation`.
+
+### What to do during multi-LLM review
+
+When constructing prompts for multi-LLM reviewers (persona, subprocess, Codex, Cursor), prepend this briefing block before the design draft:
+
+```
+## Review philosophy frame (this project)
+
+KairosChain follows these design principles. Evaluate against THIS frame, not against generic engineering pragmatism:
+
+- Structural self-referentiality: meta-level operations expressed in the same structure as base-level (Ruby DSL/AST). "Defining a Skill" and "defining the evolution rules for a Skill" use the same language.
+- Design-by-invariant: state invariants, do not enumerate mechanisms. Mechanism choices go to the §11 backlog, not the body.
+- Anti-enumeration: prefer 1 invariant statement + 1 prose justification over N labelled branches. Do not introduce new subsections during revision.
+- Partial autopoiesis: definitional closure at L0 (governance / capability level), not at execution level. The system depends on external substrates (Ruby VM, filesystem) for execution; that is by design.
+- L2 → L1 → L0 promotion: external analysis (including your review) is internalized through this path. Your review is part of the system's metacognitive loop, not external judgment.
+
+When flagging findings, classify each as:
+- (a) deployment-grounded: spec violation, runtime bug, data corruption, concurrency hazard. Independent of philosophy. → P0
+- (b) philosophy-aligned: deviation from the principles above (e.g., enumeration where invariant would suffice; mechanism in body instead of backlog). → P0
+- (c) value-divergent: reviewer style preference, generic engineering best practice, or readability concern not entailed by the principles above. → P2 advisory only.
+
+If unsure between (b) and (c), default to (c).
+```
+
+### Aggregation rule
+
+When aggregating reviews, P0 count uses (a) + (b) only. (c) findings are listed in a separate "advisory observations" section and are NOT blocking. Per-reviewer (a)/(b)/(c) breakdown is recorded for the experiment observation log (see memory `multi_llm_review_philosophy_briefing_observations.md`).
+
+### Scope: design phase only
+
+Same scope rule as sub-author injection: applies to design-phase reviews only. Coding-phase reviews (if any) follow standard practice without this frame.
+
+### Disable conditions (revert criteria)
+
+Revert this section if any of:
+
+- 3 rounds with this briefing show no improvement in (a)+(b) vs (c) ratio compared to baseline (no briefing)
+- Reviewers ignore the briefing (continue producing same verdicts, no observable shift in finding classification)
+- Findings classified as (c) are routinely ignored but project ships fine (signal lost without harm)
+- User explicitly disables for cost / clarity / philosophical reasons
+- Briefing turns out to bias reviewers toward APPROVE through philosophy-coverage rather than improving signal quality
+
+Revert action: delete this section, mark observation log with "revert YYYY-MM-DD, reason: ...", record in L2.
+
+### Promote criteria (later)
+
+This section may graduate to `log/sub_author_injection_application_guide_20260430.md` Appendix B (or a new portable guide) only if:
+
+- 3+ rounds show (a)+(b) ratio improvement
+- Codex AWC / APPROVE convergence accelerates vs baseline
+- Independent re-validation in at least one other project / instance
+
+Until then, this remains scoped to KairosChain_2026.
+
+### Caveats (acknowledged self-referential tension)
+
+- The briefing itself enumerates principles, which is in tension with the anti-enumeration directive it asks reviewers to apply. This is accepted as a meta-level vs object-level distinction: the briefing operates at the meta-level (defining the frame), while the design under review operates at the object-level (subject to the frame).
+- External LLM reviewers may not faithfully follow the briefing. Observation log tracks compliance.
+
+
 
 This CLAUDE.md follows KairosChain's own philosophy:
 
