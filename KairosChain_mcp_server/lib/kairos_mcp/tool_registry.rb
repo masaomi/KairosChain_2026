@@ -51,6 +51,7 @@ module KairosMcp
       @safety = Safety.new
       @safety.set_user(user_context) if user_context
       @tools = {}
+      @tool_sources = {}     # { tool_name(String) => :core_tool | "skillset:<name>" } — Phase 1.5
       @lifecycle_hooks = {}  # { hook_name(Symbol) => { skillset:, class_name: } }
       register_tools
     end
@@ -188,7 +189,10 @@ module KairosMcp
 
       # Register tools
       register_if_defined('KairosMcp::Tools::HelloWorld')
-      
+
+      # Phase 1.5 — Capability Boundary self-articulation
+      register_if_defined('KairosMcp::Tools::CapabilityStatus')
+
       # L0-A: skills/kairos.md (read-only)
       register_if_defined('KairosMcp::Tools::SkillsList')
       register_if_defined('KairosMcp::Tools::SkillsGet')
@@ -270,7 +274,8 @@ module KairosMcp
       manager.enabled_skillsets.each do |skillset|
         skillset.load!
         skillset.tool_class_names.each do |cls|
-          register_if_defined(cls)
+          # Phase 1.5: thread source attribution for capability_status manifest
+          register_if_defined(cls, source: "skillset:#{skillset.name}")
         end
         # 24/7 v0.4 §2.3 — register lifecycle hooks declared by this SkillSet.
         skillset.lifecycle_hooks.each do |hook_name, class_name|
@@ -312,10 +317,12 @@ module KairosMcp
         raise "Cannot override local tool '#{name}' with dynamic registration"
       end
       @tools[name] = tool_instance
+      @tool_sources[name] = :dynamic_proxy
     end
 
     # Remove a dynamically registered tool (e.g., on mcp_disconnect).
     def unregister_tool(name)
+      @tool_sources.delete(name)
       @tools.delete(name)
     end
 
@@ -347,15 +354,16 @@ module KairosMcp
       SkillsConfig.load['skill_tools_enabled'] == true
     end
 
-    def register_if_defined(class_name)
+    def register_if_defined(class_name, source: :core_tool)
       klass = Object.const_get(class_name)
-      register(klass.new(@safety, registry: self))
+      register(klass.new(@safety, registry: self), source: source)
     rescue NameError
       # Class not defined yet (file might not exist), ignore
     end
 
-    def register(tool)
+    def register(tool, source: :core_tool)
       @tools[tool.name] = tool
+      @tool_sources[tool.name] = source
     end
 
     # Restore dynamic proxy tools from active mcp_client connections.

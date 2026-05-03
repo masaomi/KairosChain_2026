@@ -489,7 +489,9 @@ module KairosMcp
     end
 
     def knowledge_dirs
-      Dir[File.join(@knowledge_dir, '*')].select { |f| File.directory?(f) }
+      Dir[File.join(@knowledge_dir, '*')].select do |f|
+        File.directory?(f) && !File.basename(f).match?(KnowledgeProvider::BACKUP_DIR_PATTERN)
+      end
     end
 
     def session_dirs

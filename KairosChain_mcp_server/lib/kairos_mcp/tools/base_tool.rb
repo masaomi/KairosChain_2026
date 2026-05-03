@@ -1,3 +1,4 @@
+require 'json'
 require_relative '../invocation_context'
 
 module KairosMcp
@@ -68,6 +69,18 @@ module KairosMcp
         []
       end
 
+      # Phase 1.5 — Capability Boundary self-articulation.
+      # Override in subclasses to declare harness dependence.
+      # Default :core means MCP + filesystem only, no subprocess, no harness-specific tool.
+      # See docs/drafts/capability_boundary_design_v1.1.md for the 8 invariants and tier rules.
+      #
+      # @return [Symbol, Hash] :core | :harness_assisted | :harness_specific
+      #                       OR Hash with keys: tier, requires_externals, requires_harness_features,
+      #                       fallback_chain, degrades_to, target_harness, reason, note, acknowledgment
+      def harness_requirement
+        :core
+      end
+
       # Schema for MCP protocol
       def to_schema
         {
@@ -101,6 +114,36 @@ module KairosMcp
             text: text
           }
         ]
+      end
+
+      # Phase 1.5 — runtime acknowledgment helper (Acknowledgment invariant).
+      # Wrap a tool's actual work to articulate which harness path was actually
+      # used during this invocation. Block returns inner Hash; helper merges
+      # `harness_assistance_used:` field and produces the MCP text_content envelope.
+      #
+      # Example:
+      #   def call(args)
+      #     with_acknowledgment(path_taken: 'claude_code_agent_personas',
+      #                         tier: :harness_specific,
+      #                         target_harness: :claude_code) do
+      #       { result: '...', status: 'ok' }
+      #     end
+      #   end
+      def with_acknowledgment(path_taken:, tier:, target_harness: nil, &block)
+        inner = block.call
+        unless inner.is_a?(Hash)
+          raise ArgumentError, 'with_acknowledgment block must return Hash'
+        end
+        ack = {
+          path_taken: path_taken,
+          tier_actually_used: tier,
+          target_harness: target_harness,
+          acknowledgment: "this invocation used #{tier} path '#{path_taken}'" \
+                          "#{target_harness ? " (target_harness: #{target_harness})" : ''}" \
+                          ' — articulated per Acknowledgment invariant'
+        }
+        merged = inner.merge(harness_assistance_used: ack)
+        text_content(JSON.pretty_generate(merged))
       end
     end
   end
