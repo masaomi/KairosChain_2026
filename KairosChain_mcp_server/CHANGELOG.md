@@ -4,6 +4,28 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.24.9] - 2026-05-05
+
+### Added (L1 knowledge: goal_setting_heuristic)
+
+新規 L1 knowledge skill `goal_setting_heuristic` v0.2 を追加（`templates/knowledge/goal_setting_heuristic/`）。
+
+Knowledge Ethos v2.0（自律 agent ガードレールのフル版）が round 2 multi-LLM review で REVISE 判定 + 哲学 / 運用の根本レベル混乱が露見し塩漬けになったため、その核心 3 機能（Telos 多元性 / Boundary 監視 / Contradiction 許容）だけを抜き出した軽量代替として位置づけ。
+
+主な内容:
+- 3 階層 (Mission / Milestone / Action) + branch (Primary / Fallback / Pivot) の goal 構造
+- Goal-set 時の 3 つの自問（telos / boundary / contradiction）
+- 動的改訂トリガ 6 種（rolling window bias 検出を含む）
+- 完了 / 失敗時の next-step 提案 (halt 禁止) と halt 許可条件 3 種
+- Mission = blocking、Milestone/Action = non-blocking 区分
+- Rolling + 週次の振り返り集計
+- 既存 KairosChain ツール (`dream_*`, `introspection_check`, `multi_llm_review`, `skills_promote`, `context_save`, `chain_record`) との soft / hard 強制度区分明示
+
+軽量レビュー (1 round, 5 reviewer, persona 2 体): 1 APPROVE / 3 REJECT / 1 REVISE。critical P0 8 件を v0.2 で反映済み。塩漬け中の Knowledge Ethos v2.0 とは別アーティファクトとして並存。
+
+### Changed
+- `KairosMcp::VERSION` 3.24.8 → 3.24.9
+
 ## [3.24.1] - 2026-04-27
 
 ### Fixed (multi_llm_review_wait)
