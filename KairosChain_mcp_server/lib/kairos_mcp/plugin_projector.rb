@@ -5,6 +5,7 @@ require 'digest'
 require 'fileutils'
 require 'tempfile'
 require 'time'
+require 'pathname'
 
 module KairosMcp
   # Projects SkillSet plugin artifacts to Claude Code plugin/project structure.
@@ -20,6 +21,12 @@ module KairosMcp
     SAFE_NAME_PATTERN = /\A[a-zA-Z0-9][a-zA-Z0-9_-]*\z/
     ALLOWED_HOOK_COMMANDS = /\Akairos-/
 
+    INSTRUCTION_MODE_MARKER_BEGIN = '<!-- BEGIN kairos-chain:instruction-mode _projected_by=kairos-chain -->'
+    INSTRUCTION_MODE_MARKER_END   = '<!-- END kairos-chain:instruction-mode -->'
+    INSTRUCTION_MODE_REL_PATH     = 'kairos/instruction_mode.md'
+    INSTRUCTION_MODE_SIZE_WARN    = 150 * 1024
+    INSTRUCTION_MODE_SIZE_REFUSE  = 256 * 1024
+
     attr_reader :mode, :project_root, :output_root
 
     def initialize(project_root, mode: :auto)
@@ -27,6 +34,7 @@ module KairosMcp
       @mode = resolve_mode(mode)
       @output_root = @mode == :plugin ? project_root : File.join(project_root, '.claude')
       @manifest_path = File.join(project_root, '.kairos', 'projection_manifest.json')
+      @instruction_mode_manifest_path = File.join(project_root, '.kairos', 'instruction_mode_manifest.json')
     end
 
     # Main entry: project all SkillSet plugin artifacts + L1 knowledge meta skill
@@ -77,6 +85,96 @@ module KairosMcp
       missing = outputs.keys.reject { |f| File.exist?(f) }
       orphaned = find_orphaned_files(outputs)
       { valid: missing.empty? && orphaned.empty?, missing: missing, orphaned: orphaned }
+    end
+
+    # =========================================================================
+    # Instruction mode projection
+    #   See: log/20260507_plugin_projector_instruction_mode_implementation_plan.md
+    #
+    # Materializes the active instruction mode body to a flat file under
+    # <output_root>/<INSTRUCTION_MODE_REL_PATH>, then merges a managed marker
+    # region into project-root CLAUDE.md so the harness picks it up via
+    # `@`-import at session start. State for this artifact is tracked in a
+    # separate manifest (.kairos/instruction_mode_manifest.json) to avoid
+    # mixing symbolic region keys into the main projection manifest.
+    # =========================================================================
+
+    # Project the active instruction mode body.
+    #
+    # @param mode_name [String] active mode name (e.g., 'masa', 'tutorial')
+    # @param body [String] flat mode body (no @-imports inside)
+    # @param mode_version [String, nil] optional version label for the marker header
+    # @return [Hash] result summary { artifact_path:, region_written:, size_bytes: }
+    def project_instruction_mode!(mode_name, body, mode_version: nil)
+      raise ArgumentError, "unsafe mode name: #{mode_name.inspect}" unless safe_name?(mode_name)
+
+      size = body.bytesize
+      raise InstructionModeTooLarge.new(size, INSTRUCTION_MODE_SIZE_REFUSE) if size > INSTRUCTION_MODE_SIZE_REFUSE
+      warn "[PluginProjector] WARNING: instruction mode body is #{size} bytes (warn threshold #{INSTRUCTION_MODE_SIZE_WARN})" if size > INSTRUCTION_MODE_SIZE_WARN
+
+      artifact_path = File.join(@output_root, INSTRUCTION_MODE_REL_PATH)
+      raise "instruction mode artifact path outside output_root: #{artifact_path}" unless safe_path?(artifact_path)
+
+      FileUtils.mkdir_p(File.dirname(artifact_path))
+      atomic_write(artifact_path, body)
+
+      region_written = merge_instruction_mode_region!(mode_name, mode_version, artifact_path)
+
+      save_instruction_mode_manifest(
+        'mode_name' => mode_name,
+        'mode_version' => mode_version,
+        'artifact_path' => artifact_path,
+        'artifact_size' => size,
+        'artifact_digest' => Digest::SHA256.hexdigest(body),
+        'region_present' => region_written,
+        'projected_at' => Time.now.utc.iso8601
+      )
+
+      { artifact_path: artifact_path, region_written: region_written, size_bytes: size }
+    end
+
+    # Remove the projected instruction mode artifact and CLAUDE.md region.
+    #
+    # @return [Hash] result summary { artifact_removed:, region_removed: }
+    def remove_projected_instruction_mode!
+      manifest = load_instruction_mode_manifest
+      artifact_path = manifest['artifact_path'] || File.join(@output_root, INSTRUCTION_MODE_REL_PATH)
+
+      artifact_removed = false
+      if File.exist?(artifact_path) && safe_path?(artifact_path)
+        FileUtils.rm_f(artifact_path)
+        parent = File.dirname(artifact_path)
+        FileUtils.rmdir(parent) if Dir.exist?(parent) && Dir.empty?(parent)
+        artifact_removed = true
+      end
+
+      region_removed = remove_instruction_mode_region!
+
+      save_instruction_mode_manifest(nil) # clear
+
+      { artifact_removed: artifact_removed, region_removed: region_removed }
+    end
+
+    # Status summary for the instruction mode projection.
+    def instruction_mode_status
+      manifest = load_instruction_mode_manifest
+      {
+        mode: @mode,
+        active: !manifest.empty?,
+        mode_name: manifest['mode_name'],
+        mode_version: manifest['mode_version'],
+        artifact_path: manifest['artifact_path'],
+        artifact_size: manifest['artifact_size'],
+        region_present: manifest['region_present'],
+        projected_at: manifest['projected_at']
+      }
+    end
+
+    # Raised when a mode body exceeds the hard refusal threshold.
+    class InstructionModeTooLarge < StandardError
+      def initialize(size, limit)
+        super("instruction mode body too large: #{size} bytes exceeds limit #{limit}")
+      end
     end
 
     private
@@ -427,6 +525,95 @@ module KairosMcp
         template.gsub(marker, content)
       else
         template
+      end
+    end
+
+    # =========================================================================
+    # Instruction mode helpers (private)
+    # =========================================================================
+
+    # Merge or insert the managed marker region in project-root CLAUDE.md.
+    # Returns true if the region is now present, false otherwise.
+    def merge_instruction_mode_region!(mode_name, mode_version, artifact_path)
+      claudemd = claudemd_path
+      return false unless safe_claudemd_path?(claudemd)
+
+      import_path = relative_import_path(artifact_path)
+      header = "<!-- Active mode: #{mode_name}#{mode_version ? " v#{mode_version}" : ''} | source: .kairos/skills/#{mode_name}.md -->"
+      region = [
+        INSTRUCTION_MODE_MARKER_BEGIN,
+        header,
+        "@#{import_path}",
+        INSTRUCTION_MODE_MARKER_END
+      ].join("\n")
+
+      existing = File.exist?(claudemd) ? File.read(claudemd) : ''
+      stripped = strip_instruction_mode_region(existing)
+      separator = stripped.empty? || stripped.end_with?("\n\n") ? '' : (stripped.end_with?("\n") ? "\n" : "\n\n")
+      new_content = stripped + separator + region + "\n"
+
+      atomic_write(claudemd, new_content)
+      true
+    end
+
+    # Remove the managed marker region from project-root CLAUDE.md if present.
+    # Returns true if a region was removed, false otherwise.
+    def remove_instruction_mode_region!
+      claudemd = claudemd_path
+      return false unless File.exist?(claudemd)
+      return false unless safe_claudemd_path?(claudemd)
+
+      existing = File.read(claudemd)
+      stripped = strip_instruction_mode_region(existing)
+      return false if stripped == existing
+
+      atomic_write(claudemd, stripped)
+      true
+    end
+
+    # Project-root CLAUDE.md absolute path.
+    def claudemd_path
+      File.join(@project_root, 'CLAUDE.md')
+    end
+
+    # Path safety for the host file: must be exactly <project_root>/CLAUDE.md.
+    # Distinct from safe_path? (which gates output_root-confined paths).
+    def safe_claudemd_path?(path)
+      canonical = File.expand_path(path)
+      expected = File.expand_path(claudemd_path)
+      return true if canonical == expected
+      warn "[PluginProjector] WARNING: refusing to mutate non-project CLAUDE.md at '#{path}'"
+      false
+    end
+
+    # Compute the @-import path used inside the marker region.
+    # CLAUDE.md @-imports resolve relative to the project root (where CLAUDE.md lives),
+    # so we emit a project-relative path. The artifact lives under output_root,
+    # which is .claude/ in :project mode.
+    def relative_import_path(artifact_path)
+      Pathname.new(artifact_path).relative_path_from(Pathname.new(@project_root)).to_s
+    end
+
+    # Remove an existing marker region (and any blank-line padding directly
+    # surrounding it) from CLAUDE.md content. Idempotent.
+    def strip_instruction_mode_region(content)
+      pattern = /\n*#{Regexp.escape(INSTRUCTION_MODE_MARKER_BEGIN)}.*?#{Regexp.escape(INSTRUCTION_MODE_MARKER_END)}\n*/m
+      content.sub(pattern, "\n")
+    end
+
+    def load_instruction_mode_manifest
+      return {} unless File.exist?(@instruction_mode_manifest_path)
+      JSON.parse(File.read(@instruction_mode_manifest_path))
+    rescue JSON::ParserError
+      {}
+    end
+
+    def save_instruction_mode_manifest(data)
+      FileUtils.mkdir_p(File.dirname(@instruction_mode_manifest_path))
+      if data.nil?
+        FileUtils.rm_f(@instruction_mode_manifest_path)
+      else
+        atomic_write(@instruction_mode_manifest_path, JSON.pretty_generate(data))
       end
     end
   end

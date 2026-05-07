@@ -159,7 +159,14 @@ module KairosMcp
       KairosMcp.collect_knowledge_entries(user_context: @user_context)
     end
 
-    # Load instructions based on instructions_mode in config.yml
+    # Load instructions based on instructions_mode in config.yml.
+    #
+    # When the instruction mode body has been projected to CLAUDE.md (via
+    # `kairos-chain mode project`), this returns a slim identity+pointer
+    # string instead of the full body — the body itself reaches the model
+    # through CLAUDE.md @-import (the privileged delivery path verified in
+    # Theme A). Otherwise, returns the full body for backward compatibility
+    # with consumers that have not enabled CLAUDE.md projection yet.
     #
     # @return [String, nil] Instructions text or nil
     def load_instructions
@@ -181,7 +188,43 @@ module KairosMcp
 
       return nil unless path
 
-      read_if_exists(path)
+      if instruction_mode_projected?(mode)
+        slim_instructions_payload(mode, path)
+      else
+        read_if_exists(path)
+      end
+    end
+
+    # True if the active instruction mode has been projected for this project.
+    def instruction_mode_projected?(mode)
+      manifest_path = File.join(KairosMcp.project_root, '.kairos', 'instruction_mode_manifest.json')
+      return false unless File.exist?(manifest_path)
+      data = JSON.parse(File.read(manifest_path))
+      data['mode_name'] == mode && data['region_present']
+    rescue StandardError
+      false
+    end
+
+    # Identity + pointer payload sent over MCP `instructions` when the body
+    # is delivered via CLAUDE.md @-import. Short enough to clear the harness
+    # truncation cap. Non-Claude-Code consumers retrieve the body from the
+    # registry path directly.
+    def slim_instructions_payload(mode, body_path)
+      version_line = read_if_exists(body_path).to_s[/^\*\*Version:\*\*\s*\S+/i]
+      <<~PAYLOAD
+        # Active instruction mode (delivered via CLAUDE.md @-import)
+
+        - mode_name: #{mode}
+        - #{version_line || 'Version: (none recorded)'}
+        - source_path: #{body_path}
+
+        The full mode body is delivered to the model through this project's
+        CLAUDE.md `@`-import line and is not duplicated here. Non-Claude-Code
+        consumers can retrieve the body from the source_path above.
+
+        Re-run `kairos-chain mode project` after editing the source body
+        and restart Claude Code to apply changes.
+      PAYLOAD
     end
 
     # Read file content if it exists

@@ -342,6 +342,97 @@ when 'upgrade'
     puts content[:text] if content[:type] == 'text'
   end
   exit
+
+when 'mode'
+  ARGV.shift # Remove 'mode' from ARGV
+
+  mode_action = ARGV.shift || 'project'
+
+  $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
+  require 'kairos_mcp'
+
+  # Honor --data-dir if present anywhere in remaining ARGV
+  if (idx = ARGV.index('--data-dir'))
+    KairosMcp.data_dir = File.expand_path(ARGV[idx + 1])
+    ARGV.delete_at(idx + 1)
+    ARGV.delete_at(idx)
+  end
+
+  require 'kairos_mcp/skills_config'
+  require 'kairos_mcp/plugin_projector'
+
+  project_root = KairosMcp.project_root
+  projector_mode = KairosMcp.projection_mode
+  projector = KairosMcp::PluginProjector.new(project_root, mode: projector_mode)
+
+  case mode_action
+  when 'project'
+    instructions_mode = KairosMcp::SkillsConfig.load['instructions_mode']
+    if instructions_mode.nil? || instructions_mode == 'none'
+      puts "No active instruction mode (config: instructions_mode = #{instructions_mode.inspect})."
+      puts "Set instructions_mode in #{KairosMcp.skills_config_path} to project a mode body."
+      exit 0
+    end
+
+    body_path = case instructions_mode
+                when 'developer' then KairosMcp.md_path
+                when 'user'      then KairosMcp.quickguide_path
+                when 'tutorial'  then KairosMcp.tutorial_path
+                else File.join(KairosMcp.skills_dir, "#{instructions_mode}.md")
+                end
+
+    unless File.exist?(body_path)
+      warn "ERROR: instruction mode body not found: #{body_path}"
+      exit 1
+    end
+
+    body = File.read(body_path)
+    version = body[/^\*\*Version:\*\*\s*(\S+)/i, 1]
+
+    begin
+      result = projector.project_instruction_mode!(instructions_mode, body, mode_version: version)
+    rescue KairosMcp::PluginProjector::InstructionModeTooLarge => e
+      warn "ERROR: #{e.message}"
+      exit 1
+    end
+
+    puts "Instruction mode projected:"
+    puts "  mode      : #{instructions_mode}#{version ? " v#{version}" : ''}"
+    puts "  source    : #{body_path}"
+    puts "  artifact  : #{result[:artifact_path]}"
+    puts "  size      : #{result[:size_bytes]} bytes"
+    puts "  CLAUDE.md : region #{result[:region_written] ? 'updated' : 'not updated (host file outside project root or unsafe)'}"
+    puts ""
+    puts "Restart Claude Code to apply (CLAUDE.md @-imports resolve at session start)."
+    exit 0
+
+  when 'status'
+    s = projector.instruction_mode_status
+    if s[:active]
+      puts "Instruction mode projection: ACTIVE"
+      puts "  mode      : #{s[:mode_name]}#{s[:mode_version] ? " v#{s[:mode_version]}" : ''}"
+      puts "  artifact  : #{s[:artifact_path]} (#{s[:artifact_size]} bytes)"
+      puts "  region    : #{s[:region_present] ? 'present in CLAUDE.md' : 'absent'}"
+      puts "  projected : #{s[:projected_at]}"
+    else
+      puts "Instruction mode projection: not active for this project."
+    end
+    exit 0
+
+  when 'remove'
+    result = projector.remove_projected_instruction_mode!
+    puts "Instruction mode projection removed:"
+    puts "  artifact  : #{result[:artifact_removed] ? 'deleted' : 'not present'}"
+    puts "  CLAUDE.md : #{result[:region_removed] ? 'region removed' : 'region not present'}"
+    puts ""
+    puts "Restart Claude Code to apply (CLAUDE.md @-imports resolve at session start)."
+    exit 0
+
+  else
+    warn "Unknown mode action: #{mode_action.inspect}"
+    warn "Usage: kairos-chain mode [project|status|remove] [--data-dir DIR]"
+    exit 2
+  end
 end
 
 # Parse CLI options
