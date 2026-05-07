@@ -456,25 +456,6 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | bin/kairos-c
 
 > **Note**: When running from the repository, the data directory defaults to `.kairos/` in the current working directory. The server will auto-initialize on first run if the data directory doesn't exist.
 
-### Claude Code Plugin Projection (v3.14.0+)
-
-KairosChain can project SkillSet artifacts into Claude Code's native skill/agent/hook structure, providing workflow guides, sub-agents, and lifecycle automation.
-
-**Quick Setup** (2 steps):
-```bash
-kairos-chain init    # Initialize .kairos/ + auto-generate .mcp.json
-claude               # Auto-installs core SkillSets + projects to .claude/
-```
-
-After first launch, `.claude/` will contain:
-- `skills/agent/`, `skills/plugin_projector/`, etc. — workflow guides
-- `agents/agent-monitor.md` — post-session review agent
-- `settings.json` — lifecycle hooks (auto-projection on skill changes)
-
-Run `/reload-plugins` in Claude Code to activate. See [Install Guide](log/plugin_projection_install_guide_20260412.md) for details.
-
-> **Non-Claude clients** (Cursor, Codex): Plugin Projection is skipped. KairosChain operates as a standard MCP server.
-
 ### Optional: RAG (Semantic Search) Support
 
 KairosChain supports optional semantic search using vector embeddings. This enables finding skills by meaning rather than exact keyword matches (e.g., searching "authentication" can find skills about "login" or "password").
@@ -2126,6 +2107,24 @@ Commands:
 - `set_mode`: Change `instructions_mode` in config.yml
 
 Dynamic mode resolution: Setting `instructions_mode: 'researcher'` in config.yml loads `skills/researcher.md` as the AI system prompt instructions. Built-in modes (`developer`, `user`, `none`) are preserved.
+
+#### Instruction Mode Projection (CLAUDE.md `@`-import)
+
+The active instruction mode body is also projected to project-root `CLAUDE.md` via a managed `@`-import region. This is necessary because (a) the MCP `instructions` channel is truncated by the Claude Code harness, and (b) Agent tool sub-agents do not inherit MCP `instructions` at all but do inherit project CLAUDE.md (verified empirically up to 107KB on Opus 4.6 / 4.7, single-level). Without projection, sub-agents operate without the active mode entirely.
+
+CLI subcommand:
+
+```bash
+kairos-chain mode project   # materialize active mode body + add CLAUDE.md region
+kairos-chain mode status    # show projection state
+kairos-chain mode remove    # remove projection
+```
+
+After projection, the MCP `instructions` channel switches to a slim identity + pointer payload; the full body reaches all surfaces (parent + subprocess + sub-agent) through the privileged CLAUDE.md `@`-import path.
+
+The first-run state (no projection yet) prepends a setup notice to MCP `instructions` so the LLM can guide the user through the one-time setup automatically.
+
+Re-run `kairos-chain mode project` after editing the source mode body, then restart Claude Code to apply (CLAUDE.md `@`-import resolution is fixed at session start; mid-session edits do not propagate to sub-agents).
 
 ### Cross-Layer Promotion Tools
 
@@ -5345,7 +5344,7 @@ See [LICENSE](./LICENSE) file.
 
 ---
 
-**Version**: 3.5.0
-**Last Updated**: 2026-03-27
+**Version**: 3.25.0
+**Last Updated**: 2026-05-07
 
 > *"KairosChain answers not 'Is this result correct?' but 'How was this intelligence formed?'"*

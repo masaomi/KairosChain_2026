@@ -4,6 +4,42 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.25.0] - 2026-05-07
+
+### Added (Instruction mode projection)
+
+`plugin_projector` SkillSet に新しい artifact type `instruction_mode` を追加。アクティブな instruction mode 本体（`.kairos/skills/<active_mode>.md`）を `.claude/kairos/instruction_mode.md` に flat 投射し、project-root `CLAUDE.md` にマネージドな `@`-import 領域を merge することで、parent / `claude -p` subprocess / Agent tool sub-agent の 3 surface すべてに mode 本体を配信。
+
+主な動機 (Theme A/A-2/A-3 検証ログ参照):
+- MCP `instructions` channel は Claude Code harness によって途中で truncated され mode 本体の規範部分が届かない
+- Agent tool sub-agent は MCP `instructions` を**一切継承しない**ため、Persona Agent team が masa mode 不在で動作してきた（Prop 5 違反）
+- CLAUDE.md `@`-import は parent + subprocess + sub-agent の 3 surface に対し 107KB まで欠損なく配信することを Opus 4.6 / 4.7 で実証
+
+主な変更:
+- 新 CLI subcommand `kairos-chain mode {project|status|remove}` (`bin/kairos-chain`)
+- `KairosMcp::PluginProjector#project_instruction_mode!` / `#remove_projected_instruction_mode!` / `#instruction_mode_status` 追加 (`lib/kairos_mcp/plugin_projector.rb`)
+- `Protocol#load_instructions` 三状態化:
+  - 投射済み → slim identity + pointer payload
+  - 未投射 → 既存 full body の冒頭に first-run setup notice を prepend し、LLM がユーザーをセットアップに自動案内できるようにする
+  - `mode == 'none'` → nil（既存動作）
+- `.kairos/instruction_mode_manifest.json` で投射状態を track（既存 `projection_manifest.json.outputs` と独立、`verify` への副作用なし）
+
+Out of scope (既存 `plugin_projector` と同 scope):
+- 1 プロジェクトに複数の KairosChain インスタンス
+- `.git` 共有の git worktree
+- 並行 projector プロセス
+- 第三者による `CLAUDE.md` 書き換えからの自動回復
+- projector 自身の self-projection（Prop 1 自己言及性、open philosophical question）
+
+サイズ policy: 150KB warn / 256KB refuse。
+
+設計 (round 4 multi-LLM review converged):
+- `log/20260506_plugin_projector_instance_mode_extension_v4_accepted_design.md`
+- `log/20260507_plugin_projector_instruction_mode_implementation_plan.md`
+
+### Changed
+- `KairosMcp::VERSION` 3.24.9 → 3.25.0
+
 ## [3.24.9] - 2026-05-05
 
 ### Added (L1 knowledge: goal_setting_heuristic)

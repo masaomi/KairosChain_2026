@@ -166,3 +166,8 @@ For the full philosophical analysis including biophilosophical foundations (auto
 - **Second Meta-Level**: `docs/kairoschain_philosophy2_claude_opus4.6_agent_team_20260223.md`
 - **Third Meta-Level**: `docs/kairoschain_philosophy3_claude_opus4.6_agent_team_20260225.md`
 - **Case Study**: `docs/kairoschain_self_referential_metacognition_case_study_20260225.md`
+
+<!-- BEGIN kairos-chain:instruction-mode _projected_by=kairos-chain -->
+<!-- Active mode: masa v0.4 | source: .kairos/skills/masa.md -->
+@.claude/kairos/instruction_mode.md
+<!-- END kairos-chain:instruction-mode -->

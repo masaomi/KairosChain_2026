@@ -456,25 +456,6 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | bin/kairos-c
 
 > **注意**: リポジトリから実行する場合、データディレクトリはデフォルトで現在のディレクトリの `.kairos/` になります。データディレクトリが存在しない場合、サーバーは初回起動時に自動初期化します。
 
-### Claude Code Plugin Projection（v3.14.0+）
-
-KairosChain は SkillSet のアーティファクトを Claude Code のネイティブ skill/agent/hook 構造に投影し、ワークフローガイド、サブエージェント、ライフサイクル自動化を提供します。
-
-**クイックセットアップ**（2ステップ）:
-```bash
-kairos-chain init    # .kairos/ 初期化 + .mcp.json 自動生成
-claude               # コア SkillSet 自動インストール + .claude/ に投影
-```
-
-初回起動後、`.claude/` に以下が生成されます：
-- `skills/agent/`, `skills/plugin_projector/` 等 — ワークフローガイド
-- `agents/agent-monitor.md` — セッションレビューエージェント
-- `settings.json` — ライフサイクル hooks（Skill 変化時の自動再投影）
-
-Claude Code 内で `/reload-plugins` を実行して有効化。詳細は [インストールガイド](log/plugin_projection_install_guide_20260412.md) を参照。
-
-> **Claude Code 以外のクライアント**（Cursor, Codex）：Plugin Projection はスキップされ、通常の MCP サーバーとして動作します。
-
 ### オプション：RAG（セマンティック検索）サポート
 
 KairosChainはベクトル埋め込みを使用したオプションのセマンティック検索をサポートしています。これにより、完全なキーワード一致ではなく意味でスキルを検索できます（例：「認証」で検索すると「ログイン」や「パスワード」に関するスキルも見つかります）。
@@ -2110,6 +2091,24 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
 - `set_mode`: config.ymlの`instructions_mode`を変更
 
 動的モード解決: config.ymlで`instructions_mode: 'researcher'`を設定すると、`skills/researcher.md`がAIシステムプロンプトのinstructionsとしてロードされます。組み込みモード（`developer`、`user`、`none`）は従来通り維持されます。
+
+#### Instruction Mode Projection（CLAUDE.md `@`-import 経由配信）
+
+アクティブなinstruction modeの本体はプロジェクトルートの`CLAUDE.md`内のマネージドな`@`-import領域にも投射されます。これは(a) MCPの`instructions`チャネルがClaude Code harnessによって途中で切り捨てられるため、および(b) Agent tool sub-agentはMCP `instructions`を一切継承しないがプロジェクトCLAUDE.md（および`@`-importファイル）は継承するためです（Opus 4.6 / 4.7で107KBまで実証、単層のみ）。投射しない場合、sub-agentはアクティブmodeを一切受け取りません。
+
+CLIサブコマンド:
+
+```bash
+kairos-chain mode project   # アクティブmode本体を投射 + CLAUDE.md領域追加
+kairos-chain mode status    # 投射状態を表示
+kairos-chain mode remove    # 投射を削除
+```
+
+投射後、MCP `instructions`チャネルはslimなidentity + pointerペイロードに切り替わり、本体は特権配信経路（CLAUDE.md `@`-import）を通じて全surface（parent + subprocess + sub-agent）に到達します。
+
+初回状態（未投射）ではMCP `instructions`に setup notice が prepend されるため、LLM がユーザーを一度限りのセットアップへ自動的に案内できます。
+
+source mode bodyを編集した後は`kairos-chain mode project`を再実行し、Claude Codeを再起動してください（CLAUDE.md `@`-import解決はセッション開始時に固定されるため、mid-sessionでの編集はsub-agentに伝播しません）。
 
 ### クロスレイヤー昇格ツール
 
@@ -5300,7 +5299,7 @@ ProjectA/                           ProjectB/
 
 ---
 
-**バージョン**: 3.5.0
-**最終更新**: 2026-03-27
+**バージョン**: 3.25.0
+**最終更新**: 2026-05-07
 
 > *「KairosChainは『この結果は正しいか？』ではなく『この知性はどのように形成されたか？』に答えます」*

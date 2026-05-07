@@ -229,6 +229,24 @@ Commands:
 
 Dynamic mode resolution: Setting `instructions_mode: 'researcher'` in config.yml loads `skills/researcher.md` as the AI system prompt instructions. Built-in modes (`developer`, `user`, `none`) are preserved.
 
+#### Instruction Mode Projection (CLAUDE.md `@`-import)
+
+The active instruction mode body is also projected to project-root `CLAUDE.md` via a managed `@`-import region. This is necessary because (a) the MCP `instructions` channel is truncated by the Claude Code harness, and (b) Agent tool sub-agents do not inherit MCP `instructions` at all but do inherit project CLAUDE.md (verified empirically up to 107KB on Opus 4.6 / 4.7, single-level). Without projection, sub-agents operate without the active mode entirely.
+
+CLI subcommand:
+
+```bash
+kairos-chain mode project   # materialize active mode body + add CLAUDE.md region
+kairos-chain mode status    # show projection state
+kairos-chain mode remove    # remove projection
+```
+
+After projection, the MCP `instructions` channel switches to a slim identity + pointer payload; the full body reaches all surfaces (parent + subprocess + sub-agent) through the privileged CLAUDE.md `@`-import path.
+
+The first-run state (no projection yet) prepends a setup notice to MCP `instructions` so the LLM can guide the user through the one-time setup automatically.
+
+Re-run `kairos-chain mode project` after editing the source mode body, then restart Claude Code to apply (CLAUDE.md `@`-import resolution is fixed at session start; mid-session edits do not propagate to sub-agents).
+
 ### Cross-Layer Promotion Tools
 
 | Tool | Description |
