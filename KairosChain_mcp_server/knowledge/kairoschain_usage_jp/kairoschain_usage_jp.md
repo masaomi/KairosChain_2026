@@ -229,6 +229,24 @@ cp -r skills/versions skills/backups/versions_$(date +%Y%m%d)
 
 動的モード解決: config.ymlで`instructions_mode: 'researcher'`を設定すると、`skills/researcher.md`がAIシステムプロンプトのinstructionsとしてロードされます。組み込みモード（`developer`、`user`、`none`）は従来通り維持されます。
 
+#### Instruction Mode Projection（CLAUDE.md `@`-import 経由配信）
+
+アクティブなinstruction modeの本体はプロジェクトルートの`CLAUDE.md`内のマネージドな`@`-import領域にも投射されます。これは(a) MCPの`instructions`チャネルがClaude Code harnessによって途中で切り捨てられるため、および(b) Agent tool sub-agentはMCP `instructions`を一切継承しないがプロジェクトCLAUDE.md（および`@`-importファイル）は継承するためです（Opus 4.6 / 4.7で107KBまで実証、単層のみ）。投射しない場合、sub-agentはアクティブmodeを一切受け取りません。
+
+CLIサブコマンド:
+
+```bash
+kairos-chain mode project   # アクティブmode本体を投射 + CLAUDE.md領域追加
+kairos-chain mode status    # 投射状態を表示
+kairos-chain mode remove    # 投射を削除
+```
+
+投射後、MCP `instructions`チャネルはslimなidentity + pointerペイロードに切り替わり、本体は特権配信経路（CLAUDE.md `@`-import）を通じて全surface（parent + subprocess + sub-agent）に到達します。
+
+初回状態（未投射）ではMCP `instructions`に setup notice が prepend されるため、LLM がユーザーを一度限りのセットアップへ自動的に案内できます。
+
+source mode bodyを編集した後は`kairos-chain mode project`を再実行し、Claude Codeを再起動してください（CLAUDE.md `@`-import解決はセッション開始時に固定されるため、mid-sessionでの編集はsub-agentに伝播しません）。
+
 ### クロスレイヤー昇格ツール
 
 | ツール | 説明 |

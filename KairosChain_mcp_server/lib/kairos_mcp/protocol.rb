@@ -159,7 +159,17 @@ module KairosMcp
       KairosMcp.collect_knowledge_entries(user_context: @user_context)
     end
 
-    # Load instructions based on instructions_mode in config.yml
+    # Load instructions based on instructions_mode in config.yml.
+    #
+    # Three states:
+    #   1. Projected (manifest present, region in CLAUDE.md): returns a slim
+    #      identity+pointer payload. Full body reaches the model via CLAUDE.md
+    #      @-import (the privileged delivery path verified in Theme A).
+    #   2. Not yet projected: returns the full body prefixed with a first-run
+    #      hint that tells the LLM how to complete setup (`kairos-chain mode
+    #      project` + restart). Backward-compatible — body still reaches the
+    #      model on this channel, just truncated by the harness as before.
+    #   3. mode == 'none': returns nil.
     #
     # @return [String, nil] Instructions text or nil
     def load_instructions
@@ -181,7 +191,73 @@ module KairosMcp
 
       return nil unless path
 
-      read_if_exists(path)
+      if instruction_mode_projected?(mode)
+        slim_instructions_payload(mode, path)
+      else
+        body = read_if_exists(path)
+        return nil if body.nil?
+        "#{first_run_setup_hint(mode)}\n---\n\n#{body}"
+      end
+    end
+
+    # First-run setup hint prepended to instructions when the instruction
+    # mode body has not yet been projected. Visible to the LLM in the
+    # truncated MCP `instructions` channel; lets the LLM proactively guide
+    # the user through one-time setup without needing prior knowledge.
+    def first_run_setup_hint(mode)
+      <<~HINT.strip
+        # kairos-chain first-run setup notice
+
+        The active instruction mode body ('#{mode}') has NOT been projected to
+        this project's CLAUDE.md yet. The MCP `instructions` channel below is
+        truncated by the Claude Code harness; Agent tool sub-agents do not
+        receive this channel at all.
+
+        To deliver the full mode body to all surfaces (parent + subprocess +
+        sub-agent), run from the project root:
+
+            kairos-chain mode project
+
+        Then restart Claude Code (`exit` then `claude`). After projection,
+        this notice disappears and this MCP channel switches to a slim
+        identity+pointer payload.
+
+        If you (the LLM) detect this notice in your context, surface this
+        setup step to the user with explanation, ask for approval, run the
+        command, and instruct them to restart.
+      HINT
+    end
+
+    # True if the active instruction mode has been projected for this project.
+    def instruction_mode_projected?(mode)
+      manifest_path = File.join(KairosMcp.project_root, '.kairos', 'instruction_mode_manifest.json')
+      return false unless File.exist?(manifest_path)
+      data = JSON.parse(File.read(manifest_path))
+      data['mode_name'] == mode && data['region_present']
+    rescue StandardError
+      false
+    end
+
+    # Identity + pointer payload sent over MCP `instructions` when the body
+    # is delivered via CLAUDE.md @-import. Short enough to clear the harness
+    # truncation cap. Non-Claude-Code consumers retrieve the body from the
+    # registry path directly.
+    def slim_instructions_payload(mode, body_path)
+      version_line = read_if_exists(body_path).to_s[/^\*\*Version:\*\*\s*\S+/i]
+      <<~PAYLOAD
+        # Active instruction mode (delivered via CLAUDE.md @-import)
+
+        - mode_name: #{mode}
+        - #{version_line || 'Version: (none recorded)'}
+        - source_path: #{body_path}
+
+        The full mode body is delivered to the model through this project's
+        CLAUDE.md `@`-import line and is not duplicated here. Non-Claude-Code
+        consumers can retrieve the body from the source_path above.
+
+        Re-run `kairos-chain mode project` after editing the source body
+        and restart Claude Code to apply changes.
+      PAYLOAD
     end
 
     # Read file content if it exists

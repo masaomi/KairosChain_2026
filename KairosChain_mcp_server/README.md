@@ -20,6 +20,7 @@ A self-referential [Model Context Protocol (MCP)](https://modelcontextprotocol.i
 - **Attestation System (Synoptis)** — Cryptographic attestation and trust scoring
 - **Dream Mode** — Speculative knowledge proposals with community review
 - **Claude Code Plugin Projection** — Auto-project SkillSets as Claude Code plugins (hooks, agents, slash commands)
+- **Instruction Mode Projection** — Project the active instruction mode body to project-root `CLAUDE.md` via a managed `@`-import region; reaches Agent tool sub-agents (which do not receive MCP `instructions`) and bypasses the harness truncation cap
 - **Multi-LLM Review** — Parallel dispatch to heterogeneous LLMs (Claude, Codex, Cursor) via CLI subprocesses; consensus verdict with aggregated findings
 
 ## Installation
@@ -61,6 +62,9 @@ kairos-chain skillset list         # List installed SkillSets
 kairos-chain skillset install PATH # Install a SkillSet from path
 kairos-chain skillset enable NAME  # Enable a SkillSet
 kairos-chain skillset info NAME    # Show SkillSet details
+kairos-chain mode project          # Project active instruction mode to CLAUDE.md
+kairos-chain mode status           # Show instruction mode projection state
+kairos-chain mode remove           # Remove instruction mode projection
 kairos-chain -v                    # Show version
 ```
 

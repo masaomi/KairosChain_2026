@@ -102,8 +102,8 @@ class ReadmeBuilder
     parts = content.split("---", 3)
     return nil if parts.length < 3
 
-    YAML.safe_load(parts[1])
-  rescue Psych::SyntaxError => e
+    YAML.safe_load(parts[1], permitted_classes: [Date, Time, Symbol])
+  rescue Psych::SyntaxError, Psych::DisallowedClass => e
     warn "[WARN] YAML parse error: #{e.message}"
     nil
   end
