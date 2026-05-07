@@ -344,6 +344,14 @@ Save to L2 context at these moments:
 - After design/implementation complete (before review)
 - After synthesis of reviews (revised version)
 - After final convergence (implementation-ready / merge-ready)
+- **After each review round**: capture per-reviewer observations — verdict,
+  (a)/(b)/(c) classification breakdown, briefing-reaction shift (did the
+  reviewer change verdict after Step 0.5 design direction?), anomalies
+  (off-pattern findings, format failures, refusal). Tag context name with
+  prefix `reviewer_evaluation_observation_<reviewer>_<date>` so future
+  refinement of `multi_llm_reviewer_evaluation` can sample these records
+  systematically. This closes the L2→L1 promotion loop for reviewer
+  profiles themselves.
 
 ---
 

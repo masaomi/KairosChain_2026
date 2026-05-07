@@ -293,3 +293,12 @@ Deployment:         Composer-2 or Cursor GPT-5.4
 5. Some REJECTs reflect the reviewer's value system, not the artifact. The (a)/(b)/(c)
    classification (see § Reviewer Value-System Divergence) is required to separate
    blocking signal from advisory noise. Codex models in particular require this lens.
+
+## Refinement Source
+
+Profiles in this knowledge are refined from accumulated L2 contexts named with prefix
+`reviewer_evaluation_observation_<reviewer>_<date>`, recorded after each multi-LLM
+review round per `multi_llm_review_workflow` § L2 Save Points. When updating this
+file, sample those records to revise per-reviewer profiles, Strength Matrix entries,
+Cost-Benefit ratings, and the value-system divergence section. This closes the
+L2 → L1 promotion loop for reviewer profiles themselves.

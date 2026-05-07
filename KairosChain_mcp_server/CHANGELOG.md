@@ -4,6 +4,24 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.25.2] - 2026-05-07
+
+### Changed (L1 knowledge: reviewer evaluation feedback loop)
+
+- `multi_llm_review_workflow` § L2 Save Points: 各 review round 終了時に
+  per-reviewer observation (verdict, (a)/(b)/(c) breakdown, briefing-reaction
+  shift, anomalies) を `reviewer_evaluation_observation_<reviewer>_<date>`
+  prefix で L2 context に記録するよう明示。次回以降の
+  `multi_llm_reviewer_evaluation` refinement 用 sample 蓄積 channel として
+  workflow に組み込み。
+- `multi_llm_reviewer_evaluation` 末尾に "Refinement Source" section を追加。
+  上記 L2 context を refinement の source として明示することで L2 → L1
+  promotion loop を reviewer profile 自身に対しても閉じる (Prop 5
+  constitutive recording + Prop 6 incompleteness as driving force)。
+
+Surface 拡張なし: 既存セクションへの bullet 追加 + 新規 1 段落のみ。新 mechanism /
+新 field / 新 tool なし。
+
 ## [3.25.1] - 2026-05-07
 
 ### Changed (L1 knowledge: multi-LLM review)
