@@ -348,6 +348,42 @@ when 'mode'
 
   mode_action = ARGV.shift || 'project'
 
+  if %w[-h --help help].include?(mode_action)
+    puts <<~HELP
+      Usage: kairos-chain mode <action> [--data-dir DIR]
+
+      Project the active instruction mode (Masa Mode, Tutorial Mode, ...)
+      to project-root CLAUDE.md via a managed @-import region. Required
+      for the mode body to reach Agent tool sub-agents (which do not
+      receive MCP `instructions`) and to bypass the harness truncation
+      cap on long mode bodies.
+
+      Actions:
+        project   Materialize the active mode body to .claude/kairos/
+                  instruction_mode.md and merge a marker region into
+                  project-root CLAUDE.md. Default action when no action
+                  is given. Idempotent — safe to re-run.
+        status    Print the current projection state (active mode name,
+                  version, artifact path/size, region presence, last
+                  projection time).
+        remove    Delete the projected artifact and remove the marker
+                  region from CLAUDE.md. Manifest is cleared.
+
+      Options:
+        --data-dir DIR   Override the .kairos/ data directory location.
+
+      Notes:
+        - The active mode is read from `instructions_mode` in
+          .kairos/skills/config.yml. Use `instructions_update` MCP tool
+          to change it; then re-run `mode project`.
+        - CLAUDE.md @-imports resolve at Claude Code session start;
+          you must restart Claude Code (`exit` then `claude`) for any
+          projection or removal to take effect.
+        - Body size policy: warn at >=150KB, refuse at >=256KB.
+    HELP
+    exit 0
+  end
+
   $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
   require 'kairos_mcp'
 
@@ -484,6 +520,9 @@ OptionParser.new do |opts|
     puts "  init [DIR]          Initialize data directory with default templates"
     puts "  upgrade [--apply]   Check/apply template migrations after gem update"
     puts "  skillset <cmd>      Manage SkillSet plugins (list/install/enable/disable/remove/info)"
+    puts "  mode <action>       Project active instruction mode to CLAUDE.md (project/status/remove)"
+    puts ""
+    puts "Run a subcommand with -h for details, e.g. 'kairos-chain mode -h'."
     exit
   end
 end.parse!
