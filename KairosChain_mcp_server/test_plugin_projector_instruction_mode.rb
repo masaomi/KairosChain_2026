@@ -227,6 +227,53 @@ Dir.mktmpdir('test_imode') do |dir|
 end
 
 # =========================================================================
+puts "\n=== Section 10: load_instructions first-run hint vs slim payload ==="
+separator
+
+# This section tests Protocol#load_instructions branching. We exercise it by
+# manipulating $KAIROS_DATA_DIR / project_root via KairosMcp.data_dir and
+# instantiating Protocol directly.
+
+require 'kairos_mcp/protocol'
+require 'kairos_mcp/skills_config'
+
+Dir.mktmpdir('test_imode') do |project_root|
+  # KairosMcp.project_root = File.dirname(data_dir), so data_dir lives under
+  # project_root/.kairos and skills/ under that.
+  data_dir = File.join(project_root, '.kairos')
+  skills_dir = File.join(data_dir, 'skills')
+  FileUtils.mkdir_p(skills_dir)
+  File.write(File.join(skills_dir, 'config.yml'), "instructions_mode: test_mode\n")
+  File.write(File.join(skills_dir, 'test_mode.md'), "# Test Mode\n\n**Version:** 9.9\n\nfull body content.\n")
+
+  KairosMcp.data_dir = data_dir
+  protocol = KairosMcp::Protocol.new
+
+  # Phase 1: not projected — expect first-run hint prepended
+  out = protocol.send(:load_instructions)
+  assert('first-run hint includes setup notice header') { out.include?('kairos-chain first-run setup notice') }
+  assert('first-run hint mentions kairos-chain mode project') { out.include?('kairos-chain mode project') }
+  assert('first-run hint references active mode name') { out.include?("'test_mode'") }
+  assert('first-run hint precedes original body') { out.index('first-run setup notice') < out.index('# Test Mode') }
+  assert('first-run hint preserves original body content') { out.include?('# Test Mode') && out.include?('**Version:** 9.9') }
+
+  # Phase 2: simulate projected state via manifest — expect slim payload
+  manifest = {
+    'mode_name' => 'test_mode',
+    'mode_version' => '9.9',
+    'region_present' => true,
+    'artifact_path' => File.join(project_root, '.claude', 'kairos', 'instruction_mode.md')
+  }
+  manifest_path = File.join(data_dir, 'instruction_mode_manifest.json')
+  File.write(manifest_path, JSON.pretty_generate(manifest))
+
+  out2 = protocol.send(:load_instructions)
+  assert('slim payload header present when projected') { out2.include?('Active instruction mode (delivered via CLAUDE.md @-import)') }
+  assert('slim payload does NOT include first-run notice') { !out2.include?('kairos-chain first-run setup notice') }
+  assert('slim payload does NOT inline full body content') { !out2.include?('full body content.') }
+end
+
+# =========================================================================
 puts "\n#{'=' * 60}"
 puts "Total: #{$pass_count} passed, #{$fail_count} failed"
 exit($fail_count == 0 ? 0 : 1)
