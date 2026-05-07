@@ -4,6 +4,15 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.25.1] - 2026-05-07
+
+### Changed (L1 knowledge: multi-LLM review)
+
+- `multi_llm_reviewer_evaluation` v1.2 → v1.3: harness memory に分散していた reviewer 性癖知識 (Codex 3 structural biases、Cursor vs Codex briefing-reaction data、Codex GPT-5.5 profile) を統合。新セクション "Reviewer Value-System Divergence" + (a)/(b)/(c) finding classification を追加。Convergence Rule を分類後ベース ((a)+(b) のみ blocking) に更新。Cost-Benefit を "Phase 1 baseline (5 reviewers)" にリネームし scope 明示。
+- `multi_llm_review_workflow`: Step 0 (mandatory `knowledge_get multi_llm_reviewer_evaluation`) と Step 0.5 (Design Direction Block for design / docs reviews) を追加。§ Convergence Rules と § Workflow Pattern step [4] を (a)/(b)/(c)-aware に整合。Step 0.5 block structure に invariant preface を追加 (anti-enumeration 整合)。
+
+設計の経緯と検証は self-review 2 round (Codex GPT-5.5 / Cursor Composer-2 / Claude CLI Opus 4.6 / Persona Team Opus 4.7) で実施。4/4 APPROVE / APPROVE WITH CHANGES、no REJECT。Phase 2 Case A (Context Graph review loop, 2026-05-04) で観察された value-system divergence を起点とし、KairosChain_2026 only の experimental briefing protocol (project CLAUDE.md) を operational extension として L1 化。
+
 ## [3.25.0] - 2026-05-07
 
 ### Added (Instruction mode projection)

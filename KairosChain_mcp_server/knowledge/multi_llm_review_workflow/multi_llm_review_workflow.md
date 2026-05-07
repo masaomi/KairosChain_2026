@@ -29,6 +29,103 @@ This skill covers:
 For **WHO** (which LLM is good at what), see: `multi_llm_reviewer_evaluation`
 For **development lifecycle** (design → implement → verify), see: `design_to_implementation_workflow`
 
+## Step 0 — Load reviewer characteristics (mandatory)
+
+**Before invoking any reviewer**, fetch `multi_llm_reviewer_evaluation` via
+`knowledge_get`. That knowledge contains:
+
+- per-reviewer strengths/weaknesses and verdict biases
+- Codex value-system divergence (3 biases) and (a)/(b)/(c) finding classification
+- convergence rule and reviewer-specific signal interpretation
+
+Skipping Step 0 leads to misreading reviewer output — in particular, treating
+Codex (c)-class value-divergent REJECTs as blocking, which causes review loops to
+fail to converge. The cross-reference exists in `related:` frontmatter; this step
+makes it an explicit pre-condition rather than an implicit hint.
+
+## Step 0.5 — Design Direction Block (design / docs reviews only)
+
+For **design-phase** and **knowledge/documentation-update** reviews, prepend a
+**Design Direction Block** to every reviewer prompt, in addition to the project
+philosophy briefing (CLAUDE.md § "Multi-LLM Review Philosophy Briefing"). For
+**implementation-phase** reviews this block is optional — implementation review
+is correctness-vs-design, where philosophy divergence has limited impact.
+
+### Why this exists
+
+Phase 2 Case A (Context Graph review loop, 4 rounds, 2026-05-04) showed that
+a philosophy briefing alone does not shift Codex/Cursor reviewers from REJECT.
+What shifted Cursor to APPROVE in round 4 was **briefing + explicit design
+direction for this artifact**. Codex remained resistant even with both, but the
+(a)/(b)/(c) classification (see `multi_llm_reviewer_evaluation` § Reviewer
+Value-System Divergence) makes its REJECTs digestible. The combination —
+briefing + direction + classification — is the operational protocol that
+prevents review loops from failing to converge over value-system divergence
+mistaken for genuine defects.
+
+### Block structure (prepend to every reviewer prompt)
+
+> **Invariant**: the block declares the artifact's intentional scope so reviewers
+> can distinguish in-scope critique from out-of-scope expectation. The fields below
+> are illustrative facets of that single invariant, not an enumeration of independent
+> requirements; omit fields that do not apply to the artifact rather than forcing
+> content into every slot.
+
+```
+## Design Direction (this artifact)
+
+**Problem this artifact solves**:
+- <one or two sentences>
+
+**Problems this artifact does NOT solve** (out of scope):
+- <bullet: explicitly excluded scope>
+- <bullet: deferred to future design — name the future design if known>
+
+**Rejected alternatives and reasons**:
+- Alt A: <one line> — rejected because <reason>
+- Alt B: <one line> — rejected because <reason>
+
+**Design tradeoffs adopted**:
+- <axis>: chose X over Y because <reason>
+  (e.g., "discipline > infrastructure: workflow-level Step 0 hard fetch
+   over knowledge-graph auto-load, to avoid premature core change")
+- <axis>: chose X over Y because <reason>
+  (e.g., "invariant declaration > mechanism enumeration, per project
+   design-by-invariant principle")
+
+**Where to register additions/objections**:
+- New mechanisms or scope expansions → §11 backlog of the artifact, not body
+- Style/readability concerns not entailed by project principles → (c)
+  value-divergent class, advisory only
+```
+
+### How to author each field
+
+- **Problem solved / not solved**: Should match the artifact's actual scope
+  declarations. If you can't fill these in cleanly, the artifact's scope is
+  unclear — fix that first, then review.
+- **Rejected alternatives**: List at least 2. If you have only 1, you have not
+  considered the design space; design is not yet review-ready.
+- **Tradeoffs**: Name the axis explicitly (X over Y). "We chose X" without an
+  alternative axis is a position, not a tradeoff.
+
+### Effect on reviewer instruction
+
+After the block, instruct reviewers:
+
+> Evaluate against the Design Direction above. Findings inconsistent with the
+> declared scope, rejected alternatives, or tradeoffs are (c) value-divergent
+> by default — record as advisory, not blocking. Findings about the *integrity*
+> of the design (internal contradiction, unrealizable invariant, scope
+> inconsistency) remain (a) deployment-grounded or (b) philosophy-aligned.
+
+### Scope of this step
+
+- Design-phase review: **mandatory**
+- Knowledge / documentation update review: **mandatory** (treated as design)
+- Implementation-phase review: optional — use only when implementation makes
+  significant design choices not fixed by the design artifact
+
 ## Two Execution Paths (read this first)
 
 There are **two distinct execution paths** with the same name "multi-LLM review".
@@ -137,8 +234,10 @@ The user always has the final say.
          ├── outputs:  revised artifact + new review prompt
          └── L2 save:  consensus + revised artifact
          |
-[4] If 0 FAIL → proceed to next phase
-    If FAIL    → repeat from [2] with revised artifact
+[4] Classify findings as (a)/(b)/(c) per `multi_llm_reviewer_evaluation`
+    If no (a)/(b) blocking findings → proceed to next phase
+    If any (a)/(b) finding          → repeat from [2] with revised artifact
+    (c) findings are recorded as advisory; non-blocking
 ```
 
 ## Review Types
@@ -166,10 +265,21 @@ likely to be missed by a single LLM reviewing its own design. For per-model prof
 
 ## Convergence Rules
 
-- **3/4 APPROVE** (no REJECT) = proceed to next step
-- **Any REJECT or FAIL** = revise and re-review
-- **4/4 APPROVE** = highest confidence, proceed
-- Legacy 3-reviewer mode: 2/3 APPROVE = proceed
+The rule applies **after** orchestrator classifies each finding as (a)/(b)/(c) per
+`multi_llm_reviewer_evaluation` § Reviewer Value-System Divergence. Only (a)+(b)
+findings count toward the thresholds below; (c) findings are recorded as advisory
+and never block.
+
+- **3/4 APPROVE** (no (a)/(b) REJECT) = proceed to next step
+- **Any (a) or (b) REJECT or FAIL** = revise and re-review
+- **(c)-only REJECT** = record as advisory, non-blocking
+- **4/4 APPROVE** (no (a)/(b)) = highest confidence, proceed
+- Legacy 3-reviewer mode: 2/3 APPROVE (no (a)/(b)) = proceed
+- Codex REJECT with (a)/(b) findings + others APPROVE = likely real issue, investigate before overriding
+- Codex REJECT with only (c) findings = expected per Codex value-system divergence; non-blocking
+
+For normative detail and the underlying classification, see
+`multi_llm_reviewer_evaluation` § Convergence Rule (Updated).
 
 ### Consensus Patterns
 

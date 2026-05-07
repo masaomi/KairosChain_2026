@@ -1,7 +1,7 @@
 ---
 name: multi_llm_reviewer_evaluation
-description: "Multi-LLM reviewer performance evaluation — strengths, weaknesses, and recommended workflows based on 185+ reviews"
-version: "1.2"
+description: "Multi-LLM reviewer performance evaluation — strengths, weaknesses, value-system biases, and recommended workflows. Based on 185+ reviews (Phase 1, 2026-02 to 03) + Phase 2 Case A 4-round Codex bias study (2026-05-04)."
+version: "1.3"
 tags:
   - multi-llm
   - review
@@ -21,6 +21,7 @@ Based on 185+ review files across KairosChain development (2026-02-24 to 2026-03
 | Claude Opus 4.6 (Primary) | 15 | 3/18-3/28 | 0% | Designer + reviewer |
 | Claude Team Opus 4.6 | 53 | 3/18-3/28 | 0% | Persona assembly review |
 | Codex GPT-5.4 | 49 | 3/19-3/28 | 27% | Auto review |
+| Codex GPT-5.5 | 4 (Phase 2 Case A) | 2026-05-04 | 100% | Auto review |
 | Cursor Composer-2 | 27 | 3/20-3/28 | 0% | Auto review |
 | Cursor GPT-5.4 | 16 | 3/21-3/25 | 12% | Manual review (Codex fallback) |
 | Cursor Premium | 26 | 3/19-3/21 | 12% | Manual review |
@@ -72,6 +73,14 @@ Based on 185+ review files across KairosChain development (2026-02-24 to 2026-03
 - **Unique findings**: Session Path B authorization re-binding, dead circuit breaker code, plan removal fallback, fail-open content_hash attestation, build_place_client return type mismatch, record_file_usage missing call site
 - **Convergence signal**: Codex APPROVE = high confidence that all issues are genuinely resolved (see Convergence Behavior)
 
+### Codex GPT-5.5
+
+- **Strength**: Same axis as GPT-5.4 (state transition, fail-open detection) plus tighter schema-internal-consistency checks. Round 3 of Phase 2 Case A caught a §5 schema internal contradiction that no Anthropic family or Cursor reviewer caught
+- **Weakness**: Shares all 3 value-system biases with GPT-5.4 (see § Reviewer Value-System Divergence below). Even more resistant to philosophy-briefing internalization than 5.4 in Phase 2 Case A round 4
+- **Pattern**: Treat as "stricter sibling" of GPT-5.4. Same evaluative axis, narrower tolerance
+- **Verdict bias**: REJECT-default; convergence behavior similar to GPT-5.4 but slower
+- **Provisional**: Profile based on Phase 2 Case A 4-round data only. Will refine after additional sessions
+
 ### Cursor Composer-2
 
 - **Strength**: High-level design coherence, protocol correctness, practical deployability, balanced architecture + pragmatics
@@ -115,6 +124,65 @@ Based on 185+ review files across KairosChain development (2026-02-24 to 2026-03
 - **Language**: Japanese-primary (matches project philosophy discussions)
 - **Unique findings**: MerkleTree second preimage attack, Transport Store-and-Forward, challenge expiry penalty automation, `optional` dependency `parsed_depends_on` incompatibility
 
+## Reviewer Value-System Divergence (Phase 2 Case A, 2026-05-04)
+
+This section documents *why* reviewers reject, not *what* they catch. Phase 1 profiles
+(above) record finding categories; Phase 2 Case A revealed that some REJECTs reflect
+the reviewer's own evaluative frame rather than a defect in the artifact. Treating
+those as blocking signals causes review loops to fail to converge (observed: Context
+Graph v1.0-f-high → v1.1 → v1.2, Codex 24/24 REJECT, new P0 every round).
+
+### Codex (GPT-5.4 / 5.5) — 3 structural biases
+
+Both Codex models share these biases against KairosChain's design-by-invariant +
+relational-ontology style. The biases are not bugs in the reviewer; they are a
+different value system that must be classified explicitly.
+
+1. **"Declared behavior must be enforceable."** Industrial-spec-audit frame.
+   Any invariant declared without a verify mechanism is read as documentation drift.
+   Conflicts with KairosChain's relational ontology (no verify, writer responsibility,
+   graceful degradation by design).
+2. **Honest articulation of limits ≡ unresolved spec gap.** §11 backlog entries
+   and ceiling articulations are read as self-reported bugs. The more honest the
+   document, the more Codex rejects — an inversion of the intended discipline.
+3. **"Trust X" + "X is undetectable" = contract contradiction.** A §A "trust X"
+   clause combined with a §B "X cannot be verified" clause is read as a defective
+   contract. Conflicts with the "uncontracted trust = writer responsibility" model.
+
+### Cursor vs Codex briefing reaction (Phase 2 Case A, 4 rounds)
+
+| Round | Briefing | Cursor | Codex 5.4/5.5 |
+|-------|----------|--------|---------------|
+| 1 | none (baseline) | REJECT | REJECT |
+| 2 | philosophy briefing | REJECT | REJECT |
+| 3 | philosophy briefing | REJECT | REJECT |
+| 4 | briefing + design-direction context | **APPROVE** | REJECT (unchanged) |
+
+**Insight**: Cursor internalizes the philosophy briefing once design direction is added;
+Codex is structurally resistant. Briefing-internalization compliance differs by reviewer
+family — track separately when evaluating briefing efficacy.
+
+### (a)/(b)/(c) finding classification
+
+When a reviewer issues a P0, classify the *cause* — not just the severity:
+
+| Class | Definition | Treatment |
+|-------|-----------|-----------|
+| (a) deployment-grounded | Spec violation, runtime bug, data corruption, concurrency hazard. Independent of philosophy. | **Blocking P0** |
+| (b) philosophy-aligned | Deviation from declared design principles (e.g., enumeration where invariant suffices). | **Blocking P0** |
+| (c) value-divergent | Reviewer's own style preference or generic best practice not entailed by project principles. | **Advisory only** (non-blocking) |
+
+When uncertain between (b) and (c), default to (c). Convergence rule applies to (a)+(b);
+(c) findings are recorded but do not block.
+
+**Codex ↔ classes**: Codex finds genuine (a) bugs (e.g., the §5 schema contradiction).
+Codex also produces many (c) findings driven by the 3 biases above. The skill of using
+Codex effectively is **not** silencing it but classifying its output.
+
+> Cross-reference: project CLAUDE.md § "Multi-LLM Review Philosophy Briefing"
+> describes the experimental briefing-prepend protocol that operationalizes this
+> classification. KairosChain_2026 only, experimental.
+
 ## Convergence Behavior (New: 2026-03-28)
 
 ### Codex as Convergence Indicator
@@ -134,17 +202,31 @@ Final Review:    Codex APPROVE | Composer-2 APPROVE+ | Claude APPROVE+
 - When Codex finally APPROVEs, all prior FAIL/HIGH issues have been genuinely resolved
 - **Codex APPROVE = strongest merge-readiness signal** in the 3-LLM configuration
 
-> **Note**: The above convergence data is from the 3-reviewer configuration.
-> With the 4-reviewer default (Opus 4.7 added 2026-04-19), the convergence
-> pattern may shift. Update this section after accumulating 4-reviewer data.
+> **Note**: The above convergence data is from the 3-reviewer configuration in
+> the Attestation Nudge session. With the 4-reviewer default (Opus 4.7 added
+> 2026-04-19), the convergence pattern may shift. Update this section after
+> accumulating 4-reviewer data.
+>
+> **Caveat (Phase 2 Case A, 2026-05-04)**: "Codex APPROVE = strongest signal" is
+> session- and config-dependent. In Phase 2 Case A, Codex never reached APPROVE
+> across 4 rounds even with philosophy briefing + design direction. Treat
+> "waiting for Codex APPROVE" as not always achievable; rely on (a)/(b)/(c)
+> classification (above) rather than verdict-level convergence when value-system
+> divergence dominates.
 
 ### Convergence Rule (Updated)
 
-- 3/4 APPROVE (no REJECT) = proceed to next step (4-reviewer default)
-- Any REJECT or FAIL = revise and re-review
+The convergence rule applies **after** orchestrator classifies findings as (a)/(b)/(c)
+per § Reviewer Value-System Divergence. A REJECT whose findings are entirely (c)
+value-divergent is recorded but treated as non-blocking; only (a)+(b) findings count
+toward the rule below.
+
+- 3/4 APPROVE (no (a)/(b) REJECT) = proceed to next step (4-reviewer default)
+- Any (a) or (b) REJECT or FAIL = revise and re-review
 - **4/4 APPROVE (including Codex) = highest confidence, merge-ready**
 - Legacy 3-reviewer mode: 2/3 APPROVE = proceed
-- Codex-only REJECT + others APPROVE = likely real issue, investigate before overriding
+- Codex-only REJECT with (a)/(b) findings + others APPROVE = likely real issue, investigate before overriding
+- Codex REJECT with only (c) findings = expected per Codex value-system divergence; non-blocking
 
 ### Bug Category Differentiation Across Rounds
 
@@ -157,7 +239,10 @@ Final Review:    Codex APPROVE | Composer-2 APPROVE+ | Claude APPROVE+
 
 **Insight**: Design reviews and implementation reviews find **categorically different bugs**. Design reviews catch "this can't work" (structural). Implementation reviews catch "this doesn't work" (wiring/integration). Both phases are necessary.
 
-## Cost-Benefit (All 7 Models)
+## Cost-Benefit (Phase 1 baseline, 5 reviewers, 2026-02 to 03)
+
+> Baseline only. Opus 4.7 and Codex GPT-5.5 entered the roster post-Phase 1 and are
+> not yet rated here. Refresh after sufficient data accumulates.
 
 | Reviewer | Speed | Security | Impl Quality | Philosophy | Overall ROI |
 |----------|-------|----------|-------------|-----------|-------------|
@@ -186,7 +271,8 @@ Deployment:         Composer-2 or Cursor GPT-5.4
 | Reviewer | Summary |
 |----------|---------|
 | Claude Opus 4.6 | Guardian of design. Finds security threats and novel architectural alternatives |
-| Codex GPT-5.4 | Strictest judge. Last to approve, but APPROVE = highest confidence signal |
+| Codex GPT-5.4 | Strictest judge. Classify findings (a)/(b)/(c) before treating REJECT as blocking; APPROVE is a strong signal **when reachable**, not a mandatory gate (see Phase 2 Case A caveat) |
+| Codex GPT-5.5 | Stricter sibling of 5.4. Same value-system divergence (3 biases); apply the same classification discipline |
 | Cursor Premium | Implementation craftsman. Bug hunter for concurrency and resource management |
 | Composer-2 | Fastest pragmatist. First to determine if something is deployable |
 | Cursor GPT-5.4 | Binary sword. Clear approve-or-reject, strictest on test coverage |
@@ -204,3 +290,6 @@ Deployment:         Composer-2 or Cursor GPT-5.4
    in the multi-LLM configuration.
 4. Design reviews and implementation reviews find categorically different bugs —
    both phases are necessary for Tier 2+ features.
+5. Some REJECTs reflect the reviewer's value system, not the artifact. The (a)/(b)/(c)
+   classification (see § Reviewer Value-System Divergence) is required to separate
+   blocking signal from advisory noise. Codex models in particular require this lens.
