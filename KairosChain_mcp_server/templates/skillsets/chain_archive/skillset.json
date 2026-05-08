@@ -1,0 +1,16 @@
+{
+  "name": "chain_archive",
+  "version": "1.0.0",
+  "description": "Blockchain archive management for KairosChain. Prunes the live chain by archiving old blocks into compressed segment files, preserving the full audit history with integrity verification.",
+  "author": "KairosChain",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": ["chain_archiving", "chain_pruning", "segment_verification"],
+  "tool_classes": [
+    "KairosMcp::SkillSets::ChainArchive::Tools::ChainArchiveRun",
+    "KairosMcp::SkillSets::ChainArchive::Tools::ChainArchiveStatus",
+    "KairosMcp::SkillSets::ChainArchive::Tools::ChainArchiveVerify"
+  ],
+  "config_files": [],
+  "knowledge_dirs": ["knowledge/chain_archiving"]
+}
