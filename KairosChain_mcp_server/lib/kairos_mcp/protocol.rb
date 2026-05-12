@@ -137,12 +137,27 @@ module KairosMcp
 
       # Project plugin artifacts (only if .claude/ exists — avoids creating
       # Claude Code artifacts for non-Claude clients like Cursor or Codex)
-      project_root = KairosMcp.project_root
+      #
+      # Design v0.2: resolve consumer_project_root explicitly. Skip projection if
+      # no plausible root is available (Inv 5: graceful skip). Refuse on coincidence
+      # with data_dir (Inv 3, raised by PluginProjector constructor).
+      project_root = KairosMcp.consumer_project_root
+      if project_root.nil?
+        warn "[PluginProjector] no plausible consumer project root resolved " \
+             "(source: #{KairosMcp.consumer_project_root_source}); projection skipped"
+        return
+      end
+
       mode = KairosMcp.projection_mode
       output_root = mode == :plugin ? project_root : File.join(project_root, '.claude')
       return unless File.directory?(output_root)
 
-      projector = PluginProjector.new(project_root, mode: mode)
+      begin
+        projector = PluginProjector.new(project_root, mode: mode, data_dir: KairosMcp.data_dir)
+      rescue PluginProjector::CoincidenceRefused => e
+        warn "[PluginProjector] #{e.message}; projection skipped"
+        return
+      end
       enabled = manager.enabled_skillsets
       knowledge_entries = collect_knowledge_entries
 
@@ -229,8 +244,9 @@ module KairosMcp
     end
 
     # True if the active instruction mode has been projected for this project.
+    # v0.2: manifest now lives at data_dir level (decoupled from project_root).
     def instruction_mode_projected?(mode)
-      manifest_path = File.join(KairosMcp.project_root, '.kairos', 'instruction_mode_manifest.json')
+      manifest_path = File.join(KairosMcp.data_dir, 'instruction_mode_manifest.json')
       return false unless File.exist?(manifest_path)
       data = JSON.parse(File.read(manifest_path))
       data['mode_name'] == mode && data['region_present']

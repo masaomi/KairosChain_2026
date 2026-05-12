@@ -276,12 +276,132 @@ module KairosMcp
     end
 
     # =========================================================================
-    # Plugin Projection support
+    # Plugin Projection support — consumer project root
     # =========================================================================
+    #
+    # Design v0.2 (log/20260512_consumer_project_root_separation_design_v0.2.md):
+    # consumer_project_root is decoupled from data_dir. Resolution order:
+    #   1. Explicit setter (CLI flag --project-root)
+    #   2. Environment variable KAIROS_PROJECT_ROOT
+    #   3. Per-transport default with plausibility check:
+    #        stdio_mcp / cli_direct: Dir.pwd if plausible
+    #        http_mcp: no default (returns nil; caller must refuse projection)
+    #
+    # See design §2 (invariants) and §6 (failure taxonomy).
 
-    # Project root: parent of .kairos/ data directory
+    PLAUSIBILITY_MARKERS = ['CLAUDE.md', '.git', '.claude',
+                            File.join('.kairos', 'projection_manifest.json')].freeze
+
+    # Consumer project root: where projection artifacts (CLAUDE.md, .claude/) are written.
+    # Distinct from data_dir (where KairosChain state lives).
+    #
+    # @return [String, nil] absolute real path, or nil if no plausible root is available
+    def consumer_project_root
+      resolve_consumer_project_root unless defined?(@consumer_project_root_resolved) && @consumer_project_root_resolved
+      @consumer_project_root
+    end
+
+    # Source of the currently resolved consumer_project_root.
+    # @return [Symbol] :explicit_cli, :explicit_env, :transport_default, :absent
+    def consumer_project_root_source
+      consumer_project_root # trigger resolution
+      @consumer_project_root_source || :absent
+    end
+
+    # Explicit setter (used by CLI --project-root flag).
+    # Setting to nil clears any cached resolution.
+    def consumer_project_root=(path)
+      if path.nil?
+        @consumer_project_root = nil
+        @consumer_project_root_source = :absent
+      else
+        @consumer_project_root = real_path(File.expand_path(path))
+        @consumer_project_root_source = :explicit_cli
+      end
+      @consumer_project_root_resolved = true
+    end
+
+    # Reset resolution cache (for testing or re-initialization).
+    def reset_consumer_project_root!
+      @consumer_project_root = nil
+      @consumer_project_root_source = nil
+      @consumer_project_root_resolved = false
+    end
+
+    # Resolve consumer_project_root following the documented order.
+    # @param transport [Symbol] :stdio_mcp, :http_mcp, :cli_direct (default: auto-detect)
+    # @return [String, nil] resolved absolute real path, or nil
+    def resolve_consumer_project_root(transport: nil)
+      # Skip env/default lookup if explicit setter was used
+      if @consumer_project_root_source == :explicit_cli && @consumer_project_root
+        @consumer_project_root_resolved = true
+        return @consumer_project_root
+      end
+
+      transport ||= detect_transport
+
+      # 1. Environment variable
+      if (env_val = ENV['KAIROS_PROJECT_ROOT']) && !env_val.empty?
+        @consumer_project_root = real_path(File.expand_path(env_val))
+        @consumer_project_root_source = :explicit_env
+        @consumer_project_root_resolved = true
+        return @consumer_project_root
+      end
+
+      # 2. Transport default
+      if transport == :http_mcp
+        # HTTP MCP: no default permitted (design §4)
+        @consumer_project_root = nil
+        @consumer_project_root_source = :absent
+        @consumer_project_root_resolved = true
+        return nil
+      end
+
+      # stdio_mcp / cli_direct: cwd default with plausibility
+      candidate = real_path(Dir.pwd)
+      if plausibility_check(candidate)
+        @consumer_project_root = candidate
+        @consumer_project_root_source = :transport_default
+      else
+        @consumer_project_root = nil
+        @consumer_project_root_source = :absent
+      end
+      @consumer_project_root_resolved = true
+      @consumer_project_root
+    end
+
+    # Plausibility predicate (design Inv 6 / §11).
+    # Candidate passes if any recognizable project marker exists at the path.
+    def plausibility_check(path)
+      return false if path.nil? || path.empty?
+      return false unless Dir.exist?(path)
+      PLAUSIBILITY_MARKERS.any? do |marker|
+        candidate = File.join(path, marker)
+        File.exist?(candidate) || Dir.exist?(candidate)
+      end
+    end
+
+    # Resolve a path to its real path (symlinks resolved). Falls back to expand_path
+    # for non-existent paths.
+    def real_path(path)
+      File.realpath(File.expand_path(path))
+    rescue Errno::ENOENT
+      File.expand_path(path)
+    end
+
+    # Detect current transport mode based on runtime state.
+    # @return [Symbol] :http_mcp or :stdio_mcp
+    def detect_transport
+      return :http_mcp if @http_server
+      :stdio_mcp
+    end
+
+    # DEPRECATED in v0.2: parent-of-data-dir derivation.
+    # Returns consumer_project_root when available, falling back to File.dirname(data_dir)
+    # only for backward compatibility with internal callers that have not yet been
+    # migrated. New code should use consumer_project_root and handle nil explicitly.
     def project_root
-      File.dirname(data_dir)
+      consumer_project_root || File.dirname(data_dir)
     end
 
     # Determine projection mode for PluginProjector
@@ -289,7 +409,7 @@ module KairosMcp
     # :plugin — writes to plugin root skills/, agents/, hooks/hooks.json
     def projection_mode
       return :plugin if ENV['KAIROS_PROJECTION_MODE'] == 'plugin'
-      root = project_root
+      root = consumer_project_root || File.dirname(data_dir)
       plugin_json = File.join(root, '.claude-plugin', 'plugin.json')
       claude_dir = File.join(root, '.claude')
       return :plugin if File.exist?(plugin_json) && !File.exist?(claude_dir)

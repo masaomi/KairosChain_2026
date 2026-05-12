@@ -370,9 +370,18 @@ when 'mode'
                   region from CLAUDE.md. Manifest is cleared.
 
       Options:
-        --data-dir DIR   Override the .kairos/ data directory location.
+        --data-dir DIR       Override the .kairos/ data directory location.
+        --project-root DIR   Consumer project root (where CLAUDE.md and .claude/
+                             are written). Resolution order: --project-root,
+                             KAIROS_PROJECT_ROOT env, then cwd if it contains a
+                             recognizable project marker (CLAUDE.md, .git/,
+                             .claude/, or prior projection manifest).
 
       Notes:
+        - data_dir and consumer project root are decoupled (design v0.2,
+          log/20260512_consumer_project_root_separation_design_v0.2.md).
+          When --data-dir points outside the consumer workspace, you MUST
+          set --project-root (or KAIROS_PROJECT_ROOT) explicitly.
         - The active mode is read from `instructions_mode` in
           .kairos/skills/config.yml. Use `instructions_update` MCP tool
           to change it; then re-run `mode project`.
@@ -394,12 +403,35 @@ when 'mode'
     ARGV.delete_at(idx)
   end
 
+  # v0.2: Honor --project-root if present (consumer project root, distinct from data_dir)
+  if (idx = ARGV.index('--project-root'))
+    KairosMcp.consumer_project_root = File.expand_path(ARGV[idx + 1])
+    ARGV.delete_at(idx + 1)
+    ARGV.delete_at(idx)
+  end
+
   require 'kairos_mcp/skills_config'
   require 'kairos_mcp/plugin_projector'
 
-  project_root = KairosMcp.project_root
+  # v0.2: resolve consumer_project_root via the documented order (CLI → env → cwd default).
+  # CLI-direct transport is implicit here (we are running from the user's shell).
+  project_root = KairosMcp.resolve_consumer_project_root(transport: :cli_direct)
+  if project_root.nil?
+    warn "ERROR: no plausible consumer project root resolved."
+    warn "  Set explicitly with --project-root <path> or KAIROS_PROJECT_ROOT env var,"
+    warn "  or run from a directory containing a recognizable project marker"
+    warn "  (CLAUDE.md, .git/, .claude/, or a prior .kairos/projection_manifest.json)."
+    exit 1
+  end
+
   projector_mode = KairosMcp.projection_mode
-  projector = KairosMcp::PluginProjector.new(project_root, mode: projector_mode)
+  begin
+    projector = KairosMcp::PluginProjector.new(project_root, mode: projector_mode, data_dir: KairosMcp.data_dir)
+  rescue KairosMcp::PluginProjector::CoincidenceRefused => e
+    warn "ERROR: #{e.message}"
+    warn "  Use --project-root <path> to designate a directory distinct from the data directory."
+    exit 1
+  end
 
   case mode_action
   when 'project'
@@ -433,17 +465,21 @@ when 'mode'
     end
 
     puts "Instruction mode projected:"
-    puts "  mode      : #{instructions_mode}#{version ? " v#{version}" : ''}"
-    puts "  source    : #{body_path}"
-    puts "  artifact  : #{result[:artifact_path]}"
-    puts "  size      : #{result[:size_bytes]} bytes"
-    puts "  CLAUDE.md : region #{result[:region_written] ? 'updated' : 'not updated (host file outside project root or unsafe)'}"
+    puts "  mode             : #{instructions_mode}#{version ? " v#{version}" : ''}"
+    puts "  body source      : #{body_path}"
+    puts "  project root     : #{project_root} (source: #{KairosMcp.consumer_project_root_source})"
+    puts "  data dir         : #{KairosMcp.data_dir}"
+    puts "  artifact         : #{result[:artifact_path]}"
+    puts "  size             : #{result[:size_bytes]} bytes"
+    puts "  CLAUDE.md region : #{result[:region_written] ? 'updated' : 'not updated (host file outside project root or unsafe)'}"
     puts ""
     puts "Restart Claude Code to apply (CLAUDE.md @-imports resolve at session start)."
     exit 0
 
   when 'status'
     s = projector.instruction_mode_status
+    puts "Project root        : #{project_root} (source: #{KairosMcp.consumer_project_root_source})"
+    puts "Data dir            : #{KairosMcp.data_dir}"
     if s[:active]
       puts "Instruction mode projection: ACTIVE"
       puts "  mode      : #{s[:mode_name]}#{s[:mode_version] ? " v#{s[:mode_version]}" : ''}"
@@ -479,6 +515,10 @@ OptionParser.new do |opts|
 
   opts.on('--data-dir DIR', 'Data directory path (default: .kairos/ or KAIROS_DATA_DIR)') do |dir|
     options[:data_dir] = dir
+  end
+
+  opts.on('--project-root DIR', 'Consumer project root for projection artifacts (default: KAIROS_PROJECT_ROOT env, then cwd with plausibility check)') do |dir|
+    options[:project_root] = dir
   end
 
   opts.on('--http', 'Start in Streamable HTTP mode (default: stdio)') do
@@ -554,6 +594,11 @@ require 'kairos_mcp'
 # Set data_dir if specified via CLI
 if options[:data_dir]
   KairosMcp.data_dir = File.expand_path(options[:data_dir])
+end
+
+# v0.2: Set consumer_project_root if specified via CLI
+if options[:project_root]
+  KairosMcp.consumer_project_root = File.expand_path(options[:project_root])
 end
 
 # Handle --version

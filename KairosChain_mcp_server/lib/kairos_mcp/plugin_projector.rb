@@ -27,14 +27,33 @@ module KairosMcp
     INSTRUCTION_MODE_SIZE_WARN    = 150 * 1024
     INSTRUCTION_MODE_SIZE_REFUSE  = 256 * 1024
 
-    attr_reader :mode, :project_root, :output_root
+    attr_reader :mode, :project_root, :output_root, :data_dir
 
-    def initialize(project_root, mode: :auto)
+    # Construct a PluginProjector.
+    #
+    # @param project_root [String] consumer project root (where .claude/ and CLAUDE.md live)
+    # @param mode [Symbol] :auto, :project, or :plugin
+    # @param data_dir [String, nil] KairosChain data directory. When provided, the
+    #   projector enforces design v0.2 Inv 3: refuses construction when
+    #   real_path(project_root) == real_path(data_dir). When nil, the legacy assumption
+    #   data_dir = project_root/.kairos is used for manifest location (backward-compat).
+    #
+    # @raise [CoincidenceRefused] when project_root and data_dir resolve to the same real path
+    def initialize(project_root, mode: :auto, data_dir: nil)
       @project_root = project_root
+      @data_dir = data_dir || File.join(project_root, '.kairos')
+      enforce_no_coincidence!
       @mode = resolve_mode(mode)
       @output_root = @mode == :plugin ? project_root : File.join(project_root, '.claude')
-      @manifest_path = File.join(project_root, '.kairos', 'projection_manifest.json')
-      @instruction_mode_manifest_path = File.join(project_root, '.kairos', 'instruction_mode_manifest.json')
+      @manifest_path = File.join(@data_dir, 'projection_manifest.json')
+      @instruction_mode_manifest_path = File.join(@data_dir, 'instruction_mode_manifest.json')
+    end
+
+    # Raised when project_root and data_dir resolve to the same real path (design Inv 3).
+    class CoincidenceRefused < StandardError
+      def initialize(path)
+        super("consumer project root and data directory coincide at real path #{path.inspect} (design Inv 3): explicit configuration required")
+      end
     end
 
     # Main entry: project all SkillSet plugin artifacts + L1 knowledge meta skill
@@ -183,6 +202,23 @@ module KairosMcp
       return mode unless mode == :auto
       return :plugin if ENV['KAIROS_PROJECTION_MODE'] == 'plugin'
       :project
+    end
+
+    # Inv 3 enforcement: refuse if project_root and data_dir resolve to the same
+    # real path. Comparison happens post-realpath (design Inv 8). Non-existent
+    # paths fall back to expand_path; coincidence at expand_path level still counts.
+    def enforce_no_coincidence!
+      pr_real = canonicalize(@project_root)
+      dd_real = canonicalize(@data_dir)
+      return unless pr_real && dd_real && pr_real == dd_real
+      raise CoincidenceRefused, pr_real
+    end
+
+    def canonicalize(path)
+      return nil if path.nil?
+      File.realpath(File.expand_path(path))
+    rescue Errno::ENOENT
+      File.expand_path(path)
     end
 
     # =========================================================================
