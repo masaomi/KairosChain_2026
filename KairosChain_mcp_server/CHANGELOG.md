@@ -4,6 +4,58 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.26.0] - 2026-05-12
+
+### Added — consumer_project_root separation (design v0.2)
+
+Decouples the consumer project root (where `CLAUDE.md` and `.claude/` are written)
+from the data directory (where `.kairos/` lives). Fixes silent projection failure
+when `--data-dir` points outside the consumer workspace
+(see `log/handoff_kairoschain_plugin_projection_bug.md`).
+
+- `KairosMcp.consumer_project_root` accessor + `consumer_project_root_source`
+  provenance (`:explicit_cli`, `:explicit_env`, `:transport_default`, `:absent`).
+- Resolution order: `--project-root` CLI flag → `KAIROS_PROJECT_ROOT` env →
+  per-transport default with plausibility check.
+- Plausibility markers: `CLAUDE.md`, `.git/`, `.claude/`, or prior
+  `.kairos/projection_manifest.json`.
+- `PluginProjector` constructor accepts `data_dir:` kwarg; refuses construction
+  (`CoincidenceRefused`) when project root and data dir resolve to the same
+  real path.
+- `kairos-chain mode project|status` now prints resolved project root + source +
+  data dir.
+- New `--project-root <path>` global flag and `mode` subcommand option.
+- Manifest files (`projection_manifest.json`,
+  `instruction_mode_manifest.json`) now live under `data_dir/`, decoupled from
+  `project_root/.kairos/`.
+
+### Design references
+
+- Design draft v0.2: `log/20260512_consumer_project_root_separation_design_v0.2.md`
+- Multi-LLM review round 1 verdict: REVISE (1/5 APPROVE).
+  Reject log: `log/20260512_consumer_project_root_separation_design_v0.2_reject_log.md`.
+
+### Out of scope (deferred to future releases)
+
+- Multi-consumer routing (Inv 9 invariant declared, implementation deferred —
+  single-consumer only in 3.26.0).
+- Remote HTTP MCP projection delivery: HTTP MCP transport now loud-refuses
+  when no explicit `--project-root` is configured (no more silent failure),
+  but cross-machine artifact delivery is unimplemented. Local HTTP with
+  explicit configuration works.
+- Explicit authorization UX (e.g. `kairos-chain mode authorize`): v0.2 treats
+  explicit designation as implicit authorization.
+
+### Tests
+
+- New `test_consumer_project_root.rb` (18 runs, 43 assertions) covering:
+  default rule per transport, plausibility check, symlink real-path resolution,
+  `PluginProjector` coincidence refusal, and SUSHI-bug regression scenarios.
+- Updated `test_plugin_projector_instruction_mode.rb` for new manifest location.
+- All existing test suites pass (186 total across `test_plugin_projector.rb`,
+  `test_plugin_projector_instruction_mode.rb`, `test_capability.rb`,
+  `test_skillset_manager.rb`, `test_consumer_project_root.rb`).
+
 ## [3.25.2] - 2026-05-07
 
 ### Changed (L1 knowledge: reviewer evaluation feedback loop)
