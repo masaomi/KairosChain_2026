@@ -1,0 +1,21 @@
+{
+  "name": "kairos_hook_projector",
+  "version": "0.1.0",
+  "description": "Compiles mode_hooks definitions into the plugin_projector hook pipeline. Enables deterministic invocation paths for KairosChain MCP tools via Claude Code hooks. v0.1 stage 0: skeleton + schema + read-only status tool, zero side effect on .claude/settings.json. See docs/drafts/kairos_hook_projector_design_v0.2_draft.md.",
+  "author": "Masaomi Hatakeyama",
+  "layer": "L1",
+  "depends_on": [
+    {
+      "name": "plugin_projector"
+    }
+  ],
+  "provides": [
+    "hook_compilation",
+    "mode_hooks_schema",
+    "hooks_status_readonly"
+  ],
+  "tool_classes": [],
+  "config_files": [],
+  "knowledge_dirs": [],
+  "min_core_version": "3.25.0"
+}
