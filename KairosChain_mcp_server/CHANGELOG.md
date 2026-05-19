@@ -4,6 +4,25 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.27.0] - 2026-05-19
+
+### Added — L1 frontmatter `relations.informed_by` on L2→L1 promotion (design v0.2)
+
+`skills_promote` now auto-attaches an `informed_by` edge to the L1 frontmatter
+`relations` list when promoting from L2, pointing to the source L2 context
+(`v1:<session_id>/<source_name>`). Existing edges of any type are preserved
+verbatim; the edge is omitted (field absent) when ancestor identification is
+not possible. Design: `docs/drafts/l1_informed_by_field_design_v0.2_draft.md`
+(multi-LLM review round 2: 4/5 APPROVE, philosophy-aligned).
+
+- Backward compatible: legacy L1 entries without `relations` continue to load.
+- Idempotent: re-promoting the same source does not duplicate the edge.
+- No backfill of existing L1 entries (Inv 5 — forward-only).
+- Read-side traversal of `informed_by` is deferred to a separate PR.
+
+Tests: `test_informed_by_promotion.rb` (15/15). Regression
+`test_dream_scan_promotion.rb` (30/30).
+
 ## [3.26.0] - 2026-05-12
 
 ### Added — consumer_project_root separation (design v0.2)

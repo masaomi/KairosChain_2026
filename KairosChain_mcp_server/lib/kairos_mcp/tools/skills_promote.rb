@@ -194,11 +194,18 @@ module KairosMcp
         target_name = args['target_name'] || args['source_name']
         reason = args['reason'] || "Promoted from #{from_layer} to #{to_layer}"
 
+        # Inv 3 (design v0.2): attach informed_by edge for identifiable L2→L1 promotion
+        content_to_write = source_content[:content]
+        if from_layer == 'L2' && to_layer == 'L1'
+          ancestor = build_l2_ancestor_ref(args['session_id'], args['source_name'])
+          content_to_write = inject_informed_by(content_to_write, ancestor) if ancestor
+        end
+
         case to_layer
         when 'L1'
-          promote_to_l1(target_name, source_content[:content], reason)
+          promote_to_l1(target_name, content_to_write, reason)
         when 'L0'
-          promote_to_l0(target_name, source_content[:content], reason)
+          promote_to_l0(target_name, content_to_write, reason)
         end
       end
 
@@ -332,6 +339,38 @@ module KairosMcp
 
       def valid_transition?(from, to)
         VALID_TRANSITIONS[from]&.include?(to) || false
+      end
+
+      # Build a v1-tagged L2 ancestor reference from session + source name.
+      # Returns nil if either component is missing (Inv 3: identify 不能時は field 不在).
+      def build_l2_ancestor_ref(session_id, source_name)
+        return nil if session_id.nil? || session_id.to_s.empty?
+        return nil if source_name.nil? || source_name.to_s.empty?
+        "v1:#{session_id}/#{source_name}"
+      end
+
+      # Inject an informed_by edge into the frontmatter's `relations` list.
+      # Idempotent: if the same edge already exists, content is returned unchanged.
+      # Preserves any other existing edges and unknown edge types verbatim (Inv 2).
+      def inject_informed_by(content, ancestor_ref)
+        require_relative '../anthropic_skill_parser'
+        frontmatter, body = AnthropicSkillParser.extract_frontmatter(content)
+
+        relations = frontmatter['relations']
+        relations = [] unless relations.is_a?(Array)
+
+        new_edge = { 'type' => 'informed_by', 'target' => ancestor_ref }
+        already_present = relations.any? do |e|
+          e.is_a?(Hash) && e['type'] == 'informed_by' && e['target'] == ancestor_ref
+        end
+        return content if already_present
+
+        frontmatter['relations'] = relations + [new_edge]
+        AnthropicSkillParser.generate_content(frontmatter, body)
+      rescue StandardError => e
+        # Inv 1: absence is valid — never block promotion on a frontmatter mishap.
+        warn "[SkillsPromote] informed_by injection skipped: #{e.message}"
+        content
       end
 
       def fetch_source_content(args)
