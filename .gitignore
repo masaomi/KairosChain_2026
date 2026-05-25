@@ -1,29 +1,14 @@
-SUSHI_self_maintenance_mcp_server/
-ChronosChain_2026/
-log/
-.DS_Store
-storage/
+
+# Personals
+command.log
 KairosChain_mcp_server/skills/action_log.jsonl
-HestiaChain_2026/
+storage/
 Echoria/
 .echoria/
-Who_read_this_story_2025/
-who_read_this_story_2026/
-command.log
-openclaw/
-.kairos_stale_backup_20260329/
-oh-my-claudecode/
-LITMUS/
-codex-plugin-cc/
-.mcp.json.bak*
 .claude/
-hermes-agent/
-LLM_metareview_2026/
-GenomicsChain_MVP2_2026/
-GenomicsChain_Market_Validation_2025/
-GenomicsChain_2025/
-beads/
-agent-sin/
+log/
+.DS_Store
+refs/
 
 # Vector search index files (auto-generated)
 KairosChain_mcp_server/storage/embeddings/**/*.ann
