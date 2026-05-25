@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "$id": "https://kairoschain.dev/schemas/kairos_hook_projector/mode_hooks/v0.json",
+  "title": "mode_hooks definition (kairos_hook_projector stage 0)",
+  "description": "Schema for mode_hooks YAML/JSON definitions. Stage 0 validates the outer envelope (mode_name, version) and reserves composition fields (extends, conflict_policy) per design v0.2 §7.2. The internal shape of `hooks` is permissive at this stage; the stage 1 compiler will become the source of truth for hook entry structure.",
+  "type": "object",
+  "required": ["mode_name", "version"],
+  "additionalProperties": false,
+  "properties": {
+    "mode_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The instruction mode this hooks definition applies to (e.g. 'masa', 'tutorial')."
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Schema version of this mode_hooks document. Used by the compiler to dispatch to the correct parser."
+    },
+    "hooks": {
+      "type": "object",
+      "description": "Optional (composite-only variants may omit). Map of event name to hook entries. Inner shape is intentionally unvalidated in stage 0; locked down in stage 1.",
+      "additionalProperties": true
+    },
+    "extends": {
+      "type": "array",
+      "description": "Optional composition field (reserved per Inv-C6). Names of variant SkillSets this definition composes from. Reference resolution and dangling-reference detection are compile-time concerns (Inv-C7), not schema concerns.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "conflict_policy": {
+      "type": "string",
+      "minLength": 1,
+      "default": "error",
+      "description": "Optional composition field (reserved per Inv-C4). Conflict resolution policy for composing extends inputs. Default 'error' means human judgment is required (Inv-5). Auto-resolution policies are warn-but-accept at schema level in stage 0; activation requires operator consent chain_record (Inv-C10). The specific enum of allowed policy values is intentionally deferred to §11 backlog."
+    }
+  }
+}
