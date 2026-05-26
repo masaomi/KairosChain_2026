@@ -14,7 +14,9 @@
     "mode_hooks_schema",
     "hooks_status_readonly"
   ],
-  "tool_classes": [],
+  "tool_classes": [
+    "KairosMcp::SkillSets::KairosHookProjector::Tools::HooksStatus"
+  ],
   "config_files": [],
   "knowledge_dirs": [],
   "min_core_version": "3.25.0"

@@ -12,8 +12,26 @@ mode_hooks YAML → `plugin/hooks.json` → `.claude/settings.json` (via `plugin
 
 ## Stage
 
-v0.1 stage 0: skeleton + schema + `hooks_status` (read-only). Zero side effect.
-Later stages add compile / project / unproject / composition.
+v0.1 stage 0: skeleton + schema + `hooks_status` (read-only). Zero side effect,
+structurally guaranteed via boot-time hash/mtime assertion on projection target
+files (DoD-0-4). Later stages add compile / project / unproject / composition.
+
+## Tools
+
+### `hooks_status` (read-only)
+
+Inspect current state of `kairos_hook_projector`. Reports stage, schema
+location, and mode_hooks document inventory. Each invocation runs a pre/post
+hash+mtime assertion over the watched projection targets
+(`.claude/settings.json` and the SkillSet's own `plugin/hooks.json`); any
+drift fails the call with `StructuralAssertionFailure`. This is the
+structural side-effect-zero guarantee for stage 0, not a convention.
+
+## Schema
+
+`mode_hooks/_schema.json` defines the envelope for mode_hooks definitions
+(JSON Schema draft-04). Required: `mode_name`, `version`. Optional: `hooks`,
+plus reserved composition fields (`extends`, `conflict_policy`).
 
 ## Design
 
