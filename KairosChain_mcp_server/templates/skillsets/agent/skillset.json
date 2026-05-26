@@ -1,7 +1,7 @@
 {
   "name": "agent",
   "version": "0.1.0",
-  "description": "Governed autonomous OODA loop combining llm_client, autonomos, and autoexec into a cognitive agent. Observe-Orient-Decide-Act-Reflect with human checkpoints.",
+  "description": "Governed autonomous OODA loop combining llm_client, autonomos, and autoexec into a cognitive agent. Observe-Orient-Decide-Act-Reflect with human checkpoints. External LLM invocation (claude -p, codex, cursor) available via llm_call adapter chain. File operations via SafeFileWrite/SafeFileEdit.",
   "author": "Masaomi Hatakeyama",
   "layer": "L1",
   "depends_on": ["llm_client", "autonomos", "autoexec"],

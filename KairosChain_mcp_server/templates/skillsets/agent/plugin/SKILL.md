@@ -22,6 +22,35 @@ Manage autonomous agent sessions with observe-orient-decide-act-reflect cycles.
 3. `agent_status` — check progress at any time
 4. `agent_stop` — terminate when done or if paused
 
+## Capabilities
+
+### External LLM Invocation (via `llm_call` adapter chain)
+
+The agent's OODA phases invoke `llm_call` (from the `llm_client` dependency)
+which spawns external LLMs as subprocesses via adapter classes:
+
+| Adapter | Subprocess command | Use case |
+|---------|-------------------|----------|
+| `ClaudeCodeAdapter` | `claude -p --output-format json` | Sub-author (4.6), persona reviewers |
+| `CodexAdapter` | `codex exec --sandbox read-only` | Codex review |
+| `CursorAdapter` | `agent -p` | Cursor review |
+| `AnthropicAdapter` | Direct API (no subprocess) | Anthropic API calls |
+| `OpenaiAdapter` | Direct API | OpenAI API calls |
+
+The agent CAN orchestrate multi-LLM review, invoke sub-author processes,
+and leverage cross-provider reviewers — all from within the governed OODA
+loop with blockchain recording of each step.
+
+### File Operations (via `external_tools` SkillSet)
+
+`SafeFileWrite` and `SafeFileEdit` are available via `invoke_tool`, enabling
+the agent to write design drafts to `docs/drafts/` or other project paths.
+
+### MCP Tool Access
+
+All KairosChain MCP tools (`context_save`, `multi_llm_review`, `chain_record`,
+`knowledge_get`, etc.) are available via `invoke_tool` in the Act phase.
+
 ## Sub-Agents
 
 ### `/kairos-chain:agent-monitor`
