@@ -1,7 +1,7 @@
 ---
 name: multi_llm_reviewer_evaluation
 description: "Multi-LLM reviewer performance evaluation — strengths, weaknesses, value-system biases, and recommended workflows. Based on 185+ reviews (Phase 1, 2026-02 to 03) + Phase 2 Case A 4-round Codex bias study (2026-05-04)."
-version: "1.3"
+version: "1.4"
 tags:
   - multi-llm
   - review
@@ -22,7 +22,7 @@ Based on 185+ review files across KairosChain development (2026-02-24 to 2026-03
 | Claude Team Opus 4.6 | 53 | 3/18-3/28 | 0% | Persona assembly review |
 | Codex GPT-5.4 | 49 | 3/19-3/28 | 27% | Auto review |
 | Codex GPT-5.5 | 4 (Phase 2 Case A) | 2026-05-04 | 100% | Auto review |
-| Cursor Composer-2 | 27 | 3/20-3/28 | 0% | Auto review |
+| Cursor Composer-2.5 | 27 | 3/20-3/28 | 0% | Auto review |
 | Cursor GPT-5.4 | 16 | 3/21-3/25 | 12% | Manual review (Codex fallback) |
 | Cursor Premium | 26 | 3/19-3/21 | 12% | Manual review |
 | Claude CLI Opus 4.7 | 2 | 4/19- | 0% | Auto review (CLI) |
@@ -35,12 +35,12 @@ Based on 185+ review files across KairosChain development (2026-02-24 to 2026-03
 | Security design | Claude Opus 4.6 | Cursor Premium | Codex GPT-5.4 |
 | Implementation bugs | Codex GPT-5.4 | Cursor Premium | Claude Opus 4.6 |
 | State transition/config | Codex GPT-5.4 | Cursor GPT-5.4 | — |
-| Overall design coherence | Composer-2 | Claude Team | Gemini 3.1 |
+| Overall design coherence | Composer-2.5 | Claude Team | Gemini 3.1 |
 | Philosophical alignment | Gemini 3.1 | Claude Team | — |
-| Future extensibility | Gemini 3.1 | Composer-2 | — |
-| Deployment/ops | Composer-2 | Cursor GPT-5.4 | — |
+| Future extensibility | Gemini 3.1 | Composer-2.5 | — |
+| Deployment/ops | Composer-2.5 | Cursor GPT-5.4 | — |
 | Test adequacy | Codex GPT-5.4 | Cursor GPT-5.4 | Cursor Premium |
-| Design-implementation seam | Codex GPT-5.4 | Claude Opus 4.6 | Composer-2 |
+| Design-implementation seam | Codex GPT-5.4 | Claude Opus 4.6 | Composer-2.5 |
 | Fail-open/fail-closed detection | Codex GPT-5.4 | Claude Opus 4.6 | — |
 
 > Claude CLI Opus 4.7: not yet ranked. Pending evaluation data (added 2026-04-19).
@@ -81,7 +81,7 @@ Based on 185+ review files across KairosChain development (2026-02-24 to 2026-03
 - **Verdict bias**: REJECT-default; convergence behavior similar to GPT-5.4 but slower
 - **Provisional**: Profile based on Phase 2 Case A 4-round data only. Will refine after additional sessions
 
-### Cursor Composer-2
+### Cursor Composer-2.5
 
 - **Strength**: High-level design coherence, protocol correctness, practical deployability, balanced architecture + pragmatics
 - **Weakness**: Less detail on cryptographic edge cases and thread safety
@@ -190,10 +190,10 @@ Codex effectively is **not** silencing it but classifying its output.
 Across the Attestation Nudge session (4 rounds, 12 reviews), Codex demonstrated a distinctive convergence pattern:
 
 ```
-Design R1:       Codex REJECT  | Composer-2 APPROVE+ | Claude APPROVE+
-Design R2:       Codex REJECT  | Composer-2 APPROVE+ | Claude APPROVE+
-Impl Review:     Codex REJECT  | Composer-2 APPROVE+ | Claude APPROVE+
-Final Review:    Codex APPROVE | Composer-2 APPROVE+ | Claude APPROVE+
+Design R1:       Codex REJECT  | Composer-2.5 APPROVE+ | Claude APPROVE+
+Design R2:       Codex REJECT  | Composer-2.5 APPROVE+ | Claude APPROVE+
+Impl Review:     Codex REJECT  | Composer-2.5 APPROVE+ | Claude APPROVE+
+Final Review:    Codex APPROVE | Composer-2.5 APPROVE+ | Claude APPROVE+
 ```
 
 **Key observations**:
@@ -250,7 +250,7 @@ toward the rule below.
 | Cursor Premium | 55min | 4/5 | 5/5 | 2/5 | Excellent |
 | Codex GPT-5.4 | 60min | 3/5 | 5/5 | 1/5 | Excellent |
 | Gemini 3.1 | 50min | 3/5 | 2/5 | 5/5 | Good |
-| Composer-2 | 40min | 2/5 | 3/5 | 2/5 | Good |
+| Composer-2.5 | 40min | 2/5 | 3/5 | 2/5 | Good |
 | Claude Team | 90min | 3/5 | 3/5 | 4/5 | Fair |
 | Cursor GPT-5.4 | 35min | 2/5 | 3/5 | 1/5 | Fair |
 
@@ -259,11 +259,11 @@ toward the rule below.
 > Note: Workflows updated for 4-reviewer default (Opus 4.7 added 2026-04-19). Opus 4.7 profile is provisional pending evaluation data.
 
 ```
-Design phase:       Claude Opus 4.6 + Claude CLI Opus 4.7 + Codex GPT-5.4 + Composer-2
-Implementation:     Codex GPT-5.4 + Composer-2 + Claude Opus 4.6 + Claude CLI Opus 4.7
-Final merge gate:   Codex GPT-5.4 + Composer-2 + Claude Opus 4.6 Assembly + Claude CLI Opus 4.7
+Design phase:       Claude Opus 4.6 + Claude CLI Opus 4.7 + Codex GPT-5.4 + Composer-2.5
+Implementation:     Codex GPT-5.4 + Composer-2.5 + Claude Opus 4.6 + Claude CLI Opus 4.7
+Final merge gate:   Codex GPT-5.4 + Composer-2.5 + Claude Opus 4.6 Assembly + Claude CLI Opus 4.7
 Philosophy/Grant:   Gemini 3.1 + Claude Team
-Deployment:         Composer-2 or Cursor GPT-5.4
+Deployment:         Composer-2.5 or Cursor GPT-5.4
 ```
 
 ## One-Line Summaries
@@ -274,7 +274,7 @@ Deployment:         Composer-2 or Cursor GPT-5.4
 | Codex GPT-5.4 | Strictest judge. Classify findings (a)/(b)/(c) before treating REJECT as blocking; APPROVE is a strong signal **when reachable**, not a mandatory gate (see Phase 2 Case A caveat) |
 | Codex GPT-5.5 | Stricter sibling of 5.4. Same value-system divergence (3 biases); apply the same classification discipline |
 | Cursor Premium | Implementation craftsman. Bug hunter for concurrency and resource management |
-| Composer-2 | Fastest pragmatist. First to determine if something is deployable |
+| Composer-2.5 | Fastest pragmatist. First to determine if something is deployable |
 | Cursor GPT-5.4 | Binary sword. Clear approve-or-reject, strictest on test coverage |
 | Claude Team | Consensus philosopher. Best at integrating multiple viewpoints |
 | Claude CLI Opus 4.7 | Operability guardian. Finds auth, stderr, and execution-layer issues internal reviewers miss |

@@ -5,7 +5,7 @@
 
 # Convergence rules
 # Roster has 5 reviewers (claude_team_opus4.7, claude_cli_opus4.6,
-# codex_gpt5.4, codex_gpt5.5, cursor_composer2). Rules are ratio-based
+# codex_gpt5.4, codex_gpt5.5, cursor_composer2.5). Rules are ratio-based
 # (parser interprets "N/M" as N/M fraction applied to successful count),
 # so the literal numerator/denominator is informational; what matters is
 # the ratio.
@@ -108,8 +108,8 @@ reviewers:
     role_label: codex_gpt5.5
 
   - provider: cursor
-    role_label: cursor_composer2
-    # No `model` key → cursor adapter omits --model → cursor's default (composer2).
+    role_label: cursor_composer2.5
+    # No `model` key → cursor adapter omits --model → cursor's default (composer-2.5-fast as of 2026-05).
     # This entry preserves the original 5-reviewer roster behavior.
 
   # ----------------------------------------------------------------------

@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.3"
+version: "3.4"
 tags:
   - workflow
   - review
@@ -168,11 +168,45 @@ Pick the right one for your environment:
 
 | Question | Answer |
 |----------|--------|
-| Are you in an interactive Claude Code session and just need one review? | **Path A** |
+| **Default**: Is the `multi_llm_review` MCP tool available? | **Path B** (roster from config, orchestrator exclusion automatic) |
+| MCP tool unavailable or user explicitly requests manual execution? | **Path A** (fallback — roster construction is the orchestrator's responsibility) |
 | Do you need this to work in Cursor / autonomous mode / other MCP host? | **Path B** |
 | Do you want the consensus result inside the MCP tool response? | **Path B** |
 | Did you observe `XX shells` in the statusbar last time it worked? | That was Path A |
 | Did the run produce a `collect_token` and a `pending/<token>/` directory? | That was Path B |
+
+**Why Path B is the default**: Path A delegates roster construction to the
+orchestrating LLM, which must correctly extract reviewer count, model assignments,
+orchestrator exclusion rules, and convergence thresholds from this skill and
+`multi_llm_reviewer_evaluation`. Empirically, LLMs misread these parameters —
+e.g., confusing "exclude orchestrator from subprocess" with "exclude orchestrator
+model from all reviewers" (the Agent Team Personas are *designed* to use the
+orchestrator's own model for persona diversity). Path B enforces the correct
+configuration from `config/multi_llm_review.yml`, eliminating this error class.
+
+### Pre-flight checklist (Path A only)
+
+If Path B is unavailable and you must use Path A, extract these values **before
+starting** and verify each against `config/multi_llm_review.yml`:
+
+```
+- [ ] Your model (orchestrator): ___
+- [ ] Agent Team Personas model: = orchestrator model (NOT a different model)
+- [ ] Subprocess CLI model: opposite Opus (4.6 if you are 4.7, vice versa)
+- [ ] Codex models: gpt-5.4 AND gpt-5.5 (both, not either/or)
+- [ ] Cursor model: default (composer-2.5, no --model flag)
+- [ ] Total reviewer count: 5 (or 4 after orchestrator exclusion from subprocess)
+- [ ] Convergence rule: 3/5 APPROVE (full) or 3/4 APPROVE (after exclusion)
+```
+
+### Common mistakes (Path A)
+
+| Mistake | Correct behavior | Why it happens |
+|---------|-----------------|----------------|
+| Exclude orchestrator model from Agent Team Personas | Agent Team uses orchestrator model — they provide persona diversity, not epistemic diversity | LLM misreads "do not assign yourself as a reviewer" as applying to Agent Team; it applies only to subprocess CLI |
+| Run only Codex GPT-5.4, skip 5.5 | Run both — they catch different things (5.5 found §5 schema contradiction in Phase 2 Case A that no other reviewer caught) | Cost-saving heuristic; roster has both for a reason |
+| Use a smaller/cheaper model as Agent Team substitute | Use the orchestrator's own model with different personas | Confusing "model diversity" with "persona diversity" — Agent Team is the latter |
+| Run 3 reviewers instead of 5 (or 4 after exclusion) | Use the full roster from config | Ad-hoc "3 is enough" reasoning; config specifies 5 for empirical reasons |
 
 ## Roles
 
@@ -377,7 +411,7 @@ which claude 2>/dev/null && echo "claude: available" || echo "claude: NOT FOUND"
 | Tool | Command | Prompt Input | Output Collection | Model |
 |------|---------|-------------|-------------------|-------|
 | **Codex** | `codex exec` | stdin pipe: `cat prompt.md \| codex exec -` | `-o /path/output.md` | GPT-5.4 (default) |
-| **Cursor Agent** | `agent -p` | File reference (stdin NOT supported) | stdout redirect: `> output.md` | Composer-2 (default) |
+| **Cursor Agent** | `agent -p` | File reference (stdin NOT supported) | stdout redirect: `> output.md` | Composer-2.5 (default) |
 | **Claude Code** | Agent tool (internal) | Direct prompt string | Write to workspace file | Opus 4.6 (session) |
 | **Claude CLI (4.7)** | `claude -p --model claude-opus-4-7 --bare` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-4-7 --bare` | stdout redirect: `> output.md` | Opus 4.7 |
 
@@ -393,7 +427,7 @@ Based on cross-evaluation experiment (7 models × 4 tasks + Nomic, 518 CLI calls
 | **Coding sub-agent** | Opus 4.7 | `--effort medium` | Cost-effective default; use `high` for complex tasks |
 | **Design sub-agent** | Opus 4.7 | `--effort medium` | Cost-effective default; use `high` for complex tasks |
 | **Codex** | GPT-5.4 | (no flag) | Fixed effort |
-| **Cursor Agent** | Composer-2 | (no flag) | Fixed effort |
+| **Cursor Agent** | Composer-2.5 | (no flag) | Fixed effort |
 
 Key findings:
 - **Opus 4.6** high effort improves Evaluator/Strategy (+0.43/+0.200 Nomic), not Response
@@ -675,7 +709,7 @@ Step 1: Generate review prompt
 Step 2: Detect environment and models
   - Run: which codex && which agent && which claude
   - Detect default models
-  - Report: "Auto mode: Codex (gpt-5.4), Agent (composer-2), Claude (opus-4.6), Claude CLI (opus-4.7)"
+  - Report: "Auto mode: Codex (gpt-5.4), Agent (composer-2.5), Claude (opus-4.6), Claude CLI (opus-4.7)"
 
 Step 3: Execute N reviews in parallel (default 4 reviewers)
   - Bash(background): cat prompt.md | codex exec -C workspace -o log/review_codex.md -
