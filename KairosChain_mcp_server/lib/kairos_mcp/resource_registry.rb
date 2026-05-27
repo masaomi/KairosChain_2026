@@ -310,9 +310,11 @@ module KairosMcp
     end
 
     def read_l2_resource(parsed)
-      session_id = parsed[:session]
       name = parsed[:name]
-      return nil unless session_id && name
+      return nil unless name
+
+      session_id = parsed[:session] || find_session_for_context(name)
+      return nil unless session_id
 
       context_dir = File.join(@context_dir, session_id, name)
       return nil unless File.directory?(context_dir)
@@ -336,7 +338,11 @@ module KairosMcp
 
     def parse_context_uri(path)
       parts = path.split('/')
-      return nil if parts.length < 2
+      return nil if parts.empty?
+
+      if parts.length < 2
+        return { scheme: 'context', session: nil, name: parts[0] }
+      end
 
       session_id = parts[0]
       name = parts[1]
@@ -486,6 +492,14 @@ module KairosMcp
         session: parts[0],
         name: parts[1]
       }
+    end
+
+    def find_session_for_context(name)
+      session_dirs.sort.reverse.each do |session_dir|
+        candidate = File.join(session_dir, name)
+        return File.basename(session_dir) if File.directory?(candidate)
+      end
+      nil
     end
 
     def knowledge_dirs

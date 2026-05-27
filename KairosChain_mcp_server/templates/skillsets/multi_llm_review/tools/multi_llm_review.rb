@@ -712,17 +712,26 @@ module KairosMcp
           end
 
           def symbolize_keys(hash)
+            hash = coerce_to_hash(hash)
             hash.transform_keys(&:to_sym)
           end
 
           def symbolize_findings(findings)
             return nil unless findings.is_a?(Array)
-            findings.map { |f| f.transform_keys(&:to_sym) }
+            findings.map { |f| coerce_to_hash(f).transform_keys(&:to_sym) }
           end
 
           def hash_to_string_keys(hash)
             return hash unless hash.is_a?(Hash)
             hash.transform_keys(&:to_s)
+          end
+
+          def coerce_to_hash(obj)
+            return obj if obj.is_a?(Hash)
+            return JSON.parse(obj) if obj.is_a?(String)
+            obj
+          rescue JSON::ParserError
+            { '_raw' => obj.to_s }
           end
 
         end
