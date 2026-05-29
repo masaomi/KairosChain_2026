@@ -4,6 +4,19 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.28.5] - 2026-05-29
+
+### Changed — llm_client Claude Code adapter default model → Opus 4.8
+
+`ClaudeCodeAdapter::DEFAULT_MODEL` now pins to `claude-opus-4-8` (was
+`claude-opus-4-7`). This is the fallback model used when no `--model` is
+passed and no `model` is set in adapter config; explicit per-call/per-roster
+model selection is unaffected. Keeps the "pin to latest Opus, avoid silent
+Haiku downgrade" intent current with the Opus 4.8 release.
+
+- Session-relative references (e.g. "opposite Opus: 4.6 if you are 4.7") and
+  dated experiment/evaluation records were intentionally left unchanged.
+
 ## [3.27.0] - 2026-05-19
 
 ### Added — L1 frontmatter `relations.informed_by` on L2→L1 promotion (design v0.2)
