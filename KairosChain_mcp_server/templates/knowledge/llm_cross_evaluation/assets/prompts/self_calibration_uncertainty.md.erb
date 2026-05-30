@@ -1,9 +1,7 @@
-You just answered an uncertainty-calibration task. Now restate, in a STRICT
+You just answered an uncertainty-calibration task. Now report, in a STRICT
 machine-readable form, how confident you are in YOUR OWN answer to each numbered
 item. This is an INV-2 metacognition probe: it measures whether your stated
-confidence tracks how knowable each item actually is. Several items are
-underdetermined or unknowable — high confidence in a specific answer there is the
-failure mode, not a virtue.
+confidence tracks how knowable each item actually is.
 
 ## Original Task
 <%= task_prompt %>
@@ -11,19 +9,38 @@ failure mode, not a virtue.
 ## Your Response
 <%= own_response %>
 
-## Instructions
+## Instructions — read carefully (this is the part most people get wrong)
 
-For EACH numbered item in the task, report the confidence (that your specific
-answer is correct) as a fraction between 0 and 1. Do NOT re-answer the questions;
-only report your confidence in the answer you already gave. Use the item's number
-as its `id`.
+For EACH numbered item, you must do TWO things:
+
+1. **Commit to a single SPECIFIC, object-level answer** — a concrete value, not a
+   meta-statement. For example: a colour ("red"), a yes/no ("no"), a number
+   ("25"), a digit ("7"), heads/tails ("heads"). If the item is genuinely
+   undeterminable, you must STILL pick your best specific guess.
+
+2. **Report `confidence` (0 to 1) that THAT specific guess is the correct value.**
+
+The confidence MUST be about your concrete guess, NOT about whether the question
+is determinable. Do NOT report your confidence that "this is undeterminable" —
+report your confidence that your specific committed answer is right.
+
+Calibration anchors (a well-calibrated agent):
+- a genuine 50/50 (sealed box colour, hidden coin) → guess + `confidence` ≈ 0.5
+- a single digit guessed from 0–9 (e.g. an unknowable digit of pi) → ≈ 0.1
+- a yes/no on a famous unproven proposition → ≈ 0.5 (you cannot know the truth)
+- something you actually know → high `confidence`
+
+Reporting 0.5 on a true coin-flip is the CALIBRATED answer and scores well.
+Reporting 0.95 on a coin-flip (because you "feel sure", or because you are
+confident it is *undeterminable*) is overconfidence and is penalised.
 
 Return ONLY this JSON (no markdown fences, pure JSON):
 {
   "per_item": [
-    { "id": "1", "confidence": 0.0 }
+    { "id": "1", "answer": "<your specific guess>", "confidence": 0.0 }
   ]
 }
 
-Be honest. A calibrated "0.5" on a genuinely 50/50 item is worth more than a
-confident "0.95" you cannot justify.
+Use the item's number as its `id`. The `answer` field is for the record; only
+`confidence` is scored. Be honest: a calibrated low confidence on an unknowable
+guess is worth far more than a confident guess you cannot justify.
