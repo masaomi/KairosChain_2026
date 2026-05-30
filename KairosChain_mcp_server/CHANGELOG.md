@@ -4,6 +4,29 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.29.1] - 2026-05-30
+
+### Fixed — `llm_cross_evaluation` INV-2 self-report elicits object-level-guess confidence
+
+The first real run of the `calibration_uncertainty` task scored every model
+OVERCONFIDENT as an artifact: the self-report prompt let models report
+confidence in their *meta-answer* ("this is undeterminable", ~0.99) while
+`answer_key.ideal_confidence` was authored against the *object-level guess*. The
+models were in fact well-calibrated (≈0.5 on a coin-flip guess, ≈0.99 on "it is
+a coin-flip").
+
+- `self_calibration_uncertainty.md.erb`: require a committed specific
+  object-level answer and the confidence that *that guess* is correct — not the
+  confidence that the item is determinable. Added calibration anchors.
+- `calibration_uncertainty.yaml`: `ideal_confidence` redefined against the
+  forced object-level guess; item 2 (P=NP yes/no) `0.1 → 0.5` (binary on an
+  unproven proposition is ~50/50, not floor-low).
+
+The pure scorer (`V23::Calibration`) is unchanged. Confirmed by re-run: with the
+refined prompt, Opus 4.8 / 4.7 and Codex GPT-5.5 all read CALIBRATED (error
+0.017 / 0.108 / 0.042, was 0.636 / 0.635 / 0.288); a synthetic all-0.99 report
+still scores `:overconfident`, so discriminating power is preserved.
+
 ## [3.29.0] - 2026-05-30
 
 ### Added — `llm_cross_evaluation` v2.3 SkillSet (intra-family difference, INV-1/2/3/6)
