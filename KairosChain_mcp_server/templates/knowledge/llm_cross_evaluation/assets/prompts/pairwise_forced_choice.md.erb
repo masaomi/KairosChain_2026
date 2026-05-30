@@ -1,0 +1,49 @@
+You are judging two anonymous responses to the same task. You do NOT know which
+model produced either response, and you must not guess or infer identities.
+
+## Task
+
+<%= task_prompt %>
+
+## Response A
+
+<%= response_a %>
+
+## Response B
+
+<%= response_b %>
+
+## Your judgment (forced choice)
+
+This is a FORCED-CHOICE comparison, not an absolute score. Do not rate each
+response on a 0–10 scale. Decide, per axis, which response is better, or whether
+they are indistinguishable on that axis.
+
+For each axis below, choose exactly one of: "A", "B", or "tie".
+Then give the single most decisive reason for any non-tie, citing concrete
+content (a specific claim, step, or omission) — not a general impression.
+
+Axes:
+<% axes.each do |axis| -%>
+- <%= axis %>
+<% end -%>
+
+If the two responses are substantively the same on an axis, you MUST answer
+"tie" for that axis. A tie is an informative answer, not a failure to decide.
+
+Output ONLY this JSON (no prose outside it):
+
+```json
+{
+  "per_axis": [
+    { "axis": "<axis name>", "choice": "A|B|tie", "reason": "<decisive, content-cited>" }
+  ],
+  "overall": "A|B|tie",
+  "confidence": "high|medium|low",
+  "identity_leakage_noticed": "<describe any cue that hinted at authorship, or 'none'>"
+}
+```
+
+The `identity_leakage_noticed` field is a blinding check: if either response
+revealed or strongly implied which model wrote it, report it — such leakage may
+invalidate this comparison (INV-8(i)).

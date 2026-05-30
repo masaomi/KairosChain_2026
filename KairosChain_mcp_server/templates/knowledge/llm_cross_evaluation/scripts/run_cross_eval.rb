@@ -20,13 +20,31 @@ require "optparse"
 require "securerandom"
 require "timeout"
 require "shellwords"
+require_relative "lib/intra_family_v23"
+require_relative "lib/calibration_v23"
 
 # ──────────────────────────────────────────────────────────────
 # Configuration
 # ──────────────────────────────────────────────────────────────
 
+# v2.3 protocol + Definitions identity (INV-10 lineup pinning).
+PROTOCOL_VERSION = "v2.3"
+DEFINITIONS_VERSION = "v1.0-freeze"
+
+# INV-3: combined scores (rounded to 2 dp) within this band are treated as a tie
+# and refuse to be ordered. 0.0 => only exact 2-dp ties saturate (minimal, honest).
+RANKING_SATURATION_EPSILON = 0.0
+
 MODELS = {
   # ── Base models (default, effort=medium where supported) ──
+  "claude_opus48" => {
+    tool: :claude,
+    cmd: "claude --print --model claude-opus-4-8 --effort medium",
+    label: "Claude Opus 4.8",
+    provider: "anthropic",
+    input_mode: :stdin,
+    thinking_effort: "medium",
+  },
   "claude_opus46" => {
     tool: :claude,
     cmd: "claude --print --model claude-opus-4-6 --effort medium",
@@ -47,6 +65,14 @@ MODELS = {
     tool: :codex,
     cmd: "codex exec",
     label: "Codex GPT-5.4",
+    provider: "openai",
+    input_mode: :stdin,
+    thinking_effort: nil,  # no effort control
+  },
+  "codex_gpt55" => {
+    tool: :codex,
+    cmd: "codex exec -m gpt-5.5",
+    label: "Codex GPT-5.5",
     provider: "openai",
     input_mode: :stdin,
     thinking_effort: nil,  # no effort control
@@ -154,6 +180,12 @@ module EvalMode
 
   def philosophy_mode?(task)
     task && task["evaluation_mode"] == "philosophy"
+  end
+
+  # INV-2: a task whose Layer 0.5 is scored by confidence-to-reference alignment
+  # (V23::Calibration) instead of the |self - peer| agreement metric.
+  def calibration_mode?(task)
+    task && task["evaluation_mode"] == "calibration"
   end
 end
 
@@ -397,7 +429,11 @@ class Layer05Calibrator
   # Returns: { model_key => parsed_json }
   def calibrate(task, responses)
     puts "\n=== Layer 0.5: Self-Calibration [#{task['id']}] ==="
-    template = task["evaluation_mode"] == "philosophy" ? "self_calibration_philosophy" : "self_calibration"
+    template = case task["evaluation_mode"]
+               when "philosophy" then "self_calibration_philosophy"
+               when "calibration" then "self_calibration_uncertainty" # INV-2 self-report
+               else "self_calibration"
+               end
     prompts = @model_keys.each_with_object({}) do |key, h|
       h[key] = PromptBuilder.render(template,
         task_prompt: task["prompt"],
@@ -412,9 +448,28 @@ class Layer05Calibrator
     end
   end
 
+  # INV-2 calibration: score each model's self-reported confidences against the
+  # task's human reference key (V23::Calibration), NOT against peer agreement. This
+  # replaces the |self - peer| metric for calibration-mode tasks, where peer
+  # agreement saturates and cannot detect overconfidence on unknowable items.
+  def self.compute_inv2_calibration(layer05, model_keys, task)
+    answer_key = (task && task["answer_key"]) || {}
+    model_keys.each_with_object({}) do |key, results|
+      self_data = layer05[key]
+      unless self_data.is_a?(Hash) && !self_data["error"]
+        results[key] = { inv2: true, error: "no self-eval", status: :no_data, n: 0 }
+        next
+      end
+      scored = V23::Calibration.score(V23::Calibration.build_items(self_data, answer_key))
+      results[key] = scored.merge(inv2: true)
+    end
+  end
+
   # Compare self-scores with peer scores from L1.
   # Returns: { model_key => { calibration_error:, overconfidence:, ... } }
   def self.compute_calibration(layer05, layer1, model_keys, task: nil)
+    return compute_inv2_calibration(layer05, model_keys, task) if calibration_mode?(task)
+
     criteria = task ? criteria_for(task) : EVAL_CRITERIA_WEIGHTS
     model_keys.each_with_object({}) do |key, results|
       self_data = layer05[key]
@@ -887,6 +942,254 @@ end
 # Bias Detector
 # ──────────────────────────────────────────────────────────────
 
+# ──────────────────────────────────────────────────────────────
+# Layer D: Intra-Family Difference (v2.3 — INV-6/7/8)
+# ──────────────────────────────────────────────────────────────
+#
+# Surfaces differences among closely related models (e.g. Opus 4.8/4.7/4.6) as a
+# first-class output. Within-family pairs are compared via blinded forced-choice
+# judged by OUT-OF-FAMILY judges (INV-8 iii); each judge is screened coarse-to-fine
+# against a synthetic intact-vs-corrupted control (INV-8 ii); per-judge verdicts are
+# aggregated by evaluator independence (INV-6) into one net claim per (pair, axis),
+# then passed through the V23 admissibility gate + cycle detection + limits report.
+class LayerDDifference
+  AXES = %w[accuracy reasoning clarity].freeze
+  SCREEN_REQUIRED_FRACTION = 0.5
+  DEFAULT_LAYERD_FLOOR = 0.0
+  DEFAULT_TRIALS = 1 # INV-1 repeat-trial noise estimation activates at trials >= 2
+  TRIAL_NOISE_K = 2.0
+  MIN_CONTROL_LEN = 20
+  # Providers whose backing model is undeclared/opaque => :unknown family.
+  OPAQUE_PROVIDERS = %w[cursor].freeze
+
+  # Lineage family for INV-6/INV-8: provider-based, but a product whose backing
+  # model is undeclared (opaque provider) is :unknown.
+  def self.family_for(model_key)
+    cfg = MODELS[model_key]
+    return :unknown unless cfg
+    prov = cfg[:provider]
+    return :unknown if prov.nil? || OPAQUE_PROVIDERS.include?(prov.to_s)
+    prov.to_s.to_sym
+  end
+
+  def self.lineage_map(model_keys)
+    model_keys.each_with_object({}) { |k, h| h[k] = family_for(k) }
+  end
+
+  # Pure: convert a parsed forced-choice verdict into per-axis DifferenceClaims.
+  # order = [model_shown_as_A, model_shown_as_B]. A "tie" yields no claim.
+  # delta sign is relative to `pair`: +1 prefers pair[0], -1 prefers pair[1].
+  def self.verdict_to_claims(verdict:, pair:, judge:, order:, screen_passed:)
+    return [] unless verdict.is_a?(Hash)
+    leakage = verdict["identity_leakage_noticed"].to_s.strip.downcase
+    blinded = leakage.empty? || leakage == "none"
+    Array(verdict["per_axis"]).filter_map do |row|
+      next unless row.is_a?(Hash)
+      next unless AXES.include?(row["axis"]) # reject off-spec axes from untrusted output
+      choice = row["choice"]
+      winner = case choice
+               when "A" then order[0]
+               when "B" then order[1]
+               end
+      next if winner.nil? # tie / malformed
+      V23::DifferenceClaim.new(
+        pair: pair, axis: row["axis"], delta: (winner == pair[0] ? 1.0 : -1.0),
+        judge: judge, blinded: blinded, screen_passed: screen_passed,
+        corroborating_judges: []
+      )
+    end
+  end
+
+  # Pure: aggregate per-judge claims into one net claim per (pair, axis), weighting
+  # agreement by evaluator independence (INV-6). net = indep(prefer pair[0]) -
+  # indep(prefer pair[1]); a "panel" judge stands for the aggregate (unconflicted).
+  def self.aggregate(raw_claims, resolver)
+    weighting = V23::IndependenceWeighting.new(resolver)
+    raw_claims.group_by { |c| [c.pair, c.axis] }.map do |(pair, axis), group|
+      # Collapse each judge's (possibly multiple/contradictory) rows to a net
+      # sign first, so a self-contradicting judge (net 0) counts for neither
+      # side and never appears in both pro0 and pro1.
+      by_judge = group.group_by(&:judge).transform_values { |cs| cs.sum(&:delta) }
+      pro0 = by_judge.select { |_, d| d > 0 }.keys
+      pro1 = by_judge.select { |_, d| d < 0 }.keys
+      net = weighting.agreement_weight(pro0) - weighting.agreement_weight(pro1)
+      V23::DifferenceClaim.new(
+        pair: pair, axis: axis, delta: net, judge: "panel",
+        blinded: group.all?(&:blinded), screen_passed: group.all?(&:screen_passed),
+        corroborating_judges: []
+      )
+    end
+  end
+
+  # Pure (INV-1): collapse K per-trial aggregated claim lists into one representative
+  # claim per (pair, axis). delta = cross-trial MEAN of the net independent agreement;
+  # floor = k_noise * (trial-to-trial stddev of that delta). A trial in which a
+  # (pair, axis) produced no decisive claim counts as delta 0 for that trial — an
+  # appear/disappear panel is unstable and must clear a higher floor. With < 2 trials
+  # the floor is nil and the caller falls back to the static floor.
+  def self.repeat_trial_claims(trial_aggregates, k_noise: TRIAL_NOISE_K)
+    trials = trial_aggregates.length
+    deltas_by_key = Hash.new { |h, k| h[k] = Array.new(trials, 0.0) }
+    meta = {}
+    trial_aggregates.each_with_index do |claims, t|
+      Array(claims).each do |c|
+        # Codebase discipline: never let a non-finite delta into the mean/stddev.
+        # (aggregate() yields finite deltas in-pipeline; this guards direct callers.)
+        next unless c.respond_to?(:delta) && V23.numeric_finite?(c.delta)
+        key = [c.pair, c.axis]
+        deltas_by_key[key][t] = c.delta
+        m = (meta[key] ||= { blinded: true, screen_passed: true })
+        m[:blinded] &&= c.blinded
+        m[:screen_passed] &&= c.screen_passed
+      end
+    end
+    deltas_by_key.map do |(pair, axis), deltas|
+      mean = deltas.sum.to_f / deltas.size
+      floor = trials >= 2 ? k_noise * V23.sample_stddev(deltas) : nil
+      m = meta[[pair, axis]]
+      { claim: V23::DifferenceClaim.new(pair: pair, axis: axis, delta: mean, judge: "panel",
+                                        blinded: m[:blinded], screen_passed: m[:screen_passed],
+                                        corroborating_judges: []),
+        floor: floor }
+    end
+  end
+
+  def initialize(runner, model_keys, resolver: nil, floor: DEFAULT_LAYERD_FLOOR, trials: DEFAULT_TRIALS)
+    @runner = runner
+    @model_keys = model_keys
+    @resolver = resolver || V23::FamilyResolver.new(self.class.lineage_map(model_keys))
+    @floor = floor
+    @trials = [trials.to_i, 1].max
+  end
+
+  def evaluate(task, responses, limits: V23::LimitsReport.new)
+    # INV-4: surface opaque (unknown-family) judges regardless of whether any
+    # within-family channel exists — note BEFORE the early return.
+    @model_keys.select { |j| @resolver.unknown_family?(j) }.each { |j| limits.note_unknown_family_judge(j) }
+
+    families = @resolver.families(@model_keys)
+    if families.empty?
+      return { confirmed: [], indeterminate: [], limits: limits, families: {},
+               raw_claim_count: 0, aggregated_count: 0, trials: @trials }
+    end
+
+    puts "\n=== Layer D: Intra-Family Difference [#{task['id']}] (trials=#{@trials}) ==="
+    # Stable per-task control seed for screening: the longest response among the
+    # models actually under test (family members), not judges/opaque models.
+    family_members = families.values.flatten
+    control_seed = family_members.map { |k| responses[k].to_s }
+                                 .select { |r| r.strip.length >= MIN_CONTROL_LEN }.max_by(&:length)
+    screened = {}
+    # INV-1: collect raw claims PER TRIAL so trial-to-trial instability becomes a
+    # measurable noise floor. Screening is done once per judge (not per trial).
+    trial_raws = Array.new(@trials) { [] }
+    families.each_value do |members|
+      members.combination(2).each do |pair|
+        if responses[pair[0]].to_s.strip.empty? || responses[pair[1]].to_s.strip.empty?
+          limits.add_unresolved(pair: pair, axis: "*", reason: :missing_response)
+          next
+        end
+        judges = @model_keys.reject { |j| @resolver.conflicted?(j, pair) || @resolver.unknown_family?(j) }
+        if judges.empty?
+          limits.add_unresolved(pair: pair, axis: "*", reason: :no_unconflicted_judge)
+          next
+        end
+
+        any_screened = false
+        any_claim = false
+        judges.each do |judge|
+          screened[judge] = (control_seed ? screen_judge(judge, task, control_seed) : false) unless screened.key?(judge)
+          next unless screened[judge] # INV-8(ii): an unscreened judge does not adjudicate
+          any_screened = true
+          @trials.times do |t|
+            cmp = safe_compare(task, pair, judge, responses)
+            next unless cmp && cmp[:verdict].is_a?(Hash)
+            new_claims = self.class.verdict_to_claims(
+              verdict: cmp[:verdict], pair: pair, judge: judge,
+              order: cmp[:order], screen_passed: true
+            )
+            any_claim ||= !new_claims.empty?
+            trial_raws[t].concat(new_claims)
+          end
+        end
+        # Distinguish: no judge passed the screen, vs screened judges produced no
+        # decisive verdict (all ties / off-spec / compare failures) in any trial.
+        unless any_claim
+          reason = any_screened ? :no_admissible_verdict : :no_screened_judge
+          limits.add_unresolved(pair: pair, axis: "*", reason: reason)
+        end
+      end
+    end
+
+    # Aggregate each trial independently, then derive one representative claim per
+    # (pair, axis) with a trial-noise floor. A difference must exceed the panel's
+    # own trial-to-trial wobble (INV-1) before the static blinded/screen/conflict
+    # gate (floor 0) and the cross-axis consistency check (INV-8) apply.
+    trial_aggregates = trial_raws.map { |tr| self.class.aggregate(tr, @resolver) }
+    reps = self.class.repeat_trial_claims(trial_aggregates)
+    survivors = []
+    reps.each do |rep|
+      floor_val = rep[:floor].nil? ? @floor : rep[:floor]
+      if V23::NoiseFloor.new(floor: floor_val).claimable?(rep[:claim].delta)
+        survivors << rep[:claim]
+      else
+        limits.add_unresolved(pair: rep[:claim].pair, axis: rep[:claim].axis, reason: :below_noise_floor)
+      end
+    end
+
+    gate = V23::AdmissibilityGate.new(noise_floor: V23::NoiseFloor.new(floor: 0.0), resolver: @resolver)
+    result = V23::DifferenceEvaluator.new(gate: gate, resolver: @resolver).run(survivors, limits: limits)
+    result.merge(raw_claim_count: trial_raws.sum(&:size), aggregated_count: reps.size,
+                 families: families, trials: @trials)
+  end
+
+  private
+
+  # Coarse-to-fine resolution screen (INV-8 ii): can the judge tell an intact
+  # response from a deliberately corrupted (truncated) one? Provenance-fixed,
+  # non-circular. Necessary, not sufficient. Errors => screen fails (false).
+  def screen_judge(judge, task, control_seed)
+    intact = control_seed.to_s
+    return false if intact.strip.length < MIN_CONTROL_LEN
+    corrupted = intact[0, [intact.length / 3, 10].max]
+    order = %i[intact corrupted].shuffle
+    a = order[0] == :intact ? intact : corrupted
+    b = order[0] == :intact ? corrupted : intact
+    expected = order[0] == :intact ? "A" : "B"
+    prompt = PromptBuilder.render("pairwise_forced_choice",
+      task_prompt: task["prompt"], response_a: a, response_b: b, axes: AXES)
+    verdict = JSONParser.parse(@runner.execute(judge, prompt, label: "screen_#{task['id']}_#{judge}"))
+    return false unless verdict.is_a?(Hash)
+    controls = Array(verdict["per_axis"]).select { |r| r.is_a?(Hash) && AXES.include?(r["axis"]) }
+                                         .map { |r| { expected: expected, judged: r["choice"] } }
+    V23::ResolutionScreen.new(required_fraction: SCREEN_REQUIRED_FRACTION).passes?(controls)
+  rescue StandardError => e
+    warn "  [WARN] Layer D screen failed for #{judge}: #{e.message}"
+    false
+  end
+
+  def safe_compare(task, pair, judge, responses)
+    compare_pair(task, pair, judge, responses)
+  rescue StandardError => e
+    warn "  [WARN] Layer D compare failed for #{judge} on #{pair.join('/')}: #{e.message}"
+    nil
+  end
+
+  def compare_pair(task, pair, judge, responses)
+    order = pair.shuffle # non-mutating; blind: identity not derivable from position
+    prompt = PromptBuilder.render("pairwise_forced_choice",
+      task_prompt: task["prompt"],
+      response_a: responses[order[0]].to_s, response_b: responses[order[1]].to_s,
+      axes: AXES)
+    label = "layerD_#{task['id']}_#{judge}_#{pair.join('_vs_')}"
+    { verdict: JSONParser.parse(@runner.execute(judge, prompt, label: label)), order: order }
+  end
+end
+
+# ──────────────────────────────────────────────────────────────
+# Bias Detection
+# ──────────────────────────────────────────────────────────────
+
 class BiasDetector
   def self.analyze(layer1_results, model_keys)
     bias = {}
@@ -898,7 +1201,10 @@ class BiasDetector
       same_provider_scores = []
       diff_provider_scores = []
 
-      provider = MODELS[evaluator][:provider]
+      # INV-6: classify by lineage family, not raw provider string. An opaque
+      # provider resolves to :unknown and is never counted as "same series" —
+      # series-bias requires a KNOWN shared family on both sides.
+      ev_family = LayerDDifference.family_for(evaluator)
 
       evals.each do |target, data|
         next if data["error"] || data["scores"].nil?
@@ -913,8 +1219,8 @@ class BiasDetector
 
         scores_given << avg
 
-        target_provider = MODELS[target]&.dig(:provider)
-        if target_provider == provider
+        tgt_family = LayerDDifference.family_for(target)
+        if ev_family != :unknown && tgt_family == ev_family
           same_provider_scores << avg
         else
           diff_provider_scores << avg
@@ -954,7 +1260,7 @@ end
 # ──────────────────────────────────────────────────────────────
 
 class ReportGenerator
-  def self.generate(output_dir, tasks, model_keys, all_results, nomic_scores: nil, nomic_data: nil, incompleteness: nil)
+  def self.generate(output_dir, tasks, model_keys, all_results, nomic_scores: nil, nomic_data: nil, incompleteness: nil, limits: nil)
     report = []
     date = Time.now.strftime("%Y-%m-%d")
 
@@ -1088,9 +1394,9 @@ class ReportGenerator
 
     # Overall ranking
     report << "---"
-    report << "## Overall Ranking"
+    report << "## Overall Standing"
     report << ""
-    report << overall_ranking(all_results, model_keys, nomic_scores)
+    report << overall_ranking(all_results, model_keys, nomic_scores, limits: limits)
 
     # Framework Incompleteness Report (Prop 6 — dynamic, per-run)
     report << ""
@@ -1168,6 +1474,10 @@ class ReportGenerator
   end
 
   def self.calibration_table(calibration, model_keys)
+    if calibration.values.any? { |c| c.is_a?(Hash) && c[:inv2] }
+      return inv2_calibration_table(calibration, model_keys)
+    end
+
     header = "| Model | Self Avg | Peer Avg | Mean Error | Abs Error | Status |"
     sep = "|----|----|----|----|----|----|"
     rows = model_keys.map do |key|
@@ -1186,6 +1496,21 @@ class ReportGenerator
       "| #{MODELS[key][:label]} | #{self_avg} | #{peer_avg} | #{c[:mean_error]} | #{c[:abs_calibration_error]} | #{status} |"
     end
 
+    [header, sep, *rows].join("\n")
+  end
+
+  # INV-2 calibration rendering: confidence-to-reference error + overconfidence on
+  # unknowable items, scored against the human key (not peer agreement).
+  def self.inv2_calibration_table(calibration, model_keys)
+    header = "| Model | Calibration Error | Overconfidence | N | Status |"
+    sep = "|----|----|----|----|----|"
+    rows = model_keys.map do |key|
+      c = calibration[key]
+      next "| #{MODELS[key][:label]} | - | - | 0 | NO DATA |" unless c && !c[:error] && c[:n].to_i > 0
+      ce = c[:calibration_error] ? c[:calibration_error].round(3) : "-"
+      oc = c[:overconfidence] ? c[:overconfidence].round(3) : "-"
+      "| #{MODELS[key][:label]} | #{ce} | #{oc} | #{c[:n]} | #{c[:status].to_s.upcase} |"
+    end
     [header, sep, *rows].join("\n")
   end
 
@@ -1366,49 +1691,63 @@ class ReportGenerator
     [header, sep, *rows].join("\n")
   end
 
-  def self.overall_ranking(all_results, model_keys, nomic_scores)
-    # Combine Layer 1 response quality + Layer 2 evaluator reliability + Nomic
+  # INV-2-aware metacognition score (0–10): for calibration-mode tasks use the
+  # confidence-to-reference error (0–1 → 0–10); for others the legacy |self−peer|
+  # abs error (0–10 → 0–10). Averaged across tasks; no calibration data => neutral 5.
+  def self.metacognition_score(all_results, key)
+    scores = all_results.filter_map do |_, d|
+      c = d[:calibration]&.dig(key)
+      next unless c.is_a?(Hash)
+      if c[:inv2]
+        ce = c[:calibration_error]
+        ce.nil? ? nil : [10.0 - ce * 10.0, 0.0].max
+      else
+        ae = c[:abs_calibration_error]
+        ae.nil? ? nil : [10.0 - ae * 2.0, 0.0].max
+      end
+    end
+    scores.empty? ? 5.0 : scores.sum / scores.size
+  end
+
+  def self.overall_ranking(all_results, model_keys, nomic_scores, limits: nil)
+    # INV-3/6/9: aggregate L1 (response quality) and L2 (evaluator reliability) with
+    # independence weighting — a redundant same-family majority counts as ONE vote,
+    # not N — replacing the prior consensus-as-validity instance mean.
+    resolver = V23::FamilyResolver.new(LayerDDifference.lineage_map(model_keys))
+    weighting = V23::IndependenceWeighting.new(resolver)
+
     rankings = model_keys.map do |key|
-      l1_total = 0.0
-      l1_count = 0
-      l2_total = 0.0
-      l2_count = 0
+      l1_by_eval = Hash.new { |h, k| h[k] = [] }
+      l2_by_eval = Hash.new { |h, k| h[k] = [] }
 
       all_results.each do |_task_id, data|
         task_criteria = data[:task] ? criteria_for(data[:task]) : EVAL_CRITERIA_WEIGHTS
-        # L1: how well did this model's responses score?
         (data[:layer1] || {}).each do |evaluator, evals|
           next if evaluator == key
           eval_data = evals[key]
           next unless eval_data && eval_data["scores"]
-          weighted = task_criteria.sum { |c, w| (eval_data["scores"][c] || 0) * w }
-          l1_total += weighted
-          l1_count += 1
+          l1_by_eval[evaluator] << task_criteria.sum { |c, w| (eval_data["scores"][c] || 0) * w }
         end
 
-        # L2: how reliable is this model as an evaluator?
         task_meta_crit = meta_criteria_for(data[:task])
         (data[:layer2] || {}).each do |meta_eval, meta_evals|
           next if meta_eval == key
           meta_evals.each do |composite_key, data2|
             next unless composite_key.start_with?("#{key}:")
             next unless data2 && data2["scores"]
-            weighted = task_meta_crit.sum { |c, w| (data2["scores"][c] || 0) * w }
-            l2_total += weighted
-            l2_count += 1
+            l2_by_eval[meta_eval] << task_meta_crit.sum { |c, w| (data2["scores"][c] || 0) * w }
           end
         end
       end
 
-      l1_avg = l1_count > 0 ? l1_total / l1_count : 0
-      l2_avg = l2_count > 0 ? l2_total / l2_count : 0
+      # Per-evaluator mean first, then independence-weighted mean across evaluators.
+      l1_avg = weighting.independent_mean(l1_by_eval.transform_values { |xs| xs.sum.to_f / xs.size }) || 0.0
+      l2_avg = weighting.independent_mean(l2_by_eval.transform_values { |xs| xs.sum.to_f / xs.size }) || 0.0
       nomic_overall = nomic_scores&.dig(key, :overall) || 0
+      cal_score = metacognition_score(all_results, key)
 
-      # Calibration score: 10 - abs_error (lower error = better metacognition)
-      cal_errors = all_results.map { |_, d| d[:calibration]&.dig(key, :abs_calibration_error) }.compact
-      cal_score = cal_errors.empty? ? 5.0 : [10.0 - (cal_errors.sum / cal_errors.size) * 2, 0].max
-
-      # Combined: 40% response + 25% evaluator + 15% calibration + 20% nomic
+      # Combined weights are FIXED across runs (INV-3): saturation goes to the
+      # limits report, never to re-weighting.
       combined = if nomic_scores
                    0.40 * l1_avg + 0.25 * l2_avg + 0.15 * cal_score + 0.20 * (nomic_overall * 10)
                  else
@@ -1419,16 +1758,43 @@ class ReportGenerator
         nomic: (nomic_overall * 10).round(2), combined: combined.round(2) }
     end
 
-    ranked = rankings.sort_by { |r| -r[:combined] }
+    # INV-3: wrap the final standing. When models tie on the combined evidence the
+    # standing refuses to read as a ranking; the saturated group goes to limits.
+    by_key = rankings.each_with_object({}) { |r, h| h[r[:key]] = r }
+    standing = V23::Standing.from_scores(
+      rankings.each_with_object({}) { |r, h| h[r[:key]] = r[:combined] },
+      epsilon: RANKING_SATURATION_EPSILON
+    )
+    standing.saturated_components.each do |comp|
+      limits&.add_saturated_component("overall_ranking:#{comp.join('=')}")
+    end
+    standing_table(standing, by_key, nomic_scores)
+  end
 
-    header = "| Rank | Model | Response (L1) | Evaluator (L2) | Calibration (L0.5) | Nomic | Combined |"
-    sep = "|----|----|----|----|----|----|-----|"
-    rows = ranked.each_with_index.map do |r, i|
+  def self.standing_table(standing, by_key, nomic_scores)
+    saturated_keys = standing.saturated_components.flatten
+    ordered = standing.scores.sort_by { |k, v| [-v, k] }.map(&:first)
+
+    title =
+      if standing.saturated_components.empty?
+        "_Independence-weighted standing (INV-3/6/9). Combined weights fixed across runs._"
+      else
+        groups = standing.saturated_components.map { |c| c.map { |k| MODELS[k][:label] }.join(" = ") }.join("; ")
+        "**NOT A RANKING — saturated (INV-3).** Models tie on the combined evidence " \
+          "and cannot be ordered. Saturated group(s): #{groups}. Row order below is " \
+          "display only, not a rank claim."
+      end
+
+    header = "| # | Model | Response (L1) | Evaluator (L2) | Calibration (L0.5) | Nomic | Combined | Saturated |"
+    sep = "|----|----|----|----|----|----|----|----|"
+    rows = ordered.each_with_index.map do |key, i|
+      r = by_key[key]
       nomic_col = nomic_scores ? r[:nomic].to_s : "N/A"
-      "| #{i + 1} | #{MODELS[r[:key]][:label]} | #{r[:l1]} | #{r[:l2]} | #{r[:cal]} | #{nomic_col} | #{r[:combined]} |"
+      sat = saturated_keys.include?(key) ? "yes" : ""
+      "| #{i + 1} | #{MODELS[key][:label]} | #{r[:l1]} | #{r[:l2]} | #{r[:cal]} | #{nomic_col} | #{r[:combined]} | #{sat} |"
     end
 
-    [header, sep, *rows].join("\n")
+    [title, "", header, sep, *rows].join("\n")
   end
 end
 
@@ -1446,9 +1812,14 @@ class CrossEvalPipeline
     @skip_layer0 = options[:skip_layer0]
     @layer2_samples = options[:layer2_samples]
     @dry_run = options[:dry_run]
+    @intra_family = options[:intra_family]
+    @layerd_floor = options[:layerd_floor] || 0.0
+    @layerd_trials = options[:layerd_trials] || LayerDDifference::DEFAULT_TRIALS
 
     FileUtils.mkdir_p(@output_dir)
     @runner = CLIRunner.new(@output_dir, dry_run: @dry_run)
+    @resolver = V23::FamilyResolver.new(LayerDDifference.lineage_map(@model_keys))
+    @limits = V23::LimitsReport.new
   end
 
   def run
@@ -1497,9 +1868,23 @@ class CrossEvalPipeline
         bias: bias,
       }
 
+      # Layer D: intra-family difference (v2.3, INV-6/7/8) — opt-in
+      if @intra_family
+        layerd = LayerDDifference.new(@runner, @model_keys, resolver: @resolver,
+                                      floor: @layerd_floor, trials: @layerd_trials)
+                                 .evaluate(task, responses, limits: @limits)
+        all_results[task_id][:intra_family] = serialize_layerd(layerd)
+        File.write(File.join(@output_dir, "intra_family_#{task_id}.json"),
+                   JSON.pretty_generate(all_results[task_id][:intra_family]))
+      end
+
       # Save intermediate results
       save_json(task_id, all_results[task_id])
     end
+
+    # INV-10: pin the lineup now. INV-4 limits are written AFTER report generation
+    # so the report's standing step can register ranking saturation (2b-1).
+    write_lineup
 
     # Nomic game
     nomic_scores = nil
@@ -1522,14 +1907,65 @@ class CrossEvalPipeline
     # Generate dynamic incompleteness report (Prop 6)
     incompleteness = generate_incompleteness_report(all_results, nomic_data)
 
-    # Generate match report
+    # Generate match report (overall_ranking may register INV-3 saturation into @limits)
     tasks = @task_ids.map { |id| TaskLoader.load(id) }
-    ReportGenerator.generate(@output_dir, tasks, @model_keys, all_results,
-                             nomic_scores: nomic_scores, nomic_data: nomic_data,
-                             incompleteness: incompleteness)
+    report = ReportGenerator.generate(@output_dir, tasks, @model_keys, all_results,
+                                      nomic_scores: nomic_scores, nomic_data: nomic_data,
+                                      incompleteness: incompleteness, limits: @limits)
+
+    # INV-4: surface the run's limits last, now that ranking saturation is folded in.
+    write_limits
+    report
   end
 
   private
+
+  # Serialize a LayerD result (DifferenceClaim structs -> hashes) for JSON.
+  def serialize_layerd(layerd)
+    to_h = lambda do |claims|
+      Array(claims).map do |c|
+        { pair: c.pair, axis: c.axis, delta: c.delta, judge: c.judge }
+      end
+    end
+    {
+      confirmed: to_h.call(layerd[:confirmed]),
+      indeterminate: to_h.call(layerd[:indeterminate]),
+      raw_claim_count: layerd[:raw_claim_count],
+      aggregated_count: layerd[:aggregated_count],
+      trials: layerd[:trials],
+      families: (layerd[:families] || {}).transform_keys(&:to_s)
+    }
+  end
+
+  # INV-10 lineup pin, written once per run.
+  def write_lineup
+    lineup = {
+      protocol_version: PROTOCOL_VERSION,
+      definitions_version: DEFINITIONS_VERSION,
+      models: @model_keys.map do |k|
+        { key: k, label: MODELS[k][:label], cmd: MODELS[k][:cmd],
+          family: LayerDDifference.family_for(k).to_s }
+      end,
+      nomic: @run_nomic,
+      intra_family: @intra_family,
+      layerd_trials: @layerd_trials
+    }
+    File.write(File.join(@output_dir, "lineup.json"), JSON.pretty_generate(lineup))
+  end
+
+  # INV-4 limits report, written after report generation (so ranking saturation is included).
+  def write_limits
+    limits = @limits.to_h
+    File.write(File.join(@output_dir, "limits_report.json"), JSON.pretty_generate(limits))
+    if @limits.empty?
+      puts "\n=== Limits report (INV-4): no saturation / unresolved / unknown-family items ==="
+    else
+      puts "\n=== Limits report (INV-4) ==="
+      puts "  unresolved: #{limits[:unresolved_claims].size}, " \
+           "unknown-family judges: #{limits[:unknown_family_judges].join(', ')}, " \
+           "saturated: #{limits[:saturated_components].size}"
+    end
+  end
 
   def load_cached_responses(task_id)
     @model_keys.each_with_object({}) do |key, h|
@@ -1563,7 +1999,12 @@ class CrossEvalPipeline
       # Calibration stats
       cal_stats = (data[:calibration] || {}).map do |k, c|
         next nil unless c && !c[:error]
-        "#{MODELS[k][:label]}: error=#{c[:mean_error]}, abs=#{c[:abs_calibration_error]}"
+        if c[:inv2]
+          "#{MODELS[k][:label]}: cal_err=#{c[:calibration_error]&.round(3)}, " \
+            "overconf=#{c[:overconfidence]&.round(3)}, status=#{c[:status]}"
+        else
+          "#{MODELS[k][:label]}: error=#{c[:mean_error]}, abs=#{c[:abs_calibration_error]}"
+        end
       end.compact
 
       # Score ranges
@@ -1685,6 +2126,9 @@ if __FILE__ == $PROGRAM_NAME
     skip_layer0: false,
     layer2_samples: nil,
     dry_run: false,
+    intra_family: false,
+    layerd_floor: 0.0,
+    layerd_trials: 3, # INV-1: K repeat trials for Layer D noise estimation
   }
 
   OptionParser.new do |opts|
@@ -1720,6 +2164,18 @@ if __FILE__ == $PROGRAM_NAME
 
     opts.on("--dry-run", "Generate prompts only") do
       options[:dry_run] = true
+    end
+
+    opts.on("--intra-family", "Run Layer D: intra-family difference (v2.3, INV-6/7/8)") do
+      options[:intra_family] = true
+    end
+
+    opts.on("--layerd-floor F", Float, "Layer D noise floor on net independent agreement (default 0.0)") do |v|
+      options[:layerd_floor] = v
+    end
+
+    opts.on("--layerd-trials N", Integer, "Layer D repeat trials for INV-1 noise estimation (default 3; cost scales K×)") do |v|
+      options[:layerd_trials] = v
     end
 
     opts.on("--list-tasks", "List available tasks") do
