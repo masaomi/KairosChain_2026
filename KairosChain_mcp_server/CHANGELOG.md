@@ -4,6 +4,37 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.29.0] - 2026-05-30
+
+### Added — `llm_cross_evaluation` v2.3 SkillSet (intra-family difference, INV-1/2/3/6)
+
+Ships the v2.3 cross-evaluation SkillSet into the bundled templates. The
+re-frame is "near-kin = control": rather than treating consensus as validity,
+within-family version differences become first-class, and agreement is
+discounted while differences are preserved. Three invariants are now wired
+into the pipeline (`scripts/run_cross_eval.rb`) on top of pure decision cores
+(`scripts/lib/{intra_family_v23,calibration_v23}.rb`):
+
+- **INV-2 (calibration validity)**: a `evaluation_mode: calibration` task scores
+  Layer 0.5 via `V23::Calibration` against a human `answer_key`
+  (confidence-to-reference, Brier-style + overconfidence on unknowable items),
+  replacing the `|self - peer|` metric that saturates under frontier models.
+  Non-calibration tasks keep the legacy path.
+- **INV-3/6 (consensus removal)**: `overall_ranking` aggregates L1/L2 with
+  independence weighting (each known family = one vote; opaque providers each
+  their own vote); the final standing refuses to read as a ranking when models
+  saturate (tie), registering the saturated group to the INV-4 limits report.
+  Combined weights are fixed across runs.
+- **INV-1 (repeat-trial noise floor)**: Layer D runs each forced-choice
+  comparison `--layerd-trials` times (default 3); per (pair, axis) the
+  trial-to-trial standard deviation of net independent agreement becomes a
+  noise floor a difference must exceed. Cost scales K×.
+
+Pure logic is unit-tested (124 runs, Ruby 3.1.3 and 3.3.7). The wiring passed a
+multi-LLM implementation review (Anthropic persona gate satisfied). Layer D and
+the new tasks run from the local `.kairos/knowledge` copy; this release pins the
+distributable templates copy.
+
 ## [3.28.5] - 2026-05-29
 
 ### Changed — llm_client Claude Code adapter default model → Opus 4.8
