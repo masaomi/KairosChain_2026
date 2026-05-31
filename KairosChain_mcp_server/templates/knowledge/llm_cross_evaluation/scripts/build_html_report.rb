@@ -60,18 +60,18 @@ flush_md.call
 
 # Table headers stay English even in the ja report, so we locate tables by their
 # English column names / task ids — language-robust.
-def col(t, name)
-  idx = t[:header].index { |h| h.include?(name) }
-  idx ? t[:rows].map { |r| r[idx].to_f } : []
+def tcol(t, i)  # extract a column by position, tolerant of "**" emphasis
+  t[:rows].map { |r| r[i].to_s.delete("*").to_f }
 end
 
 PALETTE = ["#4e79a7", "#f28e2b", "#59a14f", "#e15759", "#b07aa1", "#76b7b2"]
 
-standing = tables.find { |t| t[:header].any? { |h| h.include?("Combined") } }
+# Locate by heading (language-robust), extract by column position (headers may be localized).
+standing = tables.find { |t| t[:h2].to_s.match?(/Overall Standing|総合順位/) }
 standing_data = standing && {
   labels: standing[:rows].map { |r| r[1] },
-  l1: col(standing, "Response"), l2: col(standing, "Evaluator"),
-  cal: col(standing, "Calibration"), nomic: col(standing, "Nomic"), combined: col(standing, "Combined"),
+  l1: tcol(standing, 2), l2: tcol(standing, 3),
+  cal: tcol(standing, 4), nomic: tcol(standing, 5), combined: tcol(standing, 6),
 }
 
 # Meta-Recognition table: locate by section heading (en or ja); columns by position
@@ -84,7 +84,7 @@ mr_data = mr && {
 }
 
 # Per-task Layer 1 (table header has "Criterion"; h2 holds the task id)
-l1_tables = tables.select { |t| t[:header].any? { |h| h.include?("Criterion") } }
+l1_tables = tables.select { |t| t[:header].any? { |h| h =~ /Criterion|基準/ } }
 l1_chart = nil
 unless l1_tables.empty?
   task_labels = l1_tables.map { |t| t[:h2].to_s.sub(/^(Task:|タスク:)\s*/, "") }
@@ -111,10 +111,15 @@ end
 def esc(s) = s.gsub("&", "&amp;").gsub("<", "&lt;").gsub(">", "&gt;")
 def inline(s) = esc(s).gsub(/\*\*(.+?)\*\*/, '<strong>\1</strong>').gsub(/`(.+?)`/, '<code>\1</code>')
 def md_to_html(text)
-  out = []; list_open = false
+  out = []; list_open = false; quote_open = false
+  close_quote = -> { (out << "</blockquote>"; quote_open = false) if quote_open }
   text.split("\n").each do |ln|
     s = ln.strip
-    if s.empty? then (out << "</ul>"; list_open = false) if list_open; next end
+    if s.empty? then (out << "</ul>"; list_open = false) if list_open; close_quote.call; next end
+    if s.start_with?("> ")
+      (out << "<blockquote>"; quote_open = true) unless quote_open
+      out << "<p>#{inline(s[2..])}</p>"; next
+    elsif quote_open then close_quote.call end
     if s.start_with?("- ")
       (out << "<ul>"; list_open = true) unless list_open
       out << "<li>#{inline(s[2..])}</li>"; next
@@ -126,6 +131,7 @@ def md_to_html(text)
     else out << "<p>#{inline(s)}</p>" end
   end
   out << "</ul>" if list_open
+  out << "</blockquote>" if quote_open
   out.join("\n")
 end
 def table_html(t)
@@ -206,6 +212,8 @@ html = <<~HTML
     .dashboard{display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:1.2rem;margin:1.5rem 0;}
     .chart-card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:1rem;box-shadow:0 1px 3px rgba(0,0,0,.05);}
     .lead{color:var(--muted);font-size:.95rem;} .nojs{color:#a00;font-size:.85rem;}
+    blockquote{margin:.8rem 0;padding:.7rem 1rem;background:#eef3f9;border-left:4px solid var(--accent);border-radius:4px;font-size:.93rem;color:#33415c;}
+    blockquote p{margin:.2rem 0;}
   </style></head>
   <body><main>
   <h1>#{UI[:title]}</h1>
