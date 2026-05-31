@@ -1550,7 +1550,8 @@ class ReportGenerator
           next if meta_eval == evaluator
           (layer2[meta_eval] || {}).each do |composite_key, data|
             next unless composite_key.start_with?("#{evaluator}:")
-            vals << data.dig("scores", criterion) if data && data["scores"]
+            v = data.dig("scores", criterion) if data && data["scores"]
+            vals << v unless v.nil?
           end
         end
         vals.empty? ? "-" : (vals.sum / vals.size).round(1).to_s
