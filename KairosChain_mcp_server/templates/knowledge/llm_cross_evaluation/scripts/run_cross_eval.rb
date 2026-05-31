@@ -1579,8 +1579,14 @@ class ReportGenerator
     [header, sep, *rows].join("\n")
   end
 
+  # Compact but version-preserving label for matrix axes (drop the redundant
+  # "Claude " prefix; keep the version, which the old [0..10] truncation lost).
+  def self.matrix_label(k)
+    MODELS[k][:label].sub(/^Claude /, "")
+  end
+
   def self.concordance_matrix(layer1, model_keys)
-    header = "| Evaluator \\ Evaluated | " + model_keys.map { |k| MODELS[k][:label][0..10] }.join(" | ") + " |"
+    header = "| Evaluator \\ Evaluated | " + model_keys.map { |k| matrix_label(k) }.join(" | ") + " |"
     sep = "|" + "----|" * (model_keys.size + 1)
     rows = model_keys.map do |evaluator|
       cells = model_keys.map do |evaluated|
@@ -1596,7 +1602,7 @@ class ReportGenerator
           end
         end
       end
-      "| #{MODELS[evaluator][:label][0..10]} | #{cells.join(' | ')} |"
+      "| #{matrix_label(evaluator)} | #{cells.join(' | ')} |"
     end
 
     [header, sep, *rows].join("\n")
