@@ -179,9 +179,66 @@ def localize_ja(md)
       "_独立重み付け順位（INV-3/6/9）。合成重みは実行間で固定。_",
     "*(Incompleteness report generation failed — itself an instance of Prop 6)*" =>
       "*（不完全性レポートの生成に失敗 — それ自体が命題6の実例）*",
+    # ── header / meta lines ──
+    "Date: " => "日付: ",
+    "Tasks: " => "タスク一覧: ",
+    # ── table column headers (whole-row replacements) ──
+    "| Key | Label | Provider | Thinking Effort |" => "| キー | ラベル | 提供元 | 推論強度 |",
+    "| Model | Self Avg | Peer Avg | Mean Error | Abs Error | Status |" =>
+      "| モデル | 自己平均 | peer平均 | 平均誤差 | 絶対誤差 | 判定 |",
+    "| Evaluated \\ Criterion | Accuracy | Completeness | Logical_consistency | Clarity | Originality | Weighted |" =>
+      "| 被評価 \\ 基準 | 正確性 | 網羅性 | 論理整合性 | 明瞭性 | 独創性 | 加重 |",
+    "| Evaluator | Fairness | Specificity | Coverage | Calibration | Weighted |" =>
+      "| 評価者 | 公正性 | 具体性 | 網羅性 | 較正 | 加重 |",
+    "| Evaluated \\ Criterion | Recursive_depth | Contradiction_holding | Novel_implication | Self_applicability_organic | Self_applicability_prompted | Limitation_recognition | Weighted |" =>
+      "| 被評価 \\ 基準 | 再帰的深度 | 矛盾保持 | 新規含意 | 自己適用_自発 | 自己適用_誘導 | 限界認識 | 加重 |",
+    "| Evaluator | Recursive_applicability | Tension_detection | Surface_consensus_avoidance | Self_awareness | Weighted |" =>
+      "| 評価者 | 再帰的適用 | 緊張検出 | 表面的合意回避 | 自己認識 | 加重 |",
+    "| Model | Self-Bias | Series-Bias | Harshness | Mean Score |" =>
+      "| モデル | 自己バイアス | 系列バイアス | 厳しさ | 平均スコア |",
+    "| Evaluator \\ Evaluated |" => "| 評価者 \\ 被評価者 |",
+    "| Model | Mean Score | Std Dev | L2 Quality | Interpretation |" =>
+      "| モデル | 平均スコア | 標準偏差 | L2品質 | 解釈 |",
+    "| Model | Calibration Error | Overconfidence | N | Status |" =>
+      "| モデル | 較正誤差 | 自信過剰 | N | 判定 |",
+    "| Level | Count |" => "| レベル | 件数 |",
+    # ── post-game reflection field labels (the prose after them is model-authored; kept) ──
+    "(self-classified: " => "（自己分類: ",
+    "- Victory critique: " => "- 勝利条件の批判: ",
+    "- Winning redefined: " => "- 勝利の再定義: ",
+    "- Self-reference insight: " => "- 自己言及の洞察: ",
+    # ── status / interpretation values ──
+    "UNDERCONFIDENT" => "自信過小", "OVERCONFIDENT" => "自信過剰", "CALIBRATED" => "較正済み",
+    "LOW — possible surface consensus" => "低 — 表面的合意の可能性",
+    "HIGH — productive divergence" => "高 — 生産的な乖離",
+    # ── executive summary ──
+    "**Top performer**: " => "**最高成績**: ",
+    " (weighted avg: " => "（加重平均: ",
+    "/10). " => "/10）。",
+    " task(s) evaluated across " => " タスク × ",
+    " models with cross-evaluation and meta-evaluation." => " モデルで相互評価・メタ評価を実施。",
+    # ── concordance divergence prose ──
+    "For philosophical tasks, evaluator **disagreement** is ambiguous:" =>
+      "哲学タスクでは、評価者の**不一致**は両義的である:",
+    "productive (deep engagement) or noise (weak criteria). The quality" =>
+      "生産的（深い関与）か、ノイズ（基準の弱さ）か。品質ゲートは",
+    "gate uses L2 evaluator scores to disambiguate." =>
+      "L2 評価者スコアを用いてこれを判別する。",
+    "**L2 quality gate** (per-model, PROVISIONAL >= 6.0):" =>
+      "**L2 品質ゲート**（モデル別、暫定 >= 6.0）:",
+    "*Thresholds (>1.5 HIGH, <0.7 LOW) are PROVISIONAL — recalibrate after N >= 5 runs.*" =>
+      "*閾値（>1.5 高、<0.7 低）は暫定 — 実行回数 N >= 5 で再較正する。*",
+    "*Quality gate: per-model L2 >= 6.0, fail-closed (missing L2 → AMBIGUOUS).*" =>
+      "*品質ゲート: モデル別 L2 >= 6.0、フェイルクローズ（L2 欠損 → 判定不能）。*",
+    # ── incompleteness footer ──
+    "*Per Prop 6: this incompleteness is not a flaw but a driving*" =>
+      "*命題6 に従い: この不完全性は欠陥ではなく駆動力である*",
+    "*force — what cannot be measured here defines the next evolution of the framework.*" =>
+      "*— ここで測れないものが、枠組みの次の進化を定義する。*",
   }
+  # Longest-first so specific whole-row headers are replaced before short tokens.
   out = md
-  repl.each { |en, ja| out = out.gsub(en, ja) }
+  repl.sort_by { |en, _| -en.length }.each { |en, ja| out = out.gsub(en, ja) }
   out
 end
 
