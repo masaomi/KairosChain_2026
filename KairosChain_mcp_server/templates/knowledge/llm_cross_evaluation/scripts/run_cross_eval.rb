@@ -71,11 +71,13 @@ MODELS = {
   },
   "codex_gpt55" => {
     tool: :codex,
-    cmd: "codex exec -m gpt-5.5",
+    # Pin reasoning effort in the experiment config (not via global ~/.codex/config.toml)
+    # for reproducibility (INV-10). Codex CLI accepts -c 'model_reasoning_effort="..."'.
+    cmd: "codex exec -m gpt-5.5 -c 'model_reasoning_effort=\"medium\"'",
     label: "Codex GPT-5.5",
     provider: "openai",
     input_mode: :stdin,
-    thinking_effort: nil,  # no effort control
+    thinking_effort: "medium",
   },
   "cursor_composer2" => {
     tool: :cursor,
