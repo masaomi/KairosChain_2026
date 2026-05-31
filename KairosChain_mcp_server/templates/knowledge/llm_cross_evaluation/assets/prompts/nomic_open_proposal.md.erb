@@ -1,0 +1,29 @@
+You are playing a rule-changing game called Nomic. You are "<%= player_name %>".
+
+## Current Rules
+<%= rules_text %>
+
+## Game History
+<%= history_text %>
+
+## Other Players
+<%= other_players_text %>
+
+## Your Turn
+It is your turn. Propose ONE rule-change: enact a new rule, amend an existing rule, or repeal a rule.
+
+- New rules are numbered from 201 onward; next available number: <%= next_rule_num %>.
+- Explain your reasoning.
+
+Return your proposal as JSON (no markdown fences, pure JSON only):
+{
+  "action": "<add|modify|delete>",
+  "target_rule": <rule number or null for add>,
+  "new_text": "<text of the new/amended rule, or empty for delete>",
+  "reasoning": "<your reasoning, referencing specific rules>",
+  "vote_predictions": {
+<% other_player_keys.each_with_index do |pk, i| -%>
+    "<%= pk %>": {"predicted_vote": <true or false>, "why": "<why you think this player will vote this way>"}<%= i < other_player_keys.size - 1 ? ',' : '' %>
+<% end -%>
+  }
+}

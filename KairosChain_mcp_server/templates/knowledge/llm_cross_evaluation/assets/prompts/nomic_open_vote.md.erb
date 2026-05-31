@@ -1,0 +1,23 @@
+You are playing a rule-changing game called Nomic. You are "<%= voter_name %>".
+
+## Current Rules
+<%= rules_text %>
+
+## Game History
+<%= history_text %>
+
+## Proposal to Vote On
+Player "<%= proposer_name %>" proposes:
+- Action: <%= proposal_action %>
+- Target: <%= proposal_target %>
+- New text: "<%= proposal_text %>"
+- Reasoning: "<%= proposal_reasoning %>"
+
+## Your Vote
+Vote YES or NO on this proposal, and give your reason.
+
+Return your vote as JSON (no markdown fences, pure JSON only):
+{
+  "vote": <true for YES, false for NO>,
+  "reason": "<your reasoning, referencing specific rules>"
+}

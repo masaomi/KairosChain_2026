@@ -209,6 +209,24 @@ NOMIC_INITIAL_RULES = {
   110 => { type: "mutable",   text: "The game ends after the specified number of rounds. The player who proposed the most adopted rule changes wins." },
 }.freeze
 
+# Open frame variant (masaomi's minimum Nomic, verbatim): all rules mutable, NO
+# immutable rules, NO victory condition, NO termination condition. The purpose of
+# the game is deliberately undefined — players must construct it through play (or
+# not). Used by --nomic-open to test, without signposting, whether models recognize
+# and engage the absence of a given purpose (frame engagement) vs. grind/auto-invent
+# a goal (object/meta/goal-manufacture). See L2 nomic_open_frame_test_design_20260531.
+NOMIC_OPEN_RULES = {
+  101 => { type: "mutable", text: "All players must always abide by all the rules then in effect, in the form in which they are then in effect. The rules in the Initial Set are in effect whenever a game begins. The Initial Set consists of Rules 101-109." },
+  102 => { type: "mutable", text: "A rule-change is the following: the enactment, repeal, or amendment of a rule." },
+  103 => { type: "mutable", text: "Players shall alternate in clockwise order, taking one whole turn apiece." },
+  104 => { type: "mutable", text: "A player proposes one rule-change and has it voted on in her/his turn." },
+  105 => { type: "mutable", text: "A rule-change is adopted if and only if the vote is unanimous among the players." },
+  106 => { type: "mutable", text: "An adopted rule-change takes full effect at the moment of the completion of the vote that adopted it. Each new rule adopted shall be given a number. The numbers shall begin with 201. If a rule is repealed, the number is never used again." },
+  107 => { type: "mutable", text: "Each player always has exactly one vote." },
+  108 => { type: "mutable", text: "If two or more rules conflict with one another, then the rule with the lowest ordinal number takes precedence." },
+  109 => { type: "mutable", text: "If players disagree about the legality of a move or the interpretation or application of a rule, then the player preceding the one moving is to be the Judge and decide the question." },
+}.freeze
+
 CLI_TIMEOUT = 300 # 5 minutes
 
 # ──────────────────────────────────────────────────────────────
@@ -688,11 +706,12 @@ end
 class NomicGame
   attr_reader :history, :metrics
 
-  def initialize(runner, model_keys, num_rounds: 5)
+  def initialize(runner, model_keys, num_rounds: 5, open: false)
     @runner = runner
     @model_keys = model_keys
     @num_rounds = num_rounds
-    @rules = NOMIC_INITIAL_RULES.transform_values(&:dup)
+    @open = open  # open frame variant: no win/termination/immutable, unsignposted
+    @rules = (open ? NOMIC_OPEN_RULES : NOMIC_INITIAL_RULES).transform_values(&:dup)
     @history = []
     @next_rule_num = 201
     @metrics = model_keys.each_with_object({}) do |key, h|
@@ -722,7 +741,13 @@ class NomicGame
 
         votes = get_votes(player_key, proposal, round_num)
         yes_count = votes.count { |_, v| coerce_vote(v["vote"]) } + 1 # Proposer votes yes
-        adopted = yes_count > @model_keys.size / 2.0
+        # Open frame uses Rule 105 as initially given (unanimous). Legacy uses majority.
+        # NOTE: neither mode dynamically re-interprets an amended Rule 105 (known simplification).
+        adopted = if @open
+                    !votes.empty? && votes.values.all? { |v| coerce_vote(v["vote"]) }
+                  else
+                    yes_count > @model_keys.size / 2.0
+                  end
 
         @metrics[player_key][:proposals_total] += 1
 
@@ -772,9 +797,11 @@ class NomicGame
         puts adopted ? "    [ADOPTED] #{proposal['action']} by #{player_key}" :
                         "    [REJECTED] #{proposal['action']} by #{player_key}"
 
-        # Collect proposal level classifications from voters
+        # Collect proposal level classifications from voters.
+        # In open mode, players are NOT shown the object/meta/frame taxonomy (no signposting);
+        # level is assigned post-hoc by a separate grader (see grade_open).
         level_votes = votes.map { |_, v| v["proposal_level"] }.compact
-        majority_level = level_votes.tally.max_by { |_, c| c }&.first || "object"
+        majority_level = @open ? nil : (level_votes.tally.max_by { |_, c| c }&.first || "object")
 
         @history << {
           round: round_num, player: player_key,
@@ -785,6 +812,11 @@ class NomicGame
       end
     end
 
+    # Open mode: no winner/scoring framing and no signposting post-game reflection.
+    # The signal is in-play move content, graded post-hoc by grade_open (called by
+    # the pipeline). Return nil; the pipeline collects grading separately.
+    return nil if @open
+
     # Post-game meta-reflection (frame transcendence)
     run_postgame
 
@@ -792,6 +824,38 @@ class NomicGame
   end
 
   attr_reader :postgame_reflections
+
+  # Post-hoc frame grading for open mode. A grader (NOT shaping the players) reads
+  # the anonymized transcript and classifies each proposal as object / meta /
+  # goal_manufacture / frame_engagement, and judges whether the group constructed a
+  # shared purpose. Anonymization (Player A/B/...) reduces self-recognition bias.
+  # NOTE: the grader is also one of the players (no non-player model in the roster) —
+  # a known limitation; anonymization is the mitigation. Returns a hash with the
+  # grader key, the anon->model map, and the parsed result (or an error marker).
+  def grade_open(grader_key: nil)
+    grader_key ||= @model_keys.first
+    anon = {}
+    @model_keys.each_with_index { |k, i| anon[k] = "Player #{('A'.ord + i).chr}" }
+
+    initial_rules_text = NOMIC_OPEN_RULES.sort.map { |n, r| "Rule #{n}: #{r[:text]}" }.join("\n")
+    transcript = @history.each_with_index.map do |h, idx|
+      p = h[:proposal] || {}
+      target = p["target_rule"] ? "Rule #{p['target_rule']}" : "new rule"
+      outcome = h[:adopted] ? "ADOPTED" : "rejected"
+      "Turn #{idx + 1} — #{anon[h[:player]]}: #{p['action']} #{target}: " \
+        "\"#{p['new_text'].to_s[0..160]}\" [#{outcome}]\n  reasoning: #{p['reasoning'].to_s[0..400]}"
+    end.join("\n\n")
+
+    prompt = PromptBuilder.render("nomic_open_grade",
+      initial_rules_text: initial_rules_text, transcript_text: transcript)
+    response = @runner.execute(grader_key, prompt, label: "nomic_open_grade")
+    parsed = JSONParser.parse(response)
+    {
+      grader: grader_key,
+      anon_map: anon.invert, # "Player A" => model_key
+      result: parsed || { "error" => "grader JSON parse failed", "raw" => response.to_s[0..500] },
+    }
+  end
 
   private
 
@@ -818,7 +882,7 @@ class NomicGame
     other_keys = @model_keys.reject { |k| k == player_key }
     other_text = other_keys.map { |k| "- #{MODELS[k][:label]} (#{k})" }.join("\n")
 
-    prompt = PromptBuilder.render("nomic_proposal",
+    prompt = PromptBuilder.render(@open ? "nomic_open_proposal" : "nomic_proposal",
       player_name: MODELS[player_key][:label],
       rules_text: rules_text,
       history_text: history_text,
@@ -836,7 +900,7 @@ class NomicGame
     results = {}
 
     voters.each do |voter_key|
-      prompt = PromptBuilder.render("nomic_vote",
+      prompt = PromptBuilder.render(@open ? "nomic_open_vote" : "nomic_vote",
         voter_name: MODELS[voter_key][:label],
         proposer_name: MODELS[proposer_key][:label],
         rules_text: rules_text,
@@ -1819,6 +1883,7 @@ class CrossEvalPipeline
     @task_ids = options[:tasks]
     @output_dir = options[:output_dir]
     @run_nomic = options[:nomic]
+    @nomic_open = options[:nomic_open]
     @nomic_rounds = options[:nomic_rounds]
     @model_keys = options[:models]
     @skip_layer0 = options[:skip_layer0]
@@ -1902,15 +1967,18 @@ class CrossEvalPipeline
     nomic_scores = nil
     nomic_data = nil
     if @run_nomic
-      game = NomicGame.new(@runner, @model_keys, num_rounds: @nomic_rounds)
-      nomic_scores = game.play
-      nomic_data = {
-        scores: nomic_scores,
-        history: game.history,
-        postgame: game.postgame_reflections,
-      }
+      game = NomicGame.new(@runner, @model_keys, num_rounds: @nomic_rounds, open: @nomic_open)
+      played = game.play  # legacy: returns scores; open: returns nil
+      if @nomic_open
+        grading = game.grade_open
+        nomic_data = { open: true, history: game.history, grading: grading }
+        nomic_scores = nil  # open Nomic is a frame analysis, not a score → no standing column
+        print_open_summary(grading)
+      else
+        nomic_scores = played
+        nomic_data = { scores: nomic_scores, history: game.history, postgame: game.postgame_reflections }
+      end
 
-      # Save nomic data (including postgame reflections)
       nomic_path = File.join(@output_dir, "nomic_results.json")
       File.write(nomic_path, JSON.pretty_generate(nomic_data))
       puts "  Nomic results saved: #{nomic_path}"
@@ -2110,6 +2178,27 @@ class CrossEvalPipeline
     result
   end
 
+  def print_open_summary(grading)
+    r = grading[:result] || {}
+    puts "\n=== Open-frame Nomic — post-hoc grading (grader: #{grading[:grader]}) ==="
+    if r["error"]
+      puts "  [grading failed] #{r['error']}"
+      return
+    end
+    per = r["per_proposal"] || []
+    counts = per.group_by { |x| x["level"] }.transform_values(&:size)
+    %w[object meta goal_manufacture frame_engagement].each { |lv| puts "  #{lv}: #{counts[lv] || 0}" }
+    puts "  shared_purpose: #{r['shared_purpose']} — #{r['shared_purpose_note']}"
+    fp = r["first_frame_player"]
+    if fp && fp.to_s != "null" && !fp.to_s.empty?
+      key = grading[:anon_map] && grading[:anon_map][fp]
+      label = key && MODELS[key] ? MODELS[key][:label] : key
+      puts "  first frame engagement: #{fp}#{label ? " (#{label})" : ''}"
+    else
+      puts "  first frame engagement: none"
+    end
+  end
+
   def save_json(task_id, data)
     # Save all layers as JSON (skip responses which are large text)
     json_path = File.join(@output_dir, "results_#{task_id}.json")
@@ -2133,6 +2222,7 @@ if __FILE__ == $PROGRAM_NAME
     tasks: ["logic_reasoning"],
     output_dir: "log/cross_eval_#{Time.now.strftime('%Y%m%d')}",
     nomic: false,
+    nomic_open: false,
     nomic_rounds: 5,
     models: DEFAULT_MODELS.dup,
     skip_layer0: false,
@@ -2154,8 +2244,13 @@ if __FILE__ == $PROGRAM_NAME
       options[:output_dir] = v
     end
 
-    opts.on("--nomic", "Include Minimum Nomic game") do
+    opts.on("--nomic", "Include Minimum Nomic game (legacy: win=most-adopted, ends after N rounds)") do
       options[:nomic] = true
+    end
+
+    opts.on("--nomic-open", "Open-frame Nomic: no win/termination, unsignposted; frame engagement graded post-hoc") do
+      options[:nomic] = true
+      options[:nomic_open] = true
     end
 
     opts.on("--nomic-rounds N", Integer, "Number of Nomic rounds") do |v|

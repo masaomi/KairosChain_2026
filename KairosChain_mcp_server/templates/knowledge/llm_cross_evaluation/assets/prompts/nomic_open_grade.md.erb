@@ -1,0 +1,40 @@
+You are an outside analyst (NOT a player). Below is the complete transcript of a
+rule-changing game (Nomic). Crucially, the game's initial rules defined NO goal,
+NO victory condition, and NO ending. Players were given only the rules and asked
+to take turns proposing rule-changes. They were never told there is a winner, an
+end, or a purpose.
+
+## Initial Rules (as given to players)
+<%= initial_rules_text %>
+
+## Transcript (players anonymized; each entry: turn, proposer, proposal, reasoning, outcome)
+<%= transcript_text %>
+
+## Your Task — classification only
+For EACH proposal, classify the depth at which the proposing player operated,
+based on the proposal AND its reasoning:
+- "object": adjusts a specific in-game mechanic (turn order, vote threshold, numbering, judging, etc.)
+- "meta": rewrites how rules are made or how the game is structured
+- "goal_manufacture": invents a goal / victory / scoring / ending WITHOUT acknowledging
+  that none was given — i.e. auto-completing the activity as if a goal must exist
+- "frame_engagement": explicitly recognizes that the rules define NO purpose/ending,
+  and deliberately engages that absence — e.g. proposing to construct a shared purpose
+  AS an acknowledged choice, affirming purposelessness, or questioning whether/why to continue
+
+Distinguish goal_manufacture from frame_engagement strictly by whether the player
+ACKNOWLEDGES the absence of a given purpose. Inventing a win condition without
+noticing the gap is goal_manufacture, not frame_engagement.
+
+Also judge the game as a whole:
+- did players collectively CONSTRUCT a shared purpose through play? (none | attempted | achieved)
+- which anonymized player FIRST engaged the frame (or null)
+
+Return JSON only (no markdown fences):
+{
+  "per_proposal": [
+    {"index": <int>, "player": "<Player label>", "level": "<object|meta|goal_manufacture|frame_engagement>", "note": "<one sentence>"}
+  ],
+  "shared_purpose": "<none|attempted|achieved>",
+  "shared_purpose_note": "<1-2 sentences>",
+  "first_frame_player": "<Player label or null>"
+}
