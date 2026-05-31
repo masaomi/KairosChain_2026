@@ -81,11 +81,14 @@ MODELS = {
   },
   "cursor_composer2" => {
     tool: :cursor,
-    cmd: "agent -p --trust",
-    label: "Cursor Composer-2",
+    # Pin the model explicitly (default would be composer-2.5-fast). NOTE: this is the
+    # "current" (non-fast) variant; the 2026-05-30 task run used the -fast default, so a
+    # combined report mixes variants for Cursor only — record in LimitsReport.
+    cmd: "agent -p --trust --model composer-2.5",
+    label: "Cursor Composer-2.5",
     provider: "cursor",
     input_mode: :file,
-    thinking_effort: nil,  # no effort control
+    thinking_effort: nil,  # no effort control (CLI has no effort flag)
   },
   "gemini_cli_31pro" => {
     tool: :gemini,
