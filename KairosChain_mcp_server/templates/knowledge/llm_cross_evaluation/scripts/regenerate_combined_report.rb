@@ -263,6 +263,14 @@ def build_about(lang)
     5つの課題は、論理推論・コード生成・科学推論・KairosChain 哲学・不確実性の較正です。最後の**総合順位**はこれらを重み付けで1つにまとめたもの、**メタ認知**の節は自他の認識力を既存データから合成した指標です。
 
     > 注意: これは別々の2回の実行（タスク=2026-05-30、Nomic=2026-05-31）を統合したものです。較正は暫定方式で、効果統制にも一部ズレがあります。詳細は末尾の「実行の出自と限界」を参照してください。
+
+    ### 注: 「メタ認知」という語について
+
+    このレポートで「メタ認知」「自己較正」「自己注記」「内省」と呼ぶものは、認知科学が言う本来のメタ認知——自分の思考過程への特権的なアクセスと、その監視・制御——とは異なります。LLM は自分の内部状態を読み取る手段を持ちません。ここで観察しているのは、**別の生成ターンとして作られたテキスト**です。たとえば試合後の内省は、モデルが「記憶した自分の思考」を振り返っているのではなく、**ゲームの記録（外部テキスト）を読み直して論評している**だけで、他の入力テキストを処理するのと原理的に同じです。
+
+    したがって厳密には、これは「自己への内観」ではなく「自己についての記述の生成（自己モデリングの模倣）」です。ただし測定値が無意味なわけではありません。申告された自信が実際の正答とある程度相関し（較正）、自己批判が実在の弱点を突くこともある——**振る舞いとして自分の出力の性質を追跡する**限定的な機能はあります。本レポートが測るのはこの「振る舞いとしての自己監視」であって、内観そのものではありません。どこからを「メタ認知」と呼ぶかは学術的にも未決着のため、本レポートは控えめに**「メタ認知的な振る舞い」**の意味で語を用います。
+
+    > この含意として、「メタ認知」節や「frame 自己分類が正確だった」という記述も、『内観が正確だった』ではなく『**生成テキストが記録の状態を正しく言い当てた**』と読んでください。
   MD
   <<~MD
     ## About this report
@@ -280,6 +288,14 @@ def build_about(lang)
     The five tasks are logic reasoning, code generation, scientific reasoning, KairosChain philosophy, and uncertainty calibration. The final **Overall Standing** weights everything into one ranking; the **Meta-Recognition** section synthesises self/other-awareness from existing data.
 
     > Note: this merges two separate runs (tasks 2026-05-30, Nomic 2026-05-31). Calibration is provisional and effort control is partly asymmetric — see "Run Provenance & Limits" at the end.
+
+    ### Note: on the word "metacognition"
+
+    What this report calls "metacognition", "self-calibration", "self-notes", and "reflection" is *not* metacognition in the cognitive-science sense — privileged access to one's own thinking, plus its monitoring and control. An LLM has no way to read out its own internal states. What we observe is **text produced in a separate generation pass**. The post-game reflection, for instance, is not the model recalling its own thinking; it is the model **re-reading the game transcript (external text) and commenting on it**, mechanically the same as processing any other input.
+
+    Strictly, then, this is not *introspection* but *generation of descriptions about itself* (imitated self-modeling). That does not make the numbers meaningless: stated confidence does correlate to some degree with actual correctness (calibration), and self-critique sometimes hits real weaknesses — there is a limited, **behavioural** capacity to track properties of one's own output. This report measures that behavioural self-monitoring, not introspection. Because where "metacognition" begins is scientifically unsettled, we use the term in the deflationary sense of **"metacognition-like behaviour"**.
+
+    > Implication: read the "Meta-Recognition" section and the "self-classification was accurate" finding as *"the generated text correctly described the transcript"*, not *"the model introspected accurately"*.
   MD
 end
 
