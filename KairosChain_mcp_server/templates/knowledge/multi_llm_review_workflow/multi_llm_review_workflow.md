@@ -193,7 +193,7 @@ starting** and verify each against `config/multi_llm_review.yml`:
 - [ ] Your model (orchestrator): ___
 - [ ] Agent Team Personas model: = orchestrator model (NOT a different model)
 - [ ] Subprocess CLI model: opposite Opus (4.6 if you are 4.7, vice versa)
-- [ ] Codex models: gpt-5.4 AND gpt-5.5 (both, not either/or)
+- [ ] Codex models: gpt-5.5 (default) AND gpt-5.4 (both, not either/or)
 - [ ] Cursor model: default (composer-2.5, no --model flag)
 - [ ] Total reviewer count: 5 (or 4 after orchestrator exclusion from subprocess)
 - [ ] Convergence rule: 3/5 APPROVE (full) or 3/4 APPROVE (after exclusion)
@@ -410,7 +410,7 @@ which claude 2>/dev/null && echo "claude: available" || echo "claude: NOT FOUND"
 
 | Tool | Command | Prompt Input | Output Collection | Model |
 |------|---------|-------------|-------------------|-------|
-| **Codex** | `codex exec` | stdin pipe: `cat prompt.md \| codex exec -` | `-o /path/output.md` | GPT-5.4 (default) |
+| **Codex** | `codex exec` | stdin pipe: `cat prompt.md \| codex exec -` | `-o /path/output.md` | GPT-5.5 (default) |
 | **Cursor Agent** | `agent -p` | File reference (stdin NOT supported) | stdout redirect: `> output.md` | Composer-2.5 (default) |
 | **Claude Code** | Agent tool (internal) | Direct prompt string | Write to workspace file | Opus 4.6 (session) |
 | **Claude CLI (4.7)** | `claude -p --model claude-opus-4-7 --bare` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-4-7 --bare` | stdout redirect: `> output.md` | Opus 4.7 |
@@ -426,7 +426,7 @@ Based on cross-evaluation experiment (7 models × 4 tasks + Nomic, 518 CLI calls
 | **Reviewer: Claude CLI** | Opus 4.7 | `--effort low` | Evaluator quality is effort-independent (low≈high: 8.35 vs 8.16) |
 | **Coding sub-agent** | Opus 4.7 | `--effort medium` | Cost-effective default; use `high` for complex tasks |
 | **Design sub-agent** | Opus 4.7 | `--effort medium` | Cost-effective default; use `high` for complex tasks |
-| **Codex** | GPT-5.4 | (no flag) | Fixed effort |
+| **Codex** | GPT-5.5 (default) | (no flag) | Fixed effort |
 | **Cursor Agent** | Composer-2.5 | (no flag) | Fixed effort |
 
 Key findings:
@@ -709,7 +709,7 @@ Step 1: Generate review prompt
 Step 2: Detect environment and models
   - Run: which codex && which agent && which claude
   - Detect default models
-  - Report: "Auto mode: Codex (gpt-5.4), Agent (composer-2.5), Claude (opus-4.6), Claude CLI (opus-4.7)"
+  - Report: "Auto mode: Codex (gpt-5.5), Agent (composer-2.5), Claude (opus-4.6), Claude CLI (opus-4.7)"
 
 Step 3: Execute N reviews in parallel (default 4 reviewers)
   - Bash(background): cat prompt.md | codex exec -C workspace -o log/review_codex.md -
@@ -753,7 +753,7 @@ log/{artifact}_review{N}_consensus_{date}.md       # Consensus analysis
 ```
 
 LLM identifiers: `claude_opus4.6`, `claude_team_opus4.6`,
-`claude_cli_opus4.7`, `codex_gpt5.4`, `cursor_composer2`, `cursor_gpt5.4`,
+`claude_cli_opus4.7`, `codex_gpt5.5`, `codex_gpt5.4`, `cursor_composer2`, `cursor_gpt5.4`,
 `cursor_premium`
 
 ## Internal Agent Team Review
