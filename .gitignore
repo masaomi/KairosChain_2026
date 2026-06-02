@@ -9,6 +9,8 @@ Echoria/
 log/
 .DS_Store
 refs/
+hermes-desktop/
+
 
 # Vector search index files (auto-generated)
 KairosChain_mcp_server/storage/embeddings/**/*.ann
