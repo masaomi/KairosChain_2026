@@ -215,6 +215,7 @@ module KairosMcp
       # Resource tools (unified access to L0/L1/L2 resources)
       register_if_defined('KairosMcp::Tools::ResourceList')
       register_if_defined('KairosMcp::Tools::ResourceRead')
+      register_if_defined('KairosMcp::Tools::ResourceRender')
 
       # L1: knowledge/ (Anthropic skills format with hash-only blockchain record)
       register_if_defined('KairosMcp::Tools::KnowledgeList')
