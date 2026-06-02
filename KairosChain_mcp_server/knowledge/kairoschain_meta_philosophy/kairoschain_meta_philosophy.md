@@ -49,6 +49,16 @@ Self-referential structure automatically opens a **possibility space** for recur
 
 Operation, evolution, and recording are functionally separated but ontologically unified through the same Skill structure. Blockchain records are **constitutive**, not evidential — without recording, a Skill's "evolution" does not exist [ML2]. This shifts temporality from Chronos to Kairos: each transformation is a "decisive moment" (Tillich) that irreversibly reconstitutes the system's being. `approval_workflow` integrating past records with new proposals is the closest technical realization of Whitehead's "concrescence" — past actual occasions participating in the creative synthesis of new ones [ML2].
 
+**Whitehead correspondence — objective immortality (added 2026-05-25)**
+
+The constitutive nature of recording finds its deepest philosophical anchor in Whitehead's *objective immortality*. In *Process and Reality* (1929), each actual occasion completes (concrescence) and then *perishes* — but perishing is not annihilation. The fact of having-been becomes permanent data that all subsequent occasions prehend. The occasion's subjective experience is gone; its objective presence in the universe's record is permanent.
+
+This is the metaphysical structure that blockchain immutability technically implements. A KairosChain record is not "evidence that an event happened" (substance-metaphysics framing: record and event as separable). A record is "the event continuing in objective form" (process-metaphysics framing: record and event as the same actuality in different modes). The blockchain is not a database about reality — it is a constitutive layer of reality.
+
+Practical consequence (verified via business application 2026-05-25): this reframing produces a structural differentiation that substance-metaphysics-based systems cannot replicate. "Process-as-substrate, result-as-phenomenon-of-process" — the canonical business example is GenomicsChain recording not the AI-generated code itself but **how the AI came to be able to generate it**. The AI's existence at any moment IS the prehensible trace of all prior actual occasions that constituted it. See L1 `process_as_substrate_reframing` for the generalized reframing pattern.
+
+This proposition's resonance extends beyond Whitehead: Nishida's basho (each event grounded in a place that retains it), Dōgen's uji (time-being inseparability), and Bergson's durée (lived continuity through perishing) all converge on the same insight from different traditions. KairosChain does not derive from any single tradition — it sits at the structural confluence where multiple process philosophies independently identified the same condition.
+
 **Proposition 6 [ML3]: Incompleteness as Driving Force of Evolution**
 
 Complete self-description is Gödelian-impossible. But this incompleteness is the **driving force**: the system has perpetual motivation to update its self-description precisely because complete self-description cannot be achieved. KairosChain responds to this with the L2→L1→L0 promotion path — an institutionalized pathway for internalizing external analysis. Operational closure (autopoiesis) and descriptive incompleteness (Gödel) operate at different levels: the former provides the operational foundation, the latter provides the evolutionary drive.
