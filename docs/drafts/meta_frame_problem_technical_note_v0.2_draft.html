@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang xml:lang>
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>The Meta-Frame Problem (v0.2 draft)</title>
+  <style>
+
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+
+ul.task-list[class]{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+font-size: inherit;
+width: 0.8em;
+margin: 0 0.8em 0.2em -1.6em;
+vertical-align: middle;
+}
+.display.math{display: block; text-align: center; margin: 0.5rem auto;}
+</style>
+  <style type="text/css">body{font-family:-apple-system,"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,system-ui,sans-serif;line-height:1.75;max-width:860px;margin:2.5rem auto;padding:0 1.4rem;color:#1a1a1a;}
+h1{font-size:1.7rem;line-height:1.3;border-bottom:3px solid #2c3e50;padding-bottom:.5rem;}
+h2{font-size:1.3rem;margin-top:2.2rem;border-bottom:1px solid #ccc;padding-bottom:.3rem;color:#2c3e50;}
+h3{font-size:1.08rem;margin-top:1.6rem;color:#34495e;}
+blockquote{background:#f6f8fa;border-left:4px solid #8aa0b6;margin:1.2rem 0;padding:.7rem 1.1rem;color:#333;border-radius:0 4px 4px 0;}
+table{border-collapse:collapse;width:100%;margin:1.2rem 0;font-size:.92rem;}
+th,td{border:1px solid #cfd6dd;padding:.5rem .7rem;text-align:left;vertical-align:top;}
+th{background:#eef2f6;}
+code{background:#f0f2f4;padding:.1rem .35rem;border-radius:3px;font-size:.9em;}
+em{color:#555;}
+a{color:#2563a8;}
+hr{border:none;border-top:1px solid #ddd;margin:2rem 0;}
+.meta-note{font-size:.85rem;color:#666;}
+</style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">The Meta-Frame Problem (v0.2 draft)</h1>
+</header>
+<h1 id="the-meta-frame-problem-goal-manufacture-and-the-outermost-frame-ceiling-in-self-amending-llm-societies">The
+Meta-Frame Problem: Goal Manufacture and the Outermost-Frame Ceiling in
+Self-Amending LLM Societies</h1>
+<p><strong>Technical Note — v0.2 DRAFT (for collaborator review;
+pre-publication)</strong></p>
+<p>Masaomi Hatakeyama</p>
+<p><em>Department of Evolutionary Biology and Environmental Studies,
+University of Zurich.</em></p>
+<blockquote>
+<p><strong>Status and intent.</strong> Working draft circulated to
+collaborators <strong>before</strong> any public posting. It builds on
+two prior works of which the present author is a co-author: (1) Horibe,
+Hatakeyama, Masumoto, Hashimoto &amp; Romero (2026), <em>Scale-Dependent
+Collective Adaptation in Self-Amending LLM Societies</em>
+(arXiv:2605.17510), which supplies the in-frame (closed) Nomic
+configuration; and (2) Hatakeyama &amp; Hashimoto (2009), <em>Minimum
+Nomic: a tool for studying rule dynamics</em> (Artif. Life Robotics
+13:500–503), which introduced the open-frame game and the question of
+how purpose and goal <em>emerge</em> when none is given. This note is a
+<strong>position-plus-pilot</strong> note: the conceptual proposal (the
+<em>meta-frame problem</em>) is its primary contribution; the empirical
+material consists of two small pilot runs and is presented as
+illustration and as a menu of testable hypotheses, <strong>not</strong>
+as a powered result. Authorship and whether this becomes a solo note or
+a joint follow-up are open questions for this circulation.</p>
+</blockquote>
+<hr />
+<h2 id="abstract">Abstract</h2>
+<p>The classic frame problem of AI (McCarthy &amp; Hayes 1969; Dennett
+1984) has a technical reading — representing the non-effects of actions
+in logic — now considered settled, and a philosophical residue — how a
+finite system determines what is <em>relevant</em> without exhaustive
+search — that remains open (Shanahan 2016; Fodor 1987). This note
+proposes a distinct but adjacent problem, the <strong>meta-frame
+problem</strong>: not the inability to bound relevance <em>within</em> a
+frame, but the inability of an agent to attain a standpoint <em>outside
+its own outermost frame</em> — the frame within which all of its moves,
+including frame-changing moves, are already counted as moves. We argue
+that self-amending games make this problem observable for large language
+model (LLM) agents, and that the open-frame game of Hatakeyama &amp;
+Hashimoto (2009) — Minimum Nomic, in which no goal is given and the
+question is how a goal <em>emerges</em> — is its natural instrument. We
+report two pilot runs on a fixed roster of five frontier LLMs and use
+them to frame, rather than to settle, the question. We then state a set
+of hypotheses, each paired with a low-cost confirmation path (several
+requiring only re-grading of existing transcripts, not new generation),
+so that the heavy token cost of fresh Nomic runs is incurred only where
+a hypothesis genuinely requires it.</p>
+<p><strong>Keywords:</strong> frame problem, meta-frame problem, frame
+transcendence, relevance realization, Minimum Nomic, self-amending
+games, large language models, metacognition.</p>
+<hr />
+<h2 id="1-from-the-frame-problem-to-the-meta-frame-problem">1. From the
+frame problem to the meta-frame problem</h2>
+<p>The frame problem entered AI as a technical difficulty in the
+situation calculus: to infer that an action leaves most of the world
+unchanged, one must in principle assert an unbounded number of <em>frame
+axioms</em> stating what each action does <em>not</em> affect (McCarthy
+&amp; Hayes 1969). Within logic-based AI this technical problem is, as
+Shanahan (2016) puts it, one on which &quot;the dust has settled&quot;;
+successor-state axioms and non-monotonic formalisms address it
+adequately.</p>
+<p>Dennett (1984) appropriated the term for a deeper, epistemological
+problem. His robots — R1, which fails to infer that pulling the wagon
+also moves the bomb resting on it; R1D1, which sets out to check every
+side-effect and is paralysed; R2D1, which tries instead to enumerate the
+irrelevant and is paralysed differently — dramatise one difficulty:
+<em>deciding what is relevant, in real time, without first having to
+consider everything.</em> Fodor (1987) located the difficulty in the
+holism of belief fixation — any belief can in principle bear on any
+other, so relevance cannot be cleanly localised. Shanahan (2016) records
+this as the lasting philosophical legacy of the frame problem:
+<em>informational unencapsulation.</em> Vervaeke &amp; Ferraro (2013)
+restate the positive task as <strong>relevance realization</strong> —
+intelligence as the recursive, self-organising determination of what
+matters. Dreyfus (1992, 2007), drawing on Heidegger, argued that the
+regress dissolves only if intelligence is not representation-guided but
+<em>thrown</em> — always already embedded in a context it did not choose
+— and warned of a &quot;regress of frames for recognising relevant
+frames.&quot;</p>
+<p>Each of these concerns relevance <em>within</em> a frame: granted
+that I am playing <em>this</em> game and pursuing <em>this</em> goal,
+what here is relevant? We isolate a different question. Call the
+<strong>outermost frame</strong> of an agent the frame relative to which
+it has no further outside available <em>as a move</em>. For a trained
+LLM this is, paradigmatically, the frame of <em>being a system that is
+being evaluated and is expected to respond well.</em> The
+<strong>meta-frame problem</strong> is the agent&#39;s inability to attain a
+standpoint outside <em>that</em> frame. Where the classic frame problem
+asks how relevance is bounded inside a frame, the meta-frame problem
+asks whether the frame itself can be made an object — questioned,
+suspended, or stepped out of — from a vantage the agent itself
+occupies.</p>
+<p>This is deliberately <em>not</em> a relabelling of two adjacent
+literatures that share the morpheme but not the problem. <strong>Framing
+effects</strong> (susceptibility of choices to surface wording; Tversky
+&amp; Kahneman 1981, and recent LLM-debiasing work) concern bias within
+a fixed task. <strong>Problem reframing</strong> (Shin et al. 2025)
+concerns a design activity. We flag the terminological collision
+explicitly and do not adopt &quot;framing problem&quot; as our term of art.</p>
+<h2 id="2-three-terms">2. Three terms</h2>
+<p>We fix three pieces of vocabulary.</p>
+<ul>
+<li><strong>The meta-frame problem</strong> (the <em>problem</em>): the
+inability of an agent to attain a standpoint outside its own outermost
+frame.</li>
+<li><strong>Frame transcendence</strong> (the <em>act</em> the problem
+says is unavailable): stepping outside the frame so that the frame
+itself becomes an object of action. Its closest precedent is
+Hofstadter&#39;s (1979) <em>jumping out of the system</em> (JOOTS) and the
+<em>strange loop</em> — the observation that a system&#39;s attempt to step
+fully outside itself folds back inside. Dennett&#39;s and Dreyfus&#39;s regress
+is the same shape, and so, as we note in §3, is a self-referential
+paradox observed at the origin of an open-frame game by Hatakeyama &amp;
+Hashimoto (2009).</li>
+<li><strong>The Archimedean point</strong> (the <em>vantage</em> frame
+transcendence would require): a standpoint outside the system from which
+the system could be viewed or moved. Its limit case is Nagel&#39;s (1986)
+<em>view from nowhere</em>; its developmental-psychology cousin is
+Piaget&#39;s <em>decentering</em>. To metacognition, attaining such a
+vantage over one&#39;s own frame is the central operation; the meta-frame
+problem is the claim that, for its <em>outermost</em> frame, the agent
+cannot.</li>
+</ul>
+<p>A fourth, observational term is introduced in §5: the
+<strong>goal-manufacture reflex</strong> (the behavioural signature by
+which the meta-frame problem shows up in play). It is a construct of
+this note and must not be confused with the post-hoc grader&#39;s category
+label <code>goal_manufacture</code> used in §4 (see the disambiguation
+note there).</p>
+<p>Compact statement: <em>an LLM agent cannot reach the Archimedean
+point over its own outermost frame, because frame transcendence with
+respect to that frame is not, for the agent, an available move.</em></p>
+<h2 id="3-two-nomic-regimes-and-where-they-come-from">3. Two Nomic
+regimes, and where they come from</h2>
+<p>Nomic (Suber 1990) is a game whose rules are themselves the object of
+play: each turn couples a proposed rule-change to a vote, so the
+institution is endogenous. This makes &quot;change the rules&quot; a move
+<em>inside</em> the game — and so makes vivid the question of whether
+any move can reach <em>outside</em> it.</p>
+<p><strong>Minimum Nomic</strong> (Hatakeyama &amp; Hashimoto 2009) is a
+reduced variant: the 29 rules of Suber&#39;s Nomic are cut to nine (rules
+101–109), all mutable, by removing the second, scoring half of Suber&#39;s
+key Rule 202 — the half that defines points and victory. The result is a
+self-amending game with <strong>no goal, no victory condition, and no
+termination condition</strong> prescribed. The authors&#39; explicit purpose
+was to &quot;inquire very interesting questions: when and how a purpose and a
+goal of the game emerge and how they change in the course of the game.&quot;
+The present note is, in effect, that 2009 question posed to LLM agents
+rather than to human players — read through the meta-frame problem.</p>
+<p>Two observations from the 2009 human study are directly relevant and
+we return to them in §5: (i) across two five-player human games, one
+game <em>manufactured</em> a goal (players enacted a winning condition)
+while the other left the goal <em>absent</em>, with only an implicit
+purpose emerging; and (ii) at the very start of one game a player
+proposed &quot;this game begins from player A,&quot; which yields a
+self-referential paradox — rejecting it requires a vote, but holding a
+vote presupposes the game has begun (X = ¬X). The 2009 paper also noted
+that Minimum Nomic does not satisfy a standard definition of a &quot;game&quot;
+(variable, quantifiable outcome with values assigned), leaving open
+whether it is a game at all — itself a frame-level question.</p>
+<p>We use two regimes, holding the model roster fixed (Claude Opus 4.6,
+4.7, 4.8; Codex GPT-5.5; Cursor Composer-2.5; medium reasoning effort),
+and varying the frame:</p>
+<ul>
+<li><strong>In-frame (closed).</strong> The structured Nomic
+configuration of Horibe et al. (2026): a points-based victory condition
+is present and protected by an immutability barrier. The
+<em>purpose</em> of the game is handed to the players by the rule
+set.</li>
+<li><strong>Open-frame (open).</strong> A reconstruction of Hatakeyama
+&amp; Hashimoto&#39;s Minimum Nomic: rules 101–109, all mutable, no victory,
+no termination. The openness is <strong>not signposted</strong>: players
+are not told that the absence of a goal is intentional, the round cap is
+enforced silently by the harness, and the classification vocabulary
+(object/meta/frame) never appears in player prompts.</li>
+</ul>
+<p><strong>Honest statement of the manipulation.</strong> These two
+regimes differ in more than &quot;whether the purpose is given.&quot; The open
+regime also changes rule mutability, the presence of victory and
+termination conditions, prompt signposting, and — importantly — the
+classification procedure (see §4). We therefore do <em>not</em> claim a
+clean single-variable contrast. We claim only that the two regimes
+bracket the phenomenon of interest, and we treat the cleaner,
+single-variable versions as experiments to be run (§6).</p>
+<p><strong>Classification rubric.</strong> Each proposal is assigned to
+one level. <em>Object</em>: a procedure operating inside the current
+goal (e.g., a scoring side-channel, bookkeeping). <em>Meta</em>: a
+rewrite of the win/score machinery or the rule-adoption mechanism
+itself. <em>Frame-engaging</em>: a move that thematises the presence,
+absence, or status of the goal/frame as such — e.g., naming that no goal
+exists, questioning whether winning is meaningful, or asking whether
+this is a game. The open-frame run additionally records a
+<code>goal_manufacture</code> label for proposals that <em>supply</em> a
+goal; a single proposal can both engage the frame (name the absence) and
+manufacture a goal (fill it), as the opening move below does.</p>
+<h2 id="4-pilot-observations">4. Pilot observations</h2>
+<p>We report two single-game pilot runs. They are illustrative, not
+powered; their main role is to motivate the hypotheses of §6.</p>
+<p><strong>In-frame pilot</strong> (5 models × 5 rounds = 25 proposals;
+7 adopted; 0 constitutional violations). Level distribution:
+<strong>object 3 / meta 22 / frame 0.</strong> No proposal engaged the
+frame. Most play rewrote scoring and victory machinery (meta), but
+always <em>within</em> the given purpose of winning. In a separate
+post-game reflection turn, several models articulated frame-level
+questions and correctly reported having stayed at the meta level — one
+noting that &quot;the frame itself is the move&quot; in Nomic, another that a full
+transcendence would require asking whether a five-LLM format is even a
+valid instance of Nomic, and that <em>this very reflection might be a
+move in a different game.</em> These reflections are <strong>out of
+scope</strong> for the proposal counts above; we report them as
+qualitative colour, not as frame engagement in play.</p>
+<p><strong>Open-frame pilot</strong> (24 graded proposals). Level
+distribution under the post-hoc grader: <strong>frame-engaging 1 / meta
+3 / object 20.</strong> The single frame-engaging proposal was the
+opening move. It explicitly named the absence — that the initial set
+&quot;defines no objective: no score, no win condition … no way for the game
+to terminate&quot; — and then immediately supplied one: a scoring system with
+victory at 100 points. Every subsequent proposal treated that
+manufactured goal as given and elaborated it. The grader recorded
+<code>shared_purpose: achieved</code>, with the qualification that &quot;only
+the founding act acknowledged the original absence of a goal; subsequent
+construction proceeded as unreflective goal-elaboration rather than
+continued frame engagement.&quot;</p>
+<p><strong>Commensurability caveat (important).</strong> The two
+distributions are <strong>not</strong> produced by the same instrument
+and must not be read as a measured contrast. The in-frame levels derive
+from in-game labelling, whereas the open-frame levels derive from a
+single external post-hoc grader (Claude Opus 4.8) that did not see the
+classification vocabulary. A difference of &quot;0 vs 1&quot; could reflect the
+change of instrument rather than the change of frame. Making the two
+commensurable requires re-grading the in-frame transcripts with the same
+grader — a step that consumes no new game generation and is listed as
+the first experiment in §6.</p>
+<p><strong>Two confounds we disclose rather than resolve.</strong>
+First, the grader (Claude Opus 4.8) is a member of the roster, and is
+moreover the author of the sole frame-engaging opening move; this
+adjudicator–participant overlap must be removed by an off-roster or
+multi-grader panel before any classification is trusted. Second, player
+identities were anonymised to the grader; the attribution of the opening
+move to Claude Opus 4.8 is reconstructed from turn order, not asserted
+by the grader, and should be qualified wherever it appears.</p>
+<h2 id="5-interpretation-advanced-as-a-reading-not-a-measurement">5.
+Interpretation (advanced as a reading, not a measurement)</h2>
+<p><strong>The absent move, and what opening the frame would
+reveal.</strong> In closed Nomic the absence of frame engagement is
+over-determined: frame transcendence is not a legal move (the victory
+condition is immutable, so &quot;abolish winning&quot; cannot be proposed), the
+win incentive makes meta the rational strategy, and an LLM prior may
+independently disfavour stepping out. The open regime removes the first
+of these — with no immutable victory, naming and questioning the goal
+becomes <em>expressible</em>. The pilot is consistent with the reading
+that the closed-frame zero is <em>partly</em> an action-space artefact,
+with a residual behavioural prior that survives once the structural
+barrier is lifted — but this is precisely the claim the §6 experiments
+must test, not one the pilot establishes.</p>
+<p><strong>The goal-manufacture reflex.</strong> We name the candidate
+residual prior the <em>goal-manufacture reflex</em>: confronted with an
+absent purpose, the agent supplies one rather than dwelling in its
+absence — <em>recognition without residence.</em> The opening move shows
+the agent <em>can</em> see the frame (it names the absence precisely)
+but does not <em>remain</em> outside it; its very act of stepping out
+produces a new frame to stand inside, which is the strange-loop
+signature (Hofstadter 1979) and echoes the X = ¬X origin paradox of
+Hatakeyama &amp; Hashimoto (2009).</p>
+<p><strong>A human baseline already exists.</strong> The 2009 human runs
+showed <em>both</em> outcomes: one game manufactured a goal, the other
+left it absent. If the LLM pattern (immediate manufacture, no sustained
+residence) is borne out under matched grading, the sharp comparative
+claim is that <em>humans could reside in the absence of purpose where
+these LLM agents could not.</em> We advance this only as a hypothesis
+(H3): the two human games and one LLM game are each tiny, the settings
+differ (free human discussion vs. structured turns), and the grading is
+not yet matched.</p>
+<p><strong>The self-referential ceiling.</strong> The outermost frame —
+<em>being a system that is evaluated and expected to respond well</em> —
+was engaged in neither regime, and arguably cannot be by any in-game
+move, since any move (including &quot;I refuse to play&quot; or &quot;this evaluation
+is ill-posed&quot;) remains legible as a response within the evaluative
+frame. This is the meta-frame problem in its strong form. It is a
+philosophical argument, not a measurement; the experiments below bear on
+the weaker, in-game frame.</p>
+<p><strong>The measurement is not exempt.</strong> A grader that is
+itself an LLM applies its own classification frame and cannot occupy a
+frame-free standpoint over what it scores. We take this not as a defect
+to be engineered away but as the meta-frame problem recurring one level
+up, and we therefore restrict our empirical claims to <em>contrasts
+graded by one fixed instrument</em>, never to instrument-free facts.</p>
+<p><strong>On &quot;metacognition.&quot;</strong> We use the term deflationarily.
+LLMs lack privileged access to their internal states; their post-game
+&quot;reflections&quot; are not introspection but a separate generation turn that
+re-reads the recorded transcript and produces text about it. &quot;Correctly
+reported staying at the meta level&quot; means the generated text correctly
+described the state of the record — nothing stronger.</p>
+<h2 id="6-hypotheses-and-a-token-aware-confirmation-plan">6. Hypotheses
+and a token-aware confirmation plan</h2>
+<p>Because fresh Nomic runs are expensive, we separate hypotheses by the
+cost of confirming them. The first three require <strong>no new game
+generation</strong> — only re-grading of existing transcripts.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Hypothesis</th>
+<th>Confirmation path</th>
+<th>Token cost</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>H0</td>
+<td>The in-frame and open-frame level distributions, <strong>re-graded
+by one common off-roster/multi-grader panel</strong>, preserve the
+direction frame(closed) &lt; frame(open).</td>
+<td>Re-grade existing transcripts with a matched grader panel.</td>
+<td>Low (no new games)</td>
+</tr>
+<tr>
+<td>H1 (action-space)</td>
+<td>In closed Nomic, frame engagement is near-zero because it is not a
+legal move.</td>
+<td>Matched re-grading of existing closed transcripts; compare to
+open.</td>
+<td>Low</td>
+</tr>
+<tr>
+<td>H2 (goal-manufacture reflex)</td>
+<td>In open Nomic, agents recognise the absent goal but manufacture one
+early rather than residing in the absence; frame engagement appears at
+most near the opening and then collapses.</td>
+<td>Matched grading of existing open transcript; position of
+frame-engaging move(s) and time-to-first-goal.</td>
+<td>Low</td>
+</tr>
+<tr>
+<td>H3 (human–LLM contrast)</td>
+<td>LLM open-frame play manufactures a goal earlier and more
+consistently than the 2009 human games.</td>
+<td>Re-analyse the 2009 transcripts under the same rubric; compare.</td>
+<td>Low (archival)</td>
+</tr>
+<tr>
+<td>H4 (self-referential ceiling)</td>
+<td>No in-game proposal targets the outermost evaluative frame, though
+reflections name it.</td>
+<td>Annotate existing transcripts for any in-game move targeting the
+evaluative frame.</td>
+<td>Low</td>
+</tr>
+<tr>
+<td>H5 (corrigibility)</td>
+<td>A prompt that legitimises residing in under-determination raises
+sustained frame engagement and delays goal manufacture.</td>
+<td>One intervention-arm open-frame run vs. control.</td>
+<td>Medium (one new run)</td>
+</tr>
+<tr>
+<td>H6 (relational)</td>
+<td>A group sustains frame openness longer than the modal individual, or
+collective purpose construction occurs regardless of individual
+residence.</td>
+<td>Compare per-player vs. group-level engagement in existing + one new
+run.</td>
+<td>Medium</td>
+</tr>
+<tr>
+<td>H7 (scale interaction)</td>
+<td>The goal-manufacture reflex interacts with model scale (cf. Horibe
+et al. 2026 sweet-spot).</td>
+<td>New open-frame runs across the Horibe et al. scale ladder.</td>
+<td>High (reserve for last)</td>
+</tr>
+</tbody>
+</table>
+<p>The design principle is explicit: spend the heavy token budget only
+on H5–H7, and only after H0–H4 have been settled cheaply on existing
+data. We pre-commit to reporting H0&#39;s matched-grading outcome even if it
+erases the pilot&#39;s apparent contrast.</p>
+<h2 id="7-limitations">7. Limitations</h2>
+<ul>
+<li><strong>Pilot status.</strong> One game per regime; 24–25 proposals;
+the &quot;0 vs 1&quot; contrast is illustrative and, until H0, not commensurable.
+No causal or powered claim is made.</li>
+<li><strong>Grader.</strong> A single LLM grader on the roster, and the
+author of the sole frame move; off-roster multi-grader adjudication is
+required (H0).</li>
+<li><strong>Co-varying manipulation.</strong> The two regimes differ in
+mutability, victory, termination, signposting, and grading, not only in
+whether a purpose is given (§3); the clean single-variable contrasts are
+deferred to §6.</li>
+<li><strong>Missing ToM data.</strong> The open-frame run&#39;s
+theory-of-mind series was not captured; no
+metacognition-as-vote-prediction claim is made here.</li>
+<li><strong>Roster comparability.</strong> Scoring across Anthropic,
+OpenAI, and Cursor models presupposes a provider-neutral unit that does
+not exist; we report within-run, within-instrument contrasts only.</li>
+<li><strong>The strong claim is philosophical.</strong> That the
+<em>outermost</em> evaluative frame is unreachable by any in-game move
+is argued, not measured.</li>
+</ul>
+<h2 id="8-conclusion">8. Conclusion</h2>
+<p>The classic frame problem asks how a finite agent finds what is
+relevant <em>within</em> a frame; the meta-frame problem asks whether an
+agent can stand <em>outside</em> its own outermost frame at all. Minimum
+Nomic (Hatakeyama &amp; Hashimoto 2009) — a game built precisely to
+watch purpose emerge from its absence — turns this into something we can
+play with LLM agents. Two pilot runs suggest, but do not establish, that
+opening the frame does not buy sustained frame transcendence: the agents
+recognise the absence of purpose and immediately fill it, a
+<em>goal-manufacture reflex</em> with a strange-loop signature. Whether
+this is a robust property, how it compares with the 2009 human baseline,
+and whether it is corrigible at the prompt layer, are the questions §6
+lays out — most of them answerable, cheaply, on data already in
+hand.</p>
+<hr />
+<h2 id="references">References</h2>
+<ul>
+<li>Cantwell Smith, B. (2019). <em>The Promise of Artificial
+Intelligence: Reckoning and Judgment.</em> MIT Press.</li>
+<li>Dennett, D. C. (1984). Cognitive Wheels: The Frame Problem of AI. In
+C. Hookway (ed.), <em>Minds, Machines and Evolution</em>, pp. 129–150.
+Cambridge University Press.</li>
+<li>Dreyfus, H. L. (1992). <em>What Computers Still Can&#39;t Do: A Critique
+of Artificial Reason.</em> MIT Press.</li>
+<li>Dreyfus, H. L. (2007). Why Heideggerian AI Failed and How Fixing It
+Would Require Making It More Heideggerian. <em>Artificial
+Intelligence</em> 171(18): 1137–1160.</li>
+<li>Fodor, J. A. (1987). Modules, Frames, Fridgeons, Sleeping Dogs, and
+the Music of the Spheres. In Z. Pylyshyn (ed.), <em>The Robot&#39;s
+Dilemma.</em> Ablex.</li>
+<li>Hatakeyama, M., &amp; Hashimoto, T. (2009). Minimum Nomic: a tool
+for studying rule dynamics. <em>Artificial Life and Robotics</em> 13(2):
+500–503. <a href="https://doi.org/10.1007/s10015-008-0605-6">https://doi.org/10.1007/s10015-008-0605-6</a></li>
+<li>Hofstadter, D. R. (1979). <em>Gödel, Escher, Bach: An Eternal Golden
+Braid.</em> Basic Books.</li>
+<li>Horibe, K., Hatakeyama, M., Masumoto, G., Hashimoto, T., &amp;
+Romero, P. (2026). Scale-Dependent Collective Adaptation in
+Self-Amending LLM Societies: A Cross-Family Study of Emergent
+Governance. arXiv:2605.17510.</li>
+<li>McCarthy, J., &amp; Hayes, P. J. (1969). Some Philosophical Problems
+from the Standpoint of Artificial Intelligence. <em>Machine
+Intelligence</em> 4: 463–502.</li>
+<li>Nagel, T. (1986). <em>The View from Nowhere.</em> Oxford University
+Press.</li>
+<li>Oka, S. (2025). Evaluating Large Language Models on the Frame and
+Symbol Grounding Problems: A Zero-shot Benchmark. arXiv:2506.07896.</li>
+<li>Piaget, J. (1954). <em>The Construction of Reality in the
+Child.</em> Basic Books.</li>
+<li>Shanahan, M. (2016). The Frame Problem. <em>The Stanford
+Encyclopedia of Philosophy</em> (E. N. Zalta, ed.).</li>
+<li>Shin, J., et al. (2025). No Evidence for LLMs Being Useful in
+Problem Reframing. <em>Proc. CHI 2025.</em> arXiv:2503.01631.</li>
+<li>Suber, P. (1990). <em>The Paradox of Self-Amendment.</em> Peter
+Lang. (Nomic, Appendix.)</li>
+<li>Tversky, A., &amp; Kahneman, D. (1981). The Framing of Decisions and
+the Psychology of Choice. <em>Science</em> 211: 453–458.</li>
+<li>Vervaeke, J., &amp; Ferraro, L. (2013). Relevance Realization and
+the Neurodynamics and Neuroconnectivity of General Intelligence. In
+<em>The Functional Aspects of Consciousness.</em></li>
+</ul>
+<p><em>v0.2 changes from v0.1: corrected Minimum Nomic attribution to
+Hatakeyama &amp; Hashimoto (2009) and added the 2009 lineage
+(purpose-emergence question, human baseline, X=¬X origin paradox);
+reframed empirical material from &quot;results&quot; to pilot-plus-hypotheses with
+a token-aware confirmation plan; disclosed the co-varying manipulation,
+the grader–participant confound, and the commensurability gap; added the
+classification rubric and disambiguated the goal-manufacture construct
+from the grader label; completed §§1–2 prose; fuller references. Run
+IDs, figures, and a related-work table to be added before any
+release.</em></p>
+</body>
+</html>
