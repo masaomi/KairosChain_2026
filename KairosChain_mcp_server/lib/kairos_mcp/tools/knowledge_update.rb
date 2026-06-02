@@ -12,7 +12,9 @@ module KairosMcp
       end
 
       def description
-        'Create, update, or delete L1 knowledge skills. Changes are recorded with hash references to the blockchain.'
+        'Create, update, or delete L1 knowledge skills. Changes are recorded with hash references to the blockchain. ' \
+        'NOTE: MCP stdio transport may silently drop large arguments. Keep combined content + reason under ~2 KB. ' \
+        'For larger L1 entries, trim prose or split into multiple entries.'
       end
 
       def category
@@ -105,14 +107,14 @@ module KairosMcp
       private
 
       def handle_create(provider, name, content, reason, create_subdirs)
-        return text_content("Error: content is required for create") unless content && !content.empty?
+        return text_content(content_missing_error("create", content)) unless content && !content.empty?
 
         result = provider.create(name, content, reason: reason, create_subdirs: create_subdirs)
         format_result(result, 'created')
       end
 
       def handle_update(provider, name, content, reason)
-        return text_content("Error: content is required for update") unless content && !content.empty?
+        return text_content(content_missing_error("update", content)) unless content && !content.empty?
 
         result = provider.update(name, content, reason: reason)
         format_result(result, 'updated')
@@ -121,6 +123,17 @@ module KairosMcp
       def handle_delete(provider, name, reason)
         result = provider.delete(name, reason: reason)
         format_result(result, 'deleted')
+      end
+
+      def content_missing_error(command, content)
+        if content.nil?
+          "Error: content is required for #{command}. " \
+          "The content argument arrived as nil — this often means the MCP transport silently dropped it " \
+          "because the combined argument size exceeded the client limit (~2 KB for stdio). " \
+          "Try trimming content and reason, or split into smaller entries."
+        else
+          "Error: content is required for #{command} (received empty string)"
+        end
       end
 
       def format_result(result, action)
