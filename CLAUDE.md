@@ -168,6 +168,6 @@ For the full philosophical analysis including biophilosophical foundations (auto
 - **Case Study**: `docs/kairoschain_self_referential_metacognition_case_study_20260225.md`
 
 <!-- BEGIN kairos-chain:instruction-mode _projected_by=kairos-chain -->
-<!-- Active mode: masa v0.4 | source: .kairos/skills/masa.md -->
+<!-- Active mode: masa v0.4.1 | source: .kairos/skills/masa.md -->
 @.claude/kairos/instruction_mode.md
 <!-- END kairos-chain:instruction-mode -->
