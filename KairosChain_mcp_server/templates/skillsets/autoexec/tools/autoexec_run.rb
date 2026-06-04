@@ -122,6 +122,10 @@ module KairosMcp
               # 5b. Process steps
               results = []
               halted_at = nil
+              # Track delegated (tool_name:null) reasoning steps. A later step that
+              # depends_on one of these cannot run in internal_execute: autoexec has
+              # no cognitive engine to produce the prior step's output.
+              delegated_step_ids = []
 
               sorted_steps.each_with_index do |step, idx|
                 # Skip already-completed steps (checkpoint resume)
@@ -161,6 +165,23 @@ module KairosMcp
                   step_result[:status] = 'would_execute'
                   step_result[:message] = "DRY RUN: Would #{step.action}"
                 when 'internal_execute'
+                  # Guard: a step depending on a delegated (tool_name:null) reasoning
+                  # step cannot run safely. autoexec cannot produce the prior step's
+                  # output, so this step's tool_arguments would still hold the plan-time
+                  # placeholder. Halt and return to the cognitive layer (agent loop) for
+                  # synthesis / re-planning rather than silently persisting placeholder data.
+                  unfulfilled = step.depends_on.select { |dep| delegated_step_ids.include?(dep) }
+                  unless unfulfilled.empty?
+                    step_result[:status] = 'blocked'
+                    step_result[:error] = "Depends on delegated reasoning step(s) " \
+                      "#{unfulfilled.join(', ')} whose output was not produced in " \
+                      "internal_execute. Synthesis must be performed by the cognitive " \
+                      "layer before this step can run."
+                    results << step_result
+                    halted_at = step.step_id
+                    break
+                  end
+
                   if step.tool_name
                     unless tool_exists?(step.tool_name)
                       step_result[:status] = 'failed'
@@ -203,6 +224,7 @@ module KairosMcp
                   else
                     step_result[:status] = 'delegated'
                     step_result[:message] = "No tool_name — #{step.action}"
+                    delegated_step_ids << step.step_id
                   end
                 else
                   # Execute mode — delegated to external LLM

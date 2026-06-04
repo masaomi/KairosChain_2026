@@ -4,6 +4,24 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.29.2] - 2026-06-04
+
+### Fixed — `autoexec` internal_execute silently persisted placeholder content
+
+A task step that `depends_on` a delegated (`tool_name: null`) reasoning step
+was executed with its plan-time `tool_arguments` verbatim, because autoexec has
+no result-passing mechanism to inject the prior step's output. The dependent
+step (e.g. `context_save`) saved a literal placeholder string while the run
+reported success — a silent data-corruption / false-completion bug surfaced by
+the Agent SkillSet OODA loop (a `synthesize` step feeding a `context_save`).
+
+- `autoexec_run.rb`: in `internal_execute` mode, a step depending on a
+  delegated reasoning step now halts with status `blocked` and returns control
+  to the cognitive layer instead of persisting unresolved placeholder
+  arguments. Terminal delegated steps (no dependents) are unaffected.
+- `test_autoexec_phase2.rb`: added reproduction (blocked + halted) and
+  regression (terminal delegated still completes) tests.
+
 ## [3.29.1] - 2026-05-30
 
 ### Fixed — `llm_cross_evaluation` INV-2 self-report elicits object-level-guess confidence

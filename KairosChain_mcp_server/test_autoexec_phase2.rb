@@ -423,6 +423,42 @@ assert("internal_execute: multi-step halts on first failure") do
     parsed['steps'][1]['status'] == 'failed'
 end
 
+# -- Depends on delegated reasoning step → blocked + halted (S1→S2 wiring bug) --
+# Regression for the silent-placeholder bug: a context_save-style step that
+# depends on a tool_name:null "synthesize" step must NOT run with its plan-time
+# placeholder content. It must halt and return to the cognitive layer.
+assert("internal_execute: step depending on delegated step → blocked + halted") do
+  tid, hash = create_exec_plan([
+    { step_id: "s1", action: "Synthesize summary (no tool)", risk: "low" },
+    { step_id: "s2", action: "Save synthesis", tool_name: "echo_tool",
+      tool_arguments: { "content" => "--- placeholder to be filled by s1 ---" },
+      risk: "low", depends_on: ["s1"] }
+  ])
+  result = autoexec_run.call({
+    'task_id' => tid, 'mode' => 'internal_execute', 'approved_hash' => hash
+  })
+  parsed = JSON.parse(result[0][:text])
+  parsed['outcome'] == 'internal_execute_halted' &&
+    parsed['steps'][0]['status'] == 'delegated' &&
+    parsed['steps'][1]['status'] == 'blocked' &&
+    parsed['steps'][1]['error'].include?('delegated reasoning step')
+end
+
+# -- Terminal delegated step (no dependents) still allows completion (regression) --
+assert("internal_execute: terminal delegated step does not block completion") do
+  tid, hash = create_exec_plan([
+    { step_id: "s1", action: "Echo", tool_name: "echo_tool",
+      tool_arguments: { "x" => 1 }, risk: "low" },
+    { step_id: "s2", action: "Manual note, no tool and no dependents", risk: "low" }
+  ])
+  result = autoexec_run.call({
+    'task_id' => tid, 'mode' => 'internal_execute', 'approved_hash' => hash
+  })
+  parsed = JSON.parse(result[0][:text])
+  parsed['outcome'] == 'internal_execute_complete' &&
+    parsed['steps'].any? { |s| s['status'] == 'delegated' }
+end
+
 # =========================================================================
 # 9. InvocationContext in internal_execute
 # =========================================================================
