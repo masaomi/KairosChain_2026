@@ -4,6 +4,26 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.29.4] - 2026-06-05
+
+### Added — `skill_authoring_patterns` L1 knowledge (Anthropic skills lessons, internalized)
+
+New L1 knowledge entry distilling Anthropic's official post "Lessons from Building
+Claude Code: How We Use Skills" (Thariq Shihipar, 2026-06-03): the nine skill
+categories (§A) and authoring craft (§B), re-read through KairosChain's layer
+model and extended (§C) with the norm-skill and meta-skill categories the source
+structurally omits — Anthropic locates norms/philosophy in the model/core, while
+KairosChain expresses them as skills via structural self-referentiality. Ships in
+`templates/knowledge/skill_authoring_patterns/` with provenance references
+(archived source, SkillSet→category map, design dialogue).
+
+### Changed — `skillset_creator` scaffold seeds a Gotchas section
+
+`scaffold_generator.rb` knowledge skeleton now emits a `## Gotchas` section plus
+three authoring principles (description = the model's trigger condition; don't
+state the obvious; Gotchas is the highest-signal content), so newly scaffolded
+knowledge entries inherit the highest-impact convention by default.
+
 ## [3.29.2] - 2026-06-04
 
 ### Fixed — `autoexec` internal_execute silently persisted placeholder content

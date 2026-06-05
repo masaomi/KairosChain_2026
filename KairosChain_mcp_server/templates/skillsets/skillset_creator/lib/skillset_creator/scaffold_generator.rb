@@ -217,7 +217,8 @@ module SkillsetCreator
           ---
           name: #{k}
           description: >
-            TODO: What + When + Negative scope
+            TODO: What + When + Negative scope.
+            This is the model's trigger condition (when to invoke), not a human summary.
           version: "0.1"
           layer: L1
           tags: [TODO]
@@ -225,7 +226,15 @@ module SkillsetCreator
 
           # #{display_name}
 
-          TODO: content
+          TODO: content. Write only what pushes the model out of its default
+          reasoning. Do not restate what a capable model already knows.
+
+          ## Gotchas
+
+          <!-- Highest-signal section of any skill. Grow it on every edge case hit:
+               non-obvious quirks, naming inconsistencies, environment-specific
+               behavior, steps that look correct but fail. Start empty, never delete. -->
+          TODO: none recorded yet.
         MARKDOWN
 
         path = File.join(dir, "#{k}.md")
