@@ -4,6 +4,21 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.29.6] - 2026-06-05
+
+### Changed — `skill_authoring_patterns` readability + structure (v1.4)
+
+- Source citation is now a direct URL link to Anthropic's post (was a bare
+  local reference path); the local reference remains as a provenance / facts
+  index pointer.
+- §A nine categories are itemized as a numbered list with one-line glosses
+  (was a flat inline string).
+- §C ("KairosChain extension") translated from Japanese to English for
+  consistency with §A/§B (entry is LLM-primary).
+- Added a "When to reference this entry" section: when to open it (authoring,
+  classifying, layer placement, mis-trigger, positioning) and which sibling
+  skill to use instead (lifecycle, quality gates, scaffolding mechanics).
+
 ## [3.29.5] - 2026-06-05
 
 ### Changed — `skill_authoring_patterns` ships a source pointer, not the article full text
