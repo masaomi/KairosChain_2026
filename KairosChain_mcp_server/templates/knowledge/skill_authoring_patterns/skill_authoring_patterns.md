@@ -1,13 +1,13 @@
 ---
 name: skill_authoring_patterns
-description: Use when authoring or classifying KairosChain SkillSets. Anthropic's nine skill categories plus authoring craft, re-read through KairosChain layers and extended with the norm/meta-skill categories Anthropic structurally omits. Archived official source in references/.
-version: "1.2"
+description: Use when authoring or classifying KairosChain SkillSets. Anthropic's nine skill categories plus authoring craft, re-read through KairosChain layers and extended with the norm/meta-skill categories Anthropic structurally omits. Source pointer (not full text) in references/.
+version: "1.3"
 tags: [skills, authoring, taxonomy, meta, provenance]
 ---
 
 # Skill Authoring Patterns
 
-Imported from Anthropic's official post "Lessons from Building Claude Code: How We Use Skills" (Thariq Shihipar, 2026-06-03). Full archived source: `references/anthropic_skills_lessons_2026-06-03.md`. SkillSet→category map: `references/kairoschain_skillset_category_map.md`. This entry re-reads the source through KairosChain layers and adds what is missing.
+Distilled from Anthropic's official post "Lessons from Building Claude Code: How We Use Skills" (Thariq Shihipar, 2026-06-03). Source pointer (URL, not redistributed full text): `references/anthropic_skills_lessons_2026-06-03.md`; full archive kept out-of-distribution in `log/`. SkillSet→category map: `references/kairoschain_skillset_category_map.md`. This entry re-reads the source through KairosChain layers and adds what is missing.
 
 ## A. Nine categories (base-level / 実用 SkillSets)
 Library/API ref · Product verification (highest measured impact, per Anthropic) · Data fetch/analysis · Business-process automation · Scaffolding/templates · Code quality/review · CI/CD & deploy · Runbooks · Infra ops. All map ~1:1 onto KairosChain base-level SkillSets (see category map reference).

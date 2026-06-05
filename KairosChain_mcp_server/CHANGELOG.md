@@ -4,6 +4,17 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.29.5] - 2026-06-05
+
+### Changed — `skill_authoring_patterns` ships a source pointer, not the article full text
+
+The provenance reference `references/anthropic_skills_lessons_2026-06-03.md` no
+longer embeds the full text of Anthropic's article (copyright — not redistributed
+in the gem). It now carries the source URL, attribution, and a facts-only index
+(category names, lesson names), pointing to the canonical URL. A full archived
+copy is kept out-of-distribution at `log/anthropic_skills_lessons_2026-06-03.md`
+(not listed in the gemspec, so it never ships). Knowledge entry bumped to v1.3.
+
 ## [3.29.4] - 2026-06-05
 
 ### Added — `skill_authoring_patterns` L1 knowledge (Anthropic skills lessons, internalized)
