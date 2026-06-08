@@ -1,7 +1,7 @@
 ---
 name: multi_llm_reviewer_evaluation
 description: "Multi-LLM reviewer performance evaluation — strengths, weaknesses, value-system biases, and recommended workflows. Based on 185+ reviews (Phase 1, 2026-02 to 03) + Phase 2 Case A 4-round Codex bias study (2026-05-04)."
-version: "1.4"
+version: "1.5"
 tags:
   - multi-llm
   - review
@@ -293,6 +293,36 @@ Deployment:         Composer-2.5 or Cursor GPT-5.4
 5. Some REJECTs reflect the reviewer's value system, not the artifact. The (a)/(b)/(c)
    classification (see § Reviewer Value-System Divergence) is required to separate
    blocking signal from advisory noise. Codex models in particular require this lens.
+
+## Review-Loop Operation Observations (2026-06-06, dream_digest design loop)
+
+Two operational lessons from a 3-round design-by-invariant review loop (dream_digest,
+orchestrator Opus 4.8, full roster). These concern HOW to run the loop, complementing the
+per-reviewer profiles above.
+
+### 1. A SKIPped strict reviewer is a coverage hole, not a pass
+
+When a strict reviewer fails to run (e.g. Codex `token_invalidated` 401 -> SKIP), the
+remaining roster can hit the APPROVE threshold and report FALSE convergence. In the dream_digest
+loop, the first R1 showed 3/5 APPROVE only because both Codex SKIPped on auth failure; after
+`codex login` re-auth, the same artifact immediately went to REVISE, and Codex GPT-5.4 SOLO
+caught an access-control aggregation leak (a genuine (a)) that no other reviewer saw. Rule:
+do not treat threshold-APPROVE as convergence while the strongest (a)-finder (Codex) is absent.
+Re-auth and re-run before trusting a verdict. Surface SKIPs prominently in the per-reviewer table.
+
+### 2. Treadmill vs healthy narrowing — distinguish by per-round (a)/(b)/(c), then pre-commit a freeze criterion
+
+Codex may never reach APPROVE (value-system divergence). This looks like the non-convergent
+treadmill (Context Graph: 24/24 REJECT, new P0 each round) but is NOT the same if findings
+NARROW monotonically. In the dream_digest loop they did: R1 structural gaps -> R2 fix-incompleteness
+-> R3 a single (b) one-liner (an I7xI9 recording inconsistency), all else (c). To tell the two
+apart you MUST classify every finding (a)/(b)/(c) each round and watch the trend.
+
+To stop the treadmill structurally, PRE-COMMIT a freeze criterion before the round, e.g.:
+"revise only on a new (a) or an internal-contradiction (b); a request to specify the ENFORCEMENT
+MECHANISM of a sound invariant is (c) -> §11 / implementation review." This converts "wait for
+Codex APPROVE" (not always reachable) into "freeze when only (c)/mechanism findings remain,"
+which is decidable by the orchestrator and resistant to value-divergence stalling.
 
 ## Refinement Source
 
