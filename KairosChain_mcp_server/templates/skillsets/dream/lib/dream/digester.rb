@@ -80,10 +80,13 @@ module KairosMcp
             cm.list_sessions.each do |session|
               sid = session[:session_id]
               cm.list_contexts_in_session(sid).each do |ctx|
-                path = File.join(context_dir, sid, ctx[:name], "#{ctx[:name]}.md")
-                next unless File.exist?(path)
+                # Route through l2_path so the same safe_seg?/confine guard applies here as in
+                # build_read_set (defense in depth even though listings come from the store).
+                path = l2_path(sid, ctx[:name])
+                next unless path && File.exist?(path)
 
-                content = File.read(path)
+                content = safe_read(path)
+                next if content.nil?
                 next if frontmatter_value(content, 'status') == 'soft-archived' # don't cite stubs as live
                 next unless tag_match?(frontmatter_tags(content), tag)
 
@@ -115,54 +118,51 @@ module KairosMcp
           raise 'no provenance: refusing to emit a sourceless digest (I4)' if Array(snapshot).empty?
           raise 'empty content' if content.nil? || content.strip.empty?
 
-          # Re-derive the snapshot from the CURRENT sources rather than trusting the caller's
-          # hashes/access (I4 provenance integrity, I9 access bound cannot be spoofed). The
-          # caller's snapshot only fixes WHICH sources are citable (I6); hashes/access are ours.
-          read_set = build_read_set(sources_from_provenance(snapshot))
-          raise 'no resolvable sources at write time (I4)' if read_set.empty?
-
           effective_directive = directive_id || default_directive_id
           output_hash = Digest::SHA256.hexdigest(content)
-          bound = access_bound(read_set)
-          generated_at = Time.now.utc.iso8601
-
-          frontmatter = {
-            'topic' => topic,
-            'kind' => 'dream_digest',
-            'status' => 'fresh',
-            'derived' => true, # I1: never a source of truth
-            'authoritative' => false, # I8
-            'generated_at' => generated_at,
-            'directive_id' => effective_directive,
-            'access_bound' => bound, # I9
-            'output_hash' => output_hash,
-            'provenance' => read_set.map { |s| s.slice('layer', 'ref', 'content_hash') }
-          }
-          frontmatter['resolved_from'] = resolved_from if resolved_from
-
           dir = topic_dir(topic)
           FileUtils.mkdir_p(dir)
           path = File.join(dir, "#{slug}.md")
-          body = "---\n#{YAML.dump(frontmatter).sub(/\A---\n/, '')}---\n\n#{content.strip}\n"
+          result = nil
 
+          # Hold the per-topic lock across BOTH snapshot capture and commit, so the recorded
+          # provenance hashes reflect source state at (or very near) commit time and concurrent
+          # same-topic writers cannot interleave (I3-style integrity).
           with_topic_lock(dir) do
+            # Re-derive from CURRENT sources; never trust caller hashes/access (I4/I9). The
+            # caller's snapshot only fixes WHICH sources are citable (I6).
+            read_set = build_read_set(sources_from_provenance(snapshot))
+            raise 'no resolvable sources at write time (I4)' if read_set.empty?
+
+            bound = access_bound(read_set)
+            generated_at = Time.now.utc.iso8601
+            provenance = read_set.map { |s| s.slice('layer', 'ref', 'content_hash') }
+
+            frontmatter = {
+              'topic' => topic, 'kind' => 'dream_digest', 'status' => 'fresh',
+              'derived' => true, 'authoritative' => false, 'generated_at' => generated_at,
+              'directive_id' => effective_directive, 'access_bound' => bound,
+              'output_hash' => output_hash, 'provenance' => provenance
+            }
+            frontmatter['resolved_from'] = resolved_from if resolved_from
+            body = "---\n#{YAML.dump(frontmatter).sub(/\A---\n/, '')}---\n\n#{content.strip}\n"
+
             guard_slug_collision!(path, topic) # I10: never silently overwrite a different topic
             tmp = "#{path}.#{Process.pid}.#{rand(1 << 32).to_s(16)}.tmp" # unique per writer (I3)
-            File.write(tmp, body)
-            File.rename(tmp, path) # POSIX atomic
-          end
+            begin
+              File.write(tmp, body)
+              File.rename(tmp, path) # POSIX atomic
+            ensure
+              File.delete(tmp) if File.exist?(tmp) # no orphan tmp on failure
+            end
 
-          {
-            success: true,
-            topic: topic,
-            path: path,
-            output_hash: output_hash,
-            directive_id: effective_directive,
-            provenance: read_set.map { |s| s.slice('layer', 'ref', 'content_hash') },
-            provenance_count: read_set.size,
-            access_bound: bound,
-            generated_at: generated_at
-          }
+            result = {
+              success: true, topic: topic, path: path, output_hash: output_hash,
+              directive_id: effective_directive, provenance: provenance,
+              provenance_count: read_set.size, access_bound: bound, generated_at: generated_at
+            }
+          end
+          result
         end
 
         # Read a digest with staleness annotations. (I5)
@@ -357,7 +357,10 @@ module KairosMcp
           labels << 'default' if labels.empty?
           # Unknown labels are treated as MOST restrictive (fail-closed), never downgraded.
           max_known = ACCESS_ORDER.values.max
-          labels.max_by { |l| ACCESS_ORDER.fetch(l, max_known) }
+          winner = labels.max_by { |l| ACCESS_ORDER.fetch(l, max_known) }
+          # Normalize an unknown winning label to a known most-restrictive level so the stored
+          # bound is always a recognized value downstream consumers can compare.
+          ACCESS_ORDER.key?(winner) ? winner : 'private'
         end
 
         def extract_access(content)
@@ -420,11 +423,14 @@ module KairosMcp
           return unless File.exist?(path)
 
           existing = extract_frontmatter(safe_read(path).to_s)['topic']
-          return if existing.nil? || existing == topic
+          return if existing == topic # same topic -> regeneration is allowed
 
+          # Different topic, OR an existing file whose topic cannot be determined (corrupt/
+          # unreadable): refuse to overwrite. Fail-closed so I10 holds even on damaged state.
+          detail = existing.nil? ? 'an existing file with no identifiable topic (corrupt?)' : "existing #{existing.inspect}"
           raise IdentifierError,
-                "slug collision: topic #{topic.inspect} and existing #{existing.inspect} " \
-                "both map to #{File.basename(path)}; rename one."
+                "slug collision: topic #{topic.inspect} would overwrite #{detail} " \
+                "at #{File.basename(path)}; rename the topic or remove the file."
         end
 
         def source_path(layer, s)
@@ -456,11 +462,13 @@ module KairosMcp
         def l1_path(name)
           return nil unless safe_seg?(name)
 
-          dir_form  = confine(knowledge_dir, File.join(knowledge_dir, name, "#{name}.md"))
-          flat_form = confine(knowledge_dir, File.join(knowledge_dir, "#{name}.md"))
-          return nil unless dir_form && flat_form
-
-          File.exist?(dir_form) ? dir_form : flat_form
+          # Pick the existing form FIRST, then confine the chosen path. (confine resolves symlinks
+          # via realpath, which only works on existing paths; confining a nonexistent form would
+          # mismatch a symlinked base such as macOS /var -> /private/var.)
+          dir_form  = File.join(knowledge_dir, name, "#{name}.md")
+          flat_form = File.join(knowledge_dir, "#{name}.md")
+          chosen = File.exist?(dir_form) ? dir_form : (File.exist?(flat_form) ? flat_form : nil)
+          chosen && confine(knowledge_dir, chosen)
         end
 
         # Reject identifiers that could escape the data tree or break the "sid/name" ref split.
@@ -473,11 +481,19 @@ module KairosMcp
           true
         end
 
-        # Return path only if it stays within base after expansion; else nil (defense in depth).
+        # Return path only if it stays within base; else nil (defense in depth). Uses realpath
+        # when the target exists so a symlink under the data tree cannot escape it; falls back to
+        # lexical expand_path for not-yet-existing paths (which cannot follow a link until created).
         def confine(base, path)
-          b = File.expand_path(base)
-          p = File.expand_path(path)
-          (p == b || p.start_with?("#{b}#{File::SEPARATOR}")) ? p : nil
+          b = real_or_expand(base)
+          p = real_or_expand(path)
+          (p == b || p.start_with?("#{b}#{File::SEPARATOR}")) ? path : nil
+        end
+
+        def real_or_expand(x)
+          File.realpath(x)
+        rescue StandardError
+          File.expand_path(x)
         end
 
         def source_ref(layer, s)

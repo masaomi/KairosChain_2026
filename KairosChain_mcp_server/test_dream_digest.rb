@@ -387,7 +387,7 @@ test_section('Test 27: unknown access label treated as most restrictive (fail-cl
                   { 'layer' => 'l2', 'session_id' => 'u1', 'name' => 'weird' },
                   { 'layer' => 'l2', 'session_id' => 'u1', 'name' => 'pubsrc' }
                 ])
-  assert('unknown label wins as most restrictive') { r[:access_bound] == 'topsecret' }
+  assert('unknown label normalized to most-restrictive known (private)') { r[:access_bound] == 'private' }
 end
 
 test_section('Test 28: body containing a --- line round-trips intact') do
@@ -398,6 +398,39 @@ test_section('Test 28: body containing a --- line round-trips intact') do
   d.write(topic: 'RT', snapshot: pkg[:snapshot], content: body)
   got = d.read(topic: 'RT')[:content]
   assert('body with --- preserved') { got.include?('horizontal rule') && got.scan(/^---$/).size == 2 }
+end
+
+test_section('Test 29: symlink under data tree cannot escape confinement (R2 fix C)') do
+  outside = File.join(test_dir, 'outside_secret.md')
+  File.write(outside, "---\nvisibility: private\n---\nESCAPED")
+  evil_dir = File.join(KairosMcp.context_dir, 'sx', 'evil')
+  FileUtils.mkdir_p(evil_dir)
+  begin
+    File.symlink(outside, File.join(evil_dir, 'evil.md'))
+    linked = true
+  rescue NotImplementedError, Errno::EACCES
+    linked = false
+  end
+  if linked
+    d = KairosMcp::SkillSets::Dream::Digester.new
+    r = d.package(topic: 'Sym', sources: [{ 'layer' => 'l2', 'session_id' => 'sx', 'name' => 'evil' }])
+    assert('symlinked source escaping the tree is dropped') { r[:snapshot].empty? }
+  else
+    assert('symlink unsupported on this FS — skipped') { true }
+  end
+end
+
+test_section('Test 30: collision guard is fail-closed on a corrupt existing digest (R2 fix A)') do
+  make_l2('cg', 'src', tags: %w[cg], content: 'cg body')
+  d = KairosMcp::SkillSets::Dream::Digester.new
+  pkg = d.package(topic: 'CorruptGuard', sources: [{ 'layer' => 'l2', 'session_id' => 'cg', 'name' => 'src' }])
+  res = d.write(topic: 'CorruptGuard', snapshot: pkg[:snapshot], content: 'ok')
+  # Corrupt the stored digest: remove its topic frontmatter.
+  File.write(res[:path], "---\nkind: dream_digest\n---\n\nbody without topic")
+  raised = begin
+    d.write(topic: 'CorruptGuard', snapshot: pkg[:snapshot], content: 'retry'); false
+  rescue KairosMcp::SkillSets::Dream::Digester::IdentifierError then true end
+  assert('refuses to overwrite an unidentifiable existing digest') { raised }
 end
 
 # ===== Summary =====
