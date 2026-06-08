@@ -47,7 +47,7 @@ module KairosMcp
                 topic: { type: 'string', description: 'Topic identifier (per-topic partition, I10).' },
                 sources: {
                   type: 'array',
-                  description: '[package] READ set. Each: {layer: l2|l1, session_id, name}. Fixes the citable universe (I6).',
+                  description: '[package] Explicit READ set. Each: {layer: l2|l1, session_id, name}. Fixes the citable universe (I6). Takes precedence over from_tag.',
                   items: {
                     type: 'object',
                     properties: {
@@ -57,6 +57,14 @@ module KairosMcp
                     },
                     required: %w[layer]
                   }
+                },
+                from_tag: {
+                  type: 'string',
+                  description: '[package] dream_scan->dream_digest wiring: resolve the citable universe (I6) as all live fragments carrying this tag. Used when sources is omitted.'
+                },
+                include_l1: {
+                  type: 'boolean',
+                  description: '[package] When using from_tag, also include L1 entries tagged with it. Default: true.'
                 },
                 snapshot: {
                   type: 'array',
@@ -94,7 +102,9 @@ module KairosMcp
 
             result = digester.package(
               topic: topic,
-              sources: arguments['sources'] || [],
+              sources: arguments['sources'],
+              from_tag: arguments['from_tag'],
+              include_l1: arguments.fetch('include_l1', true),
               directive_id: arguments['directive_id']
             )
             text_content(format_package(result))
@@ -172,6 +182,7 @@ module KairosMcp
             lines << "**Status**: #{r[:status]}"
             lines << "**Access bound**: #{r[:access_bound]} (I9)"
             lines << "**Directive id**: #{r[:directive_id]}"
+            lines << "**Resolved from**: #{r[:resolved_from]}" if r[:resolved_from]
             lines << ""
             if r[:snapshot].empty?
               lines << "_No resolvable sources — nothing to digest (I4)._"

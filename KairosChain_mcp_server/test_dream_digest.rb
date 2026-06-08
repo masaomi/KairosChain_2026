@@ -199,6 +199,49 @@ test_section('Test 10: L1 source supported in READ set') do
   assert('L1 ref is the name') { r[:snapshot].first['ref'] == 'some_l1' }
 end
 
+test_section('Test 11: from_tag resolves live fragments across sessions (I6 wiring)') do
+  make_l2('w1', 'frag_a', tags: %w[wireup design], content: 'A on wireup')
+  make_l2('w2', 'frag_b', tags: %w[wireup review], content: 'B on wireup')
+  make_l2('w3', 'unrelated', tags: %w[other], content: 'noise')
+  d = KairosMcp::SkillSets::Dream::Digester.new
+  r = d.package(topic: 'Wireup', from_tag: 'wireup', include_l1: false)
+  refs = r[:snapshot].map { |s| s['ref'] }
+  assert('resolved 2 tagged fragments') { r[:snapshot].size == 2 }
+  assert('includes both wireup frags') { refs.include?('w1/frag_a') && refs.include?('w2/frag_b') }
+  assert('excludes untagged fragment') { refs.none? { |x| x.include?('unrelated') } }
+  assert('resolved_from records the tag') { r[:resolved_from] == 'tag:wireup' }
+  assert('status needs_content') { r[:status] == 'needs_content' }
+end
+
+test_section('Test 12: from_tag excludes soft-archived stubs') do
+  make_l2('w4', 'archived_frag', tags: %w[wireup], content: 'stub')
+  # mark it soft-archived in frontmatter
+  p = File.join(KairosMcp.context_dir, 'w4', 'archived_frag', 'archived_frag.md')
+  fm = { 'title' => 'archived_frag', 'tags' => %w[wireup], 'status' => 'soft-archived' }
+  File.write(p, "---\n#{YAML.dump(fm)}---\n\nstub body")
+  d = KairosMcp::SkillSets::Dream::Digester.new
+  r = d.package(topic: 'Wireup', from_tag: 'wireup', include_l1: false)
+  refs = r[:snapshot].map { |s| s['ref'] }
+  assert('archived stub not cited as live') { refs.none? { |x| x.include?('archived_frag') } }
+  assert('still resolves the 2 live frags') { r[:snapshot].size == 2 }
+end
+
+test_section('Test 13: explicit sources take precedence over from_tag') do
+  d = KairosMcp::SkillSets::Dream::Digester.new
+  r = d.package(topic: 'Wireup',
+                sources: [{ 'layer' => 'l2', 'session_id' => 'w1', 'name' => 'frag_a' }],
+                from_tag: 'wireup')
+  assert('only the explicit source is used') { r[:snapshot].size == 1 }
+  assert('resolved_from is nil (explicit path)') { r[:resolved_from].nil? }
+end
+
+test_section('Test 14: from_tag is hyphen/underscore tolerant') do
+  make_l2('h1', 'h_frag', tags: %w[multi_llm], content: 'tagged with underscore')
+  d = KairosMcp::SkillSets::Dream::Digester.new
+  r = d.package(topic: 'MLLM', from_tag: 'multi-llm', include_l1: false)
+  assert('hyphen query matches underscore tag') { r[:snapshot].any? { |s| s['ref'] == 'h1/h_frag' } }
+end
+
 # ===== Summary =====
 puts ""
 puts('=' * 60)

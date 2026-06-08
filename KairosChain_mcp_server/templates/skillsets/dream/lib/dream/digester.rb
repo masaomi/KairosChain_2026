@@ -33,20 +33,69 @@ module KairosMcp
 
         # Build a content-addressed snapshot + generation directive for a topic. (I2/I6/I7)
         #
+        # The citable universe (I6) is fixed here, as an INPUT, either explicitly via `sources`
+        # or — wiring dream_scan detection into the digest — by resolving every live fragment
+        # carrying `from_tag`. Explicit sources take precedence; from_tag is the auto path.
+        #
         # @param topic [String]
         # @param sources [Array<Hash>] each: {"layer"=>"l2"|"l1", "session_id"=>.., "name"=>..}
+        # @param from_tag [String, nil] resolve sources = all live fragments carrying this tag
+        # @param include_l1 [Boolean] when resolving from_tag, also include L1 entries tagged with it
         # @param directive_id [String, nil]
-        # @return [Hash] { topic:, snapshot: [...], access_bound:, directive:, directive_id:, status: }
-        def package(topic:, sources:, directive_id: nil)
-          read_set = build_read_set(sources)
+        # @return [Hash] { topic:, snapshot: [...], access_bound:, directive:, directive_id:, status:, resolved_from: }
+        def package(topic:, sources: nil, from_tag: nil, include_l1: true, directive_id: nil)
+          resolved_from = nil
+          src = Array(sources)
+          if src.empty? && from_tag
+            src = resolve_sources_by_tag(from_tag, include_l1: include_l1)
+            resolved_from = "tag:#{from_tag}"
+          end
+
+          read_set = build_read_set(src)
           {
             topic: topic,
             directive_id: directive_id || default_directive_id,
             snapshot: read_set,
             access_bound: access_bound(read_set),
             directive: generation_directive(topic, read_set),
+            resolved_from: resolved_from,
             status: read_set.empty? ? 'no_sources' : 'needs_content'
           }
+        end
+
+        # Resolve the citation set from a tag (dream_scan -> dream_digest wiring). (I6 input)
+        # Returns live (non-archived) L2 contexts carrying the tag, plus tagged L1 entries.
+        #
+        # @param tag [String]
+        # @param include_l1 [Boolean]
+        # @return [Array<Hash>] source descriptors for #build_read_set
+        def resolve_sources_by_tag(tag, include_l1: true)
+          out = []
+          cm = context_manager
+          if cm
+            cm.list_sessions.each do |session|
+              sid = session[:session_id]
+              cm.list_contexts_in_session(sid).each do |ctx|
+                path = File.join(context_dir, sid, ctx[:name], "#{ctx[:name]}.md")
+                next unless File.exist?(path)
+
+                content = File.read(path)
+                next if frontmatter_value(content, 'status') == 'soft-archived' # don't cite stubs as live
+                next unless tag_match?(frontmatter_tags(content), tag)
+
+                out << { 'layer' => 'l2', 'session_id' => sid, 'name' => ctx[:name] }
+              end
+            end
+          end
+
+          if include_l1 && (kp = knowledge_provider)
+            kp.list.each do |entry|
+              next unless tag_match?(Array(entry[:tags]), tag)
+
+              out << { 'layer' => 'l1', 'name' => entry[:name] }
+            end
+          end
+          out
         end
 
         # Persist an LLM-generated digest with provenance. (I1/I4/I8/I10)
@@ -315,6 +364,35 @@ module KairosMcp
           end
         rescue StandardError
           {}
+        end
+
+        def frontmatter_tags(content)
+          meta = extract_frontmatter(content)
+          Array(meta['tags'] || meta[:tags])
+        end
+
+        def frontmatter_value(content, key)
+          meta = extract_frontmatter(content)
+          meta[key] || meta[key.to_sym]
+        end
+
+        # Tag match tolerant to hyphen/underscore variants (mirrors Scanner normalization).
+        def tag_match?(tags, tag)
+          norm = ->(t) { t.to_s.downcase.tr('-', '_') }
+          target = norm.call(tag)
+          Array(tags).any? { |t| norm.call(t) == target }
+        end
+
+        def context_manager
+          return nil unless defined?(KairosMcp::ContextManager)
+
+          KairosMcp::ContextManager.new
+        end
+
+        def knowledge_provider
+          return nil unless defined?(KairosMcp::KnowledgeProvider)
+
+          KairosMcp::KnowledgeProvider.new
         end
 
         def stringify(hash)
