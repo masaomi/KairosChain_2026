@@ -5,6 +5,7 @@ require 'fileutils'
 require 'yaml'
 require 'json'
 require 'time'
+require 'date'
 
 module KairosMcp
   module SkillSets
@@ -105,7 +106,7 @@ module KairosMcp
         # @param content [String] LLM-generated narrative (cites only snapshot sources)
         # @param directive_id [String]
         # @return [Hash] { success:, topic:, output_hash:, provenance_count:, access_bound:, path: }
-        def write(topic:, snapshot:, content:, directive_id: nil)
+        def write(topic:, snapshot:, content:, directive_id: nil, resolved_from: nil)
           raise 'empty topic slug' if slugify(topic).empty?
           raise 'no provenance: refusing to emit a sourceless digest (I4)' if Array(snapshot).empty?
           raise 'empty content' if content.nil? || content.strip.empty?
@@ -127,6 +128,7 @@ module KairosMcp
             'output_hash' => output_hash,
             'provenance' => read_set.map { |s| s.slice('layer', 'ref', 'content_hash') }
           }
+          frontmatter['resolved_from'] = resolved_from if resolved_from
 
           dir = topic_dir(topic)
           FileUtils.mkdir_p(dir)
@@ -149,7 +151,7 @@ module KairosMcp
 
         # Read a digest with staleness annotations. (I5)
         #
-        # @return [Hash] { found:, topic:, content:, stale:, drifted:, access_bound:, ... }
+        # @return [Hash] { found:, topic:, content:, stale:, drifted:, access_bound:, age_days:, ... }
         def read(topic:)
           path = File.join(topic_dir(topic), "#{slugify(topic)}.md")
           return { found: false, topic: topic } unless File.exist?(path)
@@ -166,10 +168,69 @@ module KairosMcp
             content: body,
             access_bound: meta['access_bound'],
             generated_at: meta['generated_at'],
+            age_days: age_days(meta['generated_at']),
             directive_id: meta['directive_id'],
+            resolved_from: meta['resolved_from'],
             provenance_count: Array(meta['provenance']).size,
             drifted: drift,
             stale: !drift.empty?
+          }
+        end
+
+        # Sweep all digests for staleness + age. Schedulable health view. (I5 + freshness)
+        # The EXTERNAL trigger (cron / Claude Code hook / autonomous loop) is a separate layer;
+        # this method only reports — it does not regenerate or schedule anything itself.
+        #
+        # @param stale_after_days [Integer, nil] also flag digests older than this as 'aged'
+        # @return [Array<Hash>] one entry per digest, sorted stale-first then oldest-first
+        def sweep(stale_after_days: nil)
+          list.map do |slug|
+            r = read(topic: slug)
+            next nil unless r[:found]
+
+            aged = stale_after_days && r[:age_days] && r[:age_days] >= stale_after_days
+            {
+              topic: slug,
+              stale: r[:stale],
+              drifted_count: Array(r[:drifted]).size,
+              age_days: r[:age_days],
+              aged: !!aged,
+              needs_refresh: r[:stale] || !!aged,
+              access_bound: r[:access_bound],
+              generated_at: r[:generated_at]
+            }
+          end.compact.sort_by { |e| [e[:needs_refresh] ? 0 : 1, -(e[:age_days] || 0)] }
+        end
+
+        # Produce a FRESH regeneration package for an existing digest, faithfully from its
+        # recorded provenance re-read at current content (I6: same citable universe, new content).
+        # Returns a package-shaped hash for the LLM to regenerate, then #write. Re-synthesis of a
+        # DERIVED view — never an overwrite of sources (I1/I5).
+        #
+        # @param topic [String]
+        # @return [Hash] package-shaped { topic:, snapshot:, directive:, dropped:, status:, ... }
+        def refresh(topic:)
+          existing = read(topic: topic)
+          return { found: false, topic: topic } unless existing[:found]
+
+          path = File.join(topic_dir(topic), "#{slugify(topic)}.md")
+          prior_prov = Array(extract_frontmatter(File.read(path))['provenance'])
+          sources = sources_from_provenance(prior_prov)
+
+          read_set = build_read_set(sources)
+          resolved_refs = read_set.map { |s| s['ref'] }
+          dropped = prior_prov.map { |p| stringify(p)['ref'] } - resolved_refs
+
+          {
+            found: true,
+            topic: topic,
+            directive_id: existing[:directive_id] || default_directive_id,
+            snapshot: read_set,
+            access_bound: access_bound(read_set),
+            directive: generation_directive(topic, read_set),
+            dropped: dropped, # sources no longer resolvable, omitted per I4
+            prior_age_days: existing[:age_days],
+            status: read_set.empty? ? 'no_sources' : 'needs_content'
           }
         end
 
@@ -218,6 +279,31 @@ module KairosMcp
             h['path'] ||= path_for_ref(h['layer'], h['ref'])
             h
           end
+        end
+
+        # Reconstruct source descriptors from recorded provenance (for #refresh).
+        def sources_from_provenance(provenance)
+          Array(provenance).filter_map do |p|
+            h = stringify(p)
+            case h['layer']
+            when 'l2'
+              sid, name = h['ref'].to_s.split('/', 2)
+              next nil unless sid && name
+
+              { 'layer' => 'l2', 'session_id' => sid, 'name' => name }
+            when 'l1'
+              { 'layer' => 'l1', 'name' => h['ref'] }
+            end
+          end
+        end
+
+        # Whole days since an ISO8601 timestamp (nil if unparseable). Time.now is fine in the gem.
+        def age_days(iso)
+          return nil if iso.nil? || iso.to_s.empty?
+
+          ((Time.now - Time.parse(iso.to_s)) / 86_400).floor
+        rescue StandardError
+          nil
         end
 
         def drifted_sources(provenance)
@@ -326,8 +412,12 @@ module KairosMcp
 
         # ---- Env helpers ----------------------------------------------------------
 
+        # The .kairos data root. KairosMcp exposes `data_dir` (context_dir/knowledge_dir hang off
+        # it); `kairos_dir` is NOT a real accessor, so data_dir is the correct, test-isolatable base.
         def kairos_dir
-          if defined?(KairosMcp) && KairosMcp.respond_to?(:kairos_dir)
+          if defined?(KairosMcp) && KairosMcp.respond_to?(:data_dir) && KairosMcp.data_dir
+            KairosMcp.data_dir
+          elsif defined?(KairosMcp) && KairosMcp.respond_to?(:kairos_dir)
             KairosMcp.kairos_dir
           else
             File.join(Dir.pwd, '.kairos')
@@ -358,7 +448,9 @@ module KairosMcp
 
         def extract_frontmatter(content)
           if content =~ /\A---\n(.*?)\n---/m
-            YAML.safe_load($1, permitted_classes: [Symbol]) || {}
+            # Permit Time/Date: a digest's generated_at (or a hand-edited timestamp) may load as
+            # Time; without this the whole frontmatter would silently fail to parse and drop to {}.
+            YAML.safe_load($1, permitted_classes: [Symbol, Time, Date]) || {}
           else
             {}
           end

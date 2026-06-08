@@ -242,6 +242,67 @@ test_section('Test 14: from_tag is hyphen/underscore tolerant') do
   assert('hyphen query matches underscore tag') { r[:snapshot].any? { |s| s['ref'] == 'h1/h_frag' } }
 end
 
+test_section('Test 15: sweep reports staleness across all digests, stale-first') do
+  # Existing written digests: topic_x (stale via tests 6/7), tooltopic (fresh).
+  d = KairosMcp::SkillSets::Dream::Digester.new
+  rows = d.sweep
+  by_topic = rows.each_with_object({}) { |r, h| h[r[:topic]] = r }
+  assert('topic_x present and stale') { by_topic['topic_x'] && by_topic['topic_x'][:stale] == true }
+  assert('tooltopic present and fresh') { by_topic['tooltopic'] && by_topic['tooltopic'][:stale] == false }
+  assert('topic_x flagged needs_refresh') { by_topic['topic_x'][:needs_refresh] == true }
+  assert('stale sorts before fresh') { rows.first[:needs_refresh] == true }
+  assert('age_days is an integer') { rows.all? { |r| r[:age_days].is_a?(Integer) } }
+end
+
+test_section('Test 16: refresh rebuilds package from provenance, drops missing (I4/I6)') do
+  # topic_x cited s1/note_a (mutated, still exists) and s1/note_b (deleted in test 7).
+  d = KairosMcp::SkillSets::Dream::Digester.new
+  r = d.refresh(topic: 'topic_x')
+  refs = r[:snapshot].map { |s| s['ref'] }
+  assert('found') { r[:found] }
+  assert('keeps surviving source note_a') { refs.include?('s1/note_a') }
+  assert('drops missing source note_b (I4)') { r[:dropped].include?('s1/note_b') && refs.none? { |x| x == 's1/note_b' } }
+  assert('snapshot hash reflects CURRENT content (I6 re-read)') do
+    cur = Digest::SHA256.hexdigest(File.read(File.join(KairosMcp.context_dir, 's1', 'note_a', 'note_a.md')))
+    r[:snapshot].first['content_hash'] == cur
+  end
+end
+
+test_section('Test 17: refresh -> write -> read becomes fresh again') do
+  d = KairosMcp::SkillSets::Dream::Digester.new
+  r = d.refresh(topic: 'topic_x')
+  d.write(topic: 'topic_x', snapshot: r[:snapshot], content: 'Regenerated: only Alpha (Z) survives.')
+  again = d.read(topic: 'topic_x')
+  assert('fresh after regeneration') { again[:stale] == false }
+  assert('content regenerated') { again[:content].include?('Regenerated') }
+end
+
+test_section('Test 18: age + stale_after_days flags aged digests') do
+  make_l2('age1', 'a1', tags: %w[aget], content: 'age body')
+  d = KairosMcp::SkillSets::Dream::Digester.new
+  pkg = d.package(topic: 'AgeTest', sources: [{ 'layer' => 'l2', 'session_id' => 'age1', 'name' => 'a1' }])
+  d.write(topic: 'AgeTest', snapshot: pkg[:snapshot], content: 'aged digest')
+  # backdate generated_at in the stored frontmatter
+  p = File.join(KairosMcp.data_dir, 'dream', 'digest', 'agetest', 'agetest.md')
+  raw = File.read(p)
+  raw = raw.sub(/generated_at: .*/, 'generated_at: 2020-01-01T00:00:00Z')
+  File.write(p, raw)
+  rows = d.sweep(stale_after_days: 30)
+  row = rows.find { |x| x[:topic] == 'agetest' }
+  assert('aged flagged true') { row[:aged] == true }
+  assert('needs_refresh true even though not drifted') { row[:needs_refresh] == true }
+  assert('age_days large') { row[:age_days] > 1000 }
+end
+
+test_section('Test 19: resolved_from is stored and surfaced (refresh provenance origin)') do
+  make_l2('rf1', 'rf_a', tags: %w[rftag], content: 'rf body')
+  d = KairosMcp::SkillSets::Dream::Digester.new
+  pkg = d.package(topic: 'RfTopic', from_tag: 'rftag', include_l1: false)
+  d.write(topic: 'RfTopic', snapshot: pkg[:snapshot], content: 'rf digest', resolved_from: pkg[:resolved_from])
+  r = d.read(topic: 'RfTopic')
+  assert('resolved_from persisted') { r[:resolved_from] == 'tag:rftag' }
+end
+
 # ===== Summary =====
 puts ""
 puts('=' * 60)

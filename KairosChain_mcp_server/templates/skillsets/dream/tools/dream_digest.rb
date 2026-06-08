@@ -41,8 +41,8 @@ module KairosMcp
               properties: {
                 mode: {
                   type: 'string',
-                  enum: %w[package write read list],
-                  description: 'package (default): snapshot+directive for a topic. write: persist LLM content. read: digest+staleness. list: existing digests.'
+                  enum: %w[package write read list sweep refresh],
+                  description: 'package (default): snapshot+directive. write: persist LLM content. read: digest+staleness. list: existing digests. sweep: staleness+age health over all digests (schedulable). refresh: fresh regeneration package for a stale topic.'
                 },
                 topic: { type: 'string', description: 'Topic identifier (per-topic partition, I10).' },
                 sources: {
@@ -72,6 +72,8 @@ module KairosMcp
                   items: { type: 'object' }
                 },
                 content: { type: 'string', description: '[write] LLM-generated narrative grounded in the snapshot.' },
+                resolved_from: { type: 'string', description: '[write] Optional provenance origin (e.g. "tag:wireup") from package, stored for refresh.' },
+                stale_after_days: { type: 'integer', description: '[sweep] Also flag digests older than this many days as aged.' },
                 directive_id: { type: 'string', description: 'Generation directive identity (I7).' }
               },
               required: []
@@ -87,6 +89,8 @@ module KairosMcp
             when 'write'   then call_write(digester, arguments)
             when 'read'    then call_read(digester, arguments)
             when 'list'    then text_content(JSON.pretty_generate(digests: digester.list))
+            when 'sweep'   then call_sweep(digester, arguments)
+            when 'refresh' then call_refresh(digester, arguments)
             else
               text_content(JSON.pretty_generate(error: "unknown mode: #{mode}"))
             end
@@ -120,7 +124,8 @@ module KairosMcp
               topic: topic,
               snapshot: arguments['snapshot'] || [],
               content: arguments['content'],
-              directive_id: arguments['directive_id']
+              directive_id: arguments['directive_id'],
+              resolved_from: arguments['resolved_from']
             )
             record_generation_event(result, arguments['snapshot'] || [], arguments['directive_id'])
             text_content(format_write(result))
@@ -131,6 +136,21 @@ module KairosMcp
             return text_content(JSON.pretty_generate(error: 'read requires topic')) if topic.nil? || topic.empty?
 
             text_content(format_read(digester.read(topic: topic)))
+          end
+
+          def call_sweep(digester, arguments)
+            rows = digester.sweep(stale_after_days: arguments['stale_after_days'])
+            text_content(format_sweep(rows))
+          end
+
+          def call_refresh(digester, arguments)
+            topic = arguments['topic']
+            return text_content(JSON.pretty_generate(error: 'refresh requires topic')) if topic.nil? || topic.empty?
+
+            r = digester.refresh(topic: topic)
+            return text_content("## Dream Digest — refresh: not found (topic: #{topic})") unless r[:found]
+
+            text_content(format_refresh(r))
           end
 
           # I7: record the generation EVENT (the derived artifact itself need not be immutable).
@@ -230,7 +250,7 @@ module KairosMcp
             stale_marker = r[:stale] ? "⚠️ STALE" : "fresh"
             lines << "**Status**: #{stale_marker}"
             lines << "**Access bound**: #{r[:access_bound]} (I9)"
-            lines << "**Generated at**: #{r[:generated_at]}"
+            lines << "**Generated at**: #{r[:generated_at]} (#{r[:age_days]}d ago)"
             lines << "**Provenance count**: #{r[:provenance_count]}"
             if r[:stale]
               lines << ""
@@ -241,6 +261,54 @@ module KairosMcp
             lines << "---"
             lines << ""
             lines << r[:content]
+            lines.join("\n")
+          end
+
+          def format_sweep(rows)
+            lines = []
+            lines << "## Dream Digest — Sweep (#{rows.size} digest(s))"
+            lines << ""
+            if rows.empty?
+              lines << "_No digests yet._"
+              return lines.join("\n")
+            end
+            needs = rows.count { |r| r[:needs_refresh] }
+            lines << "**Needs refresh**: #{needs} / #{rows.size}"
+            lines << ""
+            lines << "| topic | status | drifted | age(d) | access |"
+            lines << "|---|---|---|---|---|"
+            rows.each do |r|
+              status = r[:stale] ? "⚠️ stale" : (r[:aged] ? "aged" : "fresh")
+              lines << "| #{r[:topic]} | #{status} | #{r[:drifted_count]} | #{r[:age_days]} | #{r[:access_bound]} |"
+            end
+            lines << ""
+            lines << "_Scheduling note: an external trigger (cron / Claude Code hook / autonomous loop) "
+            lines << "calls sweep, then `refresh` + `write` per needs_refresh topic. dream does not "
+            lines << "schedule itself (separate layer)._"
+            lines.join("\n")
+          end
+
+          def format_refresh(r)
+            lines = []
+            lines << "## Dream Digest — Refresh package (topic: #{r[:topic]})"
+            lines << ""
+            lines << "**Status**: #{r[:status]} (prior age: #{r[:prior_age_days]}d)"
+            lines << "**Access bound**: #{r[:access_bound]} (I9)"
+            lines << "**Dropped (no longer resolvable, omitted per I4)**: #{r[:dropped].empty? ? 'none' : r[:dropped].join(', ')}"
+            lines << ""
+            if r[:snapshot].empty?
+              lines << "_All sources gone — nothing to regenerate (I4). Consider deleting the stale digest._"
+              return lines.join("\n")
+            end
+            lines << "### Fresh READ set / citable universe (#{r[:snapshot].size}) — I6"
+            r[:snapshot].each do |s|
+              lines << "- **#{s['ref']}** [#{s['layer']}] hash=`#{s['content_hash'][0, 12]}…`"
+            end
+            lines << ""
+            lines << "### Regeneration directive (give to LLM, then mode=write with this snapshot)"
+            lines << "```"
+            lines << r[:directive].strip
+            lines << "```"
             lines.join("\n")
           end
         end
