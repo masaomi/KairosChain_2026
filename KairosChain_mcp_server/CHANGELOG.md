@@ -4,6 +4,34 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.30.0] - 2026-06-08
+
+### Added — `dream_digest`: derived narrative view over L2/L1 fragments (dream SkillSet v0.3.0)
+
+A new `dream_digest` tool in the `dream` SkillSet, providing `narrative_digest`.
+Inspired by OpenAI ChatGPT "Dreaming" memory, but inverted to KairosChain
+principles: synthesis is adopted while the synthesized result is demoted from a
+source of truth to a regenerable DERIVED view that sits beside the immutable
+fragments — never an overwrite, never authoritative (Prop 5 + Knowledge Ethos).
+
+- Modes: `package` (content-addressed snapshot + contradiction-preserving
+  directive), `write` (persist LLM content with provenance), `read` (with
+  staleness annotations), `list`, `sweep` (staleness + age health, schedulable),
+  `refresh` (faithful regeneration package from recorded provenance).
+- `from_tag` wiring: resolves the citable universe (the snapshot input) from a
+  tag, connecting `dream_scan` detection to digest generation.
+- Design frozen after 3 multi-LLM design rounds (10 invariants); implementation
+  hardened across 3 implementation-review rounds (path-traversal confinement,
+  slug-collision guard, per-topic write lock, provenance re-derivation at write,
+  symlink-resolving confinement, fail-closed access bound).
+- Tests: `test_dream_digest.rb` (74), `test_dream_digest_live.rb` (11 wiring).
+
+### Changed — `multi_llm_reviewer_evaluation` v1.5
+
+- Added "Review-Loop Operation Observations": (1) a SKIPped strict reviewer is a
+  coverage hole, not a pass; (2) treadmill vs healthy narrowing via per-round
+  (a)/(b)/(c) classification + a pre-committed freeze criterion.
+
 ## [3.29.6] - 2026-06-05
 
 ### Changed — `skill_authoring_patterns` readability + structure (v1.4)
