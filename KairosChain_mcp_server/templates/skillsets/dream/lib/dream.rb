@@ -8,6 +8,7 @@ require 'time'
 require_relative 'dream/scanner'
 require_relative 'dream/proposer'
 require_relative 'dream/archiver'
+require_relative 'dream/digester'
 
 module Dream
   SKILLSET_ROOT = File.expand_path('..', __dir__)
