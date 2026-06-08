@@ -27,6 +27,9 @@ module KairosMcp
       #   #read returns content with staleness annotations.
       class Digester
         DIGEST_DIR_NAME = 'dream/digest'
+        LOCK_FILE = '.dream_digest_lock'
+
+        class IdentifierError < StandardError; end
 
         def initialize(config: {})
           @config = config || {}
@@ -107,11 +110,18 @@ module KairosMcp
         # @param directive_id [String]
         # @return [Hash] { success:, topic:, output_hash:, provenance_count:, access_bound:, path: }
         def write(topic:, snapshot:, content:, directive_id: nil, resolved_from: nil)
-          raise 'empty topic slug' if slugify(topic).empty?
+          slug = slugify(topic)
+          raise 'empty topic slug' if slug.empty?
           raise 'no provenance: refusing to emit a sourceless digest (I4)' if Array(snapshot).empty?
           raise 'empty content' if content.nil? || content.strip.empty?
 
-          read_set = normalize_snapshot(snapshot)
+          # Re-derive the snapshot from the CURRENT sources rather than trusting the caller's
+          # hashes/access (I4 provenance integrity, I9 access bound cannot be spoofed). The
+          # caller's snapshot only fixes WHICH sources are citable (I6); hashes/access are ours.
+          read_set = build_read_set(sources_from_provenance(snapshot))
+          raise 'no resolvable sources at write time (I4)' if read_set.empty?
+
+          effective_directive = directive_id || default_directive_id
           output_hash = Digest::SHA256.hexdigest(content)
           bound = access_bound(read_set)
           generated_at = Time.now.utc.iso8601
@@ -123,7 +133,7 @@ module KairosMcp
             'derived' => true, # I1: never a source of truth
             'authoritative' => false, # I8
             'generated_at' => generated_at,
-            'directive_id' => directive_id || default_directive_id,
+            'directive_id' => effective_directive,
             'access_bound' => bound, # I9
             'output_hash' => output_hash,
             'provenance' => read_set.map { |s| s.slice('layer', 'ref', 'content_hash') }
@@ -132,17 +142,23 @@ module KairosMcp
 
           dir = topic_dir(topic)
           FileUtils.mkdir_p(dir)
-          path = File.join(dir, "#{slugify(topic)}.md")
+          path = File.join(dir, "#{slug}.md")
           body = "---\n#{YAML.dump(frontmatter).sub(/\A---\n/, '')}---\n\n#{content.strip}\n"
-          tmp = "#{path}.tmp"
-          File.write(tmp, body)
-          File.rename(tmp, path) # POSIX atomic
+
+          with_topic_lock(dir) do
+            guard_slug_collision!(path, topic) # I10: never silently overwrite a different topic
+            tmp = "#{path}.#{Process.pid}.#{rand(1 << 32).to_s(16)}.tmp" # unique per writer (I3)
+            File.write(tmp, body)
+            File.rename(tmp, path) # POSIX atomic
+          end
 
           {
             success: true,
             topic: topic,
             path: path,
             output_hash: output_hash,
+            directive_id: effective_directive,
+            provenance: read_set.map { |s| s.slice('layer', 'ref', 'content_hash') },
             provenance_count: read_set.size,
             access_bound: bound,
             generated_at: generated_at
@@ -229,6 +245,7 @@ module KairosMcp
             access_bound: access_bound(read_set),
             directive: generation_directive(topic, read_set),
             dropped: dropped, # sources no longer resolvable, omitted per I4
+            resolved_from: existing[:resolved_from], # carry origin forward across refresh
             prior_age_days: existing[:age_days],
             status: read_set.empty? ? 'no_sources' : 'needs_content'
           }
@@ -256,15 +273,23 @@ module KairosMcp
         # ---- READ set / snapshot --------------------------------------------------
 
         def build_read_set(sources)
-          Array(sources).filter_map do |s|
+          seen = {}
+          Array(sources).each_with_object([]) do |s, acc|
             layer = (s['layer'] || s[:layer] || 'l2').to_s.downcase
             path = source_path(layer, s)
-            next nil unless path && File.exist?(path)
+            next unless path && File.exist?(path)
 
-            content = File.read(path)
-            {
+            content = safe_read(path)
+            next if content.nil? # unreadable -> treat as unresolvable (I4 drop), do not raise
+
+            ref = source_ref(layer, s)
+            key = "#{layer}|#{ref}"
+            next if seen[key] # dedup: a source cited twice contributes one provenance entry
+
+            seen[key] = true
+            acc << {
               'layer' => layer,
-              'ref' => source_ref(layer, s),
+              'ref' => ref,
               'path' => path,
               'content_hash' => Digest::SHA256.hexdigest(content),
               'access' => extract_access(content)
@@ -272,16 +297,8 @@ module KairosMcp
           end
         end
 
-        # Re-resolve a snapshot passed back into #write (path may be absent).
-        def normalize_snapshot(snapshot)
-          Array(snapshot).map do |s|
-            h = stringify(s)
-            h['path'] ||= path_for_ref(h['layer'], h['ref'])
-            h
-          end
-        end
-
-        # Reconstruct source descriptors from recorded provenance (for #refresh).
+        # Reconstruct source descriptors from recorded provenance / a package snapshot (for
+        # #refresh and #write). Reads only layer + ref, so caller-supplied hashes are never trusted.
         def sources_from_provenance(provenance)
           Array(provenance).filter_map do |p|
             h = stringify(p)
@@ -310,12 +327,22 @@ module KairosMcp
           Array(provenance).filter_map do |p|
             h = stringify(p)
             path = path_for_ref(h['layer'], h['ref'])
-            current = (path && File.exist?(path)) ? Digest::SHA256.hexdigest(File.read(path)) : nil
-            # A missing source or a hash mismatch is drift (I5).
+            content = (path && File.exist?(path)) ? safe_read(path) : nil
+            current = content && Digest::SHA256.hexdigest(content)
+            # A missing/unreadable source, or a hash mismatch, is drift (I5).
             if current.nil? || current != h['content_hash']
-              { 'ref' => h['ref'], 'reason' => current.nil? ? 'missing' : 'hash_changed' }
+              reason = path.nil? || content.nil? ? 'missing' : 'hash_changed'
+              { 'ref' => h['ref'], 'reason' => reason }
             end
           end
+        end
+
+        # Read a file, returning nil on any I/O error instead of raising (callers treat nil as
+        # unresolvable / missing — keeps package/read/refresh from throwing out of the Digester).
+        def safe_read(path)
+          File.read(path)
+        rescue StandardError
+          nil
         end
 
         # ---- Access bound (I9) ----------------------------------------------------
@@ -328,7 +355,9 @@ module KairosMcp
         def access_bound(read_set)
           labels = Array(read_set).map { |s| (s['access'] || s[:access] || 'default').to_s }
           labels << 'default' if labels.empty?
-          labels.max_by { |l| ACCESS_ORDER.fetch(l, 1) }
+          # Unknown labels are treated as MOST restrictive (fail-closed), never downgraded.
+          max_known = ACCESS_ORDER.values.max
+          labels.max_by { |l| ACCESS_ORDER.fetch(l, max_known) }
         end
 
         def extract_access(content)
@@ -370,14 +399,38 @@ module KairosMcp
           File.join(digest_base, slugify(topic))
         end
 
+        # Serialize same-topic writes (I3-style integrity): concurrent generations of the same
+        # topic must not clobber each other. Unlike a global lock, this is per-topic-dir.
+        def with_topic_lock(dir)
+          FileUtils.mkdir_p(dir)
+          lock_path = File.join(dir, LOCK_FILE)
+          File.open(lock_path, File::CREAT | File::RDWR) do |f|
+            f.flock(File::LOCK_EX)
+            begin
+              yield
+            ensure
+              f.flock(File::LOCK_UN)
+            end
+          end
+        end
+
+        # I10: a digest file is per-topic. Same topic overwriting itself is regeneration (allowed);
+        # a DIFFERENT topic mapping to the same slug must fail loudly, never silently overwrite.
+        def guard_slug_collision!(path, topic)
+          return unless File.exist?(path)
+
+          existing = extract_frontmatter(safe_read(path).to_s)['topic']
+          return if existing.nil? || existing == topic
+
+          raise IdentifierError,
+                "slug collision: topic #{topic.inspect} and existing #{existing.inspect} " \
+                "both map to #{File.basename(path)}; rename one."
+        end
+
         def source_path(layer, s)
           case layer
           when 'l2'
-            sid = s['session_id'] || s[:session_id]
-            name = s['name'] || s[:name]
-            return nil unless sid && name
-
-            File.join(context_dir, sid, name, "#{name}.md")
+            l2_path(s['session_id'] || s[:session_id], s['name'] || s[:name])
           when 'l1'
             l1_path(s['name'] || s[:name])
           end
@@ -386,21 +439,45 @@ module KairosMcp
         def path_for_ref(layer, ref)
           case layer
           when 'l2'
+            # name cannot contain '/' (safe_seg?), so split is unambiguous.
             sid, name = ref.to_s.split('/', 2)
-            return nil unless sid && name
-
-            File.join(context_dir, sid, name, "#{name}.md")
+            l2_path(sid, name)
           when 'l1'
             l1_path(ref)
           end
         end
 
-        def l1_path(name)
-          return nil unless name
+        def l2_path(sid, name)
+          return nil unless safe_seg?(sid) && safe_seg?(name)
 
-          dir_form = File.join(knowledge_dir, name, "#{name}.md")
-          flat_form = File.join(knowledge_dir, "#{name}.md")
+          confine(context_dir, File.join(context_dir, sid, name, "#{name}.md"))
+        end
+
+        def l1_path(name)
+          return nil unless safe_seg?(name)
+
+          dir_form  = confine(knowledge_dir, File.join(knowledge_dir, name, "#{name}.md"))
+          flat_form = confine(knowledge_dir, File.join(knowledge_dir, "#{name}.md"))
+          return nil unless dir_form && flat_form
+
           File.exist?(dir_form) ? dir_form : flat_form
+        end
+
+        # Reject identifiers that could escape the data tree or break the "sid/name" ref split.
+        def safe_seg?(value)
+          s = value.to_s
+          return false if s.empty?
+          return false if s.include?('/') || s.include?('\\') || s.include?("\0")
+          return false if ['.', '..'].include?(s)
+
+          true
+        end
+
+        # Return path only if it stays within base after expansion; else nil (defense in depth).
+        def confine(base, path)
+          b = File.expand_path(base)
+          p = File.expand_path(path)
+          (p == b || p.start_with?("#{b}#{File::SEPARATOR}")) ? p : nil
         end
 
         def source_ref(layer, s)

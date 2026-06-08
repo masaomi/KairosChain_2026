@@ -257,7 +257,7 @@ end
 test_section('Test 16: refresh rebuilds package from provenance, drops missing (I4/I6)') do
   # topic_x cited s1/note_a (mutated, still exists) and s1/note_b (deleted in test 7).
   d = KairosMcp::SkillSets::Dream::Digester.new
-  r = d.refresh(topic: 'topic_x')
+  r = d.refresh(topic: 'Topic X')
   refs = r[:snapshot].map { |s| s['ref'] }
   assert('found') { r[:found] }
   assert('keeps surviving source note_a') { refs.include?('s1/note_a') }
@@ -270,9 +270,9 @@ end
 
 test_section('Test 17: refresh -> write -> read becomes fresh again') do
   d = KairosMcp::SkillSets::Dream::Digester.new
-  r = d.refresh(topic: 'topic_x')
-  d.write(topic: 'topic_x', snapshot: r[:snapshot], content: 'Regenerated: only Alpha (Z) survives.')
-  again = d.read(topic: 'topic_x')
+  r = d.refresh(topic: 'Topic X')
+  d.write(topic: 'Topic X', snapshot: r[:snapshot], content: 'Regenerated: only Alpha (Z) survives.')
+  again = d.read(topic: 'Topic X')
   assert('fresh after regeneration') { again[:stale] == false }
   assert('content regenerated') { again[:content].include?('Regenerated') }
 end
@@ -301,6 +301,103 @@ test_section('Test 19: resolved_from is stored and surfaced (refresh provenance 
   d.write(topic: 'RfTopic', snapshot: pkg[:snapshot], content: 'rf digest', resolved_from: pkg[:resolved_from])
   r = d.read(topic: 'RfTopic')
   assert('resolved_from persisted') { r[:resolved_from] == 'tag:rftag' }
+end
+
+test_section('Test 20: path traversal in source identifiers is neutralized (security)') do
+  # Plant a file outside the context tree.
+  secret = File.join(test_dir, 'secret.md')
+  File.write(secret, "---\nvisibility: private\n---\nTOP SECRET")
+  d = KairosMcp::SkillSets::Dream::Digester.new
+  r = d.package(topic: 'Evil', sources: [
+                  { 'layer' => 'l2', 'session_id' => '..', 'name' => '../secret' },
+                  { 'layer' => 'l1', 'name' => '../../secret' }
+                ])
+  assert('traversal sources dropped (none resolve)') { r[:snapshot].empty? }
+  assert('status no_sources') { r[:status] == 'no_sources' }
+end
+
+test_section('Test 21: name containing slash is rejected (ref-split safety)') do
+  d = KairosMcp::SkillSets::Dream::Digester.new
+  r = d.package(topic: 'Slashy', sources: [{ 'layer' => 'l2', 'session_id' => 's1', 'name' => 'a/b' }])
+  assert('slashed name dropped') { r[:snapshot].empty? }
+end
+
+test_section('Test 22: slug collision raises instead of silent overwrite (I10)') do
+  make_l2('c1', 'cc', tags: %w[col], content: 'x')
+  d = KairosMcp::SkillSets::Dream::Digester.new
+  pkg = d.package(topic: 'Foo Bar', sources: [{ 'layer' => 'l2', 'session_id' => 'c1', 'name' => 'cc' }])
+  d.write(topic: 'Foo Bar', snapshot: pkg[:snapshot], content: 'first topic')
+  raised = begin
+    # "foo-bar" slugifies to the same "foo_bar" but is a DIFFERENT topic string
+    d.write(topic: 'foo-bar', snapshot: pkg[:snapshot], content: 'second topic'); false
+  rescue KairosMcp::SkillSets::Dream::Digester::IdentifierError then true end
+  assert('distinct topic mapping to same slug raises') { raised }
+  assert('original digest intact') { d.read(topic: 'Foo Bar')[:content].include?('first topic') }
+  # same topic re-write is regeneration, must NOT raise
+  ok = begin
+    d.write(topic: 'Foo Bar', snapshot: pkg[:snapshot], content: 'regenerated'); true
+  rescue StandardError then false end
+  assert('same-topic regeneration allowed') { ok }
+end
+
+test_section('Test 23: write re-derives hashes/access from sources, ignores caller-supplied (I4/I9)') do
+  make_l2('sec', 'priv_src', tags: %w[sx], content: 'classified', visibility: 'private')
+  d = KairosMcp::SkillSets::Dream::Digester.new
+  # Caller tries to spoof: wrong hash + downgraded access.
+  spoofed = [{ 'layer' => 'l2', 'ref' => 'sec/priv_src', 'content_hash' => 'deadbeef', 'access' => 'public' }]
+  res = d.write(topic: 'Spoof', snapshot: spoofed, content: 'digest body')
+  assert('access re-derived to private, not trusted public (I9)') { res[:access_bound] == 'private' }
+  prov = res[:provenance].first
+  cur = Digest::SHA256.hexdigest(File.read(File.join(KairosMcp.context_dir, 'sec', 'priv_src', 'priv_src.md')))
+  assert('content_hash re-derived, not the spoofed deadbeef (I4)') { prov['content_hash'] == cur }
+end
+
+test_section('Test 24: write drops a nonexistent source; empty => raises (I4)') do
+  d = KairosMcp::SkillSets::Dream::Digester.new
+  raised = begin
+    d.write(topic: 'Ghost', snapshot: [{ 'layer' => 'l2', 'ref' => 'no/such' }], content: 'x'); false
+  rescue StandardError then true end
+  assert('sourceless-at-write raises (I4)') { raised }
+end
+
+test_section('Test 25: I7 provenance carries content hashes + effective directive_id') do
+  make_l2('i7', 'src', tags: %w[i7], content: 'i7 body')
+  d = KairosMcp::SkillSets::Dream::Digester.new
+  pkg = d.package(topic: 'I7Topic', sources: [{ 'layer' => 'l2', 'session_id' => 'i7', 'name' => 'src' }])
+  res = d.write(topic: 'I7Topic', snapshot: pkg[:snapshot], content: 'body')
+  assert('result provenance has content_hash (I7)') { res[:provenance].first['content_hash'] =~ /\A[0-9a-f]{64}\z/ }
+  assert('result carries effective directive_id (I7)') { res[:directive_id] == 'dream_digest.synthesis.v1' }
+end
+
+test_section('Test 26: duplicate sources are deduped in the snapshot') do
+  make_l2('dup', 'd', tags: %w[dup], content: 'dup body')
+  d = KairosMcp::SkillSets::Dream::Digester.new
+  r = d.package(topic: 'Dup', sources: [
+                  { 'layer' => 'l2', 'session_id' => 'dup', 'name' => 'd' },
+                  { 'layer' => 'l2', 'session_id' => 'dup', 'name' => 'd' }
+                ])
+  assert('duplicate source counted once') { r[:snapshot].size == 1 }
+end
+
+test_section('Test 27: unknown access label treated as most restrictive (fail-closed I9)') do
+  make_l2('u1', 'weird', tags: %w[u], content: 'x', visibility: 'topsecret')
+  make_l2('u1', 'pubsrc', tags: %w[u], content: 'y', visibility: 'public')
+  d = KairosMcp::SkillSets::Dream::Digester.new
+  r = d.package(topic: 'Unk', sources: [
+                  { 'layer' => 'l2', 'session_id' => 'u1', 'name' => 'weird' },
+                  { 'layer' => 'l2', 'session_id' => 'u1', 'name' => 'pubsrc' }
+                ])
+  assert('unknown label wins as most restrictive') { r[:access_bound] == 'topsecret' }
+end
+
+test_section('Test 28: body containing a --- line round-trips intact') do
+  make_l2('rt', 'r', tags: %w[rt], content: 'rt body')
+  d = KairosMcp::SkillSets::Dream::Digester.new
+  pkg = d.package(topic: 'RT', sources: [{ 'layer' => 'l2', 'session_id' => 'rt', 'name' => 'r' }])
+  body = "Intro line.\n\n---\n\nA section after a horizontal rule.\n\n---\n\nEnd."
+  d.write(topic: 'RT', snapshot: pkg[:snapshot], content: body)
+  got = d.read(topic: 'RT')[:content]
+  assert('body with --- preserved') { got.include?('horizontal rule') && got.scan(/^---$/).size == 2 }
 end
 
 # ===== Summary =====

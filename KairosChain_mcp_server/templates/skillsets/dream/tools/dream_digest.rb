@@ -127,7 +127,7 @@ module KairosMcp
               directive_id: arguments['directive_id'],
               resolved_from: arguments['resolved_from']
             )
-            record_generation_event(result, arguments['snapshot'] || [], arguments['directive_id'])
+            record_generation_event(result)
             text_content(format_write(result))
           end
 
@@ -154,7 +154,9 @@ module KairosMcp
           end
 
           # I7: record the generation EVENT (the derived artifact itself need not be immutable).
-          def record_generation_event(result, snapshot, directive_id)
+          # The snapshot is recorded with content hashes (not refs alone) and the EFFECTIVE
+          # directive id, both taken from the write result so the record is canonical.
+          def record_generation_event(result)
             return unless result[:success]
             return unless defined?(KairosMcp::KairosChain::Chain)
 
@@ -162,10 +164,10 @@ module KairosMcp
             chain.add_block([{
               type: 'dream_digest_generation',
               topic: result[:topic],
-              directive_id: directive_id || result[:topic],
+              directive_id: result[:directive_id],
               output_hash: result[:output_hash],
               access_bound: result[:access_bound],
-              provenance: Array(snapshot).map { |s| (s['ref'] || s[:ref]) }.compact,
+              provenance: Array(result[:provenance]), # {layer, ref, content_hash} per source (I7)
               provenance_count: result[:provenance_count],
               generated_at: result[:generated_at]
             }.to_json])
