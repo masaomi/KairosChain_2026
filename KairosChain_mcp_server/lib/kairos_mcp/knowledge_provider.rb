@@ -23,6 +23,11 @@ module KairosMcp
   # - Blockchain: Uses the configured storage backend
   #
   class KnowledgeProvider
+    # Main knowledge directory (constitutively-recorded L1). Exposed so callers
+    # can distinguish main-dir knowledge from read-only external SkillSet
+    # knowledge, e.g. to scope INV-A correspondence checks to recorded artifacts.
+    attr_reader :knowledge_dir
+
     ARCHIVED_DIR = '.archived'
     ARCHIVE_META_FILE = '.archive_meta.yml'
     # Backup directories created by upgrade flow (`.bak.<timestamp>`).

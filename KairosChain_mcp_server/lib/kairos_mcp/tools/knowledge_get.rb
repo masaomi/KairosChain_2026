@@ -2,6 +2,7 @@
 
 require_relative 'base_tool'
 require_relative '../knowledge_provider'
+require_relative '../drift_detection/correspondence_checker'
 
 module KairosMcp
   module Tools
@@ -77,10 +78,58 @@ module KairosMcp
         end
 
         output = build_output(skill, arguments, provider)
-        text_content(output)
+        # INV-A detection floor: reading L1 knowledge "in order to act upon" is a
+        # point of reliance. Surface any divergence from the recorded provenance
+        # here — never silently. Scoped to main-dir L1 (external SkillSet
+        # knowledge has no chain provenance and would false-positive).
+        banner = correspondence_banner(skill, provider)
+        text_content(banner ? banner + output : output)
       end
 
       private
+
+      # Returns a surfacing prefix if the live artifact does not correspond to its
+      # recorded provenance, or nil when it corresponds (stay silent on match).
+      #
+      # Surfacing is graded by signal strength (the invariant requires only
+      # non-silence; grading is a Cycle-1 backlog policy):
+      #   :mismatch       a recorded artifact whose content silently changed —
+      #                   high signal, rare → an alarm banner.
+      #   :missing_record a live artifact with no chain provenance — overwhelmingly
+      #                   template-provisioned knowledge whose provenance root is the
+      #                   gem/template, not a per-instance record. Chain-rooting the
+      #                   expected set is explicit Cycle-1 backlog, so this is a muted
+      #                   one-line note, not an alarm — bannering every bundled read
+      #                   would train the reader to ignore the banner.
+      def correspondence_banner(skill, provider)
+        return nil unless main_dir_l1?(skill, provider)
+
+        result = DriftDetection::CorrespondenceChecker.check_l1(
+          name: skill.name,
+          md_file_path: skill.md_file_path
+        )
+
+        case result.status
+        when :mismatch, :missing_artifact
+          "> ⚠️ **Drift detected (INV-A)** — #{result.message}.\n" \
+            "> This content was modified outside the recorded change path; treat it as unverified.\n\n"
+        when :missing_record
+          "> ℹ️ No recorded provenance for this entry (provisioning not yet chain-rooted — Cycle-1 backlog).\n\n"
+        end
+      rescue StandardError => e
+        # A failed check must not break the read; report it without claiming correspondence.
+        warn "[knowledge_get] correspondence check failed: #{e.message}"
+        nil
+      end
+
+      # True only for knowledge living under the provider's main knowledge dir —
+      # i.e. constitutively-recorded L1, not read-only external SkillSet knowledge.
+      def main_dir_l1?(skill, provider)
+        return false unless skill.md_file_path && provider.respond_to?(:knowledge_dir)
+
+        root = File.expand_path(provider.knowledge_dir) + File::SEPARATOR
+        File.expand_path(skill.md_file_path).start_with?(root)
+      end
 
       def build_output(skill, arguments, provider)
         output = "## [#{skill.name}] #{skill.description || 'No description'}\n\n"
