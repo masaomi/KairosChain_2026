@@ -4,21 +4,24 @@
 # to avoid duplication.
 
 # Convergence rules
-# Roster has 5 reviewers (claude_team_opus4.7, claude_cli_opus4.6,
-# codex_gpt5.4, codex_gpt5.5, cursor_composer2.5). Rules are ratio-based
-# (parser interprets "N/M" as N/M fraction applied to successful count),
-# so the literal numerator/denominator is informational; what matters is
-# the ratio.
-convergence_rule: "3/5 APPROVE"  # 60% of successful reviewers must APPROVE
+# Roster has 6 reviewers (claude_team_fable5, claude_cli_opus4.6,
+# claude_cli_opus4.8, codex_gpt5.4, codex_gpt5.5, cursor_composer2.5).
+# Rules are ratio-based (parser interprets "N/M" as N/M fraction applied
+# to successful count), so the literal numerator/denominator is
+# informational; what matters is the ratio.
+convergence_rule: "4/6 APPROVE"  # ceil(6 * 0.6) = 4 of the 6-reviewer roster
 min_quorum: 2                    # minimum successful reviews for any verdict
 
 # Self-referential orchestrator exclusion.
-# When the caller passes orchestrator_model (e.g. "claude-opus-4-7"), any
+# When the caller passes orchestrator_model (e.g. "claude-fable-5"), any
 # roster entry with that exact model is dropped before dispatch — the
 # orchestrator should not review its own output.
-# When at least one entry is excluded, convergence_rule_after_exclusion
-# replaces convergence_rule for that dispatch (4 reviewers → 3 reviewers
-# makes "3/4 APPROVE" require unanimity, which is too strict).
+# Under the "exclude" strategy, when at least one entry is excluded,
+# convergence_rule_after_exclusion replaces convergence_rule for that
+# dispatch (the literal rule for the full roster would otherwise be too
+# strict for the reduced count). The "subprocess" strategy keeps the full
+# roster; the default "delegate" strategy re-adds the slot at collect, so
+# the full-roster rule governs there.
 exclude_orchestrator_model: true
 
 # Default orchestrator_strategy when the caller does not specify one.
@@ -29,9 +32,15 @@ exclude_orchestrator_model: true
 # "exclude": legacy behavior — drop the matching reviewer entirely.
 # "subprocess": spawn fresh claude -p for the matching reviewer.
 default_orchestrator_strategy: "delegate"
-# After excluding 1 orchestrator from 5 → 4 reviewers. Maintain the same
-# 60% ratio (ceil(4 * 0.6) = 3 → 3 of 4 must APPROVE).
-convergence_rule_after_exclusion: "3/4 APPROVE"
+# After excluding 1 orchestrator from 6 → 5 reviewers. Same ceil(N * 0.6)
+# majority basis (ceil(5 * 0.6) = 3 → 3 of 5 must APPROVE). Note the two
+# rules are not the same literal ratio (4/6 ≈ 0.67 vs 3/5 = 0.60); since the
+# parser applies the ratio to the successful count, the full-roster rule is
+# slightly stricter when some reviewers fail. Accepted as-is.
+# Applies to the "exclude" strategy only — "subprocess" keeps the full
+# roster, and "delegate" re-adds the orchestrator slot at collect, so the
+# full-roster rule (4/6) governs both (verified live 2026-06-10).
+convergence_rule_after_exclusion: "3/5 APPROVE"
 
 # Two-phase delegation (orchestrator_strategy: "delegate").
 # Phase 1 dispatches subprocess reviewers synchronously, persists their
@@ -73,7 +82,9 @@ delegation:
     wait_still_pending_streak_limit: 3        # consecutive still_pending returns before crashed/wait_exhausted
 
 # Dispatch settings
-timeout_seconds: 300              # global deadline for all reviewers
+timeout_seconds: 600              # global deadline for all reviewers
+                                  # (raised 300 -> 600 on 2026-06-10: live 6-roster
+                                  # run took 381s wall-clock with max_concurrent: 2)
 max_concurrent: 2                 # semaphore limit (2 for laptop, 4 for CI)
 
 # Reviewer roster
@@ -84,15 +95,30 @@ max_concurrent: 2                 # semaphore limit (2 for laptop, 4 for CI)
 # tool receives a `complexity` argument (or auto-detects it), these defaults
 # are overridden per-dispatch by the effort_map below.
 reviewers:
+  # Orchestrator slot. With orchestrator_strategy "delegate" (the default),
+  # this entry is replaced by the orchestrator's own persona Agent Team
+  # review when orchestrator_model matches. Updated 2026-06-10: Fable 5
+  # replaces Opus 4.7 as the session default model.
   - provider: claude_code
-    model: claude-opus-4-7
+    model: claude-fable-5
     effort: medium
-    role_label: claude_team_opus4.7
+    role_label: claude_team_fable5
 
   - provider: claude_code
     model: claude-opus-4-6
     effort: medium
     role_label: claude_cli_opus4.6
+
+  # Opus 4.8 added 2026-06-10, replacing Opus 4.7 in the roster. Rationale:
+  # 4.7's register (strictness / systematizing) is covered by its direct
+  # successor 4.8 and by Fable 5; 4.6 stays for its documented complementary
+  # bias (ambiguity-preserving, self-reference-friendly). 4.8's reviewer
+  # bias profile is not yet calibrated — record (a)/(b)/(c) breakdowns per
+  # round (see multi_llm_reviewer_evaluation) until a profile accumulates.
+  - provider: claude_code
+    model: claude-opus-4-8
+    effort: medium
+    role_label: claude_cli_opus4.8
 
   - provider: codex
     model: gpt-5.4

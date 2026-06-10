@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.4"
+version: "3.5"
 tags:
   - workflow
   - review
@@ -192,11 +192,11 @@ starting** and verify each against `config/multi_llm_review.yml`:
 ```
 - [ ] Your model (orchestrator): ___
 - [ ] Agent Team Personas model: = orchestrator model (NOT a different model)
-- [ ] Subprocess CLI model: opposite Opus (4.6 if you are 4.7, vice versa)
+- [ ] Subprocess CLI models: Opus 4.6 AND Opus 4.8 (both, not either/or)
 - [ ] Codex models: gpt-5.5 (default) AND gpt-5.4 (both, not either/or)
 - [ ] Cursor model: default (composer-2.5, no --model flag)
-- [ ] Total reviewer count: 5 (or 4 after orchestrator exclusion from subprocess)
-- [ ] Convergence rule: 3/5 APPROVE (full) or 3/4 APPROVE (after exclusion)
+- [ ] Total reviewer count: 6 (or 5 after orchestrator exclusion from subprocess)
+- [ ] Convergence rule: 4/6 APPROVE (full) or 3/5 APPROVE (after exclusion)
 ```
 
 ### Common mistakes (Path A)
@@ -206,7 +206,7 @@ starting** and verify each against `config/multi_llm_review.yml`:
 | Exclude orchestrator model from Agent Team Personas | Agent Team uses orchestrator model — they provide persona diversity, not epistemic diversity | LLM misreads "do not assign yourself as a reviewer" as applying to Agent Team; it applies only to subprocess CLI |
 | Run only Codex GPT-5.4, skip 5.5 | Run both — they catch different things (5.5 found §5 schema contradiction in Phase 2 Case A that no other reviewer caught) | Cost-saving heuristic; roster has both for a reason |
 | Use a smaller/cheaper model as Agent Team substitute | Use the orchestrator's own model with different personas | Confusing "model diversity" with "persona diversity" — Agent Team is the latter |
-| Run 3 reviewers instead of 5 (or 4 after exclusion) | Use the full roster from config | Ad-hoc "3 is enough" reasoning; config specifies 5 for empirical reasons |
+| Run 3 reviewers instead of 6 (or 5 after exclusion) | Use the full roster from config | Ad-hoc "3 is enough" reasoning; config specifies 6 for empirical reasons |
 
 ## Roles
 
@@ -304,10 +304,10 @@ The rule applies **after** orchestrator classifies each finding as (a)/(b)/(c) p
 findings count toward the thresholds below; (c) findings are recorded as advisory
 and never block.
 
-- **3/4 APPROVE** (no (a)/(b) REJECT) = proceed to next step
+- **4/6 APPROVE** full roster, or **3/5 APPROVE** after orchestrator exclusion ("exclude" strategy only — the default "delegate" strategy keeps 6 voters via collect) (no (a)/(b) REJECT) = proceed to next step
 - **Any (a) or (b) REJECT or FAIL** = revise and re-review
 - **(c)-only REJECT** = record as advisory, non-blocking
-- **4/4 APPROVE** (no (a)/(b)) = highest confidence, proceed
+- **Unanimous APPROVE** (no (a)/(b)) = highest confidence, proceed
 - Legacy 3-reviewer mode: 2/3 APPROVE (no (a)/(b)) = proceed
 - Codex REJECT with (a)/(b) findings + others APPROVE = likely real issue, investigate before overriding
 - Codex REJECT with only (c) findings = expected per Codex value-system divergence; non-blocking
@@ -319,11 +319,11 @@ For normative detail and the underlying classification, see
 
 | Agreement | Meaning | Action |
 |-----------|---------|--------|
-| **4/4** (or **3/3**) | Architectural-level gap | Must fix |
-| **3/4** (or **2/3**) | Implementation-level issue | Should fix |
-| **1/4 only** | Specialty-specific insight | Do NOT ignore — often the most novel finding |
+| **N/N** (unanimous) | Architectural-level gap | Must fix |
+| **Majority** (e.g. 4/6, 3/5) | Implementation-level issue | Should fix |
+| **1/N only** | Specialty-specific insight | Do NOT ignore — often the most novel finding |
 
-1/4 (or 1/N) findings are not "minority opinions to discard." They represent unique expertise.
+1/N findings are not "minority opinions to discard." They represent unique expertise.
 
 ### Majority Rule — Reference Only
 
@@ -401,19 +401,20 @@ which agent 2>/dev/null && echo "agent: available" || echo "agent: NOT FOUND"
 which claude 2>/dev/null && echo "claude: available" || echo "claude: NOT FOUND"
 ```
 
-- All three available → Auto mode (4 reviewers, default)
-- Codex + Agent only → Auto mode (3 reviewers, legacy)
+- All three available → Auto mode (6 reviewers, default)
+- Codex + Agent only → Auto mode (legacy, reduced roster — apply "Legacy 3-reviewer mode: 2/3 APPROVE" from Convergence Rules)
 - Any of codex/agent missing → Manual mode
 - User override: `mode: manual` or `mode: auto`
 
-### CLI Tool Matrix (Tested 2026-03-28)
+### CLI Tool Matrix (tested 2026-03-28; Claude CLI 4.6/4.8 rows verified live 2026-06-10)
 
 | Tool | Command | Prompt Input | Output Collection | Model |
 |------|---------|-------------|-------------------|-------|
-| **Codex** | `codex exec` | stdin pipe: `cat prompt.md \| codex exec -` | `-o /path/output.md` | GPT-5.5 (default) |
+| **Codex** | `codex exec -m <model>` | stdin pipe: `cat prompt.md \| codex exec -` | `-o /path/output.md` | GPT-5.5 + GPT-5.4 (both roster entries, `-m` per entry) |
 | **Cursor Agent** | `agent -p` | File reference (stdin NOT supported) | stdout redirect: `> output.md` | Composer-2.5 (default) |
-| **Claude Code** | Agent tool (internal) | Direct prompt string | Write to workspace file | Opus 4.6 (session) |
-| **Claude CLI (4.7)** | `claude -p --model claude-opus-4-7 --bare` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-4-7 --bare` | stdout redirect: `> output.md` | Opus 4.7 |
+| **Claude Code** | Agent tool (internal) | Direct prompt string | Write to workspace file | Fable 5 (session) |
+| **Claude CLI (4.6)** | `claude -p --model claude-opus-4-6 --bare` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-4-6 --bare` | stdout redirect: `> output.md` | Opus 4.6 |
+| **Claude CLI (4.8)** | `claude -p --model claude-opus-4-8 --bare` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-4-8 --bare` | stdout redirect: `> output.md` | Opus 4.8 |
 
 ### Thinking Effort Configuration (validated 2026-04-20)
 
@@ -421,23 +422,30 @@ Based on cross-evaluation experiment (7 models × 4 tasks + Nomic, 518 CLI calls
 
 | Role | Model | Effort Flag | Rationale |
 |------|-------|-------------|-----------|
-| **Primary (orchestrator)** | Opus 4.6 | `--effort medium` | Sufficient for integration, dialogue, judgment |
-| **Reviewer: Agent Team** | Opus 4.6 | `--effort medium` | Evaluator quality adequate at medium |
-| **Reviewer: Claude CLI** | Opus 4.7 | `--effort low` | Evaluator quality is effort-independent (low≈high: 8.35 vs 8.16) |
+| **Primary (orchestrator)** | Fable 5 (session default) | (default) | Sufficient for integration, dialogue, judgment |
+| **Reviewer: Agent Team** | = orchestrator (Fable 5) | (default) | Personas inherit orchestrator model |
+| **Reviewer: Claude CLI** | Opus 4.6 / Opus 4.8 | (default; config `effort: medium`) | Evaluator quality is effort-independent (low≈high: 8.35 vs 8.16) — per 2026-04-29 policy reviewers stay at default |
 | **Coding sub-agent** | Opus 4.7 | `--effort medium` | Cost-effective default; use `high` for complex tasks |
 | **Design sub-agent** | Opus 4.7 | `--effort medium` | Cost-effective default; use `high` for complex tasks |
 | **Codex** | GPT-5.5 (default) | (no flag) | Fixed effort |
 | **Cursor Agent** | Composer-2.5 | (no flag) | Fixed effort |
+
+Note (2026-06-10): the effort experiment data is from the Opus 4.6/4.7
+generation. Fable 5 and Opus 4.8 effort sensitivity is not yet calibrated;
+defaults apply until re-measured.
 
 Key findings:
 - **Opus 4.6** high effort improves Evaluator/Strategy (+0.43/+0.200 Nomic), not Response
 - **Opus 4.7** high effort improves Response/Thinking (+0.81 code, +0.53 philosophy), not Evaluator
 - **Opus 4.7 low > Opus 4.6 high** in combined score — model generation > effort setting
 
-**Effort escalation**: For particularly complex tasks (Tier 3+ architecture, security-critical
-code, multi-component refactoring), the LLM accessing this skill SHOULD escalate to `--effort high`
-at its own judgment. No human approval is needed for effort escalation — it is a cost/quality
-tradeoff that the executing LLM is best positioned to evaluate in context.
+**Effort escalation** (coding/design sub-agents and the post-aggregation revision
+phase only — NOT reviewers, who stay at default per the 2026-04-29 policy): For
+particularly complex tasks (Tier 3+ architecture, security-critical code,
+multi-component refactoring), the LLM accessing this skill SHOULD escalate to
+`--effort high` at its own judgment. No human approval is needed for effort
+escalation — it is a cost/quality tradeoff that the executing LLM is best
+positioned to evaluate in context.
 
 ### Model Detection
 
@@ -454,15 +462,17 @@ agent --list-models 2>&1 | grep "(current\|default)"
 **Rule**: When invoking `multi_llm_review` (or running this workflow manually), the
 orchestrating LLM MUST pass its own model identifier as `orchestrator_model`.
 
-**Rationale**: The reviewer roster typically contains both Opus 4.6 and Opus 4.7
-entries. To avoid the orchestrator reviewing its own output (no independent signal),
-the dispatcher excludes any roster entry whose `model` matches `orchestrator_model`.
-This keeps the same SkillSet useful regardless of which Opus version the user has
-toggled to via `/model` — review composition adapts automatically.
+**Rationale**: The reviewer roster contains multiple Claude entries (Fable 5
+team slot, Opus 4.6 CLI, Opus 4.8 CLI). To avoid the orchestrator reviewing its
+own output (no independent signal), the dispatcher excludes or delegates the
+roster entry whose `model` matches `orchestrator_model` (per
+`orchestrator_strategy`). This keeps the same SkillSet useful
+regardless of which Claude model the user has toggled to via `/model` — review
+composition adapts automatically.
 
 **Why "argument-passing" not "file-introspection"**:
 - The orchestrator's model identity lives in *its own context* (system prompt
-  declares e.g. "You are powered by Opus 4.7"). No external file or env var is
+  declares e.g. "You are powered by Fable 5"). No external file or env var is
   authoritative — `/model` switches change context immediately.
 - MCP protocol does not transmit caller-model info; only the orchestrator can
   truthfully report its own identity. This is genuine self-reference: the system
@@ -473,7 +483,8 @@ toggled to via `/model` — review composition adapts automatically.
 
 **How orchestrator obtains its model ID**:
 - Claude Code sessions: read the system prompt line "You are powered by the
-  model named ... The exact model ID is `claude-opus-X-Y`". Use the exact ID.
+  model named ... The exact model ID is ...". Use the exact ID as stated,
+  whatever its form (e.g. `claude-fable-5`, `claude-opus-4-8`).
 - Other hosts: use whatever introspection the host provides; if none, pass
   `null` and accept that no exclusion happens.
 
@@ -482,27 +493,33 @@ toggled to via `/model` — review composition adapts automatically.
 multi_llm_review(
   artifact_path: "log/design.md",
   review_type: "design",
-  orchestrator_model: "claude-opus-4-7"   # MUST be set by caller
+  orchestrator_model: "claude-fable-5"    # MUST be set by caller
 )
 ```
 
 **Dispatcher behavior** (config: `exclude_orchestrator_model: true`, default `true`):
 - If `orchestrator_model` matches a roster entry's `model`, that entry is skipped.
 - `min_quorum` and `convergence_rule` apply to the remaining reviewers.
-- 4-reviewer roster → 3 reviewer; recommended `convergence_rule: "2/3 APPROVE"`
-  when one Opus is excluded.
+- 6-reviewer roster → 5 reviewers; `convergence_rule_after_exclusion: "3/5 APPROVE"`
+  (from config) replaces the full-roster rule. This reduced count applies to the
+  "exclude" strategy only. The "subprocess" strategy keeps the full roster (the
+  matching entry runs as a fresh CLI process instead of being skipped). Under the
+  default "delegate" strategy, the matching entry is dropped at dispatch but
+  re-added at collect as the persona-team entry, so the voter count returns to 6
+  and the full-roster rule (4/6 APPROVE) applies — verified live 2026-06-10.
 - If `orchestrator_model` is `null` or unmatched, full roster runs (back-compat).
 
 **Manual-mode equivalent**: When orchestrating by hand, do not assign yourself
-as a reviewer. Pick the *other* Opus version for the Claude CLI subprocess
-reviewer (4.6 if you are 4.7, and vice versa).
+as a subprocess reviewer. Run the Claude CLI subprocess reviewers (Opus 4.6 and
+Opus 4.8); if your own model matches one of them, skip that entry and use the
+after-exclusion convergence rule.
 
-### Orchestrator Delegation Protocol (Two-Phase, opt-in)
+### Orchestrator Delegation Protocol (Two-Phase, default)
 
 The `delegate` strategy lets the orchestrator perform persona-based "Agent Team"
 review in its own context — preserving inherited project context that a fresh
-`claude -p` subprocess loses. Subprocess reviewers (codex, cursor, opposite-Opus)
-remain single-LLM.
+`claude -p` subprocess loses. Subprocess reviewers (codex, cursor, Claude CLI
+Opus 4.6/4.8) remain single-LLM.
 
 **Why**: The orchestrator already holds the artifact in context with full project
 awareness. Re-shipping it to a sandboxed subprocess discards that context. Same-
@@ -537,8 +554,10 @@ cross-model subprocess reviewers give epistemic diversity. The two are complemen
   required fields. Fix and retry collect with the same token.
 - All-subprocess-failed at Call 1: returns error immediately; no token issued.
 
-**Default**: `orchestrator_strategy` defaults to `"exclude"` (back-compat). Use
-`"delegate"` explicitly until validated by use.
+**Default**: `orchestrator_strategy` defaults to `"delegate"` (config key
+`default_orchestrator_strategy`). `"exclude"` remains available as the legacy
+strategy. (Historical note: delegate was opt-in until validated by use; it has
+been the config default since v3.x.)
 
 #### Async/Parallel Collect Timing — Iron Rule
 
@@ -603,8 +622,8 @@ readable until GC. Read them directly and synthesize manually, then re-run
 - **Cursor Agent trust**: `--trust` required for headless/non-interactive mode
 - **Codex workspace**: `-C /path/to/workspace` to set working directory
 - **Claude Agent paths**: Write within workspace (e.g., `log/`), not `/tmp`
-- **Claude CLI (Opus 4.7)**: `claude -p --model claude-opus-4-7 --bare` runs as external process. Uses stdin pipe (like Codex). `--bare` required for review tasks (skips hooks, CLAUDE.md, avoids bias from project instructions). Without `--bare`, CLAUDE.md's three-layer response structure may distort review output
-- **Claude CLI parallelism**: Agent tool (internal, Opus 4.6) + Bash `claude -p` (external, Opus 4.7) run truly in parallel as separate processes
+- **Claude CLI (Opus 4.6 / 4.8)**: `claude -p --model claude-opus-4-6 --bare` (likewise `claude-opus-4-8`) runs as external process. Uses stdin pipe (like Codex). `--bare` required for review tasks (skips hooks, CLAUDE.md, avoids bias from project instructions). Without `--bare`, CLAUDE.md's three-layer response structure may distort review output
+- **Claude CLI parallelism**: Agent tool (internal, orchestrator model = Fable 5) + Bash `claude -p` (external, Opus 4.6 / 4.8) run truly in parallel as separate processes
 - **Claude CLI file access**: `claude -p` with `--bare` has no MCP tools or file access. Ensure review prompt includes all artifact content inline (rule #6). Use `--add-dir` + `--allowedTools "Read,Glob,Grep"` if file access is needed (but note: this loads CLAUDE.md unless `--bare` is also used)
 
 ## Prompt Generation Rules
@@ -709,13 +728,15 @@ Step 1: Generate review prompt
 Step 2: Detect environment and models
   - Run: which codex && which agent && which claude
   - Detect default models
-  - Report: "Auto mode: Codex (gpt-5.5), Agent (composer-2.5), Claude (opus-4.6), Claude CLI (opus-4.7)"
+  - Report: "Auto mode: Codex (gpt-5.5, gpt-5.4), Agent (composer-2.5), Claude Team (claude-fable-5), Claude CLI (opus-4.6, opus-4.8)"
 
-Step 3: Execute N reviews in parallel (default 4 reviewers)
-  - Bash(background): cat prompt.md | codex exec -C workspace -o log/review_codex.md -
+Step 3: Execute N reviews in parallel (default 6 reviewers)
+  - Bash(background): cat prompt.md | codex exec -m gpt-5.5 -C workspace -o log/review_codex_gpt5.5.md -
+  - Bash(background): cat prompt.md | codex exec -m gpt-5.4 -C workspace -o log/review_codex_gpt5.4.md -
   - Bash(background): agent -p --trust "Read prompt and review..." > log/review_cursor.md
-  - Agent(background): Claude Team (Opus 4.6) → write to log/review_claude_opus4.6.md
-  - Bash(background): cat prompt.md | claude -p --model claude-opus-4-7 --bare > log/review_claude_opus4.7.md 2>log/review_claude_opus4.7.stderr.log
+  - Agent(background): Claude Team (orchestrator model, Fable 5) → write to log/review_claude_team_fable5.md
+  - Bash(background): cat prompt.md | claude -p --model claude-opus-4-6 --bare > log/review_claude_opus4.6.md 2>log/review_claude_opus4.6.stderr.log
+  - Bash(background): cat prompt.md | claude -p --model claude-opus-4-8 --bare > log/review_claude_opus4.8.md 2>log/review_claude_opus4.8.stderr.log
 
 Step 4: Collect and validate
   - Wait for all to complete (background task notifications)
@@ -752,9 +773,11 @@ log/{artifact}_review{N}_{llm_id}_{date}.md       # Individual reviews
 log/{artifact}_review{N}_consensus_{date}.md       # Consensus analysis
 ```
 
-LLM identifiers: `claude_opus4.6`, `claude_team_opus4.6`,
-`claude_cli_opus4.7`, `codex_gpt5.5`, `codex_gpt5.4`, `cursor_composer2`, `cursor_gpt5.4`,
+LLM identifiers: `claude_team_fable5`, `claude_cli_opus4.6`, `claude_cli_opus4.8`,
+`codex_gpt5.5`, `codex_gpt5.4`, `cursor_composer2.5`, `cursor_gpt5.4`,
 `cursor_premium`
+(legacy, pre-2026-06-10: `claude_opus4.6`, `claude_team_opus4.6`, `claude_team_opus4.7`,
+`claude_cli_opus4.7`, `cursor_composer2`)
 
 ## Internal Agent Team Review
 
@@ -774,7 +797,7 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
 - Don't advance to Phase N+1 before Phase N review converges
 - Don't re-review from scratch — each round checks only the delta
 - Don't use only internal agent team — different providers catch different bugs
-- Don't dismiss 1/4 (or 1/N) findings without evaluating substance
+- Don't dismiss 1/N findings without evaluating substance
 - Don't use Persona Assembly in every intermediate round (save for final gate)
 
 ---
@@ -793,6 +816,8 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
 - Codex convergence: REJECT → REJECT → REJECT → APPROVE (4 rounds)
 - Self-referential review: v3.0 of this skill reviewed by its own process → v3.1
 - Self-referential review: v3.2 (4-reviewer update, 2026-04-19) reviewed with new 4-reviewer default (Opus 4.6 + 4.7 + Codex + Composer-2). 4/4 APPROVE WITH CHANGES R1. Findings integrated → v3.3
+- Roster update (v3.5, 2026-06-10): Fable 5 replaces Opus 4.7 as orchestrator/team slot; Opus 4.8 added as second subprocess CLI reviewer alongside Opus 4.6. 4.6 retained for its documented complementary bias (ambiguity-preserving, self-reference-friendly); 4.7 retired as its register is covered by 4.8 and Fable 5. 4.8/Fable 5 bias profiles uncalibrated — record (a)/(b)/(c) breakdowns per round until profiles accumulate in `multi_llm_reviewer_evaluation`
+- Self-referential review of v3.5 (2 rounds, 2026-06-10/11, first run of the 6-reviewer roster): R1 REVISE (1 APPROVE / 4 REJECT — stale pre-v3.5 passages) → fixes → R2 3/6 APPROVE (4.6, 4.8, codex 5.4) with Cursor contributing a code-grounded correction (subprocess strategy keeps the full roster). 4.6/4.8 verdicts split along the predicted lenient/strict axis in R1 and converged to APPROVE in R2
 
 **Key insight**: Design reviews and implementation reviews find
 **categorically different bugs**. Both phases are necessary.
