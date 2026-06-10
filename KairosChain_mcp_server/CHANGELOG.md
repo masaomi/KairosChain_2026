@@ -4,6 +4,41 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.31.0] - 2026-06-11
+
+### Changed — multi_llm_review roster: Fable 5 + Opus 4.6/4.8 (6 reviewers)
+
+Default reviewer roster updated for the Fable 5 / Opus 4.8 model generation:
+
+- Orchestrator/team slot: `claude-fable-5` (`claude_team_fable5`) replaces
+  Opus 4.7. Opus 4.8 added as a second subprocess CLI reviewer
+  (`claude_cli_opus4.8`) alongside Opus 4.6, which is retained for its
+  documented complementary bias (ambiguity-preserving, self-reference-friendly).
+  4.7 retired: its register is covered by 4.8 and Fable 5.
+- Convergence rules: `4/6 APPROVE` full roster, `3/5 APPROVE` after
+  orchestrator exclusion ("exclude" strategy only — "subprocess" keeps the
+  full roster; "delegate" re-adds the slot at collect, so 4/6 governs there).
+- `timeout_seconds` raised 300 → 600 (live 6-roster run measured 381s
+  wall-clock with `max_concurrent: 2`).
+- Validated by a 2-round self-referential review of the workflow L1 with the
+  new roster itself (R1 REVISE → fixes → R2 with 4.6/4.8/codex-5.4 APPROVE,
+  including a code-grounded Cursor correction of the exclusion semantics).
+
+### Changed — `multi_llm_review_workflow` L1 v3.5
+
+- All roster-dependent sections updated (pre-flight checklist, CLI tool
+  matrix, convergence rules, orchestrator self-identification, orchestration
+  template, LLM identifiers). Claude CLI 4.6/4.8 rows verified live 2026-06-10.
+- Effort escalation paragraph scoped to coding/design sub-agents and the
+  revision phase (reviewers stay at default per the 2026-04-29 policy).
+
+### Fixed — `knowledge_update` size guidance
+
+- Removed the "~2 KB MCP stdio limit" warning from the tool description and
+  nil-content diagnostic: two ~40 KB updates succeeded over stdio on
+  2026-06-10/11. The old figure generalized a single unreproduced
+  nil-content incident; the nil-content detection itself is retained.
+
 ## [3.30.0] - 2026-06-08
 
 ### Added — `dream_digest`: derived narrative view over L2/L1 fragments (dream SkillSet v0.3.0)
