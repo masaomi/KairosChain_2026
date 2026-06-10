@@ -45,6 +45,14 @@ MODELS = {
     input_mode: :stdin,
     thinking_effort: "medium",
   },
+  "claude_fable5" => {
+    tool: :claude,
+    cmd: "claude --print --model claude-fable-5 --effort medium",
+    label: "Claude Fable 5",
+    provider: "anthropic",
+    input_mode: :stdin,
+    thinking_effort: "medium",
+  },
   "claude_opus46" => {
     tool: :claude,
     cmd: "claude --print --model claude-opus-4-6 --effort medium",
