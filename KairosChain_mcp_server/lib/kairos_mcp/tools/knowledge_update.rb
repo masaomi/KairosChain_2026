@@ -13,8 +13,9 @@ module KairosMcp
 
       def description
         'Create, update, or delete L1 knowledge skills. Changes are recorded with hash references to the blockchain. ' \
-        'NOTE: MCP stdio transport may silently drop large arguments. Keep combined content + reason under ~2 KB. ' \
-        'For larger L1 entries, trim prose or split into multiple entries.'
+        'Large content is supported (a ~40 KB update was verified over stdio on 2026-06-10; the earlier ~2 KB guidance ' \
+        'generalized a single unreproduced nil-content incident). If content ever arrives as nil, the error message ' \
+        'below explains recovery; no preemptive size limit applies.'
       end
 
       def category
@@ -128,9 +129,10 @@ module KairosMcp
       def content_missing_error(command, content)
         if content.nil?
           "Error: content is required for #{command}. " \
-          "The content argument arrived as nil — this often means the MCP transport silently dropped it " \
-          "because the combined argument size exceeded the client limit (~2 KB for stdio). " \
-          "Try trimming content and reason, or split into smaller entries."
+          "The content argument arrived as nil — the MCP transport or the calling LLM dropped it. " \
+          "(A ~2 KB stdio limit was once suspected, but a ~40 KB update succeeded on 2026-06-10, " \
+          "so size alone is unlikely to be the cause.) " \
+          "Retry the call; if nil persists, write the content to a file and report the incident."
         else
           "Error: content is required for #{command} (received empty string)"
         end
