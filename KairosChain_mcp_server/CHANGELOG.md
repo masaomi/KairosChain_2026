@@ -4,6 +4,25 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.33.0] - 2026-07-03
+
+### Added — L1 knowledge: loop_engineering_patterns
+
+New gem-bundled L1 knowledge entry `loop_engineering_patterns` (v0.3), sibling
+of `skill_authoring_patterns` (same distill-an-Anthropic-post-through-layers
+method). Distills Claude Code's "Getting Started with Loops" into: §A four loop
+types (two axes: trigger × human presence), §B universal loop-design craft,
+§C KairosChain layer placement (harness vs gem/SkillSet) plus the cross-cutting
+Prop 10 procedural-floor reading that the source omits. Source text is not
+redistributed; a facts-only provenance pointer lives in `references/`.
+
+- Shipped to both `knowledge/` and `templates/knowledge/` (mirrors sibling).
+- `skill_authoring_patterns` Related gains a reciprocal sibling link.
+- Frozen after 2 multi-LLM review rounds (6-reviewer roster, delegate strategy).
+  R1 caught one genuine (a) factual error (`confidence_exit_threshold` wrongly
+  described as unwired — it is wired at agent_step.rb Gate 7) and one overstated
+  mechanism status; R2 narrowed to wording-precision findings, resolved in v0.3.
+
 ## [3.32.0] - 2026-07-03
 
 ### Added — multi-host SkillSet projection (Codex + OpenCode)

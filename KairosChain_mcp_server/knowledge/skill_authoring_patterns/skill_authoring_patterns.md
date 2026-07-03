@@ -44,4 +44,4 @@ The real difference is *where philosophy lives*: closed in the core (Anthropic) 
 **Why this bet (operational vs decorative).** Harness-hosted norms are readable/recorded/revisable where weight-baked norms are opaque (Prop 10, provisional in masa.md) — arguably the right home even post-fine-tuning. Hiring a model ≠ cultivating one; the harness is the weight-less user's only cultivation surface. Norms must stay operational (hooks, introspection_check), not decorative (philosophy theater). Full dialogue: `references/why_harness_norms_bet.md`.
 
 ## Related
-[[agent_skill_evolution_guide]] · skillset_implementation_quality_guide · kairoschain_meta_philosophy (Prop 1; Prop 10 provisional in masa.md).
+[[agent_skill_evolution_guide]] · [[loop_engineering_patterns]] (sibling: same distill-an-Anthropic-post-through-layers method) · skillset_implementation_quality_guide · kairoschain_meta_philosophy (Prop 1; Prop 10 provisional in masa.md).
