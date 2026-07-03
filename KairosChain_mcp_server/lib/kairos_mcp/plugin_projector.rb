@@ -26,8 +26,79 @@ module KairosMcp
     INSTRUCTION_MODE_REL_PATH     = 'kairos/instruction_mode.md'
     INSTRUCTION_MODE_SIZE_WARN    = 150 * 1024
     INSTRUCTION_MODE_SIZE_REFUSE  = 256 * 1024
+    # Inline delivery (AGENTS.md) can be truncated by a host's context-file byte cap
+    # (e.g. Codex project-doc limit), so warn earlier than the artifact thresholds above.
+    INSTRUCTION_MODE_INLINE_WARN  = 32 * 1024
 
-    attr_reader :mode, :project_root, :output_root, :data_dir
+    # Host-specific projection profile (2026-07-02, Codex support).
+    # Encapsulates per-host layout / context-file / instruction-mode delivery
+    # differences so the projection engine stays host-agnostic. See
+    # log/20260702_codex_projection_and_mcp_reviewer_implementation_plan.md
+    class HostProfile
+      attr_reader :key, :output_subdir, :context_file, :instruction_mode_delivery, :manifest_suffix,
+                  :hooks_strategy, :skill_projection, :agents_subdir, :agents_format
+
+      # @param skill_projection [Symbol] :own (project skills into this host) or
+      #   :reuse_claude (host reads .claude/skills/ directly — skip skill projection).
+      # @param agents_subdir [String] subdir under output_root for agents ('agents' or 'agent').
+      # @param agents_format [Symbol] :claude (verbatim) or :opencode (frontmatter converted).
+      def initialize(key:, output_subdir:, context_file:, instruction_mode_delivery:, manifest_suffix:,
+                     hooks_strategy:, skill_projection:, agents_subdir:, agents_format:)
+        @key = key
+        @output_subdir = output_subdir
+        @context_file = context_file
+        @instruction_mode_delivery = instruction_mode_delivery
+        @manifest_suffix = manifest_suffix
+        @hooks_strategy = hooks_strategy
+        @skill_projection = skill_projection
+        @agents_subdir = agents_subdir
+        @agents_format = agents_format
+      end
+
+      # Legacy manifest names carry no suffix so existing .kairos/ manifests keep working.
+      def manifest_filename(base)
+        @manifest_suffix ? "#{base}.#{@manifest_suffix}.json" : "#{base}.json"
+      end
+
+      # Claude Code: .claude/ layout, CLAUDE.md with @-import pointer, hooks in settings.json.
+      def self.claude_code
+        new(key: 'claude', output_subdir: '.claude', context_file: 'CLAUDE.md',
+            instruction_mode_delivery: :import, manifest_suffix: nil,
+            hooks_strategy: :claude_settings,
+            skill_projection: :own, agents_subdir: 'agents', agents_format: :claude)
+      end
+
+      # Codex CLI: .codex/ layout, AGENTS.md with inlined body (Codex does not resolve @-import).
+      # Hooks go to <repo>/.codex/hooks.json — same event structure as Claude, read natively by Codex.
+      def self.codex
+        new(key: 'codex', output_subdir: '.codex', context_file: 'AGENTS.md',
+            instruction_mode_delivery: :inline, manifest_suffix: 'codex',
+            hooks_strategy: :codex_hooks_json,
+            skill_projection: :own, agents_subdir: 'agents', agents_format: :claude)
+      end
+
+      # OpenCode: reads .claude/skills/ natively, so skills are NOT re-projected (Claude co-use
+      # assumption). AGENTS.md carries the inlined mode body (shared with Codex). Agents convert
+      # to .opencode/agent/ with OpenCode frontmatter. Hooks are JS/TS plugins → skipped.
+      def self.opencode
+        new(key: 'opencode', output_subdir: '.opencode', context_file: 'AGENTS.md',
+            instruction_mode_delivery: :inline, manifest_suffix: 'opencode',
+            hooks_strategy: :opencode_plugin,
+            skill_projection: :reuse_claude, agents_subdir: 'agent', agents_format: :opencode)
+      end
+
+      def self.for(host)
+        return host if host.is_a?(HostProfile)
+        case host.to_s
+        when 'claude', 'claude_code', 'claude-code' then claude_code
+        when 'codex' then codex
+        when 'opencode', 'open-code' then opencode
+        else raise ArgumentError, "unknown projection host: #{host.inspect}"
+        end
+      end
+    end
+
+    attr_reader :mode, :project_root, :output_root, :data_dir, :host
 
     # Construct a PluginProjector.
     #
@@ -39,14 +110,15 @@ module KairosMcp
     #   data_dir = project_root/.kairos is used for manifest location (backward-compat).
     #
     # @raise [CoincidenceRefused] when project_root and data_dir resolve to the same real path
-    def initialize(project_root, mode: :auto, data_dir: nil)
+    def initialize(project_root, mode: :auto, data_dir: nil, host: :claude)
       @project_root = project_root
       @data_dir = data_dir || File.join(project_root, '.kairos')
       enforce_no_coincidence!
       @mode = resolve_mode(mode)
-      @output_root = @mode == :plugin ? project_root : File.join(project_root, '.claude')
-      @manifest_path = File.join(@data_dir, 'projection_manifest.json')
-      @instruction_mode_manifest_path = File.join(@data_dir, 'instruction_mode_manifest.json')
+      @host = HostProfile.for(host)
+      @output_root = @mode == :plugin ? project_root : File.join(project_root, @host.output_subdir)
+      @manifest_path = File.join(@data_dir, @host.manifest_filename('projection_manifest'))
+      @instruction_mode_manifest_path = File.join(@data_dir, @host.manifest_filename('instruction_mode_manifest'))
     end
 
     # Raised when project_root and data_dir resolve to the same real path (design Inv 3).
@@ -62,16 +134,20 @@ module KairosMcp
       current_outputs = {}
       merged_hooks = @mode == :plugin ? load_seed_hooks : { 'hooks' => {} }
 
+      # OpenCode reads .claude/skills/ directly (Claude co-use assumption), so it reuses the
+      # Claude skill projection instead of duplicating skills into .opencode/skills/.
+      reuse_skills = @host.skill_projection == :reuse_claude
+
       enabled_skillsets.each do |ss|
         next unless ss.has_plugin?
 
         plugin_dir = File.join(ss.path, 'plugin')
-        project_skill!(ss, plugin_dir, current_outputs)
+        project_skill!(ss, plugin_dir, current_outputs) unless reuse_skills
         project_agents!(ss, plugin_dir, current_outputs)
         collect_hooks!(ss, plugin_dir, merged_hooks)
       end
 
-      project_knowledge_meta_skill!(knowledge_entries, current_outputs)
+      project_knowledge_meta_skill!(knowledge_entries, current_outputs) unless reuse_skills
       write_merged_hooks!(merged_hooks, current_outputs)
       cleanup_stale!(previous_manifest, current_outputs)
       save_manifest(current_outputs, enabled_skillsets, knowledge_entries)
@@ -130,6 +206,11 @@ module KairosMcp
       size = body.bytesize
       raise InstructionModeTooLarge.new(size, INSTRUCTION_MODE_SIZE_REFUSE) if size > INSTRUCTION_MODE_SIZE_REFUSE
       warn "[PluginProjector] WARNING: instruction mode body is #{size} bytes (warn threshold #{INSTRUCTION_MODE_SIZE_WARN})" if size > INSTRUCTION_MODE_SIZE_WARN
+      if @host.instruction_mode_delivery == :inline && size > INSTRUCTION_MODE_INLINE_WARN
+        warn "[PluginProjector] WARNING: inlining #{size} bytes into #{@host.context_file}; " \
+             "host '#{@host.key}' may cap the context-file read (e.g. Codex project-doc byte limit). " \
+             "Raise the host's context-file byte cap if the projected mode body appears truncated."
+      end
 
       artifact_path = File.join(@output_root, INSTRUCTION_MODE_REL_PATH)
       raise "instruction mode artifact path outside output_root: #{artifact_path}" unless safe_path?(artifact_path)
@@ -137,7 +218,7 @@ module KairosMcp
       FileUtils.mkdir_p(File.dirname(artifact_path))
       atomic_write(artifact_path, body)
 
-      region_written = merge_instruction_mode_region!(mode_name, mode_version, artifact_path)
+      region_written = merge_instruction_mode_region!(mode_name, mode_version, artifact_path, body)
 
       save_instruction_mode_manifest(
         'mode_name' => mode_name,
@@ -184,9 +265,18 @@ module KairosMcp
         mode_version: manifest['mode_version'],
         artifact_path: manifest['artifact_path'],
         artifact_size: manifest['artifact_size'],
-        region_present: manifest['region_present'],
+        # Verify against the actual context file, not just the manifest: another host
+        # sharing AGENTS.md may have stripped the region since this host projected.
+        region_present: context_region_present?,
         projected_at: manifest['projected_at']
       }
+    end
+
+    # True if the managed marker region currently exists in this host's context file.
+    def context_region_present?
+      path = claudemd_path
+      return false unless File.exist?(path)
+      File.read(path).include?(INSTRUCTION_MODE_MARKER_BEGIN)
     end
 
     # Raised when a mode body exceeds the hard refusal threshold.
@@ -283,12 +373,47 @@ module KairosMcp
       return unless Dir.exist?(agents_src)
       return unless safe_name?(ss.name)
       Dir.glob(File.join(agents_src, '*.md')).each do |f|
-        target = File.join(@output_root, 'agents', "#{ss.name}-#{File.basename(f)}")
+        target = File.join(@output_root, @host.agents_subdir, "#{ss.name}-#{File.basename(f)}")
         next unless safe_path?(target)
         FileUtils.mkdir_p(File.dirname(target))
-        atomic_write(target, File.read(f))
+        content = File.read(f)
+        content = convert_agent_to_opencode(content) if @host.agents_format == :opencode
+        atomic_write(target, content)
         outputs[target] = { 'source' => f, 'type' => 'agent', 'skillset' => ss.name }
       end
+    end
+
+    # Convert a Claude Code agent (.md + YAML frontmatter) to OpenCode agent frontmatter.
+    #   - drop `name` (OpenCode derives the agent name from the filename)
+    #   - drop `model` (OpenCode subagents inherit the caller's model — free-LLM friendly)
+    #   - `disallowedTools: A, B` -> `tools: { a: false, b: false }`
+    #   - add `mode: subagent`
+    # Body (system prompt) is preserved verbatim. Returns input unchanged if no frontmatter.
+    def convert_agent_to_opencode(content)
+      m = content.match(/\A---\s*\n(.*?)\n---\s*\n?(.*)\z/m)
+      return content unless m
+
+      require 'yaml'
+      src = begin
+        YAML.safe_load(m[1])
+      rescue StandardError
+        return content
+      end
+      return content unless src.is_a?(Hash)
+      body = m[2]
+
+      out = {}
+      out['description'] = src['description'] if src['description']
+      out['mode'] = 'subagent'
+      if src['disallowedTools']
+        # Accept both comma-string ("Write, Edit") and YAML list ([Write, Edit]) forms.
+        disabled = Array(src['disallowedTools']).flat_map { |t| t.to_s.split(',') }
+                                                .map { |t| t.strip.downcase }.reject(&:empty?)
+        out['tools'] = disabled.each_with_object({}) { |t, h| h[t] = false } unless disabled.empty?
+      end
+
+      front = YAML.dump(out).sub(/\A---\n/, '').rstrip
+      "---\n#{front}\n---\n\n#{body.lstrip}"
     end
 
     # =========================================================================
@@ -374,8 +499,74 @@ module KairosMcp
       if @mode == :plugin
         write_hooks_file!(merged_hooks, outputs)
       else
-        write_hooks_to_settings!(merged_hooks, outputs)
+        case @host.hooks_strategy
+        when :codex_hooks_json  then write_hooks_to_codex_json!(merged_hooks, outputs)
+        when :opencode_plugin   then skip_hooks_for_plugin_host!(merged_hooks)
+        else                         write_hooks_to_settings!(merged_hooks, outputs)
+        end
       end
+    end
+
+    # Codex reads <repo>/.codex/hooks.json (same event structure as Claude hooks).
+    # KairosChain owns this file (overwrite), mirroring plugin-mode hooks/hooks.json.
+    # kairos-plugin-project commands are rewritten to re-project this same host.
+    def write_hooks_to_codex_json!(merged_hooks, outputs)
+      hooks_file = File.join(@output_root, 'hooks.json')
+      existing = load_settings(hooks_file) # {} when absent, nil on parse error
+      return if existing.nil?
+
+      # Strip previously projected entries, preserving user-authored (untagged) hooks —
+      # mirrors the Claude settings.json path so re-projection never destroys user hooks.
+      if existing['hooks'].is_a?(Hash)
+        existing['hooks'].each_value do |handlers|
+          handlers.reject! { |h| h['_projected_by'] == PROJECTED_BY } if handlers.is_a?(Array)
+        end
+        existing['hooks'].delete_if { |_, v| v.is_a?(Array) && v.empty? }
+      end
+
+      projected = rewrite_hook_commands_for_host(merged_hooks)
+      unless projected['hooks'].empty?
+        existing['hooks'] ||= {}
+        projected['hooks'].each do |event, handlers|
+          existing['hooks'][event] ||= []
+          existing['hooks'][event].concat(handlers.map { |h| h.merge('_projected_by' => PROJECTED_BY) })
+        end
+      end
+
+      existing.delete('hooks') if existing['hooks'].nil? || existing['hooks'].empty?
+      # Only delete the file if nothing (projected or user) remains — never clobber user content.
+      if existing.empty?
+        FileUtils.rm_f(hooks_file)
+        return
+      end
+      FileUtils.mkdir_p(File.dirname(hooks_file))
+      atomic_write(hooks_file, JSON.pretty_generate(existing))
+      outputs[hooks_file] = { 'type' => 'hooks_codex_json' }
+    end
+
+    # OpenCode hooks are JS/TS plugins, not a declarative file — cannot be projected here.
+    def skip_hooks_for_plugin_host!(merged_hooks)
+      return if merged_hooks['hooks'].empty?
+      warn "[PluginProjector] WARNING: host '#{@host.key}' uses plugin-based hooks (JS/TS); " \
+           "skipping projection of #{merged_hooks['hooks'].size} hook event(s). Author an OpenCode plugin instead."
+    end
+
+    # Ensure projected re-projection hooks target THIS host, not the default (claude).
+    # Deep-copies so the shared merged_hooks (used by other hosts) is not mutated.
+    def rewrite_hook_commands_for_host(merged_hooks)
+      copy = JSON.parse(JSON.generate(merged_hooks))
+      copy.fetch('hooks', {}).each_value do |handlers|
+        next unless handlers.is_a?(Array)
+        handlers.each do |h|
+          Array(h['hooks']).each do |inner|
+            cmd = inner['command']
+            next unless cmd.is_a?(String) && cmd.include?('kairos-plugin-project') && !cmd.include?('--host')
+            # Insert right after the binary token so compound commands (a && b) stay correct.
+            inner['command'] = cmd.sub('kairos-plugin-project', "kairos-plugin-project --host #{@host.key}")
+          end
+        end
+      end
+      copy
     end
 
     # Plugin mode: write hooks/hooks.json
@@ -457,12 +648,12 @@ module KairosMcp
       current_files = current_outputs.keys
       stale = previous_files - current_files
       stale.each do |f|
-        # Path safety: only delete files under output_root
-        canonical = File.expand_path(f)
-        unless canonical.start_with?(File.expand_path(@output_root))
+        # Path safety: only delete files under output_root (separator-boundary check)
+        unless within_output_root?(f)
           warn "[PluginProjector] WARNING: skipping stale cleanup of '#{f}' (outside output_root)"
           next
         end
+        canonical = File.expand_path(f)
         FileUtils.rm_f(canonical)
         dir = File.dirname(canonical)
         FileUtils.rmdir(dir) if Dir.exist?(dir) && Dir.empty?(dir)
@@ -507,7 +698,7 @@ module KairosMcp
     def find_orphaned_files(manifest_outputs)
       projected_dirs = [
         File.join(@output_root, 'skills'),
-        File.join(@output_root, 'agents')
+        File.join(@output_root, @host.agents_subdir)
       ]
       actual_files = projected_dirs.flat_map do |dir|
         next [] unless Dir.exist?(dir)
@@ -532,10 +723,17 @@ module KairosMcp
       true
     end
 
+    # True if path is exactly output_root or a descendant. Uses a separator boundary
+    # so a sibling like '<root>/.codex_backup' does not match the '<root>/.codex' prefix.
+    def within_output_root?(path)
+      root = File.expand_path(@output_root)
+      canonical = File.expand_path(path)
+      canonical == root || canonical.start_with?(root + File::SEPARATOR)
+    end
+
     # Validate target path is under output_root
     def safe_path?(target)
-      canonical = File.expand_path(target)
-      unless canonical.start_with?(File.expand_path(@output_root))
+      unless within_output_root?(target)
         warn "[PluginProjector] WARNING: path '#{target}' is outside output_root, skipping"
         return false
       end
@@ -570,16 +768,26 @@ module KairosMcp
 
     # Merge or insert the managed marker region in project-root CLAUDE.md.
     # Returns true if the region is now present, false otherwise.
-    def merge_instruction_mode_region!(mode_name, mode_version, artifact_path)
+    def merge_instruction_mode_region!(mode_name, mode_version, artifact_path, body)
       claudemd = claudemd_path
       return false unless safe_claudemd_path?(claudemd)
 
-      import_path = relative_import_path(artifact_path)
       header = "<!-- Active mode: #{mode_name}#{mode_version ? " v#{mode_version}" : ''} | source: .kairos/skills/#{mode_name}.md -->"
+      # Claude Code resolves @-import at session start (pointer). Codex does not,
+      # so its body is inlined directly into AGENTS.md.
+      payload = case @host.instruction_mode_delivery
+                when :inline then body
+                else "@#{relative_import_path(artifact_path)}"
+                end
+      if @host.instruction_mode_delivery == :inline &&
+         (body.include?(INSTRUCTION_MODE_MARKER_BEGIN) || body.include?(INSTRUCTION_MODE_MARKER_END))
+        warn "[PluginProjector] WARNING: inlined mode body contains an instruction-mode marker; " \
+             "re-projection region detection may be unreliable for #{@host.context_file}."
+      end
       region = [
         INSTRUCTION_MODE_MARKER_BEGIN,
         header,
-        "@#{import_path}",
+        payload,
         INSTRUCTION_MODE_MARKER_END
       ].join("\n")
 
@@ -607,9 +815,9 @@ module KairosMcp
       true
     end
 
-    # Project-root CLAUDE.md absolute path.
+    # Project-root context file absolute path (CLAUDE.md for Claude, AGENTS.md for Codex).
     def claudemd_path
-      File.join(@project_root, 'CLAUDE.md')
+      File.join(@project_root, @host.context_file)
     end
 
     # Path safety for the host file: must be exactly <project_root>/CLAUDE.md.
@@ -618,7 +826,7 @@ module KairosMcp
       canonical = File.expand_path(path)
       expected = File.expand_path(claudemd_path)
       return true if canonical == expected
-      warn "[PluginProjector] WARNING: refusing to mutate non-project CLAUDE.md at '#{path}'"
+      warn "[PluginProjector] WARNING: refusing to mutate non-project #{@host.context_file} at '#{path}'"
       false
     end
 

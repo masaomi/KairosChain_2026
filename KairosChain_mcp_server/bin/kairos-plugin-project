@@ -17,7 +17,27 @@ require_relative '../lib/kairos_mcp/skillset_manager'
 
 project_root = KairosMcp.project_root
 mode = KairosMcp.projection_mode
-projector = KairosMcp::PluginProjector.new(project_root, mode: mode)
+
+# 2026-07-02: target host for projection (claude | codex | opencode). Default claude.
+# Used both for manual invocation and by projected re-projection hooks (--host <host>).
+host = 'claude'
+if (idx = ARGV.index('--host'))
+  host = ARGV[idx + 1]
+  if host.nil? || host.start_with?('--')
+    warn "ERROR: --host requires a value (claude, codex, or opencode)."
+    exit 1
+  end
+  ARGV.delete_at(idx + 1)
+  ARGV.delete_at(idx)
+end
+
+begin
+  projector = KairosMcp::PluginProjector.new(project_root, mode: mode, host: host)
+rescue ArgumentError => e
+  warn "ERROR: #{e.message}"
+  warn "  Valid --host values: claude, codex, opencode."
+  exit 1
+end
 
 if ARGV.include?('--status')
   require 'json'

@@ -39,6 +39,12 @@ module KairosMcp
                 force: {
                   type: 'boolean',
                   description: 'Force re-projection ignoring digest check (project command only)'
+                },
+                host: {
+                  type: 'string',
+                  enum: %w[claude codex opencode],
+                  description: 'Target host (default claude). claude=.claude/ + settings.json; ' \
+                    'codex=.codex/ + .codex/hooks.json; opencode=.opencode/ (hooks skipped).'
                 }
               },
               required: %w[command]
@@ -51,7 +57,9 @@ module KairosMcp
 
             project_root = ::KairosMcp.project_root
             mode = ::KairosMcp.projection_mode
-            projector = ::KairosMcp::PluginProjector.new(project_root, mode: mode)
+            host = arguments['host'] || 'claude'
+            projector = ::KairosMcp::PluginProjector.new(project_root, mode: mode, host: host)
+            reload_hint = host == 'claude' ? ' Run /reload-plugins to activate.' : ''
 
             case arguments['command']
             when 'project'
@@ -64,15 +72,17 @@ module KairosMcp
                 text_content(JSON.pretty_generate({
                   status: 'projected',
                   mode: mode,
+                  host: host,
                   force: true,
-                  message: 'Run /reload-plugins to activate new skills.'
+                  message: "Projected to #{host}.#{reload_hint}"
                 }))
               else
                 changed = projector.project_if_changed!(enabled, knowledge_entries: knowledge_entries)
                 text_content(JSON.pretty_generate({
                   status: changed ? 'projected' : 'unchanged',
                   mode: mode,
-                  message: changed ? 'Run /reload-plugins to activate new skills.' : 'No changes detected.'
+                  host: host,
+                  message: changed ? "Projected to #{host}.#{reload_hint}" : 'No changes detected.'
                 }))
               end
 

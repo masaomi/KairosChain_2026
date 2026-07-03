@@ -376,6 +376,11 @@ when 'mode'
                              KAIROS_PROJECT_ROOT env, then cwd if it contains a
                              recognizable project marker (CLAUDE.md, .git/,
                              .claude/, or prior projection manifest).
+        --host HOST          Target host: claude (default) | codex | opencode.
+                             claude writes CLAUDE.md with an @-import pointer;
+                             codex/opencode write AGENTS.md with the mode body
+                             inlined (they do not resolve @-import). Each host
+                             uses a separate manifest slot, so hosts can coexist.
 
       Notes:
         - data_dir and consumer project root are decoupled (design v0.2,
@@ -410,6 +415,19 @@ when 'mode'
     ARGV.delete_at(idx)
   end
 
+  # 2026-07-02: target host for projection (claude | codex | opencode). Default claude.
+  # codex/opencode write AGENTS.md with the mode body inlined (they do not resolve @-import).
+  mode_host = 'claude'
+  if (idx = ARGV.index('--host'))
+    mode_host = ARGV[idx + 1]
+    if mode_host.nil? || mode_host.start_with?('--')
+      warn "ERROR: --host requires a value (claude, codex, or opencode)."
+      exit 1
+    end
+    ARGV.delete_at(idx + 1)
+    ARGV.delete_at(idx)
+  end
+
   require 'kairos_mcp/skills_config'
   require 'kairos_mcp/plugin_projector'
 
@@ -426,10 +444,14 @@ when 'mode'
 
   projector_mode = KairosMcp.projection_mode
   begin
-    projector = KairosMcp::PluginProjector.new(project_root, mode: projector_mode, data_dir: KairosMcp.data_dir)
+    projector = KairosMcp::PluginProjector.new(project_root, mode: projector_mode, data_dir: KairosMcp.data_dir, host: mode_host)
   rescue KairosMcp::PluginProjector::CoincidenceRefused => e
     warn "ERROR: #{e.message}"
     warn "  Use --project-root <path> to designate a directory distinct from the data directory."
+    exit 1
+  rescue ArgumentError => e
+    warn "ERROR: #{e.message}"
+    warn "  Valid --host values: claude, codex, opencode."
     exit 1
   end
 
@@ -464,27 +486,31 @@ when 'mode'
       exit 1
     end
 
+    ctx_file = projector.host.context_file
     puts "Instruction mode projected:"
     puts "  mode             : #{instructions_mode}#{version ? " v#{version}" : ''}"
+    puts "  host             : #{projector.host.key} (delivery: #{projector.host.instruction_mode_delivery})"
     puts "  body source      : #{body_path}"
     puts "  project root     : #{project_root} (source: #{KairosMcp.consumer_project_root_source})"
     puts "  data dir         : #{KairosMcp.data_dir}"
     puts "  artifact         : #{result[:artifact_path]}"
     puts "  size             : #{result[:size_bytes]} bytes"
-    puts "  CLAUDE.md region : #{result[:region_written] ? 'updated' : 'not updated (host file outside project root or unsafe)'}"
+    puts "  #{ctx_file} region : #{result[:region_written] ? 'updated' : 'not updated (host file outside project root or unsafe)'}"
     puts ""
-    puts "Restart Claude Code to apply (CLAUDE.md @-imports resolve at session start)."
+    puts "Restart the host to apply (#{ctx_file} is read at session start)."
     exit 0
 
   when 'status'
     s = projector.instruction_mode_status
+    ctx_file = projector.host.context_file
     puts "Project root        : #{project_root} (source: #{KairosMcp.consumer_project_root_source})"
     puts "Data dir            : #{KairosMcp.data_dir}"
+    puts "Host                : #{projector.host.key}"
     if s[:active]
       puts "Instruction mode projection: ACTIVE"
       puts "  mode      : #{s[:mode_name]}#{s[:mode_version] ? " v#{s[:mode_version]}" : ''}"
       puts "  artifact  : #{s[:artifact_path]} (#{s[:artifact_size]} bytes)"
-      puts "  region    : #{s[:region_present] ? 'present in CLAUDE.md' : 'absent'}"
+      puts "  region    : #{s[:region_present] ? "present in #{ctx_file}" : "absent from #{ctx_file}"}"
       puts "  projected : #{s[:projected_at]}"
     else
       puts "Instruction mode projection: not active for this project."
@@ -493,11 +519,12 @@ when 'mode'
 
   when 'remove'
     result = projector.remove_projected_instruction_mode!
-    puts "Instruction mode projection removed:"
+    ctx_file = projector.host.context_file
+    puts "Instruction mode projection removed (host: #{projector.host.key}):"
     puts "  artifact  : #{result[:artifact_removed] ? 'deleted' : 'not present'}"
-    puts "  CLAUDE.md : #{result[:region_removed] ? 'region removed' : 'region not present'}"
+    puts "  #{ctx_file} : #{result[:region_removed] ? 'region removed' : 'region not present'}"
     puts ""
-    puts "Restart Claude Code to apply (CLAUDE.md @-imports resolve at session start)."
+    puts "Restart the host to apply (#{ctx_file} is read at session start)."
     exit 0
 
   else
