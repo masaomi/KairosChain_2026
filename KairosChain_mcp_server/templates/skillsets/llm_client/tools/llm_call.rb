@@ -99,6 +99,11 @@ module KairosMcp
                     'claude_code: low/medium/high/xhigh/max. ' \
                     'codex: minimal/low/medium/high. ' \
                     'Ignored by providers that do not support it.'
+                },
+                backend: {
+                  type: 'string',
+                  description: 'Provider transport backend. codex: "cli" (default, `codex exec`) ' \
+                    'or "mcp" (`codex mcp-server`, read-only sandbox). Ignored by other providers.'
                 }
               },
               required: ['messages']
@@ -134,6 +139,7 @@ module KairosMcp
             config['dispatch_id'] = arguments['dispatch_id'] if arguments['dispatch_id']
             config['sandbox_mode'] = true if arguments['sandbox_mode']
             config['effort'] = arguments['effort'] if arguments['effort']
+            config['backend'] = arguments['backend'] if arguments['backend']
 
             actual_provider = config['provider']
             adapter = build_adapter(config)
@@ -252,8 +258,13 @@ module KairosMcp
             when 'claude_code'
               ClaudeCodeAdapter.new(config)
             when 'codex'
-              require_relative '../lib/llm_client/codex_adapter'
-              CodexAdapter.new(config)
+              if config['backend'].to_s == 'mcp'
+                require_relative '../lib/llm_client/codex_mcp_adapter'
+                CodexMcpAdapter.new(config)
+              else
+                require_relative '../lib/llm_client/codex_adapter'
+                CodexAdapter.new(config)
+              end
             when 'cursor'
               require_relative '../lib/llm_client/cursor_adapter'
               CursorAdapter.new(config)

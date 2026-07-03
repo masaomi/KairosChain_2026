@@ -161,6 +161,10 @@ module KairosMcp
           effort = reviewer[:effort] || reviewer['effort']
           args['effort'] = effort if effort
 
+          # Per-reviewer transport backend (codex: "cli" default | "mcp"). Opt-in.
+          backend = reviewer[:backend] || reviewer['backend']
+          args['backend'] = backend if backend
+
           # Pass dispatch_id and sandbox_mode to llm_call for adapter config.
           args['dispatch_id'] = dispatch_id
           args['sandbox_mode'] = true if review_context == 'independent'

@@ -135,6 +135,7 @@ module KairosMcp
           c['dispatch_id']  = args['dispatch_id']  if args['dispatch_id']
           c['sandbox_mode'] = true                  if args['sandbox_mode']
           c['effort']       = args['effort']        if args['effort']
+          c['backend']      = args['backend']       if args['backend']
           c
         end
 
@@ -147,8 +148,13 @@ module KairosMcp
             require_relative 'claude_code_adapter'
             ClaudeCodeAdapter.new(config)
           when 'codex'
-            require_relative 'codex_adapter'
-            CodexAdapter.new(config)
+            if config['backend'].to_s == 'mcp'
+              require_relative 'codex_mcp_adapter'
+              CodexMcpAdapter.new(config)
+            else
+              require_relative 'codex_adapter'
+              CodexAdapter.new(config)
+            end
           when 'cursor'
             require_relative 'cursor_adapter'
             CursorAdapter.new(config)

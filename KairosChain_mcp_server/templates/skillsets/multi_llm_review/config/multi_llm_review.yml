@@ -128,6 +128,11 @@ reviewers:
   # GPT-5.5 added 2026-04-24 for benchmarking against gpt-5.4. Both codex
   # entries dispatch via the same `codex exec` CLI; the adapter passes
   # `-m <model>` so the response can be attributed per-model.
+  #
+  # Transport backend (2026-07-03): codex entries default to the `codex exec` CLI.
+  # Add `backend: mcp` to route a codex reviewer through `codex mcp-server` instead
+  # (CodexMcpAdapter, read-only sandbox). Opt-in for A/B against the CLI path;
+  # keep the default CLI until MCP parity is confirmed (see log 20260702 Appendix F).
   - provider: codex
     model: gpt-5.5
     effort: medium
