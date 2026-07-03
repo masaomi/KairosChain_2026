@@ -1,0 +1,15 @@
+{
+  "_note": "INSTANCE-LOCAL example: absolute paths are deliberate (per the entry's spec-authoring guidance) and machine-specific. Placeholder-ize paths before any promotion to templates/. Keys starting with _ are ignored by the engine.",
+  "task_ref": "example: verify a work product exists with expected content",
+  "workdir": "/Users/masa/forback/github/hermes-agent/kairos_body",
+  "checks": [
+    {
+      "name": "work_product_exists_nonempty",
+      "command": "test -s /Users/masa/forback/github/hermes-agent/kairos_body/notes/haiku_20260703.txt"
+    },
+    {
+      "name": "work_product_has_at_least_three_lines",
+      "command": "[ \"$(grep -c . /Users/masa/forback/github/hermes-agent/kairos_body/notes/haiku_20260703.txt)\" -ge 3 ]"
+    }
+  ]
+}

@@ -4,6 +4,32 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.34.0] - 2026-07-03
+
+### Added — L1 knowledge (dev repo): loop_validation
+
+New L1 knowledge entry `loop_validation` (v0.4), the mechanical loop-verdict
+methodology distilled from the Autonomous Growth Loop governance design
+(FROZEN v0.3.1, 3-round multi-LLM review) and its slice-1 implementation.
+Body-agnostic reference engine (`scripts/kairos_verdict.py`, fail-closed, no
+LLM), example spec, and an instance-local hermes body adapter appendix.
+Realizes candidate A of the loop-engineering keystone analysis. Frozen at
+v0.4 after 3 multi-LLM review rounds (6/6 unanimous R3); R1 caught a real
+engine crash on malformed specs (execution-verified), R2 caught a wrapper
+constant-key breach and a reason-taxonomy desync.
+
+Scoped to `knowledge/` (dev repo) only this release — NOT promoted to
+`templates/` (user distribution) because the hermes adapter appendix carries
+instance-local absolute paths. Promotion to `templates/` awaits proven use
+and path placeholder-izing.
+
+### Design (docs, not gem): Autonomous Growth Loop governance v0.3.1 FROZEN
+
+10 governance invariants for an unattended growth loop (evidence-grounded
+fail-closed verdict, dual stop floor, norm-change asymmetry, human-authored
+run mandate grounded at the human per Prop 9, execution-events-as-attestation
+vs Meta-Ledger-for-capability-changes). Design artifact under `docs/drafts/`.
+
 ## [3.33.0] - 2026-07-03
 
 ### Added — L1 knowledge: loop_engineering_patterns
