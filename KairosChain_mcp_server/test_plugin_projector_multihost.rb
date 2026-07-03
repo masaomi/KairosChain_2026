@@ -185,6 +185,37 @@ Dir.mktmpdir('mh') do |dir|
   end
 end
 
+# =========================================================================
+puts "\n=== Section 6: Codex hooks.json malformed-input robustness (A/B P1 fix) ==="
+Dir.mktmpdir('mh') do |dir|
+  FileUtils.mkdir_p(File.join(dir, '.kairos'))
+  FileUtils.mkdir_p(File.join(dir, '.codex'))
+  ss = mk_skillset(File.join(dir, 'ss'), 'demo', hooks: KAIROS_HOOK)
+
+  # (a) 'hooks' is a non-Hash value
+  File.write(File.join(dir, '.codex/hooks.json'), JSON.generate({ 'hooks' => 'not-a-hash' }))
+  assert('non-Hash hooks: project! does not raise') do
+    KairosMcp::PluginProjector.new(dir, mode: :project, host: 'codex').project!([ss])
+    true
+  end
+  assert('non-Hash hooks: projected hook written (normalized to Hash)') do
+    JSON.parse(File.read(File.join(dir, '.codex/hooks.json')))
+        .dig('hooks', 'PostToolUse', 0, '_projected_by') == 'kairos-chain'
+  end
+
+  # (b) an event value is a non-Array
+  File.write(File.join(dir, '.codex/hooks.json'),
+             JSON.generate({ 'hooks' => { 'PostToolUse' => 'not-an-array' } }))
+  assert('non-Array event value: project! does not raise') do
+    KairosMcp::PluginProjector.new(dir, mode: :project, host: 'codex').project!([ss])
+    true
+  end
+  assert('non-Array event value: projected hook present') do
+    JSON.parse(File.read(File.join(dir, '.codex/hooks.json')))
+        .dig('hooks', 'PostToolUse', 0, 'hooks', 0, 'command').to_s.include?('kairos-plugin-project')
+  end
+end
+
 puts "\n" + ('=' * 60)
 puts "Total: #{$pass_count} passed, #{$fail_count} failed"
 exit($fail_count.zero? ? 0 : 1)

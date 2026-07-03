@@ -515,25 +515,28 @@ module KairosMcp
       existing = load_settings(hooks_file) # {} when absent, nil on parse error
       return if existing.nil?
 
+      # A hand-authored file may hold a malformed 'hooks' (non-Hash, or non-Array
+      # event values). Normalize before merging so projection never crashes; a
+      # malformed 'hooks' carries no preservable user hooks anyway.
+      existing['hooks'] = {} unless existing['hooks'].is_a?(Hash)
+      existing['hooks'].transform_values! { |v| v.is_a?(Array) ? v : [] }
+
       # Strip previously projected entries, preserving user-authored (untagged) hooks —
       # mirrors the Claude settings.json path so re-projection never destroys user hooks.
-      if existing['hooks'].is_a?(Hash)
-        existing['hooks'].each_value do |handlers|
-          handlers.reject! { |h| h['_projected_by'] == PROJECTED_BY } if handlers.is_a?(Array)
-        end
-        existing['hooks'].delete_if { |_, v| v.is_a?(Array) && v.empty? }
+      existing['hooks'].each_value do |handlers|
+        handlers.reject! { |h| h.is_a?(Hash) && h['_projected_by'] == PROJECTED_BY }
       end
+      existing['hooks'].delete_if { |_, v| v.empty? }
 
       projected = rewrite_hook_commands_for_host(merged_hooks)
       unless projected['hooks'].empty?
-        existing['hooks'] ||= {}
         projected['hooks'].each do |event, handlers|
           existing['hooks'][event] ||= []
           existing['hooks'][event].concat(handlers.map { |h| h.merge('_projected_by' => PROJECTED_BY) })
         end
       end
 
-      existing.delete('hooks') if existing['hooks'].nil? || existing['hooks'].empty?
+      existing.delete('hooks') if existing['hooks'].empty?
       # Only delete the file if nothing (projected or user) remains — never clobber user content.
       if existing.empty?
         FileUtils.rm_f(hooks_file)
