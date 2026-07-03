@@ -4,6 +4,38 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.32.0] - 2026-07-03
+
+### Added — multi-host SkillSet projection (Codex + OpenCode)
+
+`PluginProjector` gains a `HostProfile` abstraction so projection targets Codex
+CLI and OpenCode in addition to Claude Code. Claude behavior is unchanged
+(byte-compatible; `projection_manifest.json` keeps its legacy name).
+
+- Instruction mode: `AGENTS.md` with the mode body inlined for codex/opencode
+  (they do not resolve Claude's `@`-import); `CLAUDE.md` `@`-import for claude.
+- Codex: `.codex/skills`, `.codex/agents`, `.codex/hooks.json` (merge-preserving
+  user hooks via `_projected_by` tags; re-projection hook commands carry
+  `--host codex`). Codex reads `<repo>/.codex/hooks.json` natively — no TOML.
+- OpenCode: reuses `.claude/skills/` (Claude co-use assumption), converts agents
+  to `.opencode/agent/` frontmatter; hooks skipped (OpenCode hooks are JS plugins).
+- CLI `kairos-chain mode` and `kairos-plugin-project` gain
+  `--host claude|codex|opencode`; MCP tool `plugin_project` gains a `host` param.
+  Per-host manifest slots so hosts coexist.
+- Hardened via multi-LLM implementation review (codex/claude/cursor, all
+  APPROVE-WITH-CHANGES, 0 P0): hooks merge-preserve, agent-conversion Hash guard
+  and list-form `disallowedTools`, separator-boundary path containment, live-file
+  region status, malformed `.codex/hooks.json` normalization. 111 projector tests.
+
+### Added — codex mcp-server reviewer backend (opt-in)
+
+`CodexMcpAdapter` drives Codex via `codex mcp-server` (stdio JSON-RPC, one-shot,
+read-only sandbox) as an alternative to the `codex exec` CLI adapter. A codex
+reviewer opts in with `backend: mcp` (default stays CLI, backward compatible);
+the backend switch is wired through `llm_call`, `call_router`, and the
+multi_llm_review dispatcher. A/B against the CLI path showed parity (same
+verdict, comparable latency).
+
 ## [3.31.0] - 2026-06-11
 
 ### Changed — multi_llm_review roster: Fable 5 + Opus 4.6/4.8 (6 reviewers)
