@@ -81,10 +81,13 @@ module Synoptis
 
       # ACT-5: telemetry that the criterion fired and surfaced N proposals. Subject-free
       # and content-free, so it neither indexes L2 (LED-4) nor records a per-context
-      # verdict (ACT-4).
-      def append_trigger(surfaced_count:, moment: nil)
+      # verdict (ACT-4). `source` names which trigger point fired (manual /
+      # orchestrator_session_end / session_end_hook), so the "at least one defined trigger
+      # point" of ACT-5 is distinguishable in the operational log.
+      def append_trigger(surfaced_count:, source: 'manual', moment: nil)
         @registry.append(OPLOG, {
           record: 'trigger',
+          source: source,
           surfaced_count: surfaced_count,
           moment: moment || Time.now.utc.iso8601
         })

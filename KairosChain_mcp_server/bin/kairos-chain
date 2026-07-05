@@ -343,6 +343,86 @@ when 'upgrade'
   end
   exit
 
+when 'attestation'
+  # Constitutive L2 attestation CLI (Slice 3c). Currently one action: `scan`, the
+  # ACT-5 trigger point invokable from a session-end Stop hook so that firing +
+  # trigger-record logging is guaranteed even when the orchestrator does not run the
+  # MCP tool. It proposes only and logs a trigger record; it never attests (ACT-1
+  # keeps attestation human-approved through the MCP tool).
+  ARGV.shift # Remove 'attestation'
+
+  $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
+  require 'kairos_mcp'
+
+  if (idx = ARGV.index('--data-dir'))
+    KairosMcp.data_dir = File.expand_path(ARGV[idx + 1])
+    ARGV.delete_at(idx + 1)
+    ARGV.delete_at(idx)
+  end
+
+  action = ARGV.shift
+  case action
+  when 'scan'
+    require 'json'
+    require 'yaml'
+    require 'fileutils'
+
+    session = (i = ARGV.index('--session')) ? ARGV[i + 1] : nil
+    source  = (i = ARGV.index('--source')) ? ARGV[i + 1] : 'session_end_hook'
+
+    syn_lib = File.join(KairosMcp.skillsets_dir, 'synoptis', 'lib')
+    unless File.directory?(syn_lib)
+      puts JSON.generate(status: 'error', message: 'synoptis skillset not installed')
+      exit 0
+    end
+    $LOAD_PATH.unshift(syn_lib)
+    require 'synoptis/registry/file_registry'
+    require 'synoptis/constitutive/subject_ref'
+    require 'synoptis/constitutive/proposal_criterion'
+    require 'synoptis/constitutive/attestation_chain'
+
+    context_dir = KairosMcp.context_dir
+    session ||= if Dir.exist?(context_dir)
+                  Dir.children(context_dir)
+                     .select { |c| File.directory?(File.join(context_dir, c)) }
+                     .max_by { |c| File.mtime(File.join(context_dir, c)) }
+                end
+    unless session
+      puts JSON.generate(status: 'error', message: 'no session found to scan')
+      exit 0
+    end
+
+    cfg_path = File.join(KairosMcp.skillsets_dir, 'synoptis', 'config', 'synoptis.yml')
+    const_cfg = (File.exist?(cfg_path) ? (YAML.safe_load(File.read(cfg_path)) || {}) : {})['constitutive'] || {}
+
+    data_dir = File.join(KairosMcp.data_dir, 'synoptis_data')
+    FileUtils.mkdir_p(data_dir)
+    registry = Synoptis::Registry::FileRegistry.new(data_dir: data_dir)
+    chain = Synoptis::Constitutive::AttestationChain.new(registry: registry)
+    criterion = Synoptis::Constitutive::ProposalCriterion.new(
+      context_dir: context_dir,
+      judgment_types: const_cfg['judgment_types'] ||
+        Synoptis::Constitutive::ProposalCriterion::DEFAULT_JUDGMENT_TYPES,
+      preview_chars: const_cfg['preview_chars'] ||
+        Synoptis::Constitutive::ProposalCriterion::DEFAULT_PREVIEW_CHARS
+    )
+
+    proposals = criterion.propose(session_id: session)
+    chain.append_trigger(surfaced_count: proposals.length, source: source)
+    puts JSON.generate(
+      status: 'proposed',
+      session_id: session,
+      trigger_source: source,
+      surfaced_count: proposals.length,
+      proposals: proposals
+    )
+    exit 0
+  else
+    warn "Unknown attestation action: #{action.inspect}"
+    warn 'Usage: kairos-chain attestation scan [--session SID] [--source SRC] [--data-dir DIR]'
+    exit 1
+  end
+
 when 'mode'
   ARGV.shift # Remove 'mode' from ARGV
 

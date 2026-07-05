@@ -4,6 +4,32 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.38.0] - 2026-07-05
+
+### Added — Synoptis L2 attestation: ACT-5 trigger sources + scan CLI (Slice 3b/3c)
+
+Makes the ACT-5 trigger point distinguishable and invocable from a session-end
+Stop hook, so firing + trigger-record logging can be guaranteed rather than relying
+on the orchestrator remembering to run the tool.
+
+- **Trigger source (3b)**: `l2_attestation_scan` gains a `trigger_source` argument
+  (`manual` / `orchestrator_session_end` / `session_end_hook`), recorded in the trigger
+  record (`AttestationChain#append_trigger(source:)`). ACT-5's "at least one defined
+  trigger point" is now distinguishable in the operational log, and the tool documents
+  its two auto-firing paths (orchestrator-at-session-end for delivery+approval; Stop hook
+  for a mechanical liveness guarantee).
+- **Scan CLI (3c)**: new `kairos-chain attestation scan [--session SID] [--source SRC]
+  [--data-dir DIR]`. It loads the constitutive criterion, proposes a session's
+  judgment-bearing contexts, and appends a trigger record — propose-only, never attests
+  (ACT-1 keeps attestation human-approved through the MCP tool). This is the shell
+  entry point a session-end Stop hook calls. Verified end-to-end.
+
+The two firing mechanisms are complementary: the orchestrator convention delivers
+proposals to a present human for approval; the Stop hook guarantees the trigger fires
+and is logged even when the orchestrator does not. The settings.json Stop-hook wiring is
+a per-project harness step (not shipped in the gem). 17 Slice-3 unit tests green (incl.
+trigger-source); Slices 1 (35) and 2 (25) unchanged.
+
 ## [3.37.0] - 2026-07-05
 
 ### Added — Synoptis L2 attestation: semantic criterion + snapshot (Slice 3a)

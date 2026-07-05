@@ -13,9 +13,11 @@ require 'fileutils'
 lib = File.expand_path('../lib', __dir__)
 $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 
+require 'synoptis/registry/file_registry'
 require 'synoptis/constitutive/content_attestation_entry'
 require 'synoptis/constitutive/subject_ref'
 require 'synoptis/constitutive/proposal_criterion'
+require 'synoptis/constitutive/attestation_chain'
 
 $pass = 0
 $fail = 0
@@ -89,6 +91,24 @@ Dir.mktmpdir do |root|
   e_nosnap = CAE.new(subject_id: short_uri, digest: digest, moment: 'm')
   assert(e_nosnap.to_h[:snapshot].nil?, 'no snapshot when not embedded')
   assert(e_nosnap.entry_hash != e.entry_hash, 'embedding a snapshot changes the entry hash')
+
+  # ---------------------------------------------------------------
+  section('ACT-5 trigger source (3b): trigger points distinguishable')
+
+  Dir.mktmpdir do |dd|
+    chain = Synoptis::Constitutive::AttestationChain.new(
+      registry: Synoptis::Registry::FileRegistry.new(data_dir: dd)
+    )
+    chain.append_trigger(surfaced_count: 2, source: 'orchestrator_session_end')
+    chain.append_trigger(surfaced_count: 0, source: 'session_end_hook')
+    chain.append_trigger(surfaced_count: 1) # default
+    log = chain.oplog
+    assert(log.length == 3, 'three trigger records logged')
+    assert(log[0][:source] == 'orchestrator_session_end', 'trigger records its source')
+    assert(log[1][:source] == 'session_end_hook', 'hook-sourced trigger distinguishable')
+    assert(log[2][:source] == 'manual', 'default source is manual')
+    assert(log.none? { |r| r.key?(:subject_id) }, 'trigger records stay subject-free (ACT-5/LED-4)')
+  end
 end
 
 puts "\n#{'=' * 60}"
