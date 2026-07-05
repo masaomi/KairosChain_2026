@@ -65,6 +65,11 @@ different bugs.
 
 ### Design Phase
 
+#### Pre-draft: Unknowns Pass
+- For artifacts routed to full multi-LLM review, run the Unknowns Pass
+  (blindspot enumeration + human interview) **before** drafting v0.1 —
+  see `multi_llm_review_workflow` Step 0.25 (v3.6+).
+
 #### Solo Design (v0.1)
 - Single LLM (Opus-class) produces initial design
 - Include: architecture, component design, schema, error handling, phase boundaries

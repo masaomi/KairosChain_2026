@@ -4,6 +4,38 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.39.0] - 2026-07-05
+
+### Added — L1 `multi_llm_review_workflow` v3.5 → v3.6: Step 0.25 Unknowns Pass
+
+Adds a pre-draft unknown-discovery discipline to the multi-LLM review workflow,
+adapted from Thariq Shihipar's "A Field Guide to Fable: Finding Your Unknowns"
+(2026-07-03), techniques ① blindspot pass and ③ one-question-at-a-time interview.
+Bundled L1 knowledge only — no code paths changed.
+
+- **Step 0.25 (pre-draft, qualifying reviews only)**: before drafting a design or
+  knowledge/documentation artifact routed to full multi-LLM review, the orchestrator
+  enumerates its blind-spot questions (without self-answering) and interviews the human
+  one question at a time, then triages every surfaced unknown to Resolved / Declared /
+  Draft-deferred. Moves unknown discovery from the expensive channel (review rounds) to
+  the cheap channel (pre-draft dialogue).
+- **Five invariants INV-U1–U5**: front-load gate (no dispatch before the pass);
+  human gate (no orchestrator self-answering); constitutive recording (unconditional L2
+  record, incl. zero-result); bounded demotion of declared unknowns (provenance bound +
+  inverted default, closing a laundering channel); human-only classification authority.
+- **Unattended (autonomous loop) clause**: fail-closed — every surfaced unknown is
+  judgment-shaped by default and stops the run; only a human-authored mandate may
+  pre-classify categories as non-judgment-shaped, and unattended declarations gain no
+  reviewer-demotion power until human-ratified. Mandate expressiveness, ratification
+  protocol, and the pending-question queue are deferred to the Autonomous Growth Loop
+  guard track.
+- Three-location L1 sync (instance `.kairos/knowledge/`, gem `knowledge/`, gem
+  `templates/knowledge/`); change recorded to blockchain (hash a74a11b7…). One-line
+  cross-reference added to `design_to_implementation_workflow`.
+- Designed via its own 3-round self-referential multi-LLM review (R1 REVISE 2/6 →
+  R2 REVISE 2/6 → R3 4/6 APPROVE; design record
+  `docs/drafts/multi_llm_review_unknowns_pass_v0.3.1_FROZEN.md`).
+
 ## [3.38.0] - 2026-07-05
 
 ### Added — Synoptis L2 attestation: ACT-5 trigger sources + scan CLI (Slice 3b/3c)

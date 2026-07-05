@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.5"
+version: "3.6"
 tags:
   - workflow
   - review
@@ -42,6 +42,154 @@ Skipping Step 0 leads to misreading reviewer output — in particular, treating
 Codex (c)-class value-divergent REJECTs as blocking, which causes review loops to
 fail to converge. The cross-reference exists in `related:` frontmatter; this step
 makes it an explicit pre-condition rather than an implicit hint.
+
+## Step 0.25 — Unknowns Pass (pre-draft, qualifying reviews only)
+
+> **Numbering vs timing**: Step 0 and Step 0.5 execute at review time,
+> immediately before dispatch. Step 0.25 executes **pre-draft** — earlier in
+> wall-clock time than both. The numeric order is document order, not
+> execution order.
+
+**Applies to** artifacts that this workflow's decision heuristic routes to
+full multi-LLM review, in the design-phase and knowledge/documentation
+review types (design review, knowledge/documentation-update review, document
+review). Throughout this step, "qualifying review" means exactly this set.
+Artifacts below that threshold (single-LLM review, self-review, skip) are
+exempt — the pass inherits the existing tier heuristic rather than
+introducing a second gate. Implementation-phase reviews are out of scope.
+
+The problem this step solves: the workflow otherwise begins at "artifact
+exists," so unknowns the author never considered enter drafts undetected and
+are excavated by reviewers round by round, inflating round counts. The pass
+moves unknown discovery from the expensive channel (review rounds) to the
+cheap channel (pre-draft dialogue), and makes the residue explicit.
+(Source: Thariq Shihipar, "A Field Guide to Fable: Finding Your Unknowns,"
+2026-07-03 — techniques ① blindspot pass and ③ interview. Design record:
+`docs/drafts/multi_llm_review_unknowns_pass_v0.3.1_FROZEN.md`.)
+
+### Structure of the pass
+
+Step 0.25 runs after the decision to produce a qualifying artifact and
+before its first draft. Two moves, one triage:
+
+1. **Blindspot enumeration.** The orchestrator, holding full project
+   context, enumerates the questions most likely to change the design if
+   answered differently — *without answering them itself*. This is a bounded
+   search discipline, not a completeness guarantee: the pass is judged by
+   whether it reliably surfaces the highest-impact questions available to
+   the orchestrator's current context (nothing-missed is unachievable per
+   Prop 6).
+2. **Interview.** The orchestrator puts the enumerated questions to the
+   human, one question at a time, ordered by decision impact. The interview
+   ends when both parties judge that remaining questions will only be
+   answerable once a draft exists. Ending the interview does not discharge
+   the triage below: every enumerated unknown — including those the
+   interview never reached — still exits through it.
+
+**Triage.** Every surfaced unknown exits the pass in exactly one of two
+**terminal** states, possibly via one **transient** state:
+
+- **Resolved** (terminal) — answered by the human; the answer feeds the
+  Design Direction Block (Step 0.5).
+- **Declared** (terminal) — recorded in the artifact as an *Open Unknown*
+  and registered in the artifact's backlog section. A human's explicit
+  decision *not* to answer a question is itself a human judgment and routes
+  the unknown here — a legitimate attended outcome.
+- **Draft-deferred** (transient, non-terminal) — marked for mandatory
+  re-triage after drafting. Re-triage collapses each draft-deferred unknown
+  into Resolved or Declared **before review dispatch** (a precondition of
+  dispatch under INV-U1). INV-U2 applies at re-triage exactly as at the
+  interview: collapsing to Resolved requires the human's answer, so
+  unattended re-triage can only collapse to Declared.
+
+### Invariants
+
+**INV-U1 (front-load gate).** Round 1 of a qualifying review is not
+dispatched for an artifact that has not passed through the Unknowns Pass.
+At dispatch time, every unknown the pass surfaced is in a terminal state:
+resolved by the human, or declared in the artifact. A draft-deferred unknown
+still in its transient state blocks dispatch until re-triaged.
+
+**INV-U2 (human gate).** The answerer in the interview is the human. The
+orchestrator posing a question and answering it itself does not constitute
+resolution. (Same conceptual line as ACT-1 in L2 attestation — analogical,
+not a shared implementation: judgment-shaped decisions belong to the human.)
+
+**INV-U3 (constitutive recording).** The products of the pass — enumerated
+questions, human answers, declared Open Unknowns — are recorded to L2. A
+discovered unknown is an asset, not a consumable. The record is written
+unconditionally: a pass that surfaces no unknowns writes an explicit
+zero-result record, which is what makes a skipped pass distinguishable from
+a pass that surfaced nothing. The record is instance-local; outbound sharing
+is governed by the instance's existing outbound-sharing discipline — this
+invariant authorizes no new disclosure surface.
+
+**INV-U4 (declared unknowns are non-blocking — bounded).** A reviewer
+finding that merely restates a declared Open Unknown is classified (c)
+advisory by default, subject to two bounds:
+
+- *Provenance bound*: the demotion applies only to unknowns whose specific
+  declaration a human has seen — declared through an attended pass, or
+  ratified by a human at a subsequent attended session. Declarations made by
+  an orchestrator alone (including unattended declarations under a mandate's
+  category-level pre-classification) carry no demotion power until so
+  ratified.
+- *Inverted default*: when the orchestrator is uncertain whether a finding
+  merely restates a declared unknown or shows that the declared deferral is
+  itself unsafe, the finding is treated as blocking. This deliberately
+  inverts the usual "unsure between (b) and (c) → (c)" rule, because here
+  the doubt concerns whether a gate is being laundered, and gates fail
+  closed.
+
+Findings about the *integrity* of the design — internal contradiction,
+unrealizable invariant, an Open Unknown whose declared deferral is itself
+unsafe — remain (a)/(b) and block as before.
+
+**INV-U5 (classification authority).** The judgment-shaped /
+non-judgment-shaped classification of an unknown is a human prerogative.
+Attended, the human exercises it through the interview itself (answering,
+declining, or judging a question draft-answerable). Unattended, every
+surfaced unknown is judgment-shaped by default; only a human-authored
+mandate may pre-classify named categories as non-judgment-shaped for a given
+run. An orchestrator's self-classification has no force. (Fail-closed:
+unclassified ⇒ judgment-shaped ⇒ stop.)
+
+### Unattended execution (autonomous loops)
+
+In an unattended context, the "resolved" exit is unavailable. INV-U2 is
+preserved — the system does not self-answer — and INV-U5 governs
+classification:
+
+- **Judgment-shaped** (the unattended default for ALL unknowns): fail-closed
+  stop; the question is recorded and queued for the next attended session.
+- **Non-judgment-shaped** (only via human-authored mandate
+  pre-classification): declared as Open Unknown; the run proceeds, but per
+  INV-U4's provenance bound the declaration carries no demotion power until
+  human-ratified — reviewer restatements remain blocking.
+
+Consequence: an unattended run without a mandate cannot proceed past any
+surfaced unknown. This is intended — it makes "unattended design review
+without human pre-delegation" structurally inert rather than quietly
+self-certifying, and liberal declaring yields no convergence advantage.
+
+Stop semantics, as an invariant: repeated unattended encounters with the
+same pending question produce no new side effects and no forward motion —
+re-stopping is idempotent; forward motion requires a human answer. The
+mandate's expressive power, the ratification protocol, and the
+pending-question queue mechanism are owned by the Autonomous Growth Loop
+guard track (see the frozen design's §11 backlog).
+
+### Acceptance observation (selective survival)
+
+This step is a discipline under observation, not settled infrastructure.
+From adoption onward, during synthesis the orchestrator tags each blocking
+finding — and each finding demoted under INV-U4 — as kind `open-question`
+(unresolved design decision) or kind `defect` (flaw in a made decision),
+recorded in the round's L2 review record. Survival judgment (human's, on
+recorded counts): round-1 `open-question` counts should trend toward zero
+across the first 2–3 qualifying loops; no INV-U4-demoted finding re-tagged
+`defect` within its loop + next revision cycle; interviews staying within
+~5 questions.
 
 ## Step 0.5 — Design Direction Block (design / docs reviews only)
 
@@ -92,6 +240,10 @@ mistaken for genuine defects.
 - <axis>: chose X over Y because <reason>
   (e.g., "invariant declaration > mechanism enumeration, per project
    design-by-invariant principle")
+
+**Declared Open Unknowns** (carried in from Step 0.25, if any):
+- <unknown>: declared open; findings that merely restate it are (c) advisory
+  per INV-U4 (subject to its provenance bound and inverted default)
 
 **Where to register additions/objections**:
 - New mechanisms or scope expansions → §11 backlog of the artifact, not body
@@ -250,13 +402,21 @@ The user always has the final say.
 ## Workflow Pattern
 
 ```
+[0.25] Unknowns Pass (pre-draft; qualifying reviews only — see Step 0.25)
+         |
+         ├── blindspot enumeration + human interview
+         └── L2 context:    pass record (unconditional, incl. zero-result)
+         |
 [1] Primary LLM creates artifact → outputs artifact + review prompt
          |
          ├── artifact:      log/{name}_{llm}_{date}.md
+         ├── re-triage:     draft-deferred unknowns → Resolved or Declared
          ├── review prompt: log/{name}_review_prompt.md
          └── L2 context:    saved via context_save
          |
 [2] Orchestrator sends prompt → N reviewer LLMs execute in parallel
+    (for qualifying reviews, conditioned on INV-U1: pass record exists
+     and every surfaced unknown is terminal)
          |
          ├── Reviewer 1:   independent review
          ├── Reviewer 2:   independent review
@@ -269,6 +429,10 @@ The user always has the final say.
          └── L2 save:  consensus + revised artifact
          |
 [4] Classify findings as (a)/(b)/(c) per `multi_llm_reviewer_evaluation`
+    Apply INV-U4: findings merely restating a declared Open Unknown → (c)
+    advisory (provenance bound + inverted default apply — see Step 0.25)
+    Tag each blocking finding and each INV-U4-demoted finding as kind
+    `open-question` or `defect` in the round's L2 record
     If no (a)/(b) blocking findings → proceed to next phase
     If any (a)/(b) finding          → repeat from [2] with revised artifact
     (c) findings are recorded as advisory; non-blocking
@@ -375,9 +539,15 @@ When the orchestrator integrates N reviews:
 ## L2 Save Points
 
 Save to L2 context at these moments:
+- **After the Unknowns Pass** (Step 0.25; unconditional, including
+  zero-result passes, per INV-U3): enumerated questions, human answers,
+  declared Open Unknowns
 - After design/implementation complete (before review)
 - After synthesis of reviews (revised version)
 - After final convergence (implementation-ready / merge-ready)
+- **Per-round finding tagging** (Step 0.25 acceptance observation): each
+  blocking finding and each INV-U4-demoted finding tagged `open-question`
+  or `defect` in the round's review record
 - **After each review round**: capture per-reviewer observations — verdict,
   (a)/(b)/(c) classification breakdown, briefing-reaction shift (did the
   reviewer change verdict after Step 0.5 design direction?), anomalies
@@ -818,6 +988,15 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
 - Self-referential review: v3.2 (4-reviewer update, 2026-04-19) reviewed with new 4-reviewer default (Opus 4.6 + 4.7 + Codex + Composer-2). 4/4 APPROVE WITH CHANGES R1. Findings integrated → v3.3
 - Roster update (v3.5, 2026-06-10): Fable 5 replaces Opus 4.7 as orchestrator/team slot; Opus 4.8 added as second subprocess CLI reviewer alongside Opus 4.6. 4.6 retained for its documented complementary bias (ambiguity-preserving, self-reference-friendly); 4.7 retired as its register is covered by 4.8 and Fable 5. 4.8/Fable 5 bias profiles uncalibrated — record (a)/(b)/(c) breakdowns per round until profiles accumulate in `multi_llm_reviewer_evaluation`
 - Self-referential review of v3.5 (2 rounds, 2026-06-10/11, first run of the 6-reviewer roster): R1 REVISE (1 APPROVE / 4 REJECT — stale pre-v3.5 passages) → fixes → R2 3/6 APPROVE (4.6, 4.8, codex 5.4) with Cursor contributing a code-grounded correction (subprocess strategy keeps the full roster). 4.6/4.8 verdicts split along the predicted lenient/strict axis in R1 and converged to APPROVE in R2
+- Step 0.25 Unknowns Pass added (v3.6, 2026-07-05): designed via its own
+  3-round self-referential review (R1 REVISE 2/6 → R2 REVISE 2/6 → R3 4/6
+  APPROVE; v0.3.1 FROZEN). The loop demonstrated the step's own thesis:
+  R1's two biggest blockers (unattended classification authority, INV-U4
+  demotion bounds) were exactly judgment-shaped unknowns a pre-draft
+  interview would have caught. Also observed: fix-verification requires
+  epistemic diversity — the personas that authored R1 findings all approved
+  their own fixes in R2, while subprocess reviewers caught the seams.
+  Design record: `docs/drafts/multi_llm_review_unknowns_pass_v0.3.1_FROZEN.md`
 
 **Key insight**: Design reviews and implementation reviews find
 **categorically different bugs**. Both phases are necessary.
