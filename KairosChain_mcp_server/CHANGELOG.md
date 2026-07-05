@@ -4,6 +4,36 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.36.0] - 2026-07-05
+
+### Added — Synoptis L2 attestation: supersession + revocation (Slice 2)
+
+Records the rewrite/withdrawal lifecycle of a constitutive attestation by appending,
+never editing (the bank-ledger correction model). Completes §Kinds' two attestation-
+ledger entry kinds and satisfies LED-2b (lineage) and ACT-3 (approval binding).
+
+- **Supersession**: a re-attestation of an already-attested subject is now a
+  supersession — `l2_attestation_commit` auto-derives the current head and commits its
+  entry_id as `target_ref` (ContentAttestationEntry gains `target_ref`). The first
+  attestation about a subject carries none.
+- **Revocation-withdrawal**: new `RevocationWithdrawalEntry` kind (commits subject +
+  target_ref + moment, no digest/content) and a new `l2_attestation_revoke` tool. It
+  appends a withdrawal of the subject's current head; like any ledger entry it requires
+  human approval (ACT-1) and is itself append-only, so "claimed then withdrawn" survives.
+- **ACT-3 binding**: the commit/revoke proposal returns the digest and the target it
+  would act on; the approving call echoes them as `expected_digest` /
+  `expected_target_ref`. If the live content changed (digest_mismatch) or the head moved
+  (target_moved) between proposal and approval, the append is refused, not silent.
+- **Fold**: `AttestationChain#current_head` / `current_state` fold a subject's entries
+  (first → supersessions → withdrawals) into a status (none/attested/withdrawn); a new
+  read-only `l2_attestation_view` tool surfaces it. Fold ordering rule fixed per §11: a
+  revocation clears the head only when it targets the current head.
+
+Synoptis's trust engine (duplicate hard-reject, TTL, revocation store) is untouched —
+the constitutive ledger is a separate chain, so re-attest-as-supersession is native and
+no reconciliation was needed. 25 Slice-2 unit tests + 14 tool integration tests green;
+Slice 1 (35) unchanged.
+
 ## [3.35.1] - 2026-07-05
 
 ### Fixed — Synoptis L2 attestation: frontmatter parsing dropped all proposals
