@@ -2,6 +2,7 @@
 
 require 'digest'
 require 'yaml'
+require 'date'
 
 module Synoptis
   module Constitutive
@@ -71,23 +72,42 @@ module Synoptis
       end
 
       # Best-effort read of the frontmatter `type:` field (nil if absent/unparseable).
+      # Primary path is a real YAML parse; a regex fallback keeps the criterion robust
+      # against frontmatter that YAML.safe_load rejects (e.g. an exotic tagged value),
+      # since the criterion only ever needs the single `type` scalar.
       def frontmatter_type(uri, context_dir:)
         path = resolve_path(uri, context_dir: context_dir)
         return nil unless File.exist?(path)
 
-        fm = extract_frontmatter(File.read(path))
-        return nil unless fm.is_a?(Hash)
+        text = File.read(path)
+        fm = extract_frontmatter(text)
+        if fm.is_a?(Hash)
+          val = fm['type'] || fm[:type]
+          return val.to_s if val
+        end
 
-        fm['type'] || fm[:type]
+        block = frontmatter_block(text)
+        return nil unless block
+
+        m = block.match(/^type:\s*(.+?)\s*$/)
+        m && m[1].gsub(/\A["']|["']\z/, '')
       end
 
-      def extract_frontmatter(text)
+      # The raw text between the opening and closing `---` fences, or nil.
+      def frontmatter_block(text)
         return nil unless text.start_with?('---')
 
         parts = text.split(/^---\s*$/, 3)
-        return nil if parts.length < 3
+        parts.length < 3 ? nil : parts[1]
+      end
 
-        YAML.safe_load(parts[1])
+      def extract_frontmatter(text)
+        block = frontmatter_block(text)
+        return nil unless block
+
+        # Permit Date/Time so common frontmatter (`date: 2026-07-05`) parses instead
+        # of raising Psych::DisallowedClass and losing the whole hash.
+        YAML.safe_load(block, permitted_classes: [Date, Time])
       rescue StandardError
         nil
       end

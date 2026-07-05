@@ -4,6 +4,20 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.35.1] - 2026-07-05
+
+### Fixed — Synoptis L2 attestation: frontmatter parsing dropped all proposals
+
+`l2_attestation_scan` surfaced zero proposals against real L2 contexts because
+`SubjectRef.extract_frontmatter` used `YAML.safe_load` without permitting `Date`:
+a `date:` field (present in every real context's frontmatter) raised
+`Psych::DisallowedClass`, which was rescued to `nil`, so the `type` was never read
+and no context matched the criterion. Caught by live end-to-end verification, not
+by unit tests (whose fixtures lacked a `date:` field). Fix permits `[Date, Time]`
+and adds a regex fallback for the single `type` scalar so the criterion is robust
+against any frontmatter YAML that `safe_load` rejects. Unit fixtures now carry a
+`date:` field to guard the regression.
+
 ## [3.35.0] - 2026-07-05
 
 ### Added — Synoptis: L2 constitutive attestation (Slice 1)

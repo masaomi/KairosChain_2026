@@ -46,7 +46,10 @@ PC  = Synoptis::Constitutive::ProposalCriterion
 def write_context(context_dir, session_id, name, type, body = "body of #{name}")
   dir = File.join(context_dir, session_id, name)
   FileUtils.mkdir_p(dir)
-  fm = "---\ntitle: \"#{name}\"\ntype: #{type}\n---\n\n#{body}\n"
+  # Include a `date:` field: real contexts always carry one, and it must not break
+  # frontmatter parsing (YAML.safe_load rejects Date unless permitted — regression
+  # guard for the bug the live e2e scan caught).
+  fm = "---\ntitle: \"#{name}\"\ndate: 2026-07-05\ntype: #{type}\n---\n\n#{body}\n"
   File.write(File.join(dir, "#{name}.md"), fm)
   "context://#{session_id}/#{name}"
 end
