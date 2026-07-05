@@ -56,6 +56,16 @@ constitutive:
     - handoff
     - decision
     - debrief
+  # ACT-2 semantic layer (Slice 3): the orchestrator applies this rubric to each
+  # proposal's preview before proposing to the human. Revisable — this is the criterion.
+  semantic_rubric: >
+    Propose a context for attestation when it records a judgment, decision, or outcome
+    whose "as recorded at the time" matters for a later audit — e.g. a handoff of state,
+    a design decision with rationale, or a debrief of what happened. Do NOT propose pure
+    scratch notes, transient status, or content with no decisional weight. When in doubt,
+    prefer proposing (the human gate, ACT-1, is the safeguard).
+  preview_chars: 300          # bounded excerpt surfaced per proposal
+  max_snapshot_bytes: 262144  # 256KB cap on an optional embedded snapshot
 
 challenge:
   response_timeout: 3600      # 1 hour

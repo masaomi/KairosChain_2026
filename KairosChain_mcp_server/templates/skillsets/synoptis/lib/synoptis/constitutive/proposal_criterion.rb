@@ -14,13 +14,20 @@ module Synoptis
     class ProposalCriterion
       DEFAULT_JUDGMENT_TYPES = %w[handoff decision debrief].freeze
 
-      def initialize(context_dir:, judgment_types: DEFAULT_JUDGMENT_TYPES)
+      DEFAULT_PREVIEW_CHARS = 300
+
+      def initialize(context_dir:, judgment_types: DEFAULT_JUDGMENT_TYPES,
+                     preview_chars: DEFAULT_PREVIEW_CHARS)
         @context_dir = context_dir
         @judgment_types = Array(judgment_types).map(&:to_s)
+        @preview_chars = preview_chars.to_i
       end
 
       # Returns an array of proposals:
-      #   { subject_id:, type:, content_state: }
+      #   { subject_id:, type:, content_state:, preview: }
+      # The `preview` (a bounded excerpt) lets the orchestrator apply semantic judgment
+      # (the LLM-semantic layer of ACT-2) over the frontmatter-filtered candidates before
+      # proposing to the human — without embedding an LLM call inside the tool.
       def propose(session_id:)
         session_dir = File.join(@context_dir, session_id.to_s)
         return [] unless Dir.exist?(session_dir)
@@ -35,7 +42,8 @@ module Synoptis
           {
             subject_id: uri,
             type: type.to_s,
-            content_state: SubjectRef.content_state(uri, context_dir: @context_dir)
+            content_state: SubjectRef.content_state(uri, context_dir: @context_dir),
+            preview: SubjectRef.content_preview(uri, context_dir: @context_dir, limit: @preview_chars)
           }
         end
       end

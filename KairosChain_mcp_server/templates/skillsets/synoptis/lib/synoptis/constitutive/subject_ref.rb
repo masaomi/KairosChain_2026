@@ -52,6 +52,23 @@ module Synoptis
         File.binread(resolve_path(uri, context_dir: context_dir))
       end
 
+      # The subject's persisted content as text (for an embedded snapshot, §Kinds/LED-3).
+      # The snapshot's SHA256 equals the entry's digest, so an auditor can verify the
+      # embedded text is exactly what was attested.
+      def content_text(uri, context_dir:)
+        read_bytes(uri, context_dir: context_dir).force_encoding('UTF-8')
+      end
+
+      # A bounded excerpt of the subject, for surfacing in a proposal so the orchestrator
+      # (and human) can apply semantic judgment without opening the file. Preview only —
+      # never the basis of the digest.
+      def content_preview(uri, context_dir:, limit: 300)
+        return nil unless exists?(uri, context_dir: context_dir)
+
+        text = content_text(uri, context_dir: context_dir)
+        text.length > limit ? "#{text[0, limit]}…" : text
+      end
+
       # SHA256 of the subject's persisted content bytes. Raises if the file is absent
       # (fail-closed: never attest content that does not exist).
       def digest(uri, context_dir:)

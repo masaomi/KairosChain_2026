@@ -45,12 +45,25 @@ module Synoptis
       @_proposal_criterion ||= Constitutive::ProposalCriterion.new(
         context_dir: context_root,
         judgment_types: constitutive_config['judgment_types'] ||
-          Constitutive::ProposalCriterion::DEFAULT_JUDGMENT_TYPES
+          Constitutive::ProposalCriterion::DEFAULT_JUDGMENT_TYPES,
+        preview_chars: constitutive_config['preview_chars'] ||
+          Constitutive::ProposalCriterion::DEFAULT_PREVIEW_CHARS
       )
     end
 
     def constitutive_config
       synoptis_config['constitutive'] || synoptis_config[:constitutive] || {}
+    end
+
+    # ACT-2: the human-readable rubric the orchestrator applies to previews (the
+    # LLM-semantic layer). Revisable by editing config; surfaced by scan so it is
+    # inspectable.
+    def constitutive_rubric
+      constitutive_config['semantic_rubric']
+    end
+
+    def snapshot_max_bytes
+      (constitutive_config['max_snapshot_bytes'] || 262_144).to_i
     end
 
     # Best-effort "current session": the most recently modified session dir under

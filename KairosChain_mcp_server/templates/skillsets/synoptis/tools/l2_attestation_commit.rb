@@ -48,7 +48,8 @@ module KairosMcp
                 subject: { type: 'string', description: 'The L2 context to attest, as a context:// URI.' },
                 approved: { type: 'boolean', description: 'Human approval. Must be true to append. Omitted/false returns the proposal without writing.' },
                 expected_digest: { type: 'string', description: 'ACT-3: the digest approved (from the proposal). If it no longer matches the live content, the append is refused.' },
-                expected_target_ref: { type: %w[string null], description: 'ACT-3: the entry_id the approval expects to supersede (from the proposal), or null for a first attestation. If the head moved, the append is refused.' }
+                expected_target_ref: { type: %w[string null], description: 'ACT-3: the entry_id the approval expects to supersede (from the proposal), or null for a first attestation. If the head moved, the append is refused.' },
+                embed_snapshot: { type: 'boolean', description: 'If true, embed the subject\'s current content as a snapshot in the entry (for audits needing the original text; §Kinds optional). The snapshot\'s SHA256 equals the digest.' }
               },
               required: %w[subject]
             }
@@ -104,12 +105,27 @@ module KairosMcp
               }))
             end
 
+            snapshot = nil
+            if arguments['embed_snapshot'] == true
+              if state[:bytes] > snapshot_max_bytes
+                return text_content(JSON.pretty_generate({
+                  status: 'snapshot_too_large',
+                  subject: subject,
+                  bytes: state[:bytes],
+                  max_snapshot_bytes: snapshot_max_bytes,
+                  note: 'Content exceeds the snapshot bound. Attest without embed_snapshot (the digest still proves change), or raise max_snapshot_bytes.'
+                }))
+              end
+              snapshot = ::Synoptis::Constitutive::SubjectRef.content_text(subject, context_dir: context_root)
+            end
+
             entry = ::Synoptis::Constitutive::ContentAttestationEntry.new(
               subject_id: subject,
               digest: state[:digest],
               digest_alg: state[:digest_alg],
               moment: Time.now.utc.iso8601,
-              target_ref: target_ref
+              target_ref: target_ref,
+              snapshot: snapshot
             )
             constitutive_chain.append_content_attestation(entry)
 

@@ -4,6 +4,33 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.37.0] - 2026-07-05
+
+### Added — Synoptis L2 attestation: semantic criterion + snapshot (Slice 3a)
+
+Matures the ACT-2 selection criterion and adds the optional content snapshot
+(§Kinds), without embedding an LLM call inside the tool (selective-survival: the
+in-Ruby LLM scoring is deferred until the frontmatter criterion is observed to be
+insufficient).
+
+- **Semantic layer (ACT-2)**: `l2_attestation_scan` now attaches a bounded content
+  `preview` to each proposal and surfaces a `rubric` (config `semantic_rubric`). The
+  orchestrator applies the rubric to the previews to decide which frontmatter-filtered
+  candidates to propose to the human — the LLM-semantic judgment lives in the
+  orchestrator, not in the tool. The criterion stays inspectable and revisable by
+  editing config (`judgment_types`, `semantic_rubric`, `preview_chars`).
+- **Snapshot (§Kinds optional)**: `l2_attestation_commit(embed_snapshot: true)` embeds
+  the subject's current content in the entry, so audits needing the original wording
+  have it (LED-2a preserves it). The snapshot's SHA256 equals the entry digest, so it is
+  self-verifying. Bounded by `max_snapshot_bytes` (default 256KB); oversize content is
+  refused (`snapshot_too_large`) rather than truncated.
+- `SubjectRef` gains `content_text` / `content_preview`.
+
+Deferred (until observed need): in-Ruby `llm_client` scoring of candidates; session-end
+auto-firing of the trigger (ACT-5 liveness is currently satisfied by explicit/orchestrator
+scan). 12 Slice-3 unit tests + 4 tool integration tests green; Slices 1 (35) and 2 (25)
+unchanged.
+
 ## [3.36.0] - 2026-07-05
 
 ### Added — Synoptis L2 attestation: supersession + revocation (Slice 2)

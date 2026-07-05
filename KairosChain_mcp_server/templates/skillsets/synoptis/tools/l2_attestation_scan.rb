@@ -56,8 +56,9 @@ module KairosMcp
               status: 'proposed',
               session_id: session_id,
               surfaced_count: proposals.length,
+              rubric: constitutive_rubric,
               proposals: proposals,
-              note: 'Approve each via l2_attestation_commit(subject:, approved: true), or record a decline via l2_attestation_decline(subject:).'
+              note: 'ACT-2 semantic layer: apply the rubric to each proposal\'s preview, then propose the ones that qualify to the human. Approve via l2_attestation_commit(subject:, approved: true) (optionally embed_snapshot: true), or record a decline via l2_attestation_decline(subject:).'
             }))
           rescue StandardError => e
             text_content(JSON.pretty_generate({ status: 'error', message: e.message }))
