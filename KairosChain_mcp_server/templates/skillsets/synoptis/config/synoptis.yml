@@ -47,6 +47,16 @@ trust_v2:
     integrity_verified: 0.60
     default: 0.50
 
+# Constitutive L2 attestation (Slice 1) — dedicated append-only ledger + operational
+# log on Synoptis's FileRegistry chain machinery (NOT the Meta Ledger). Design v0.9.
+constitutive:
+  digest_alg: sha256
+  # ACT-2 first-cut criterion (revisable): propose only judgment-bearing L2 contexts.
+  judgment_types:
+    - handoff
+    - decision
+    - debrief
+
 challenge:
   response_timeout: 3600      # 1 hour
   max_active_per_subject: 5

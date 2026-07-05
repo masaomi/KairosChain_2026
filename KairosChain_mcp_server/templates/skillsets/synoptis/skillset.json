@@ -15,7 +15,10 @@
     "KairosMcp::SkillSets::Synoptis::Tools::AttestationList",
     "KairosMcp::SkillSets::Synoptis::Tools::TrustQuery",
     "KairosMcp::SkillSets::Synoptis::Tools::ChallengeCreate",
-    "KairosMcp::SkillSets::Synoptis::Tools::ChallengeRespond"
+    "KairosMcp::SkillSets::Synoptis::Tools::ChallengeRespond",
+    "KairosMcp::SkillSets::Synoptis::Tools::L2AttestationScan",
+    "KairosMcp::SkillSets::Synoptis::Tools::L2AttestationCommit",
+    "KairosMcp::SkillSets::Synoptis::Tools::L2AttestationDecline"
   ],
   "config_files": ["config/synoptis.yml"],
   "knowledge_dirs": ["knowledge/synoptis_protocol"]

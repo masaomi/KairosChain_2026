@@ -3,6 +3,7 @@
 require 'json'
 require 'digest'
 require 'fileutils'
+require 'time'
 
 module Synoptis
   module Registry
@@ -78,6 +79,26 @@ module Synoptis
       def list_challenges(filter: {})
         records = read_records(:challenges)
         apply_filter(records, filter)
+      end
+
+      # --- Generic append-only access (constitutive attestation reuse) ---
+      # Append any record to a named store type with the same append-only + hash-chain
+      # discipline as the typed stores above (LED-2a). Returns the stored record (with
+      # the _type / _stored_at / _prev_entry_hash envelope fields). Additive and
+      # non-breaking: the typed proof/revocation/challenge methods are unchanged.
+
+      def append(type, record)
+        full = record.merge(
+          _type: type.to_s,
+          _stored_at: Time.now.utc.iso8601,
+          _prev_entry_hash: last_entry_hash(type)
+        )
+        append_record(type, full)
+        full
+      end
+
+      def read(type)
+        read_records(type)
       end
 
       # --- Chain verification (Proposition 5) ---

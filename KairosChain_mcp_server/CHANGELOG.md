@@ -4,6 +4,39 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.35.0] - 2026-07-05
+
+### Added — Synoptis: L2 constitutive attestation (Slice 1)
+
+First slice of the L2 attestation capability (design v0.9 FROZEN, 6/6 unanimous),
+extending the Synoptis SkillSet. Enters selected L2 judgments into a dedicated
+append-only attestation ledger — a dated line stating "at moment T, subject X had
+digest D" — with a propose-only activation policy so entries actually get made
+(the system proposes; the human approves).
+
+New constitutive module (siblings to the trust engine; the existing attestation
+engine, verifier, revocation manager, and trust scorer are untouched):
+`constitutive/{content_attestation_entry,subject_ref,attestation_chain,proposal_criterion}`.
+
+Three tools: `l2_attestation_scan` (ACT-5+ACT-2: actively proposes a session's
+judgment-bearing contexts — frontmatter type handoff/decision/debrief — and logs a
+trigger record), `l2_attestation_commit` (ACT-1: `approved: true` two-call human
+gate appends one content-attestation `(subject, digest, moment)`; digest = SHA256
+of the subject's persisted bytes), `l2_attestation_decline` (ACT-4: content-free
+decline record).
+
+Two dedicated append-only stores on Synoptis's FileRegistry chain machinery,
+neither the Meta Ledger (LED-5): `l2_attestation.jsonl` (human-approved) and
+`l2_operational_log.jsonl` (telemetry). FileRegistry gains additive generic
+`append`/`read`; no existing behaviour changed. Posture is flat — workflow-level
+human approval, no cryptographic consent signal, never exceeding the L0/L1 posture
+(LED-6).
+
+Invariants satisfied this slice: LED-1, LED-2a, LED-3, LED-5, ACT-1, ACT-2 (simple
+frontmatter criterion, revisable), ACT-4, ACT-5. Deferred to later slices: LED-2b
+(lineage/supersession), LED-6 (anchoring), ACT-3 (approval-to-digest binding).
+35 unit tests (`test_l2_constitutive_slice1.rb`) green.
+
 ## [3.34.0] - 2026-07-03
 
 ### Added — L1 knowledge (dev repo): loop_validation
