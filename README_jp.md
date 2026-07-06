@@ -147,16 +147,6 @@ KairosChainは、自己管理型で進化可能なAIスキル定義のためのM
   - [チャレンジワークフロー](#チャレンジワークフロー)
   - [トランスポート層](#トランスポート層)
   - [依存関係](#依存関係)
-- [将来のロードマップ](#将来のロードマップ)
-  - [完了済みフェーズ](#完了済みフェーズ)
-  - [近期](#近期)
-  - [長期ビジョン：分散KairosChainネットワーク](#長期ビジョン：分散kairoschainネットワーク)
-- [デプロイと運用](#デプロイと運用)
-  - [データストレージの概要](#データストレージの概要)
-  - [ブロックチェーンのストレージ形式](#ブロックチェーンのストレージ形式)
-  - [推奨運用パターン](#推奨運用パターン)
-  - [バックアップ戦略](#バックアップ戦略)
-  - [ドキュメント管理](#ドキュメント管理)
 - [セットアップ](#セットアップ)
 - [開発サイクル](#開発サイクル)
 - [昇格先の選択](#昇格先の選択)
@@ -170,6 +160,16 @@ KairosChainは、自己管理型で進化可能なAIスキル定義のためのM
   - [3. バージョンとチェンジログ](#3-バージョンとチェンジログ)
   - [4. Gem のビルドと公開](#4-gem-のビルドと公開)
 - [これが意味しないもの](#これが意味しないもの)
+- [将来のロードマップ](#将来のロードマップ)
+  - [完了済みフェーズ](#完了済みフェーズ)
+  - [近期](#近期)
+  - [長期ビジョン：分散KairosChainネットワーク](#長期ビジョン：分散kairoschainネットワーク)
+- [デプロイと運用](#デプロイと運用)
+  - [データストレージの概要](#データストレージの概要)
+  - [ブロックチェーンのストレージ形式](#ブロックチェーンのストレージ形式)
+  - [推奨運用パターン](#推奨運用パターン)
+  - [バックアップ戦略](#バックアップ戦略)
+  - [ドキュメント管理](#ドキュメント管理)
 - [FAQ](#faq)
   - [Q: LLMはL1/L2を自動的に改変しますか？](#q-llmはl1l2を自動的に改変しますか？)
   - [Q: どのレイヤーに知識を保存すべきか、どう判断すればよいですか？](#q-どのレイヤーに知識を保存すべきか、どう判断すればよいですか？)
@@ -1036,7 +1036,10 @@ Usage: kairos-chain [command] [options]
     --data-dir DIR  データディレクトリのパス（デフォルト: カレントディレクトリの .kairos/）
     --http          Streamable HTTPモードで起動（デフォルト: stdio）
     --port PORT     HTTPポート（デフォルト: 8080）
-    --host HOST     HTTPバインドホスト（デフォルト: 0.0.0.0）
+    --host HOST     HTTPバインドホスト（デフォルト: config の http.host、無ければ 127.0.0.1）
+    --tls           内蔵TLS/HTTPSを有効化（証明書が必要 — --gen-cert を参照）
+    --gen-cert      自己署名のTLS証明書/鍵を生成して終了
+    --cert-host HOST  生成する証明書のSANにホスト名/IPを追加（繰り返し指定可）
     --init-admin    初期管理者トークンを生成して終了
     --token-store PATH  トークンストアファイルのパス
     -v, --version   バージョン表示
@@ -1044,11 +1047,34 @@ Usage: kairos-chain [command] [options]
 
 環境変数:
     KAIROS_DATA_DIR   データディレクトリのパスを上書き
+    KAIROS_ALLOW_OPEN_ENDPOINT  1 にすると、ネットワーク到達可能なバインドでもトークン無しで起動（危険）
 ```
 
-#### 本番環境でのHTTPSデプロイ
+#### HTTPS / TLS
 
-本番運用では、Pumaの前段にリバースプロキシを配置してTLS/HTTPSを処理します。Puma内部はプレーンHTTPのみを処理し、リバースプロキシがSSLを終端します。
+MCPエンドポイントをTLSで提供する方法は2つあります。暗号化は常に Puma/OpenSSL が行い、KairosChain は通信路（平文HTTP か TLS か）を選ぶだけです。
+
+**オプションA: 内蔵TLS（単独運用者 / 遠隔アクセス）**
+
+KairosChain は自分でTLSを終端できるので、別途プロキシを立てなくても自ホストのインスタンスに安全に接続できます。
+
+```bash
+# 1. 自己署名の証明書/鍵を一度だけ生成（<data-dir>/storage/tls/ に出力）。
+#    接続に使うホスト名/IPを含めておくと、証明書の検証が通ります:
+kairos-chain --gen-cert --cert-host myhost.example.com
+
+# 2. TLSで起動（または skills/config.yml で http.tls.enabled: true を設定）:
+kairos-chain --http --tls
+```
+
+補足:
+- 証明書は自己署名なので、クライアント（Cursor / Claude Code）側で信頼する（または検証を無効化する）必要があります。認証局発行の証明書が必要な場合はオプションBを使ってください。
+- 証明書には有効期限（既定で約2年）があります。サーバは起動時に期限を記録し、期限が近いと警告します。更新は、古い証明書を削除して `--gen-cert` を再実行します。
+- 管理者トークンが未設定の場合、ネットワーク到達可能なバインドでは起動を拒否します（無認証のowner露出になるため）。先に `--init-admin` を実行するか、意図的に無認証で起動する場合は `KAIROS_ALLOW_OPEN_ENDPOINT=1` を設定します。
+
+**オプションB: リバースプロキシ（公開 / マルチユーザー）**
+
+公開・マルチユーザー運用では、Pumaの前段にリバースプロキシを配置します。プロキシが認証局発行の証明書でTLSを終端します。
 
 ```
 クライアント (Cursor) ──HTTPS──▶ リバースプロキシ ──HTTP──▶ Puma (:8080)
@@ -1056,7 +1082,7 @@ Usage: kairos-chain [command] [options]
                                  TLS終端
 ```
 
-**オプションA: Caddy（推奨 — 最もシンプル）**
+**Caddy（推奨 — 最もシンプル）**
 
 CaddyはLet's Encrypt証明書による自動HTTPS（TLSの設定不要）を提供します。
 
@@ -3313,6 +3339,190 @@ Synoptis は複数のトランスポート機構をサポートします：
 
 ---
 
+# KairosChain 自己開発ワークフロー
+
+KairosChainの開発自体が、KairosChainをナレッジ管理レイヤーとして使用します。
+これは構造的自己言及性（命題7）を開発プロセスレベルで実現するものです：
+システムを設計する行為が、システム内の操作となります。
+
+## セットアップ
+
+プロジェクトルートに `.kairos/` データディレクトリを初期化します：
+
+```bash
+cd KairosChain_2026
+kairos-chain init
+```
+
+`.kairos/` は `.gitignore` に含まれています — ランタイムデータはローカルに留まり、
+検証済みの知識は明示的なcommitを通じてコードベースに昇格されます。
+
+## 開発サイクル
+
+```
+┌─────────────────────────────────────────────────┐
+│  1. KairosChainで開発する                        │
+│     - context_save (L2) でセッション作業を記録   │
+│     - knowledge_update (L1) で発見を記録         │
+│     - skills_evolve (L0) でメタルール変更        │
+│                                                 │
+│  2. コードベースに昇格する                       │
+│     - .kairos/ から KairosChain_mcp_server/ へ   │
+│       検証済みスキル/知識をコピー                 │
+│     - 必要に応じてコアコードを直接編集           │
+│     - git commit                                │
+│                                                 │
+│  3. 再構成する                                   │
+│     - gem build + gem install                   │
+│     - kairos-chain upgrade                      │
+│     - .kairos/ が新しいテンプレートで更新される  │
+│                                                 │
+│  (ループ: 更新されたシステムがステップ1で使われる)│
+└─────────────────────────────────────────────────┘
+```
+
+各commitはKairos的瞬間（命題5）です：システムは自身の使用を通じて発見された知識により、
+不可逆的に自己を再構成します。
+
+## 昇格先の選択
+
+`.kairos/` からコードベースにコピーする際、適切なコピー先を選択します：
+
+| .kairos/ のソース | コピー先 | 効果 |
+|-------------------|---------|------|
+| `knowledge/{name}/` | `templates/knowledge/{name}/` | `kairos-chain init` で全ユーザーに配布 |
+| `knowledge/{name}/` | `knowledge/{name}/` | 開発リポジトリ内のみ |
+| `skills/kairos.rb` の変更 | `templates/skills/kairos.rb` | 全ユーザーのデフォルトL0を変更 |
+| `skillsets/{name}/` | `templates/skillsets/{name}/` | 新しいSkillSetを全ユーザーに配布 |
+
+新しいパターンは `knowledge/`（開発専用）から始めます。
+複数の開発サイクルで価値が証明されてから `templates/` に昇格します。
+
+## 順序制約
+
+発見したパターンが `kairos-chain init` や `upgrade` の動作自体を変更する場合：
+
+1. `lib/` のコアコードを直接編集する（`.kairos/` 経由ではなく）
+2. テスト実行：`rake test`
+3. commit して gem を再ビルド
+4. `kairos-chain upgrade` で `.kairos/` に変更を適用
+
+これにより、アップグレード対象のツール自身でアップグレードを行う
+鶏と卵の問題を回避します。
+
+## 哲学的根拠
+
+このワークフローはいくつかの核心的命題を直接実現しています：
+
+- **命題5**（構成的記録）：各commitはシステムの存在の新しいバージョンを
+  単に記録するのではなく、構成します。
+- **命題6**（駆動力としての不完全性）：KairosChainを自己開発に使うことで
+  不可避的にギャップが明らかになり、それが進化を駆動します。
+- **命題7**（設計-実装の閉合）：設計する行為（KairosChainを使う）と
+  実装する行為（KairosChainをコーディングする）が同一の操作構造内で行われます。
+- **命題9**（人間-システム複合体）：自己言及的使用における開発者のメタ認知的
+  観察がシステムの境界を構成します。
+
+## インストラクションモード：`self_developer`
+
+KairosChain開発用のカスタムインストラクションモード（`self_developer`）が利用可能です。
+developerモードを拡張し、自己開発固有の振る舞いを追加しています：
+
+- セッション開始時に `kairoschain_self_development` ナレッジを自動読み込み
+- proactive tool usage による完全なL0哲学（`kairos.md`）の参照
+- 昇格ガイドラインと順序制約の組み込み
+
+有効化：
+
+```
+instructions_update(command: "set_mode", mode_name: "self_developer")
+```
+
+標準のdeveloperモードに戻す場合：
+
+```
+instructions_update(command: "set_mode", mode_name: "developer")
+```
+
+## 将来：共同自己開発
+
+複数のコントリビューターがKairosChain開発に参加した際、
+以下の進化を計画しています：
+
+1. **`self_developer` モードをテンプレートに昇格**：`self_developer.md` を
+   `templates/skills/` に移動し、`kairos-chain init` で配布
+2. **現在の `developer` モードを置き換え**：`self_developer` を `developer` に
+   リネームし、自己言及的ワークフローを全KairosChainコントリビューターの
+   デフォルトに
+3. **このナレッジをテンプレートに昇格**：`kairoschain_self_development` を
+   `templates/knowledge/` に移動して配布
+
+これは標準的な昇格パターンに従います：開発リポジトリ（`knowledge/`）から始め、
+使用を通じて価値を証明し、`templates/` に昇格して全ユーザーに配布します。
+
+## SkillSet リリースチェックリスト
+
+新しい SkillSet の実装とテストが完了したら、以下のチェックリストに従ってリリースします：
+
+### 1. README 用 L1 Knowledge の作成
+
+`readme_order` と `readme_lang` フロントマターを持つ L1 knowledge ファイル（EN + JP）を
+作成し、自動生成される README に SkillSet が含まれるようにします：
+
+```
+KairosChain_mcp_server/knowledge/{skillset_name}/
+  {skillset_name}.md          # readme_order: N, readme_lang: en
+KairosChain_mcp_server/knowledge/{skillset_name}_jp/
+  {skillset_name}_jp.md       # readme_order: N, readme_lang: jp
+```
+
+配布用にテンプレートにもコピー：
+
+```
+KairosChain_mcp_server/templates/knowledge/{skillset_name}/
+KairosChain_mcp_server/templates/knowledge/{skillset_name}_jp/
+```
+
+### 2. README の再生成
+
+```bash
+ruby scripts/build_readme.rb          # または: rake build_readme
+ruby scripts/build_readme.rb --check  # 最新状態の確認
+```
+
+`readme_order`/`readme_lang` フロントマターを持つ全 L1 knowledge ファイルを読み取り、
+ヘッダー/フッターテンプレートと組み合わせて、プロジェクトルートに
+`README.md` + `README_jp.md` を生成します。
+
+### 3. バージョンとチェンジログ
+
+1. `lib/kairos_mcp/version.rb` のバージョンを更新
+2. `CHANGELOG.md` にエントリを追加（既存のフォーマットに従う）
+3. 全変更をコミット
+4. タグ付け：`git tag v{VERSION}`
+
+### 4. Gem のビルドと公開
+
+```bash
+cd KairosChain_mcp_server
+gem build kairos-chain.gemspec
+gem install kairos-chain-{VERSION}.gem   # ローカルテスト
+gem push kairos-chain-{VERSION}.gem      # 公開（テスト後）
+```
+
+このチェックリストは `self_developer` モードの AI アシスタントが
+SkillSet の実装とテスト完了時に自動的に提案すべきものです。
+
+## これが意味しないもの
+
+- すべての開発タスクにKairosChainを使うことを要求するものではありません。
+  シンプルなツールの方が適切な場合はそちらを使ってください。
+- 閉じたループではありません。外部基盤（Ruby VM、git、gemインフラ）は
+  自己言及的境界の外に留まります。これは意図的です
+  （「十分な自己言及性」、命題1）。
+
+---
+
 ## 将来のロードマップ
 
 ### 完了済みフェーズ
@@ -3627,190 +3837,6 @@ ruby scripts/build_readme.rb --help
 - **セマンティック検索**: MCP経由でRAG対応の全ドキュメント検索が可能
 
 ---
-
----
-
-# KairosChain 自己開発ワークフロー
-
-KairosChainの開発自体が、KairosChainをナレッジ管理レイヤーとして使用します。
-これは構造的自己言及性（命題7）を開発プロセスレベルで実現するものです：
-システムを設計する行為が、システム内の操作となります。
-
-## セットアップ
-
-プロジェクトルートに `.kairos/` データディレクトリを初期化します：
-
-```bash
-cd KairosChain_2026
-kairos-chain init
-```
-
-`.kairos/` は `.gitignore` に含まれています — ランタイムデータはローカルに留まり、
-検証済みの知識は明示的なcommitを通じてコードベースに昇格されます。
-
-## 開発サイクル
-
-```
-┌─────────────────────────────────────────────────┐
-│  1. KairosChainで開発する                        │
-│     - context_save (L2) でセッション作業を記録   │
-│     - knowledge_update (L1) で発見を記録         │
-│     - skills_evolve (L0) でメタルール変更        │
-│                                                 │
-│  2. コードベースに昇格する                       │
-│     - .kairos/ から KairosChain_mcp_server/ へ   │
-│       検証済みスキル/知識をコピー                 │
-│     - 必要に応じてコアコードを直接編集           │
-│     - git commit                                │
-│                                                 │
-│  3. 再構成する                                   │
-│     - gem build + gem install                   │
-│     - kairos-chain upgrade                      │
-│     - .kairos/ が新しいテンプレートで更新される  │
-│                                                 │
-│  (ループ: 更新されたシステムがステップ1で使われる)│
-└─────────────────────────────────────────────────┘
-```
-
-各commitはKairos的瞬間（命題5）です：システムは自身の使用を通じて発見された知識により、
-不可逆的に自己を再構成します。
-
-## 昇格先の選択
-
-`.kairos/` からコードベースにコピーする際、適切なコピー先を選択します：
-
-| .kairos/ のソース | コピー先 | 効果 |
-|-------------------|---------|------|
-| `knowledge/{name}/` | `templates/knowledge/{name}/` | `kairos-chain init` で全ユーザーに配布 |
-| `knowledge/{name}/` | `knowledge/{name}/` | 開発リポジトリ内のみ |
-| `skills/kairos.rb` の変更 | `templates/skills/kairos.rb` | 全ユーザーのデフォルトL0を変更 |
-| `skillsets/{name}/` | `templates/skillsets/{name}/` | 新しいSkillSetを全ユーザーに配布 |
-
-新しいパターンは `knowledge/`（開発専用）から始めます。
-複数の開発サイクルで価値が証明されてから `templates/` に昇格します。
-
-## 順序制約
-
-発見したパターンが `kairos-chain init` や `upgrade` の動作自体を変更する場合：
-
-1. `lib/` のコアコードを直接編集する（`.kairos/` 経由ではなく）
-2. テスト実行：`rake test`
-3. commit して gem を再ビルド
-4. `kairos-chain upgrade` で `.kairos/` に変更を適用
-
-これにより、アップグレード対象のツール自身でアップグレードを行う
-鶏と卵の問題を回避します。
-
-## 哲学的根拠
-
-このワークフローはいくつかの核心的命題を直接実現しています：
-
-- **命題5**（構成的記録）：各commitはシステムの存在の新しいバージョンを
-  単に記録するのではなく、構成します。
-- **命題6**（駆動力としての不完全性）：KairosChainを自己開発に使うことで
-  不可避的にギャップが明らかになり、それが進化を駆動します。
-- **命題7**（設計-実装の閉合）：設計する行為（KairosChainを使う）と
-  実装する行為（KairosChainをコーディングする）が同一の操作構造内で行われます。
-- **命題9**（人間-システム複合体）：自己言及的使用における開発者のメタ認知的
-  観察がシステムの境界を構成します。
-
-## インストラクションモード：`self_developer`
-
-KairosChain開発用のカスタムインストラクションモード（`self_developer`）が利用可能です。
-developerモードを拡張し、自己開発固有の振る舞いを追加しています：
-
-- セッション開始時に `kairoschain_self_development` ナレッジを自動読み込み
-- proactive tool usage による完全なL0哲学（`kairos.md`）の参照
-- 昇格ガイドラインと順序制約の組み込み
-
-有効化：
-
-```
-instructions_update(command: "set_mode", mode_name: "self_developer")
-```
-
-標準のdeveloperモードに戻す場合：
-
-```
-instructions_update(command: "set_mode", mode_name: "developer")
-```
-
-## 将来：共同自己開発
-
-複数のコントリビューターがKairosChain開発に参加した際、
-以下の進化を計画しています：
-
-1. **`self_developer` モードをテンプレートに昇格**：`self_developer.md` を
-   `templates/skills/` に移動し、`kairos-chain init` で配布
-2. **現在の `developer` モードを置き換え**：`self_developer` を `developer` に
-   リネームし、自己言及的ワークフローを全KairosChainコントリビューターの
-   デフォルトに
-3. **このナレッジをテンプレートに昇格**：`kairoschain_self_development` を
-   `templates/knowledge/` に移動して配布
-
-これは標準的な昇格パターンに従います：開発リポジトリ（`knowledge/`）から始め、
-使用を通じて価値を証明し、`templates/` に昇格して全ユーザーに配布します。
-
-## SkillSet リリースチェックリスト
-
-新しい SkillSet の実装とテストが完了したら、以下のチェックリストに従ってリリースします：
-
-### 1. README 用 L1 Knowledge の作成
-
-`readme_order` と `readme_lang` フロントマターを持つ L1 knowledge ファイル（EN + JP）を
-作成し、自動生成される README に SkillSet が含まれるようにします：
-
-```
-KairosChain_mcp_server/knowledge/{skillset_name}/
-  {skillset_name}.md          # readme_order: N, readme_lang: en
-KairosChain_mcp_server/knowledge/{skillset_name}_jp/
-  {skillset_name}_jp.md       # readme_order: N, readme_lang: jp
-```
-
-配布用にテンプレートにもコピー：
-
-```
-KairosChain_mcp_server/templates/knowledge/{skillset_name}/
-KairosChain_mcp_server/templates/knowledge/{skillset_name}_jp/
-```
-
-### 2. README の再生成
-
-```bash
-ruby scripts/build_readme.rb          # または: rake build_readme
-ruby scripts/build_readme.rb --check  # 最新状態の確認
-```
-
-`readme_order`/`readme_lang` フロントマターを持つ全 L1 knowledge ファイルを読み取り、
-ヘッダー/フッターテンプレートと組み合わせて、プロジェクトルートに
-`README.md` + `README_jp.md` を生成します。
-
-### 3. バージョンとチェンジログ
-
-1. `lib/kairos_mcp/version.rb` のバージョンを更新
-2. `CHANGELOG.md` にエントリを追加（既存のフォーマットに従う）
-3. 全変更をコミット
-4. タグ付け：`git tag v{VERSION}`
-
-### 4. Gem のビルドと公開
-
-```bash
-cd KairosChain_mcp_server
-gem build kairos-chain.gemspec
-gem install kairos-chain-{VERSION}.gem   # ローカルテスト
-gem push kairos-chain-{VERSION}.gem      # 公開（テスト後）
-```
-
-このチェックリストは `self_developer` モードの AI アシスタントが
-SkillSet の実装とテスト完了時に自動的に提案すべきものです。
-
-## これが意味しないもの
-
-- すべての開発タスクにKairosChainを使うことを要求するものではありません。
-  シンプルなツールの方が適切な場合はそちらを使ってください。
-- 閉じたループではありません。外部基盤（Ruby VM、git、gemインフラ）は
-  自己言及的境界の外に留まります。これは意図的です
-  （「十分な自己言及性」、命題1）。
 
 ---
 
@@ -5299,7 +5325,7 @@ ProjectA/                           ProjectB/
 
 ---
 
-**バージョン**: 3.25.0
-**最終更新**: 2026-05-07
+**バージョン**: 3.39.0
+**最終更新**: 2026-07-06
 
 > *「KairosChainは『この結果は正しいか？』ではなく『この知性はどのように形成されたか？』に答えます」*
