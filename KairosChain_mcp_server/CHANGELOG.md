@@ -4,6 +4,37 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.40.0] - 2026-07-06
+
+### Added — Optional built-in TLS/HTTPS for the HTTP transport
+
+Opt-in TLS termination for the Puma-based MCP HTTP server, so a self-hosted
+instance can be reached securely over the network without a reverse proxy.
+Encryption is delegated to Puma/OpenSSL (Prop 2: transport is execution
+substrate); KairosChain only selects the bind scheme and can generate a
+self-signed certificate for single-operator use. Default remains plain HTTP
+(backward compatible).
+
+- **`TlsConfig`** — `tcp://` vs `ssl://` bind selection, fail-closed validation
+  (exists + readable + valid PEM + cert/key pair match), IPv6 host bracketing,
+  certificate-expiry reporting.
+- **`TlsCertGenerator`** — self-signed leaf certificate via the OpenSSL stdlib:
+  `CA:FALSE`, `keyUsage` + `extendedKeyUsage=serverAuth`, SAN built from a host
+  list (loopback + system hostname + config host + `--cert-host`), positive
+  serial, atomic `0600` private-key write.
+- **`HttpServer`** — `--tls` bind, startup certificate-expiry warning, and
+  fail-closed refusal to start an unauthenticated endpoint on a network-reachable
+  bind (override with `KAIROS_ALLOW_OPEN_ENDPOINT=1`).
+- **CLI** — `--tls`, `--gen-cert`, `--cert-host`; `--init-admin` sample URL
+  scheme resolved from config + flag.
+- **Config** — `http.tls` block (default disabled).
+- **Docs** — `kairoschain_setup` knowledge (en/jp) documents built-in TLS
+  (Option A) alongside the reverse-proxy path (Option B).
+
+Reviewed via a 2-round multi-LLM review (R1 raised 3 P1 + P2s; R2 verified all
+resolved). 36/36 HTTP tests pass; verified end-to-end with a real
+certificate-verified HTTPS handshake and the fail-closed guard matrix.
+
 ## [3.39.0] - 2026-07-05
 
 ### Added — L1 `multi_llm_review_workflow` v3.5 → v3.6: Step 0.25 Unknowns Pass
