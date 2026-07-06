@@ -654,7 +654,10 @@ Options:
     --data-dir DIR  Data directory path (default: .kairos/ in current dir)
     --http          Start in Streamable HTTP mode (default: stdio)
     --port PORT     HTTP port (default: 8080)
-    --host HOST     HTTP bind host (default: 0.0.0.0)
+    --host HOST     HTTP bind host (default: config http.host, else 127.0.0.1)
+    --tls           Enable built-in TLS/HTTPS (requires a cert — see --gen-cert)
+    --gen-cert      Generate a self-signed TLS cert/key and exit
+    --cert-host HOST  Add a hostname/IP to the generated cert SAN (repeatable)
     --init-admin    Generate initial admin token and exit
     --token-store PATH  Path to token store file
     -v, --version   Show version
@@ -662,11 +665,41 @@ Options:
 
 Environment Variables:
     KAIROS_DATA_DIR   Override data directory path
+    KAIROS_ALLOW_OPEN_ENDPOINT  Set to 1 to start without a token on a network-reachable bind (unsafe)
 ```
 
-#### Production Deployment with HTTPS
+#### HTTPS / TLS
 
-For production use, place a reverse proxy in front of Puma to handle TLS/HTTPS. Puma only handles plain HTTP internally; the reverse proxy terminates SSL.
+There are two ways to serve the MCP endpoint over TLS. Encryption is always performed by
+Puma/OpenSSL — KairosChain only selects the transport (plain HTTP vs TLS).
+
+**Option A: Built-in TLS (single operator / remote access)**
+
+KairosChain can terminate TLS itself, so a self-hosted instance can be reached securely
+without a separate proxy.
+
+```bash
+# 1. Generate a self-signed cert/key once (written to <data-dir>/storage/tls/).
+#    Include every hostname/IP you connect by, so certificate verification passes:
+kairos-chain --gen-cert --cert-host myhost.example.com
+
+# 2. Start with TLS (or set http.tls.enabled: true in skills/config.yml):
+kairos-chain --http --tls
+```
+
+Notes:
+- The certificate is self-signed, so the client (Cursor / Claude Code) must trust it
+  (or disable verification). For a CA-issued certificate, use Option B.
+- Certificates expire (default ~2 years). The server logs the expiry at startup and
+  warns when it is near; regenerate by deleting the old cert and running `--gen-cert` again.
+- If no admin token is configured, KairosChain refuses to start on a network-reachable
+  bind (that would be an open owner endpoint). Run `--init-admin` first, or set
+  `KAIROS_ALLOW_OPEN_ENDPOINT=1` to start without authentication intentionally.
+
+**Option B: Reverse proxy (public / multi-user)**
+
+For a public or multi-user deployment, place a reverse proxy in front of Puma; the proxy
+terminates TLS with a CA-issued certificate.
 
 ```
 Client (Cursor) ──HTTPS──▶ Reverse Proxy ──HTTP──▶ Puma (:8080)
@@ -674,7 +707,7 @@ Client (Cursor) ──HTTPS──▶ Reverse Proxy ──HTTP──▶ Puma (:80
                            TLS termination
 ```
 
-**Option A: Caddy (Recommended — Simplest)**
+**Caddy (Recommended — Simplest)**
 
 Caddy provides automatic HTTPS with Let's Encrypt certificates (zero configuration for TLS).
 

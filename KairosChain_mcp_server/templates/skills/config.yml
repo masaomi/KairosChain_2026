@@ -191,6 +191,21 @@ http:
   default_token_expiry_days: 90           # Default token expiry (days)
 
   # -----------------------------------------------------------------------
+  # TLS (HTTPS) — optional transport encryption for remote access
+  # -----------------------------------------------------------------------
+  # Encryption is delegated to Puma/OpenSSL; KairosChain only selects the
+  # bind scheme (Prop 2: transport is execution substrate, not core logic).
+  # For a single operator, generate a self-signed cert once, then enable:
+  #     kairos-chain --gen-cert
+  #     kairos-chain --http --tls        # or set enabled: true below
+  # For a public service, prefer a reverse proxy (e.g. Caddy) with a
+  # CA-issued certificate instead of a self-signed cert.
+  tls:
+    enabled: false                        # opt-in; false = plain HTTP (default)
+    cert: "storage/tls/cert.pem"          # certificate path (relative to data dir)
+    key:  "storage/tls/key.pem"           # private key path (chmod 0600)
+
+  # -----------------------------------------------------------------------
   # Phase 2 (Future): Role-Based Authorization
   # -----------------------------------------------------------------------
   # Roles:

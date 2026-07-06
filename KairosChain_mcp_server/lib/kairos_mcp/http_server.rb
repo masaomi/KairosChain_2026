@@ -9,6 +9,7 @@ require_relative '../kairos_mcp'
 require_relative 'auth/token_store'
 require_relative 'auth/authenticator'
 require_relative 'skills_config'
+require_relative 'tls_config'
 require_relative 'admin/router'
 require_relative 'meeting_router'
 
@@ -39,13 +40,18 @@ module KairosMcp
       'Cache-Control' => 'no-cache'
     }.freeze
 
-    attr_reader :port, :host, :token_store, :authenticator, :admin_router, :meeting_router, :place_router
+    attr_reader :port, :host, :token_store, :authenticator, :admin_router,
+                :meeting_router, :place_router, :tls
 
-    def initialize(port: nil, host: nil, token_store_path: nil)
+    def initialize(port: nil, host: nil, token_store_path: nil, tls: nil)
       http_config = SkillsConfig.load['http'] || {}
 
       @port = port || http_config['port'] || DEFAULT_PORT
       @host = host || http_config['host'] || DEFAULT_HOST
+
+      # TLS is opt-in and delegated to Puma/OpenSSL (Prop 2: execution
+      # substrate). `tls: true` from the CLI (--tls) overrides the config.
+      @tls = TlsConfig.new(http_config, data_dir: KairosMcp.data_dir, force_enabled: tls)
 
       # SkillSets must load BEFORE TokenStore.create so that plugins
       # (e.g. Multiuser) can register alternative backends first.
@@ -79,6 +85,7 @@ module KairosMcp
     def run
       KairosMcp.http_server = self
       check_dependencies!
+      check_tls!
       check_tokens!
       check_version_mismatch
       auto_start_meeting_place
@@ -87,7 +94,9 @@ module KairosMcp
       server = self
 
       log "Starting KairosChain MCP Server v#{VERSION} (Streamable HTTP)"
-      log "Listening on #{@host}:#{@port}"
+      log "Listening on #{@tls.scheme}://#{@host}:#{@port}"
+      log "TLS: #{@tls.enabled? ? "enabled (cert: #{@tls.cert_path})" : 'disabled (plain HTTP)'}"
+      log_tls_expiry
       log "MCP endpoint: POST /mcp"
       log "Health check: GET /health"
       log "Admin UI:     GET /admin"
@@ -99,7 +108,7 @@ module KairosMcp
       require 'puma/launcher'
 
       puma_config = Puma::Configuration.new do |config|
-        config.bind "tcp://#{server.host}:#{server.port}"
+        config.bind server.bind_uri
         config.app app
         config.workers 0
         config.threads 1, 5
@@ -176,6 +185,7 @@ module KairosMcp
         server: 'kairos-chain',
         version: KairosMcp::VERSION,
         transport: 'streamable-http',
+        tls: @tls.enabled?,
         tokens_configured: !@token_store.empty?,
         place_started: !@place_router.nil?
       }
@@ -296,7 +306,62 @@ module KairosMcp
       [status, JSON_HEADERS, [body_hash.to_json]]
     end
 
+    # Puma bind URI for the configured host/port. Scheme (tcp:// vs ssl://)
+    # is decided by TlsConfig. Public for testability.
+    def bind_uri
+      @tls.bind_uri(@host, @port)
+    end
+
     private
+
+    # Fail-closed TLS check: if TLS is enabled but cert/key are missing,
+    # abort with actionable guidance rather than starting plain HTTP.
+    def check_tls!
+      @tls.validate!
+    rescue TlsConfigError => e
+      $stderr.puts "[ERROR] #{e.message}"
+      exit 1
+    end
+
+    # Surface certificate expiry so a self-signed cert does not silently stop
+    # working after its validity window (no auto-renewal for --gen-cert).
+    EXPIRY_WARN_DAYS = 30
+
+    def log_tls_expiry
+      return unless @tls.enabled?
+
+      days = @tls.days_until_expiry
+      return if days.nil?
+
+      not_after = @tls.certificate_not_after
+      if days.negative?
+        $stderr.puts "[WARN] TLS certificate EXPIRED #{-days} day(s) ago (#{not_after}). " \
+                     "Regenerate with 'kairos-chain --gen-cert' (delete the old cert first)."
+      else
+        log "TLS cert expires: #{not_after} (#{days} days)"
+        if days <= EXPIRY_WARN_DAYS
+          $stderr.puts "[WARN] TLS certificate expires in #{days} day(s). " \
+                       "Regenerate with 'kairos-chain --gen-cert' (delete the old cert first)."
+        end
+      end
+    end
+
+    LOOPBACK_HOSTS = ['127.0.0.1', '::1', 'localhost'].freeze
+
+    # Environment opt-out for the fail-closed open-endpoint guard.
+    ALLOW_OPEN_ENDPOINT_ENV = 'KAIROS_ALLOW_OPEN_ENDPOINT'
+
+    def loopback_only?
+      LOOPBACK_HOSTS.include?(@host)
+    end
+
+    # Pure predicate (class method for testability): an empty token store means
+    # unauthenticated owner access. That is only acceptable on a loopback bind
+    # without TLS (local dev). Network-reachable (non-loopback) or TLS-enabled
+    # (remote intent) + empty store = an open owner endpoint.
+    def self.exposed_without_auth?(token_store_empty:, loopback:, tls_enabled:)
+      token_store_empty && (!loopback || tls_enabled)
+    end
 
     # Register place extensions from enabled SkillSets that declare place_extensions.
     # Uses KairosMcp.http_server pattern for late registration access.
@@ -367,13 +432,49 @@ module KairosMcp
     end
 
     def check_tokens!
-      if @token_store.empty?
+      return unless @token_store.empty?
+
+      # An empty token store means the MCP endpoint accepts unauthenticated
+      # owner-level requests. On loopback without TLS that is convenient
+      # local-dev. Exposed over the network (non-loopback, or TLS = remote
+      # intent) it is an OPEN OWNER ENDPOINT — encrypting an open door.
+      exposed = self.class.exposed_without_auth?(
+        token_store_empty: true, loopback: loopback_only?, tls_enabled: @tls.enabled?
+      )
+
+      unless exposed
         $stderr.puts <<~MSG
           [INFO] Local dev mode: no tokens configured.
           MCP endpoint accepts unauthenticated requests as local owner.
           For production, generate a token with: kairos-chain --init-admin
 
         MSG
+        return
+      end
+
+      # Fail-closed: refuse to start an open owner endpoint on a reachable
+      # bind. The operator can opt out explicitly for intentional cases.
+      if ENV[ALLOW_OPEN_ENDPOINT_ENV] == '1'
+        $stderr.puts <<~MSG
+          [SECURITY] No tokens configured and the endpoint is network-reachable
+          (host=#{@host}#{@tls.enabled? ? ', TLS enabled' : ''}). Starting anyway
+          because #{ALLOW_OPEN_ENDPOINT_ENV}=1. Unauthenticated requests are
+          accepted as owner — anyone who can reach this port has full owner access.
+
+        MSG
+      else
+        $stderr.puts <<~MSG
+          [ERROR] Refusing to start: no tokens configured but the endpoint is
+          network-reachable (host=#{@host}#{@tls.enabled? ? ', TLS enabled' : ''}).
+          Unauthenticated requests would be accepted as owner — TLS encrypts the
+          traffic but does NOT authenticate it, so this is an open owner endpoint.
+
+          Generate an admin token first:  kairos-chain --init-admin
+          Or bind to loopback (host 127.0.0.1) for local-only use.
+          To start intentionally without auth, set #{ALLOW_OPEN_ENDPOINT_ENV}=1.
+
+        MSG
+        exit 1
       end
     end
 

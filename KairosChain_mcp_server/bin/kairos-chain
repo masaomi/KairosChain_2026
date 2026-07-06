@@ -636,8 +636,20 @@ OptionParser.new do |opts|
     options[:port] = port
   end
 
-  opts.on('--host HOST', 'HTTP bind host (default: 0.0.0.0)') do |host|
+  opts.on('--host HOST', 'HTTP bind host (default: config http.host, else 127.0.0.1)') do |host|
     options[:host] = host
+  end
+
+  opts.on('--tls', 'Enable TLS (HTTPS) for --http mode (overrides config)') do
+    options[:tls] = true
+  end
+
+  opts.on('--gen-cert', 'Generate a self-signed TLS cert/key for --tls and exit') do
+    options[:gen_cert] = true
+  end
+
+  opts.on('--cert-host HOST', 'Add a hostname/IP to the generated cert SAN (repeatable)') do |h|
+    (options[:cert_hosts] ||= []) << h
   end
 
   opts.on('--init-admin', 'Generate initial admin token and exit') do
@@ -715,6 +727,72 @@ if options[:version]
   exit
 end
 
+# Handle --gen-cert (generate self-signed TLS certificate and exit)
+if options[:gen_cert]
+  require 'kairos_mcp/tls_config'
+  require 'kairos_mcp/tls_cert_generator'
+  require 'kairos_mcp/skills_config'
+
+  http_config = KairosMcp::SkillsConfig.load['http'] || {}
+  tls = KairosMcp::TlsConfig.new(http_config, data_dir: KairosMcp.data_dir, force_enabled: true)
+
+  cert_exists = File.exist?(tls.cert_path) || File.exist?(tls.key_path)
+  if cert_exists
+    $stderr.puts "[gen-cert] A cert/key already exists:"
+    $stderr.puts "  cert: #{tls.cert_path}" if File.exist?(tls.cert_path)
+    $stderr.puts "  key:  #{tls.key_path}" if File.exist?(tls.key_path)
+    if KairosMcp::TlsCertGenerator.overwrite_refused_noninteractive?(exists: cert_exists, tty: $stdin.tty?)
+      $stderr.puts "[gen-cert] Non-interactive mode: refusing to overwrite. Delete the files to regenerate."
+      exit 1
+    else
+      $stderr.puts ""
+      $stderr.puts "Overwrite? (y/N)"
+      answer = $stdin.gets&.strip
+      exit unless answer&.downcase == 'y'
+    end
+  end
+
+  # Build the SAN host list: loopback defaults + system hostname + config host
+  # + any --cert-host entries. Without this the cert only covers localhost and
+  # remote clients connecting by hostname/IP fail certificate verification.
+  require 'socket'
+  san_hosts = KairosMcp::TlsCertGenerator::DEFAULT_HOSTS.dup
+  begin
+    san_hosts << Socket.gethostname
+  rescue StandardError
+    # hostname is best-effort; loopback defaults still apply
+  end
+  cfg_host = http_config['host']
+  san_hosts << cfg_host unless cfg_host.nil? || ['0.0.0.0', '::', ''].include?(cfg_host)
+  san_hosts.concat(Array(options[:cert_hosts]))
+
+  result = KairosMcp::TlsCertGenerator.generate(
+    cert_path: tls.cert_path, key_path: tls.key_path, hosts: san_hosts
+  )
+
+  $stderr.puts ""
+  $stderr.puts "=" * 60
+  $stderr.puts "  Self-signed TLS certificate generated"
+  $stderr.puts "=" * 60
+  $stderr.puts "  cert:     #{result[:cert_path]}"
+  $stderr.puts "  key:      #{result[:key_path]} (chmod 0600)"
+  $stderr.puts "  expires:  #{result[:not_after]}"
+  $stderr.puts "  SAN:      #{result[:san]}"
+  $stderr.puts ""
+  $stderr.puts "  If you access this server by a hostname/IP not listed in SAN,"
+  $stderr.puts "  regenerate with:  kairos-chain --gen-cert --cert-host <name>"
+  $stderr.puts ""
+  $stderr.puts "  Enable TLS by either:"
+  $stderr.puts "    - starting with:  kairos-chain --http --tls"
+  $stderr.puts "    - or setting http.tls.enabled: true in skills/config.yml"
+  $stderr.puts ""
+  $stderr.puts "  NOTE: self-signed certs are for single-operator use. Clients"
+  $stderr.puts "  must trust this cert (or disable verification). For a public"
+  $stderr.puts "  service use a CA-issued cert behind a reverse proxy."
+  $stderr.puts "=" * 60
+  exit
+end
+
 # Handle --init-admin
 if options[:init_admin]
   require 'kairos_mcp/auth/token_store'
@@ -733,6 +811,13 @@ if options[:init_admin]
   if store_path && !File.absolute_path?(store_path)
     store_path = File.join(KairosMcp.data_dir, store_path)
   end
+
+  # Resolve the actual scheme from TlsConfig (config OR --tls), not from the
+  # --tls flag alone — otherwise config-enabled TLS prints an http:// URL.
+  require 'kairos_mcp/tls_config'
+  admin_scheme = KairosMcp::TlsConfig.new(
+    http_config, data_dir: KairosMcp.data_dir, force_enabled: options[:tls]
+  ).scheme
 
   store = KairosMcp::Auth::TokenStore.create(
     backend: http_config['token_backend'],
@@ -790,9 +875,9 @@ if options[:init_admin]
   $stderr.puts "  {"
   $stderr.puts "    \"mcpServers\": {"
   $stderr.puts "      \"kairos\": {"
-  $stderr.puts "        \"url\": \"http://localhost:#{options[:port] || 8080}/mcp\","
+  $stderr.puts "        \"url\": \"#{admin_scheme}://localhost:#{options[:port] || 8080}/mcp\","
   $stderr.puts "        \"headers\": {"
-  $stderr.puts "          \"Authorization\": \"Bearer #{result['raw_token']}\""
+  $stderr.puts "          \"Authorization\": \"Bearer #{result[:raw_token] || result['raw_token']}\""
   $stderr.puts "        }"
   $stderr.puts "      }"
   $stderr.puts "    }"
@@ -817,7 +902,8 @@ if options[:http]
   server = KairosMcp::HttpServer.new(
     port: options[:port],
     host: options[:host],
-    token_store_path: options[:token_store]
+    token_store_path: options[:token_store],
+    tls: options[:tls]
   )
   server.run
 else

@@ -638,7 +638,10 @@ Usage: kairos-chain [command] [options]
     --data-dir DIR  データディレクトリのパス（デフォルト: カレントディレクトリの .kairos/）
     --http          Streamable HTTPモードで起動（デフォルト: stdio）
     --port PORT     HTTPポート（デフォルト: 8080）
-    --host HOST     HTTPバインドホスト（デフォルト: 0.0.0.0）
+    --host HOST     HTTPバインドホスト（デフォルト: config の http.host、無ければ 127.0.0.1）
+    --tls           内蔵TLS/HTTPSを有効化（証明書が必要 — --gen-cert を参照）
+    --gen-cert      自己署名のTLS証明書/鍵を生成して終了
+    --cert-host HOST  生成する証明書のSANにホスト名/IPを追加（繰り返し指定可）
     --init-admin    初期管理者トークンを生成して終了
     --token-store PATH  トークンストアファイルのパス
     -v, --version   バージョン表示
@@ -646,11 +649,34 @@ Usage: kairos-chain [command] [options]
 
 環境変数:
     KAIROS_DATA_DIR   データディレクトリのパスを上書き
+    KAIROS_ALLOW_OPEN_ENDPOINT  1 にすると、ネットワーク到達可能なバインドでもトークン無しで起動（危険）
 ```
 
-#### 本番環境でのHTTPSデプロイ
+#### HTTPS / TLS
 
-本番運用では、Pumaの前段にリバースプロキシを配置してTLS/HTTPSを処理します。Puma内部はプレーンHTTPのみを処理し、リバースプロキシがSSLを終端します。
+MCPエンドポイントをTLSで提供する方法は2つあります。暗号化は常に Puma/OpenSSL が行い、KairosChain は通信路（平文HTTP か TLS か）を選ぶだけです。
+
+**オプションA: 内蔵TLS（単独運用者 / 遠隔アクセス）**
+
+KairosChain は自分でTLSを終端できるので、別途プロキシを立てなくても自ホストのインスタンスに安全に接続できます。
+
+```bash
+# 1. 自己署名の証明書/鍵を一度だけ生成（<data-dir>/storage/tls/ に出力）。
+#    接続に使うホスト名/IPを含めておくと、証明書の検証が通ります:
+kairos-chain --gen-cert --cert-host myhost.example.com
+
+# 2. TLSで起動（または skills/config.yml で http.tls.enabled: true を設定）:
+kairos-chain --http --tls
+```
+
+補足:
+- 証明書は自己署名なので、クライアント（Cursor / Claude Code）側で信頼する（または検証を無効化する）必要があります。認証局発行の証明書が必要な場合はオプションBを使ってください。
+- 証明書には有効期限（既定で約2年）があります。サーバは起動時に期限を記録し、期限が近いと警告します。更新は、古い証明書を削除して `--gen-cert` を再実行します。
+- 管理者トークンが未設定の場合、ネットワーク到達可能なバインドでは起動を拒否します（無認証のowner露出になるため）。先に `--init-admin` を実行するか、意図的に無認証で起動する場合は `KAIROS_ALLOW_OPEN_ENDPOINT=1` を設定します。
+
+**オプションB: リバースプロキシ（公開 / マルチユーザー）**
+
+公開・マルチユーザー運用では、Pumaの前段にリバースプロキシを配置します。プロキシが認証局発行の証明書でTLSを終端します。
 
 ```
 クライアント (Cursor) ──HTTPS──▶ リバースプロキシ ──HTTP──▶ Puma (:8080)
@@ -658,7 +684,7 @@ Usage: kairos-chain [command] [options]
                                  TLS終端
 ```
 
-**オプションA: Caddy（推奨 — 最もシンプル）**
+**Caddy（推奨 — 最もシンプル）**
 
 CaddyはLet's Encrypt証明書による自動HTTPS（TLSの設定不要）を提供します。
 
