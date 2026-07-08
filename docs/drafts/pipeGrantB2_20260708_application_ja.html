@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>質的ゲート確認用 — Ruby Association Grant 申請書（pipeline 生成・B-2 run）日本語版</title>
+<style>
+  :root {
+    --ink: #2b2b2b;
+    --sub: #666;
+    --accent: #8b0000;
+    --line: #ddd;
+    --bg-note: #f7f4ee;
+    --bg-check: #eef4ee;
+    --bg-orig: #f4f4f7;
+  }
+  body {
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+    color: var(--ink);
+    max-width: 860px;
+    margin: 2rem auto 4rem;
+    padding: 0 1.2rem;
+    line-height: 1.9;
+  }
+  h1 { font-size: 1.5rem; border-bottom: 3px double var(--accent); padding-bottom: .5rem; }
+  h2 { font-size: 1.2rem; border-left: 5px solid var(--accent); padding-left: .6rem; margin-top: 2.2rem; }
+  h3 { font-size: 1.05rem; margin-top: 1.8rem; }
+  .meta, .note {
+    background: var(--bg-note);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: .8rem 1.1rem;
+    font-family: "Hiragino Kaku Gothic ProN", sans-serif;
+    font-size: .88rem;
+    line-height: 1.7;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: "Hiragino Kaku Gothic ProN", sans-serif;
+    font-size: .85rem;
+    margin: .8rem 0;
+  }
+  th, td { border: 1px solid var(--line); padding: .35rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #f0ece4; }
+  .ok { color: #1a6b1a; font-weight: bold; }
+  code { font-family: Menlo, monospace; font-size: .85em; background: #f0f0f0; padding: .05em .3em; border-radius: 3px; }
+  .checkbox-list { list-style: none; padding-left: .2rem; font-family: "Hiragino Kaku Gothic ProN", sans-serif; font-size: .92rem; }
+  .checkbox-list li::before { content: "☐ "; color: var(--accent); }
+  details {
+    background: var(--bg-orig);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: .5rem 1rem;
+    margin: 1rem 0;
+    font-size: .85rem;
+  }
+  details summary { cursor: pointer; font-family: "Hiragino Kaku Gothic ProN", sans-serif; color: var(--sub); }
+  details p { line-height: 1.7; }
+  .doc { border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.6rem 1.4rem; margin-top: 1rem; background: #fffdf9; }
+  .translator-note { color: var(--sub); font-size: .82rem; font-family: "Hiragino Kaku Gothic ProN", sans-serif; }
+  ol.deliv > li { margin-bottom: 1rem; }
+</style>
+</head>
+<body>
+
+<h1>質的ゲート確認用 — Ruby Association Grant 申請書（日本語版）</h1>
+
+<div class="meta">
+<b>来歴（この文書は何か）</b><br>
+2026-07-08 の <b>B-2 実機 dogfood</b>（launcher <code>kairos_orchestrate.py</code> 経由の 2 sub-goal pipeline、run_id = <code>pipeGrantB2_20260708</code>）で hermes body（claude-sonnet-5）が生成した英語原文
+<code>application.md</code>（SG-2 成果物）と <code>project_details.md</code>（SG-1 成果物）の<b>日本語全訳</b>です。
+訳は orchestrator（Claude Code）による確認用で、正本は英語原文。
+機械判定は両 SG とも goal_achieved（各 1 cycle・7/7 checks）。<b>質的判定（段6・INV-5）は本 HTML を読むあなたに委ねられています</b> — 機械も body も「良い申請書か」は判定していません。
+</div>
+
+<h2>機械判定の要約（判定済み・参考）</h2>
+<table>
+<tr><th>項目</th><th>結果</th></tr>
+<tr><td>SG-1 <code>project_details.md</code></td><td class="ok">goal_achieved（1 cycle・7/7 checks）</td></tr>
+<tr><td>SG-2 <code>application.md</code></td><td class="ok">goal_achieved（1 cycle・7/7 checks）</td></tr>
+<tr><td>合成 anchor（SG-2 の指示文に<b>入れていない</b>語が SG-1 経由で継承されたか）</td><td class="ok">"Pure Skills"×6、DSL＋MCP＋audit — 合格</td></tr>
+<tr><td>強制していない継承（SG-1 が自分で書いた具体を SG-2 が読んで引き継いだか）</td><td class="ok">"Streamable HTTP"×2、<code>RubyVM::AbstractSyntaxTree</code>×1</td></tr>
+<tr><td>語数</td><td>project_details 639 語 / application 1075 語（下限 300 / 500）</td></tr>
+</table>
+
+<h2>質的ゲートの観点（提案）</h2>
+<ul class="checkbox-list">
+<li>Ruby Association Grant の趣旨（Ruby と環境の改善、事業でないこと）に合っているか</li>
+<li>「Pure Skills」の切り出し方（DSL/AST・MCP toolkit・監査履歴の 3 分割）は実際の kairos-chain から誠実か・実現可能か</li>
+<li>Deliverables・Schedule（中間報告／最終報告）の約束は守れる粒度か</li>
+<li>誇張・事実誤認がないか（例: 「~30,000 行」「RubyGems 公開済み」「blockchain-backed」等の記述）</li>
+<li>この草稿を正式申請の下敷きに採用するか（段2の手動 run 版 <code>docs/drafts/ruby_association_grant_2026_application_pipeline_generated_v0.1.md</code> との比較も可）</li>
+</ul>
+
+<!-- ================= application.md ================= -->
+
+<h2>申請書本体 — application.md（日本語全訳）</h2>
+<div class="doc">
+
+<h3>Ruby Association Grant 申請: Pure Skills</h3>
+
+<h3>プロジェクト概要</h3>
+<p>Pure Skills は、急成長中の AI エージェント能力フレームワークと Model Context Protocol（MCP）ツール群の世界に対して、Ruby エコシステムに信頼に足る、Ruby らしい入口を与えるライブラリの提案である。今日、この分野のほぼすべての参照実装・SDK・実運用フレームワークは Python か TypeScript で書かれている。Ruby の不在は技術的な限界ではなく、基盤の欠落である。すなわち、AI エージェントの「skill」— エージェントが呼び出せる個々の能力 — を第一級の Ruby オブジェクトとして扱い、明快な構文で宣言し、版管理し、改訂間の差分を取り、構造を検証し、事後に監査できるようにする Ruby らしいツールキットが、現在存在しない。Pure Skills はこの欠落を、kairos-chain — RubyGems で公開済みの、MIT ライセンス・約 30,000 行の既存 Ruby gem で、AI エージェント向けの blockchain 裏付けの知識・skill 管理システムとして実際に動作しているもの — から、実証済みで領域中立な部分を抽出・一般化することで埋める。ゼロから新しい基盤を作るのではなく、実運用で既に機能しているものを、kairos-chain 本体とは独立に任意の Ruby 開発者が採用できる単独の再利用可能ライブラリへと蒸留する。</p>
+
+<p>このプロジェクトは、Ruby がこの問題に適しているという特定の主張の上に立つ。Ruby の構造的自己言及性 — 単一の DSL と AST 表現が、「妥当な skill とは何か」というメタレベルの規則と、実際の skill 定義というベースレベルの実体の両方を記述できること — により、これは既存の Python / TypeScript 実装の移植ではなく、真に Ruby らしい様式となる。Ruby のブロックは、下で実オブジェクトグラフを構築しながら、DSL を自然な宣言構文として読ませる。オープンクラスは、fork せずにサードパーティ gem がその DSL を拡張することを許す。そして <code>RubyVM::AbstractSyntaxTree</code> をはじめとする実行時に検査可能な AST と内省機構により、専用パーサではなく言語自身の内省を用いて skill 定義の検証・差分・変換ができる。この三つの性質をこれほどきれいに併せ持つ主要言語は他にない。</p>
+
+<h3>成果物（Deliverables）</h3>
+<p>本助成は、プロジェクト範囲で定義された三つの構成要素それぞれにつき、ちょうど一つずつ具体的な成果物を生み、そのすべてを OSI 承認のオープンソースライセンスである MIT ライセンスで公開する。</p>
+
+<ol class="deliv">
+<li><b>Pure Skills DSL と AST コンパイラ。</b> Pure Skills の宣言構文を実装する単独の Ruby gem。skill 定義を正準的な Ruby 抽象構文木（AST）にコンパイルし、<code>declare</code>・<code>validate</code>・<code>diff</code>・<code>transform</code> の各操作を公開の文書化された API として提供する。テストスイート、API ドキュメント、そして能力の構造を検査し、内部整合性を確認し、版間で比較し、通常の Ruby データとして安全に書き換える方法を示す実例を同梱する。MIT ライセンスで公開する。</li>
+<li><b>Ruby MCP サーバーツールキット。</b> Model Context Protocol の実装本体、能力を MCP クライアントへ公開するための tool registry、そして stdio と Streamable HTTP の両輸送層を備えた再利用可能ライブラリ。Ruby 開発者が輸送層とプロトコル層を毎回作り直すことなく、規格準拠の MCP サーバーを立てられるようにする。MCP 仕様に対する適合テストとサーバー雛形の実例を含む。MIT ライセンスで公開する。</li>
+<li><b>ハッシュ連鎖監査履歴ライブラリ。</b> すべての skill 定義とその後の変更を記録する、追記専用・ハッシュ連鎖の構成要素。あらゆる Ruby 製エージェントシステムに対し、どの時点でどの能力が存在し、どう変更されたかについての軽量で独立に検証可能な履歴を与える。kairos-chain 固有の業務ロジックにも、特定のエージェント編成方式にも依存しない、フレームワーク非依存の部品とする。MIT ライセンスで公開する。</li>
+</ol>
+
+<p>各成果物は単独でも有用である。Ruby 開発者は、能力宣言のために DSL/AST コンパイラだけを、規格準拠サーバーのために MCP ツールキットだけを、検証可能な変更履歴のために監査履歴ライブラリだけを、他の二つを要さずに採用できる。</p>
+
+<h3>日程（Schedule）</h3>
+<p>プロジェクトは助成期間にわたって遂行し、Ruby Association 標準の二つの報告節目に沿って報告する。</p>
+
+<p><b>中間報告（目標: 助成期間の中間点）。</b> 中間報告までに、Pure Skills DSL と AST コンパイラを kairos-chain から抽出し、領域固有の前提を除いて一般化し、テストスイートと基本ドキュメントを備えた初期動作リリースとして公開する。MCP サーバーツールキットの初期設計と骨組み — tool registry と stdio 輸送層の第一次実装を含む — にも着手している。中間報告には動作するコード、テスト結果、後半期間に残る作業の明確な記述を含める。</p>
+
+<p><b>最終報告（目標: 助成期間の終了時）。</b> 最終報告までに三つの成果物すべてを完成させる。DSL/AST コンパイラは完全なドキュメントと実例を備えて確定。MCP サーバーツールキットは stdio と Streamable HTTP の両輸送層とプロトコル適合テストを備えて完成。ハッシュ連鎖監査履歴ライブラリは抽出・一般化され、独立にパッケージ化される。最終報告には全テストスイートの結果、公開済み gem 成果物、完全な API ドキュメント、そして各成果物を Ruby コミュニティが独立に採用する方法の要約を含める。</p>
+
+<p>両報告とも、実装中に判明した範囲の調整を含めて進捗を透明に記録する。これは設計と実装を不可分の活動として扱う反復的開発の方針に沿うものである。</p>
+
+<h3>ライセンス（Licensing）</h3>
+<p>本助成のもとで生産されるすべての成果物 — Pure Skills DSL と AST コンパイラ、Ruby MCP サーバーツールキット、ハッシュ連鎖監査履歴ライブラリ — は、OSI 承認のオープンソースライセンスである MIT ライセンスで公開される。これは上記のすべての構成要素に、中間・最終いずれの報告段階でも、例外なく適用される。MIT ライセンスの選択は意図的である。派生元である kairos-chain のライセンスと揃えること、商用・非商用を問わず Ruby プロジェクトによる下流採用を最大化すること、そしていかなる成果物も特定企業の製品・基盤・事業モデルへの依存や優遇を持たないことを保証するためである。オープンソース基盤を作る開発者であれ、社内の独自ツールを作る開発者であれ、あらゆる Ruby 開発者が三つの構成要素の任意の組み合わせを、摩擦なく、ライセンス条件への全き信頼をもって採用できることを意図している。</p>
+
+<h3>コミュニティへの利益（Community Benefit）</h3>
+<p>MCP とエージェントツール群のエコシステムへの信頼に足る Ruby らしい入口を与えることで、Pure Skills は、急成長するソフトウェア基盤領域における Ruby 言語とそのコミュニティの立ち位置に資することを目指す。三つの構成要素 — DSL/AST コンパイラ、MCP サーバーツールキット、監査履歴ライブラリ — はいずれも領域中立で、応用領域を問わず、エージェントツール・社内自動化・規格準拠 MCP サーバーを作るあらゆる Ruby 開発者に一般に適用できる。本助成が資金を出すのは製品や事業ではない。Ruby コミュニティ全体がその上に築ける基盤である。</p>
+
+</div>
+
+<details>
+<summary>英語原文を開く（application.md、正本）</summary>
+<p><b>Path:</b> <code>/Users/masa/forback/github/hermes-agent/kairos_body/runs/pipeGrantB2_20260708/application.md</code></p>
+<p>原文はファイルを直接参照してください（本 HTML は確認用訳のみ収載、二重管理を避けるため原文全文は埋め込みません）。</p>
+</details>
+
+<!-- ================= project_details.md ================= -->
+
+<h2>参考 — project_details.md（SG-1 成果物・日本語全訳）</h2>
+<div class="doc">
+
+<h3>プロジェクト名: Pure Skills</h3>
+
+<p>Ruby は、Model Context Protocol（MCP）を中心に、より広くは AI エージェント能力フレームワークを中心に急成長しているツール群のエコシステムから、ほぼ姿を消している。この分野のほぼすべての参照実装・SDK・実運用フレームワーク — プロトコルサーバー、tool registry、能力スキーマ、エージェント編成ライブラリ — は Python か TypeScript で書かれている。これは Ruby の根本的な限界ではなく、利用可能な基盤の欠落である。AI エージェントの能力 — エージェントが呼び出せる個々の「skill」— を第一級の Ruby オブジェクトとして扱う Ruby らしいツールキットは現在存在しない。すなわち、明快な構文で宣言でき、コードのように版管理でき、どう進化したかを差分で見られ、構造的制約に対して検証でき、エージェントが実際に何をなぜ行ったかを事後に確定するために監査できるもの、である。表現力のある DSL 設計、メタプログラミング、読みやすい構文という Ruby 自身の強みは、まさにこの種の基盤に自然に適合するのに、その強みを再利用可能な能力定義ツールキットへと一般化するものが現在何もない。Pure Skills はこの欠落を埋めるために提案される。</p>
+
+<p>Pure Skills は kairos-chain — RubyGems で公開済みの、MIT ライセンス・約 30,000 行の既存 Ruby gem で、AI エージェント向けの blockchain 裏付けの知識・skill 管理システムとして動作しているもの — から抽出・一般化される。基盤をゼロから作るのではなく、実証済みで領域中立な部分を単独の再利用可能ライブラリへ蒸留する。具体的に、フレームワークは三つの構成要素を提供する。第一に、skill 定義を正準的な Ruby 抽象構文木へコンパイルする Pure Skills DSL。declare・validate・diff・transform の各操作を公開し、能力の構造を、不透明な設定ファイルではなく通常の Ruby データとして、検査・整合性確認・版間比較・安全な書き換えの対象にする。第二に、プロトコル実装本体、能力を MCP クライアントへ公開する tool registry、stdio と Streamable HTTP の両輸送層を備えた再利用可能な Ruby MCP サーバーツールキット。Ruby 開発者が毎回プロトコル層を再実装せずに準拠サーバーを立てられるようにする。第三に、すべての skill 定義とその変更を記録する追記専用・ハッシュ連鎖の監査履歴部品。特定のエージェントフレームワークや業務ロジックから独立に、どの能力が存在しどう変更されたかの軽量で検証可能な履歴を、あらゆる Ruby 製エージェントシステムに与える。</p>
+
+<p>Ruby がこの問題に特に適している理由は、その構造的自己言及性にある。単一の DSL と AST 表現が、メタレベルの構成物（妥当な skill とは何かという規則）とベースレベルの能力定義（実際の skill の実体）の両方を、二つの別個のスキーマ言語を要さずに記述できる。これが可能なのは、Ruby のブロックが、下で実オブジェクトグラフを構築しながら DSL を自然な宣言構文として読ませるからであり、オープンクラスが同じ DSL をサードパーティ gem が fork なしに拡張することを許すからであり、実行時に検査可能な AST（<code>RubyVM::AbstractSyntaxTree</code> と関連の内省機構）が、専用パーサではなく言語自身の内省で skill 定義の検証・差分・変換を可能にするからである。この三つの性質をこれほどきれいに併せ持つ主要言語は他になく、それゆえこの様式の Ruby らしい実装は、既存の Python / TypeScript 実装の移植ではなく真に新規である。</p>
+
+<p>本助成のもとで生産されるすべての成果物は領域中立な Ruby 基盤 — DSL/AST コンパイラ、MCP プロトコルツールキット、監査履歴ライブラリ — であり、OSI 承認の MIT ライセンスで公開され、特定企業の製品や事業モデルへの依存も優遇も持たない。DSL ツールキット、MCP サーバーフレームワーク、監査履歴部品は、応用領域を問わず、エージェントツール・社内自動化・規格準拠 MCP サーバーを作るあらゆる Ruby 開発者にとって、それぞれ単独でも有用である。MCP とエージェントツール群のエコシステムへの信頼に足る Ruby らしい入口を与えることで、Pure Skills は、その上に築かれる特定の事業や製品ではなく、Ruby コミュニティと、急成長するソフトウェア基盤領域における Ruby の立ち位置に資することを目指す。</p>
+
+</div>
+
+<details>
+<summary>英語原文の所在（project_details.md、正本）</summary>
+<p><b>Path:</b> <code>/Users/masa/forback/github/hermes-agent/kairos_body/runs/pipeGrantB2_20260708/project_details.md</code></p>
+</details>
+
+<p class="translator-note">
+訳注: 訳は 2026-07-08 に orchestrator（Claude Code / Fable 5）が確認用に作成。正本は英語原文（上記 path）。
+「skill」「DSL」「AST」「MCP」「tool registry」「stdio」「Streamable HTTP」「gem」等の固有術語は原語のまま残した。
+本訳自体は申請文書ではない。
+</p>
+
+</body>
+</html>
