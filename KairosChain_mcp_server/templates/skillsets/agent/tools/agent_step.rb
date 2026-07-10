@@ -406,6 +406,25 @@ module KairosMcp
             result = run_act_reflect_internal(session)
             session.update_state('checkpoint')
             session.save
+
+            # AGT-6: a guard halt must surface as a halt, not a false "completed".
+            # run_act_reflect_internal already recorded the halt (progress + no
+            # cycle increment); the manual-mode response must not paper over it
+            # with the act_summary fallback below (guard_halt_result's stated
+            # contract: "the human sees the halt reason, never a false completed").
+            if result[:guard_halt]
+              gv = result[:guard_verdict] || {}
+              halt_response = {
+                'status' => 'guard_halt', 'session_id' => session.session_id,
+                'state' => 'checkpoint',
+                'act_summary' => 'guard_halt',
+                'guard_reason' => gv['reason'] || result[:act_error],
+                'guard_verdict' => gv
+              }
+              halt_response['permission_advisory'] = session.permission_advisory if session.permission_advisory
+              return text_content(JSON.generate(halt_response))
+            end
+
             response = {
               'status' => 'ok', 'session_id' => session.session_id,
               'state' => 'checkpoint',

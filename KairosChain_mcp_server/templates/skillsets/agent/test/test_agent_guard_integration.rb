@@ -144,6 +144,33 @@ else
   puts '== Delegated confined act skipped (sandbox-exec unavailable) =='
 end
 
+puts '== Manual-mode response surfaces a guard halt, never a false "completed" (AGT-6) =='
+# Reproduces the attended-run reporting gap found on 2026-07-10: run_act_reflect
+# fell back to act_summary "completed" on a guard halt because it did not consult
+# result[:guard_halt] — contradicting guard_halt_result's own contract ("the human
+# sees the halt reason, never a false completed"). This simulates the manual-mode
+# response selection the way the file already simulates the tighten-only rule.
+halt_result = {
+  act: { 'guard_halt' => true, 'error' => 'spec tamper detected: pinned ab… != actual cd…' },
+  reflect: { 'confidence' => 0.0 }, cycle: 0,
+  act_error: 'spec tamper detected: pinned ab… != actual cd…',
+  act_succeeded: false, guard_halt: true,
+  guard_verdict: Verdict.halt_verdict('spec tamper detected: pinned ab… != actual cd…'),
+  llm_calls: 0
+}
+manual_status, manual_summary =
+  if halt_result[:guard_halt]
+    ['guard_halt', 'guard_halt']
+  else
+    ['ok', halt_result.dig(:act, 'summary') || 'completed']
+  end
+assert('guard-halt result surfaces status guard_halt, not a false completed') do
+  manual_status == 'guard_halt' && manual_summary != 'completed'
+end
+assert('guard-halt response carries the halt reason for the human') do
+  (halt_result[:guard_verdict]['reason'] || halt_result[:act_error]).to_s.include?('tamper')
+end
+
 puts '== Fail-closed: a session with guard on but no pinned spec HALTs the ACT (AGT-6) =='
 bare = new_session
 spec2, halt2 = Verdict.load_pinned(bare.guard_dir)
