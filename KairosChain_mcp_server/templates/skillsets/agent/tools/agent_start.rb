@@ -60,6 +60,14 @@ module KairosMcp
                   description: 'Enable autonomous mode (default: false). ' \
                     'Session starts at [observed] regardless. ' \
                     'Autonomous loop begins on first agent_step(approve).'
+                },
+                guard: {
+                  type: 'object',
+                  description: 'Guard track (design v0.3.1): mandate acceptance material pinned ' \
+                    'before the loop runs. Keys: acceptance (array of mechanical checks), ' \
+                    'layer_surface (declared governance-store surfaces), act_individuation (rule). ' \
+                    'Required when guard.enabled; the spec is content-addressed at session start ' \
+                    'so the deciding context never authors what judges it.'
                 }
               },
               required: ['goal_name']
@@ -114,6 +122,20 @@ module KairosMcp
               config: config,
               autonomous: autonomous
             )
+
+            # Guard track (AGT-3/AGT-4/AGT-6): pin the acceptance spec BEFORE any
+            # cycle runs. Fail-closed — if the guard is enabled the mandate must
+            # carry checkable acceptance material, else the session does not start.
+            if session.guard_enabled?
+              begin
+                ::KairosMcp::SkillSets::Agent::Verdict.pin!(session.guard_dir, arguments['guard'])
+              rescue ::KairosMcp::SkillSets::Agent::Verdict::SpecError => e
+                return text_content(JSON.generate(
+                  'status' => 'guard_halt',
+                  'error' => "guard enabled but acceptance spec invalid: #{e.message}"
+                ))
+              end
+            end
 
             # OBSERVE: reuse pre-resolved observation (avoids duplicate L2/L1 lookups)
             observation = pre_obs

@@ -28,6 +28,17 @@ module KairosMcp
           @autonomous == true
         end
 
+        # Guard track (design v0.3.1): public accessors so the driver can pin
+        # the acceptance spec at session start and judge acts from boundary
+        # position. The directory itself is the driver's, not the executor's.
+        def guard_dir
+          session_dir
+        end
+
+        def guard_enabled?
+          @config.dig('guard', 'enabled') == true
+        end
+
         # Per-phase budget configuration.
         # Returns defaults if the phase is not configured.
         def phase_config(phase_name)

@@ -87,6 +87,17 @@ autonomous:
   min_cycles_before_exit: 2      # confidence exit disabled for first N cycles
   confidence_exit_threshold: 0.9 # minimum confidence for early exit
 
+# Guard track (design: agent_skillset_guard_track_design v0.3.1 FROZEN).
+# enabled: false until Slice 1 Stages A-C are complete and probes are green.
+# Flipping to true activates the fail-closed regime (AGT-6) as a whole:
+# scratch confinement (AGT-1/2), spec-gated acts (AGT-3/4), admission (AGT-5).
+guard:
+  enabled: false
+  admission:
+    # Additional tools denied on the in-process ACT route regardless of the
+    # declared layer surface (AGT-5 extension point; mechanism, not invariant).
+    extra_denied_tools: []
+
 # agent_execute: Claude Code subprocess delegation for file operations
 agent_execute:
   default_tools: ["Read", "Edit", "Write", "Glob", "Grep"]

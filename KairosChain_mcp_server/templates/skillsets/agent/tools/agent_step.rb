@@ -240,6 +240,11 @@ module KairosMcp
             session.update_state('acting')
             act_result = run_act(session, decision_payload)
 
+            # Guard track (AGT-3): the mechanical verdict decides cycle success
+            # from driver-observed evidence, before and above REFLECT. On HALT or
+            # FAIL the cycle is not a success no matter what REFLECT later says.
+            guard_verdict = guard_judge(session, act_result)
+
             session.update_state('reflecting')
             reflect_loop = CognitiveLoop.new(self, session)
             messages = [{ 'role' => 'user', 'content' => build_reflect_prompt(session, act_result) }]
@@ -249,6 +254,7 @@ module KairosMcp
                              else
                                { 'confidence' => 0.0, 'error' => reflect_raw['error'] || 'no content' }
                              end
+            reflect_result['guard_verdict'] = guard_verdict if guard_verdict
 
             record_agent_cycle(session, decision_payload, act_result, reflect_result)
 
@@ -260,10 +266,61 @@ module KairosMcp
             session.save
 
             act_succeeded = !act_result['error'] && act_result['summary'] != 'failed'
+            # Reflection is tighten-only advisory: it can never turn a failing or
+            # halted mechanical verdict into a success (AGT-3).
+            if guard_verdict && guard_verdict['verdict'] != ::KairosMcp::SkillSets::Agent::Verdict::PASS
+              act_succeeded = false
+            end
 
-            { act: act_result, reflect: reflect_result, cycle: session.cycle_number,
-              act_error: act_result['error'], act_succeeded: act_succeeded,
-              llm_calls: reflect_loop.total_calls }
+            result = { act: act_result, reflect: reflect_result, cycle: session.cycle_number,
+                       act_error: act_result['error'], act_succeeded: act_succeeded,
+                       llm_calls: reflect_loop.total_calls }
+            result[:guard_verdict] = guard_verdict if guard_verdict
+            # AGT-6: a halted verdict is not a normal non-success — it checkpoints.
+            result[:guard_halt] = true if guard_verdict && guard_verdict['verdict'] == ::KairosMcp::SkillSets::Agent::Verdict::HALT
+            result
+          end
+
+          # Guard track (AGT-5): resolve the ACT-context deny set from the pinned
+          # spec's layer surface. Returns [] when the guard is disabled, the deny
+          # array when enabled, or a guard-halt Hash when the spec is missing or
+          # tampered (AGT-6: absence halts, it does not default to permissive).
+          def guard_admission_blacklist(session)
+            return [] unless session.guard_enabled?
+
+            spec, halt = ::KairosMcp::SkillSets::Agent::Verdict.load_pinned(session.guard_dir)
+            if halt
+              return { 'error' => "guard halt before ACT: #{halt['reason']}",
+                       'guard_halt' => true, 'guard_verdict' => halt }
+            end
+
+            extra = session.config.dig('guard', 'admission', 'extra_denied_tools') || []
+            ::KairosMcp::SkillSets::Agent::Admission.act_blacklist(
+              spec['layer_surface'] || [], extra_denied: extra
+            )
+          rescue ::KairosMcp::SkillSets::Agent::Admission::SurfaceError => e
+            { 'error' => "guard halt before ACT: #{e.message}", 'guard_halt' => true }
+          end
+
+          # Guard track (AGT-3): compute the mechanical verdict from evidence the
+          # driver observed itself — the confined act's scratch content and
+          # manifest (delegated route) and the driver's own execution outcome
+          # (in-process route) — never from model or executor self-report.
+          # Returns nil when the guard is disabled.
+          def guard_judge(session, act_result)
+            return nil unless session.guard_enabled?
+
+            execution = act_result['execution'] || {}
+            evidence = {
+              'scratch_dir' => act_result['scratch_dir'] || execution['scratch_dir'],
+              'manifest' => act_result['manifest'] || execution['manifest'],
+              'execution_summary' => act_result['summary']
+            }
+            ::KairosMcp::SkillSets::Agent::Verdict.judge(session.guard_dir, evidence)
+          rescue StandardError => e
+            # Fail-closed: an unmeasurable verdict halts, it does not pass.
+            log_agent(:warn, 'guard_verdict_error', session, error: e.message)
+            ::KairosMcp::SkillSets::Agent::Verdict.halt_verdict("verdict computation failed: #{e.message}")
           end
 
           # Manual mode wrapper: pure format converter
@@ -806,8 +863,16 @@ module KairosMcp
           end
 
           def run_act_via_autoexec(session, decision_payload)
+            # Guard track (AGT-5): the in-process act route runs under the
+            # mandate's declared layer surface. Denied store/live-tree writers
+            # are blacklisted on the ACT context, so a call is refused at
+            # dispatch and the write never lands (refusal, not detection).
+            admission_denied = guard_admission_blacklist(session)
+            return admission_denied if admission_denied.is_a?(Hash) # guard halt
+
             act_ctx = session.invocation_context.derive(
-              blacklist_remove: %w[autoexec_plan autoexec_run]
+              blacklist_remove: %w[autoexec_plan autoexec_run],
+              blacklist_add: admission_denied
             )
 
             plan_result = invoke_tool('autoexec_plan', {

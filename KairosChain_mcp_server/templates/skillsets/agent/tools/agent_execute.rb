@@ -3,6 +3,9 @@
 require 'json'
 require 'open3'
 require 'set'
+require 'tmpdir'
+require 'fileutils'
+require_relative '../lib/agent/confinement'
 
 module KairosMcp
   module SkillSets
@@ -78,6 +81,11 @@ module KairosMcp
                 model: {
                   type: 'string',
                   description: 'Model override (default: sonnet for speed)'
+                },
+                input_files: {
+                  type: 'array', items: { type: 'string' },
+                  description: 'Guard track (AGT-2): boundary-curated files copied into the ' \
+                    'scratch work area before execution. Only used when guard.enabled.'
                 }
               },
               required: ['task']
@@ -126,8 +134,17 @@ module KairosMcp
             end
             root = project_root
 
-            result = execute_with_timeout(safe_env, args, task, timeout, root)
+            result =
+              if guard_enabled?
+                execute_confined(safe_env, args, task, timeout, root,
+                                 arguments['input_files'] || [])
+              else
+                execute_with_timeout(safe_env, args, task, timeout, root)
+              end
             text_content(JSON.generate(result))
+          rescue Agent::Confinement::ConfinementError => e
+            # AGT-6: guard failures halt, they do not degrade to unconfined execution.
+            text_content(JSON.generate({ 'status' => 'guard_halt', 'error' => e.message }))
           rescue SubprocessTimeout => e
             text_content(JSON.generate({
               'status' => 'timeout', 'error' => e.message, 'timeout_seconds' => timeout
@@ -139,6 +156,44 @@ module KairosMcp
           private
 
           class SubprocessTimeout < StandardError; end
+
+          def guard_enabled?
+            agent_yml.dig('guard', 'enabled') == true
+          end
+
+          # Guard track Stage B (AGT-1/AGT-2, design v0.3.1 FROZEN): the act runs
+          # in a per-act scratch area, disjoint by construction from the project
+          # tree and the stores, under substrate-level write confinement with the
+          # stores read-denied. Results are returned as a manifest; the return to
+          # the live tree is the driver's verdict-gated merge, never this tool's.
+          def execute_confined(env, args, task, timeout, root, input_files)
+            stores_dir = File.join(root, '.kairos')
+            unless File.directory?(stores_dir)
+              raise Agent::Confinement::ConfinementError, "stores dir not found: #{stores_dir}"
+            end
+            _out, _err, st = Open3.capture3(env, 'which', 'sandbox-exec', unsetenv_others: true)
+            unless st.success?
+              raise Agent::Confinement::ConfinementError,
+                    'sandbox-exec not available — confined execution impossible (fail-closed)'
+            end
+
+            scratch = Dir.mktmpdir('agent_act_')
+            scratch = Agent::Confinement.assert_disjoint!(scratch, root)
+
+            copied = input_files.map do |f|
+              src = File.realpath(f)
+              dest = File.join(scratch, File.basename(f))
+              FileUtils.cp(src, dest)
+              File.basename(f)
+            end
+
+            confined_args = Agent::Confinement.wrap(args, scratch, stores_dir)
+            result = execute_with_timeout(env, confined_args, task, timeout, scratch)
+            result['guard'] = 'confined'
+            result['scratch_dir'] = scratch
+            result['manifest'] = Agent::Confinement.manifest(scratch, exclude: copied)
+            result
+          end
 
           def build_args(tools, allowed_tools_patterns, budget, model, context)
             args = ['claude', '-p',
@@ -286,7 +341,7 @@ module KairosMcp
             Dir.pwd
           end
 
-          def agent_execute_config(key, default = nil)
+          def agent_yml
             @_agent_yml_cache ||= begin
               config_path = File.join(__dir__, '..', 'config', 'agent.yml')
               if File.exist?(config_path)
@@ -298,7 +353,10 @@ module KairosMcp
             rescue StandardError
               {}
             end
-            @_agent_yml_cache.dig('agent_execute', key) || default
+          end
+
+          def agent_execute_config(key, default = nil)
+            agent_yml.dig('agent_execute', key) || default
           end
 
           def error_text(message)
