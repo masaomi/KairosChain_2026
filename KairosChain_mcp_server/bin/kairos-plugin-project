@@ -15,16 +15,32 @@ require_relative '../lib/kairos_mcp'
 require_relative '../lib/kairos_mcp/plugin_projector'
 require_relative '../lib/kairos_mcp/skillset_manager'
 
+# Honor --data-dir before resolving anything: add-on host discovery reads the
+# data dir, so a decoupled data_dir must reach the projector on this path too
+# (INV-H3 — all access paths share one registry).
+if (idx = ARGV.index('--data-dir'))
+  val = ARGV[idx + 1]
+  if val.nil? || val.start_with?('--')
+    warn 'ERROR: --data-dir requires a path value.'
+    exit 1
+  end
+  KairosMcp.data_dir = File.expand_path(val)
+  ARGV.delete_at(idx + 1)
+  ARGV.delete_at(idx)
+end
+
 project_root = KairosMcp.project_root
 mode = KairosMcp.projection_mode
 
-# 2026-07-02: target host for projection (claude | codex | opencode). Default claude.
+# 2026-07-02 (redesigned 2026-07-10): target host for projection. The bundled
+# default is claude; additional hosts are contributed by add-on SkillSets and
+# discovered from the host-profile registry (design v0.3 FROZEN).
 # Used both for manual invocation and by projected re-projection hooks (--host <host>).
 host = 'claude'
 if (idx = ARGV.index('--host'))
   host = ARGV[idx + 1]
   if host.nil? || host.start_with?('--')
-    warn "ERROR: --host requires a value (claude, codex, or opencode)."
+    warn 'ERROR: --host requires a value (a registered host key, e.g. claude).'
     exit 1
   end
   ARGV.delete_at(idx + 1)
@@ -32,10 +48,13 @@ if (idx = ARGV.index('--host'))
 end
 
 begin
-  projector = KairosMcp::PluginProjector.new(project_root, mode: mode, host: host)
-rescue ArgumentError => e
+  # Pass data_dir explicitly so add-on discovery + manifest location match the
+  # other access paths (MCP tool, `kairos-chain mode`) under decoupled data dirs.
+  projector = KairosMcp::PluginProjector.new(project_root, mode: mode,
+                                             data_dir: KairosMcp.data_dir, host: host)
+rescue ArgumentError, KairosMcp::PluginProjector::DependencyUnsatisfied => e
+  # The registry error already lists the registered hosts and the add-on hint.
   warn "ERROR: #{e.message}"
-  warn "  Valid --host values: claude, codex, opencode."
   exit 1
 end
 
@@ -57,21 +76,27 @@ enabled = manager.enabled_skillsets
 knowledge_entries = KairosMcp.collect_knowledge_entries
 
 json_mode = ARGV.include?('--json')
+# Host-specific reload hint carried as profile data, not a host-name branch (INV-H1).
+reload_hint = projector.host.reload_hint || ''
 
 if ARGV.include?('--if-changed')
   changed = projector.project_if_changed!(enabled, knowledge_entries: knowledge_entries)
   if changed
+    msg = "Plugin projection updated.#{reload_hint}"
     if json_mode
-      puts '{"additionalContext": "Plugin projection updated. Run /reload-plugins to activate new skills."}'
+      require 'json'
+      puts JSON.generate('additionalContext' => msg)
     else
-      $stderr.puts "Plugin projection updated. Run /reload-plugins to activate new skills."
+      $stderr.puts msg
     end
   end
 else
   projector.project!(enabled, knowledge_entries: knowledge_entries)
+  msg = "Plugin projection complete.#{reload_hint}"
   if json_mode
-    puts '{"additionalContext": "Plugin projection complete. Run /reload-plugins to activate."}'
+    require 'json'
+    puts JSON.generate('additionalContext' => msg)
   else
-    $stderr.puts "Plugin projection complete."
+    $stderr.puts msg
   end
 end

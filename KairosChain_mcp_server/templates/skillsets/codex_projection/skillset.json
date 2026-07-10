@@ -1,0 +1,14 @@
+{
+  "name": "codex_projection",
+  "version": "0.1.0",
+  "description": "Add-on host profile: project SkillSet artifacts to Codex CLI (.codex/ layout, AGENTS.md inline instruction mode, .codex/hooks.json hooks). Registers the 'codex' host through the core host-profile registry.",
+  "author": "Masaomi Hatakeyama",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": ["codex_host_profile"],
+  "tool_classes": [],
+  "config_files": [],
+  "knowledge_dirs": [],
+  "host_profiles": ["lib/codex_host_profile.rb"],
+  "min_core_version": "3.41.0"
+}

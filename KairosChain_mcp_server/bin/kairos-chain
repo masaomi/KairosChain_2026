@@ -456,11 +456,14 @@ when 'mode'
                              KAIROS_PROJECT_ROOT env, then cwd if it contains a
                              recognizable project marker (CLAUDE.md, .git/,
                              .claude/, or prior projection manifest).
-        --host HOST          Target host: claude (default) | codex | opencode.
-                             claude writes CLAUDE.md with an @-import pointer;
-                             codex/opencode write AGENTS.md with the mode body
-                             inlined (they do not resolve @-import). Each host
+        --host HOST          Target host key (default: claude, the bundled host).
+                             Additional hosts (e.g. codex, opencode) are contributed
+                             by add-on SkillSets installed under .kairos/skillsets/
+                             and discovered from the host-profile registry. Each host
                              uses a separate manifest slot, so hosts can coexist.
+                             claude writes CLAUDE.md with an @-import pointer; hosts
+                             that do not resolve @-import receive the mode body
+                             inlined into their context file (e.g. AGENTS.md).
 
       Notes:
         - data_dir and consumer project root are decoupled (design v0.2,
@@ -495,13 +498,14 @@ when 'mode'
     ARGV.delete_at(idx)
   end
 
-  # 2026-07-02: target host for projection (claude | codex | opencode). Default claude.
-  # codex/opencode write AGENTS.md with the mode body inlined (they do not resolve @-import).
+  # 2026-07-02 (redesigned 2026-07-10): target host for projection. The bundled
+  # default is claude; additional hosts come from add-on SkillSets via the
+  # host-profile registry (design v0.3 FROZEN).
   mode_host = 'claude'
   if (idx = ARGV.index('--host'))
     mode_host = ARGV[idx + 1]
     if mode_host.nil? || mode_host.start_with?('--')
-      warn "ERROR: --host requires a value (claude, codex, or opencode)."
+      warn 'ERROR: --host requires a value (a registered host key, e.g. claude).'
       exit 1
     end
     ARGV.delete_at(idx + 1)
@@ -530,8 +534,8 @@ when 'mode'
     warn "  Use --project-root <path> to designate a directory distinct from the data directory."
     exit 1
   rescue ArgumentError => e
+    # The registry error already lists the registered hosts and the add-on hint.
     warn "ERROR: #{e.message}"
-    warn "  Valid --host values: claude, codex, opencode."
     exit 1
   end
 

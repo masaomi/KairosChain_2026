@@ -1,0 +1,14 @@
+{
+  "name": "opencode_projection",
+  "version": "0.1.0",
+  "description": "Add-on host profile: project SkillSet artifacts to OpenCode (.opencode/ layout, AGENTS.md inline instruction mode, agent frontmatter conversion, skills reused from the Claude projection). Registers the 'opencode' host through the core host-profile registry. Declares a dependency on the 'claude' host (INV-H5).",
+  "author": "Masaomi Hatakeyama",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": ["opencode_host_profile"],
+  "tool_classes": [],
+  "config_files": [],
+  "knowledge_dirs": [],
+  "host_profiles": ["lib/opencode_host_profile.rb"],
+  "min_core_version": "3.41.0"
+}

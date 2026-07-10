@@ -15,6 +15,13 @@ require 'tmpdir'
 require 'fileutils'
 require 'json'
 
+# 2026-07-10 add-on registration redesign: codex/opencode are no longer core
+# built-ins. Tests run against tmpdir data dirs (no installed add-ons), so
+# register the add-on profiles explicitly — simulating installed add-on
+# SkillSets — from their canonical template sources.
+require_relative 'templates/skillsets/codex_projection/lib/codex_host_profile'
+require_relative 'templates/skillsets/opencode_projection/lib/opencode_host_profile'
+
 $pass_count = 0
 $fail_count = 0
 
@@ -121,6 +128,9 @@ Dir.mktmpdir('mh') do |dir|
     'nonhash' => "---\n- just\n- a\n- list\n---\n\nbody-C\n"
   }
   ss = mk_skillset(File.join(dir, 'ss'), 'demo', agents: agents, hooks: KAIROS_HOOK)
+  # INV-H5: opencode declares requires_host 'claude' — its projection needs the
+  # Claude projection's artifacts on disk first.
+  KairosMcp::PluginProjector.new(dir, mode: :project, host: 'claude').project!([ss])
   p = KairosMcp::PluginProjector.new(dir, mode: :project, host: 'opencode')
   assert('project! does not raise on non-Hash agent frontmatter') do
     p.project!([ss])
@@ -142,6 +152,34 @@ Dir.mktmpdir('mh') do |dir|
   non = File.read(File.join(dir, '.opencode/agent/demo-nonhash.md'))
   assert('non-Hash frontmatter agent projected verbatim (body preserved)') { non.include?('body-C') }
   assert('opencode hooks skipped (no hooks file)') { !File.exist?(File.join(dir, '.opencode/hooks.json')) }
+
+  # opencode.json MCP connection projected so OpenCode can call kairos-chain tools.
+  oc_json_path = File.join(dir, 'opencode.json')
+  assert('opencode.json written at project root') { File.exist?(oc_json_path) }
+  oc = JSON.parse(File.read(oc_json_path))
+  assert('opencode.json has kairos-chain local MCP server') do
+    e = oc.dig('mcp', 'kairos-chain')
+    e && e['type'] == 'local' && e['enabled'] == true &&
+      e['command'].first == 'kairos-chain' && e['command'].include?('--data-dir')
+  end
+end
+
+# =========================================================================
+puts "\n=== Section 3b: opencode.json MCP merge preserves user config ==="
+Dir.mktmpdir('mh') do |dir|
+  FileUtils.mkdir_p(File.join(dir, '.kairos'))
+  # Pre-existing user opencode.json with unrelated keys + a foreign MCP server.
+  File.write(File.join(dir, 'opencode.json'), JSON.pretty_generate(
+    'theme' => 'dark',
+    'mcp' => { 'other-server' => { 'type' => 'local', 'command' => ['foo'], 'enabled' => true } }
+  ))
+  ss = mk_skillset(File.join(dir, 'ss'), 'demo')
+  KairosMcp::PluginProjector.new(dir, mode: :project, host: 'claude').project!([ss])
+  KairosMcp::PluginProjector.new(dir, mode: :project, host: 'opencode').project!([ss])
+  oc = JSON.parse(File.read(File.join(dir, 'opencode.json')))
+  assert('user top-level key preserved') { oc['theme'] == 'dark' }
+  assert('foreign MCP server preserved') { oc.dig('mcp', 'other-server', 'command') == ['foo'] }
+  assert('kairos-chain MCP server added alongside') { !oc.dig('mcp', 'kairos-chain').nil? }
 end
 
 # =========================================================================

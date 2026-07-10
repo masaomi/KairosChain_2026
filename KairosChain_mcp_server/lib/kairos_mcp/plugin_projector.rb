@@ -30,29 +30,85 @@ module KairosMcp
     # (e.g. Codex project-doc limit), so warn earlier than the artifact thresholds above.
     INSTRUCTION_MODE_INLINE_WARN  = 32 * 1024
 
-    # Host-specific projection profile (2026-07-02, Codex support).
-    # Encapsulates per-host layout / context-file / instruction-mode delivery
-    # differences so the projection engine stays host-agnostic. See
-    # log/20260702_codex_projection_and_mcp_reviewer_implementation_plan.md
+    # Host-specific projection profile (2026-07-02 Codex support; 2026-07-10
+    # add-on registration redesign, design v0.3 FROZEN:
+    # docs/drafts/multi_host_projection_addon_design_v0.3_FROZEN.md).
+    #
+    # The core knows exactly one unit of host-specific knowledge — the profile
+    # (INV-H1). All host-varying behavior is carried BY the profile as data or
+    # callables (INV-H4): `hooks_writer` and `agent_converter` travel with the
+    # profile; the engine dispatches only through this abstraction and never
+    # branches on a host identity.
+    #
+    # Profiles enter through a registry (INV-H3/H13). The built-in Claude Code
+    # default registers through the same mechanism as every add-on and merely
+    # registers first (INV-H2). Additional hosts (codex, opencode, ...) are
+    # contributed by add-on SkillSets that declare `host_profiles` files in
+    # their skillset.json; `load_addons!` discovers them uniformly for every
+    # access path that constructs a projector.
     class HostProfile
       attr_reader :key, :output_subdir, :context_file, :instruction_mode_delivery, :manifest_suffix,
-                  :hooks_strategy, :skill_projection, :agents_subdir, :agents_format
+                  :skill_projection, :agents_subdir, :aliases, :requires_host,
+                  :hooks_writer, :agent_converter, :reload_hint, :mcp_config_writer
+
+      # Raised when a second registration claims an already-registered host
+      # identity from a different source (INV-H13).
+      class ConflictError < StandardError; end
+
+      # Raised when a profile declares an out-of-bounds output area or context
+      # file — rejected at registration/construction time (INV-H11).
+      class InvalidProfile < StandardError; end
+
+      # A safe output subdir is a single relative path segment with no traversal
+      # (e.g. '.claude', '.codex'). A safe context file is a bare filename.
+      SAFE_OUTPUT_SUBDIR = /\A\.?[a-zA-Z0-9][a-zA-Z0-9._-]*\z/
+      SAFE_CONTEXT_FILE  = /\A[a-zA-Z0-9][a-zA-Z0-9._-]*\z/
 
       # @param skill_projection [Symbol] :own (project skills into this host) or
       #   :reuse_claude (host reads .claude/skills/ directly — skip skill projection).
       # @param agents_subdir [String] subdir under output_root for agents ('agents' or 'agent').
-      # @param agents_format [Symbol] :claude (verbatim) or :opencode (frontmatter converted).
+      # @param aliases [Array<String>] alternate lookup keys (e.g. 'claude_code').
+      # @param requires_host [String, nil] key of a prerequisite host whose projected
+      #   artifacts must exist on disk before this host can project (INV-H5).
+      # @param hooks_writer [#call, nil] callable(projector, merged_hooks, outputs)
+      #   owning this host's hooks delivery. nil → hooks are not deliverable for
+      #   this host and are skipped with a warning.
+      # @param agent_converter [#call, nil] callable(content) reshaping an agent
+      #   definition into this host's expected frontmatter. nil → verbatim.
+      # @param reload_hint [String, nil] host-specific message appended after a
+      #   successful projection (e.g. Claude's "/reload-plugins" note). Carried as
+      #   profile data so the tool never branches on a host name (INV-H1).
+      # @param mcp_config_writer [#call, nil] callable(projector, outputs) that
+      #   projects this host's MCP-server connection config (so the host can call
+      #   kairos-chain tools). nil → the host manages MCP registration itself.
+      #   Travels with the profile (INV-H4).
+      # @raise [InvalidProfile] when output_subdir or context_file would escape the
+      #   project root (INV-H11): the containment boundary is checked at
+      #   registration time, not discovered at projection time.
       def initialize(key:, output_subdir:, context_file:, instruction_mode_delivery:, manifest_suffix:,
-                     hooks_strategy:, skill_projection:, agents_subdir:, agents_format:)
+                     skill_projection:, agents_subdir:, aliases: [], requires_host: nil,
+                     hooks_writer: nil, agent_converter: nil, reload_hint: nil, mcp_config_writer: nil)
+        unless output_subdir.is_a?(String) && output_subdir.match?(SAFE_OUTPUT_SUBDIR)
+          raise InvalidProfile,
+                "host #{key.inspect}: output_subdir #{output_subdir.inspect} is not a single safe relative segment (INV-H11)"
+        end
+        unless context_file.is_a?(String) && context_file.match?(SAFE_CONTEXT_FILE)
+          raise InvalidProfile,
+                "host #{key.inspect}: context_file #{context_file.inspect} is not a safe bare filename (INV-H11)"
+        end
         @key = key
         @output_subdir = output_subdir
         @context_file = context_file
         @instruction_mode_delivery = instruction_mode_delivery
         @manifest_suffix = manifest_suffix
-        @hooks_strategy = hooks_strategy
         @skill_projection = skill_projection
         @agents_subdir = agents_subdir
-        @agents_format = agents_format
+        @aliases = aliases
+        @requires_host = requires_host
+        @hooks_writer = hooks_writer
+        @agent_converter = agent_converter
+        @reload_hint = reload_hint
+        @mcp_config_writer = mcp_config_writer
       end
 
       # Legacy manifest names carry no suffix so existing .kairos/ manifests keep working.
@@ -60,43 +116,159 @@ module KairosMcp
         @manifest_suffix ? "#{base}.#{@manifest_suffix}.json" : "#{base}.json"
       end
 
-      # Claude Code: .claude/ layout, CLAUDE.md with @-import pointer, hooks in settings.json.
-      def self.claude_code
-        new(key: 'claude', output_subdir: '.claude', context_file: 'CLAUDE.md',
-            instruction_mode_delivery: :import, manifest_suffix: nil,
-            hooks_strategy: :claude_settings,
-            skill_projection: :own, agents_subdir: 'agents', agents_format: :claude)
-      end
+      # ---- Registry (INV-H2/H3/H13) -------------------------------------------
 
-      # Codex CLI: .codex/ layout, AGENTS.md with inlined body (Codex does not resolve @-import).
-      # Hooks go to <repo>/.codex/hooks.json — same event structure as Claude, read natively by Codex.
-      def self.codex
-        new(key: 'codex', output_subdir: '.codex', context_file: 'AGENTS.md',
-            instruction_mode_delivery: :inline, manifest_suffix: 'codex',
-            hooks_strategy: :codex_hooks_json,
-            skill_projection: :own, agents_subdir: 'agents', agents_format: :claude)
-      end
+      class << self
+        # Register a profile. A second registration of an already-owned key from
+        # a different source is rejected deterministically (INV-H13). The source
+        # of an add-on registration is NOT the profile's self-declared string but
+        # the on-disk SkillSet identity established by load_addons! (via
+        # @active_load_source), so a squatter reusing a canonical source string
+        # cannot silently capture a host key.
+        def register(profile, source:)
+          effective_source = @active_load_source || source
+          registry_entry = registry[profile.key]
+          if registry_entry && registry_entry[:source] != effective_source
+            raise ConflictError,
+                  "host profile #{profile.key.inspect} already registered by #{registry_entry[:source].inspect}; " \
+                  "rejecting conflicting registration from #{effective_source.inspect}"
+          end
+          registry[profile.key] = { profile: profile, source: effective_source }
+          profile
+        end
 
-      # OpenCode: reads .claude/skills/ natively, so skills are NOT re-projected (Claude co-use
-      # assumption). AGENTS.md carries the inlined mode body (shared with Codex). Agents convert
-      # to .opencode/agent/ with OpenCode frontmatter. Hooks are JS/TS plugins → skipped.
-      def self.opencode
-        new(key: 'opencode', output_subdir: '.opencode', context_file: 'AGENTS.md',
-            instruction_mode_delivery: :inline, manifest_suffix: 'opencode',
-            hooks_strategy: :opencode_plugin,
-            skill_projection: :reuse_claude, agents_subdir: 'agent', agents_format: :opencode)
-      end
+        def registered?(key)
+          registry.key?(key.to_s)
+        end
 
-      def self.for(host)
-        return host if host.is_a?(HostProfile)
-        case host.to_s
-        when 'claude', 'claude_code', 'claude-code' then claude_code
-        when 'codex' then codex
-        when 'opencode', 'open-code' then opencode
-        else raise ArgumentError, "unknown projection host: #{host.inspect}"
+        # Registered host keys, built-in default first (registration order).
+        def available
+          registry.keys
+        end
+
+        # Resolve a key or alias to a registered profile; nil when absent.
+        def lookup(host)
+          return host if host.is_a?(HostProfile)
+          k = host.to_s
+          entry = registry[k]
+          return entry[:profile] if entry
+          registry.each_value do |e|
+            return e[:profile] if e[:profile].aliases.include?(k)
+          end
+          nil
+        end
+
+        # Resolve or fail with an actionable message listing registered hosts.
+        def for(host)
+          profile = lookup(host)
+          return profile if profile
+          raise ArgumentError,
+                "unknown projection host: #{host.inspect} (registered: #{available.join(', ')}). " \
+                'Additional hosts are provided by add-on SkillSets — install the SkillSet ' \
+                'for this host into .kairos/skillsets/ and retry.'
+        end
+
+        # Discover add-on-contributed profiles under <data_dir>/skillsets/.
+        # Any skillset.json may declare `"host_profiles": ["lib/....rb"]`; each
+        # file is loaded once and registers its profile(s) through `register`.
+        # Malformed or escaping declarations are rejected here — at registration
+        # time, not at projection time (INV-H11). Idempotent per data_dir.
+        def load_addons!(data_dir)
+          return if data_dir.nil?
+          dir_key = File.expand_path(data_dir.to_s)
+          @loaded_addon_dirs ||= {}
+          return if @loaded_addon_dirs[dir_key]
+          @loaded_addon_dirs[dir_key] = true
+
+          Dir.glob(File.join(dir_key, 'skillsets', '*', 'skillset.json')).sort.each do |json_path|
+            meta = begin
+              JSON.parse(File.read(json_path))
+            rescue JSON::ParserError, Errno::ENOENT => e
+              warn "[HostProfile] WARNING: skipping #{json_path} (unreadable skillset.json: #{e.message})"
+              next
+            end
+            ss_root = File.dirname(json_path)
+            # Source is derived from the on-disk SkillSet directory, not from the
+            # profile's self-declared string, so provenance is trustworthy (INV-H13).
+            load_source = "skillset:#{File.basename(ss_root)}"
+            Array(meta['host_profiles']).each do |rel|
+              unless contained_realpath?(ss_root, File.join(ss_root, rel.to_s))
+                warn "[HostProfile] WARNING: rejecting host_profiles entry #{rel.inspect} in #{json_path} (escapes the SkillSet directory)"
+                next
+              end
+              path = File.expand_path(File.join(ss_root, rel.to_s))
+              begin
+                @active_load_source = load_source
+                require path
+              rescue ConflictError => e
+                warn "[HostProfile] WARNING: #{e.message}"
+              rescue StandardError, LoadError, SyntaxError => e
+                warn "[HostProfile] WARNING: failed to load host profile #{path}: #{e.class}: #{e.message}"
+              ensure
+                @active_load_source = nil
+              end
+            end
+          end
+        end
+
+        # True if `path` resolves (following symlinks) to a location at or under
+        # the real path of `root`. Rejects symlink escapes that a lexical prefix
+        # check would miss (INV-H11). Non-existent paths fall back to lexical
+        # containment so an entry naming a not-yet-created file is still bounded.
+        def contained_realpath?(root, path)
+          root_real = File.realpath(root)
+          begin
+            target_real = File.realpath(path)
+          rescue Errno::ENOENT
+            target_real = File.expand_path(path)
+          end
+          target_real == root_real || target_real.start_with?(root_real + File::SEPARATOR)
+        rescue Errno::ENOENT
+          false
+        end
+
+        # Test seam: forget add-on discovery memoization (profiles stay registered).
+        def reset_addon_discovery!
+          @loaded_addon_dirs = {}
+        end
+
+        # Test seam: clear the registry and re-register only the bundled default.
+        # NOTE: the registry is process-global, not scoped per data_dir. This is
+        # correct for the single-data_dir deployments (MCP server, CLI): every
+        # access path sees one registry (INV-H3). Under a shared-process
+        # multi-consumer transport (HTTP/multiuser) an add-on discovered for one
+        # data_dir would remain visible to another; per-tenant registry scoping is
+        # deferred to the multiuser track and is a precondition for enabling host
+        # add-ons there.
+        def reset_registry!
+          @registry = {}
+          @loaded_addon_dirs = {}
+          HostProfile.claude_code
+        end
+
+        private
+
+        def registry
+          @registry ||= {}
         end
       end
+
+      # Claude Code: .claude/ layout, CLAUDE.md with @-import pointer, hooks in
+      # settings.json. This is the bundled default — it registers through the
+      # same mechanism as every add-on, and merely registers first (INV-H2).
+      def self.claude_code
+        lookup('claude') || register(
+          new(key: 'claude', output_subdir: '.claude', context_file: 'CLAUDE.md',
+              instruction_mode_delivery: :import, manifest_suffix: nil,
+              skill_projection: :own, agents_subdir: 'agents',
+              aliases: %w[claude_code claude-code],
+              reload_hint: ' Run /reload-plugins to activate.',
+              hooks_writer: ->(projector, merged_hooks, outputs) { projector.write_hooks_to_settings!(merged_hooks, outputs) }),
+          source: 'core:bundled_default'
+        )
+      end
     end
+    HostProfile.claude_code # bundled default registers first (INV-H2)
 
     attr_reader :mode, :project_root, :output_root, :data_dir, :host
 
@@ -115,6 +287,9 @@ module KairosMcp
       @data_dir = data_dir || File.join(project_root, '.kairos')
       enforce_no_coincidence!
       @mode = resolve_mode(mode)
+      # Discover add-on host profiles at the single construction choke point so
+      # every access path (server, CLI, hooks) sees the same registry (INV-H3).
+      HostProfile.load_addons!(@data_dir)
       @host = HostProfile.for(host)
       @output_root = @mode == :plugin ? project_root : File.join(project_root, @host.output_subdir)
       @manifest_path = File.join(@data_dir, @host.manifest_filename('projection_manifest'))
@@ -128,8 +303,13 @@ module KairosMcp
       end
     end
 
+    # Raised when a host's declared prerequisite (INV-H5) is not satisfied by
+    # actual on-disk artifacts — reported pre-flight, before any writes.
+    class DependencyUnsatisfied < StandardError; end
+
     # Main entry: project all SkillSet plugin artifacts + L1 knowledge meta skill
     def project!(enabled_skillsets, knowledge_entries: [])
+      enforce_host_dependency!(enabled_skillsets, knowledge_entries)
       previous_manifest = load_manifest
       current_outputs = {}
       merged_hooks = @mode == :plugin ? load_seed_hooks : { 'hooks' => {} }
@@ -149,6 +329,7 @@ module KairosMcp
 
       project_knowledge_meta_skill!(knowledge_entries, current_outputs) unless reuse_skills
       write_merged_hooks!(merged_hooks, current_outputs)
+      write_host_mcp_config!(current_outputs)
       cleanup_stale!(previous_manifest, current_outputs)
       save_manifest(current_outputs, enabled_skillsets, knowledge_entries)
     end
@@ -294,6 +475,60 @@ module KairosMcp
       :project
     end
 
+    # INV-H5 pre-flight: a profile declaring requires_host may only project when
+    # the prerequisite profile's projected artifacts actually exist on disk AND
+    # verify against their source — registry membership alone is insufficient.
+    # "Verify against source" is enforced by comparing the prerequisite's recorded
+    # source digest against the digest of the sources being projected now: a
+    # prerequisite projected from an older revision of the same sources is stale
+    # and rejected. Evaluated before any writes so an unmet requirement is an
+    # actionable diagnosis, not a partial failure.
+    def enforce_host_dependency!(enabled_skillsets = [], knowledge_entries = [])
+      prereq_key = @host.requires_host
+      return unless prereq_key
+
+      prereq = HostProfile.lookup(prereq_key)
+      raise DependencyUnsatisfied,
+            "host '#{@host.key}' requires host '#{prereq_key}', which is not registered" unless prereq
+
+      prereq_manifest_path = File.join(@data_dir, prereq.manifest_filename('projection_manifest'))
+      unless File.exist?(prereq_manifest_path)
+        raise DependencyUnsatisfied,
+              "host '#{@host.key}' requires host '#{prereq_key}' to be projected first " \
+              "(no projection manifest at #{prereq_manifest_path}). Project '#{prereq_key}' and retry."
+      end
+
+      manifest = begin
+        parsed = JSON.parse(File.read(prereq_manifest_path))
+        parsed.is_a?(Hash) ? parsed : nil
+      rescue JSON::ParserError
+        nil
+      end
+      if manifest.nil?
+        raise DependencyUnsatisfied,
+              "host '#{@host.key}' requires host '#{prereq_key}', but its projection manifest at " \
+              "#{prereq_manifest_path} is unreadable or malformed. Re-project '#{prereq_key}' and retry."
+      end
+
+      outputs = manifest.fetch('outputs', {})
+      missing = outputs.keys.reject { |f| File.exist?(f) }
+      unless missing.empty?
+        raise DependencyUnsatisfied,
+              "host '#{@host.key}' requires host '#{prereq_key}', but #{missing.size} of its projected " \
+              "artifact(s) are missing on disk (e.g. #{missing.first}). Re-project '#{prereq_key}' and retry."
+      end
+
+      # Verify-against-source: the prerequisite must have been projected from the
+      # same source revision now being projected. A digest mismatch means the
+      # prerequisite is stale relative to current sources (INV-H5).
+      recorded_digest = manifest['source_digest']
+      current_digest = compute_source_digest(enabled_skillsets, knowledge_entries)
+      return if recorded_digest.nil? || recorded_digest == current_digest
+      raise DependencyUnsatisfied,
+            "host '#{@host.key}' requires host '#{prereq_key}', whose projection is stale relative to " \
+            "the current sources (source digest mismatch). Re-project '#{prereq_key}' and retry."
+    end
+
     # Inv 3 enforcement: refuse if project_root and data_dir resolve to the same
     # real path. Comparison happens post-realpath (design Inv 8). Non-existent
     # paths fall back to expand_path; coincidence at expand_path level still counts.
@@ -377,43 +612,10 @@ module KairosMcp
         next unless safe_path?(target)
         FileUtils.mkdir_p(File.dirname(target))
         content = File.read(f)
-        content = convert_agent_to_opencode(content) if @host.agents_format == :opencode
+        content = @host.agent_converter.call(content) if @host.agent_converter
         atomic_write(target, content)
         outputs[target] = { 'source' => f, 'type' => 'agent', 'skillset' => ss.name }
       end
-    end
-
-    # Convert a Claude Code agent (.md + YAML frontmatter) to OpenCode agent frontmatter.
-    #   - drop `name` (OpenCode derives the agent name from the filename)
-    #   - drop `model` (OpenCode subagents inherit the caller's model — free-LLM friendly)
-    #   - `disallowedTools: A, B` -> `tools: { a: false, b: false }`
-    #   - add `mode: subagent`
-    # Body (system prompt) is preserved verbatim. Returns input unchanged if no frontmatter.
-    def convert_agent_to_opencode(content)
-      m = content.match(/\A---\s*\n(.*?)\n---\s*\n?(.*)\z/m)
-      return content unless m
-
-      require 'yaml'
-      src = begin
-        YAML.safe_load(m[1])
-      rescue StandardError
-        return content
-      end
-      return content unless src.is_a?(Hash)
-      body = m[2]
-
-      out = {}
-      out['description'] = src['description'] if src['description']
-      out['mode'] = 'subagent'
-      if src['disallowedTools']
-        # Accept both comma-string ("Write, Edit") and YAML list ([Write, Edit]) forms.
-        disabled = Array(src['disallowedTools']).flat_map { |t| t.to_s.split(',') }
-                                                .map { |t| t.strip.downcase }.reject(&:empty?)
-        out['tools'] = disabled.each_with_object({}) { |t, h| h[t] = false } unless disabled.empty?
-      end
-
-      front = YAML.dump(out).sub(/\A---\n/, '').rstrip
-      "---\n#{front}\n---\n\n#{body.lstrip}"
     end
 
     # =========================================================================
@@ -495,63 +697,46 @@ module KairosMcp
       warn "[PluginProjector] ERROR: #{hooks_file} has invalid JSON: #{e.message}"
     end
 
+    # MCP connection config delivery is owned by the profile (INV-H4). Only
+    # meaningful in :project mode (plugin mode has no consumer project root to
+    # write connection config into).
+    def write_host_mcp_config!(outputs)
+      return if @mode == :plugin
+      return unless @host.mcp_config_writer
+      @host.mcp_config_writer.call(self, outputs)
+    end
+
+    # Merge a single key into a JSON config file at the project root, preserving
+    # all other content, and record it in outputs. `filename` must be a bare
+    # filename (no separators) — the write is confined to <project_root>/<filename>
+    # (INV-H11). Used by a profile's mcp_config_writer.
+    def merge_project_root_json!(filename, top_key, entry_key, entry_value, outputs, output_type)
+      raise ArgumentError, "unsafe config filename: #{filename.inspect}" unless filename.match?(HostProfile::SAFE_CONTEXT_FILE)
+      path = File.join(@project_root, filename)
+      config = load_settings(path) # {} when absent, nil on parse error
+      return if config.nil?
+      config[top_key] ||= {}
+      unless config[top_key].is_a?(Hash)
+        warn "[PluginProjector] WARNING: #{filename} '#{top_key}' is not an object; leaving it untouched."
+        return
+      end
+      config[top_key][entry_key] = entry_value
+      atomic_write(path, JSON.pretty_generate(config))
+      outputs[path] = { 'type' => output_type }
+    end
+
+    # Hooks delivery is owned by the profile (INV-H4): the engine dispatches
+    # through the profile's hooks_writer and never inspects which host it is.
     def write_merged_hooks!(merged_hooks, outputs)
       if @mode == :plugin
         write_hooks_file!(merged_hooks, outputs)
+      elsif @host.hooks_writer
+        @host.hooks_writer.call(self, merged_hooks, outputs)
       else
-        case @host.hooks_strategy
-        when :codex_hooks_json  then write_hooks_to_codex_json!(merged_hooks, outputs)
-        when :opencode_plugin   then skip_hooks_for_plugin_host!(merged_hooks)
-        else                         write_hooks_to_settings!(merged_hooks, outputs)
-        end
+        return if merged_hooks['hooks'].empty?
+        warn "[PluginProjector] WARNING: host '#{@host.key}' declares no hooks delivery; " \
+             "skipping projection of #{merged_hooks['hooks'].size} hook event(s)."
       end
-    end
-
-    # Codex reads <repo>/.codex/hooks.json (same event structure as Claude hooks).
-    # KairosChain owns this file (overwrite), mirroring plugin-mode hooks/hooks.json.
-    # kairos-plugin-project commands are rewritten to re-project this same host.
-    def write_hooks_to_codex_json!(merged_hooks, outputs)
-      hooks_file = File.join(@output_root, 'hooks.json')
-      existing = load_settings(hooks_file) # {} when absent, nil on parse error
-      return if existing.nil?
-
-      # A hand-authored file may hold a malformed 'hooks' (non-Hash, or non-Array
-      # event values). Normalize before merging so projection never crashes; a
-      # malformed 'hooks' carries no preservable user hooks anyway.
-      existing['hooks'] = {} unless existing['hooks'].is_a?(Hash)
-      existing['hooks'].transform_values! { |v| v.is_a?(Array) ? v : [] }
-
-      # Strip previously projected entries, preserving user-authored (untagged) hooks —
-      # mirrors the Claude settings.json path so re-projection never destroys user hooks.
-      existing['hooks'].each_value do |handlers|
-        handlers.reject! { |h| h.is_a?(Hash) && h['_projected_by'] == PROJECTED_BY }
-      end
-      existing['hooks'].delete_if { |_, v| v.empty? }
-
-      projected = rewrite_hook_commands_for_host(merged_hooks)
-      unless projected['hooks'].empty?
-        projected['hooks'].each do |event, handlers|
-          existing['hooks'][event] ||= []
-          existing['hooks'][event].concat(handlers.map { |h| h.merge('_projected_by' => PROJECTED_BY) })
-        end
-      end
-
-      existing.delete('hooks') if existing['hooks'].empty?
-      # Only delete the file if nothing (projected or user) remains — never clobber user content.
-      if existing.empty?
-        FileUtils.rm_f(hooks_file)
-        return
-      end
-      FileUtils.mkdir_p(File.dirname(hooks_file))
-      atomic_write(hooks_file, JSON.pretty_generate(existing))
-      outputs[hooks_file] = { 'type' => 'hooks_codex_json' }
-    end
-
-    # OpenCode hooks are JS/TS plugins, not a declarative file — cannot be projected here.
-    def skip_hooks_for_plugin_host!(merged_hooks)
-      return if merged_hooks['hooks'].empty?
-      warn "[PluginProjector] WARNING: host '#{@host.key}' uses plugin-based hooks (JS/TS); " \
-           "skipping projection of #{merged_hooks['hooks'].size} hook event(s). Author an OpenCode plugin instead."
     end
 
     # Ensure projected re-projection hooks target THIS host, not the default (claude).
@@ -863,5 +1048,12 @@ module KairosMcp
         atomic_write(@instruction_mode_manifest_path, JSON.pretty_generate(data))
       end
     end
+
+    # Host-integration API: generic primitives a profile's hooks_writer may use.
+    # These carry no host-specific knowledge (INV-H1); making them available to
+    # add-on-supplied writers keeps all filesystem effects on the core's single
+    # write/delete path (INV-H11).
+    public :write_hooks_to_settings!, :load_settings, :rewrite_hook_commands_for_host, :atomic_write,
+           :merge_project_root_json!
   end
 end
