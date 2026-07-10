@@ -240,10 +240,29 @@ module KairosMcp
             session.update_state('acting')
             act_result = run_act(session, decision_payload)
 
+            verdict_const = ::KairosMcp::SkillSets::Agent::Verdict
+
+            # Guard track (AGT-6): a pre-ACT admission halt or a confinement halt
+            # is not an act at all — it must checkpoint WITHOUT running REFLECT,
+            # recording a cycle, or consuming a mandate cycle. Short-circuit here.
+            if act_result.is_a?(Hash) && act_result['guard_halt']
+              return guard_halt_result(session, act_result,
+                                       act_result['guard_verdict'] ||
+                                       verdict_const.halt_verdict(act_result['error'].to_s))
+            end
+
             # Guard track (AGT-3): the mechanical verdict decides cycle success
             # from driver-observed evidence, before and above REFLECT. On HALT or
             # FAIL the cycle is not a success no matter what REFLECT later says.
             guard_verdict = guard_judge(session, act_result)
+            if guard_verdict && guard_verdict['verdict'] == verdict_const::HALT
+              return guard_halt_result(session, act_result, guard_verdict)
+            end
+
+            # AGT-1 return path: a PASS delegated act's results reach the live
+            # tree only now, through the driver's verdict-gated merge. A FAIL
+            # verdict leaves the scratch area unmerged (quarantined).
+            merge_guard_pass(session, act_result, guard_verdict)
 
             session.update_state('reflecting')
             reflect_loop = CognitiveLoop.new(self, session)
@@ -256,7 +275,12 @@ module KairosMcp
                              end
             reflect_result['guard_verdict'] = guard_verdict if guard_verdict
 
-            record_agent_cycle(session, decision_payload, act_result, reflect_result)
+            # Reflection is tighten-only advisory (AGT-3): a failing mechanical
+            # verdict caps both the returned success flag and the recorded
+            # mandate evaluation, regardless of REFLECT confidence.
+            guard_failed = guard_verdict && guard_verdict['verdict'] != verdict_const::PASS
+            record_agent_cycle(session, decision_payload, act_result, reflect_result,
+                               force_evaluation: (guard_failed ? 'failed' : nil))
 
             act_summary = act_result['summary'] || act_result['error'] || 'completed'
             decision_summary = decision_payload['summary'] || ''
@@ -266,19 +290,56 @@ module KairosMcp
             session.save
 
             act_succeeded = !act_result['error'] && act_result['summary'] != 'failed'
-            # Reflection is tighten-only advisory: it can never turn a failing or
-            # halted mechanical verdict into a success (AGT-3).
-            if guard_verdict && guard_verdict['verdict'] != ::KairosMcp::SkillSets::Agent::Verdict::PASS
-              act_succeeded = false
-            end
+            act_succeeded = false if guard_failed
 
             result = { act: act_result, reflect: reflect_result, cycle: session.cycle_number,
                        act_error: act_result['error'], act_succeeded: act_succeeded,
                        llm_calls: reflect_loop.total_calls }
             result[:guard_verdict] = guard_verdict if guard_verdict
-            # AGT-6: a halted verdict is not a normal non-success — it checkpoints.
-            result[:guard_halt] = true if guard_verdict && guard_verdict['verdict'] == ::KairosMcp::SkillSets::Agent::Verdict::HALT
             result
+          end
+
+          # AGT-6: build the checkpoint result for a guard halt without running
+          # REFLECT, recording a cycle, or consuming a mandate cycle. The human
+          # sees the halt reason, never a false "completed".
+          def guard_halt_result(session, act_result, guard_verdict)
+            session.update_state('checkpoint')
+            session.save_progress({ 'confidence' => 0.0, 'guard_verdict' => guard_verdict },
+                                  session.cycle_number + 1,
+                                  "guard halt: #{guard_verdict['reason']}", '')
+            session.save
+            log_agent(:warn, 'guard_halt', session, reason: guard_verdict['reason'].to_s[0..120])
+            { act: act_result, reflect: { 'confidence' => 0.0 }, cycle: session.cycle_number,
+              act_error: guard_verdict['reason'], act_succeeded: false, guard_halt: true,
+              guard_verdict: guard_verdict, llm_calls: 0 }
+          end
+
+          # AGT-1: promote a PASS delegated act's scratch results into the live
+          # tree via the driver's merge (the only return path). No-op unless the
+          # guard is on, the verdict PASSed, and the act carried a scratch area.
+          def merge_guard_pass(session, act_result, guard_verdict)
+            return unless guard_verdict && guard_verdict['verdict'] == ::KairosMcp::SkillSets::Agent::Verdict::PASS
+
+            scratch = act_result['scratch_dir'] || act_result.dig('execution', 'scratch_dir')
+            manifest = act_result['manifest'] || act_result.dig('execution', 'manifest')
+            return if scratch.nil? || !manifest.is_a?(Array) || manifest.empty?
+
+            written = ::KairosMcp::SkillSets::Agent::Confinement.merge!(scratch, manifest, project_root_for_merge)
+            act_result['merged'] = written
+          rescue ::KairosMcp::SkillSets::Agent::Confinement::ConfinementError => e
+            # A merge refusal (e.g. a manifest entry targeting the stores) is a
+            # guard failure: it must not silently pass. Mark the act failed.
+            log_agent(:warn, 'guard_merge_refused', session, error: e.message)
+            act_result['error'] = "merge refused: #{e.message}"
+            act_result['summary'] = 'failed'
+          end
+
+          def project_root_for_merge
+            if defined?(KairosMcp) && KairosMcp.respond_to?(:data_dir)
+              root = File.dirname(KairosMcp.data_dir)
+              return root if File.directory?(root)
+            end
+            Dir.pwd
           end
 
           # Guard track (AGT-5): resolve the ACT-context deny set from the pinned
@@ -299,7 +360,9 @@ module KairosMcp
               spec['layer_surface'] || [], extra_denied: extra
             )
           rescue ::KairosMcp::SkillSets::Agent::Admission::SurfaceError => e
-            { 'error' => "guard halt before ACT: #{e.message}", 'guard_halt' => true }
+            reason = "guard halt before ACT: #{e.message}"
+            { 'error' => reason, 'guard_halt' => true,
+              'guard_verdict' => ::KairosMcp::SkillSets::Agent::Verdict.halt_verdict(reason) }
           end
 
           # Guard track (AGT-3): compute the mechanical verdict from evidence the
@@ -632,6 +695,15 @@ module KairosMcp
                 ar_result = run_act_reflect_internal(session)
                 total_llm_calls += ar_result[:llm_calls] || 0
                 results << ar_result
+                # Guard track (AGT-6): a guard halt is a checkpoint, not an
+                # ordinary act failure — checked before act_error so it stops the
+                # loop for human review rather than a paused_error retry.
+                if ar_result[:guard_halt]
+                  session.update_state('checkpoint')
+                  session.save
+                  return finalize_autonomous(session, results, checkpoint: true,
+                                             warning: 'guard_halt: human review required')
+                end
                 if ar_result[:act_error]
                   session.update_state('paused_error')
                   session.save
@@ -787,6 +859,12 @@ module KairosMcp
               # In autonomous mode, run ACT+REFLECT for the paused proposal,
               # then continue the autonomous loop from next cycle.
               ar_result = run_act_reflect_internal(session)
+              if ar_result[:guard_halt]
+                session.update_state('checkpoint')
+                session.save
+                return finalize_autonomous(session, [ar_result], checkpoint: true,
+                                           warning: 'guard_halt: human review required')
+              end
               if ar_result[:act_error]
                 session.update_state('paused_error')
                 session.save
@@ -915,10 +993,22 @@ module KairosMcp
 
             result = invoke_tool('agent_execute', {
               'task' => "#{task_summary}\n\n#{task_detail}",
-              'context' => context
+              'context' => context,
+              # AGT-6: the driver's guard decision is authoritative — agent_execute
+              # must confine whenever the session's guard is on, never relying
+              # only on its own disk re-read of the config.
+              'guard_required' => session.guard_enabled?
             }, context: act_ctx)
 
             parsed = JSON.parse(result.map { |b| b[:text] || b['text'] }.compact.join)
+
+            # A guard_halt from agent_execute (confinement impossible / input
+            # refused) is a halt, not an ordinary act failure: surface it so the
+            # loop checkpoints (AGT-6), never runs the next cycle unconfined.
+            if parsed['status'] == 'guard_halt'
+              return { 'execution' => parsed, 'summary' => 'halted', 'guard_halt' => true,
+                       'error' => "confinement halt: #{parsed['error']}" }
+            end
 
             # Propagate subprocess failures as 'error' for ACT failure gates
             error_msg = nil
@@ -930,6 +1020,8 @@ module KairosMcp
               'execution' => parsed,
               'files_modified' => parsed['files_modified'] || [],
               'tool_calls_count' => parsed['tool_calls_count'] || 0,
+              'scratch_dir' => parsed['scratch_dir'],
+              'manifest' => parsed['manifest'],
               'summary' => parsed['status'] == 'ok' ? 'completed' : 'failed',
               'error' => error_msg
             }
@@ -1079,8 +1171,12 @@ module KairosMcp
 
           # ---- Chain recording ----
 
-          def record_agent_cycle(session, decision_payload, act_result, reflect_result)
-            evaluation = MandateAdapter.reflect_to_evaluation(reflect_result)
+          def record_agent_cycle(session, decision_payload, act_result, reflect_result,
+                                 force_evaluation: nil)
+            # Guard track (AGT-3): when the mechanical verdict failed, the cycle
+            # records as failed regardless of REFLECT's confidence — tighten-only
+            # must hold at the persistent record layer too.
+            evaluation = force_evaluation || MandateAdapter.reflect_to_evaluation(reflect_result)
             ::Autonomos::Mandate.record_cycle(
               session.mandate_id,
               cycle_id: "#{session.session_id}_cycle#{session.cycle_number}",

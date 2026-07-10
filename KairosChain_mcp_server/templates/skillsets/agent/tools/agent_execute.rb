@@ -134,8 +134,13 @@ module KairosMcp
             end
             root = project_root
 
+            # AGT-6: the driver's decision is authoritative. If the driver
+            # (agent_step, which holds the session) says guard is required, we
+            # confine regardless of what this tool re-reads from disk — and a
+            # config that cannot be resolved never silently downgrades to
+            # unconfined (guard_required? raises on a malformed existing file).
             result =
-              if guard_enabled?
+              if guard_required?(arguments)
                 execute_confined(safe_env, args, task, timeout, root,
                                  arguments['input_files'] || [])
               else
@@ -157,7 +162,12 @@ module KairosMcp
 
           class SubprocessTimeout < StandardError; end
 
-          def guard_enabled?
+          # Guard is required if the driver flagged it OR local config enables
+          # it. Fail-closed: an existing-but-malformed config raises (the caller
+          # returns guard_halt) rather than resolving to "unguarded".
+          def guard_required?(arguments)
+            return true if arguments['guard_required'] == true
+
             agent_yml.dig('guard', 'enabled') == true
           end
 
@@ -180,18 +190,30 @@ module KairosMcp
             scratch = Dir.mktmpdir('agent_act_')
             scratch = Agent::Confinement.assert_disjoint!(scratch, root)
 
+            stores_real = File.realpath(stores_dir)
             copied = input_files.map do |f|
-              src = File.realpath(f)
-              dest = File.join(scratch, File.basename(f))
-              FileUtils.cp(src, dest)
-              File.basename(f)
+              # Curated inputs must not smuggle the stores into the executor's
+              # readable scratch (AGT-2). Resolve fail-closed and refuse any
+              # input that resolves into the stores.
+              src = begin
+                File.realpath(f)
+              rescue StandardError => e
+                raise Agent::Confinement::ConfinementError, "input_file unresolvable (#{e.class}): #{f}"
+              end
+              if src == stores_real || src.start_with?("#{stores_real}/")
+                raise Agent::Confinement::ConfinementError, "input_file resolves into the stores (refused): #{f}"
+              end
+              rel = File.basename(f)
+              FileUtils.cp(src, File.join(scratch, rel))
+              rel
             end
+            baseline = Agent::Confinement.baseline(scratch, copied)
 
             confined_args = Agent::Confinement.wrap(args, scratch, stores_dir)
             result = execute_with_timeout(env, confined_args, task, timeout, scratch)
             result['guard'] = 'confined'
             result['scratch_dir'] = scratch
-            result['manifest'] = Agent::Confinement.manifest(scratch, exclude: copied)
+            result['manifest'] = Agent::Confinement.manifest(scratch, baseline: baseline)
             result
           end
 
@@ -346,12 +368,13 @@ module KairosMcp
               config_path = File.join(__dir__, '..', 'config', 'agent.yml')
               if File.exist?(config_path)
                 require 'yaml'
+                # A present-but-unparseable config must NOT resolve to {} — that
+                # would silently disable the guard (AGT-6 fail-open). Let the
+                # parse error propagate; the guard path turns it into guard_halt.
                 YAML.safe_load(File.read(config_path)) || {}
               else
                 {}
               end
-            rescue StandardError
-              {}
             end
           end
 

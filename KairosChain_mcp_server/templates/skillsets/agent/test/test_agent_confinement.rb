@@ -80,6 +80,22 @@ Dir.mktmpdir('guard_probe_root_') do |raw_root|
       CONF.assert_disjoint!(scratch, root) == scratch
     end
 
+    puts "== Profile content (raw-device deny, metacharacter fail-closed) =="
+    prof = CONF.profile(scratch, stores)
+    assert('profile denies raw disk under the /dev write-allow') do
+      prof.include?('(deny file-write* (subpath "/dev/disk") (subpath "/dev/rdisk"))')
+    end
+    assert('profile denies store reads') { prof.include?("(deny file-read* (subpath \"#{stores}\"))") }
+    assert_raises('a scratch path with an SBPL metacharacter is refused', CONF::ConfinementError) do
+      evil = File.join(Dir.mktmpdir, 'a"b'); FileUtils.mkdir_p(evil)
+      CONF.profile(File.realpath(evil), stores)
+    end
+
+    unless darwin
+      $fail += 1
+      puts "  UNPROVEN: substrate deny probes require darwin sandbox-exec — NOT green, counted as failure on this platform"
+    end
+
     if darwin
       puts "== Substrate probes (sandbox-exec, deny-probe pattern) =="
       wrap = ->(cmd) { CONF.wrap(['/bin/sh', '-c', cmd], scratch, stores) }
@@ -112,15 +128,22 @@ Dir.mktmpdir('guard_probe_root_') do |raw_root|
       puts "== Substrate probes skipped (sandbox-exec unavailable on this platform) =="
     end
 
-    puts "== Manifest =="
+    puts "== Manifest (baseline-diff, symlink-safe) =="
+    File.write(File.join(scratch, 'input.txt'), 'curated input')
+    base = CONF.baseline(scratch, ['input.txt'])
     File.write(File.join(scratch, 'result_a.txt'), 'a')
     FileUtils.mkdir_p(File.join(scratch, 'sub'))
     File.write(File.join(scratch, 'sub', 'result_b.txt'), 'b')
-    File.write(File.join(scratch, 'input.txt'), 'curated input')
-    m = CONF.manifest(scratch, exclude: ['input.txt'])
-    assert('manifest lists produced files, excludes curated inputs') do
+    m = CONF.manifest(scratch, baseline: base)
+    assert('manifest lists produced files, excludes UNCHANGED curated inputs') do
       m.include?('result_a.txt') && m.include?('sub/result_b.txt') && !m.include?('input.txt')
     end
+    File.write(File.join(scratch, 'input.txt'), 'OVERWRITTEN by the act')
+    m2 = CONF.manifest(scratch, baseline: base)
+    assert('an input the act OVERWROTE is included (no false drop)') { m2.include?('input.txt') }
+    File.symlink('/etc/hosts', File.join(scratch, 'evil_link'))
+    m3 = CONF.manifest(scratch, baseline: base)
+    assert('a symlink in scratch is never a produced result') { !m3.include?('evil_link') }
 
     puts "== Merge (AGT-1 return path; merge-store refusal) =="
     dest_root = File.join(root)
@@ -143,6 +166,15 @@ Dir.mktmpdir('guard_probe_root_') do |raw_root|
     end
     assert('refused merge did not land in the stores') do
       !File.exist?(File.join(stores, 'forge.json'))
+    end
+    # Symlink copy-out: an executor-planted symlink in scratch pointing at the
+    # stores must be refused, not dereferenced into the live tree (AGT-2).
+    File.symlink(File.join(stores, 'storage', 'secret.json'), File.join(scratch, 'exfil'))
+    assert_raises('symlink-in-scratch pointing at stores is REFUSED by merge', CONF::ConfinementError) do
+      CONF.merge!(scratch, ['exfil'], dest_root)
+    end
+    assert('symlinked store content was NOT copied into the live tree') do
+      !File.exist?(File.join(root, 'exfil'))
     end
   end
 end
