@@ -58,6 +58,11 @@ module KairosMcp
             f.headers['Content-Type'] = 'application/json'
             f.options.timeout = timeout_seconds
             f.options.open_timeout = 10
+            # Explicit forward proxy from curated config (agent native body:
+            # the egress mediator must be structurally in the path — env-var
+            # proxies are silently skipped for loopback by URI#find_proxy).
+            proxy = @config['proxy'] || @config[:proxy]
+            f.proxy = proxy if proxy
             f.adapter Faraday.default_adapter
           end
         end

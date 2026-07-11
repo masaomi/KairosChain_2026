@@ -5,7 +5,11 @@ require 'open3'
 require 'set'
 require 'tmpdir'
 require 'fileutils'
+require 'rbconfig'
+require 'uri'
 require_relative '../lib/agent/confinement'
+require_relative '../lib/agent/staging'
+require_relative '../lib/agent/mediator'
 
 module KairosMcp
   module SkillSets
@@ -125,12 +129,15 @@ module KairosMcp
             end
 
             safe_env = build_safe_env
+            substrate = agent_execute_config('substrate', 'cli').to_s
             args = build_args(tools, allowed_tools_patterns, budget, model, context)
 
-            # Verify claude CLI exists using the same scrubbed env
-            _out, _err, st = Open3.capture3(safe_env, 'which', 'claude', unsetenv_others: true)
-            unless st.success?
-              return error_text('Claude Code CLI not found. Install: https://docs.anthropic.com/en/docs/claude-code')
+            if substrate != 'native_body'
+              # Verify claude CLI exists using the same scrubbed env
+              _out, _err, st = Open3.capture3(safe_env, 'which', 'claude', unsetenv_others: true)
+              unless st.success?
+                return error_text('Claude Code CLI not found. Install: https://docs.anthropic.com/en/docs/claude-code')
+              end
             end
             root = project_root
 
@@ -139,8 +146,25 @@ module KairosMcp
             # confine regardless of what this tool re-reads from disk — and a
             # config that cannot be resolved never silently downgrades to
             # unconfined (guard_required? raises on a malformed existing file).
+            #
+            # Slice 2 (NB-5): which substrate carries the delegated act is
+            # fixed by boundary-owned configuration before the loop runs —
+            # never chosen per-act by the deciding context. One dispatch
+            # contract, two substrates: the guard wiring (guard flag, scratch
+            # declaration, input curation, manifest return) is shared code
+            # path below, not a parallel implementation.
             result =
-              if guard_required?(arguments)
+              if substrate == 'native_body'
+                unless guard_required?(arguments)
+                  # The native body runs only under its egress-scoped profile;
+                  # an unconfined launch has no profile at all and is refused
+                  # (NB-5 substrate→profile binding, fail-closed).
+                  raise Agent::Confinement::ConfinementError,
+                        'native body requires the guard (egress-scoped confinement); unguarded launch refused (NB-5)'
+                end
+                execute_confined_native(task, context, timeout, root,
+                                        arguments['input_files'] || [])
+              elsif guard_required?(arguments)
                 execute_confined(safe_env, args, task, timeout, root,
                                  arguments['input_files'] || [])
               else
@@ -177,6 +201,21 @@ module KairosMcp
           # stores read-denied. Results are returned as a manifest; the return to
           # the live tree is the driver's verdict-gated merge, never this tool's.
           def execute_confined(env, args, task, timeout, root, input_files)
+            scratch, stores_dir, baseline = prepare_guarded_scratch(env, root, input_files)
+
+            confined_args = Agent::Confinement.wrap(args, scratch, stores_dir)
+            result = execute_with_timeout(env, confined_args, task, timeout, scratch)
+            result['guard'] = 'confined'
+            result['scratch_dir'] = scratch
+            result['manifest'] = Agent::Confinement.manifest(scratch, baseline: baseline)
+            result['substrate'] = 'cli'
+            result
+          end
+
+          # Shared guard wiring for both substrates (§4: one dispatch
+          # contract — the scratch declaration, input curation, and manifest
+          # geometry never fork per substrate).
+          def prepare_guarded_scratch(env, root, input_files)
             stores_dir = File.join(root, '.kairos')
             unless File.directory?(stores_dir)
               raise Agent::Confinement::ConfinementError, "stores dir not found: #{stores_dir}"
@@ -208,13 +247,209 @@ module KairosMcp
               rel
             end
             baseline = Agent::Confinement.baseline(scratch, copied)
+            [scratch, stores_dir, baseline]
+          end
 
-            confined_args = Agent::Confinement.wrap(args, scratch, stores_dir)
-            result = execute_with_timeout(env, confined_args, task, timeout, scratch)
+          # Slice 2 (NB-1..5): the native-body substrate on the delegated act
+          # route. Same scratch geometry, input curation, and manifest return
+          # as the CLI substrate; what changes is the launched program — a
+          # staged, content-address-pinned executable closure run with
+          # RubyGems disabled under the egress-scoped profile, its only
+          # outbound path the boundary-side mediator.
+          def execute_confined_native(task, context, timeout, root, input_files)
+            native_cfg = native_body_config
+            provider = native_cfg['provider'].to_s
+            # NB-4 driver-side structural gates, evaluated before any staging or
+            # launch: (1) an excluded transport named by configuration is
+            # refused; (2) the egress scope must be non-empty. R1 F6: an empty
+            # scope is a native PRE-LAUNCH guard failure (ConfinementError →
+            # guard_halt), not an ordinary act error — a bare ArgumentError
+            # from Mediator.new would be caught as StandardError → status
+            # 'error', which agent_step does NOT treat as a guard checkpoint.
+            Agent::Staging.assert_eligible_provider!(provider)
+            allowed_hosts = allowed_hosts_for(provider, native_cfg)
+            if allowed_hosts.empty?
+              raise Agent::Confinement::ConfinementError,
+                    "native body egress scope is empty for provider #{provider.inspect} " \
+                    '(curate base_url/allowed_hosts) — refusing an unscoped launch (NB-4)'
+            end
+
+            env = build_native_env(nil)
+            scratch, stores_dir, baseline = prepare_guarded_scratch(env, root, input_files)
+
+            # NB-2: stage the whole executable closure read-only, outside the
+            # work area, pinned by one content address; re-verify immediately
+            # before launch (same pre-launch step — no TOCTOU window, §9).
+            staged_root = Dir.mktmpdir('agent_stage_')
+            staged = Agent::Staging.stage!(staged_root, scratch_dir: scratch, project_root: root)
+            closure_sha = Agent::Staging.verify!(staged['staged_dir'])
+
+            # NB-4: credential is resolved driver-side and delivered into the
+            # body's intake (stdin) — never argv, never a work-area file, and
+            # ABSENT from the process environment the tool loop runs under.
+            env_var = native_cfg['api_key_env'].to_s
+            credential = env_var.empty? ? nil : ENV[env_var]
+            if provider != 'local' && (credential.nil? || credential.empty?)
+              raise Agent::Confinement::ConfinementError,
+                    "provider credential not resolvable driver-side (#{env_var}) — refusing an unauthenticatable launch"
+            end
+
+            # NB-4: sole-path egress mediator, boundary-side, hostname-scoped
+            # to the curated provider destination(s) (validated non-empty
+            # above), re-checked every hop. Started before the payload so the
+            # mediator enters the adapter as an EXPLICIT proxy (ambient env
+            # proxies are silently skipped for loopback destinations by
+            # URI#find_proxy — structural, not ambient, is the sole-path
+            # guarantee).
+            # RD-3: create AND start inside the begin whose ensure stops it, so
+            # a raise during start! cannot leak the listening socket/threads.
+            mediator = Agent::Mediator.new(allowed_hosts: allowed_hosts)
+            begin
+              mediator.start!
+              payload = {
+                'task' => task,
+                'context' => context.to_s,
+                'tools' => native_cfg['tools'] || DEFAULT_TOOLS,
+                'ceilings' => {
+                  'max_steps' => native_cfg['max_steps'] || 20,
+                  'max_spend_tokens' => native_cfg['max_spend_tokens'] || 100_000,
+                  'max_wall_seconds' => timeout
+                },
+                'model_config' => {
+                  'provider' => provider,
+                  'model' => native_cfg['model'],
+                  'api_key_env' => env_var,
+                  'base_url' => native_cfg['base_url'],
+                  'proxy' => mediator.proxy_url,
+                  'max_tokens' => native_cfg['max_tokens'] || 4096,
+                  'timeout_seconds' => timeout
+                }.compact,
+                'credential' => credential.to_s,
+                'work_dir' => scratch
+              }
+              # NB-3: intake is value-only — a payload carrying a store handle
+              # or an instance-channel grant is refused HERE, before launch.
+              Agent::Staging.validate_intake!(payload)
+
+              env = build_native_env(mediator.proxy_url)
+              cmd = [RbConfig.ruby, '--disable-gems',
+                     *Agent::Staging.load_path_args(staged['staged_dir']),
+                     Agent::Staging.body_entrypoint(staged['staged_dir'])]
+              # wrap_native asserts the profile is egress-scoped (NB-5
+              # substrate→profile binding) before anything launches.
+              wrapped = Agent::Confinement.wrap_native(cmd, scratch, stores_dir, mediator.port)
+
+              result = execute_with_timeout(env, wrapped, JSON.generate(payload), timeout, scratch,
+                                            output_parser: method(:parse_native_output))
+            ensure
+              mediator.stop! if mediator
+            end
+
             result['guard'] = 'confined'
             result['scratch_dir'] = scratch
             result['manifest'] = Agent::Confinement.manifest(scratch, baseline: baseline)
+            result['substrate'] = 'native_body'
+            # The constitutive record of the act names WHICH executable
+            # carried it (NB-2): closure digest next to the spec hash.
+            result['closure_sha256'] = closure_sha
+            result['egress_refusals'] = mediator.refusals unless mediator.refusals.empty?
             result
+          ensure
+            FileUtils.remove_entry(staged_root) if staged_root && Dir.exist?(staged_root)
+          end
+
+          def native_body_config
+            cfg = agent_execute_config('native_body', nil)
+            unless cfg.is_a?(Hash) && cfg['provider']
+              # Fail-closed: a native-substrate selection without a curated
+              # model configuration never guesses a provider.
+              raise Agent::Confinement::ConfinementError,
+                    'substrate is native_body but agent_execute.native_body config (provider/model) is missing'
+            end
+            cfg
+          end
+
+          # Provider destination identity for the egress scope. `local` and
+          # explicit base_url derive the hostname from the curated URL —
+          # identity comes from the curated configuration, never from what
+          # the body asks for.
+          PROVIDER_HOSTS = {
+            'anthropic' => ['api.anthropic.com'],
+            'openai' => ['api.openai.com'],
+            'openrouter' => ['openrouter.ai']
+          }.freeze
+
+          def allowed_hosts_for(provider, native_cfg)
+            hosts = Array(native_cfg['allowed_hosts']).map(&:to_s)
+            hosts += PROVIDER_HOSTS.fetch(provider, [])
+            if native_cfg['base_url']
+              # R2 G4: a malformed base_url is a native pre-launch guard
+              # failure (ConfinementError → guard_halt), not an ordinary act
+              # error — a bare URI::InvalidURIError would be caught as
+              # StandardError → status 'error', which agent_step does not treat
+              # as a guard checkpoint (the F6 class of bug, second input).
+              host = begin
+                URI.parse(native_cfg['base_url'].to_s).host
+              rescue URI::InvalidURIError => e
+                raise Agent::Confinement::ConfinementError,
+                      "native base_url is unparseable (#{e.message}) — refusing launch (NB-4)"
+              end
+              hosts << host if host
+            end
+            hosts.uniq
+          end
+
+          # The native body's process environment: minimal runtime vars plus
+          # the mediator proxy. Deliberately NOT build_safe_env — that list
+          # carries provider credentials for the CLI substrate, and the
+          # credential must be absent from the tool loop's environment (NB-4).
+          NATIVE_ENV_VARS = %w[PATH HOME LANG LC_ALL TERM TMPDIR].freeze
+
+          def build_native_env(proxy_url)
+            env = {}
+            NATIVE_ENV_VARS.each { |k| env[k] = ENV[k] if ENV[k] }
+            if proxy_url
+              env['http_proxy'] = proxy_url
+              env['https_proxy'] = proxy_url
+              env['HTTP_PROXY'] = proxy_url
+              env['HTTPS_PROXY'] = proxy_url
+            end
+            env
+          end
+
+          # Body stdout contract: one JSON report line (see native_body/main.rb).
+          # Maps body statuses onto the driver result statuses the guard
+          # wiring already consumes ('guard_halt' halts the loop; anything
+          # not 'ok' propagates as act failure — never silent success).
+          def parse_native_output(raw, truncated: false)
+            line = raw.to_s.lines.map(&:strip).reject(&:empty?).last
+            data = begin
+              line && JSON.parse(line)
+            rescue JSON::ParserError
+              nil
+            end
+            unless data.is_a?(Hash)
+              return { 'status' => 'no_result', 'result' => raw.to_s[0, 500],
+                       'truncated' => truncated, 'is_error' => true }
+            end
+
+            status =
+              case data['status']
+              when 'completed' then 'ok'
+              when 'guard_failure' then 'guard_halt'
+              else data['status'] # halted_ceiling / failed — non-success
+              end
+            {
+              'status' => status,
+              'result' => data['summary'].to_s,
+              'error' => data['halt_reason'],
+              'tool_calls_count' => data['tool_calls'] || 0,
+              'llm_calls' => data['llm_calls'] || 0,
+              'spend' => data['spend'],
+              'refused_tool_requests' => data['refused_tool_requests'] || [],
+              'truncated' => truncated,
+              'is_error' => status != 'ok'
+            }.compact
           end
 
           def build_args(tools, allowed_tools_patterns, budget, model, context)
@@ -242,7 +477,7 @@ module KairosMcp
             env
           end
 
-          def execute_with_timeout(env, args, task, timeout, root)
+          def execute_with_timeout(env, args, task, timeout, root, output_parser: method(:parse_stream_output))
             stdout_data = +''
             stderr_data = +''
             pid = nil
@@ -275,7 +510,7 @@ module KairosMcp
                         kill_process(pid)
                         wait_thr.join(5)
                         stdout_data = stdout_data.byteslice(0, MAX_OUTPUT_BYTES)
-                        return parse_stream_output(stdout_data, truncated: true)
+                        return output_parser.call(stdout_data, truncated: true)
                       end
                     else
                       stderr_data << chunk
@@ -303,7 +538,7 @@ module KairosMcp
                 raise SubprocessTimeout, "Timed out after #{timeout}s"
               end
 
-              result = parse_stream_output(stdout_data)
+              result = output_parser.call(stdout_data)
               result['exit_status'] = wait_thr.value&.exitstatus
               result['stderr'] = stderr_data[0..500] unless stderr_data.empty?
               result

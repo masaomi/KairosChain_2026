@@ -99,6 +99,111 @@ module KairosMcp
           ['sandbox-exec', '-p', profile(scratch_dir, stores_dir), *cmd]
         end
 
+        # Native-body SBPL profile (Slice 2, NB-4/NB-5): the legacy profile's
+        # write/read discipline PLUS egress scoping — all network denied
+        # except loopback to the boundary-side mediator port, which is the
+        # sole egress path (direct, un-mediated sockets are refused by the
+        # substrate; spike-validated 2026-07-11: allowed port connects, any
+        # other destination gets EPERM). The staged-code region needs no
+        # extra clause: it sits outside the scratch allowlist, so the
+        # write-deny already makes it read-only to the body.
+        def native_body_profile(scratch_dir, stores_dir, mediator_port)
+          port = Integer(mediator_port)
+          raise ConfinementError, "mediator port out of range: #{port}" unless port.between?(1, 65_535)
+
+          base = profile(scratch_dir, stores_dir)
+          <<~SBPL
+            #{base.chomp}
+            (deny network*)
+            (allow network-outbound (remote ip "localhost:#{port}"))
+          SBPL
+        end
+
+        # NB-5 substrate→profile binding, checkable half: a profile qualifies
+        # as egress-scoped only if it denies the network wholesale and allows
+        # outbound solely to loopback. Launching the native body under any
+        # profile that fails this is a guard failure (the legacy default-
+        # allow profile fails it by construction).
+        # A profile is egress-scoped iff it denies the network wholesale AND
+        # every network-allow clause is scoped to a loopback `remote ip`.
+        # Evolution of this predicate (each round found a bypass in the last):
+        #   R1 F4: reject non-loopback remote ip.
+        #   R2 G2: a line-based scan missed multi-line / same-line clauses.
+        #   R3 G2-WS: a literal "(allow network" scan missed "( allow network"
+        #            (whitespace after the paren — legal SBPL, so sandbox-exec
+        #            would honor the broad grant; no backstop). Ends the regex
+        #            whack-a-mole: find allow-network clause starts
+        #            whitespace-tolerantly and validate each as a BALANCED,
+        #            nesting-aware s-expression. A network-allow that is not
+        #            purely loopback-`remote ip`, or that nests a further allow,
+        #            fails. Unreachable from the generator, but this is the
+        #            checkable half of the NB-5 binding, so it must be sound on
+        #            its own, not rely on sandbox-exec to reject what it passed.
+        def egress_scoped?(profile_text)
+          text = profile_text.to_s
+          return false unless text.include?('(deny network*)')
+
+          starts = allow_network_starts(text)
+          return false if starts.empty?
+
+          starts.all? { |pos| loopback_only_clause?(balanced_clause_at(text, pos)) }
+        end
+
+        # Byte offsets of every `(allow network…)` form, tolerant of whitespace
+        # between the paren and `allow` and between `allow` and `network`.
+        def allow_network_starts(text)
+          starts = []
+          text.scan(/\(\s*allow\s+network[-*\w]*/) { starts << Regexp.last_match.begin(0) }
+          starts
+        end
+
+        # The balanced-paren substring beginning at `start`. An unbalanced
+        # (truncated) form returns the tail, so a malformed profile fails
+        # closed rather than passing by truncation.
+        def balanced_clause_at(text, start)
+          depth = 0
+          i = start
+          while i < text.length
+            case text[i]
+            when '(' then depth += 1
+            when ')'
+              depth -= 1
+              break if depth.zero?
+            end
+            i += 1
+          end
+          text[start..(i < text.length ? i : -1)]
+        end
+
+        # A clause is loopback-only iff it names at least one `remote ip`, every
+        # named `remote ip` is loopback (`localhost:PORT`), it carries no
+        # `remote host` / `remote unix` / wildcard target, and it nests no
+        # further `allow` (a nested broad allow is also caught as its own start,
+        # but rejecting here makes each clause self-validating).
+        def loopback_only_clause?(clause)
+          ips = clause.scan(/\(\s*remote\s+ip\s+"([^"]+)"\s*\)/).flatten
+          return false if ips.empty?
+          return false unless ips.all? { |dest| dest.start_with?('localhost:') }
+          return false if clause.match?(/\(\s*remote\s+(host|unix)/)
+          return false if clause.match?(/\(\s*remote\s+ip\s+"\*"\s*\)/)
+          return false if clause[1..].match?(/\(\s*allow\b/)
+
+          true
+        end
+
+        def assert_native_profile!(profile_text)
+          return profile_text if egress_scoped?(profile_text)
+
+          raise ConfinementError,
+                'native body refused under a non-egress-scoped confinement profile (NB-5 substrate→profile binding)'
+        end
+
+        def wrap_native(cmd, scratch_dir, stores_dir, mediator_port)
+          prof = native_body_profile(scratch_dir, stores_dir, mediator_port)
+          assert_native_profile!(prof)
+          ['sandbox-exec', '-p', prof, *cmd]
+        end
+
         # Driver-side promotion of verdict-passed results (AGT-1 return path).
         # `manifest` = scratch-relative file paths. Refuses any entry that
         # escapes the scratch area or would land in the stores (merge-store

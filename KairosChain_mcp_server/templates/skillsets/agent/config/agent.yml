@@ -106,6 +106,23 @@ agent_execute:
   max_timeout: 600
   default_budget_usd: 0.50
   max_budget_usd: 2.00
+  # Slice 2 (native body design v0.6 FROZEN, NB-5): which substrate carries
+  # delegated acts. Boundary-owned, fixed before the loop runs — never
+  # chosen per-act. "cli" = current Claude Code subprocess substrate.
+  # "native_body" = staged Ruby executor (NB-1..6); ships selectable-off and
+  # carries nothing until the NB-6 probe suite is green in an attended run.
+  substrate: cli
+  # Curated model configuration for the native body (NB-4: direct-HTTP
+  # transports only — anthropic / openai / openrouter / local).
+  native_body:
+    provider: anthropic
+    model: claude-sonnet-4-6
+    api_key_env: ANTHROPIC_API_KEY
+    max_tokens: 4096
+    max_steps: 20
+    max_spend_tokens: 100000
+    # allowed_hosts: []   # extra egress destinations beyond the provider default
+    # base_url: null      # for provider "local" (hostname joins the egress scope)
 
 # Complexity-driven review (Gate 5.5 / Gate 6.5)
 complexity_review:

@@ -284,7 +284,8 @@ module KairosMcp
 
             act_summary = act_result['summary'] || act_result['error'] || 'completed'
             decision_summary = decision_payload['summary'] || ''
-            session.save_progress(reflect_result, session.cycle_number + 1, act_summary, decision_summary)
+            session.save_progress(reflect_result, session.cycle_number + 1, act_summary, decision_summary,
+                                  guard_record: build_guard_record(act_result, guard_verdict))
 
             session.increment_cycle
             session.save
@@ -299,6 +300,25 @@ module KairosMcp
             result
           end
 
+          # Slice 2 NB-2 (R1 F7): the per-cycle constitutive record naming which
+          # executable carried the act — closure digest alongside the pinned
+          # spec hash, plus substrate identity. Empty for the CLI substrate
+          # (no staged closure) beyond the substrate label. Returns {} when
+          # there is nothing to record so save_progress omits the field.
+          def build_guard_record(act_result, guard_verdict)
+            return {} unless act_result.is_a?(Hash)
+
+            execution = act_result['execution'] || {}
+            closure_sha = act_result['closure_sha256'] || execution['closure_sha256']
+            substrate = act_result['substrate'] || execution['substrate']
+            spec_sha = guard_verdict.is_a?(Hash) ? guard_verdict['spec_sha256'] : nil
+            rec = {}
+            rec['substrate'] = substrate if substrate
+            rec['closure_sha256'] = closure_sha if closure_sha
+            rec['spec_sha256'] = spec_sha if spec_sha
+            rec
+          end
+
           # AGT-6: build the checkpoint result for a guard halt without running
           # REFLECT, recording a cycle, or consuming a mandate cycle. The human
           # sees the halt reason, never a false "completed".
@@ -306,7 +326,8 @@ module KairosMcp
             session.update_state('checkpoint')
             session.save_progress({ 'confidence' => 0.0, 'guard_verdict' => guard_verdict },
                                   session.cycle_number + 1,
-                                  "guard halt: #{guard_verdict['reason']}", '')
+                                  "guard halt: #{guard_verdict['reason']}", '',
+                                  guard_record: build_guard_record(act_result, guard_verdict))
             session.save
             log_agent(:warn, 'guard_halt', session, reason: guard_verdict['reason'].to_s[0..120])
             { act: act_result, reflect: { 'confidence' => 0.0 }, cycle: session.cycle_number,

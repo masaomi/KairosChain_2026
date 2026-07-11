@@ -88,7 +88,15 @@ module KairosMcp
         end
 
         # Append a progress entry after REFLECT (M5: cumulative progress file).
-        def save_progress(reflect_result, cycle_number, act_summary, decision_summary)
+        #
+        # guard_record (Slice 2 NB-2, R1 F7): the per-cycle constitutive record
+        # of WHICH executable carried the act — the staged closure digest next
+        # to the pinned spec hash and the substrate identity. Persisted here on
+        # progress.jsonl, the driver-owned per-cycle record, so the act's
+        # identity anchor survives the run instead of being dropped with the
+        # in-memory result Hash.
+        def save_progress(reflect_result, cycle_number, act_summary, decision_summary,
+                          guard_record: nil)
           entry = {
             'cycle'            => cycle_number,
             'timestamp'        => Time.now.utc.iso8601,
@@ -100,6 +108,7 @@ module KairosMcp
             'act_summary'      => act_summary,
             'decision_summary' => decision_summary
           }
+          entry['guard_record'] = guard_record if guard_record && !guard_record.empty?
           File.open(progress_path, 'a') { |f| f.puts(JSON.generate(entry)) }
           entry
         end

@@ -4,6 +4,47 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.41.0] - 2026-07-11
+
+### Added — Agent SkillSet guard track Slice 2: native executor body (selectable-off)
+
+A native, instance-authored executor substrate for the agent SkillSet's
+delegated act route, discharging AGT-8 of the guard track. It coexists with the
+current Claude Code CLI substrate behind one dispatch contract (boundary-owned
+selection); it ships **selectable-off** (`agent_execute.substrate: cli`, and the
+guard itself defaults off in the gem template) and carries no act until its
+acceptance probes are green in an attended run. Substrate substitution only —
+no parent invariant (AGT-1..7) is added, weakened, or re-interpreted.
+
+- **`Agent::Staging` (NB-2)** — stages the whole executable closure (body + the
+  eligible direct-HTTP adapters + vendored `faraday`) into a read-only region
+  outside the work area, pinned by one content address and re-verified before
+  launch. A symlink in the staged tree, or a load resolving outside the pinned
+  region (RubyGems disabled + restricted load path), halts fail-closed.
+- **`Agent::Mediator` (NB-4)** — a boundary-side loopback forward proxy that
+  scopes egress by destination hostname and re-decides on every hop; the SBPL
+  profile denies all network except the mediator port, making it the sole
+  egress path. Excluded transports (subprocess-CLI adapters, bedrock) are not
+  staged, so they cannot load.
+- **`Agent::NativeBody::{Main,ToolLayer,ModelClient,SpendMeter}` (NB-1/3/5)** —
+  a separate confined process: value-only stdin intake, a load-bearing tool
+  layer over the granted surface (work-area-confined), staged HTTP-transport
+  model access with the provider credential env-windowed to the adapter call
+  only, and fail-closed ceilings — the per-call spend bound pre-estimates on the
+  prompt's **byte** length (a sound upper bound for byte-level BPE) across input
+  and output, and missing usage halts.
+- **`Confinement` / `AgentExecute`** — `native_body_profile` (egress-scoped) with
+  a self-sound `egress_scoped?` predicate; `execute_confined_native` reuses the
+  Slice 1 scratch geometry, manifest, and verdict-gated merge; the per-cycle
+  record now persists which executable carried the act (closure digest beside
+  the spec hash).
+
+Reviewed via a 3-round execution-grounded multi-LLM implementation review
+(R1 found 7 genuine defects, R2 found 2, R3 found 1 — all fixed; the byte-based
+spend bound independently confirmed with a real tokenizer). 97/97 native-body
+probes plus the full Slice 1 guard suite pass. Guard and native substrate both
+remain off by default.
+
 ## [3.40.0] - 2026-07-06
 
 ### Added — Optional built-in TLS/HTTPS for the HTTP transport

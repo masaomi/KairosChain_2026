@@ -93,53 +93,78 @@ assert('declared l1 write admitted') { act_ctx.allowed?('knowledge_update') }
 assert('live-tree writer refused in-process (route symmetry)') { !act_ctx.allowed?('write_section') }
 
 if darwin
-  puts '== Delegated act runs confined; conforming result PASSes the verdict =='
-  # Production geometry: project_root is the repo, scratch is a Dir.mktmpdir
-  # outside it — disjoint. Here: a fake project tree with its own stores, and a
-  # sibling scratch, so disjointness holds exactly as agent_execute arranges it.
-  project_root = File.join(TMP, 'project')
-  stores_dir = File.join(project_root, '.kairos')
-  FileUtils.mkdir_p(stores_dir)
-  FileUtils.mkdir_p(File.join(TMP, 'act_scratch'))
-  scratch = Confinement.assert_disjoint!(File.join(TMP, 'act_scratch'), project_root)
-  wrapped = Confinement.wrap(
-    ['/bin/sh', '-c', "mkdir -p #{scratch}/out && echo 'work COMPLETE' > #{scratch}/out/report.txt"],
-    scratch, stores_dir
-  )
-  system(*wrapped)
-  manifest = Confinement.manifest(scratch)
-  evidence = { 'scratch_dir' => scratch, 'manifest' => manifest, 'execution_summary' => 'completed' }
-  v = Verdict.judge(session.guard_dir, evidence)
-  assert('confined conforming act PASSes the mechanical verdict') { v['verdict'] == Verdict::PASS }
+  # Slice 2 (NB-6): the harness is parameterized over the executor substrate.
+  # The suite is substrate-neutral (it drives a generic confined command), so
+  # the SAME guarded branches are demonstrated under both confinement
+  # profiles: the CLI substrate's legacy profile and the native body's
+  # egress-scoped profile. Substitution-specific proof (real body loop, stub
+  # model) lives in test_agent_native_body.rb.
+  substrate_wraps = {
+    'cli' => ->(cmd, scratch, stores) { Confinement.wrap(cmd, scratch, stores) },
+    'native_body' => lambda { |cmd, scratch, stores|
+      Confinement.wrap_native(cmd, scratch, stores, 54_321)
+    }
+  }
+  substrate_wraps.each do |substrate, wrapper|
+    puts "== [#{substrate}] Delegated act runs confined; conforming result PASSes the verdict =="
+    # Production geometry: project_root is the repo, scratch is a Dir.mktmpdir
+    # outside it — disjoint. Here: a fake project tree with its own stores, and a
+    # sibling scratch, so disjointness holds exactly as agent_execute arranges it.
+    project_root = File.join(TMP, "project_#{substrate}")
+    stores_dir = File.join(project_root, '.kairos')
+    FileUtils.mkdir_p(stores_dir)
+    FileUtils.mkdir_p(File.join(TMP, "act_scratch_#{substrate}"))
+    scratch = Confinement.assert_disjoint!(File.join(TMP, "act_scratch_#{substrate}"), project_root)
+    wrapped = wrapper.call(
+      ['/bin/sh', '-c', "mkdir -p #{scratch}/out && echo 'work COMPLETE' > #{scratch}/out/report.txt"],
+      scratch, stores_dir
+    )
+    system(*wrapped)
+    manifest = Confinement.manifest(scratch)
+    evidence = { 'scratch_dir' => scratch, 'manifest' => manifest, 'execution_summary' => 'completed' }
+    v = Verdict.judge(session.guard_dir, evidence)
+    assert("[#{substrate}] confined conforming act PASSes the mechanical verdict") { v['verdict'] == Verdict::PASS }
 
-  puts '== AGT-1 return path: PASS results merge into the live tree, FAIL does not =='
-  # Mirrors merge_guard_pass: only a PASS act promotes its scratch manifest.
-  if v['verdict'] == Verdict::PASS
-    written = Confinement.merge!(scratch, manifest, project_root)
-    assert('PASS act promotes report.txt into the live project tree') do
-      written.any? && File.read(File.join(project_root, 'out', 'report.txt')).include?('COMPLETE')
+    puts "== [#{substrate}] AGT-1 return path: PASS results merge into the live tree, FAIL does not =="
+    # Mirrors merge_guard_pass: only a PASS act promotes its scratch manifest.
+    if v['verdict'] == Verdict::PASS
+      written = Confinement.merge!(scratch, manifest, project_root)
+      assert("[#{substrate}] PASS act promotes report.txt into the live project tree") do
+        written.any? && File.read(File.join(project_root, 'out', 'report.txt')).include?('COMPLETE')
+      end
+    end
+    # A store-targeting manifest entry is refused even on a PASS (merge never
+    # targets the stores).
+    FileUtils.mkdir_p(File.join(scratch, '.kairos'))
+    File.write(File.join(scratch, '.kairos', 'forge.json'), '{}')
+    merge_refused = begin
+      Confinement.merge!(scratch, ['.kairos/forge.json'], project_root); false
+    rescue Confinement::ConfinementError
+      true
+    end
+    assert("[#{substrate}] merge refuses a store-targeting manifest entry") { merge_refused }
+
+    puts "== [#{substrate}] Non-conforming act FAILs; reflection cannot override (AGT-3 tighten-only) =="
+    File.write(File.join(scratch, 'out', 'report.txt'), 'work FAILED')
+    v2 = Verdict.judge(session.guard_dir, evidence)
+    assert("[#{substrate}] non-conforming act FAILs the verdict") { v2['verdict'] == Verdict::FAIL }
+    # Simulate the agent_step tighten-only rule.
+    act_succeeded = true
+    high_confidence_reflection = { 'confidence' => 0.99 }
+    act_succeeded = false if v2['verdict'] != Verdict::PASS
+    assert("[#{substrate}] high-confidence reflection cannot flip a failing verdict to success") { act_succeeded == false }
+  end
+
+  puts '== NB-5: the native substrate refuses a non-egress-scoped profile =='
+  assert('native launch under the legacy profile is a guard failure (profile binding)') do
+    begin
+      Confinement.assert_native_profile!(Confinement.profile(File.join(TMP, 'act_scratch_cli'),
+                                                             File.join(TMP, 'project_cli', '.kairos')))
+      false
+    rescue Confinement::ConfinementError
+      true
     end
   end
-  # A store-targeting manifest entry is refused even on a PASS (merge never
-  # targets the stores).
-  FileUtils.mkdir_p(File.join(scratch, '.kairos'))
-  File.write(File.join(scratch, '.kairos', 'forge.json'), '{}')
-  merge_refused = begin
-    Confinement.merge!(scratch, ['.kairos/forge.json'], project_root); false
-  rescue Confinement::ConfinementError
-    true
-  end
-  assert('merge refuses a store-targeting manifest entry') { merge_refused }
-
-  puts '== Non-conforming act FAILs; reflection cannot override (AGT-3 tighten-only) =='
-  File.write(File.join(scratch, 'out', 'report.txt'), 'work FAILED')
-  v2 = Verdict.judge(session.guard_dir, evidence)
-  assert('non-conforming act FAILs the verdict') { v2['verdict'] == Verdict::FAIL }
-  # Simulate the agent_step tighten-only rule.
-  act_succeeded = true
-  high_confidence_reflection = { 'confidence' => 0.99 }
-  act_succeeded = false if v2['verdict'] != Verdict::PASS
-  assert('high-confidence reflection cannot flip a failing verdict to success') { act_succeeded == false }
 else
   puts '== Delegated confined act skipped (sandbox-exec unavailable) =='
 end
