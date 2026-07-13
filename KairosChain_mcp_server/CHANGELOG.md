@@ -4,6 +4,18 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.41.1] - 2026-07-13
+
+### Fixed — Meeting Place Caddy healthcheck false-negative (deployment)
+
+The production `docker-compose.prod.yml` Caddy healthcheck probed
+`http://localhost:2019/config/`. Inside the `caddy:2-alpine` container
+`localhost` resolves to IPv6 `::1` first (both `127.0.0.1 localhost` and
+`::1 localhost` are in `/etc/hosts`), but the Caddy admin API binds IPv4
+`127.0.0.1` only — so the probe got connection-refused and the container was
+perpetually reported `unhealthy` while actually serving fine. Pinned the probe
+to `http://127.0.0.1:2019/config/`. Deployment-only change; no gem code affected.
+
 ## [3.41.0] - 2026-07-11
 
 ### Added — Agent SkillSet guard track Slice 2: native executor body (selectable-off)
