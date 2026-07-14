@@ -469,6 +469,37 @@ class TestAutonomosMandate < Minitest::Test
     assert_equal 0, mandate[:cycles_completed]
   end
 
+  # ---- deterministic tool -> risk map (risk_exceeds_budget?) ----
+
+  def test_risk_map_read_only_tools_forced_low
+    # model over-labelled read-only tools; the map must force them to low
+    proposal = { autoexec_task: { steps: [
+      { tool_name: 'write_section', risk: 'medium' },
+      { tool_name: 'resource_read', risk: 'high' }
+    ] } }
+    refute Autonomos::Mandate.risk_exceeds_budget?(proposal, 'low')
+  end
+
+  def test_risk_map_shell_forced_high_regardless_of_label
+    # model under-labelled Bash as low; the map must force it high
+    proposal = { autoexec_task: { steps: [{ tool_name: 'Bash', risk: 'low' }] } }
+    assert Autonomos::Mandate.risk_exceeds_budget?(proposal, 'low')
+    assert Autonomos::Mandate.risk_exceeds_budget?(proposal, 'medium')
+  end
+
+  def test_risk_map_durable_write_is_medium
+    # chain_record is medium in the map even if the model labelled it low
+    proposal = { autoexec_task: { steps: [{ tool_name: 'chain_record', risk: 'low' }] } }
+    assert Autonomos::Mandate.risk_exceeds_budget?(proposal, 'low')
+    refute Autonomos::Mandate.risk_exceeds_budget?(proposal, 'medium')
+  end
+
+  def test_risk_unknown_tool_falls_back_to_model_label
+    proposal = { autoexec_task: { steps: [{ tool_name: 'some_new_tool', risk: 'medium' }] } }
+    assert Autonomos::Mandate.risk_exceeds_budget?(proposal, 'low')
+    refute Autonomos::Mandate.risk_exceeds_budget?(proposal, 'medium')
+  end
+
   def test_load_mandate
     mandate = Autonomos::Mandate.create(
       goal_name: 'load_test',

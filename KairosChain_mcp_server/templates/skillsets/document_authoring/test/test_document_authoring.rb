@@ -392,6 +392,95 @@ assert("T18: parses llm_call error response correctly") do
     !File.exist?(File.join(TMPDIR, 'should_not_exist.md'))
 end
 
+assert("T18b: sizes max_tokens from context so long sections are not truncated") do
+  caller = MockCallerTool.new
+  captured = {}
+  caller.define_singleton_method(:invoke_tool) do |tool_name, arguments = {}, context: nil|
+    captured[tool_name] = arguments
+    [{ text: JSON.generate({ 'status' => 'ok', 'response' => { 'content' => 'x' }, 'snapshot' => {} }) }]
+  end
+  writer = SW.new(caller, {})
+  long_ctx = 'あ' * 6000
+  writer.write(section_name: 's', instructions: 'rewrite faithfully', context_text: long_ctx,
+               output_file: File.join(TMPDIR, 'mt.md'), max_words: 500, language: 'ja')
+  mt = captured['llm_call'] && captured['llm_call']['max_tokens']
+  # 6000 chars * 1.2 = 7200, clamped to the 8192 ceiling — well above the 4096 default
+  !mt.nil? && mt > 4096 && mt <= 8192
+end
+
+assert("T18c: word_count/char_count count characters for space-less scripts (JA)") do
+  caller = MockCallerTool.new
+  caller.invoke_results['llm_call'] = [{
+    text: JSON.generate({ 'status' => 'ok', 'response' => { 'content' => 'あいう えお' }, 'snapshot' => {} })
+  }]
+  writer = SW.new(caller, {})
+  r = writer.write(section_name: 's', instructions: 'i', context_text: '',
+                   output_file: File.join(TMPDIR, 'cu.md'), max_words: 100, language: 'ja')
+  r['word_count'] == 5 && r['char_count'] == 5
+end
+
+assert("T18e: long multi-paragraph context is auto-chunked into multiple passes and concatenated") do
+  caller = MockCallerTool.new
+  calls = 0
+  caller.define_singleton_method(:invoke_tool) do |tool_name, arguments = {}, context: nil|
+    calls += 1
+    [{ text: JSON.generate({ 'status' => 'ok', 'response' => { 'content' => "chunk#{calls}" }, 'snapshot' => {} }) }]
+  end
+  writer = SW.new(caller, { 'section_chunk_target_chars' => 100 })
+  ctx = (1..5).map { ('あ' * 80) }.join("\n\n") # 5 paragraphs, each > half the target
+  out = File.join(TMPDIR, 'chunked.md')
+  r = writer.write(section_name: 's', instructions: 'i', context_text: ctx,
+                   output_file: out, max_words: 100, language: 'ja', append_mode: false)
+  content = File.read(out)
+  r['status'] == 'ok' && r['chunks'] > 1 && calls > 1 &&
+    content.start_with?('chunk1') && content.include?("chunk#{calls}") &&
+    content.include?("chunk1\n\nchunk2")
+end
+
+assert("T18f: short context stays a single pass (no chunking)") do
+  caller = MockCallerTool.new
+  calls = 0
+  caller.define_singleton_method(:invoke_tool) do |tool_name, arguments = {}, context: nil|
+    calls += 1
+    [{ text: JSON.generate({ 'status' => 'ok', 'response' => { 'content' => 'once' }, 'snapshot' => {} }) }]
+  end
+  writer = SW.new(caller, { 'section_chunk_target_chars' => 100000 })
+  r = writer.write(section_name: 's', instructions: 'i', context_text: 'あ' * 500,
+                   output_file: File.join(TMPDIR, 'single.md'), max_words: 100, language: 'ja')
+  r['chunks'] == 1 && calls == 1
+end
+
+assert("T18g: append_mode applies only to the first chunk; later chunks append") do
+  caller = MockCallerTool.new
+  calls = 0
+  caller.define_singleton_method(:invoke_tool) do |tool_name, arguments = {}, context: nil|
+    calls += 1
+    [{ text: JSON.generate({ 'status' => 'ok', 'response' => { 'content' => "c#{calls}" }, 'snapshot' => {} }) }]
+  end
+  out = File.join(TMPDIR, 'append_first.md')
+  File.write(out, 'PRE')
+  writer = SW.new(caller, { 'section_chunk_target_chars' => 100 })
+  ctx = (1..3).map { ('あ' * 80) }.join("\n\n")
+  writer.write(section_name: 's', instructions: 'i', context_text: ctx,
+               output_file: out, max_words: 100, language: 'ja', append_mode: true)
+  # existing PRE preserved, first chunk appended (not overwriting), all chunks present in order
+  content = File.read(out)
+  content.start_with?('PRE') && content.include?("c1\n\nc2\n\nc3")
+end
+
+assert("T18d: max_tokens respects config ceiling override") do
+  caller = MockCallerTool.new
+  captured = {}
+  caller.define_singleton_method(:invoke_tool) do |tool_name, arguments = {}, context: nil|
+    captured[tool_name] = arguments
+    [{ text: JSON.generate({ 'status' => 'ok', 'response' => { 'content' => 'x' }, 'snapshot' => {} }) }]
+  end
+  writer = SW.new(caller, { 'section_max_tokens_ceiling' => 5000 })
+  writer.write(section_name: 's', instructions: 'rewrite', context_text: 'あ' * 9000,
+               output_file: File.join(TMPDIR, 'mt2.md'), max_words: 500, language: 'ja')
+  captured['llm_call']['max_tokens'] == 5000
+end
+
 assert("T19: handles empty LLM content") do
   caller = MockCallerTool.new
   caller.invoke_results['llm_call'] = [{

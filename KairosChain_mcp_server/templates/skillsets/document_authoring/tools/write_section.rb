@@ -120,11 +120,16 @@ module KairosMcp
               end
             end
 
-            # Assemble context
+            # Assemble context.
+            # Naturalisation/translation/rewrite tasks need the WHOLE source; SectionWriter
+            # chunks long context internally (per-chunk generation), so the assembler must
+            # NOT pre-truncate the source — a low per-source cap here silently dropped the
+            # tail of long sections before generation. Keep a high (still finite) bound and
+            # allow config override for constrained setups.
             assembler = ContextAssembler.new(
               self,
-              max_chars_per_source: config['max_context_chars'] || 4000,
-              max_total_chars: config['max_total_context_chars'] || 16_000,
+              max_chars_per_source: config['max_context_chars'] || 500_000,
+              max_total_chars: config['max_total_context_chars'] || 1_000_000,
               max_sources: config['max_context_sources'] || 10
             )
             ctx_result = assembler.assemble(context_sources, context: inv_ctx)

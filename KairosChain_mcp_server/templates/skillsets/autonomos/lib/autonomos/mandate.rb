@@ -19,6 +19,29 @@ module Autonomos
 
     RISK_BUDGETS = %w[low medium].freeze
 
+    # Deterministic tool -> risk map. The per-step `risk` in a proposal is assigned by
+    # the DECIDE model and is therefore non-deterministic: identical read-only work was
+    # observed to be labelled `medium` in one run and `low` in another, making the risk
+    # gate fire inconsistently. For KNOWN tools this map is authoritative (it both floors
+    # AND caps the model's label), so read-only/drafting tools are always `low` and
+    # destructive/shell tools are always `high` regardless of how the model labelled them.
+    # Unknown tools fall back to the model-assigned risk (then `low`).
+    TOOL_RISK = {
+      # read-only / in-place drafting into working files → low
+      'resource_read' => 'low', 'resource_list' => 'low',
+      'knowledge_get' => 'low', 'knowledge_list' => 'low', 'skills_list' => 'low',
+      'skills_get' => 'low', 'context_save' => 'low', 'document_status' => 'low',
+      'write_section' => 'low', 'llm_call' => 'low', 'safe_file_read' => 'low',
+      'safe_file_list' => 'low', 'chain_status' => 'low', 'chain_verify' => 'low',
+      # durable / L0-L1 / external-effect writes → medium
+      'chain_record' => 'medium', 'safe_file_write' => 'medium', 'safe_file_edit' => 'medium',
+      'safe_file_copy' => 'medium', 'knowledge_update' => 'medium',
+      'instructions_update' => 'medium', 'skills_promote' => 'medium',
+      'safe_http_get' => 'medium', 'safe_http_post' => 'medium', 'safe_git_commit' => 'medium',
+      # destructive / shell / irreversible-external → high
+      'Bash' => 'high', 'safe_file_delete' => 'high', 'safe_git_push' => 'high'
+    }.freeze
+
     class LockError < StandardError; end
 
     class << self
@@ -174,7 +197,7 @@ module Autonomos
 
         steps = proposal[:autoexec_task][:steps] || []
         steps.any? do |step|
-          risk = step[:risk] || 'low'
+          risk = effective_risk(step)
           case risk_budget
           when 'low'
             %w[medium high].include?(risk)
@@ -184,6 +207,14 @@ module Autonomos
             false
           end
         end
+      end
+
+      # Resolve a step's risk deterministically: the tool map wins for known tools
+      # (both raising and lowering the model's label), otherwise the model-assigned
+      # risk is used, defaulting to 'low'.
+      def effective_risk(step)
+        tool = step[:tool_name] || step['tool_name']
+        TOOL_RISK[tool] || step[:risk] || 'low'
       end
 
       def list_active

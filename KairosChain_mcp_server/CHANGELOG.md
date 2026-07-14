@@ -4,6 +4,36 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.42.0] - 2026-07-14
+
+### Fixed / Improved — agent SkillSet self-drive on long document sections
+
+Surfaced while running the governed agent OODA loop on a long Japanese
+naturalisation task. Four independent limitations:
+
+- **`document_authoring` context truncation (root cause).** `write_section`
+  handed the assembler a 4000-char `max_chars_per_source` cap, so long
+  `context_sources` were silently cut before generation. Raised the default to
+  500 000 (total 1 000 000); `SectionWriter` now bounds output size itself.
+- **`SectionWriter` output completeness.** `llm_call` was invoked without
+  `max_tokens`, so API providers truncated long sections at the ~4096 default —
+  now sized from context length. Providers without an output-length knob (e.g.
+  the `claude_code` CLI) are handled by **auto-chunking** the context at
+  paragraph boundaries (`section_chunk_target_chars`, default 3000) with a
+  bounded per-chunk instruction. `word_count` is now language-aware (character
+  count for JA/ZH/KO); a `char_count` field was added.
+- **Non-deterministic risk gate.** `Autonomos::Mandate.risk_exceeds_budget?`
+  used the DECIDE model's self-assigned per-step `risk`, so identical read-only
+  work gated inconsistently. Added a deterministic tool→risk map (`TOOL_RISK`),
+  authoritative for known tools (read-only ⇒ low, shell/destructive ⇒ high).
+- **DECIDE instruction drift & file reads.** The DECIDE prompt now (1) steers
+  disk reads to `safe_file_read` instead of `resource_read` with a `file://`
+  URI, and (2) requires verbatim pass-through of caller-supplied instructions
+  to sub-tools (no paraphrasing / re-scoping).
+
+Existing installs: run `system_upgrade` to pull the `external_tools` SkillSet
+(ships `safe_file_read`) into the runtime.
+
 ## [3.41.1] - 2026-07-13
 
 ### Fixed — Meeting Place Caddy healthcheck false-negative (deployment)

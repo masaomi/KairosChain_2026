@@ -53,6 +53,27 @@ module KairosMcp
                        'DECIDE prompt should explain hint is advisory/additive')
         end
 
+        # Read-gap fix: DECIDE must be told to use safe_file_read for disk files and
+        # NOT to use resource_read with a file:// URI (which only accepts in-system URIs).
+        def test_prompt_steers_file_reads_to_safe_file_read
+          prompt = @step.send(:decide_system_prompt)
+          assert_match(/safe_file_read/, prompt,
+                       'DECIDE prompt should point disk reads at safe_file_read')
+          assert_match(/resource_read/, prompt)
+          assert_match(%r{file://}, prompt,
+                       'DECIDE prompt should warn against resource_read with file:// URIs')
+        end
+
+        # Instructions-drift fix: DECIDE must pass verbatim sub-tool instructions through
+        # unchanged rather than paraphrasing / re-scoping the task.
+        def test_prompt_requires_verbatim_instruction_passthrough
+          prompt = @step.send(:decide_system_prompt)
+          assert_match(/UNCHANGED|verbatim/i, prompt,
+                       'DECIDE prompt should require verbatim passthrough of instructions')
+          assert_match(/paraphrase|re-scope|re-target/i, prompt,
+                       'DECIDE prompt should forbid paraphrasing/re-scoping the task')
+        end
+
         # Simulate well-formed LLM output and verify it parses through ReviewHint
         def test_well_formed_llm_output_parses
           llm_output = {

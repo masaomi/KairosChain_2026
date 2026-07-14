@@ -1784,7 +1784,17 @@ module KairosMcp
             "reason: <string|null>, urgency: \"low\"|\"medium\"|\"high\"|null }. " \
             "Set needed:true to REQUEST multi-LLM review for subtle high-impact " \
             "decisions; set needed:false for routine plans. The hint is advisory " \
-            "and additive — structural rules may still fire review independently."
+            "and additive — structural rules may still fire review independently.\n" \
+            "Tool-use rules:\n" \
+            "  (1) To read a project file from disk, use `safe_file_read` with a " \
+            "workspace-relative `path`. Do NOT use `resource_read` with a `file://` URI " \
+            "or a bare filesystem path — `resource_read` only accepts `l0://`, " \
+            "`knowledge://`, or `context://` URIs and will fail on anything else.\n" \
+            "  (2) When the goal, orientation, or a prior step supplies a verbatim " \
+            "instructions string, term list, or content to hand to a sub-tool (e.g. the " \
+            "`instructions` for `write_section`), copy it through UNCHANGED into that " \
+            "tool's arguments. Do not paraphrase, summarise, re-scope, or re-target the " \
+            "task (e.g. do not invent a new audience or output format the goal did not ask for)."
           end
 
           def reflect_system_prompt
