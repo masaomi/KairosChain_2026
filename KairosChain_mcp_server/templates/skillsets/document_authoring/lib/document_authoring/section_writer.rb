@@ -23,20 +23,27 @@ module KairosMcp
           # paragraph boundaries and generate each chunk in its own pass, appending the
           # results. Short contexts stay a single pass (chunks == [context_text]).
           chunks = split_context(context_text, chunk_target)
+          source_chars = context_text.to_s.gsub(/\s+/, '').length
+          complete_at = (source_chars * complete_fraction).ceil
 
           total_units = 0
           total_chars = 0
+          chunks_written = 0
           chunks.each_with_index do |chunk, idx|
             first = idx.zero?
+            # Provider-agnostic de-duplication: some output-uncapped providers (e.g. the
+            # claude_code CLI) "finish the section" from the first chunk. Once the assembled
+            # output already covers ~the whole source, stop — further passes would only
+            # append duplicate content. Providers that rewrite each chunk faithfully never
+            # trip this (their per-chunk output tracks per-chunk input), so all chunks run.
+            break if !first && total_chars >= complete_at
+
+            # Continuation chunks must not repeat the section heading. (A stronger
+            # "rewrite only these paragraphs" bound was tried but backfired on the
+            # claude_code CLI — it then under-produced and dropped the section tail.)
             chunk_instructions =
-              if chunks.length > 1
-                # Bound EVERY chunk to its own paragraphs. Without this, providers that
-                # "finish the section" (e.g. claude_code) regenerate the whole section from
-                # the first chunk, so later chunks duplicate content. Continuation chunks
-                # also must not repeat the heading.
-                notes = [bounded_note(language)]
-                notes << continuation_note(language) unless first
-                "#{instructions}\n\n#{notes.join("\n")}"
+              if chunks.length > 1 && !first
+                "#{instructions}\n\n#{continuation_note(language)}"
               else
                 instructions
               end
@@ -49,6 +56,7 @@ module KairosMcp
             write_chunk(output_file, gen['content'], first ? append_mode : true)
             total_units += count_units(gen['content'], language)
             total_chars += gen['content'].gsub(/\s+/, '').length
+            chunks_written += 1
           end
 
           {
@@ -60,7 +68,7 @@ module KairosMcp
             # non-whitespace char count so callers never size output from a bogus metric.
             'word_count' => total_units,
             'char_count' => total_chars,
-            'chunks' => chunks.length
+            'chunks' => chunks_written
           }
         end
 
@@ -167,24 +175,20 @@ module KairosMcp
         end
 
         # Auto-chunk threshold. Sized so each pass is small enough that output-uncapped
-        # providers (e.g. claude_code CLI) emit the whole chunk without stopping early —
+        # providers (e.g. claude_code CLI) emit a full section without stopping early —
         # empirically a larger single pass truncates, while ~3000-char passes complete.
-        # The bounded_note keeps chunks from overlapping. Overridable via config.
+        # On such providers the first chunk may "finish the section", so the output can
+        # carry a trailing duplicate fragment; completeness is favoured over that cosmetic
+        # cost. API providers (with max_tokens honoured) produce a clean single section.
+        # Overridable via config.
         def chunk_target
           (@config['section_chunk_target_chars'] || 3000).to_i
         end
 
-        # Appended to EVERY chunk (when chunking) so the model rewrites only the paragraphs
-        # it was given and does not "finish the section" — which would make chunks overlap.
-        def bounded_note(language)
-          if %w[ja zh ko].include?(language.to_s)
-            '重要: 以下に与えた段落だけを推敲せよ。節はいくつかに分けて処理される。' \
-              '与えられていない段落を書き足したり、節の続きをここで完成させたりしてはならない。'
-          else
-            'IMPORTANT: Rewrite ONLY the paragraphs given below. The section is processed ' \
-              'in several passes; do NOT add paragraphs that are not in this input or ' \
-              'finish the rest of the section here.'
-          end
+        # Fraction of the source (by non-whitespace chars) at which the assembled output is
+        # considered to already cover the whole section, so remaining chunks are skipped.
+        def complete_fraction
+          (@config['section_complete_fraction'] || 0.85).to_f
         end
 
         # Appended to a continuation chunk's instructions so the model does not repeat the

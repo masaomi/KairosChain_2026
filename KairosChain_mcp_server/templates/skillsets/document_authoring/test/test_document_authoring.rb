@@ -468,6 +468,40 @@ assert("T18g: append_mode applies only to the first chunk; later chunks append")
   content.start_with?('PRE') && content.include?("c1\n\nc2\n\nc3")
 end
 
+assert("T18h: stops chunking once output already covers the whole source (no duplicate tail)") do
+  caller = MockCallerTool.new
+  calls = 0
+  caller.define_singleton_method(:invoke_tool) do |tool_name, arguments = {}, context: nil|
+    calls += 1
+    # First pass "finishes the section" (output >= source); a later pass would be a dup.
+    body = calls == 1 ? ('な' * 500) : 'DUPLICATE'
+    [{ text: JSON.generate({ 'status' => 'ok', 'response' => { 'content' => body }, 'snapshot' => {} }) }]
+  end
+  writer = SW.new(caller, { 'section_chunk_target_chars' => 100 })
+  ctx = (1..5).map { ('あ' * 80) }.join("\n\n") # ~400 non-ws source chars, would be 5 chunks
+  out = File.join(TMPDIR, 'earlystop.md')
+  r = writer.write(section_name: 's', instructions: 'i', context_text: ctx,
+                   output_file: out, max_words: 100, language: 'ja', append_mode: false)
+  # chunk1 output (500) >= 0.85 * 400 = 340 → stop after the first pass
+  r['chunks'] == 1 && calls == 1 && !File.read(out).include?('DUPLICATE')
+end
+
+assert("T18i: faithful per-chunk provider still runs all chunks (no premature stop)") do
+  caller = MockCallerTool.new
+  calls = 0
+  caller.define_singleton_method(:invoke_tool) do |tool_name, arguments = {}, context: nil|
+    calls += 1
+    [{ text: JSON.generate({ 'status' => 'ok', 'response' => { 'content' => "p#{calls}" }, 'snapshot' => {} }) }]
+  end
+  writer = SW.new(caller, { 'section_chunk_target_chars' => 100 })
+  ctx = (1..4).map { ('あ' * 80) }.join("\n\n")
+  out = File.join(TMPDIR, 'faithful.md')
+  r = writer.write(section_name: 's', instructions: 'i', context_text: ctx,
+                   output_file: out, max_words: 100, language: 'ja', append_mode: false)
+  # short per-chunk output never reaches the completeness threshold → all chunks run
+  r['chunks'] > 1 && calls == r['chunks'] && File.read(out).include?("p#{calls}")
+end
+
 assert("T18d: max_tokens respects config ceiling override") do
   caller = MockCallerTool.new
   captured = {}

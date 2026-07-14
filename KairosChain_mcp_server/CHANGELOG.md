@@ -4,6 +4,26 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.42.1] - 2026-07-14
+
+### Fixed — SectionWriter auto-chunk completeness & duplicate tail
+
+Two follow-ups to the v3.42.0 auto-chunk on output-uncapped providers
+(e.g. the `claude_code` CLI):
+
+- **Completeness.** v3.42.0 added a per-chunk "rewrite ONLY these paragraphs"
+  bound to avoid a trailing duplicate. On `claude_code` that bound backfired —
+  the model under-produced and dropped the section tail, leaving long sections
+  incomplete. Removed the bound.
+- **Duplicate tail (provider-agnostic).** Some providers "finish the section"
+  from the first chunk; the remaining passes then appended duplicate content.
+  `SectionWriter` now stops chunking once the assembled output already covers
+  ~the whole source (`section_complete_fraction`, default 0.85). Providers that
+  rewrite each chunk faithfully (e.g. API adapters, where `max_tokens` is
+  honoured) never trip this and still run every chunk. Net: a single clean,
+  complete section on both provider kinds. `chunks` in the result now reports
+  the number of passes actually run.
+
 ## [3.42.0] - 2026-07-14
 
 ### Fixed / Improved — agent SkillSet self-drive on long document sections
