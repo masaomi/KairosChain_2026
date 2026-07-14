@@ -4,6 +4,29 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.42.2] - 2026-07-14
+
+### Knowledge — loop_engineering_patterns §B: Model/Effort budget allocation
+
+Extended the `loop_engineering_patterns` L1 entry (0.3 → 0.4) with a §B
+design-craft note distilled from Anthropic's *Model and Effort in Claude Code*
+post:
+
+- Model (intelligence ceiling) and effort (per-request thoroughness) are
+  distinct levers; raise model when logic/knowledge is the wall, raise effort
+  when the loop skips steps.
+- Because a loop compounds turns, uniform high effort multiplies latency —
+  concentrate high effort on the verify/judgment/decision gates, keep mechanical
+  dispatch turns low.
+- The lever is the *orchestrator's*; a worker in a separate process (hermes body
+  subprocess, `agent`-skillset step) carries its own config and is unaffected.
+- KairosChain delta: the non-bypassable gates (Prop 10 consent/audit floor,
+  INV-5 layer guard, verdict track) are where effort must not be cut — a stop
+  there is an irreversible Kairos moment (Prop 5), not a throughput step.
+
+Added the `effort-allocation` tag and a "high/low effort for a long run?"
+entry-point line. No code or behavior change.
+
 ## [3.42.1] - 2026-07-14
 
 ### Fixed — SectionWriter auto-chunk completeness & duplicate tail

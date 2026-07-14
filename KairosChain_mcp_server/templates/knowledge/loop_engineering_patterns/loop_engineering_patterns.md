@@ -1,8 +1,8 @@
 ---
 name: loop_engineering_patterns
 description: Use before designing or classifying an agent loop in KairosChain — to pick a loop type, apply loop-design craft, and place each loop at the right layer under the Prop 10 floor. Claude Code's four loop types + design principles, extended with the governance constraint Anthropic omits.
-version: "0.3"
-tags: [loops, agent, autonomy, taxonomy, layer-placement, provenance]
+version: "0.4"
+tags: [loops, agent, autonomy, taxonomy, layer-placement, provenance, effort-allocation]
 ---
 
 # Loop Engineering Patterns
@@ -14,6 +14,7 @@ Open *before* designing or classifying an agent loop — not a runtime tool:
 - New agent loop / autonomous cycle → pick a §A type, apply §B craft, then place it via §C.
 - "Which layer owns this loop?" (harness vs gem/SkillSet, plus the cross-cutting L0 governance floor) → §C table + the L0 note below it.
 - Strengthening the `agent` OODA loop (self-verification, semantic stop) → §B + §C evaluator/verifier notes.
+- "High/low effort for a long run?" → §B budget-allocation note (concentrate effort on §C's non-bypassable gates).
 - Explaining why KairosChain's autonomous mode keeps human checkpoints → §C Prop 10 floor.
 - Not for: skill lifecycle/maturation → [[agent_skill_evolution_guide]]; general layer rules → [[layer_placement_guide]].
 
@@ -28,6 +29,8 @@ Micro (small) and macro (broad) loops compose; match loop complexity to problem 
 
 ## B. Design craft (universal — adopt as-is)
 Output quality tracks the surrounding harness, not the model alone. Keep the codebase clean so the loop follows existing patterns. **Encode verification as a skill with quantitative checks** so the loop measures its own work. Keep docs accessible/current. **Use a second, independent agent for review** (fresh context, separate session/model). Set explicit success/stop criteria and max-turn caps to bound cost; script deterministic steps instead of re-reasoning them; monitor token spend.
+
+**Allocate reasoning budget by phase, not uniformly.** Model and effort are distinct levers ([Model and Effort in Claude Code](https://claude.com/blog/claude-model-and-effort-level-in-claude-code), Anthropic, 2026): model sets the intelligence ceiling — raise it when logic or knowledge is the wall; effort sets per-request thoroughness (files read, tests run, verification passes) — raise it when the loop skips steps, not when it lacks intelligence. Because a loop compounds turns, uniform high effort multiplies latency across every cycle: concentrate high effort on the verify / judgment / decision gates and keep mechanical dispatch turns low. Note this is the *orchestrator's* lever — it governs how carefully the loop monitors, verifies, and decides; it does not raise the quality of a worker running in a separate process (e.g. a hermes body subprocess or an `agent`-skillset step), which carries its own model/effort config. In KairosChain the non-bypassable gates — the Prop 10 consent/audit floor, the INV-5 layer guard, the verdict track — are exactly where effort must not be cut, since a stop there is an irreversible Kairos moment (§C, Prop 5), not a throughput step.
 
 ## C. KairosChain reading (layer placement + the floor Anthropic omits)
 The four types are harness-framed (`/goal`, `/loop`, `/schedule`, `/usage`, auto mode are Claude Code mechanisms). KairosChain already implements most of the substance across layers — so the work is mostly *placement*, not adoption; one item is still design-stage (flagged in the table):
