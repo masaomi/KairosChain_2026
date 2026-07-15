@@ -280,6 +280,14 @@ module Hestia
       }
     end
 
+    # All unique tags across deposited skills, sorted for a stable filter UI.
+    # Backs the public web catalog's tag filter (WebRouter#handle_web_index).
+    # Scans deposited skills only — agent/need entries are not part of the
+    # publicly browsable skill catalog.
+    def all_unique_tags
+      @deposited_skills.flat_map { |d| d[:tags] || [] }.compact.uniq.sort
+    end
+
     # Clean up expired federated deposits (hop_count > 0 only).
     # Local deposits never expire — depositor is responsible.
     # Called from HeartbeatManager check cycle.

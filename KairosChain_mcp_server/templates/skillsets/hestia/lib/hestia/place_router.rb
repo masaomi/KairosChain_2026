@@ -55,7 +55,8 @@ module Hestia
       end
     end
 
-    attr_reader :registry, :skill_board, :heartbeat_manager, :session_store, :started_at, :extensions
+    attr_reader :registry, :skill_board, :heartbeat_manager, :session_store, :started_at, :extensions,
+                :web_router, :anchor_log, :anchor_board
 
     def initialize(config: nil)
       @config = config || ::Hestia.load_config
@@ -63,6 +64,16 @@ module Hestia
       @skill_board = nil
       @heartbeat_manager = nil
       @session_store = nil
+      # The public (unauthenticated) web UI + JSON API + ANC-7 verification view.
+      # Constructed in #start when the operator enables it (default on). The
+      # Meeting Place SkillSet owns its own public surface here rather than in the
+      # core HTTP server, so mounting it never crosses the L0/SkillSet boundary.
+      @web_router = nil
+      # Anchor store instances (nil until #start with anchoring enabled). Exposed
+      # so an authenticated write entry point can deposit into the same log/board
+      # the public ANC-7 view reads from.
+      @anchor_log = nil
+      @anchor_board = nil
       @started = false
       @started_at = nil
       @self_id = nil
@@ -121,6 +132,16 @@ module Hestia
         observer_id: @self_id
       )
 
+      # Anchor store (ANC-1 log + BRD board + ANC-9 budget). Built independently
+      # of the web UI so it also backs the authenticated write path (the
+      # inaugural / external anchoring deposit), and exposed via attr_reader so an
+      # operator write entry point deposits into the same instances the public
+      # view reads from. [nil, nil] when anchoring is disabled.
+      @anchor_log, @anchor_board = build_anchor_store(place_config, default_storage)
+
+      # Mount the public web surface (catalog/api + ANC-7 verification view).
+      @web_router = build_web_router(place_config)
+
       # Self-register: the Place IS also a participant (主客未分)
       @registry.self_register(identity)
 
@@ -135,6 +156,77 @@ module Hestia
       }
     end
 
+    # Build the public WebRouter (catalog/api + ANC-7 verification view).
+    #
+    # The web classes require rack/utils (present in the server bundle) and are
+    # required lazily here so a place that never serves the web UI does not pull
+    # in rack at load time. A missing dependency degrades to "web UI not mounted"
+    # (the authenticated API keeps working) rather than a boot failure.
+    #
+    # @return [WebRouter, nil] nil when disabled or the dependency is unavailable.
+    def build_web_router(place_config)
+      web_config = place_config['web_ui'] || {}
+      return nil unless web_config.fetch('enabled', true)
+
+      require_relative 'public_rate_limiter'
+      require_relative 'public_presenter'
+      require_relative 'import_command_generator'
+      require_relative 'web_router'
+
+      place_host = web_config['place_host']
+      place_url = web_config['place_url'] || (place_host && "https://#{place_host}")
+
+      WebRouter.new(
+        skill_board: @skill_board,
+        agent_registry: @registry,
+        config: {
+          'name' => place_config['name'] || 'KairosChain Meeting Place',
+          'place_host' => place_host,
+          'place_url' => place_url
+        }.compact,
+        anchor_log: @anchor_log,
+        anchor_board: @anchor_board
+      )
+    rescue LoadError => e
+      warn "[PlaceRouter] Public web UI not mounted (missing dependency): #{e.message}"
+      nil
+    end
+
+    # Build the anchor store (ANC-1 log + BRD deposit board + ANC-9 write budget)
+    # when the operator enables anchoring. Returns [nil, nil] when disabled, in
+    # which case the WebRouter serves the catalog but the /place/web/verify and
+    # /place/web/anchor/* routes 404 (the capability is simply not present).
+    #
+    # The operator identity (@self_id) is the ANC-5/ANC-8 control boundary: it is
+    # the only identity permitted to withdraw any entry and the one against which
+    # same-party vs foreign is derived.
+    def build_anchor_store(place_config, default_storage)
+      anchor_config = place_config['anchoring'] || {}
+      return [nil, nil] unless anchor_config['enabled']
+
+      require_relative 'anchoring/log'
+      require_relative 'anchoring/write_budget'
+      require_relative 'anchoring/deposit_board'
+
+      log = Anchoring::Log.new(
+        storage_path: anchor_config['log_path'] || "#{default_storage}hestia_anchor_log.json",
+        operator_id: @self_id
+      )
+      budget = Anchoring::WriteBudget.new(
+        per_identity: anchor_config['per_identity'] || Anchoring::WriteBudget::DEFAULT_PER_IDENTITY,
+        aggregate: anchor_config['aggregate'] || Anchoring::WriteBudget::DEFAULT_AGGREGATE,
+        window_seconds: anchor_config['window_seconds'] || Anchoring::WriteBudget::DEFAULT_WINDOW_SECONDS,
+        operator_id: @self_id
+      )
+      board = Anchoring::DepositBoard.new(
+        log: log,
+        attestation_store_path: anchor_config['attestation_store_path'] ||
+          "#{default_storage}hestia_anchor_attestations.json",
+        budget: budget
+      )
+      [log, board]
+    end
+
     # Rack-compatible call method.
     def call(env)
       unless @started
@@ -146,6 +238,16 @@ module Hestia
 
       request_method = env['REQUEST_METHOD']
       path = env['PATH_INFO']
+
+      # Public, unauthenticated, read-only web surface (ANC-7 verification view,
+      # skill catalog, JSON API). Delegated before the auth flow — same position
+      # as the other unauthenticated endpoints below. The WebRouter enforces
+      # GET-only, IP rate limiting, and HTML escaping internally.
+      if @web_router &&
+         (path == '/place/web' || path.start_with?('/place/web/') ||
+          path.start_with?('/place/api/v1/'))
+        return @web_router.call(env)
+      end
 
       # Unauthenticated endpoints
       if request_method == 'GET' && path == '/place/v1/info'

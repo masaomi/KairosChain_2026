@@ -13,6 +13,30 @@ meeting_place:
   # registry_path: storage/agent_registry.json
   # parent_place_url: null  # URL of parent place for federation
 
+  # Public web surface (unauthenticated, read-only): skill catalog, JSON API,
+  # and — when anchoring is enabled — the ANC-7 verification view.
+  # Mounted by PlaceRouter under /place/web/* and /place/api/v1/*.
+  web_ui:
+    enabled: true
+    # place_host / place_url anchor the public links and the ANC-7 verification
+    # address (place://<place_host>/anchor/<slug>). Set to the served hostname.
+    # place_host: meeting.genomicschain.io
+    # place_url: https://meeting.genomicschain.io
+
+  # Anchor attestation capability (ANC-1..9 / BRD-1..4). Opt-in: when disabled
+  # the catalog still serves but /place/web/verify and /place/web/anchor/* 404.
+  # Enable on the place that hosts external-reference (content-by-reference)
+  # anchors — e.g. the constitutive-note / GenomicsChain provenance deployment.
+  anchoring:
+    enabled: false
+    # ANC-9 free-write budget (mechanism, design §11) — tune to observed load.
+    # The Sybil disclosure is shown regardless of the numbers.
+    per_identity: 60      # writes per identity per window
+    aggregate: 600        # writes across all identities per window
+    window_seconds: 3600  # refill window
+    # log_path: storage/hestia_anchor_log.json
+    # attestation_store_path: storage/hestia_anchor_attestations.json
+
   # Deposit policy (operator-configurable)
   deposit_policy:
     max_skill_size_bytes: 100000
