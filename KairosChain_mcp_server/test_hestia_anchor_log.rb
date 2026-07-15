@@ -658,6 +658,108 @@ Dir.mktmpdir do |dir|
     bboard.attestations_for(bd.deposit_id).none? { |a| a['withdrawn'] }
   end
   assert('board rollback: count unchanged') { bboard.attestations_for(bd.deposit_id).size == att_count_before }
+
+  # --------------------------------------------------------------------------
+  puts "\n[18] ANC-9 write budget: per-identity + aggregate bounds, operator exempt, disclosed"
+  WB = Hestia::Anchoring::WriteBudget
+  # controllable clock for window rollover
+  clock_now = [Time.now]
+  budget = WB.new(per_identity: 2, aggregate: 3, window_seconds: 100,
+                  operator_id: 'operator', clock: -> { clock_now[0] })
+  blog3 = Hestia::Anchoring::Log.new(storage_path: File.join(dir, 'budget_log.json'), operator_id: 'operator')
+  bboard3 = Hestia::Anchoring::DepositBoard.new(log: blog3,
+                                                attestation_store_path: File.join(dir, 'budget_att.json'),
+                                                budget: budget)
+  pA = Hestia::Anchoring::WritePath::Principal.new(peer_id: 'peerA', verified: true)
+  pB = Hestia::Anchoring::WritePath::Principal.new(peer_id: 'peerB', verified: true)
+  pC = Hestia::Anchoring::WritePath::Principal.new(peer_id: 'peerC', verified: true)
+  pOp = Hestia::Anchoring::WritePath::Principal.new(peer_id: 'operator', verified: true)
+
+  dep_n = 0
+  mk = lambda do |pr|
+    dep_n += 1
+    bboard3.deposit_by_reference(principal: pr, digest: digest_for("bud#{dep_n}"),
+                                 source_id: "s#{dep_n}")
+  end
+
+  assert('peerA deposit 1 ok') { mk.call(pA); true }
+  assert('peerA deposit 2 ok') { mk.call(pA); true }
+  assert('peerA deposit 3 -> per_identity exceeded') do
+    begin
+      mk.call(pA); false
+    rescue WB::BudgetExceeded => e
+      e.scope == :per_identity
+    end
+  end
+  assert('peerB deposit 1 ok (aggregate now 3)') { mk.call(pB); true }
+  assert('peerC deposit -> aggregate exceeded') do
+    begin
+      mk.call(pC); false
+    rescue WB::BudgetExceeded => e
+      e.scope == :aggregate
+    end
+  end
+  assert('BudgetExceeded carries the Sybil disclosure') do
+    begin
+      mk.call(pC); false
+    rescue WB::BudgetExceeded => e
+      e.disclosure.include?('Sybil')
+    end
+  end
+
+  # operator is exempt even though aggregate is full
+  assert('operator exempt from budget') do
+    5.times { mk.call(pOp) }
+    true
+  end
+
+  # window rollover refills the budget
+  assert('window rollover refills budget') do
+    clock_now[0] = clock_now[0] + 200 # past the 100s window
+    mk.call(pA) # peerA was at limit; after roll should succeed
+    true
+  end
+
+  # a rejected write (containment failure) does not consume budget (refund)
+  clock_now[0] = clock_now[0] + 200 # fresh window
+  budget2 = WB.new(per_identity: 1, aggregate: 10, window_seconds: 100,
+                   operator_id: 'operator', clock: -> { clock_now[0] })
+  rlog = Hestia::Anchoring::Log.new(storage_path: File.join(dir, 'refund_log.json'), operator_id: 'operator')
+  rboard = Hestia::Anchoring::DepositBoard.new(log: rlog,
+                                               attestation_store_path: File.join(dir, 'refund_att.json'),
+                                               budget: budget2)
+  # a containment-rejected deposit (bad digest) by peerA
+  begin
+    rboard.deposit_by_reference(principal: pA, digest: 'nothex', source_id: 'x')
+  rescue Hestia::Anchoring::Containment::ContainmentError
+    # expected
+  end
+  assert('rejected write refunded: peerA still has budget') do
+    rboard.deposit_by_reference(principal: pA, digest: digest_for('refund_ok'), source_id: 'y')
+    true
+  end
+
+  # attestation writes also draw on the budget (BRD-3 extends ANC-9)
+  clock_now[0] = clock_now[0] + 200
+  budget3 = WB.new(per_identity: 1, aggregate: 10, window_seconds: 100, clock: -> { clock_now[0] })
+  alog2 = Hestia::Anchoring::Log.new(storage_path: File.join(dir, 'attbud_log.json'), operator_id: 'operator')
+  aboard2 = Hestia::Anchoring::DepositBoard.new(log: alog2,
+                                                attestation_store_path: File.join(dir, 'attbud_att.json'),
+                                                budget: budget3)
+  ad = aboard2.deposit_by_reference(principal: pOp, digest: digest_for('adep'), source_id: 'ad')
+  aboard2.attest(deposit_id: ad.deposit_id, principal: pB, claim_type: 'vouch') # peerB uses its 1 write
+  assert('attestation beyond per-identity budget rejected') do
+    begin
+      aboard2.attest(deposit_id: ad.deposit_id, principal: pB, claim_type: 'review'); false
+    rescue WB::BudgetExceeded
+      true
+    end
+  end
+
+  assert('budget status discloses limits + Sybil residual') do
+    s = budget.status
+    s[:per_identity_limit] == 2 && s[:aggregate_limit] == 3 && s[:disclosure].include?('disclosed limit')
+  end
 end
 
 puts "\n" + ('=' * 60)

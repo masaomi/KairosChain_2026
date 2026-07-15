@@ -193,11 +193,13 @@ module Hestia
       params = Rack::Utils.parse_query(env['QUERY_STRING'] || '')
       digest = params['digest'].to_s.strip
       if digest.empty?
-        return html_response(200, render('web_verify', records: nil, query: nil, place_name: place_name))
+        return html_response(200, render('web_verify', records: nil, query: nil,
+          write_disclosure: Anchoring::WriteBudget::SYBIL_DISCLOSURE, place_name: place_name))
       end
 
       records = @anchor_verifier.verify_digest(digest)
-      html_response(200, render('web_verify', records: records, query: digest, place_name: place_name))
+      html_response(200, render('web_verify', records: records, query: digest,
+        write_disclosure: Anchoring::WriteBudget::SYBIL_DISCLOSURE, place_name: place_name))
     end
 
     # /place/web/anchor/<id> — stable citable view. <id> is either a 64-hex entry

@@ -36,39 +36,58 @@ module Hestia
         end
       end
 
-      def initialize(log:, principal:)
+      def initialize(log:, principal:, budget: nil)
         @log = log
         @principal = principal
+        @budget = budget
       end
 
       # Deposit an anchor. The depositor is the authenticated peer identity, not a
       # caller argument — attribution cannot be forged here.
       def deposit(digest:, anchor_type:, source_id:, external_reference: nil, metadata: {}, moment: nil)
         require_authenticated!
-        @log.append_anchor(
-          digest: digest,
-          anchor_type: anchor_type,
-          source_id: source_id,
-          depositor: @principal.peer_id,
-          external_reference: external_reference,
-          metadata: metadata,
-          moment: moment
-        )
+        budgeted do
+          @log.append_anchor(
+            digest: digest,
+            anchor_type: anchor_type,
+            source_id: source_id,
+            depositor: @principal.peer_id,
+            external_reference: external_reference,
+            metadata: metadata,
+            moment: moment
+          )
+        end
       end
 
       # Withdraw an anchor. The withdrawer is the authenticated peer identity; the
       # Log rejects it unless that identity is the target's depositor or operator.
       def withdraw(target:, reason: nil, moment: nil)
         require_authenticated!
-        @log.append_withdrawal(
-          target: target,
-          withdrawer: @principal.peer_id,
-          reason: reason,
-          moment: moment
-        )
+        budgeted do
+          @log.append_withdrawal(
+            target: target,
+            withdrawer: @principal.peer_id,
+            reason: reason,
+            moment: moment
+          )
+        end
       end
 
       private
+
+      # ANC-9: reserve budget before the write; refund if the write fails, so only
+      # net-successful writes consume budget.
+      def budgeted
+        return yield unless @budget
+
+        @budget.charge!(@principal.peer_id)
+        begin
+          yield
+        rescue StandardError
+          @budget.refund!(@principal.peer_id)
+          raise
+        end
+      end
 
       def require_authenticated!
         return if @principal.respond_to?(:verified?) && @principal.verified?

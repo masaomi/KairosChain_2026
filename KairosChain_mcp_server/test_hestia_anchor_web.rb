@@ -123,6 +123,9 @@ Dir.mktmpdir do |dir|
 
   st3c, html3c = get(router, '/place/web/verify')
   assert('empty verify shows the form') { st3c == 200 && html3c.include?('<form') }
+  assert('verify page discloses the write budget / Sybil limit (ANC-9)') do
+    html3.include?('Sybil') && html3.include?('identity issuance')
+  end
 
   puts "\n[4] Not-found & disabled behavior"
   st4, = get(router, '/place/web/anchor/deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef')

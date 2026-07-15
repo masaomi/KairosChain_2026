@@ -21,6 +21,7 @@ module Hestia
   require_relative 'hestia/anchoring/entry'
   require_relative 'hestia/anchoring/containment'
   require_relative 'hestia/anchoring/log'
+  require_relative 'hestia/anchoring/write_budget'
   require_relative 'hestia/anchoring/write_path'
   require_relative 'hestia/anchoring/public_verifier'
   require_relative 'hestia/anchoring/read_path'

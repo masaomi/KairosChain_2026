@@ -46,9 +46,10 @@ module Hestia
         keyword_init: true
       )
 
-      def initialize(log:, attestation_store_path:)
+      def initialize(log:, attestation_store_path:, budget: nil)
         @log = log
         @operator_id = log.operator_id
+        @budget = budget
         @store_path = attestation_store_path
         @mutex = Mutex.new
         @attestations = []
@@ -63,7 +64,7 @@ module Hestia
       # The depositor is bound to the authenticated principal (ANC-5).
       def deposit_by_reference(principal:, digest:, source_id:, anchor_type: 'generic',
                                retrieval_pointer: nil, discovery_metadata: {}, moment: nil)
-        writer = WritePath.new(log: @log, principal: principal)
+        writer = WritePath.new(log: @log, principal: principal, budget: @budget)
         entry = writer.deposit(
           digest: digest,
           anchor_type: anchor_type,
@@ -130,6 +131,8 @@ module Hestia
         Containment.validate_attestation!(claim_type: claim_type, note: note,
                                           reference: reference, bound_digest: bound)
 
+        # ANC-9 / BRD-3: attestation writes share the availability budget.
+        budgeted(principal.peer_id) do
         @mutex.synchronize do
           record = {
             'kind' => 'attestation',
@@ -143,6 +146,7 @@ module Hestia
           }
           record['attestation_id'] = content_id(record)
           commit(record)
+        end
         end
       end
 
@@ -160,6 +164,7 @@ module Hestia
         Containment.validate_inert_text!(reason, field: 'withdrawal reason',
                                                  max: Containment::MAX_REASON_LENGTH)
         attestation_id = attestation_id.to_s
+        budgeted(principal.peer_id) do
         @mutex.synchronize do
           target = @by_id[attestation_id]
           raise ArgumentError, "Unknown attestation: #{attestation_id}" unless target
@@ -181,6 +186,7 @@ module Hestia
           record['attestation_id'] = content_id(record)
           commit(record)
         end
+        end
       end
 
       private
@@ -191,6 +197,19 @@ module Hestia
           rec = @attestations[i].dup
           rec['withdrawn'] = !@withdrawals_for.fetch(rec['attestation_id'], EMPTY).empty?
           rec
+        end
+      end
+
+      # ANC-9: reserve budget before the write; refund on failure.
+      def budgeted(identity)
+        return yield unless @budget
+
+        @budget.charge!(identity)
+        begin
+          yield
+        rescue StandardError
+          @budget.refund!(identity)
+          raise
         end
       end
 
