@@ -16,6 +16,14 @@ module Hestia
   require_relative 'hestia/chain/backend/in_memory'
   require_relative 'hestia/chain/protocol'
   require_relative 'hestia/chain/integrations/base'
+
+  # Anchor attestation log (ANC-1/2/5; hestia_anchor_attestation_design_v0.5)
+  require_relative 'hestia/anchoring/entry'
+  require_relative 'hestia/anchoring/containment'
+  require_relative 'hestia/anchoring/log'
+  require_relative 'hestia/anchoring/write_path'
+  require_relative 'hestia/anchoring/read_path'
+  require_relative 'hestia/anchoring/deposit_board'
   require_relative 'hestia/chain/integrations/meeting_protocol'
 
   # SkillSet-specific modules
