@@ -1,0 +1,101 @@
+/* KairosChain Skill Marketplace */
+
+/* Skill grid layout */
+.grid-skills {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1rem;
+}
+
+.grid-skills article {
+  margin: 0;
+}
+
+/* Badges */
+.badges {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge-success {
+  background: #2ecc40;
+  color: #fff;
+}
+
+.badge-warning {
+  background: #ff851b;
+  color: #fff;
+}
+
+.badge-info {
+  background: #0074d9;
+  color: #fff;
+}
+
+.badge-secondary {
+  background: #aaa;
+  color: #fff;
+}
+
+/* Tags */
+.tags {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.tag {
+  display: inline-block;
+  padding: 0.1rem 0.4rem;
+  background: #e0e0e0;
+  border-radius: 0.3rem;
+  font-size: 0.75rem;
+  text-decoration: none;
+  color: #333;
+}
+
+.tag:hover {
+  background: #c0c0c0;
+}
+
+/* Import commands */
+#import pre {
+  position: relative;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Overflow for wide tables */
+.overflow-auto {
+  overflow-x: auto;
+}
+
+/* Breadcrumb nav */
+nav[aria-label="breadcrumb"] ul {
+  list-style: none;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0;
+  margin: 0 0 1rem;
+}
+
+nav[aria-label="breadcrumb"] li::before {
+  content: "/ ";
+  color: #999;
+}
+
+nav[aria-label="breadcrumb"] li:first-child::before {
+  content: "";
+}

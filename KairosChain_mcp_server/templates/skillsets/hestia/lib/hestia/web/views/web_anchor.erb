@@ -1,0 +1,53 @@
+<% rel = record[:relation] -%>
+<article>
+  <header>
+    <% if record[:withdrawn] -%>
+      <p><mark>This anchor has been withdrawn.</mark> Its digest, moment, and chain position remain readable; depositor-supplied fields are suppressed.</p>
+    <% end -%>
+    <hgroup>
+      <h2><%= rel == :same_party ? 'Public reference point' : 'External anchor' %></h2>
+      <p><%= rel == :same_party ? 'same-party — recorded by the place operator' : 'foreign — recorded by another party' %></p>
+    </hgroup>
+  </header>
+
+  <table>
+    <tr><th scope="row">Digest (<%= h(record[:digest_algorithm]) %>)</th><td><code><%= h(record[:digest]) %></code></td></tr>
+    <tr><th scope="row">Canonicalization</th><td><%= h(record[:canonicalization]) %></td></tr>
+    <tr><th scope="row">Recorded</th><td><%= h(record[:moment]) %></td></tr>
+    <tr><th scope="row">Chain position</th><td>#<%= h(record[:position]) %></td></tr>
+    <tr><th scope="row">Depositor</th><td><%= h(record[:depositor]) %></td></tr>
+    <% if record[:retrieval_pointer] -%>
+      <% href = anchor_pointer_href(record[:retrieval_pointer]) -%>
+      <tr><th scope="row">Retrieval</th><td>
+        <% if href -%>
+          <a href="<%= h(href) %>" rel="noopener nofollow external"><%= h(record[:retrieval_pointer]) %></a>
+        <% else -%>
+          <%= h(record[:retrieval_pointer]) %>
+        <% end -%>
+      </td></tr>
+    <% end -%>
+  </table>
+
+  <% unless record[:attestations].empty? -%>
+    <h3>Attestations (<%= record[:attestations].size %>)</h3>
+    <p><small>Peer claims about this anchor. The place does not verify or rank them.</small></p>
+    <ul>
+      <% record[:attestations].each do |a| -%>
+        <li>
+          <strong><%= h(a['claim_type']) %></strong> &mdash; by <%= h(a['attester']) %>
+          <% if a['withdrawn'] -%><mark>withdrawn</mark><% end -%>
+          <% if a['note'] && !a['note'].to_s.empty? -%><br><em><%= h(a['note']) %></em><% end -%>
+        </li>
+      <% end -%>
+    </ul>
+  <% end -%>
+
+  <footer>
+    <details open>
+      <summary>What this proves</summary>
+      <p><%= h(record[:proof_scope]) %></p>
+    </details>
+    <p><small><%= h(record[:relation_disclosure]) %></small></p>
+    <p><a href="/place/web/verify">Verify another digest</a></p>
+  </footer>
+</article>

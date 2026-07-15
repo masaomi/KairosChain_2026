@@ -1,0 +1,26 @@
+<h2>Verify a digest</h2>
+<p>Paste the SHA-256 digest of your file to check whether it was recorded here, when, and by whom.</p>
+<form method="get" action="/place/web/verify">
+  <input type="text" name="digest" placeholder="64-character sha256 hex digest" value="<%= h(query) %>" aria-label="digest">
+  <button type="submit">Verify</button>
+</form>
+
+<% unless query.nil? -%>
+  <% if records.nil? || records.empty? -%>
+    <p><strong>No anchor recorded for this digest.</strong></p>
+  <% else -%>
+    <p><%= records.size %> record(s) match this digest:</p>
+    <% records.each do |record| -%>
+      <article>
+        <p><code><%= h(record[:digest]) %></code></p>
+        <p>
+          #<%= h(record[:position]) %> &middot;
+          <%= h(record[:depositor]) %> &middot;
+          <%= h(record[:moment]) %>
+          <% if record[:withdrawn] -%><mark>withdrawn</mark><% end -%>
+        </p>
+        <a href="/place/web/anchor/<%= h(record[:entry_hash]) %>">View verification &rarr;</a>
+      </article>
+    <% end -%>
+  <% end -%>
+<% end -%>
