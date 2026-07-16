@@ -5,6 +5,14 @@ meeting.genomicschain.io {
 		file_server
 	}
 
+	# Frozen verification address for anchored deposits (ANC-7). The public URL
+	# /anchor/<slug> is baked into immutable Zenodo documents, so it must resolve
+	# durably: rewrite to the app's ANC-7 public view under /place/web/anchor/<slug>.
+	handle /anchor/* {
+		rewrite * /place/web{uri}
+		reverse_proxy meeting-place:8080
+	}
+
 	# API routes to KairosChain app
 	handle /place/* {
 		reverse_proxy meeting-place:8080
