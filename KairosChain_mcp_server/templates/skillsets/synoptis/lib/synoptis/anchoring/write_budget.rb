@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-module Hestia
+module Synoptis
   module Anchoring
     # Availability budget for the free write surface (ANC-9).
     #

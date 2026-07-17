@@ -7,7 +7,7 @@ require 'digest'
 require 'json'
 require 'fileutils'
 
-module Hestia
+module Synoptis
   module Anchoring
     # The unified deposit board layer (BRD-1/3/4; unified_deposit_board_design_v0.3).
     #

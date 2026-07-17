@@ -20,6 +20,17 @@ require_relative 'synoptis/transport/mmp_transport'
 require_relative 'synoptis/transport/hestia_transport'
 require_relative 'synoptis/transport/local_transport'
 
+# Anchor attestation (係留) capability, migrated from hestia (AHM-1: agent-owned).
+require_relative 'synoptis/anchoring/entry'
+require_relative 'synoptis/anchoring/containment'
+require_relative 'synoptis/anchoring/log'
+require_relative 'synoptis/anchoring/write_budget'
+require_relative 'synoptis/anchoring/write_path'
+require_relative 'synoptis/anchoring/read_path'
+require_relative 'synoptis/anchoring/public_verifier'
+require_relative 'synoptis/anchoring/public_read'
+require_relative 'synoptis/anchoring/deposit_board'
+
 module Synoptis
   SYNOPTIS_ACTIONS = %w[
     attestation_request

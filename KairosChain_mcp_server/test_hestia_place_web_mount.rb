@@ -16,6 +16,7 @@
 ROOT = File.expand_path('..', __dir__)
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.join(ROOT, '.kairos/skillsets/mmp/lib')
+$LOAD_PATH.unshift File.join(ROOT, '.kairos/skillsets/synoptis/lib')
 $LOAD_PATH.unshift File.join(ROOT, '.kairos/skillsets/hestia/lib')
 
 # Minimal Rack::Utils.parse_query shim so the WebRouter runs without bundler
@@ -47,6 +48,7 @@ end
 require 'kairos_mcp'
 require 'mmp'
 require 'mmp/meeting_session_store'
+require 'synoptis'
 require 'hestia'
 require 'json'
 require 'digest'
@@ -140,7 +142,7 @@ section('[A] web_ui + anchoring enabled → public surface served (200/404, not 
     assert('verify shows Sybil disclosure') { html.include?('Full Sybil resistance') }
 
     # Deposit an anchor as the operator (same-party / budget-exempt).
-    op = Hestia::Anchoring::WritePath::Principal.new(peer_id: router.anchor_log.operator_id, verified: true)
+    op = Synoptis::Anchoring::WritePath::Principal.new(peer_id: router.anchor_log.operator_id, verified: true)
     digest = Digest::SHA256.hexdigest('the constitutive note bytes v1.7')
     slug = 'constitutive-note-v1_7'
     dep = router.anchor_board.deposit_by_reference(
@@ -213,6 +215,35 @@ section('[D] web_ui disabled → public surface not mounted (falls through to au
 
     st, _ = get(router, '/place/web/')
     assert('GET /place/web/ → 401 (no web router, hits auth flow)') { st == 401 }
+  end
+end
+
+# --------------------------------------------------------------------------
+# S3/M4 ownership boundary: hestia is the public WINDOW; Synoptis owns anchor
+# read semantics. hestia's production code must consume the injected read handle,
+# not construct the verifier or reach into the disclosure / reference-safety
+# policy constants itself. (Comments are stripped so the doc reference to the
+# handle class does not false-match.)
+def source_without_comments(path)
+  File.readlines(path).reject { |l| l.strip.start_with?('#') }.join
+end
+
+section('[E] anchor read semantics are owned by Synoptis, presented by hestia') do
+  hestia_lib = File.join(ROOT, '.kairos/skillsets/hestia/lib/hestia')
+  web = source_without_comments(File.join(hestia_lib, 'web_router.rb'))
+  place = source_without_comments(File.join(hestia_lib, 'place_router.rb'))
+
+  assert('WebRouter does not construct the anchor verifier') do
+    !web.include?('Synoptis::Anchoring::PublicVerifier')
+  end
+  assert('WebRouter does not reach into the Sybil-disclosure constant') do
+    !web.include?('WriteBudget::SYBIL_DISCLOSURE')
+  end
+  assert('WebRouter does not reach into the reference-safety pattern') do
+    !web.include?('SAFE_REFERENCE_PATTERN')
+  end
+  assert('PlaceRouter builds the Synoptis-owned public read handle') do
+    place.include?('Synoptis::Anchoring::PublicRead')
   end
 end
 

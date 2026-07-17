@@ -2,7 +2,7 @@
 
 require_relative 'entry'
 
-module Hestia
+module Synoptis
   module Anchoring
     # Write-path containment (ANC-2; hestia_anchor_attestation_design_v0.5).
     #

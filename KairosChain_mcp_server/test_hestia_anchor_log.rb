@@ -15,10 +15,12 @@
 
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/mmp/lib', __dir__)
+$LOAD_PATH.unshift File.expand_path('templates/skillsets/synoptis/lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/hestia/lib', __dir__)
 
 require 'kairos_mcp'
 require 'mmp'
+require 'synoptis'
 require 'hestia'
 require 'tmpdir'
 require 'fileutils'
@@ -46,12 +48,22 @@ def digest_for(str)
   Digest::SHA256.hexdigest(str)
 end
 
+# Read/write the append-line anchor store (one JSON entry per line). Used by the
+# tamper tests to reach into the persisted chain and by the torn-tail test.
+def read_store_entries(path)
+  File.readlines(path).map(&:strip).reject(&:empty?).map { |l| JSON.parse(l) }
+end
+
+def write_store_entries(path, entries)
+  File.write(path, entries.map { |h| JSON.generate(h) }.join("\n") + "\n")
+end
+
 Dir.mktmpdir do |dir|
   path = File.join(dir, 'anchor_log.json')
 
   # --------------------------------------------------------------------------
   puts "\n[1] Append + head + positions"
-  log = Hestia::Anchoring::Log.new(storage_path: path)
+  log = Synoptis::Anchoring::Log.new(storage_path: path)
   assert('empty log has nil head') { log.head.nil? }
   e0 = log.append_anchor(digest: digest_for('a'), anchor_type: 'constitutive_note',
                          source_id: 'place://p/anchor/1', depositor: 'op',
@@ -82,10 +94,10 @@ Dir.mktmpdir do |dir|
 
   # --------------------------------------------------------------------------
   puts "\n[4] Detect in-place EDIT (tamper stored digest)"
-  raw = JSON.parse(File.read(path))
-  raw['entries'][1]['body']['digest'] = digest_for('EVIL')
-  File.write(path, JSON.pretty_generate(raw))
-  tampered = Hestia::Anchoring::Log.new(storage_path: path)
+  raw = read_store_entries(path)
+  raw[1]['body']['digest'] = digest_for('EVIL')
+  write_store_entries(path, raw)
+  tampered = Synoptis::Anchoring::Log.new(storage_path: path)
   ve = tampered.verify
   assert('edit is detected') { ve[:valid] == false }
   assert('edit broken_at == 1') { ve[:broken_at] == 1 }
@@ -93,11 +105,11 @@ Dir.mktmpdir do |dir|
 
   # --------------------------------------------------------------------------
   puts "\n[5] Detect REORDER (swap two entries)"
-  raw = JSON.parse(File.read(path))
-  raw['entries'][1]['body']['digest'] = digest_for('b') # undo edit
-  raw['entries'][0], raw['entries'][1] = raw['entries'][1], raw['entries'][0]
-  File.write(path, JSON.pretty_generate(raw))
-  reordered = Hestia::Anchoring::Log.new(storage_path: path)
+  raw = read_store_entries(path)
+  raw[1]['body']['digest'] = digest_for('b') # undo edit
+  raw[0], raw[1] = raw[1], raw[0]
+  write_store_entries(path, raw)
+  reordered = Synoptis::Anchoring::Log.new(storage_path: path)
   vr = reordered.verify
   assert('reorder is detected') { vr[:valid] == false }
   assert('reorder broken at 0') { vr[:broken_at] == 0 }
@@ -106,14 +118,14 @@ Dir.mktmpdir do |dir|
   puts "\n[6] Detect DELETE (drop middle entry)"
   # rebuild a clean 3-entry log
   FileUtils.rm_f(path)
-  log2 = Hestia::Anchoring::Log.new(storage_path: path)
+  log2 = Synoptis::Anchoring::Log.new(storage_path: path)
   d0 = log2.append_anchor(digest: digest_for('x'), anchor_type: 'generic', source_id: 's0', depositor: 'op')
   d1 = log2.append_anchor(digest: digest_for('y'), anchor_type: 'generic', source_id: 's1', depositor: 'op')
   d2 = log2.append_anchor(digest: digest_for('z'), anchor_type: 'generic', source_id: 's2', depositor: 'op')
-  raw = JSON.parse(File.read(path))
-  raw['entries'].delete_at(1) # remove middle
-  File.write(path, JSON.pretty_generate(raw))
-  deleted = Hestia::Anchoring::Log.new(storage_path: path)
+  raw = read_store_entries(path)
+  raw.delete_at(1) # remove middle
+  write_store_entries(path, raw)
+  deleted = Synoptis::Anchoring::Log.new(storage_path: path)
   vd = deleted.verify
   assert('delete is detected') { vd[:valid] == false }
   assert('delete broken at 1') { vd[:broken_at] == 1 }
@@ -121,7 +133,7 @@ Dir.mktmpdir do |dir|
   # --------------------------------------------------------------------------
   puts "\n[7] Withdrawal-by-append keeps target readable + lineage recomputable"
   FileUtils.rm_f(path)
-  log3 = Hestia::Anchoring::Log.new(storage_path: path)
+  log3 = Synoptis::Anchoring::Log.new(storage_path: path)
   a = log3.append_anchor(digest: digest_for('note'), anchor_type: 'constitutive_note',
                         source_id: 'place://p/anchor/note', depositor: 'op',
                         external_reference: 'https://doi.org/10.5281/zenodo.9',
@@ -178,7 +190,7 @@ Dir.mktmpdir do |dir|
 
   # --------------------------------------------------------------------------
   puts "\n[8] Persistence round-trip"
-  reloaded = Hestia::Anchoring::Log.new(storage_path: path)
+  reloaded = Synoptis::Anchoring::Log.new(storage_path: path)
   assert('reload preserves length') { reloaded.length == 3 }
   assert('reload preserves head') { reloaded.head == w.entry_hash }
   assert('reload verifies valid') { reloaded.verify[:valid] == true }
@@ -187,22 +199,22 @@ Dir.mktmpdir do |dir|
 
   # --------------------------------------------------------------------------
   puts "\n[9] Determinism: entry_hash is insertion-order independent"
-  h1 = Hestia::Anchoring::Entry.compute_hash({ 'position' => 0, 'prev' => nil, 'kind' => 'anchor',
+  h1 = Synoptis::Anchoring::Entry.compute_hash({ 'position' => 0, 'prev' => nil, 'kind' => 'anchor',
                                                'body' => { 'a' => 1, 'b' => 2 } })
-  h2 = Hestia::Anchoring::Entry.compute_hash({ 'body' => { 'b' => 2, 'a' => 1 }, 'kind' => 'anchor',
+  h2 = Synoptis::Anchoring::Entry.compute_hash({ 'body' => { 'b' => 2, 'a' => 1 }, 'kind' => 'anchor',
                                                'prev' => nil, 'position' => 0 })
   assert('canonical hash is key-order independent') { h1 == h2 }
 
   # --------------------------------------------------------------------------
   puts "\n[10] ANC-2 containment: write-path rejects content"
   FileUtils.rm_f(path)
-  clog = Hestia::Anchoring::Log.new(storage_path: path)
+  clog = Synoptis::Anchoring::Log.new(storage_path: path)
   good = digest_for('ok')
 
   def rejects(code, msg)
     yield
     puts "  FAIL: #{msg} (no error raised)"; $fail_count += 1
-  rescue Hestia::Anchoring::Containment::ContainmentError => e
+  rescue Synoptis::Anchoring::Containment::ContainmentError => e
     if e.code == code
       puts "  PASS: #{msg}"; $pass_count += 1
     else
@@ -281,7 +293,7 @@ Dir.mktmpdir do |dir|
   len_before = clog.length
   begin
     clog.append_anchor(digest: 'nope', anchor_type: 'generic', source_id: 'x', depositor: 'op')
-  rescue Hestia::Anchoring::Containment::ContainmentError
+  rescue Synoptis::Anchoring::Containment::ContainmentError
     # expected
   end
   assert('rejected write did not touch the store') { clog.length == len_before }
@@ -290,7 +302,7 @@ Dir.mktmpdir do |dir|
   # --------------------------------------------------------------------------
   puts "\n[11] ANC-5 store-level authority: withdrawal is depositor-or-operator"
   FileUtils.rm_f(path)
-  alog = Hestia::Anchoring::Log.new(storage_path: path, operator_id: 'operator')
+  alog = Synoptis::Anchoring::Log.new(storage_path: path, operator_id: 'operator')
   peerA = alog.append_anchor(digest: digest_for('A'), anchor_type: 'generic', source_id: 'sa', depositor: 'peerA')
   peerB_entry = alog.append_anchor(digest: digest_for('B'), anchor_type: 'generic', source_id: 'sb', depositor: 'peerB')
 
@@ -309,7 +321,7 @@ Dir.mktmpdir do |dir|
     begin
       alog.append_withdrawal(target: peerA.entry_hash, withdrawer: 'peerB')
       false
-    rescue Hestia::Anchoring::UnauthorizedWithdrawal
+    rescue Synoptis::Anchoring::UnauthorizedWithdrawal
       true
     end
   end
@@ -331,8 +343,8 @@ Dir.mktmpdir do |dir|
   # --------------------------------------------------------------------------
   puts "\n[12] ANC-5 WritePath: only a verified principal may write, identity is bound"
   FileUtils.rm_f(path)
-  wlog = Hestia::Anchoring::Log.new(storage_path: path, operator_id: 'operator')
-  WP = Hestia::Anchoring::WritePath
+  wlog = Synoptis::Anchoring::Log.new(storage_path: path, operator_id: 'operator')
+  WP = Synoptis::Anchoring::WritePath
 
   anon = WP.new(log: wlog, principal: nil)
   unverified = WP.new(log: wlog, principal: WP::Principal.new(peer_id: 'peerX', verified: false))
@@ -378,7 +390,7 @@ Dir.mktmpdir do |dir|
   assert('verified non-owner withdrawal rejected by Log authority') do
     begin
       other.withdraw(target: entry.entry_hash); false
-    rescue Hestia::Anchoring::UnauthorizedWithdrawal
+    rescue Synoptis::Anchoring::UnauthorizedWithdrawal
       true
     end
   end
@@ -392,9 +404,9 @@ Dir.mktmpdir do |dir|
   logpath = File.join(dir, 'brd_anchor_log.json')
   attpath = File.join(dir, 'brd_attestations.json')
   FileUtils.rm_f(logpath); FileUtils.rm_f(attpath)
-  blog = Hestia::Anchoring::Log.new(storage_path: logpath, operator_id: 'operator')
-  board = Hestia::Anchoring::DepositBoard.new(log: blog, attestation_store_path: attpath)
-  P = Hestia::Anchoring::WritePath::Principal
+  blog = Synoptis::Anchoring::Log.new(storage_path: logpath, operator_id: 'operator')
+  board = Synoptis::Anchoring::DepositBoard.new(log: blog, attestation_store_path: attpath)
+  P = Synoptis::Anchoring::WritePath::Principal
   opp = P.new(peer_id: 'operator', verified: true)
   peerp = P.new(peer_id: 'peerA', verified: true)
 
@@ -434,7 +446,7 @@ Dir.mktmpdir do |dir|
     begin
       board.attest(deposit_id: dep.deposit_id, principal: P.new(peer_id: 'x', verified: false),
                    claim_type: 'vouch'); false
-    rescue Hestia::Anchoring::DepositBoard::Unauthenticated
+    rescue Synoptis::Anchoring::DepositBoard::Unauthenticated
       true
     end
   end
@@ -451,14 +463,14 @@ Dir.mktmpdir do |dir|
   assert('unknown claim_type rejected') do
     begin
       board.attest(deposit_id: dep.deposit_id, principal: opp, claim_type: 'arbitrary_blob'); false
-    rescue Hestia::Anchoring::Containment::ContainmentError => e
+    rescue Synoptis::Anchoring::Containment::ContainmentError => e
       e.code == :attestation_claim_type
     end
   end
   assert('oversized attestation note rejected') do
     begin
       board.attest(deposit_id: dep.deposit_id, principal: opp, claim_type: 'review', note: 'N' * 300); false
-    rescue Hestia::Anchoring::Containment::ContainmentError => e
+    rescue Synoptis::Anchoring::Containment::ContainmentError => e
       e.code == :text_too_long
     end
   end
@@ -466,7 +478,7 @@ Dir.mktmpdir do |dir|
     begin
       board.attest(deposit_id: dep.deposit_id, principal: opp, claim_type: 'review',
                    reference: 'javascript:alert(1)'); false
-    rescue Hestia::Anchoring::Containment::ContainmentError => e
+    rescue Synoptis::Anchoring::Containment::ContainmentError => e
       e.code == :reference_unsafe_scheme
     end
   end
@@ -479,7 +491,7 @@ Dir.mktmpdir do |dir|
   assert('non-owner cannot withdraw attestation') do
     begin
       board.withdraw_attestation(attestation_id: att['attestation_id'], principal: peerp); false
-    rescue Hestia::Anchoring::DepositBoard::UnauthorizedAttestationWithdrawal
+    rescue Synoptis::Anchoring::DepositBoard::UnauthorizedAttestationWithdrawal
       true
     end
   end
@@ -493,7 +505,7 @@ Dir.mktmpdir do |dir|
 
   # --------------------------------------------------------------------------
   puts "\n[15] BRD persistence round-trip"
-  board2 = Hestia::Anchoring::DepositBoard.new(log: blog, attestation_store_path: attpath)
+  board2 = Synoptis::Anchoring::DepositBoard.new(log: blog, attestation_store_path: attpath)
   assert('reload preserves attestations') { board2.attestations_for(dep.deposit_id).size == 2 }
   assert('reload preserves withdrawn state') do
     board2.attestations_for(dep.deposit_id).find { |a| a['attestation_id'] == att2['attestation_id'] }['withdrawn']
@@ -510,10 +522,10 @@ Dir.mktmpdir do |dir|
   puts "\n[16] 2E authenticated read (ANC-7 slice 1): verify digest, position, pointer"
   rpath = File.join(dir, 'read_anchor_log.json')
   FileUtils.rm_f(rpath)
-  rlog = Hestia::Anchoring::Log.new(storage_path: rpath, operator_id: 'operator')
-  rboard = Hestia::Anchoring::DepositBoard.new(log: rlog, attestation_store_path: File.join(dir, 'read_att.json'))
-  RP = Hestia::Anchoring::ReadPath
-  rpeer = Hestia::Anchoring::WritePath::Principal.new(peer_id: 'peerA', verified: true)
+  rlog = Synoptis::Anchoring::Log.new(storage_path: rpath, operator_id: 'operator')
+  rboard = Synoptis::Anchoring::DepositBoard.new(log: rlog, attestation_store_path: File.join(dir, 'read_att.json'))
+  RP = Synoptis::Anchoring::ReadPath
+  rpeer = Synoptis::Anchoring::WritePath::Principal.new(peer_id: 'peerA', verified: true)
 
   d1 = rboard.deposit_by_reference(principal: rpeer, digest: digest_for('doc1'),
                                    source_id: 'place://p/anchor/doc1',
@@ -521,7 +533,7 @@ Dir.mktmpdir do |dir|
   rboard.attest(deposit_id: d1.deposit_id, principal: rpeer, claim_type: 'correspondence')
 
   reader = RP.new(log: rlog, principal: rpeer, board: rboard)
-  anon_reader = RP.new(log: rlog, principal: Hestia::Anchoring::WritePath::Principal.new(peer_id: 'x', verified: false))
+  anon_reader = RP.new(log: rlog, principal: Synoptis::Anchoring::WritePath::Principal.new(peer_id: 'x', verified: false))
 
   # authenticated gate: unverified principal cannot read (public view is slice 2)
   assert('unauthenticated read rejected') do
@@ -569,7 +581,7 @@ Dir.mktmpdir do |dir|
   # (fix 2) durable-write rollback: a save failure must not leave the entry in memory
   fpath = File.join(dir, 'rollback_log.json')
   FileUtils.rm_f(fpath)
-  flog = Hestia::Anchoring::Log.new(storage_path: fpath, operator_id: 'operator')
+  flog = Synoptis::Anchoring::Log.new(storage_path: fpath, operator_id: 'operator')
   flog.append_anchor(digest: digest_for('r0'), anchor_type: 'generic', source_id: 's0', depositor: 'op')
   head_before = flog.head
   len_before = flog.length
@@ -588,25 +600,25 @@ Dir.mktmpdir do |dir|
   assert('chain still valid after rolled-back write') { flog.verify[:valid] == true }
 
   # (fix 3) non-finite float metadata -> structured ContainmentError, not a raw JSON error
-  glog = Hestia::Anchoring::Log.new(storage_path: File.join(dir, 'nf.json'))
+  glog = Synoptis::Anchoring::Log.new(storage_path: File.join(dir, 'nf.json'))
   assert('Infinity metadata rejected as ContainmentError') do
     begin
       glog.append_anchor(digest: digest_for('nf'), anchor_type: 'generic', source_id: 'x',
                          depositor: 'op', metadata: { 'n' => Float::INFINITY })
       false
-    rescue Hestia::Anchoring::Containment::ContainmentError => e
+    rescue Synoptis::Anchoring::Containment::ContainmentError => e
       e.code == :metadata_value_nonfinite
     end
   end
 
   # (fix 5) blank operator_id treated as "no operator"
-  nolog = Hestia::Anchoring::Log.new(storage_path: File.join(dir, 'noop.json'), operator_id: '  ')
+  nolog = Synoptis::Anchoring::Log.new(storage_path: File.join(dir, 'noop.json'), operator_id: '  ')
   assert('blank operator_id normalized to nil') { nolog.operator_id.nil? }
   na = nolog.append_anchor(digest: digest_for('na'), anchor_type: 'generic', source_id: 'x', depositor: 'peerA')
   assert('with no operator, third party still cannot withdraw') do
     begin
       nolog.append_withdrawal(target: na.entry_hash, withdrawer: 'peerB'); false
-    rescue Hestia::Anchoring::UnauthorizedWithdrawal
+    rescue Synoptis::Anchoring::UnauthorizedWithdrawal
       true
     end
   end
@@ -618,22 +630,22 @@ Dir.mktmpdir do |dir|
                                                             'entry_hash' => 'x' }] }))
   clog2 = nil
   assert('load of structurally-valid-but-invalid store does not crash') do
-    clog2 = Hestia::Anchoring::Log.new(storage_path: cpath); true
+    clog2 = Synoptis::Anchoring::Log.new(storage_path: cpath); true
   end
   assert('corrupt store degraded to empty') { clog2.length == 0 }
 
   # (fix 4) attestation bound_digest must equal the deposit digest
   bpath = File.join(dir, 'bound_log.json')
   bapath = File.join(dir, 'bound_att.json')
-  blog2 = Hestia::Anchoring::Log.new(storage_path: bpath, operator_id: 'operator')
-  bboard = Hestia::Anchoring::DepositBoard.new(log: blog2, attestation_store_path: bapath)
-  bpr = Hestia::Anchoring::WritePath::Principal.new(peer_id: 'op', verified: true)
+  blog2 = Synoptis::Anchoring::Log.new(storage_path: bpath, operator_id: 'operator')
+  bboard = Synoptis::Anchoring::DepositBoard.new(log: blog2, attestation_store_path: bapath)
+  bpr = Synoptis::Anchoring::WritePath::Principal.new(peer_id: 'op', verified: true)
   bd = bboard.deposit_by_reference(principal: bpr, digest: digest_for('bd'), source_id: 'sbd')
   assert('mismatched bound_digest rejected') do
     begin
       bboard.attest(deposit_id: bd.deposit_id, principal: bpr, claim_type: 'correspondence',
                     bound_digest: digest_for('OTHER')); false
-    rescue Hestia::Anchoring::Containment::ContainmentError => e
+    rescue Synoptis::Anchoring::Containment::ContainmentError => e
       e.code == :attestation_digest_mismatch
     end
   end
@@ -661,19 +673,19 @@ Dir.mktmpdir do |dir|
 
   # --------------------------------------------------------------------------
   puts "\n[18] ANC-9 write budget: per-identity + aggregate bounds, operator exempt, disclosed"
-  WB = Hestia::Anchoring::WriteBudget
+  WB = Synoptis::Anchoring::WriteBudget
   # controllable clock for window rollover
   clock_now = [Time.now]
   budget = WB.new(per_identity: 2, aggregate: 3, window_seconds: 100,
                   operator_id: 'operator', clock: -> { clock_now[0] })
-  blog3 = Hestia::Anchoring::Log.new(storage_path: File.join(dir, 'budget_log.json'), operator_id: 'operator')
-  bboard3 = Hestia::Anchoring::DepositBoard.new(log: blog3,
+  blog3 = Synoptis::Anchoring::Log.new(storage_path: File.join(dir, 'budget_log.json'), operator_id: 'operator')
+  bboard3 = Synoptis::Anchoring::DepositBoard.new(log: blog3,
                                                 attestation_store_path: File.join(dir, 'budget_att.json'),
                                                 budget: budget)
-  pA = Hestia::Anchoring::WritePath::Principal.new(peer_id: 'peerA', verified: true)
-  pB = Hestia::Anchoring::WritePath::Principal.new(peer_id: 'peerB', verified: true)
-  pC = Hestia::Anchoring::WritePath::Principal.new(peer_id: 'peerC', verified: true)
-  pOp = Hestia::Anchoring::WritePath::Principal.new(peer_id: 'operator', verified: true)
+  pA = Synoptis::Anchoring::WritePath::Principal.new(peer_id: 'peerA', verified: true)
+  pB = Synoptis::Anchoring::WritePath::Principal.new(peer_id: 'peerB', verified: true)
+  pC = Synoptis::Anchoring::WritePath::Principal.new(peer_id: 'peerC', verified: true)
+  pOp = Synoptis::Anchoring::WritePath::Principal.new(peer_id: 'operator', verified: true)
 
   dep_n = 0
   mk = lambda do |pr|
@@ -724,14 +736,14 @@ Dir.mktmpdir do |dir|
   clock_now[0] = clock_now[0] + 200 # fresh window
   budget2 = WB.new(per_identity: 1, aggregate: 10, window_seconds: 100,
                    operator_id: 'operator', clock: -> { clock_now[0] })
-  rlog = Hestia::Anchoring::Log.new(storage_path: File.join(dir, 'refund_log.json'), operator_id: 'operator')
-  rboard = Hestia::Anchoring::DepositBoard.new(log: rlog,
+  rlog = Synoptis::Anchoring::Log.new(storage_path: File.join(dir, 'refund_log.json'), operator_id: 'operator')
+  rboard = Synoptis::Anchoring::DepositBoard.new(log: rlog,
                                                attestation_store_path: File.join(dir, 'refund_att.json'),
                                                budget: budget2)
   # a containment-rejected deposit (bad digest) by peerA
   begin
     rboard.deposit_by_reference(principal: pA, digest: 'nothex', source_id: 'x')
-  rescue Hestia::Anchoring::Containment::ContainmentError
+  rescue Synoptis::Anchoring::Containment::ContainmentError
     # expected
   end
   assert('rejected write refunded: peerA still has budget') do
@@ -742,8 +754,8 @@ Dir.mktmpdir do |dir|
   # attestation writes also draw on the budget (BRD-3 extends ANC-9)
   clock_now[0] = clock_now[0] + 200
   budget3 = WB.new(per_identity: 1, aggregate: 10, window_seconds: 100, clock: -> { clock_now[0] })
-  alog2 = Hestia::Anchoring::Log.new(storage_path: File.join(dir, 'attbud_log.json'), operator_id: 'operator')
-  aboard2 = Hestia::Anchoring::DepositBoard.new(log: alog2,
+  alog2 = Synoptis::Anchoring::Log.new(storage_path: File.join(dir, 'attbud_log.json'), operator_id: 'operator')
+  aboard2 = Synoptis::Anchoring::DepositBoard.new(log: alog2,
                                                 attestation_store_path: File.join(dir, 'attbud_att.json'),
                                                 budget: budget3)
   ad = aboard2.deposit_by_reference(principal: pOp, digest: digest_for('adep'), source_id: 'ad')

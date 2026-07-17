@@ -25,7 +25,7 @@ module Hestia
     ALLOWED_ASSETS = %w[marketplace.css pico.min.css].freeze
 
     def initialize(skill_board:, agent_registry:, auditor: nil, config: {},
-                   anchor_log: nil, anchor_board: nil)
+                   anchor_read: nil)
       @skill_board = skill_board
       @agent_registry = agent_registry
       @auditor = auditor
@@ -35,13 +35,12 @@ module Hestia
       @import_gen = ImportCommandGenerator.new(
         place_url: config['place_url'] || 'http://localhost:8080'
       )
-      # ANC-7 public verification view (slice 2). Present only when the anchor
-      # store is wired; otherwise the anchor routes 404 (the public view is not
-      # available until the capability is enabled).
-      @anchor_verifier =
-        if anchor_log
-          Anchoring::PublicVerifier.new(log: anchor_log, board: anchor_board)
-        end
+      # ANC-7 public verification view. +anchor_read+ is the Synoptis-owned public
+      # read handle (Synoptis::Anchoring::PublicRead) built by the PlaceRouter at
+      # mount time (AHM-1: the window presents, Synoptis owns anchor read
+      # semantics). It is nil when the anchoring capability is disabled; then the
+      # anchor routes 404 (the public view is not available until enabled).
+      @anchor_read = anchor_read
     end
 
     def call(env)
@@ -188,31 +187,31 @@ module Hestia
 
     # /place/web/verify?digest=<hex> — verify a digest against the anchor log.
     def handle_web_verify(env)
-      return html_response(404, render_error('Verification not available')) unless @anchor_verifier
+      return html_response(404, render_error('Verification not available')) unless @anchor_read
 
       params = Rack::Utils.parse_query(env['QUERY_STRING'] || '')
       digest = params['digest'].to_s.strip
       if digest.empty?
         return html_response(200, render('web_verify', records: nil, query: nil,
-          write_disclosure: Anchoring::WriteBudget::SYBIL_DISCLOSURE, place_name: place_name))
+          write_disclosure: @anchor_read.sybil_disclosure, place_name: place_name))
       end
 
-      records = @anchor_verifier.verify_digest(digest)
+      records = @anchor_read.verify_digest(digest)
       html_response(200, render('web_verify', records: records, query: digest,
-        write_disclosure: Anchoring::WriteBudget::SYBIL_DISCLOSURE, place_name: place_name))
+        write_disclosure: @anchor_read.sybil_disclosure, place_name: place_name))
     end
 
     # /place/web/anchor/<id> — stable citable view. <id> is either a 64-hex entry
     # hash or the slug of the content-independent verification address
     # (place://<host>/anchor/<slug>).
     def handle_web_anchor(id)
-      return html_response(404, render_error('Verification not available')) unless @anchor_verifier
+      return html_response(404, render_error('Verification not available')) unless @anchor_read
 
       record =
         if id.match?(/\A[a-f0-9]{64}\z/)
-          @anchor_verifier.get(id)
+          @anchor_read.get(id)
         else
-          @anchor_verifier.by_source_id(anchor_source_id(id)).first
+          @anchor_read.by_source_id(anchor_source_id(id)).first
         end
       return html_response(404, render_error('No anchor found for this reference')) unless record
 
@@ -230,12 +229,12 @@ module Hestia
     end
 
     # Emit a safe href for a retrieval pointer, or nil if it is not a safe scheme.
-    # Defense-in-depth: even though containment already restricts the stored
-    # reference, we re-check the scheme before rendering it as a clickable link.
+    # Reference-safety is Synoptis policy (asked via the read handle); this method
+    # only maps a safe pointer to its presentation href (doi: -> doi.org link).
     def anchor_pointer_href(pointer)
-      p = pointer.to_s.strip
-      return nil unless p.match?(Anchoring::Containment::SAFE_REFERENCE_PATTERN)
+      return nil unless @anchor_read&.safe_reference?(pointer)
 
+      p = pointer.to_s.strip
       p.start_with?('doi:') ? "https://doi.org/#{p.sub(/\Adoi:/, '')}" : p
     end
 

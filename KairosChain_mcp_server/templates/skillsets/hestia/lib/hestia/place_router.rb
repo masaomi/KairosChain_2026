@@ -184,12 +184,21 @@ module Hestia
           'place_host' => place_host,
           'place_url' => place_url
         }.compact,
-        anchor_log: @anchor_log,
-        anchor_board: @anchor_board
+        anchor_read: build_anchor_read
       )
     rescue LoadError => e
       warn "[PlaceRouter] Public web UI not mounted (missing dependency): #{e.message}"
       nil
+    end
+
+    # Build the Synoptis-owned public read handle the WebRouter presents through
+    # (AHM-1). nil when anchoring is disabled (@anchor_log unset), in which case
+    # the anchor routes 404. The write-side handles (@anchor_log/@anchor_board)
+    # stay owned here for the authenticated deposit path (design §4.3).
+    def build_anchor_read
+      return nil unless @anchor_log
+
+      Synoptis::Anchoring::PublicRead.new(log: @anchor_log, board: @anchor_board)
     end
 
     # Build the anchor store (ANC-1 log + BRD deposit board + ANC-9 write budget)
@@ -204,21 +213,19 @@ module Hestia
       anchor_config = place_config['anchoring'] || {}
       return [nil, nil] unless anchor_config['enabled']
 
-      require_relative 'anchoring/log'
-      require_relative 'anchoring/write_budget'
-      require_relative 'anchoring/deposit_board'
+      require 'synoptis'
 
-      log = Anchoring::Log.new(
+      log = Synoptis::Anchoring::Log.new(
         storage_path: anchor_config['log_path'] || "#{default_storage}hestia_anchor_log.json",
         operator_id: @self_id
       )
-      budget = Anchoring::WriteBudget.new(
-        per_identity: anchor_config['per_identity'] || Anchoring::WriteBudget::DEFAULT_PER_IDENTITY,
-        aggregate: anchor_config['aggregate'] || Anchoring::WriteBudget::DEFAULT_AGGREGATE,
-        window_seconds: anchor_config['window_seconds'] || Anchoring::WriteBudget::DEFAULT_WINDOW_SECONDS,
+      budget = Synoptis::Anchoring::WriteBudget.new(
+        per_identity: anchor_config['per_identity'] || Synoptis::Anchoring::WriteBudget::DEFAULT_PER_IDENTITY,
+        aggregate: anchor_config['aggregate'] || Synoptis::Anchoring::WriteBudget::DEFAULT_AGGREGATE,
+        window_seconds: anchor_config['window_seconds'] || Synoptis::Anchoring::WriteBudget::DEFAULT_WINDOW_SECONDS,
         operator_id: @self_id
       )
-      board = Anchoring::DepositBoard.new(
+      board = Synoptis::Anchoring::DepositBoard.new(
         log: log,
         attestation_store_path: anchor_config['attestation_store_path'] ||
           "#{default_storage}hestia_anchor_attestations.json",

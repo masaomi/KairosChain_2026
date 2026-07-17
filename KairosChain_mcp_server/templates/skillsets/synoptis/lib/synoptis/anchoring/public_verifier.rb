@@ -2,7 +2,7 @@
 
 require_relative 'log'
 
-module Hestia
+module Synoptis
   module Anchoring
     # The shared verification-record producer (ANC-7 / ANC-8).
     #
@@ -72,19 +72,20 @@ module Hestia
           # BRD-4: pointer suppressed on withdrawal; the proof does not need it.
           retrieval_pointer: withdrawn ? nil : body['external_reference'],
           source_id: withdrawn ? nil : body['source_id'],
-          relation: relation_for(entry.depositor),
+          relation: relation_for(entry),
           relation_disclosure: RELATION_DISCLOSURE,
           proof_scope: PROOF_SCOPE,
           attestations: @board ? @board.attestations_for(entry.entry_hash) : []
         }
       end
 
-      # ANC-8: derive the label from the operator control boundary, never from
-      # self-declaration. same_party => "public reference point";
+      # ANC-8 / AHM-3: derive the label from the entry's own governing identity
+      # (the identity in effect when the entry was committed), never from a single
+      # current operator id. same_party => "public reference point";
       # foreign => "external anchor".
-      def relation_for(depositor)
-        op = @log.operator_id
-        op && depositor == op ? :same_party : :foreign
+      def relation_for(entry)
+        gov = entry.governing_identity
+        gov && entry.depositor == gov ? :same_party : :foreign
       end
     end
   end

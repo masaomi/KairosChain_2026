@@ -4,7 +4,7 @@ require 'digest'
 require 'json'
 require 'time'
 
-module Hestia
+module Synoptis
   # Anchoring realizes ANC-1 (hestia_anchor_attestation_design_v0.5):
   # an append-only, hash-chained, headed anchor log with withdrawal-by-append.
   # It is a NEW store, deliberately not a reuse of Chain::Backend's flat hash map
@@ -30,15 +30,21 @@ module Hestia
       DIGEST_ALGORITHM = 'sha256'
       CANONICALIZATION = 'file-raw-bytes; author-normalized LF + UTF-8 NFC'
 
-      attr_reader :position, :prev, :kind, :body, :entry_hash
+      attr_reader :position, :prev, :kind, :body, :entry_hash, :governing_identity
 
-      def initialize(position:, prev:, kind:, body:, entry_hash: nil)
+      # +governing_identity+ (AHM-3) is the governing identity in effect when the
+      # entry was committed; it fixes per-entry same_party/foreign and withdrawal
+      # authority and is deliberately kept OUT of canonical_content so it never
+      # perturbs entry_hash (AHM-4). nil means old-format (pre-migration) entry;
+      # the Log backfills it from the legacy governing identity on load.
+      def initialize(position:, prev:, kind:, body:, entry_hash: nil, governing_identity: nil)
         raise ArgumentError, "Invalid kind: #{kind.inspect}" unless KINDS.include?(kind.to_s)
 
         @position = Integer(position)
         @prev = prev.nil? ? nil : prev.to_s
         @kind = kind.to_s
         @body = deep_stringify(body)
+        @governing_identity = governing_identity.nil? ? nil : governing_identity.to_s
         @entry_hash = entry_hash || self.class.compute_hash(canonical_content)
       end
 
@@ -46,7 +52,8 @@ module Hestia
       # verification address (ANC-8 / design §4): it is supplied by the caller
       # BEFORE the digest is computed and is never derived from the artifact.
       def self.anchor(position:, prev:, digest:, anchor_type:, source_id:, depositor:,
-                      external_reference: nil, metadata: {}, moment: nil)
+                      external_reference: nil, metadata: {}, moment: nil,
+                      governing_identity: nil)
         body = {
           'digest' => normalize_digest(digest),
           'digest_algorithm' => DIGEST_ALGORITHM,
@@ -58,7 +65,8 @@ module Hestia
           'metadata' => metadata || {},
           'moment' => moment || Time.now.utc.iso8601
         }
-        new(position: position, prev: prev, kind: 'anchor', body: body)
+        new(position: position, prev: prev, kind: 'anchor', body: body,
+            governing_identity: governing_identity)
       end
 
       # Build a withdrawal entry referencing a target anchor entry by its
@@ -81,7 +89,8 @@ module Hestia
           prev: h['prev'],
           kind: h['kind'],
           body: h['body'],
-          entry_hash: h['entry_hash']
+          entry_hash: h['entry_hash'],
+          governing_identity: h['governing_identity']
         )
       end
 
@@ -115,7 +124,8 @@ module Hestia
           'prev' => @prev,
           'kind' => @kind,
           'body' => @body,
-          'entry_hash' => @entry_hash
+          'entry_hash' => @entry_hash,
+          'governing_identity' => @governing_identity
         }
       end
 

@@ -13,6 +13,7 @@
 ROOT = File.expand_path('..', __dir__)
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.join(ROOT, '.kairos/skillsets/mmp/lib')
+$LOAD_PATH.unshift File.join(ROOT, '.kairos/skillsets/synoptis/lib')
 $LOAD_PATH.unshift File.join(ROOT, '.kairos/skillsets/hestia/lib')
 
 # Minimal Rack::Utils.parse_query shim so the WebRouter can be exercised without
@@ -43,6 +44,7 @@ end
 
 require 'kairos_mcp'
 require 'mmp'
+require 'synoptis'
 require 'hestia'
 require 'hestia/public_rate_limiter'
 require 'hestia/public_presenter'
@@ -72,11 +74,11 @@ end
 
 Dir.mktmpdir do |dir|
   HOST = 'meeting.genomicschain.io'
-  log = Hestia::Anchoring::Log.new(storage_path: File.join(dir, 'log.json'),
+  log = Synoptis::Anchoring::Log.new(storage_path: File.join(dir, 'log.json'),
                                    operator_id: "operator:#{HOST}")
-  board = Hestia::Anchoring::DepositBoard.new(log: log,
+  board = Synoptis::Anchoring::DepositBoard.new(log: log,
                                               attestation_store_path: File.join(dir, 'att.json'))
-  op = Hestia::Anchoring::WritePath::Principal.new(peer_id: "operator:#{HOST}", verified: true)
+  op = Synoptis::Anchoring::WritePath::Principal.new(peer_id: "operator:#{HOST}", verified: true)
 
   digest = Digest::SHA256.hexdigest('the paper bytes')
   dep = board.deposit_by_reference(
@@ -88,10 +90,13 @@ Dir.mktmpdir do |dir|
   board.attest(deposit_id: dep.deposit_id, principal: op, claim_type: 'correspondence',
                note: 'digest matches the Zenodo file')
 
+  # S3/M4: the WebRouter presents through the Synoptis-owned public read handle,
+  # not a raw log/board (anchor read semantics are owned by Synoptis).
+  anchor_read = Synoptis::Anchoring::PublicRead.new(log: log, board: board)
   router = Hestia::WebRouter.new(
     skill_board: nil, agent_registry: nil,
     config: { 'name' => 'GenomicsChain Meeting Place', 'place_host' => HOST },
-    anchor_log: log, anchor_board: board
+    anchor_read: anchor_read
   )
 
   puts "\n[1] /place/web/anchor/<entry_hash> renders the verification view"
@@ -137,7 +142,7 @@ Dir.mktmpdir do |dir|
   assert('anchor route 404s when capability not wired') { st4c == 404 }
 
   puts "\n[5] XSS containment: surfaced fields are HTML-escaped"
-  evil = Hestia::Anchoring::WritePath::Principal.new(peer_id: 'peer<script>alert(1)</script>', verified: true)
+  evil = Synoptis::Anchoring::WritePath::Principal.new(peer_id: 'peer<script>alert(1)</script>', verified: true)
   edep = board.deposit_by_reference(principal: evil, digest: Digest::SHA256.hexdigest('evil'),
                                     source_id: "place://#{HOST}/anchor/evil",
                                     retrieval_pointer: 'https://x.example/"><b>x</b>')

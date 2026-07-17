@@ -4,7 +4,7 @@ require_relative 'log'
 require_relative 'write_path'
 require_relative 'public_verifier'
 
-module Hestia
+module Synoptis
   module Anchoring
     # Authenticated read over the anchor log (slice 1 of ANC-7).
     #

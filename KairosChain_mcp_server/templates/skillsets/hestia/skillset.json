@@ -4,7 +4,7 @@
   "description": "HestiaChain: Meeting Place Server and trust anchor for KairosChain inter-agent interactions",
   "author": "Dr. Masa Hatakeyama",
   "layer": "L1",
-  "depends_on": [{"name": "mmp", "version": ">= 1.0.0"}],
+  "depends_on": [{"name": "mmp", "version": ">= 1.0.0"}, {"name": "synoptis", "version": ">= 0.1.0"}],
   "provides": ["meeting_place_server", "chain_migration", "trust_anchor", "philosophy_protocol"],
   "tool_classes": [
     "KairosMcp::SkillSets::Hestia::Tools::ChainMigrateStatus",

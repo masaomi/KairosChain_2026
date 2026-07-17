@@ -2,7 +2,7 @@
 
 require_relative 'log'
 
-module Hestia
+module Synoptis
   module Anchoring
     # The authenticated write path (ANC-5; hestia_anchor_attestation_design_v0.5).
     #

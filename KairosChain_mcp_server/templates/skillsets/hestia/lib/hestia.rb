@@ -17,15 +17,10 @@ module Hestia
   require_relative 'hestia/chain/protocol'
   require_relative 'hestia/chain/integrations/base'
 
-  # Anchor attestation log (ANC-1/2/5; hestia_anchor_attestation_design_v0.5)
-  require_relative 'hestia/anchoring/entry'
-  require_relative 'hestia/anchoring/containment'
-  require_relative 'hestia/anchoring/log'
-  require_relative 'hestia/anchoring/write_budget'
-  require_relative 'hestia/anchoring/write_path'
-  require_relative 'hestia/anchoring/public_verifier'
-  require_relative 'hestia/anchoring/read_path'
-  require_relative 'hestia/anchoring/deposit_board'
+  # Anchor attestation (係留) capability now lives in the Synoptis SkillSet
+  # (AHM-1: agent-owned attestation home). hestia consumes it as a publisher /
+  # public window. Synoptis must be on the load path (declared depends_on).
+  require 'synoptis'
   require_relative 'hestia/chain/integrations/meeting_protocol'
 
   # SkillSet-specific modules
