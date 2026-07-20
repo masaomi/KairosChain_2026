@@ -174,6 +174,60 @@ CONFIG = {
             3: ("構成的な register の考え方そのものは、ここで何か新しいものとして主張しているわけではない。", "<p"),
         },
     },
+    # v1.8 seihon build targets: §2-only revision, multi-LLM review converged
+    # (R1 REVISE -> R2 6/6 APPROVE).
+    "seihon_en_v18": {
+        "md": "constitutive_recording_by_construction_v1.8_seihon_en.md",
+        "diagrams": "constitutive_recording_by_construction_v1.6_diagrams_en.html",
+        "out_pdf": "constitutive_recording_by_construction_v1.8_seihon_en.pdf",
+        "title": "Another Frame Problem (v1.8)",
+        "lang": "en",
+        "anchors": {
+            1: ("Three clarifications guard against reading", "<p"),
+            2: ("Structural self-referentiality</h2>", "<h2"),
+            3: ("None of the constitutive register itself is claimed as new here", "<p"),
+        },
+    },
+    "seihon_ja_v18": {
+        "md": "constitutive_recording_by_construction_v1.8_seihon_ja.md",
+        "diagrams": "constitutive_recording_by_construction_v1.6_diagrams_ja.html",
+        "out_pdf": "constitutive_recording_by_construction_v1.8_seihon_ja.pdf",
+        "title": "もう一つのフレーム問題（日本語参照訳 v1.8）",
+        "lang": "ja",
+        "anchors": {
+            1: ("主張を実際より大きく、あるいは別物として読まないために、但し書きを三つ。", "<p"),
+            2: ("構造的自己言及性</h2>", "<h2"),
+            3: ("構成的な register の考え方そのものは、ここで何か新しいものとして主張しているわけではない。", "<p"),
+        },
+    },
+    # v1.8 DEPOSIT build targets: convenience-copy PDFs with the editorial note
+    # stripped (§8), matching the frozen docs/zenodo/...v1.8.md. Feeds the Zenodo deposit.
+    "deposit_en_v18": {
+        "md": "constitutive_recording_by_construction_v1.8_seihon_en.md",
+        "diagrams": "constitutive_recording_by_construction_v1.6_diagrams_en.html",
+        "out_pdf": "constitutive_recording_by_construction_v1.8_deposit_en.pdf",
+        "title": "Another Frame Problem (v1.8)",
+        "lang": "en",
+        "strip_editorial": True,
+        "anchors": {
+            1: ("Three clarifications guard against reading", "<p"),
+            2: ("Structural self-referentiality</h2>", "<h2"),
+            3: ("None of the constitutive register itself is claimed as new here", "<p"),
+        },
+    },
+    "deposit_ja_v18": {
+        "md": "constitutive_recording_by_construction_v1.8_seihon_ja.md",
+        "diagrams": "constitutive_recording_by_construction_v1.6_diagrams_ja.html",
+        "out_pdf": "constitutive_recording_by_construction_v1.8_deposit_ja.pdf",
+        "title": "もう一つのフレーム問題（日本語参照訳 v1.8）",
+        "lang": "ja",
+        "strip_editorial": True,
+        "anchors": {
+            1: ("主張を実際より大きく、あるいは別物として読まないために、但し書きを三つ。", "<p"),
+            2: ("構造的自己言及性</h2>", "<h2"),
+            3: ("構成的な register の考え方そのものは、ここで何か新しいものとして主張しているわけではない。", "<p"),
+        },
+    },
 }
 
 
