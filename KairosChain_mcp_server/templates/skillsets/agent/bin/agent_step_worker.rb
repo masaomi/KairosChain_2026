@@ -31,25 +31,42 @@ require 'fileutils'
 session_id  = ARGV[0] or abort 'usage: agent_step_worker.rb <session_id> <session_dir>'
 session_dir = ARGV[1] or abort 'usage: agent_step_worker.rb <session_id> <session_dir>'
 
+# Read the handle identity from the raw file first, so even a bootstrap
+# failure can tag its error result with the delegation it belongs to.
+def read_handle_identity(session_dir)
+  raw = JSON.parse(File.read(File.join(session_dir, 'delegation.json')))
+  { 'issue_anchor' => raw['issue_anchor'], 'action_key' => raw['action_key'],
+    'step_token' => raw['step_token'] }
+rescue StandardError
+  {}
+end
+
+def write_raw_result(session_dir, identity, outcome)
+  payload = identity.merge('outcome' => outcome)
+  tmp = File.join(session_dir, "delegation_result.json.tmp.#{Process.pid}")
+  File.write(tmp, JSON.generate(payload))
+  File.rename(tmp, File.join(session_dir, 'delegation_result.json'))
+rescue StandardError
+  # nothing more we can do
+end
+
+boot_identity = read_handle_identity(session_dir)
+
 $LOAD_PATH.unshift(File.expand_path('../lib', __dir__))
 begin
   require 'agent/step_delegation'
 rescue ScriptError, StandardError => e
   # The delegation lib is co-located with this script; if even it cannot load
-  # we cannot use its API to report, so write a minimal raw result directly so
-  # the driver sees an error rather than a silently hung handle.
-  begin
-    tmp = File.join(session_dir, "delegation_result.json.tmp.#{Process.pid}")
-    File.write(tmp, JSON.generate('outcome' => { 'status' => 'error',
-                                                 'error' => "worker bootstrap failed: #{e.class}: #{e.message}" }))
-    File.rename(tmp, File.join(session_dir, 'delegation_result.json'))
-  rescue StandardError
-    # nothing more we can do
-  end
+  # we tag a raw result with the handle identity so status can surface it as
+  # 'ready' (an error outcome) rather than the driver waiting out the grace.
+  write_raw_result(session_dir, boot_identity,
+                   { 'status' => 'error',
+                     'error' => "worker bootstrap failed: #{e.class}: #{e.message}" })
   exit 1
 end
 
 delegation = KairosMcp::SkillSets::Agent::StepDelegation.new(session_dir)
+my_token = boot_identity['step_token']
 
 shutdown = { requested: false }
 %w[TERM INT HUP].each do |sig|
@@ -61,15 +78,16 @@ begin
 rescue Errno::EPERM
   # Already a session leader — acceptable; continue.
 rescue StandardError => e
-  delegation.write_result('status' => 'error',
-                          'error' => "worker setsid failed: #{e.message}")
+  delegation.write_result({ 'status' => 'error',
+                            'error' => "worker setsid failed: #{e.message}" },
+                          identity: boot_identity)
   exit 125
 end
 
 heartbeat_thread = Thread.new do
   loop do
     begin
-      delegation.touch_heartbeat
+      delegation.touch_heartbeat(my_token)
     rescue StandardError
       # A transient touch failure must not kill the heartbeat thread and
       # make a live worker look crashed; retry on the next tick.
@@ -101,6 +119,13 @@ begin
   pending = delegation.pending
   raise "no pending delegation in #{session_dir}" unless pending
 
+  # Our own handle identity, captured at startup (also used for the per-token
+  # heartbeat) so write_result tags its outcome with THIS delegation even if a
+  # fresh open_handle overtakes the pending file before we finish.
+  identity = boot_identity.empty? ? { 'issue_anchor' => pending['issue_anchor'],
+                                      'action_key' => pending['action_key'],
+                                      'step_token' => pending['step_token'] } : boot_identity
+
   args = (pending['arguments'] || {}).merge('session_id' => session_id)
   args.delete('execution') # never recurse into another delegation
 
@@ -120,11 +145,12 @@ begin
     { 'status' => 'error', 'error' => 'unparseable tool result', 'raw' => text.to_s[0, 500] }
   end
 
-  # Write the result and leave the pending handle in place: teardown is the
-  # collector's job (agent_wait#collect clears result+handle atomically under
-  # delegation.lock), so the worker never races a concurrently-opened fresh
-  # delegation by clearing state it may no longer own.
-  delegation.write_result(response)
+  # Write the result (tagged with our OWN startup identity) and leave the
+  # pending handle in place: teardown is the collector's job (agent_wait#collect
+  # clears result+handle atomically under delegation.lock), so the worker never
+  # races a concurrently-opened fresh delegation by clearing state it may no
+  # longer own or by mislabeling its result as a newer delegation's.
+  delegation.write_result(response, identity: identity)
   exit 0
 rescue SystemExit, SignalException
   # A deliberate exit (including our own `exit 0`) or a signal is not a
@@ -135,8 +161,8 @@ rescue Exception => e # rubocop:disable Lint/RescueException
   # bootstrap require are exactly the failure class the driver must see as a
   # result rather than a silently hung handle. Leave teardown to the collector.
   begin
-    delegation.write_result('status' => 'error',
-                            'error' => "worker: #{e.class}: #{e.message}")
+    delegation.write_result({ 'status' => 'error', 'error' => "worker: #{e.class}: #{e.message}" },
+                            identity: (defined?(identity) ? identity : nil))
   rescue StandardError
     # best effort
   end

@@ -72,7 +72,11 @@ module KairosMcp
             loop do
               case delegation.status
               when 'ready'
-                return ready_response(session, delegation)
+                collected = ready_response(session, delegation)
+                # nil means a concurrent collector/fresh delegation won the
+                # race after we observed 'ready'; keep polling rather than
+                # returning a stale outcome.
+                return collected if collected
               when 'none'
                 return text_content(JSON.generate({
                   'status' => 'no_delegation', 'session_id' => session_id,
@@ -102,13 +106,15 @@ module KairosMcp
 
           private
 
+          # Returns the MCP ready content, or nil if the result we observed was
+          # collected/superseded by a concurrent caller before we could claim
+          # it under the lock (the wait loop then keeps polling — never a stale
+          # outcome).
           def ready_response(session, delegation)
-            # Collect-once, atomically: consume the result only if it still
-            # belongs to the (anchor, action_key) we observed as ready, so a
-            # concurrently opened fresh delegation is never clobbered. The
-            # advance itself remains replayable through the gate log.
             observed = delegation.result || {}
-            raw = delegation.collect(observed['issue_anchor'], observed['action_key']) || observed
+            raw = delegation.collect(observed['issue_anchor'], observed['action_key'])
+            return nil unless raw
+
             outcome = raw['outcome'] || { 'status' => 'error', 'error' => 'result unreadable' }
             fresh = Session.load(session.session_id) || session
             gate = AdvanceGate.new(fresh.guard_dir)

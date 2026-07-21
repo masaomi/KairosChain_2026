@@ -430,7 +430,7 @@ begin
     d = Delegation.new(s.guard_dir)
     assert('no handle -> status none') { d.status == 'none' }
     how1, tok1 = d.open_handle({ 'action' => 'approve' }, '0:observed:0', 'approve')
-    d.touch_heartbeat
+    d.touch_heartbeat(tok1)
     assert('opened handle is pending with a token') { how1 == :opened && tok1 && d.status == 'still_pending' }
     assert('issue-anchor + action_key injected/recorded (always anchored re-entry)') do
       d.pending['arguments']['anchor'] == '0:observed:0' && d.pending['issue_anchor'] == '0:observed:0' &&
@@ -450,8 +450,8 @@ begin
     puts '== A-2: status transitions (teardown owned by collector) =='
     d.clear_pending_if(tok3)
     how4, tok4 = d.open_handle({ 'action' => 'approve' }, '0:observed:0', 'approve')
-    d.touch_heartbeat
-    hb = File.join(s.guard_dir, 'delegation.heartbeat')
+    d.touch_heartbeat(tok4)
+    hb = File.join(s.guard_dir, "delegation.heartbeat.#{tok4}")
     FileUtils.touch(hb, mtime: Time.now - 60)
     assert('stale heartbeat -> crashed') { d.status == 'crashed' }
     FileUtils.rm_f(hb)
@@ -543,7 +543,7 @@ begin
     how5, tok5 = d5.open_handle({ 'action' => 'approve' }, '0:observed:0', 'approve')
     # worker commits the gated advance but "dies" before write_result:
     tool5.call(d5.pending['arguments'].merge('session_id' => 'a2s5'))
-    FileUtils.touch(File.join(s5.guard_dir, 'delegation.heartbeat'), mtime: Time.now - 60)
+    FileUtils.touch(File.join(s5.guard_dir, "delegation.heartbeat.#{tok5}"), mtime: Time.now - 60)
     assert('committed-but-no-result handle reports crashed at the delegation layer') do
       how5 == :opened && d5.result.nil? && d5.status == 'crashed'
     end
@@ -552,6 +552,56 @@ begin
     assert('agent_wait recovers the committed outcome from the gate log (action-matched)') do
       w5['status'] == 'ready' && w5['recovered'] == true &&
         w5['outcome']['state'] == 'proposed' && tool5.approve_runs == 1
+    end
+
+    puts '== A-2: a finishing old worker tags its result with its OWN identity =='
+    s7 = new_seam_session('a2s7')
+    d7 = Delegation.new(s7.guard_dir)
+    _, tokA = d7.open_handle({ 'action' => 'approve' }, '0:observed:0', 'approve')
+    old_identity = { 'issue_anchor' => '0:observed:0', 'action_key' => 'approve', 'step_token' => tokA }
+    # a fresh delegation overtakes the pending file before the old worker writes
+    _, tokB = d7.open_handle({ 'action' => 'revise', 'feedback' => 'y' }, '0:observed:0', 'revise:beef')
+    # old worker finishes now, tagging with its startup identity (not current pending)
+    d7.write_result({ 'status' => 'ok', 'state' => 'proposed' }, identity: old_identity)
+    assert('old worker result is NOT read as ready for the new (revise) handle') do
+      d7.status != 'ready'
+    end
+    assert("collect for the new handle's key returns nil (old result not mis-collected)") do
+      d7.collect('0:observed:0', 'revise:beef').nil?
+    end
+
+    puts '== A-2: per-token heartbeat — orphan worker cannot mask a new crash =='
+    s8 = new_seam_session('a2s8')
+    d8 = Delegation.new(s8.guard_dir)
+    _, tokOld = d8.open_handle({ 'action' => 'approve' }, '0:observed:0', 'approve')
+    d8.touch_heartbeat(tokOld)
+    # a fresh delegation supersedes it; the NEW worker never heartbeats (it crashed at startup)
+    _, tokNew = d8.open_handle({ 'action' => 'revise', 'feedback' => 'z' }, '0:observed:0', 'revise:cafe')
+    # the orphaned OLD worker keeps touching ITS OWN heartbeat
+    d8.touch_heartbeat(tokOld)
+    assert('old worker heartbeat does NOT keep the new (crashed) handle alive') do
+      # new handle has no fresh heartbeat of its own; spawned_at is recent so
+      # it is within startup grace (still_pending), but crucially NOT masked as
+      # still_pending by the OLD worker's heartbeat once grace passes.
+      hbn = File.join(s8.guard_dir, "delegation.heartbeat.#{tokNew}")
+      hbo = File.join(s8.guard_dir, "delegation.heartbeat.#{tokOld}")
+      # force past startup grace
+      sp = JSON.parse(File.read(File.join(s8.guard_dir, 'delegation.json')))
+      sp['spawned_at'] = (Time.now - 120).utc.iso8601
+      File.write(File.join(s8.guard_dir, 'delegation.json'), JSON.generate(sp))
+      File.exist?(hbo) && !File.exist?(hbn) && d8.status == 'crashed'
+    end
+
+    puts '== A-2: bootstrap-failure result is identity-tagged (surfaced as ready) =='
+    s9 = new_seam_session('a2s9')
+    d9 = Delegation.new(s9.guard_dir)
+    _, tok9 = d9.open_handle({ 'action' => 'approve' }, '0:observed:0', 'approve')
+    # simulate the worker's bootstrap fallback writing a raw, identity-tagged result
+    identity9 = { 'issue_anchor' => '0:observed:0', 'action_key' => 'approve', 'step_token' => tok9 }
+    File.write(File.join(s9.guard_dir, 'delegation_result.json'),
+               JSON.generate(identity9.merge('outcome' => { 'status' => 'error', 'error' => 'worker bootstrap failed: LoadError' })))
+    assert('a bootstrap-failure result tagged with the handle identity reads as ready') do
+      d9.status == 'ready'
     end
   end
 rescue LoadError => e

@@ -90,8 +90,13 @@ module KairosMcp
             return 'ready'
           end
 
-          if File.exist?(heartbeat_path)
-            age = Time.now - File.mtime(heartbeat_path)
+          # Liveness is judged by the CURRENT pending handle's OWN heartbeat
+          # file (per step_token), never a shared one: an orphaned older worker
+          # that is still alive touches its own now-ignored heartbeat, so it can
+          # no longer mask a newer worker's crash.
+          hb = heartbeat_path(cur['step_token'])
+          if File.exist?(hb)
+            age = Time.now - File.mtime(hb)
             return age <= HEARTBEAT_STALE_THRESHOLD_SECONDS ? 'still_pending' : 'crashed'
           end
 
@@ -133,10 +138,12 @@ module KairosMcp
               return [:existing, cur['step_token']]
             end
 
-            # Fresh delegation: clear any stale result/heartbeat and write the
-            # new handle. The issue_anchor is injected into the worker args.
+            # Fresh delegation: clear any stale result and ALL prior per-token
+            # heartbeats (a superseded worker's heartbeat must not count toward
+            # this handle's liveness), then write the new handle. The
+            # issue_anchor is injected into the worker args.
             FileUtils.rm_f(result_path)
-            FileUtils.rm_f(heartbeat_path)
+            clear_all_heartbeats
             token = SecureRandom.uuid
             worker_args = recorded_args.merge('anchor' => issue_anchor)
             atomic_write(pending_path, JSON.pretty_generate(
@@ -152,19 +159,31 @@ module KairosMcp
 
         # ---- worker side ----
 
-        def touch_heartbeat
-          FileUtils.touch(heartbeat_path)
+        # The worker touches its OWN per-token heartbeat (it knows its token
+        # from the handle it read at startup), so liveness is scoped to that
+        # specific worker.
+        def touch_heartbeat(token)
+          return unless token
+          FileUtils.touch(heartbeat_path(token))
         end
 
         # Tags the result with the issue_anchor / action_key / step_token of the
         # handle it completes, so status/open_handle/collect can tell a fresh
         # result from a stale one. The worker calls this and NOTHING else on
         # success — teardown is the collector's responsibility (see collect).
-        def write_result(response_hash)
-          cur = pending
-          payload = { 'issue_anchor' => cur&.dig('issue_anchor'),
-                      'action_key'   => cur&.dig('action_key'),
-                      'step_token'   => cur&.dig('step_token'),
+        #
+        # identity: the worker passes the handle identity it read at STARTUP so
+        # a finishing worker tags its result with its OWN delegation, not
+        # whatever a fresh open_handle may have written into pending in the
+        # meantime — otherwise a completing old worker could mislabel its
+        # outcome as the new delegation's. When identity is omitted (early
+        # setsid/bootstrap failures with no handle context), it falls back to
+        # the current pending.
+        def write_result(response_hash, identity: nil)
+          id = identity || pending || {}
+          payload = { 'issue_anchor' => id['issue_anchor'],
+                      'action_key'   => id['action_key'],
+                      'step_token'   => id['step_token'],
                       'outcome'      => response_hash }
           atomic_write(result_path, JSON.pretty_generate(payload))
         end
@@ -185,7 +204,7 @@ module KairosMcp
             if cur && cur['issue_anchor'] == expected_anchor &&
                cur['action_key'] == expected_action_key
               FileUtils.rm_f(pending_path)
-              FileUtils.rm_f(heartbeat_path)
+              clear_all_heartbeats
             end
             res
           end
@@ -199,7 +218,7 @@ module KairosMcp
             cur = pending
             if cur.nil? || cur['step_token'] == expected_token
               FileUtils.rm_f(pending_path)
-              FileUtils.rm_f(heartbeat_path)
+              clear_all_heartbeats
             end
           end
         end
@@ -293,9 +312,14 @@ module KairosMcp
           File.rename(tmp, path)
         end
 
+        def clear_all_heartbeats
+          Dir.glob(File.join(@dir, "#{HEARTBEAT_FILE}.*")).each { |f| FileUtils.rm_f(f) }
+          FileUtils.rm_f(File.join(@dir, HEARTBEAT_FILE)) # legacy unscoped, if any
+        end
+
         def lock_path      = File.join(@dir, LOCK_FILE)
         def pending_path   = File.join(@dir, PENDING_FILE)
-        def heartbeat_path = File.join(@dir, HEARTBEAT_FILE)
+        def heartbeat_path(token) = File.join(@dir, "#{HEARTBEAT_FILE}.#{token}")
         def result_path    = File.join(@dir, RESULT_FILE)
       end
     end
