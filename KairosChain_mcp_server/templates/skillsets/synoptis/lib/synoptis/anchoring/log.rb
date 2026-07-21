@@ -2,6 +2,7 @@
 
 require_relative 'entry'
 require_relative 'containment'
+require_relative 'attestation_types'
 require 'json'
 require 'fileutils'
 
@@ -90,12 +91,16 @@ module Synoptis
       # only to this newly appended entry (AHM-4 untouched for prior entries).
       def append_anchor(digest:, anchor_type:, source_id:, depositor:,
                         external_reference: nil, metadata: {}, moment: nil,
-                        head_binding: nil)
+                        head_binding: nil, attestation_type: nil)
         # ANC-2 containment: the only intake gate. A rejected write never
         # reaches the store, so the log structurally cannot hold content.
         Containment.validate_anchor!(digest: digest, metadata: metadata,
                                      external_reference: external_reference,
                                      head_binding: head_binding)
+        # MAP-4 (map-1 §3): a declared attestation type must come from the
+        # vocabulary, and a retraction must reference its target unambiguously.
+        # Untyped (nil) stays valid — pre-map-1 provenance, not a defect.
+        AttestationTypes.validate_intake!(attestation_type, metadata)
         # ANC-5 attribution guarantee: every anchor is attributable. The
         # authenticated peer identity is bound by the WritePath; here we refuse an
         # anonymous deposit as defense-in-depth even on a direct call.
@@ -112,7 +117,8 @@ module Synoptis
             metadata: metadata,
             moment: moment,
             governing_identity: @operator_id,
-            head_binding: head_binding
+            head_binding: head_binding,
+            attestation_type: attestation_type
           )
           commit(entry)
         end

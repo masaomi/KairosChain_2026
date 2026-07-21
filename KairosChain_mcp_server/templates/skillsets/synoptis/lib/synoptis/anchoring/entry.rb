@@ -61,7 +61,7 @@ module Synoptis
       # (AHM-4: binding attaches only to newly appended entries).
       def self.anchor(position:, prev:, digest:, anchor_type:, source_id:, depositor:,
                       external_reference: nil, metadata: {}, moment: nil,
-                      governing_identity: nil, head_binding: nil)
+                      governing_identity: nil, head_binding: nil, attestation_type: nil)
         body = {
           'digest' => normalize_digest(digest),
           'digest_algorithm' => DIGEST_ALGORITHM,
@@ -74,6 +74,12 @@ module Synoptis
           'moment' => moment || Time.now.utc.iso8601
         }
         body['head_binding'] = head_binding unless head_binding.nil?
+        # attestation_type (MAP-4, map-1 §3) is committed content of NEW entries
+        # only: absence of the key marks a pre-map-1 entry (grandfathered), so
+        # every pre-existing entry's hash is unchanged (AHM-4, same pattern as
+        # head_binding). Validation of the declared type against the map-1
+        # vocabulary belongs to the map-1 modules, not to Entry.
+        body['attestation_type'] = attestation_type.to_s unless attestation_type.nil?
         new(position: position, prev: prev, kind: 'anchor', body: body,
             governing_identity: governing_identity)
       end
@@ -131,6 +137,12 @@ module Synoptis
       # (absence is a statement of provenance, design §3f).
       def head_binding
         @body['head_binding']
+      end
+
+      # The declared attestation type (MAP-4), or nil for an untyped
+      # (pre-map-1, grandfathered) entry.
+      def attestation_type
+        @body['attestation_type']
       end
 
       def to_h
