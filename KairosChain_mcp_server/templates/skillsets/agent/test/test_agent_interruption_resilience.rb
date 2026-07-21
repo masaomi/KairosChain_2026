@@ -416,6 +416,103 @@ rescue LoadError => e
   puts "  SKIP: tool-seam probes (#{e.message})"
 end
 
+# ---- Slice A-2: delegation handle + wait surface ----
+begin
+  require_relative '../lib/agent/step_delegation'
+  require_relative '../tools/agent_wait'
+  Delegation = KairosMcp::SkillSets::Agent::StepDelegation
+
+  Dir.mktmpdir('resilience_a2_') do |tmp|
+    Autonomos.base = tmp
+
+    puts '== A-2: delegation handle lifecycle (INV-A1/A3) =='
+    s = new_seam_session('a2s1')
+    d = Delegation.new(s.guard_dir)
+    assert('no handle -> status none') { d.status == 'none' }
+    tok1, how1 = d.open_handle({ 'action' => 'approve' }, '0:observed:0')
+    d.touch_heartbeat
+    assert('opened handle is pending with a token') { how1 == 'opened' && tok1 && d.status == 'still_pending' }
+    tok2, how2 = d.open_handle({ 'action' => 'approve' }, '0:observed:0')
+    assert('re-open for same action+anchor is idempotent (same token, no second worker)') do
+      how2 == 'existing' && tok2 == tok1
+    end
+    tok3, how3 = d.open_handle({ 'action' => 'approve' }, '1:proposed:0')
+    assert('different anchor opens a NEW handle (different judgment)') do
+      how3 == 'opened' && tok3 != tok1
+    end
+
+    puts '== A-2: status transitions =='
+    hb = File.join(s.guard_dir, 'delegation.heartbeat')
+    FileUtils.touch(hb, mtime: Time.now - 60)
+    assert('stale heartbeat -> crashed') { d.status == 'crashed' }
+    FileUtils.rm_f(hb)
+    stale_pending = JSON.parse(File.read(File.join(s.guard_dir, 'delegation.json')))
+    stale_pending['spawned_at'] = (Time.now - 120).utc.iso8601
+    File.write(File.join(s.guard_dir, 'delegation.json'), JSON.generate(stale_pending))
+    assert('no heartbeat past startup grace -> crashed') { d.status == 'crashed' }
+    d.write_result({ 'status' => 'ok', 'state' => 'proposed' })
+    assert('result present -> ready (even after crash markers)') { d.status == 'ready' }
+    d.clear_pending
+
+    puts '== A-2: agent_wait surface =='
+    wait_tool = KairosMcp::SkillSets::Agent::Tools::AgentWait.new
+    w1 = JSON.parse(wait_tool.call({ 'session_id' => 'a2s1' })[0][:text])
+    assert('wait on ready delegation returns outcome + next_move') do
+      w1['status'] == 'ready' && w1['outcome']['state'] == 'proposed' && w1['next_move']
+    end
+    FileUtils.rm_f(File.join(s.guard_dir, 'delegation_result.json'))
+    w2 = JSON.parse(wait_tool.call({ 'session_id' => 'a2s1' })[0][:text])
+    assert('wait with no delegation -> no_delegation + agent_status hint') do
+      w2['status'] == 'no_delegation' && w2['next_action']['tool'] == 'agent_status'
+    end
+    d2 = Delegation.new(s.guard_dir)
+    d2.open_handle({ 'action' => 'approve' }, '0:observed:0')
+    FileUtils.touch(File.join(s.guard_dir, 'delegation.heartbeat'), mtime: Time.now - 60)
+    w3 = JSON.parse(wait_tool.call({ 'session_id' => 'a2s1' })[0][:text])
+    assert('wait on crashed worker -> crashed + safe re-issue hint') do
+      w3['status'] == 'crashed' && w3['next_action']['tool'] == 'agent_status'
+    end
+    d2.clear_pending
+
+    puts '== A-2: delegated agent_step end-to-end with stub worker =='
+    s2 = new_seam_session('a2s2')
+    tool = SeamStep.new
+    ENV['KAIROS_AGENT_WORKER_CMD'] = 'true' # spawn no-op; we drive the worker logic below
+    r1 = JSON.parse(tool.call({ 'session_id' => 'a2s2', 'action' => 'approve',
+                                'execution' => 'delegated' })[0][:text])
+    assert('delegated start returns a step token + agent_wait next_action, executes nothing') do
+      r1['status'] == 'delegation_pending' && r1['step_token'] &&
+        r1['next_action']['tool'] == 'agent_wait' && tool.approve_runs == 0
+    end
+    r2 = JSON.parse(tool.call({ 'session_id' => 'a2s2', 'action' => 'approve',
+                                'execution' => 'delegated' })[0][:text])
+    assert('re-issued delegated start reuses the handle (no double spawn)') do
+      r2['reused'] == true && r2['step_token'] == r1['step_token']
+    end
+    # Simulate the worker: re-enter the same gated path with recorded args,
+    # write the result, clear the handle (what bin/agent_step_worker.rb does).
+    d3 = Delegation.new(s2.guard_dir)
+    pending = d3.pending
+    worker_result = JSON.parse(tool.call(pending['arguments'].merge('session_id' => 'a2s2'))[0][:text])
+    d3.write_result(worker_result)
+    d3.clear_pending
+    w4 = JSON.parse(KairosMcp::SkillSets::Agent::Tools::AgentWait.new
+                      .call({ 'session_id' => 'a2s2' })[0][:text])
+    assert('worker-executed step lands under the gate; wait collects it with next_move') do
+      w4['status'] == 'ready' && w4['outcome']['state'] == 'proposed' &&
+        w4['outcome']['anchor'] == '1:proposed:0' && tool.approve_runs == 1
+    end
+    assert('collected advance is replayable through the gate (A-1 inheritance)') do
+      rp = JSON.parse(tool.call({ 'session_id' => 'a2s2', 'action' => 'approve',
+                                  'anchor' => '0:observed:0' })[0][:text])
+      rp['replayed'] == true && tool.approve_runs == 1
+    end
+    ENV.delete('KAIROS_AGENT_WORKER_CMD')
+  end
+rescue LoadError => e
+  puts "  SKIP: A-2 probes (#{e.message})"
+end
+
 puts
 puts "#{$pass} passed, #{$fail} failed"
 exit($fail.zero? ? 0 : 1)

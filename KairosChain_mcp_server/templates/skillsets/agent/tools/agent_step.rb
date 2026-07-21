@@ -70,6 +70,15 @@ module KairosMcp
                                '"already_done" (the effect happened; record and move on)',
                   enum: %w[reattempt already_done]
                 },
+                execution: {
+                  type: 'string',
+                  description: '"inline" (default) runs the step in this call. "delegated" ' \
+                               'returns immediately with a step token while a detached worker ' \
+                               'runs the same gated step under server-side ownership; collect ' \
+                               'with agent_wait. Use for long-running steps that must survive ' \
+                               'the caller.',
+                  enum: %w[inline delegated]
+                },
                 apply_permission_hook: {
                   type: 'boolean',
                   description: 'Apply the suggested PreToolUse hook to .claude/settings.json (requires prior permission_advisory)'
@@ -90,6 +99,14 @@ module KairosMcp
             if arguments['apply_permission_hook']
               result = apply_permission_hook
               return text_content(JSON.generate(result)) unless result['status'] == 'ok'
+            end
+
+            # Slice A-2 (INV-A1): a delegated step returns a resumable handle
+            # while a detached worker re-enters this same gated path. The
+            # initiating call does not advance state itself — the worker's
+            # call does, under the full A-1 gate.
+            if arguments['execution'] == 'delegated'
+              return handle_delegated_start(session, arguments)
             end
 
             # Interruption resilience Slice A (design v0.3.1 FROZEN): every
@@ -114,6 +131,43 @@ module KairosMcp
           end
 
           private
+
+          # Slice A-2: open (or re-join) the delegation handle and spawn the
+          # detached worker. Idempotent at delegation-start (INV-A3): a
+          # re-issued delegated call for the same action+anchor returns the
+          # existing token instead of spawning a second worker. A ready
+          # result from the previous delegation is surfaced, not clobbered.
+          def handle_delegated_start(session, arguments)
+            delegation = StepDelegation.new(session.guard_dir)
+
+            if delegation.status == 'ready'
+              return text_content(JSON.generate({
+                'status' => 'delegation_ready', 'session_id' => session.session_id,
+                'next_action' => { 'tool' => 'agent_wait',
+                                   'args' => { 'session_id' => session.session_id },
+                                   'purpose' => 'previous delegated step finished; collect its outcome' }
+              }))
+            end
+
+            recorded = {
+              'action' => arguments['action'],
+              'feedback' => arguments['feedback'],
+              'resolution' => arguments['resolution'],
+              'anchor' => arguments['anchor']
+            }.compact
+            gate = AdvanceGate.new(session.guard_dir)
+            token, opened = delegation.open_handle(recorded, gate.current_anchor(session))
+            delegation.spawn_worker(session.session_id) if opened == 'opened'
+
+            text_content(JSON.generate({
+              'status' => 'delegation_pending', 'session_id' => session.session_id,
+              'step_token' => token, 'reused' => (opened == 'existing'),
+              'next_action' => { 'tool' => 'agent_wait',
+                                 'args' => { 'session_id' => session.session_id,
+                                             'max_wait_seconds' => 600 },
+                                 'purpose' => 'block until the delegated step completes; every status returns a recovery hint' }
+            }))
+          end
 
           # Runs with the per-session advance lock held (INV-A2).
           def advance_under_lock(gate, stale_session, action, arguments, feedback)

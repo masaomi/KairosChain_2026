@@ -61,6 +61,26 @@ module KairosMcp
                 'cycle_number' => session.cycle_number,
                 'anchor' => gate.current_anchor(session)
               }
+              # Slice A-2: surface the delegation handle so a fresh driver
+              # learns about an in-flight or finished delegated step from
+              # persisted state alone.
+              delegation = StepDelegation.new(session.guard_dir)
+              dstatus = delegation.status
+              if dstatus != 'none'
+                payload['delegation'] = {
+                  'status' => dstatus,
+                  'step_token' => delegation.pending&.dig('step_token')
+                }.compact
+                if %w[ready still_pending].include?(dstatus)
+                  payload['next_move'] = {
+                    'tool' => 'agent_wait',
+                    'args' => { 'session_id' => session.session_id },
+                    'reason' => dstatus == 'ready' ? 'delegated step finished; collect its outcome' : 'delegated step in flight; wait for it'
+                  }
+                  return text_content(JSON.generate(payload))
+                end
+              end
+
               if gate.busy?
                 # An open intent while the lock is held is normal execution,
                 # not an unresolved point — report in-flight instead.
