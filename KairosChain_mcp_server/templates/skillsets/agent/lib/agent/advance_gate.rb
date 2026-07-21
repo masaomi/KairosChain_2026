@@ -188,7 +188,12 @@ module KairosMcp
           intent = JSON.parse(raw)
           # If the log contains a committed advance for the intent's anchor,
           # the effect was recorded — the intent file is a stale leftover.
-          if find_committed(intent['anchor'])
+          # Exception: a stop committed at the same anchor with the intent
+          # still unresolved did NOT record the effect (it recorded the
+          # ambiguity); such a commit must not make the audit trace look
+          # stale, or cleanup would silently erase it.
+          committed = find_committed(intent['anchor'])
+          if committed && !committed.dig('outcome', 'unresolved_intent_at_stop')
             File.delete(intent_path) if cleanup && File.exist?(intent_path)
             return nil
           end
@@ -205,6 +210,17 @@ module KairosMcp
         # every other pending advance (v0.3.1 uniqueness clause).
         def next_move(session)
           intent = unresolved_intent
+          # A terminated session has no next move; a kept intent is an audit
+          # record of the ambiguity, not a pending adjudication (the step
+          # tool refuses post-termination adjudication, so recommending it
+          # would loop forever).
+          if session.state == 'terminated'
+            move = { 'tool' => nil,
+                     'reason' => 'session is terminated; no further moves' }
+            move['audit_intent'] = intent if intent
+            return move
+          end
+
           if intent
             return {
               'tool' => 'agent_step',

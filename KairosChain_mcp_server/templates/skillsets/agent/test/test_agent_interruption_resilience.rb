@@ -376,6 +376,16 @@ begin
     assert('adjudicate refused on a terminated session (no resurrection)') do
       r10['status'] == 'error' && r10['error'].include?('terminated')
     end
+    assert('next_move on terminated-with-kept-intent reports audit record, never a looping adjudicate') do
+      sess3 = SessK.load('seam3')
+      mv = Gate.new(s3.guard_dir).next_move(sess3)
+      mv['tool'].nil? && mv['audit_intent']
+    end
+    r10b = JSON.parse(tool3.call({ 'session_id' => 'seam3', 'action' => 'stop' })[0][:text])
+    assert('retried agent_step stop on terminated session is a no-op (no duplicate commit)') do
+      log3 = File.join(s3.guard_dir, 'advance_log.jsonl')
+      r10b['already_terminated'] == true && File.readlines(log3).grep(/"action":"stop"/).size == 1
+    end
     assert('advance on a session whose record vanished fails closed (never a stale snapshot)') do
       FileUtils.rm_f(File.join(s3.guard_dir, 'session.json'))
       r11 = JSON.parse(tool3.call({ 'session_id' => 'seam3', 'action' => 'approve' })[0][:text])

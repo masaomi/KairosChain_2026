@@ -132,6 +132,16 @@ module KairosMcp
             # pending advance (INV-A4 uniqueness): only its adjudication, or a
             # stop, may proceed. Stale-intent cleanup is a write and therefore
             # happens only here, under the lock.
+            # Stopping an already-terminated session is a no-op, not a new
+            # advance (mirrors agent_stop's idempotency): no duplicate
+            # commits, no seq churn.
+            if action == 'stop' && session.state == 'terminated'
+              return text_content(JSON.generate({
+                'status' => 'ok', 'session_id' => session.session_id,
+                'state' => 'terminated', 'already_terminated' => true
+              }))
+            end
+
             intent = gate.unresolved_intent(cleanup: true)
             if intent && !%w[adjudicate stop].include?(action)
               return text_content(JSON.generate({
