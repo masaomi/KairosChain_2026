@@ -76,6 +76,11 @@ module KairosMcp
                        'error' => 'another advance is in progress on this session' }
             end
             begin
+              # Any memoized gate state predates the lock; drop it so every
+              # read inside the critical section reflects the persisted truth
+              # (a gate instance that outlives a lock window must not serve a
+              # stale seq).
+              @gate_state = nil
               yield
             ensure
               f.flock(File::LOCK_UN)

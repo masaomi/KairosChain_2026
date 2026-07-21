@@ -53,7 +53,19 @@ module KairosMcp
             # in-flight advance and have the termination silently overwritten.
             gate = AdvanceGate.new(session.guard_dir)
             result = gate.with_lock do
-              fresh = Session.load(session_id) || session
+              # Fail closed if the persisted record is gone; a stop on a
+              # stale snapshot would mask store corruption.
+              fresh = Session.load(session_id)
+              next { 'status' => 'error',
+                     'error' => "session record unreadable for #{session_id}" } unless fresh
+
+              # Stopping an already-terminated session is a no-op, not a new
+              # advance: a retried stop must not append duplicate commits.
+              if fresh.state == 'terminated'
+                next { 'status' => 'ok', 'session_id' => session_id,
+                       'state' => 'terminated', 'already_terminated' => true }
+              end
+
               previous_state = fresh.state
               anchor_at_issue = gate.current_anchor(fresh)
               intent = gate.unresolved_intent(cleanup: true)
@@ -82,11 +94,12 @@ module KairosMcp
               text_content(JSON.generate(outcome))
             end
 
-            if result.is_a?(Hash) && result['status'] == 'busy'
-              return text_content(JSON.generate(result.merge(
-                'session_id' => session_id,
-                'hint' => 'an advance is in flight; retry when it settles (agent_status shows advance_in_flight)'
-              )))
+            if result.is_a?(Hash)
+              result = result.merge('session_id' => session_id)
+              if result['status'] == 'busy'
+                result['hint'] = 'an advance is in flight; retry when it settles (agent_status shows advance_in_flight)'
+              end
+              return text_content(JSON.generate(result))
             end
             result
           rescue StandardError => e

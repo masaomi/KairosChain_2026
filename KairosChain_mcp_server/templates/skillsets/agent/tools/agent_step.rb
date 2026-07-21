@@ -120,8 +120,13 @@ module KairosMcp
             # Reload under the lock: the pre-lock session object may be stale
             # if another advance committed while this call raced it. The
             # anchor must be checked against the persisted truth, never a
-            # snapshot (INV-A2/A3).
-            session = Session.load(stale_session.session_id) || stale_session
+            # snapshot (INV-A2/A3). Fail closed if the persisted record is
+            # gone — advancing on a snapshot would mask store corruption.
+            session = Session.load(stale_session.session_id)
+            unless session
+              return error_result(
+                "session record unreadable for #{stale_session.session_id}; refusing to advance on a stale snapshot")
+            end
 
             # An unresolved side-effect point takes precedence over every other
             # pending advance (INV-A4 uniqueness): only its adjudication, or a
@@ -177,7 +182,7 @@ module KairosMcp
           def replay_action_key(action, arguments, feedback)
             case action
             when 'adjudicate' then "adjudicate:#{arguments['resolution']}"
-            when 'revise' then "revise:#{Digest::SHA256.hexdigest(feedback.to_s)[0, 8]}"
+            when 'revise' then "revise:#{Digest::SHA256.hexdigest(feedback.to_s)[0, 16]}"
             else action
             end
           end
@@ -219,6 +224,12 @@ module KairosMcp
           # gated human judgment — the system never resolves the ambiguity
           # silently in either direction.
           def handle_adjudicate(session, resolution)
+            # A terminated session is never resurrected: a stale intent left
+            # behind by a stop is an audit record, not a pending move.
+            if session.state == 'terminated'
+              return error_result('session is terminated; its unresolved intent is an audit record, not adjudicable')
+            end
+
             intent = @gate&.unresolved_intent
             return error_result('nothing to adjudicate: no unresolved side-effect') unless intent
 

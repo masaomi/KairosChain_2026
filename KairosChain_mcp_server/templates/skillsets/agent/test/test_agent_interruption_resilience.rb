@@ -369,6 +369,38 @@ begin
       r9['status'] == 'ok' && r9['unresolved_intent_at_stop'] &&
         File.exist?(File.join(s3.guard_dir, 'act_intent.json'))
     end
+
+    puts '== R2 fixes: terminated guard + fail-closed reload =='
+    r10 = JSON.parse(tool3.call({ 'session_id' => 'seam3', 'action' => 'adjudicate',
+                                  'resolution' => 'reattempt' })[0][:text])
+    assert('adjudicate refused on a terminated session (no resurrection)') do
+      r10['status'] == 'error' && r10['error'].include?('terminated')
+    end
+    assert('advance on a session whose record vanished fails closed (never a stale snapshot)') do
+      FileUtils.rm_f(File.join(s3.guard_dir, 'session.json'))
+      r11 = JSON.parse(tool3.call({ 'session_id' => 'seam3', 'action' => 'approve' })[0][:text])
+      r11['status'] == 'error' &&
+        (r11['error'].include?('not found') || r11['error'].include?('unreadable'))
+    end
+
+    puts '== R2 fixes: agent_stop tool gated + idempotent on terminated =='
+    begin
+      require_relative '../tools/agent_stop'
+      s4 = new_seam_session('seam4')
+      stop_tool = KairosMcp::SkillSets::Agent::Tools::AgentStop.new
+      r12 = JSON.parse(stop_tool.call({ 'session_id' => 'seam4' })[0][:text])
+      log4 = File.join(s4.guard_dir, 'advance_log.jsonl')
+      assert('agent_stop tool terminates through the gate and commits once') do
+        r12['status'] == 'ok' && r12['state'] == 'terminated' &&
+          File.readlines(log4).size == 1
+      end
+      r13 = JSON.parse(stop_tool.call({ 'session_id' => 'seam4' })[0][:text])
+      assert('retried agent_stop is a no-op, not a duplicate commit') do
+        r13['already_terminated'] == true && File.readlines(log4).size == 1
+      end
+    rescue LoadError => e
+      puts "  SKIP: agent_stop tool probes (#{e.message})"
+    end
   end
 rescue LoadError => e
   puts "  SKIP: tool-seam probes (#{e.message})"
