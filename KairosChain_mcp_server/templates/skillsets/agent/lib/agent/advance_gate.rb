@@ -242,8 +242,6 @@ module KairosMcp
                              ['approve', 'start next cycle']
                            when 'paused_risk', 'paused_error'
                              ['approve', 'resume from pause (or "skip"/"stop")']
-                           when 'terminated'
-                             [nil, 'session is terminated; no further moves']
                            else
                              [nil, "unrecognized state #{session.state}"]
                            end
