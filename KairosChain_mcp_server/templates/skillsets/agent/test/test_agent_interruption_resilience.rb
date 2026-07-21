@@ -468,7 +468,7 @@ begin
       d.status != 'ready'
     end
     d.clear_pending_if(tok4)
-    d.collect('x', 'x', 'x') # no-op cleanup of any leftover
+    d.collect # no-op cleanup of any leftover
 
     puts '== A-2: agent_wait surface + collect-once =='
     FileUtils.rm_f(File.join(s.guard_dir, 'delegation_result.json'))
@@ -566,8 +566,8 @@ begin
     assert('old worker result is NOT read as ready for the new (revise) handle') do
       d7.status != 'ready'
     end
-    assert("collect for the new handle's key returns nil (old result not mis-collected)") do
-      d7.collect('0:observed:0', 'revise:beef', tokB).nil?
+    assert('collect() returns nil (old result does not belong to the new pending)') do
+      d7.collect.nil?
     end
 
     puts '== A-2: step_token completes identity — SAME anchor+action supersede =='
@@ -589,9 +589,15 @@ begin
     assert('old-token result is NOT ready for the new same-anchor+action handle (token scoped)') do
       d7b.status != 'ready'
     end
-    assert('collect with the OLD token does not remove the NEW pending handle') do
-      d7b.collect('0:observed:0', 'approve', tokOld2) # returns old result but must not clear new pending
-      d7b.pending && d7b.pending['step_token'] == tokNew2
+    assert('collect() does not consume the old-token result nor remove the NEW pending handle') do
+      d7b.collect.nil? && d7b.pending && d7b.pending['step_token'] == tokNew2
+    end
+    assert('open_handle is pending-centric: a token-mismatched stale result is NOT :ready') do
+      # a fresh delegated start for the same judgment sees the stale old-token
+      # result but must NOT treat it as :ready (it belongs to a dead worker);
+      # the current pending tokNew2 is live -> :existing
+      how, tok = d7b.open_handle({ 'action' => 'approve' }, '0:observed:0', 'approve')
+      how == :existing && tok == tokNew2
     end
 
     puts '== A-2: per-token heartbeat — orphan worker cannot mask a new crash =='

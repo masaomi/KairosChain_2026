@@ -119,21 +119,19 @@ begin
   pending = delegation.pending
   raise "no pending delegation in #{session_dir}" unless pending
 
-  # Supersession guard: if the live handle is no longer ours (a fresh
-  # open_handle replaced it while we were starting up — e.g. we were declared
-  # 'crashed' on a stale heartbeat and the driver re-delegated), do NOT run.
-  # The new worker owns this delegation; running our stale args would waste
-  # work (the gate would replay/serialize it anyway) and could execute the
-  # WRONG (replacement) args if we trusted the re-read handle.
-  if my_token && pending['step_token'] != my_token
+  # Supersession guard: run ONLY if the live handle is still ours. If a fresh
+  # open_handle replaced it while we were starting up (e.g. we were declared
+  # 'crashed' on a stale heartbeat and the driver re-delegated), or we could
+  # not read our own identity at boot (my_token nil), do NOT run: the new
+  # worker owns this delegation, and the gate would replay/serialize our stale
+  # call anyway. Exiting leaves the current handle to its rightful worker.
+  if my_token.nil? || pending['step_token'] != my_token
     exit 0
   end
 
-  # Our own handle identity, captured at startup (also used for the per-token
-  # heartbeat) so write_result tags its outcome with THIS delegation.
-  identity = boot_identity.empty? ? { 'issue_anchor' => pending['issue_anchor'],
-                                      'action_key' => pending['action_key'],
-                                      'step_token' => pending['step_token'] } : boot_identity
+  # Past the guard, boot_identity is non-empty and is our own handle identity
+  # (also driving the per-token heartbeat); write_result tags with it.
+  identity = boot_identity
 
   args = (pending['arguments'] || {}).merge('session_id' => session_id)
   args.delete('execution') # never recurse into another delegation

@@ -111,18 +111,26 @@ module KairosMcp
           # it under the lock (the wait loop then keeps polling — never a stale
           # outcome).
           def ready_response(session, delegation)
-            observed = delegation.result || {}
-            raw = delegation.collect(observed['issue_anchor'], observed['action_key'],
-                                     observed['step_token'])
+            # collect() decides readiness against the live pending under the
+            # lock and returns the result only if it belongs to the current
+            # handle; nil means superseded/collected -> the wait loop keeps
+            # polling rather than returning a stale outcome.
+            raw = delegation.collect
             return nil unless raw
 
             outcome = raw['outcome'] || { 'status' => 'error', 'error' => 'result unreadable' }
-            fresh = Session.load(session.session_id) || session
-            gate = AdvanceGate.new(fresh.guard_dir)
+            # next_move is best-effort: the outcome has already been consumed,
+            # so a failure to derive the hint must not lose the return value.
+            next_move = begin
+              fresh = Session.load(session.session_id) || session
+              AdvanceGate.new(fresh.guard_dir).next_move(fresh)
+            rescue StandardError
+              nil
+            end
             text_content(JSON.generate({
               'status' => 'ready', 'session_id' => session.session_id,
               'outcome' => outcome,
-              'next_move' => gate.next_move(fresh)
+              'next_move' => next_move
             }))
           end
 

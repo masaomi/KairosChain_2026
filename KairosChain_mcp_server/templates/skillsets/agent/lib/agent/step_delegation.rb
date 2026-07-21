@@ -129,15 +129,20 @@ module KairosMcp
         #   [:opened, token]   — a fresh handle was written; caller spawns
         def open_handle(recorded_args, issue_anchor, action_key)
           with_lock do
-            res = result
-            if res && res['issue_anchor'] == issue_anchor && res['action_key'] == action_key
-              return [:ready, res['step_token']]
-            end
-
+            # Pending-centric: only the CURRENT pending handle for this exact
+            # (anchor, action_key) can be :ready or :existing. A result whose
+            # token does not match the current pending is a superseded worker's
+            # leftover, never treated as this delegation's ready outcome.
             cur = pending
-            if cur && cur['issue_anchor'] == issue_anchor &&
-               cur['action_key'] == action_key && live_pending?(cur)
-              return [:existing, cur['step_token']]
+            if cur && cur['issue_anchor'] == issue_anchor && cur['action_key'] == action_key
+              res = result
+              if res && res['step_token'] == cur['step_token'] &&
+                 res['issue_anchor'] == issue_anchor && res['action_key'] == action_key
+                return [:ready, cur['step_token']]
+              end
+              return [:existing, cur['step_token']] if live_pending?(cur)
+              # cur matches this judgment but is neither ready nor live
+              # (crashed) — fall through to open a fresh handle below.
             end
 
             # Fresh delegation: clear any stale result and ALL prior per-token
@@ -190,27 +195,27 @@ module KairosMcp
           atomic_write(result_path, JSON.pretty_generate(payload))
         end
 
-        # Collect-once, atomically, WITHOUT racing a concurrently-opened fresh
-        # delegation: under the lock, return the result only if it belongs to
-        # the exact (expected_anchor, expected_action_key, expected_token)
-        # handle, and clear that result + its pending handle only when the
-        # pending is still that same token. A result written by a superseded
-        # worker (different token) for the same anchor/action is NOT collected
-        # as the current handle's, and the current pending is never removed on
-        # its behalf.
-        def collect(expected_anchor, expected_action_key, expected_token)
+        # Collect-once, atomically and self-contained: under the lock, consume
+        # the result ONLY if it belongs to the CURRENT pending handle (same
+        # issue_anchor + action_key + step_token), clearing both the result and
+        # the handle together. Returns the result, or nil when there is no
+        # result, no pending, or the result belongs to a different (superseded)
+        # worker — in which case nothing is touched. Deciding readiness against
+        # the live pending under the lock (rather than trusting the result's
+        # own tags) is what makes a superseded worker's stale result
+        # uncollectable and closes the status/collect race.
+        def collect
           with_lock do
+            cur = pending
             res = result
-            return nil unless res && res['issue_anchor'] == expected_anchor &&
-                              res['action_key'] == expected_action_key &&
-                              res['step_token'] == expected_token
+            return nil unless cur && res &&
+                              res['issue_anchor'] == cur['issue_anchor'] &&
+                              res['action_key'] == cur['action_key'] &&
+                              res['step_token'] == cur['step_token']
 
             FileUtils.rm_f(result_path)
-            cur = pending
-            if cur && cur['step_token'] == expected_token
-              FileUtils.rm_f(pending_path)
-              clear_all_heartbeats
-            end
+            FileUtils.rm_f(pending_path)
+            clear_all_heartbeats
             res
           end
         end
