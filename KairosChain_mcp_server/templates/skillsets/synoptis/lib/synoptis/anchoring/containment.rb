@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'entry'
+require_relative 'head_binding'
 
 module Synoptis
   module Anchoring
@@ -56,11 +57,26 @@ module Synoptis
       module_function
 
       # Validate an anchor deposit. Returns the normalized digest on success.
-      def validate_anchor!(digest:, algorithm: Entry::DIGEST_ALGORITHM, metadata: {}, external_reference: nil)
+      def validate_anchor!(digest:, algorithm: Entry::DIGEST_ALGORITHM, metadata: {}, external_reference: nil,
+                          head_binding: nil)
         norm = validate_digest!(digest, algorithm)
         validate_metadata!(metadata)
         validate_external_reference!(external_reference)
+        validate_head_binding!(head_binding)
         norm
+      end
+
+      # A head binding is committed structural state, not free metadata: it must
+      # be exactly the khab-1 §4 field set — fixed keys, hex digests, integers —
+      # so it is inert and bounded by construction (ANC-2 holds; the binding is
+      # a constant-size object, no content channel).
+      def validate_head_binding!(binding)
+        return if binding.nil?
+
+        HeadBinding.validate!(binding)
+        true
+      rescue HeadBinding::BindingError => e
+        raise ContainmentError.new(:head_binding_invalid, e.message)
       end
 
       # Validate a withdrawal. Its only depositor-supplied field is the reason.

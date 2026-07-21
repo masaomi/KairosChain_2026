@@ -85,12 +85,17 @@ module Synoptis
       end
 
       # Append an anchor entry. Returns the created Entry.
+      # +head_binding+ (MPR-1): optional committed internal-chain state binding;
+      # validated by Containment, carried inside the committed body, attached
+      # only to this newly appended entry (AHM-4 untouched for prior entries).
       def append_anchor(digest:, anchor_type:, source_id:, depositor:,
-                        external_reference: nil, metadata: {}, moment: nil)
+                        external_reference: nil, metadata: {}, moment: nil,
+                        head_binding: nil)
         # ANC-2 containment: the only intake gate. A rejected write never
         # reaches the store, so the log structurally cannot hold content.
         Containment.validate_anchor!(digest: digest, metadata: metadata,
-                                     external_reference: external_reference)
+                                     external_reference: external_reference,
+                                     head_binding: head_binding)
         # ANC-5 attribution guarantee: every anchor is attributable. The
         # authenticated peer identity is bound by the WritePath; here we refuse an
         # anonymous deposit as defense-in-depth even on a direct call.
@@ -106,7 +111,8 @@ module Synoptis
             external_reference: external_reference,
             metadata: metadata,
             moment: moment,
-            governing_identity: @operator_id
+            governing_identity: @operator_id,
+            head_binding: head_binding
           )
           commit(entry)
         end

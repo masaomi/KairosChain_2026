@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auditability Head-Anchor 設計解説 — MPR-1〜9（v0.3 FROZEN）</title>
+<style>
+  :root {
+    --ink: #1a2332; --sub: #5a6a7e; --line: #d8dee8;
+    --accent: #1a6b8a; --accent-bg: #eaf4f8;
+    --warn: #a05a1a; --warn-bg: #fdf3e7;
+    --good: #2a7a4a; --good-bg: #ecf7f0;
+    --closed: #6a4a8a; --closed-bg: #f3eefa;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif;
+         color: var(--ink); line-height: 1.9; margin: 0; background: #f7f8fa; }
+  .page { max-width: 920px; margin: 0 auto; padding: 2.5rem 1.5rem 5rem; }
+  header { border-bottom: 3px solid var(--accent); padding-bottom: 1.2rem; margin-bottom: 2rem; }
+  h1 { font-size: 1.55rem; margin: 0 0 .4rem; line-height: 1.5; }
+  .meta { color: var(--sub); font-size: .85rem; }
+  h2 { font-size: 1.25rem; margin-top: 3rem; padding: .35rem .8rem;
+       border-left: 5px solid var(--accent); background: var(--accent-bg); border-radius: 0 6px 6px 0; }
+  h3 { font-size: 1.05rem; margin-top: 1.8rem; color: var(--accent); }
+  p { margin: .8rem 0; }
+  .figure { background: #fff; border: 1px solid var(--line); border-radius: 10px;
+            padding: 1.2rem 1rem .6rem; margin: 1.5rem 0; text-align: center; }
+  .figure figcaption { font-size: .85rem; color: var(--sub); margin-top: .6rem; text-align: left;
+            border-top: 1px dashed var(--line); padding-top: .6rem; }
+  .figure svg { max-width: 100%; height: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 1.2rem 0; background: #fff;
+          font-size: .92rem; border: 1px solid var(--line); }
+  th { background: var(--accent); color: #fff; padding: .5rem .7rem; text-align: left; font-weight: 600; }
+  td { border: 1px solid var(--line); padding: .5rem .7rem; vertical-align: top; }
+  tr:nth-child(even) td { background: #f4f7fa; }
+  .box { border-radius: 8px; padding: .9rem 1.1rem; margin: 1.2rem 0; }
+  .box.point  { background: var(--accent-bg); border-left: 5px solid var(--accent); }
+  .box.honest { background: var(--warn-bg); border-left: 5px solid var(--warn); }
+  .box.ok     { background: var(--good-bg); border-left: 5px solid var(--good); }
+  .box b:first-child { display: block; margin-bottom: .3rem; }
+  code { background: #eef1f5; border-radius: 4px; padding: .08em .35em; font-size: .88em;
+         font-family: "SF Mono", Menlo, Consolas, monospace; }
+  ul { padding-left: 1.4em; } li { margin: .35rem 0; }
+  .small { font-size: .85rem; color: var(--sub); }
+  svg text { font-family: "Hiragino Sans", "Noto Sans JP", sans-serif; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header>
+  <h1>Auditability Head-Anchor 設計解説<br>
+      <span style="font-size:.8em; font-weight:500;">— 内部鎖の全履歴を公開 anchor で証明可能にする（MPR-1〜9）</span></h1>
+  <div class="meta">
+    対象: <code>docs/drafts/auditability_head_anchor_design_v0.3_draft.md</code>（FROZEN v0.3・2026-07-21）<br>
+    凍結根拠: R3 multi-LLM review 6/6 APPROVE（subprocess）＋ persona 3/3 APPROVE ／
+    継承: ANC-1..9・AHM-1..9・BRD-1..4 ／ 種: L2 handoff（auditability 改良4レベルの L1）
+  </div>
+</header>
+
+<h2>1. なにが問題だったか — 現行 anchor が証せない三つのこと</h2>
+
+<p>企業が社内の閉じた（内容非公開の）KairosChain で計算を記録し、公開サーバーへ anchor して
+「確かに計算し、記録し、改竄していない」を第三者に示したい——この使い方を想定すると、
+現行の anchor（文書の指紋ひとつを載せるだけ）には次の穴があります。</p>
+
+<table>
+  <tr><th>証したいこと</th><th>現行</th><th>理由</th></tr>
+  <tr><td><b>一員性</b> — その指紋が内部鎖のメンバーであること</td><td>✗</td>
+      <td>anchor は指紋単体しか見ない。鎖と無関係な単発の指紋でも見た目が同じ</td></tr>
+  <tr><td><b>不改竄</b> — 内部鎖が書き換えられていないこと</td><td>✗</td>
+      <td>内部鎖は非公開・単一運営者。外からは検査できない</td></tr>
+  <tr><td><b>位置と順序</b> — 追記の何番目か、どちらが先か</td><td>✗</td>
+      <td>位置の情報が公開されない</td></tr>
+</table>
+
+<h2>2. 中心のアイデア — 束縛対象の格上げ</h2>
+
+<div class="box point">
+  <b>一言でいうと</b>
+  anchor に「文書の指紋」ではなく「<b>内部鎖の全履歴への封印（累積 commitment）</b>」を載せる。
+  監査人には鎖そのものを見せる代わりに、<b>証明書（包含証明・consistency 証明）</b>だけを渡す。
+  内容は一切開示されない。
+</div>
+
+<figure class="figure">
+<svg viewBox="0 0 860 300" role="img" aria-label="現行 anchor と新 anchor の比較">
+  <!-- before -->
+  <text x="200" y="26" text-anchor="middle" font-size="15" font-weight="bold" fill="#5a6a7e">これまで（v1.8 の anchor）</text>
+  <rect x="60" y="45" width="280" height="60" rx="8" fill="#eef1f5" stroke="#c4ccd8"/>
+  <text x="200" y="70" text-anchor="middle" font-size="13">文書ひとつの指紋</text>
+  <text x="200" y="90" text-anchor="middle" font-size="12" fill="#5a6a7e">digest（sha256）＋検証アドレス</text>
+  <path d="M200 105 L200 145" stroke="#8a94a4" stroke-width="2" marker-end="url(#arr)"/>
+  <rect x="90" y="150" width="220" height="46" rx="8" fill="#fff" stroke="#8a94a4"/>
+  <text x="200" y="178" text-anchor="middle" font-size="13">公開 anchor entry</text>
+  <text x="200" y="230" text-anchor="middle" font-size="12" fill="#a05a1a">→ 単発の届出。鎖との関係は証せない</text>
+
+  <!-- divider -->
+  <line x1="430" y1="20" x2="430" y2="280" stroke="#d8dee8" stroke-dasharray="5 5"/>
+
+  <!-- after -->
+  <text x="645" y="26" text-anchor="middle" font-size="15" font-weight="bold" fill="#1a6b8a">この設計（head binding）</text>
+  <rect x="470" y="45" width="350" height="88" rx="8" fill="#eaf4f8" stroke="#1a6b8a"/>
+  <text x="645" y="68" text-anchor="middle" font-size="13" font-weight="bold">内部鎖の状態の三点セット</text>
+  <text x="645" y="90" text-anchor="middle" font-size="12">① 鎖 identity（どの鎖か）</text>
+  <text x="645" y="108" text-anchor="middle" font-size="12">② 累積 commitment（全履歴の封印 root）</text>
+  <text x="645" y="126" text-anchor="middle" font-size="12">③ 検証規約の identifier（計算の作法）</text>
+  <path d="M645 133 L645 158" stroke="#1a6b8a" stroke-width="2" marker-end="url(#arr2)"/>
+  <rect x="535" y="163" width="220" height="46" rx="8" fill="#fff" stroke="#1a6b8a"/>
+  <text x="645" y="184" text-anchor="middle" font-size="13">公開 anchor entry の</text>
+  <text x="645" y="201" text-anchor="middle" font-size="13"><tspan font-weight="bold">committed 内容</tspan>（entry_hash の中）</text>
+  <text x="645" y="245" text-anchor="middle" font-size="12" fill="#2a7a4a">→ 全履歴に対する一員性・不改竄・順序が</text>
+  <text x="645" y="263" text-anchor="middle" font-size="12" fill="#2a7a4a">　 証明の対象になる（内容は非開示のまま）</text>
+  <defs>
+    <marker id="arr" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#8a94a4"/></marker>
+    <marker id="arr2" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#1a6b8a"/></marker>
+  </defs>
+</svg>
+<figcaption>図1 — 束縛対象の格上げ。head binding は anchor entry の committed 内容（entry_hash が覆う側）に入るため、
+運営者が公開後にこっそり差し替えると anchor log 自体の整合が壊れて発覚する（MPR-1）。
+既公開 entry には一切触れず新規 entry にのみ付与するので、引用保存の死守条件 AHM-4 と両立する。</figcaption>
+</figure>
+
+<h2>3. 包含証明 — 「第 N 番の一員」を中身を見せずに証す</h2>
+
+<p>封印（root）は Merkle 木で作られます。監査人に渡すのは、当該記録の指紋から root まで登る経路上の
+「隣のハッシュ」の列＋位置情報だけ。<b>隣の記録の中身は一切渡りません</b>（MPR-2）。</p>
+
+<figure class="figure">
+<svg viewBox="0 0 860 330" role="img" aria-label="Merkle 包含証明">
+  <!-- root -->
+  <rect x="380" y="20" width="100" height="36" rx="6" fill="#1a6b8a"/>
+  <text x="430" y="43" text-anchor="middle" font-size="13" fill="#fff" font-weight="bold">root（封印）</text>
+  <!-- level 2 -->
+  <rect x="230" y="90" width="90" height="32" rx="6" fill="#eaf4f8" stroke="#1a6b8a"/>
+  <text x="275" y="111" text-anchor="middle" font-size="12">H₀₁</text>
+  <rect x="540" y="90" width="90" height="32" rx="6" fill="#fdf3e7" stroke="#a05a1a" stroke-dasharray="4 3"/>
+  <text x="585" y="111" text-anchor="middle" font-size="12">H₂₃（隣）</text>
+  <!-- level 1 -->
+  <rect x="140" y="160" width="80" height="32" rx="6" fill="#fdf3e7" stroke="#a05a1a" stroke-dasharray="4 3"/>
+  <text x="180" y="181" text-anchor="middle" font-size="12">H₀（隣）</text>
+  <rect x="330" y="160" width="80" height="32" rx="6" fill="#eaf4f8" stroke="#1a6b8a"/>
+  <text x="370" y="181" text-anchor="middle" font-size="12">H₁</text>
+  <rect x="500" y="160" width="80" height="32" rx="6" fill="#f4f7fa" stroke="#c4ccd8"/>
+  <text x="540" y="181" text-anchor="middle" font-size="12">H₂</text>
+  <rect x="650" y="160" width="80" height="32" rx="6" fill="#f4f7fa" stroke="#c4ccd8"/>
+  <text x="690" y="181" text-anchor="middle" font-size="12">H₃</text>
+  <!-- leaves -->
+  <rect x="300" y="235" width="140" height="40" rx="6" fill="#2a7a4a"/>
+  <text x="370" y="253" text-anchor="middle" font-size="12" fill="#fff" font-weight="bold">証したい記録の指紋</text>
+  <text x="370" y="269" text-anchor="middle" font-size="11" fill="#dff0e6">位置 #1・record commitment</text>
+  <!-- edges -->
+  <line x1="275" y1="90" x2="415" y2="56" stroke="#8a94a4"/>
+  <line x1="585" y1="90" x2="450" y2="56" stroke="#8a94a4"/>
+  <line x1="180" y1="160" x2="255" y2="122" stroke="#8a94a4"/>
+  <line x1="370" y1="160" x2="295" y2="122" stroke="#8a94a4"/>
+  <line x1="540" y1="160" x2="565" y2="122" stroke="#8a94a4"/>
+  <line x1="690" y1="160" x2="605" y2="122" stroke="#8a94a4"/>
+  <line x1="370" y1="235" x2="370" y2="192" stroke="#2a7a4a" stroke-width="2"/>
+  <!-- legend -->
+  <rect x="60" y="295" width="14" height="14" fill="#2a7a4a"/>
+  <text x="82" y="307" font-size="12">検証対象</text>
+  <rect x="170" y="295" width="14" height="14" fill="#eaf4f8" stroke="#1a6b8a"/>
+  <text x="192" y="307" font-size="12">監査人が手元で再計算する節</text>
+  <rect x="390" y="295" width="14" height="14" fill="#fdf3e7" stroke="#a05a1a" stroke-dasharray="4 3"/>
+  <text x="412" y="307" font-size="12">証明書が運ぶ「隣のハッシュ」（中身は非開示）</text>
+</svg>
+<figcaption>図2 — 包含証明。監査人は「記録の指紋＋隣のハッシュ列＋位置」から root を再計算し、
+公開 anchor の封印と一致すれば「この記録は封印時点の鎖の第 N 番の一員」と確認できる（MPR-8）。
+検証に必要なのは 証明・公開 binding・当該指紋・anchor log の正しい眺め・規約定義 の5点だけで、
+内部鎖への立ち入りも運営者の協力も不要（MPR-4）。</figcaption>
+</figure>
+
+<h2>4. consistency 証明 — 「鎖は書き換えられていない」を支える一本柱</h2>
+
+<p>包含証明だけでは、運営者が「履歴を作り直して新しい封印を anchor する」攻撃を検出できません。
+一つひとつの証明は新しい封印に対して正しく検証できてしまうからです。
+そこで <b>MPR-9</b>: 同じ鎖 identity を持つ二つの封印は「後が前の<b>そのままの延長</b>である」ことを
+consistency 証明で検証できなければならない、と定めます。</p>
+
+<figure class="figure">
+<svg viewBox="0 0 860 260" role="img" aria-label="consistency 証明">
+  <!-- anchor log axis -->
+  <line x1="60" y1="60" x2="800" y2="60" stroke="#8a94a4" stroke-width="2"/>
+  <text x="800" y="45" text-anchor="end" font-size="12" fill="#5a6a7e">公開 anchor log（追記のみ・hash 連鎖）</text>
+  <!-- anchors -->
+  <circle cx="220" cy="60" r="9" fill="#1a6b8a"/>
+  <text x="220" y="36" text-anchor="middle" font-size="12" font-weight="bold">anchor #k</text>
+  <circle cx="580" cy="60" r="9" fill="#1a6b8a"/>
+  <text x="580" y="36" text-anchor="middle" font-size="12" font-weight="bold">anchor #k+1</text>
+  <!-- sealed sequences -->
+  <rect x="90" y="100" width="260" height="44" rx="7" fill="#eaf4f8" stroke="#1a6b8a"/>
+  <text x="220" y="127" text-anchor="middle" font-size="12">封印A: 記録 1 … 240</text>
+  <rect x="410" y="100" width="340" height="44" rx="7" fill="#eaf4f8" stroke="#1a6b8a"/>
+  <text x="500" y="127" text-anchor="middle" font-size="12">封印B: 記録 1 … 240</text>
+  <rect x="620" y="104" width="122" height="36" rx="5" fill="#ecf7f0" stroke="#2a7a4a"/>
+  <text x="681" y="127" text-anchor="middle" font-size="12" fill="#2a7a4a">… 298（追記分）</text>
+  <line x1="220" y1="69" x2="220" y2="100" stroke="#1a6b8a"/>
+  <line x1="580" y1="69" x2="580" y2="100" stroke="#1a6b8a"/>
+  <!-- consistency arrow -->
+  <path d="M225 165 C 350 205, 480 205, 600 168" fill="none" stroke="#2a7a4a" stroke-width="2.5" marker-end="url(#arrG)"/>
+  <text x="415" y="212" text-anchor="middle" font-size="13" fill="#2a7a4a" font-weight="bold">consistency 証明: 「封印Bの先頭 240 件は封印Aと完全一致」</text>
+  <text x="415" y="242" text-anchor="middle" font-size="12" fill="#a05a1a">検証できなければ「未確立」— 有罪ではないが、未確立のまま anchor が続くこと自体が報告対象</text>
+  <defs><marker id="arrG" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto">
+    <path d="M0,0 L8,4 L0,8 Z" fill="#2a7a4a"/></marker></defs>
+</svg>
+<figcaption>図3 — consistency 証明（Certificate Transparency と同型）。「同じ鎖」の判定は運営者の言い分でなく
+<b>committed な鎖 identity の一致</b>で機械的に決まる（fork の言い逃れを塞ぐ）。identity の切り替えは anchor log 上で可視であり、
+延長の主張はそこで打ち切られる。順序は壁時計でなく<b>位置の算術</b>で導く（MPR-8）。</figcaption>
+</figure>
+
+<h2>5. 三者の構図 — なにが公開され、なにが closed のままか</h2>
+
+<figure class="figure">
+<svg viewBox="0 0 860 300" role="img" aria-label="三者アーキテクチャ">
+  <!-- closed chain -->
+  <rect x="40" y="50" width="240" height="150" rx="10" fill="#f3eefa" stroke="#6a4a8a" stroke-width="2"/>
+  <text x="160" y="80" text-anchor="middle" font-size="14" font-weight="bold" fill="#6a4a8a">企業内 closed KairosChain</text>
+  <text x="160" y="106" text-anchor="middle" font-size="12">計算の構成的記録</text>
+  <text x="160" y="126" text-anchor="middle" font-size="12">入力・コード・環境・出力は</text>
+  <text x="160" y="144" text-anchor="middle" font-size="12">digest で by-reference 記録</text>
+  <text x="160" y="170" text-anchor="middle" font-size="12" font-weight="bold" fill="#6a4a8a">内容は外に出ない</text>
+  <!-- public anchor -->
+  <rect x="580" y="50" width="240" height="150" rx="10" fill="#eaf4f8" stroke="#1a6b8a" stroke-width="2"/>
+  <text x="700" y="80" text-anchor="middle" font-size="14" font-weight="bold" fill="#1a6b8a">公開 anchor（HestiaChain）</text>
+  <text x="700" y="106" text-anchor="middle" font-size="12">head binding（identity・封印・規約）</text>
+  <text x="700" y="126" text-anchor="middle" font-size="12">追記のみの anchor log</text>
+  <text x="700" y="146" text-anchor="middle" font-size="12">公開検証ビュー</text>
+  <text x="700" y="170" text-anchor="middle" font-size="12" font-weight="bold" fill="#1a6b8a">誰でも読める・内容は載らない</text>
+  <!-- arrow chain->anchor -->
+  <path d="M285 110 L575 110" stroke="#5a6a7e" stroke-width="2.5" marker-end="url(#arrM)"/>
+  <text x="430" y="98" text-anchor="middle" font-size="12">head binding を anchor（新規 entry のみ）</text>
+  <!-- auditor -->
+  <rect x="310" y="215" width="240" height="70" rx="10" fill="#ecf7f0" stroke="#2a7a4a" stroke-width="2"/>
+  <text x="430" y="243" text-anchor="middle" font-size="14" font-weight="bold" fill="#2a7a4a">監査人（第三者）</text>
+  <text x="430" y="266" text-anchor="middle" font-size="12">証明書＋公開情報だけで手元検証</text>
+  <path d="M700 205 L560 232" stroke="#2a7a4a" stroke-width="2" marker-end="url(#arrM)"/>
+  <text x="668" y="238" text-anchor="middle" font-size="11" fill="#2a7a4a">封印・log を読む</text>
+  <path d="M240 205 L330 232" stroke="#6a4a8a" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrM)"/>
+  <text x="235" y="238" text-anchor="middle" font-size="11" fill="#6a4a8a">証明書を受け取る</text>
+  <defs><marker id="arrM" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto">
+    <path d="M0,0 L8,4 L0,8 Z" fill="#5a6a7e"/></marker></defs>
+</svg>
+<figcaption>図4 — 三者の構図。証明を「作る」のは運営者の行為（協力が要る）だが、「検証する」のは監査人だけで完結する
+——この非対称は設計内で明示的に開示されている（MPR-4）。監査人が確認できるのは commitment まで:
+指紋を実際の中身と結びつけるには、その中身を（NDA 等の別経路で）自分で持ってハッシュし直す必要がある。</figcaption>
+</figure>
+
+<h2>6. 9つの invariant（MPR-1〜9）早見表</h2>
+
+<table>
+  <tr><th>ID</th><th>名前</th><th>一言でいうと</th></tr>
+  <tr><td><b>MPR-1</b></td><td>束縛の commit と一貫性</td>
+      <td>head binding は entry_hash の中（差し替えは発覚する）。新規 entry のみ付与で AHM-4 保全。検証できない要素は「情報」と正直に表示し、証明の信用を借りない</td></tr>
+  <tr><td><b>MPR-2</b></td><td>隣の封じ込め</td>
+      <td>証明が運ぶのはハッシュと構造情報のみ。中身は越境しない（低エントロピー時の残余は開示）</td></tr>
+  <tr><td><b>MPR-3</b></td><td>自己記述の決定性</td>
+      <td>検証の作法（規約）に名前を付けて commit し、定義自体も検証可能に。葉と中間節の取り違え偽造を性質として排除</td></tr>
+  <tr><td><b>MPR-4</b></td><td>監査人の自足性＋信頼基盤の開示</td>
+      <td>検証は5入力で完結・鎖アクセス不要。ただし「作るのは運営者」「commitment≠中身」の線引きを内蔵</td></tr>
+  <tr><td><b>MPR-5</b></td><td>存在は証す・網羅は証さない</td>
+      <td>anchor しなかった計算は見えない。結果非依存で anchor する規律は L2 の仕事と明記（正直な限界）</td></tr>
+  <tr><td><b>MPR-6</b></td><td>証明の射程</td>
+      <td>一員性・不改竄・位置・順序まで。品質・正しさは語らない（それは L3/L4）</td></tr>
+  <tr><td><b>MPR-7</b></td><td>最初の anchor 以前は時刻の裏付けなし</td>
+      <td>古い記録も一員性は証明できる。証明できないのは記録時刻。anchor が密になるほど以後の窓は狭まる</td></tr>
+  <tr><td><b>MPR-8</b></td><td>位置の commit と順序</td>
+      <td>証明は位置と列の長さを commit。「第 N 番」が言え、順序は位置の引き算。時計は使わない</td></tr>
+  <tr><td><b>MPR-9</b></td><td>anchor 間の整合</td>
+      <td>同一 identity の封印同士は延長関係を検証可能に。非提出は「未確立・報告対象」（有罪ではない）</td></tr>
+</table>
+
+<h2>7. 成長経路 — この設計が「やらない」と決めて次段階へ送ったもの</h2>
+
+<figure class="figure">
+<svg viewBox="0 0 860 320" role="img" aria-label="L1からL4への階段">
+  <!-- steps -->
+  <rect x="40"  y="220" width="190" height="70" rx="8" fill="#1a6b8a"/>
+  <text x="135" y="248" text-anchor="middle" font-size="14" fill="#fff" font-weight="bold">L1（今回 FROZEN）</text>
+  <text x="135" y="270" text-anchor="middle" font-size="11.5" fill="#dcecf3">head anchor＋包含/consistency 証明</text>
+  <rect x="245" y="160" width="190" height="130" rx="8" fill="#eaf4f8" stroke="#1a6b8a" stroke-width="2"/>
+  <text x="340" y="188" text-anchor="middle" font-size="14" font-weight="bold" fill="#1a6b8a">L2</text>
+  <text x="340" y="210" text-anchor="middle" font-size="11.5">head の外部公開＋cadence</text>
+  <text x="340" y="228" text-anchor="middle" font-size="11.5">（ANC-4/6・見せ分け検出）</text>
+  <text x="340" y="255" text-anchor="middle" font-size="11" fill="#a05a1a">塞ぐ穴: anchor log ごと</text>
+  <text x="340" y="271" text-anchor="middle" font-size="11" fill="#a05a1a">の差し替え・選択的 anchor</text>
+  <rect x="450" y="100" width="190" height="190" rx="8" fill="#eaf4f8" stroke="#1a6b8a" stroke-width="2"/>
+  <text x="545" y="128" text-anchor="middle" font-size="14" font-weight="bold" fill="#1a6b8a">L3</text>
+  <text x="545" y="150" text-anchor="middle" font-size="11.5">独立監査人の再実行＋</text>
+  <text x="545" y="168" text-anchor="middle" font-size="11.5">foreign 署名（reproduces）</text>
+  <text x="545" y="195" text-anchor="middle" font-size="11" fill="#a05a1a">塞ぐ穴: 正しさ・再現性が</text>
+  <text x="545" y="211" text-anchor="middle" font-size="11" fill="#a05a1a">未証明・自己申告どまり</text>
+  <text x="545" y="238" text-anchor="middle" font-size="11" fill="#5a6a7e">当面の現実解はここまで</text>
+  <rect x="655" y="40" width="180" height="250" rx="8" fill="#f4f7fa" stroke="#8a94a4" stroke-width="2" stroke-dasharray="6 4"/>
+  <text x="745" y="68" text-anchor="middle" font-size="14" font-weight="bold" fill="#5a6a7e">L4（中長期）</text>
+  <text x="745" y="90" text-anchor="middle" font-size="11.5">ゼロ知識証明</text>
+  <text x="745" y="117" text-anchor="middle" font-size="11" fill="#a05a1a">塞ぐ穴: どの記録かを</text>
+  <text x="745" y="133" text-anchor="middle" font-size="11" fill="#a05a1a">明かさないと証せない</text>
+  <text x="745" y="160" text-anchor="middle" font-size="11" fill="#5a6a7e">重い計算には証明生成が</text>
+  <text x="745" y="176" text-anchor="middle" font-size="11" fill="#5a6a7e">非実用（現状）</text>
+  <!-- baseline -->
+  <line x1="30" y1="290" x2="845" y2="290" stroke="#5a6a7e" stroke-width="2"/>
+  <text x="440" y="313" text-anchor="middle" font-size="12" fill="#5a6a7e">→ 各段は MPR の性質を変えず、「同じ証明が信じられる条件」を強めるだけ（再設計不要）</text>
+</svg>
+<figcaption>図5 — 改良4レベルの階段。L1 が土台（証明の形はここで固定）。L2 以降は信用の条件を段階的に強める。
+機構の選択（木の構築・証明の形式・field 配置など）はすべて §11 backlog に送られており、本文は性質のみを定める。</figcaption>
+</figure>
+
+<div class="box honest">
+  <b>正直な限界（設計に内蔵された開示）</b>
+  <ul style="margin:.2rem 0;">
+    <li>anchor log 自体を丸ごと差し替える攻撃は L1 では検出できない（→ L2 が塞ぐ）</li>
+    <li>「都合の悪い計算を最初から anchor しない」は監査人に見えない（→ 結果非依存の規律は L2）</li>
+    <li>証明は計算の「正しさ」を語らない（→ 再実行は L3、検証可能計算は L4）</li>
+    <li>最初の anchor より前の記録は、一員性はあるが時刻の裏付けがない（MPR-7）</li>
+  </ul>
+</div>
+
+<h2>7-補. 将来ステップ L2/L3/L4 の詳細と進め方の方針（2026-07-21 追記）</h2>
+
+<p>前節の階段（図5）の各段について、「どの穴を・どう塞ぐか」をもう一段噛み砕いて記録する。
+前提として押さえるべき関係: <b>L1 は証明の「形」を完成させた。L2〜L4 は同じ証明が「信じられる条件」を
+積み増すだけで、L1 の証明機構（封印・包含・consistency・位置）は以後どの段でも作り直さない</b>（凍結 §5）。</p>
+
+<h3>L2 — head の外部公開と cadence（ANC-4/6）</h3>
+<ul>
+  <li><b>塞ぐ穴</b>: ①<b>anchor log 自体の丸ごと差し替え</b> — 公開 anchor log も単一運営者のサーバー上のファイルなので、
+      内部鎖を書き換えたうえで anchor log ごと整合するよう作り直せば、監査人には「最初からそうだった」ようにしか見えない
+      （ANC-1 が scope X の正直な残余として開示・MPR-4/9 が「L2 で閉じる」と明記）。
+      ②<b>見せ分け（split-view）</b> — 監査人ごとに別の log を見せる攻撃。
+      ③<b>選択的 anchor</b> — 都合の悪い計算を最初から anchor しない自由（MPR-5 の開示済み限界）。</li>
+  <li><b>どう塞ぐか</b>: anchor log の head を<b>運営者の支配が及ばない場所へ定期的に刻む</b>（公開 git・Zenodo・
+      <b>他の KairosChain インスタンス（相互係留）</b>・RFC 3161 時刻認証局 等）。log を作り直した瞬間、
+      再計算 head ≠ 外部に残る head で露見（ANC-4）。見せ分けは<b>独立した読者同士の head 突き合わせ</b>で検出（ANC-6）。</li>
+  <li><b>cadence が本質</b>: 一度でなく律動として刻み続ける。刻みが密なほど、記録を後から挟み込める時間の窓が狭まる
+      （constitutive note §7 の姿勢）。結果非依存で anchor する規律の機構化もこの段の仕事。
+      その際、凍結 ANC v0.5 の human-gate 非目標（自分の著作物の anchor は人間の行為）と衝突しない形
+      （監査用の鎖 head の自動係留と著作物の人間ゲートの区別）で設計する（R1 の教訓・handoff 記録済み）。</li>
+  <li><b>無限後退の閉じ方</b>: 「anchor サーバーを誰が anchor するのか」は、より深い権威でなく
+      <b>インスタンス同士が互いの head を普通の anchor entry として刻み合う相互係留</b>で閉じる。
+      鎖の head も「ただの digest」なので L1 の証明の形は不変。</li>
+</ul>
+
+<h3>L3 — 独立監査人による再実行と foreign 署名（reproduces）</h3>
+<ul>
+  <li><b>塞ぐ穴</b>: L1+L2 でも証せるのは「記録した・書き換えていない・この順序」まで。
+      <b>計算の中身の正しさは語らない</b>（MPR-6 の線引き）。さらに現状の anchor は same_party＝運営者の自己申告（ANC-8）。</li>
+  <li><b>第一段 — 材料の by-reference 記録</b>: 計算の {入力・コード・実行環境イメージ・出力} を、
+      中身は鎖に載せず<b>指紋だけ</b>で内部鎖に記録（BRD-2 の作法）。
+      「再現性」が検証可能な主張になる: 記録どおり再実行して出力の指紋が一致するかを見ればよい。</li>
+  <li><b>第二段 — 第三者の署名</b>: NDA を結んだ独立監査人が closed 環境で再実行・一致確認し、
+      公開 anchor に <b>reproduces attestation を自分の identity で署名して</b>載せる。
+      ANC-8 の relation 導出により、監査人の署名は自動的に <b>foreign（第三者の裏書き）</b>と表示される。
+      自己申告が第三者の証言に変わる瞬間。</li>
+  <li><b>限界</b>: 監査人の独立性は identity 発行に依存（ANC-8 開示済み）。再実行で検証できるのは決定的な計算のみ。
+      実行環境の同一性の担保が実務上の急所。それでも L4 と比べ桁違いに現実的＝<b>当面の現実解</b>。</li>
+</ul>
+
+<h3>L4 — ゼロ知識証明（中長期フロンティア）</h3>
+<ul>
+  <li><b>塞ぐ穴</b>: L1〜L3 でも「どの記録か」（指紋・位置・存在のパターン）は見える。
+      競争環境ではこれ自体が漏らしたくない情報になり得る。</li>
+  <li><b>どう塞ぐか</b>: zk-SNARK/STARK で「封印 root の中の<b>ある葉</b>を知っている」（どの葉かは明かさない一員性証明）や、
+      「commitment C_in の入力に f を適用すると commitment C_out になる」（計算実行そのものの証明＝MPR-6 が除外した
+      「正しさ」の再実行なし公開検証）を、対象を明かさず誰でも検証できる形にする。</li>
+  <li><b>今やらない理由</b>: 証明生成コストが対象の計算より桁違いに重く、ゲノムのパイプライン級には非実用（現状）。
+      L1 の封印の作り方は L4 でもそのまま使えるため、待つことに設計上の損はない。</li>
+</ul>
+
+<div class="box point">
+  <b>進め方の方針（masaomi 決定・2026-07-21）</b>
+  <ul style="margin:.2rem 0;">
+    <li><b>L3（計算の正しさ・再現性・監査性の検証）は GenomicsChain 側で推進する。</b>
+        こちら（KairosChain 本体）は L1 実装 → L2 の順でこのまま進める。</li>
+    <li><b>L2 の信頼は、別の運営者が管理する HestiaChain インスタンスの存在によって積む。</b>
+        head の刻み先が「運営者の支配の外」であることが ANC-4 の要件であり、
+        独立運営のインスタンスとの相互係留（federation）はその最も KairosChain らしい実現形。
+        ANC v0.5 §5 の想定どおり、新しい種は不要——相手インスタンスは「ただの foreign depositor」として振る舞う。</li>
+  </ul>
+</div>
+
+<table>
+  <tr><th>段階</th><th>塞ぐ穴</th><th>手段</th><th>信じられるようになる主張</th><th>状態・方針</th></tr>
+  <tr><td><b>L1</b></td><td>一員性・不改竄・順序が証せない</td><td>累積封印＋包含/consistency 証明</td>
+      <td>「記録は鎖の第 N 番。anchor 間で書き換えなし」</td><td><b>FROZEN v0.3</b>・実装へ</td></tr>
+  <tr><td><b>L2</b></td><td>anchor log ごとの差し替え・見せ分け・選択的 anchor</td><td>head の外部刻み＋cadence＋読者間突合（ANC-4/6）</td>
+      <td>「その anchor log 自体が本物で、律動的に刻まれている」</td><td>設計未着手。<b>別運営者の HestiaChain インスタンスとの相互係留で信頼を積む方針</b></td></tr>
+  <tr><td><b>L3</b></td><td>正しさ・再現性が自己申告どまり</td><td>by-reference 記録＋独立監査人の再実行＋foreign 署名</td>
+      <td>「第三者が再実行して一致を確認した」</td><td>draft の種あり。<b>GenomicsChain 側で推進</b></td></tr>
+  <tr><td><b>L4</b></td><td>どの記録かを明かさないと証せない</td><td>ゼロ知識証明・検証可能計算</td>
+      <td>「対象を明かさず一員性/正しさを公開検証」</td><td>中長期・待って損なし</td></tr>
+</table>
+
+<h2>8. review の経過（3ラウンド）</h2>
+
+<table>
+  <tr><th>ラウンド</th><th>結果</th><th>主要な修正</th></tr>
+  <tr><td>R1</td><td>1/6 APPROVE・persona 3/3 REVISE</td>
+      <td>根本原因6つ: ブロック単位 root と累積封印の混同／head と root の関係未定義／anchor 間整合の欠落／
+      非包含前提の順序導出／MPR-5 の適用範囲の不正直／運営者独立の過大主張</td></tr>
+  <tr><td>R2</td><td>3/6 APPROVE・persona 2/3</td>
+      <td>残り3つ: 鎖 identity の commit／MPR-7 の自己矛盾（一員性 vs 時刻）／「非提出=改竄の証拠」の過大主張</td></tr>
+  <tr><td><b>R3</b></td><td><b>6/6 APPROVE・persona 3/3 APPROVE → FROZEN</b></td>
+      <td>残余は advisory のみ（一句レベルで凍結前反映）。独立監査人 persona の結論:
+      「この設計なら規制当局に署名できる監査報告が書ける」</td></tr>
+</table>
+
+<div class="box ok">
+  <b>次のステップ（実装フェーズ・未着手）</b>
+  L2 handoff <code>handoff_auditability_head_anchor_design_frozen_20260721</code> を起点に、§11 backlog の入口順で:
+  ① 累積 commitment の導出（MasaChain の per-block merkle_root＋prev_hash から）→
+  ② 検証規約の定義 → ③ Synoptis::Anchoring Entry の field 配置 →
+  ④ 証明の生成/検証（offline 検証器）→ ⑤ 本番の最初の head-binding anchor。
+</div>
+
+<footer class="small" style="margin-top:3rem; border-top:1px solid var(--line); padding-top:1rem;">
+  作成: 2026-07-21 ／ 元設計: auditability_head_anchor_design_v0.3_draft.md（FROZEN）／
+  disposition: .auditability_head_anchor_r1/r2/r3_disposition.md ／
+  この解説は人向けの副読資料であり、正本は凍結済み設計文書。
+</footer>
+
+</div>
+</body>
+</html>

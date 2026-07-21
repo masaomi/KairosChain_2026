@@ -63,7 +63,8 @@ module Synoptis
       # only the digest and an optional safe-scheme retrieval pointer (BRD-4).
       # The depositor is bound to the authenticated principal (ANC-5).
       def deposit_by_reference(principal:, digest:, source_id:, anchor_type: 'generic',
-                               retrieval_pointer: nil, discovery_metadata: {}, moment: nil)
+                               retrieval_pointer: nil, discovery_metadata: {}, moment: nil,
+                               head_binding: nil)
         writer = WritePath.new(log: @log, principal: principal, budget: @budget)
         entry = writer.deposit(
           digest: digest,
@@ -71,7 +72,8 @@ module Synoptis
           source_id: source_id,
           external_reference: retrieval_pointer,
           metadata: discovery_metadata,
-          moment: moment
+          moment: moment,
+          head_binding: head_binding
         )
         get(entry.entry_hash)
       end

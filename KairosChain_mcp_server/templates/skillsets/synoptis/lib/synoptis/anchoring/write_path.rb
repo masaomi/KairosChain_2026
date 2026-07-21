@@ -44,7 +44,8 @@ module Synoptis
 
       # Deposit an anchor. The depositor is the authenticated peer identity, not a
       # caller argument — attribution cannot be forged here.
-      def deposit(digest:, anchor_type:, source_id:, external_reference: nil, metadata: {}, moment: nil)
+      def deposit(digest:, anchor_type:, source_id:, external_reference: nil, metadata: {}, moment: nil,
+                  head_binding: nil)
         require_authenticated!
         budgeted do
           @log.append_anchor(
@@ -54,7 +55,8 @@ module Synoptis
             depositor: @principal.peer_id,
             external_reference: external_reference,
             metadata: metadata,
-            moment: moment
+            moment: moment,
+            head_binding: head_binding
           )
         end
       end

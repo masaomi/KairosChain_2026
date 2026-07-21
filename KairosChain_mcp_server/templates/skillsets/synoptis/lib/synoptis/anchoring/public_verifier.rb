@@ -75,6 +75,11 @@ module Synoptis
           relation: relation_for(entry),
           relation_disclosure: RELATION_DISCLOSURE,
           proof_scope: PROOF_SCOPE,
+          # MPR-1: the committed head binding, surfaced verbatim for auditors.
+          # Structural committed state like the digest itself, so it stays
+          # visible on withdrawal (only depositor-supplied surfaced fields are
+          # suppressed).
+          head_binding: body['head_binding'],
           attestations: @board ? @board.attestations_for(entry.entry_hash) : []
         }
       end

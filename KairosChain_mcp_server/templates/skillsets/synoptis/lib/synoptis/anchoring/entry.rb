@@ -51,9 +51,17 @@ module Synoptis
       # Build an anchor entry. +source_id+ is the content-independent
       # verification address (ANC-8 / design §4): it is supplied by the caller
       # BEFORE the digest is computed and is never derived from the artifact.
+      #
+      # +head_binding+ (MPR-1, auditability_head_anchor_design_v0.3) is the
+      # committed internal-chain state binding, present only when the depositor
+      # supplies one. It lives INSIDE the committed body — covered by
+      # entry_hash and hence the log's hash chain — unlike governing_identity,
+      # which is deliberately non-committed. Entries without a binding build a
+      # body without the key, so every pre-existing entry's hash is unchanged
+      # (AHM-4: binding attaches only to newly appended entries).
       def self.anchor(position:, prev:, digest:, anchor_type:, source_id:, depositor:,
                       external_reference: nil, metadata: {}, moment: nil,
-                      governing_identity: nil)
+                      governing_identity: nil, head_binding: nil)
         body = {
           'digest' => normalize_digest(digest),
           'digest_algorithm' => DIGEST_ALGORITHM,
@@ -65,6 +73,7 @@ module Synoptis
           'metadata' => metadata || {},
           'moment' => moment || Time.now.utc.iso8601
         }
+        body['head_binding'] = head_binding unless head_binding.nil?
         new(position: position, prev: prev, kind: 'anchor', body: body,
             governing_identity: governing_identity)
       end
@@ -116,6 +125,12 @@ module Synoptis
 
       def target
         @body['target']
+      end
+
+      # The committed head binding, or nil for an ordinary anchor entry
+      # (absence is a statement of provenance, design §3f).
+      def head_binding
+        @body['head_binding']
       end
 
       def to_h
