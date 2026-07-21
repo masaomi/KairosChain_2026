@@ -468,7 +468,7 @@ begin
       d.status != 'ready'
     end
     d.clear_pending_if(tok4)
-    d.collect('x', 'x') # no-op cleanup of any leftover
+    d.collect('x', 'x', 'x') # no-op cleanup of any leftover
 
     puts '== A-2: agent_wait surface + collect-once =='
     FileUtils.rm_f(File.join(s.guard_dir, 'delegation_result.json'))
@@ -567,7 +567,31 @@ begin
       d7.status != 'ready'
     end
     assert("collect for the new handle's key returns nil (old result not mis-collected)") do
-      d7.collect('0:observed:0', 'revise:beef').nil?
+      d7.collect('0:observed:0', 'revise:beef', tokB).nil?
+    end
+
+    puts '== A-2: step_token completes identity — SAME anchor+action supersede =='
+    s7b = new_seam_session('a2s7b')
+    d7b = Delegation.new(s7b.guard_dir)
+    _, tokOld2 = d7b.open_handle({ 'action' => 'approve' }, '0:observed:0', 'approve')
+    old_id2 = { 'issue_anchor' => '0:observed:0', 'action_key' => 'approve', 'step_token' => tokOld2 }
+    # crash-classify the old handle (past startup grace) so the re-delegation
+    # of the SAME judgment opens a FRESH handle with a NEW token
+    sp2 = JSON.parse(File.read(File.join(s7b.guard_dir, 'delegation.json')))
+    sp2['spawned_at'] = (Time.now - 120).utc.iso8601
+    File.write(File.join(s7b.guard_dir, 'delegation.json'), JSON.generate(sp2))
+    _, tokNew2 = d7b.open_handle({ 'action' => 'approve' }, '0:observed:0', 'approve')
+    assert('re-delegation of a crashed same-anchor+action handle gets a NEW token') do
+      tokNew2 != tokOld2
+    end
+    # the old worker (same anchor+action, OLD token) finishes now
+    d7b.write_result({ 'status' => 'ok', 'state' => 'proposed' }, identity: old_id2)
+    assert('old-token result is NOT ready for the new same-anchor+action handle (token scoped)') do
+      d7b.status != 'ready'
+    end
+    assert('collect with the OLD token does not remove the NEW pending handle') do
+      d7b.collect('0:observed:0', 'approve', tokOld2) # returns old result but must not clear new pending
+      d7b.pending && d7b.pending['step_token'] == tokNew2
     end
 
     puts '== A-2: per-token heartbeat — orphan worker cannot mask a new crash =='

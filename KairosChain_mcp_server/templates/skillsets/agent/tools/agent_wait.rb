@@ -112,7 +112,8 @@ module KairosMcp
           # outcome).
           def ready_response(session, delegation)
             observed = delegation.result || {}
-            raw = delegation.collect(observed['issue_anchor'], observed['action_key'])
+            raw = delegation.collect(observed['issue_anchor'], observed['action_key'],
+                                     observed['step_token'])
             return nil unless raw
 
             outcome = raw['outcome'] || { 'status' => 'error', 'error' => 'result unreadable' }

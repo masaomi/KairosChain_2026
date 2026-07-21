@@ -4,6 +4,7 @@ require 'json'
 require 'fileutils'
 require 'securerandom'
 require 'rbconfig'
+require 'shellwords'
 require 'time'
 
 module KairosMcp
@@ -86,7 +87,8 @@ module KairosMcp
 
           res = result
           if res && res['issue_anchor'] == cur['issue_anchor'] &&
-             res['action_key'] == cur['action_key']
+             res['action_key'] == cur['action_key'] &&
+             res['step_token'] == cur['step_token']
             return 'ready'
           end
 
@@ -189,20 +191,23 @@ module KairosMcp
         end
 
         # Collect-once, atomically, WITHOUT racing a concurrently-opened fresh
-        # delegation: under the lock, return the result only if it still
-        # belongs to (expected_anchor, expected_action_key), and clear exactly
-        # that result + its handle. A newer delegation (different anchor/key)
-        # is left untouched.
-        def collect(expected_anchor, expected_action_key)
+        # delegation: under the lock, return the result only if it belongs to
+        # the exact (expected_anchor, expected_action_key, expected_token)
+        # handle, and clear that result + its pending handle only when the
+        # pending is still that same token. A result written by a superseded
+        # worker (different token) for the same anchor/action is NOT collected
+        # as the current handle's, and the current pending is never removed on
+        # its behalf.
+        def collect(expected_anchor, expected_action_key, expected_token)
           with_lock do
             res = result
             return nil unless res && res['issue_anchor'] == expected_anchor &&
-                              res['action_key'] == expected_action_key
+                              res['action_key'] == expected_action_key &&
+                              res['step_token'] == expected_token
 
             FileUtils.rm_f(result_path)
             cur = pending
-            if cur && cur['issue_anchor'] == expected_anchor &&
-               cur['action_key'] == expected_action_key
+            if cur && cur['step_token'] == expected_token
               FileUtils.rm_f(pending_path)
               clear_all_heartbeats
             end
@@ -244,7 +249,7 @@ module KairosMcp
           }.compact
 
           argv = if ENV['KAIROS_AGENT_WORKER_CMD']
-                   ENV['KAIROS_AGENT_WORKER_CMD'].split(' ') + [session_id, @dir]
+                   Shellwords.split(ENV['KAIROS_AGENT_WORKER_CMD']) + [session_id, @dir]
                  else
                    [RbConfig.ruby, WORKER_SCRIPT, session_id, @dir]
                  end

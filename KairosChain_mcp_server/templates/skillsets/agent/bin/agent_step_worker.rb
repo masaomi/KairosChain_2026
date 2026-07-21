@@ -119,9 +119,18 @@ begin
   pending = delegation.pending
   raise "no pending delegation in #{session_dir}" unless pending
 
+  # Supersession guard: if the live handle is no longer ours (a fresh
+  # open_handle replaced it while we were starting up — e.g. we were declared
+  # 'crashed' on a stale heartbeat and the driver re-delegated), do NOT run.
+  # The new worker owns this delegation; running our stale args would waste
+  # work (the gate would replay/serialize it anyway) and could execute the
+  # WRONG (replacement) args if we trusted the re-read handle.
+  if my_token && pending['step_token'] != my_token
+    exit 0
+  end
+
   # Our own handle identity, captured at startup (also used for the per-token
-  # heartbeat) so write_result tags its outcome with THIS delegation even if a
-  # fresh open_handle overtakes the pending file before we finish.
+  # heartbeat) so write_result tags its outcome with THIS delegation.
   identity = boot_identity.empty? ? { 'issue_anchor' => pending['issue_anchor'],
                                       'action_key' => pending['action_key'],
                                       'step_token' => pending['step_token'] } : boot_identity
@@ -160,9 +169,12 @@ rescue Exception => e # rubocop:disable Lint/RescueException
   # Catch Exception, not just StandardError: LoadError/ScriptError from the
   # bootstrap require are exactly the failure class the driver must see as a
   # result rather than a silently hung handle. Leave teardown to the collector.
+  # Tag with our OWN startup identity (boot_identity is always our handle;
+  # the in-block `identity` local may be unassigned if we failed early, and
+  # a re-read of pending could belong to a superseding delegation).
   begin
     delegation.write_result({ 'status' => 'error', 'error' => "worker: #{e.class}: #{e.message}" },
-                            identity: (defined?(identity) ? identity : nil))
+                            identity: (boot_identity.empty? ? nil : boot_identity))
   rescue StandardError
     # best effort
   end
