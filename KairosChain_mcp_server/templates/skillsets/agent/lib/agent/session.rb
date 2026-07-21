@@ -71,7 +71,7 @@ module KairosMcp
 
         # Persist decision_payload for the proposed→ACT transition.
         def save_decision(decision_payload)
-          File.write(decision_path, JSON.pretty_generate(decision_payload))
+          atomic_write(decision_path, JSON.pretty_generate(decision_payload))
         end
 
         # Load the last saved decision_payload.
@@ -84,7 +84,7 @@ module KairosMcp
 
         # Persist observation for ORIENT continuity.
         def save_observation(observation)
-          File.write(observation_path, JSON.pretty_generate(observation))
+          atomic_write(observation_path, JSON.pretty_generate(observation))
         end
 
         # Append a progress entry after REFLECT (M5: cumulative progress file).
@@ -139,7 +139,7 @@ module KairosMcp
             config: @config, autonomous: @autonomous,
             invocation_context: @invocation_context.to_h
           }
-          File.write(state_path, JSON.pretty_generate(data))
+          atomic_write(state_path, JSON.pretty_generate(data))
         end
 
         # Load a session from disk.
@@ -209,6 +209,15 @@ module KairosMcp
         end
 
         private
+
+        # INV-A2 (interruption resilience Slice A): no partial-write window.
+        # A resumed driver must observe a persisted record in full or not at
+        # all; tmp-write + rename makes each single-file commit atomic.
+        def atomic_write(path, content)
+          tmp = "#{path}.tmp.#{Process.pid}"
+          File.write(tmp, content)
+          File.rename(tmp, path)
+        end
 
         def review_path
           File.join(session_dir, 'last_review.json')

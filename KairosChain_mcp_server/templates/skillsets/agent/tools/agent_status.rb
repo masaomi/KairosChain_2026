@@ -47,14 +47,33 @@ module KairosMcp
               session = Session.load(session_id)
               return text_content(JSON.generate({ 'status' => 'error', 'error' => 'Session not found' })) unless session
 
-              text_content(JSON.generate({
+              # Interruption resilience Slice A (INV-A4): the status surface
+              # answers "what should the next call be" from persisted state
+              # alone, so a fresh driver recovers by reading and re-issuing —
+              # no reconstruction of intent required.
+              gate = AdvanceGate.new(session.guard_dir)
+              payload = {
                 'status' => 'ok',
                 'session_id' => session.session_id,
                 'mandate_id' => session.mandate_id,
                 'goal_name' => session.goal_name,
                 'state' => session.state,
-                'cycle_number' => session.cycle_number
-              }))
+                'cycle_number' => session.cycle_number,
+                'anchor' => gate.current_anchor(session)
+              }
+              if gate.busy?
+                # An open intent while the lock is held is normal execution,
+                # not an unresolved point — report in-flight instead.
+                payload['advance_in_flight'] = true
+                payload['next_move'] = {
+                  'tool' => 'agent_status',
+                  'args' => { 'session_id' => session.session_id },
+                  'reason' => 'an advance is executing; poll status until it settles, then follow next_move'
+                }
+              else
+                payload['next_move'] = gate.next_move(session)
+              end
+              text_content(JSON.generate(payload))
             else
               sessions = Session.list_active
               text_content(JSON.generate({
