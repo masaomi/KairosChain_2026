@@ -3,6 +3,7 @@
 require 'json'
 require 'fileutils'
 require 'digest'
+require 'time'
 
 module KairosMcp
   module SkillSets
@@ -86,9 +87,13 @@ module KairosMcp
         # status surface) use this to distinguish "an advance is in flight"
         # from "an advance died mid-effect" — an open intent plus a held lock
         # is normal execution, not an unresolved point.
+        # Probes with a shared lock so concurrent probes never serialize each
+        # other and the window in which a probe could make a real advance's
+        # LOCK_EX attempt fail spuriously is minimal (a spurious 'busy' is
+        # safe: the caller retries).
         def busy?
           File.open(lock_path, File::RDWR | File::CREAT, 0o644) do |f|
-            if f.flock(File::LOCK_EX | File::LOCK_NB)
+            if f.flock(File::LOCK_SH | File::LOCK_NB)
               f.flock(File::LOCK_UN)
               false
             else
@@ -137,6 +142,7 @@ module KairosMcp
             'outcome'   => outcome,
             'timestamp' => Time.now.utc.iso8601
           }
+          repair_log_tail
           File.open(log_path, 'a') { |f| f.puts(JSON.generate(entry)) }
           atomic_write(state_path, JSON.pretty_generate('seq' => gate_state['seq'] + 1))
           @gate_state = nil
@@ -161,14 +167,24 @@ module KairosMcp
         # An intent whose advance never committed. Its outcome is unknowable
         # from here: it is surfaced, never resolved silently (INV-A3), and its
         # adjudication is a gated human judgment (INV-A5).
-        def unresolved_intent
-          return nil unless File.exist?(intent_path)
+        #
+        # cleanup: deleting a stale intent is a write, so it happens only when
+        # the caller holds the advance lock (cleanup: true from the gated step
+        # path). Read-only probes (status/next_move) must not delete: an
+        # unlocked delayed delete could race a fresh open_intent and remove a
+        # LIVE intent.
+        def unresolved_intent(cleanup: false)
+          raw = begin
+            File.read(intent_path)
+          rescue Errno::ENOENT
+            return nil
+          end
 
-          intent = JSON.parse(File.read(intent_path))
+          intent = JSON.parse(raw)
           # If the log contains a committed advance for the intent's anchor,
           # the effect was recorded — the intent file is a stale leftover.
           if find_committed(intent['anchor'])
-            File.delete(intent_path)
+            File.delete(intent_path) if cleanup && File.exist?(intent_path)
             return nil
           end
           intent
@@ -245,20 +261,56 @@ module KairosMcp
           found
         end
 
+        # The effective sequence fails closed: it is reconciled against the
+        # committed log's highest recorded seq, so a lost or corrupt
+        # advance.json can never regress the sequence and let an
+        # already-consumed anchor match the current one again (at-most-once
+        # would silently break on exactly the anchors whose state component
+        # did not change, e.g. revise at proposed).
         def gate_state
-          @gate_state ||= if File.exist?(state_path)
-                            JSON.parse(File.read(state_path))
-                          else
-                            { 'seq' => 0 }
-                          end
-        rescue JSON::ParserError
-          { 'seq' => 0 }
+          @gate_state ||= begin
+            file_seq = begin
+              File.exist?(state_path) ? (JSON.parse(File.read(state_path))['seq'] || 0) : 0
+            rescue JSON::ParserError
+              0
+            end
+            { 'seq' => [file_seq, log_max_seq + 1].max }
+          end
+        end
+
+        # Highest committed seq in the log, or -1 when no advance committed.
+        def log_max_seq
+          return -1 unless File.exist?(log_path)
+
+          max = -1
+          File.foreach(log_path) do |line|
+            entry = JSON.parse(line.strip) rescue nil
+            s = entry && entry['seq']
+            max = s if s.is_a?(Integer) && s > max
+          end
+          max
+        end
+
+        # A crash mid-append can leave a torn tail line; without repair the
+        # next append would concatenate onto it and corrupt BOTH records.
+        # Terminating the torn tail confines the damage to the already-lost
+        # entry.
+        def repair_log_tail
+          return unless File.exist?(log_path) && File.size(log_path).positive?
+
+          last = File.open(log_path, 'rb') do |f|
+            f.seek(-1, IO::SEEK_END)
+            f.read(1)
+          end
+          File.open(log_path, 'a') { |f| f.write("\n") } unless last == "\n"
         end
 
         # INV-A2: no partial-write window. Content lands under a temp name and
-        # is renamed into place; rename is atomic on POSIX filesystems.
+        # is renamed into place; rename is atomic on POSIX filesystems. The
+        # temp name carries pid + thread id so two writers in one process
+        # cannot collide on the temp file.
         def atomic_write(path, content)
-          tmp = "#{path}.tmp.#{Process.pid}"
+          tmp = "#{path}.tmp.#{Process.pid}.#{Thread.current.object_id}"
           File.write(tmp, content)
           File.rename(tmp, path)
         end

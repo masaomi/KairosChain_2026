@@ -124,8 +124,9 @@ Dir.mktmpdir('resilience_') do |dir|
   end
   gate.commit('1:proposed:0', 'approve', { 'status' => 'ok', 'state' => 'checkpoint' })
   session.state = 'checkpoint'
-  assert('intent whose advance committed is stale, auto-cleaned, not unresolved') do
-    gate.unresolved_intent.nil? && !File.exist?(File.join(dir, 'act_intent.json'))
+  assert('intent whose advance committed is stale: resolved on read, deleted only under gated cleanup') do
+    gate.unresolved_intent.nil? && File.exist?(File.join(dir, 'act_intent.json')) &&
+      gate.unresolved_intent(cleanup: true).nil? && !File.exist?(File.join(dir, 'act_intent.json'))
   end
   gate.open_intent('2:checkpoint:0', { 'summary' => 'x' })
   gate.close_intent
@@ -153,6 +154,50 @@ Dir.mktmpdir('resilience_') do |dir|
   session.state = 'acting'
   assert('transient acting maps to proposed for recovery') do
     gate.effective_state(session) == 'proposed'
+  end
+end
+
+# ---- R1 hardening probes (impl review round 1) ----
+Dir.mktmpdir('resilience_hardening_') do |dir|
+  session = FakeSession.new('s2', 'proposed', 1)
+  gate = Gate.new(dir)
+  gate.commit('0:proposed:1', 'approve', { 'status' => 'ok' })
+  gate.commit('1:proposed:1', 'revise:abcd1234', { 'status' => 'ok' })
+
+  puts '== Seq fails closed against the committed log (R1: at-most-once bypass) =='
+  assert('corrupt advance.json does not regress seq below log max + 1') do
+    File.write(File.join(dir, 'advance.json'), '{corrupt')
+    g = Gate.new(dir)
+    g.seq == 2
+  end
+  assert('missing advance.json reconciles seq from log') do
+    File.delete(File.join(dir, 'advance.json'))
+    g = Gate.new(dir)
+    g.seq == 2
+  end
+  assert('after reconcile, consumed anchor still replays instead of proceeding') do
+    g = Gate.new(dir)
+    g.check('0:proposed:1', 'approve', session)['disposition'] == 'replay'
+  end
+
+  puts '== Torn log tail repair (R1) =='
+  assert('commit after a torn tail line keeps the new record parseable') do
+    File.open(File.join(dir, 'advance_log.jsonl'), 'a') { |f| f.write('{"seq":9,"anch') }
+    g = Gate.new(dir)
+    g.commit('2:proposed:1', 'approve', { 'status' => 'ok', 'marker' => 'post_torn' })
+    found = g.check('2:proposed:1', 'approve', session)
+    found['disposition'] == 'replay' && found['outcome']['marker'] == 'post_torn'
+  end
+
+  puts '== Intent cleanup only under lock (R1: unlocked-delete race) =='
+  gate2 = Gate.new(dir)
+  gate2.open_intent('3:proposed:1', { 'x' => 1 })
+  gate2.commit('3:proposed:1', 'approve', { 'status' => 'ok' })
+  assert('read-only probe reports stale intent as resolved but does NOT delete the file') do
+    gate2.unresolved_intent.nil? && File.exist?(File.join(dir, 'act_intent.json'))
+  end
+  assert('gated probe (cleanup: true) deletes the stale intent') do
+    gate2.unresolved_intent(cleanup: true).nil? && !File.exist?(File.join(dir, 'act_intent.json'))
   end
 end
 
@@ -199,6 +244,134 @@ Dir.mktmpdir('resilience_session_') do |tmp|
   rescue LoadError => e
     puts "  SKIP: session integration probes (#{e.message})"
   end
+end
+
+# ---- tool-seam probes (R1: the gate/tool binding is invariant-bearing) ----
+# Drives the REAL advance_under_lock / commit_advance / handle_adjudicate /
+# handle_stop code in agent_step.rb with stubbed cognitive handlers.
+begin
+  require 'kairos_mcp/tools/base_tool'
+  require_relative '../tools/agent_step'
+
+  class SeamStep < KairosMcp::SkillSets::Agent::Tools::AgentStep
+    attr_accessor :approve_runs, :act_reflect_runs
+
+    def initialize
+      super()
+      @approve_runs = 0
+      @act_reflect_runs = 0
+    end
+
+    # Stub the cognitive phases: approve advances observed -> proposed.
+    def handle_approve(session)
+      @approve_runs += 1
+      session.update_state('proposed')
+      session.save
+      text_content(JSON.generate({ 'status' => 'ok', 'session_id' => session.session_id,
+                                   'state' => 'proposed' }))
+    end
+
+    # Stub the ACT re-entry used by adjudicate reattempt.
+    def run_act_reflect(session)
+      @act_reflect_runs += 1
+      @gate&.open_intent(@anchor_at_issue, { 'summary' => 'reattempt' })
+      session.increment_cycle
+      session.update_state('checkpoint')
+      session.save
+      text_content(JSON.generate({ 'status' => 'ok', 'session_id' => session.session_id,
+                                   'state' => 'checkpoint' }))
+    end
+
+    def log_agent(*); end
+  end
+
+  SessK = KairosMcp::SkillSets::Agent::Session
+
+  def new_seam_session(id)
+    ctx = KairosMcp::InvocationContext.new
+    s = SessK.new(session_id: id, mandate_id: 'm', goal_name: 'g',
+                  invocation_context: ctx, config: {}, autonomous: false)
+    s.update_state('observed')
+    s.save
+    s
+  end
+
+  Dir.mktmpdir('resilience_seam_') do |tmp|
+    Autonomos.base = tmp
+
+    puts '== Tool seam: gated advance + replay (INV-A2/A3) =='
+    s = new_seam_session('seam1')
+    tool = SeamStep.new
+    r1 = JSON.parse(tool.call({ 'session_id' => 'seam1', 'action' => 'approve',
+                                'anchor' => '0:observed:0' })[0][:text])
+    assert('gated approve executes and returns the post-commit anchor') do
+      r1['status'] == 'ok' && r1['state'] == 'proposed' && r1['anchor'] == '1:proposed:0' &&
+        tool.approve_runs == 1
+    end
+    r2 = JSON.parse(tool.call({ 'session_id' => 'seam1', 'action' => 'approve',
+                                'anchor' => '0:observed:0' })[0][:text])
+    assert('re-issued identical call replays without re-executing') do
+      r2['replayed'] == true && r2['state'] == 'proposed' && tool.approve_runs == 1
+    end
+    r3 = JSON.parse(tool.call({ 'session_id' => 'seam1', 'action' => 'stop',
+                                'anchor' => '0:observed:0' })[0][:text])
+    assert('consumed anchor with different action is rejected with next_move') do
+      r3['status'] == 'anchor_rejected' && r3['next_move']['args']['action'] == 'approve'
+    end
+
+    puts '== Tool seam: unresolved effect refusal + adjudication (INV-A3/A5) =='
+    sdir = s.guard_dir
+    g = Gate.new(sdir)
+    g.open_intent('1:proposed:0', { 'summary' => 'side effect' })
+    r4 = JSON.parse(tool.call({ 'session_id' => 'seam1', 'action' => 'approve' })[0][:text])
+    assert('approve refused while a side effect is unresolved') do
+      r4['status'] == 'unresolved_effect' && r4['next_move']['args']['action'] == 'adjudicate'
+    end
+    r5 = JSON.parse(tool.call({ 'session_id' => 'seam1', 'action' => 'adjudicate',
+                                'resolution' => 'already_done' })[0][:text])
+    assert('adjudicate already_done advances to checkpoint and clears the intent after commit') do
+      r5['status'] == 'ok' && r5['state'] == 'checkpoint' &&
+        !File.exist?(File.join(sdir, 'act_intent.json'))
+    end
+    assert('adjudicate with the other resolution does not replay this outcome') do
+      anchor_used = JSON.parse(File.readlines(File.join(sdir, 'advance_log.jsonl')).last)['anchor']
+      r6 = JSON.parse(tool.call({ 'session_id' => 'seam1', 'action' => 'adjudicate',
+                                  'resolution' => 'reattempt', 'anchor' => anchor_used })[0][:text])
+      r6['status'] != 'ok' || r6['replayed'] != true
+    end
+
+    puts '== Tool seam: reattempt re-runs ACT; error is not committed =='
+    s2 = new_seam_session('seam2')
+    g2 = Gate.new(s2.guard_dir)
+    s2.save_decision({ 'summary' => 'd' })
+    s2.update_state('proposed')
+    s2.save
+    g2.open_intent("0:proposed:0", { 'summary' => 'd' })
+    tool2 = SeamStep.new
+    r7 = JSON.parse(tool2.call({ 'session_id' => 'seam2', 'action' => 'adjudicate',
+                                 'resolution' => 'reattempt' })[0][:text])
+    assert('adjudicate reattempt re-enters ACT and commits the advance') do
+      r7['status'] == 'ok' && r7['state'] == 'checkpoint' && tool2.act_reflect_runs == 1 &&
+        !File.exist?(File.join(s2.guard_dir, 'act_intent.json'))
+    end
+    r8 = JSON.parse(tool2.call({ 'session_id' => 'seam2', 'action' => 'revise' })[0][:text])
+    assert('errored call (revise at checkpoint) is not committed; anchor regime unchanged') do
+      r8['status'] == 'error' && Gate.new(s2.guard_dir).seq == 1
+    end
+
+    puts '== Tool seam: stop over unresolved intent keeps the audit trace =='
+    s3 = new_seam_session('seam3')
+    g3 = Gate.new(s3.guard_dir)
+    g3.open_intent('0:observed:0', { 'summary' => 'orphan' })
+    tool3 = SeamStep.new
+    r9 = JSON.parse(tool3.call({ 'session_id' => 'seam3', 'action' => 'stop' })[0][:text])
+    assert('stop succeeds, reports the unresolved intent, and keeps the intent file') do
+      r9['status'] == 'ok' && r9['unresolved_intent_at_stop'] &&
+        File.exist?(File.join(s3.guard_dir, 'act_intent.json'))
+    end
+  end
+rescue LoadError => e
+  puts "  SKIP: tool-seam probes (#{e.message})"
 end
 
 puts

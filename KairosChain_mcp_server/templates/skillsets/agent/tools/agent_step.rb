@@ -116,11 +116,18 @@ module KairosMcp
           private
 
           # Runs with the per-session advance lock held (INV-A2).
-          def advance_under_lock(gate, session, action, arguments, feedback)
+          def advance_under_lock(gate, stale_session, action, arguments, feedback)
+            # Reload under the lock: the pre-lock session object may be stale
+            # if another advance committed while this call raced it. The
+            # anchor must be checked against the persisted truth, never a
+            # snapshot (INV-A2/A3).
+            session = Session.load(stale_session.session_id) || stale_session
+
             # An unresolved side-effect point takes precedence over every other
             # pending advance (INV-A4 uniqueness): only its adjudication, or a
-            # stop, may proceed.
-            intent = gate.unresolved_intent
+            # stop, may proceed. Stale-intent cleanup is a write and therefore
+            # happens only here, under the lock.
+            intent = gate.unresolved_intent(cleanup: true)
             if intent && !%w[adjudicate stop].include?(action)
               return text_content(JSON.generate({
                 'status' => 'unresolved_effect', 'session_id' => session.session_id,
@@ -129,7 +136,12 @@ module KairosMcp
               }))
             end
 
-            disposition = gate.check(arguments['anchor'], action, session)
+            # Replay identity is the judgment's full content, not just its
+            # verb: an adjudicate re-issued with a different resolution, or a
+            # revise with different feedback, is a different judgment and must
+            # never replay the other's outcome (it is rejected instead).
+            action_key = replay_action_key(action, arguments, feedback)
+            disposition = gate.check(arguments['anchor'], action_key, session)
             case disposition['disposition']
             when 'replay'
               # INV-A3: identical judgment re-sent — return the recorded
@@ -156,28 +168,50 @@ module KairosMcp
                      else error_result("Unknown action: #{action}")
                      end
 
-            commit_advance(gate, session, action, result)
+            commit_advance(gate, session, action, action_key, result)
           ensure
             @gate = nil
             @anchor_at_issue = nil
           end
 
+          def replay_action_key(action, arguments, feedback)
+            case action
+            when 'adjudicate' then "adjudicate:#{arguments['resolution']}"
+            when 'revise' then "revise:#{Digest::SHA256.hexdigest(feedback.to_s)[0, 8]}"
+            else action
+            end
+          end
+
           # Commits a completed advance to the gate log (INV-A2/A3): the
           # response the caller sees and the record a retry replays are the
-          # same object. An errored call did not advance state, so it is not
-          # committed and the issued anchor stays valid for a retry.
-          def commit_advance(gate, session, action, result)
+          # same object.
+          def commit_advance(gate, session, action, action_key, result)
             outcome = begin
               JSON.parse(result[0][:text])
             rescue StandardError
               nil
             end
             return result unless outcome.is_a?(Hash)
-            return result if %w[error unresolved_effect].include?(outcome['status'])
+            return result if outcome['status'] == 'unresolved_effect'
 
-            outcome['anchor'] = "#{gate.seq + 1}:#{session.state}:#{session.cycle_number}"
-            gate.commit(@anchor_at_issue, action, outcome)
-            gate.close_intent
+            # The commit criterion is the persisted truth, not the status
+            # string: some paths (the autonomous loop) persist real
+            # transitions before returning an error-status outcome. A call
+            # whose persisted state did not move is not an advance — its
+            # anchor stays valid for a retry.
+            persisted = Session.load(session.session_id)
+            at = @anchor_at_issue.to_s.split(':')
+            advanced = persisted &&
+                       (persisted.state != at[1] || persisted.cycle_number.to_s != at[2])
+            return result if outcome['status'] == 'error' && !advanced
+
+            ref = persisted || session
+            outcome['anchor'] = "#{gate.seq + 1}:#{ref.state}:#{ref.cycle_number}"
+            gate.commit(@anchor_at_issue, action_key, outcome)
+            # A stop issued over an unresolved side effect must not erase the
+            # unresolved record: the intent file stays as the audit trace of
+            # the ambiguity (the outcome carries it too).
+            gate.close_intent unless outcome['unresolved_intent_at_stop']
             text_content(JSON.generate(outcome))
           end
 
@@ -190,15 +224,19 @@ module KairosMcp
 
             case resolution
             when 'reattempt'
-              @gate.close_intent
               # The interrupted act never recorded; its decision payload is
               # still persisted. Re-enter the ACT path from the stable
-              # pre-act state under the human's explicit judgment.
+              # pre-act state under the human's explicit judgment. The old
+              # intent is NOT closed here: it stays surfaced until either the
+              # re-run opens its own intent (atomic overwrite) or the advance
+              # commits — a crash in between must not lose the unresolved
+              # point.
               session.update_state('proposed')
               session.save
               run_act_reflect(session)
             when 'already_done'
-              @gate.close_intent
+              # The intent is closed only after this adjudication commits
+              # (commit_advance), never before it is durably recorded.
               session.save_progress(
                 { 'confidence' => 0.0, 'adjudication' => 'already_done' },
                 session.cycle_number + 1,
@@ -219,13 +257,19 @@ module KairosMcp
           end
 
           def handle_stop(session)
+            payload = {
+              'status' => 'ok', 'session_id' => session.session_id,
+              'state' => 'terminated', 'reason' => 'user_stop'
+            }
+            # A stop over an unresolved side effect is permitted (the human
+            # gate may always terminate) but the ambiguity is recorded, never
+            # silently discarded (INV-A3).
+            intent = @gate&.unresolved_intent
+            payload['unresolved_intent_at_stop'] = intent if intent
             session.update_state('terminated')
             session.save
             log_agent(:info, 'session_stopped', session, reason: 'user_stop')
-            text_content(JSON.generate({
-              'status' => 'ok', 'session_id' => session.session_id,
-              'state' => 'terminated', 'reason' => 'user_stop'
-            }))
+            text_content(JSON.generate(payload))
           end
 
           def handle_approve(session)
