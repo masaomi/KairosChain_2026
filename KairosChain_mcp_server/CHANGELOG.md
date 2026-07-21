@@ -4,6 +4,35 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.45.0] - 2026-07-21
+
+### Synoptis — mutual anchoring protocol MAP-1..4 (map-1, AUD-L2)
+
+Implements AUD-L2 design v0.5 (FROZEN) slice 1 in the synoptis SkillSet:
+
+- `conventions/map-1.md`: content-addressed mutual-anchoring convention
+  (chain identity credential, typed attestation vocabulary, succession
+  records, declared anchoring rule, changeover event). Builds on khab-1
+  without modifying it.
+- `chain_credential.rb`: Ed25519 self-authenticating chain identity
+  credential — verification needs no registry and no network.
+- `succession.rb`: succession governance (earliest non-retracted designation
+  governs; at-or-before changeover boundary; issuer-only retraction;
+  retract-and-redesignate trails surfaced in the contested register).
+- `anchoring_rule.rb`: result-free declared anchoring rule (closed schema)
+  with a coverage checker that reports and never enforces.
+- `attestation_types.rb`: MAP-4 vocabulary intake validation and anchor-log
+  retraction coherence (issuer = depositor at map-1, disclosed deferral).
+- `entry.rb` / `log.rb` / `write_path.rb`: additive `attestation_type` on
+  newly appended entries only (AHM-4 byte-invariance preserved).
+- `bin/map_verify.rb`: standalone offline verifier (credential, attestation,
+  succession, coverage, pair, retraction subcommands).
+- `test/test_map_anchoring.rb`: 75 design-constraint tests.
+
+Design review converged R5 5/6 APPROVE; implementation review converged
+R4 5/5 APPROVE with zero residual P0/P1. The inaugural mutual anchor with a
+second, independently operated HestiaChain instance is deliberately pending.
+
 ## [3.42.2] - 2026-07-14
 
 ### Knowledge — loop_engineering_patterns §B: Model/Effort budget allocation
