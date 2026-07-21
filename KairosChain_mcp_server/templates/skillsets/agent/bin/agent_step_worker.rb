@@ -32,7 +32,22 @@ session_id  = ARGV[0] or abort 'usage: agent_step_worker.rb <session_id> <sessio
 session_dir = ARGV[1] or abort 'usage: agent_step_worker.rb <session_id> <session_dir>'
 
 $LOAD_PATH.unshift(File.expand_path('../lib', __dir__))
-require 'agent/step_delegation'
+begin
+  require 'agent/step_delegation'
+rescue ScriptError, StandardError => e
+  # The delegation lib is co-located with this script; if even it cannot load
+  # we cannot use its API to report, so write a minimal raw result directly so
+  # the driver sees an error rather than a silently hung handle.
+  begin
+    tmp = File.join(session_dir, "delegation_result.json.tmp.#{Process.pid}")
+    File.write(tmp, JSON.generate('outcome' => { 'status' => 'error',
+                                                 'error' => "worker bootstrap failed: #{e.class}: #{e.message}" }))
+    File.rename(tmp, File.join(session_dir, 'delegation_result.json'))
+  rescue StandardError
+    # nothing more we can do
+  end
+  exit 1
+end
 
 delegation = KairosMcp::SkillSets::Agent::StepDelegation.new(session_dir)
 
@@ -65,17 +80,13 @@ end
 
 # Self-timeout watchdog: a hung gated call would otherwise hold the advance
 # lock forever. Exiting the process releases its flock; the driver then sees
-# 'crashed' and re-issues safely (the gate replays a committed advance or
-# re-runs an uncommitted one exactly once).
+# 'crashed' and re-issues safely. We deliberately write NO result here so the
+# collector takes the crash path — if the gated advance had already committed,
+# crashed_response recovers its outcome from the gate log; an error result
+# would instead mask that committed advance.
 timeout_s = KairosMcp::SkillSets::Agent::StepDelegation.worker_self_timeout_seconds
 watchdog = Thread.new do
   sleep timeout_s
-  begin
-    delegation.write_result('status' => 'error',
-                            'error' => "worker self-timeout after #{timeout_s}s")
-  rescue StandardError
-    # best effort
-  end
   exit!(124)
 end
 
@@ -109,8 +120,11 @@ begin
     { 'status' => 'error', 'error' => 'unparseable tool result', 'raw' => text.to_s[0, 500] }
   end
 
+  # Write the result and leave the pending handle in place: teardown is the
+  # collector's job (agent_wait#collect clears result+handle atomically under
+  # delegation.lock), so the worker never races a concurrently-opened fresh
+  # delegation by clearing state it may no longer own.
   delegation.write_result(response)
-  delegation.clear_pending
   exit 0
 rescue SystemExit, SignalException
   # A deliberate exit (including our own `exit 0`) or a signal is not a
@@ -119,11 +133,10 @@ rescue SystemExit, SignalException
 rescue Exception => e # rubocop:disable Lint/RescueException
   # Catch Exception, not just StandardError: LoadError/ScriptError from the
   # bootstrap require are exactly the failure class the driver must see as a
-  # result rather than a silently hung handle.
+  # result rather than a silently hung handle. Leave teardown to the collector.
   begin
     delegation.write_result('status' => 'error',
                             'error' => "worker: #{e.class}: #{e.message}")
-    delegation.clear_pending
   rescue StandardError
     # best effort
   end

@@ -141,22 +141,43 @@ module KairosMcp
             delegation = StepDelegation.new(session.guard_dir)
             gate = AdvanceGate.new(session.guard_dir)
 
+            # Honor the same anchored-retry contract as the inline path: a
+            # caller-supplied anchor that is stale (or already consumed by a
+            # different judgment) is rejected/replayed here rather than
+            # silently delegated against the current state.
+            action_key = replay_action_key(arguments['action'], arguments, arguments['feedback'])
+            if arguments['anchor'] && arguments['anchor'] != gate.current_anchor(session)
+              disp = gate.check(arguments['anchor'], action_key, session)
+              case disp['disposition']
+              when 'replay'
+                return text_content(JSON.generate(disp['outcome'].merge('replayed' => true)))
+              when 'rejected'
+                return text_content(JSON.generate({
+                  'status' => 'anchor_rejected', 'session_id' => session.session_id,
+                  'reason' => disp['reason'], 'state' => session.state,
+                  'next_move' => gate.next_move(session)
+                }))
+              end
+            end
+
             recorded = {
               'action' => arguments['action'],
               'feedback' => arguments['feedback'],
               'resolution' => arguments['resolution']
             }.compact
             # open_handle injects the issue-anchor into the worker args so the
-            # re-entry is always anchored (INV-A3), serializes under
-            # delegation.lock (no double-spawn), and rolls back on spawn
-            # failure. It returns :ready (finished, uncollected), :existing
-            # (a live worker for this exact anchor), or :opened (fresh).
-            disposition, token = delegation.open_handle(recorded, gate.current_anchor(session))
+            # re-entry is always anchored (INV-A3), dedups by (anchor,
+            # action_key) under delegation.lock (no double-spawn, and a
+            # different judgment at the same anchor is NOT a reuse). It returns
+            # :ready (finished, uncollected), :existing (a live worker for this
+            # exact anchor+action), or :opened (fresh).
+            disposition, token = delegation.open_handle(recorded, gate.current_anchor(session), action_key)
 
             if disposition == :opened
               begin
                 delegation.spawn_worker(session.session_id)
               rescue StandardError => e
+                delegation.clear_pending_if(token)
                 return error_result("failed to spawn delegated worker: #{e.message}")
               end
             end

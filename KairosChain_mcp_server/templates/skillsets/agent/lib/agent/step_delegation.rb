@@ -72,17 +72,23 @@ module KairosMcp
         end
 
         # 'ready' | 'still_pending' | 'crashed' | 'none'
-        # 'ready' requires the result to belong to the CURRENT pending handle
-        # (matching issue_anchor) OR the handle to be already cleared — a stale
-        # result from a prior step whose handle has been replaced never masks a
-        # fresh delegation.
+        #
+        # Teardown is owned by the COLLECTOR, not the worker: the worker only
+        # ever writes a result and leaves the pending handle in place, so a
+        # result and its pending handle always coexist until agent_wait
+        # collects both atomically. Therefore a result is 'ready' only when it
+        # matches the current pending handle (same issue_anchor + action_key);
+        # once the collector has cleared the handle, status is 'none'. This
+        # removes the stale-result-with-nil-pending window.
         def status
-          res = result
           cur = pending
-          if res
-            return 'ready' if cur.nil? || res['issue_anchor'] == cur['issue_anchor']
-          end
           return 'none' unless cur
+
+          res = result
+          if res && res['issue_anchor'] == cur['issue_anchor'] &&
+             res['action_key'] == cur['action_key']
+            return 'ready'
+          end
 
           if File.exist?(heartbeat_path)
             age = Time.now - File.mtime(heartbeat_path)
@@ -100,25 +106,30 @@ module KairosMcp
         end
 
         # Opens (or re-joins) the handle for one delegated step, serialized
-        # under delegation.lock. issue_anchor is the AdvanceGate current_anchor
-        # at delegation time; it is BOTH recorded for dedup AND injected into
-        # the worker's call args so the re-entry is anchored.
+        # under delegation.lock. A delegation is identified by BOTH its
+        # issue_anchor (the AdvanceGate current_anchor at delegation time) AND
+        # its action_key (the replay identity: "approve" / "adjudicate:<res>" /
+        # "revise:<digest>"), so a DIFFERENT judgment at the same anchor is a
+        # DIFFERENT delegation, never a reuse of the prior worker. The
+        # issue_anchor is injected into the worker's call args so the re-entry
+        # is anchored.
         #
         # Returns one of:
-        #   [:ready, token]      — a finished, uncollected result for this
-        #                          exact issue_anchor already exists
-        #   [:existing, token]   — a live worker for this issue_anchor is
-        #                          already running; no second spawn
-        #   [:opened, token]     — a fresh handle was written; caller spawns
-        def open_handle(recorded_args, issue_anchor)
+        #   [:ready, token]    — a finished, uncollected result for this exact
+        #                        (anchor, action_key) already exists
+        #   [:existing, token] — a live worker for this (anchor, action_key) is
+        #                        already running; no second spawn
+        #   [:opened, token]   — a fresh handle was written; caller spawns
+        def open_handle(recorded_args, issue_anchor, action_key)
           with_lock do
             res = result
-            if res && res['issue_anchor'] == issue_anchor
-              return [:ready, res.dig('outcome', 'step_token') || pending&.dig('step_token')]
+            if res && res['issue_anchor'] == issue_anchor && res['action_key'] == action_key
+              return [:ready, res['step_token']]
             end
 
             cur = pending
-            if cur && cur['issue_anchor'] == issue_anchor && live_pending?(cur)
+            if cur && cur['issue_anchor'] == issue_anchor &&
+               cur['action_key'] == action_key && live_pending?(cur)
               return [:existing, cur['step_token']]
             end
 
@@ -132,6 +143,7 @@ module KairosMcp
               'step_token'   => token,
               'arguments'    => worker_args,
               'issue_anchor' => issue_anchor,
+              'action_key'   => action_key,
               'spawned_at'   => Time.now.utc.iso8601
             ))
             [:opened, token]
@@ -144,23 +156,52 @@ module KairosMcp
           FileUtils.touch(heartbeat_path)
         end
 
-        # Tags the result with the issue_anchor of the handle it completes, so
-        # status/open_handle can tell a fresh result from a stale one.
+        # Tags the result with the issue_anchor / action_key / step_token of the
+        # handle it completes, so status/open_handle/collect can tell a fresh
+        # result from a stale one. The worker calls this and NOTHING else on
+        # success — teardown is the collector's responsibility (see collect).
         def write_result(response_hash)
-          issue_anchor = pending&.dig('issue_anchor')
-          payload = { 'issue_anchor' => issue_anchor, 'outcome' => response_hash }
+          cur = pending
+          payload = { 'issue_anchor' => cur&.dig('issue_anchor'),
+                      'action_key'   => cur&.dig('action_key'),
+                      'step_token'   => cur&.dig('step_token'),
+                      'outcome'      => response_hash }
           atomic_write(result_path, JSON.pretty_generate(payload))
         end
 
-        def clear_pending
-          FileUtils.rm_f(pending_path)
-          FileUtils.rm_f(heartbeat_path)
+        # Collect-once, atomically, WITHOUT racing a concurrently-opened fresh
+        # delegation: under the lock, return the result only if it still
+        # belongs to (expected_anchor, expected_action_key), and clear exactly
+        # that result + its handle. A newer delegation (different anchor/key)
+        # is left untouched.
+        def collect(expected_anchor, expected_action_key)
+          with_lock do
+            res = result
+            return nil unless res && res['issue_anchor'] == expected_anchor &&
+                              res['action_key'] == expected_action_key
+
+            FileUtils.rm_f(result_path)
+            cur = pending
+            if cur && cur['issue_anchor'] == expected_anchor &&
+               cur['action_key'] == expected_action_key
+              FileUtils.rm_f(pending_path)
+              FileUtils.rm_f(heartbeat_path)
+            end
+            res
+          end
         end
 
-        # Consume a collected result so a later delegated step is not masked by
-        # it (collect-once). Under the lock to avoid racing a fresh open.
-        def clear_result
-          with_lock { FileUtils.rm_f(result_path) }
+        # Clear a pending handle only if it still belongs to expected_token
+        # (identity-checked, under the lock) — used by spawn rollback and
+        # committed-crash recovery so a concurrent fresh open is never clobbered.
+        def clear_pending_if(expected_token)
+          with_lock do
+            cur = pending
+            if cur.nil? || cur['step_token'] == expected_token
+              FileUtils.rm_f(pending_path)
+              FileUtils.rm_f(heartbeat_path)
+            end
+          end
         end
 
         # ---- spawn ----
@@ -195,9 +236,6 @@ module KairosMcp
                               close_others: true)
           Process.detach(pid)
           pid
-        rescue StandardError => e
-          clear_pending
-          raise e
         end
 
         def self.worker_self_timeout_seconds

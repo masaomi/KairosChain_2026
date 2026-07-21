@@ -103,13 +103,13 @@ module KairosMcp
           private
 
           def ready_response(session, delegation)
-            raw = delegation.result || {}
+            # Collect-once, atomically: consume the result only if it still
+            # belongs to the (anchor, action_key) we observed as ready, so a
+            # concurrently opened fresh delegation is never clobbered. The
+            # advance itself remains replayable through the gate log.
+            observed = delegation.result || {}
+            raw = delegation.collect(observed['issue_anchor'], observed['action_key']) || observed
             outcome = raw['outcome'] || { 'status' => 'error', 'error' => 'result unreadable' }
-            # Collect-once: consume the result so a later delegated step for a
-            # new state is not masked by this one. The advance itself remains
-            # replayable through the gate log if the caller re-issues.
-            delegation.clear_result
-            delegation.clear_pending
             fresh = Session.load(session.session_id) || session
             gate = AdvanceGate.new(fresh.guard_dir)
             text_content(JSON.generate({
@@ -122,15 +122,19 @@ module KairosMcp
           # Crash-window (b): the worker committed its gated advance (state
           # moved, seq bumped, replay record written) but died before writing
           # the result. Recover the committed outcome from the gate log at the
-          # handle's issue-anchor, so the return value is not lost.
+          # handle's issue-anchor AND action (so a different judgment that
+          # consumed the same anchor never returns the wrong outcome), so the
+          # return value is not lost.
           def crashed_response(session, delegation)
             pending = delegation.pending
             issue_anchor = pending&.dig('issue_anchor')
+            action_key = pending&.dig('action_key')
+            token = pending&.dig('step_token')
             gate = AdvanceGate.new(session.guard_dir)
-            committed = issue_anchor && gate.committed_outcome(issue_anchor)
+            committed = issue_anchor && gate.committed_outcome(issue_anchor, action_key)
 
             if committed
-              delegation.clear_pending
+              delegation.clear_pending_if(token)
               fresh = Session.load(session.session_id) || session
               return text_content(JSON.generate({
                 'status' => 'ready', 'session_id' => session.session_id,

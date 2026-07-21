@@ -270,9 +270,14 @@ module KairosMcp
         # The committed outcome recorded for an anchor, or nil. Used by the
         # delegation wait surface (Slice A-2) to recover a committed advance's
         # return value when a worker died after committing but before writing
-        # its result (crash-window b).
-        def committed_outcome(anchor)
-          find_committed(anchor)&.dig('outcome')
+        # its result (crash-window b). When action is given, the committed
+        # entry's action must match — so a different judgment that consumed the
+        # same anchor before the crash never returns the wrong outcome.
+        def committed_outcome(anchor, action = nil)
+          entry = find_committed(anchor)
+          return nil unless entry
+          return nil if action && entry['action'] != action
+          entry['outcome']
         end
 
         private
