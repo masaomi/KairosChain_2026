@@ -554,6 +554,20 @@ begin
         w5['outcome']['state'] == 'proposed' && tool5.approve_runs == 1
     end
 
+    puts '== A-2: crashed recovery declines a superseded generation (atomic claim) =='
+    # clear_pending_if now returns false when a DIFFERENT token holds the handle,
+    # so crashed_response must NOT return a recovered outcome for a stale one.
+    s5b = new_seam_session('a2s5b')
+    d5b = Delegation.new(s5b.guard_dir)
+    _, tokC = d5b.open_handle({ 'action' => 'approve' }, '0:observed:0', 'approve')
+    assert('clear_pending_if returns true for the owning token') do
+      # a NEW handle supersedes; the OLD token no longer owns it
+      d5c = Delegation.new(s5b.guard_dir)
+      _, tokD = d5c.open_handle({ 'action' => 'approve' }, '1:proposed:0', 'approve')
+      d5c.clear_pending_if(tokC) == false && # stale token cannot clear the new handle
+        d5c.clear_pending_if(tokD) == true    # owning token clears it
+    end
+
     puts '== A-2: a finishing old worker tags its result with its OWN identity =='
     s7 = new_seam_session('a2s7')
     d7 = Delegation.new(s7.guard_dir)

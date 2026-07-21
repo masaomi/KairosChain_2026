@@ -223,12 +223,19 @@ module KairosMcp
         # Clear a pending handle only if it still belongs to expected_token
         # (identity-checked, under the lock) — used by spawn rollback and
         # committed-crash recovery so a concurrent fresh open is never clobbered.
+        # Returns true when the caller still owns the handle (pending was nil or
+        # matched expected_token) and false when a DIFFERENT (superseding) token
+        # now holds it — so a caller that recovered against a stale generation
+        # can detect the supersession and decline to act on it.
         def clear_pending_if(expected_token)
           with_lock do
             cur = pending
             if cur.nil? || cur['step_token'] == expected_token
               FileUtils.rm_f(pending_path)
               clear_all_heartbeats
+              true
+            else
+              false
             end
           end
         end

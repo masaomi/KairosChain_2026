@@ -84,7 +84,10 @@ module KairosMcp
                                                'no delegated step is pending; read agent_status and follow next_move')
                 }))
               when 'crashed'
-                return crashed_response(session, delegation)
+                recovered = crashed_response(session, delegation)
+                # nil => the handle was superseded between the crash read and
+                # the recovery claim; keep polling against the new generation.
+                return recovered if recovered
               end
 
               if Time.now >= deadline
@@ -140,16 +143,23 @@ module KairosMcp
           # handle's issue-anchor AND action (so a different judgment that
           # consumed the same anchor never returns the wrong outcome), so the
           # return value is not lost.
+          # Returns MCP content, or nil when the handle was superseded between
+          # the (unlocked) crash observation and the recovery claim — in which
+          # case the wait loop keeps polling against the new generation rather
+          # than returning a recovered outcome for a stale one.
           def crashed_response(session, delegation)
             pending = delegation.pending
-            issue_anchor = pending&.dig('issue_anchor')
-            action_key = pending&.dig('action_key')
-            token = pending&.dig('step_token')
+            return nil unless pending # already collected/superseded to none
+            issue_anchor = pending['issue_anchor']
+            action_key = pending['action_key']
+            token = pending['step_token']
             gate = AdvanceGate.new(session.guard_dir)
             committed = issue_anchor && gate.committed_outcome(issue_anchor, action_key)
 
             if committed
-              delegation.clear_pending_if(token)
+              # Claim the recovery only if we still own this handle; if a fresh
+              # delegation superseded it, decline (return nil -> keep polling).
+              return nil unless delegation.clear_pending_if(token)
               fresh = Session.load(session.session_id) || session
               return text_content(JSON.generate({
                 'status' => 'ready', 'session_id' => session.session_id,
