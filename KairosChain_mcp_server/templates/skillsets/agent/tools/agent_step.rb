@@ -139,29 +139,41 @@ module KairosMcp
           # result from the previous delegation is surfaced, not clobbered.
           def handle_delegated_start(session, arguments)
             delegation = StepDelegation.new(session.guard_dir)
-
-            if delegation.status == 'ready'
-              return text_content(JSON.generate({
-                'status' => 'delegation_ready', 'session_id' => session.session_id,
-                'next_action' => { 'tool' => 'agent_wait',
-                                   'args' => { 'session_id' => session.session_id },
-                                   'purpose' => 'previous delegated step finished; collect its outcome' }
-              }))
-            end
+            gate = AdvanceGate.new(session.guard_dir)
 
             recorded = {
               'action' => arguments['action'],
               'feedback' => arguments['feedback'],
-              'resolution' => arguments['resolution'],
-              'anchor' => arguments['anchor']
+              'resolution' => arguments['resolution']
             }.compact
-            gate = AdvanceGate.new(session.guard_dir)
-            token, opened = delegation.open_handle(recorded, gate.current_anchor(session))
-            delegation.spawn_worker(session.session_id) if opened == 'opened'
+            # open_handle injects the issue-anchor into the worker args so the
+            # re-entry is always anchored (INV-A3), serializes under
+            # delegation.lock (no double-spawn), and rolls back on spawn
+            # failure. It returns :ready (finished, uncollected), :existing
+            # (a live worker for this exact anchor), or :opened (fresh).
+            disposition, token = delegation.open_handle(recorded, gate.current_anchor(session))
+
+            if disposition == :opened
+              begin
+                delegation.spawn_worker(session.session_id)
+              rescue StandardError => e
+                return error_result("failed to spawn delegated worker: #{e.message}")
+              end
+            end
+
+            if disposition == :ready
+              return text_content(JSON.generate({
+                'status' => 'delegation_ready', 'session_id' => session.session_id,
+                'step_token' => token,
+                'next_action' => { 'tool' => 'agent_wait',
+                                   'args' => { 'session_id' => session.session_id },
+                                   'purpose' => 'a delegated step already finished for this state; collect its outcome' }
+              }))
+            end
 
             text_content(JSON.generate({
               'status' => 'delegation_pending', 'session_id' => session.session_id,
-              'step_token' => token, 'reused' => (opened == 'existing'),
+              'step_token' => token, 'reused' => (disposition == :existing),
               'next_action' => { 'tool' => 'agent_wait',
                                  'args' => { 'session_id' => session.session_id,
                                              'max_wait_seconds' => 600 },

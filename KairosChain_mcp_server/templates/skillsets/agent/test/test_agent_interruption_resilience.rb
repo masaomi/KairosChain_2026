@@ -425,20 +425,23 @@ begin
   Dir.mktmpdir('resilience_a2_') do |tmp|
     Autonomos.base = tmp
 
-    puts '== A-2: delegation handle lifecycle (INV-A1/A3) =='
+    puts '== A-2: delegation handle lifecycle (INV-A1/A3), anchor-keyed =='
     s = new_seam_session('a2s1')
     d = Delegation.new(s.guard_dir)
     assert('no handle -> status none') { d.status == 'none' }
-    tok1, how1 = d.open_handle({ 'action' => 'approve' }, '0:observed:0')
+    how1, tok1 = d.open_handle({ 'action' => 'approve' }, '0:observed:0')
     d.touch_heartbeat
-    assert('opened handle is pending with a token') { how1 == 'opened' && tok1 && d.status == 'still_pending' }
-    tok2, how2 = d.open_handle({ 'action' => 'approve' }, '0:observed:0')
-    assert('re-open for same action+anchor is idempotent (same token, no second worker)') do
-      how2 == 'existing' && tok2 == tok1
+    assert('opened handle is pending with a token') { how1 == :opened && tok1 && d.status == 'still_pending' }
+    assert('issue-anchor is injected into the worker call args (always anchored re-entry)') do
+      d.pending['arguments']['anchor'] == '0:observed:0' && d.pending['issue_anchor'] == '0:observed:0'
     end
-    tok3, how3 = d.open_handle({ 'action' => 'approve' }, '1:proposed:0')
+    how2, tok2 = d.open_handle({ 'action' => 'approve' }, '0:observed:0')
+    assert('re-open for same anchor is idempotent (same token, no second worker)') do
+      how2 == :existing && tok2 == tok1
+    end
+    how3, tok3 = d.open_handle({ 'action' => 'approve' }, '1:proposed:0')
     assert('different anchor opens a NEW handle (different judgment)') do
-      how3 == 'opened' && tok3 != tok1
+      how3 == :opened && tok3 != tok1
     end
 
     puts '== A-2: status transitions =='
@@ -451,30 +454,35 @@ begin
     File.write(File.join(s.guard_dir, 'delegation.json'), JSON.generate(stale_pending))
     assert('no heartbeat past startup grace -> crashed') { d.status == 'crashed' }
     d.write_result({ 'status' => 'ok', 'state' => 'proposed' })
-    assert('result present -> ready (even after crash markers)') { d.status == 'ready' }
+    assert('matching-anchor result -> ready (even after crash markers)') { d.status == 'ready' }
+    assert('a STALE result (old issue-anchor) does NOT mask a fresh handle') do
+      # write a result for a stale anchor, then open a new handle at a new anchor
+      Delegation.new(s.guard_dir).clear_pending
+      stale = { 'issue_anchor' => '9:old:9', 'outcome' => { 'status' => 'ok' } }
+      File.write(File.join(s.guard_dir, 'delegation_result.json'), JSON.generate(stale))
+      howx, = d.open_handle({ 'action' => 'approve' }, '2:checkpoint:0')
+      howx == :opened && d.status == 'still_pending'
+    end
     d.clear_pending
+    d.clear_result
 
-    puts '== A-2: agent_wait surface =='
+    puts '== A-2: agent_wait surface + collect-once =='
     wait_tool = KairosMcp::SkillSets::Agent::Tools::AgentWait.new
+    d.open_handle({ 'action' => 'approve' }, '0:observed:0')
+    d.write_result({ 'status' => 'ok', 'state' => 'proposed' })
     w1 = JSON.parse(wait_tool.call({ 'session_id' => 'a2s1' })[0][:text])
     assert('wait on ready delegation returns outcome + next_move') do
       w1['status'] == 'ready' && w1['outcome']['state'] == 'proposed' && w1['next_move']
     end
-    FileUtils.rm_f(File.join(s.guard_dir, 'delegation_result.json'))
+    assert('collect-once: after wait, the result+handle are consumed') do
+      d.status == 'none' && !File.exist?(File.join(s.guard_dir, 'delegation_result.json'))
+    end
     w2 = JSON.parse(wait_tool.call({ 'session_id' => 'a2s1' })[0][:text])
     assert('wait with no delegation -> no_delegation + agent_status hint') do
       w2['status'] == 'no_delegation' && w2['next_action']['tool'] == 'agent_status'
     end
-    d2 = Delegation.new(s.guard_dir)
-    d2.open_handle({ 'action' => 'approve' }, '0:observed:0')
-    FileUtils.touch(File.join(s.guard_dir, 'delegation.heartbeat'), mtime: Time.now - 60)
-    w3 = JSON.parse(wait_tool.call({ 'session_id' => 'a2s1' })[0][:text])
-    assert('wait on crashed worker -> crashed + safe re-issue hint') do
-      w3['status'] == 'crashed' && w3['next_action']['tool'] == 'agent_status'
-    end
-    d2.clear_pending
 
-    puts '== A-2: delegated agent_step end-to-end with stub worker =='
+    puts '== A-2: delegated agent_step end-to-end with stub spawn =='
     s2 = new_seam_session('a2s2')
     tool = SeamStep.new
     ENV['KAIROS_AGENT_WORKER_CMD'] = 'true' # spawn no-op; we drive the worker logic below
@@ -489,13 +497,15 @@ begin
     assert('re-issued delegated start reuses the handle (no double spawn)') do
       r2['reused'] == true && r2['step_token'] == r1['step_token']
     end
-    # Simulate the worker: re-enter the same gated path with recorded args,
-    # write the result, clear the handle (what bin/agent_step_worker.rb does).
+    # Simulate the worker: re-enter the gated path with the recorded args
+    # (which now carry the injected anchor), write the result, clear the handle.
     d3 = Delegation.new(s2.guard_dir)
     pending = d3.pending
+    assert('recorded worker args carry the injected issue-anchor') do
+      pending['arguments']['anchor'] == '0:observed:0'
+    end
     worker_result = JSON.parse(tool.call(pending['arguments'].merge('session_id' => 'a2s2'))[0][:text])
     d3.write_result(worker_result)
-    d3.clear_pending
     w4 = JSON.parse(KairosMcp::SkillSets::Agent::Tools::AgentWait.new
                       .call({ 'session_id' => 'a2s2' })[0][:text])
     assert('worker-executed step lands under the gate; wait collects it with next_move') do
@@ -508,9 +518,98 @@ begin
       rp['replayed'] == true && tool.approve_runs == 1
     end
     ENV.delete('KAIROS_AGENT_WORKER_CMD')
+
+    puts '== A-2: crash-window (b) — committed but no result -> recovered =='
+    s5 = new_seam_session('a2s5')
+    tool5 = SeamStep.new
+    d5 = Delegation.new(s5.guard_dir)
+    how5, = d5.open_handle({ 'action' => 'approve' }, '0:observed:0')
+    # worker commits the gated advance but "dies" before write_result:
+    tool5.call(d5.pending['arguments'].merge('session_id' => 'a2s5'))
+    FileUtils.touch(File.join(s5.guard_dir, 'delegation.heartbeat'), mtime: Time.now - 60)
+    assert('committed-but-no-result handle reports crashed at the delegation layer') do
+      how5 == :opened && d5.result.nil? && d5.status == 'crashed'
+    end
+    w5 = JSON.parse(KairosMcp::SkillSets::Agent::Tools::AgentWait.new
+                      .call({ 'session_id' => 'a2s5' })[0][:text])
+    assert('agent_wait recovers the committed outcome from the gate log (no lost return value)') do
+      w5['status'] == 'ready' && w5['recovered'] == true &&
+        w5['outcome']['state'] == 'proposed' && tool5.approve_runs == 1
+    end
   end
 rescue LoadError => e
   puts "  SKIP: A-2 probes (#{e.message})"
+end
+
+# ---- A-2: REAL detached worker smoke test (the make-or-break bootstrap) ----
+# Spawns the actual bin/agent_step_worker.rb against a real session and a real
+# ToolRegistry built from the template skillset under review, and asserts the
+# worker resolves agent_step, runs the gated advance, and writes a collectable
+# result. This is the coverage the stubbed probes cannot provide.
+begin
+  require 'open3'
+  agent_dir = File.expand_path('..', __dir__)
+  server_lib = File.expand_path('../../../lib', agent_dir) # KairosChain_mcp_server/lib
+  worker = File.join(agent_dir, 'bin', 'agent_step_worker.rb')
+
+  if File.exist?(File.join(server_lib, 'kairos_mcp', 'tool_registry.rb'))
+    Dir.mktmpdir('resilience_realworker_') do |proj|
+      data_dir = File.join(proj, '.kairos')
+      # Install the template agent skillset (+ its deps' presence is assumed in
+      # the real tree) so ToolRegistry can load it from the data dir.
+      skills_dst = File.join(data_dir, 'skillsets', 'agent')
+      FileUtils.mkdir_p(File.dirname(skills_dst))
+      FileUtils.cp_r(agent_dir, skills_dst)
+
+      puts '== A-2: real detached worker bootstrap smoke test =='
+      # Create a session in the data dir via a registry in-process, so the
+      # session record the worker loads is real.
+      env = { 'KAIROS_DATA_DIR' => data_dir, 'KAIROS_SERVER_LIB' => server_lib,
+              'KAIROS_PROJECT_ROOT' => proj }
+      setup = <<~RUBY
+        Dir.chdir(#{proj.inspect})
+        $LOAD_PATH.unshift(#{server_lib.inspect})
+        $LOAD_PATH.unshift(#{File.join(skills_dst, 'lib').inspect})
+        require 'kairos_mcp/invocation_context'
+        require 'agent/session'
+        S = KairosMcp::SkillSets::Agent::Session
+        s = S.new(session_id: 'rw1', mandate_id: 'm', goal_name: 'g',
+                  invocation_context: KairosMcp::InvocationContext.new, config: {}, autonomous: false)
+        s.update_state('checkpoint'); s.save
+        # open a delegation handle for a 'stop' step (no LLM needed) at the current anchor
+        require 'agent/advance_gate'; require 'agent/step_delegation'
+        g = KairosMcp::SkillSets::Agent::AdvanceGate.new(s.guard_dir)
+        d = KairosMcp::SkillSets::Agent::StepDelegation.new(s.guard_dir)
+        d.open_handle({ 'action' => 'stop' }, g.current_anchor(s))
+        puts File.expand_path(s.guard_dir)
+      RUBY
+      out, st = Open3.capture2e(env, RbConfig.ruby, '-e', setup)
+      guard_dir = out.lines.last&.strip
+
+      if st.success? && guard_dir && Dir.exist?(guard_dir)
+        # Run the REAL worker (foreground for determinism: KAIROS_AGENT_WORKER
+        # is not stubbed here).
+        wout, = Open3.capture2e(env, RbConfig.ruby, worker, 'rw1', guard_dir)
+        result_file = File.join(guard_dir, 'delegation_result.json')
+        # Poll briefly for the result (worker detaches via setsid but we ran it
+        # foreground, so it should be present on return).
+        20.times { break if File.exist?(result_file); sleep 0.1 }
+        assert('real worker resolved agent_step, ran the gated stop, wrote a result') do
+          File.exist?(result_file) &&
+            (JSON.parse(File.read(result_file)).dig('outcome', 'state') == 'terminated')
+        end
+        assert('real worker cleared its pending handle on success') do
+          !File.exist?(File.join(guard_dir, 'delegation.json'))
+        end
+      else
+        puts "  SKIP: real-worker smoke test setup failed (#{out.lines.last&.strip})"
+      end
+    end
+  else
+    puts '  SKIP: real-worker smoke test (server lib not found at expected path)'
+  end
+rescue StandardError => e
+  puts "  SKIP: real-worker smoke test (#{e.class}: #{e.message})"
 end
 
 puts

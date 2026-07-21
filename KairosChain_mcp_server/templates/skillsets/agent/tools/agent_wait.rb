@@ -80,14 +80,7 @@ module KairosMcp
                                                'no delegated step is pending; read agent_status and follow next_move')
                 }))
               when 'crashed'
-                return text_content(JSON.generate({
-                  'status' => 'crashed', 'session_id' => session_id,
-                  'step_token' => delegation.pending&.dig('step_token'),
-                  'next_action' => status_hint(session_id,
-                                               'the delegated worker died; the gate makes a re-issue safe — ' \
-                                               'read agent_status and follow next_move (a committed advance replays, ' \
-                                               'an uncommitted one re-executes exactly once)')
-                }))
+                return crashed_response(session, delegation)
               end
 
               if Time.now >= deadline
@@ -110,13 +103,51 @@ module KairosMcp
           private
 
           def ready_response(session, delegation)
-            outcome = delegation.result || { 'status' => 'error', 'error' => 'result unreadable' }
+            raw = delegation.result || {}
+            outcome = raw['outcome'] || { 'status' => 'error', 'error' => 'result unreadable' }
+            # Collect-once: consume the result so a later delegated step for a
+            # new state is not masked by this one. The advance itself remains
+            # replayable through the gate log if the caller re-issues.
+            delegation.clear_result
+            delegation.clear_pending
             fresh = Session.load(session.session_id) || session
             gate = AdvanceGate.new(fresh.guard_dir)
             text_content(JSON.generate({
               'status' => 'ready', 'session_id' => session.session_id,
               'outcome' => outcome,
               'next_move' => gate.next_move(fresh)
+            }))
+          end
+
+          # Crash-window (b): the worker committed its gated advance (state
+          # moved, seq bumped, replay record written) but died before writing
+          # the result. Recover the committed outcome from the gate log at the
+          # handle's issue-anchor, so the return value is not lost.
+          def crashed_response(session, delegation)
+            pending = delegation.pending
+            issue_anchor = pending&.dig('issue_anchor')
+            gate = AdvanceGate.new(session.guard_dir)
+            committed = issue_anchor && gate.committed_outcome(issue_anchor)
+
+            if committed
+              delegation.clear_pending
+              fresh = Session.load(session.session_id) || session
+              return text_content(JSON.generate({
+                'status' => 'ready', 'session_id' => session.session_id,
+                'recovered' => true, 'outcome' => committed,
+                'next_move' => AdvanceGate.new(fresh.guard_dir).next_move(fresh)
+              }))
+            end
+
+            # Nothing committed: the worker died before the gate advanced, so a
+            # re-issue is a fresh, exactly-once execution. Point the driver at
+            # agent_status/next_move.
+            text_content(JSON.generate({
+              'status' => 'crashed', 'session_id' => session.session_id,
+              'step_token' => pending&.dig('step_token'),
+              'next_action' => status_hint(session.session_id,
+                                           'the delegated worker died before committing; the gate makes a ' \
+                                           're-issue safe (exactly-once) — read agent_status and follow next_move')
             }))
           end
 
