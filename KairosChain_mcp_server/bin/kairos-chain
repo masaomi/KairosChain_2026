@@ -134,6 +134,12 @@ when 'skillset'
   when 'upgrade'
     apply = ARGV.delete('--apply')
     upgrades = manager.upgrade_check
+    # --apply always runs with core_only: true (no way to pass names from this
+    # CLI form), so a new, non-core SkillSet is NEVER installed by --apply,
+    # no matter how many times it is run. Split the two groups so the
+    # displayed guidance matches what --apply will actually do.
+    manual = upgrades.select { |u| u[:new_skillset] && !KairosMcp::SkillSetManager::CORE_SKILLSETS.include?(u[:name]) }
+    applicable = upgrades - manual
 
     if upgrades.empty?
       puts "All SkillSets are up to date."
@@ -143,6 +149,12 @@ when 'skillset'
         puts "Updated #{r[:name]}: v#{r[:from]} -> v#{r[:to]} (#{r[:files_updated]} files)"
       end
       puts "Done. #{results.size} SkillSet(s) upgraded."
+
+      if manual.any?
+        puts ""
+        puts "Not installed (optional, requires explicit approval):"
+        manual.each { |u| puts "  kairos-chain skillset install #{u[:name]}" }
+      end
 
       # Re-project plugin artifacts if any SkillSets changed
       if results.any?
@@ -162,15 +174,25 @@ when 'skillset'
         end
       end
     else
-      puts "SkillSet upgrades available:"
-      puts ""
-      upgrades.each do |u|
-        label = u[:version_bump] ? "v#{u[:installed_version]} -> v#{u[:available_version]}" : "files changed"
-        puts "  #{u[:name]}: #{label}"
-        u[:changed_files].each { |f| puts "    Modified: #{f}" }
+      if applicable.any?
+        puts "SkillSet upgrades available:"
         puts ""
+        applicable.each do |u|
+          label = u[:version_bump] ? "v#{u[:installed_version]} -> v#{u[:available_version]}" : "files changed"
+          puts "  #{u[:name]}: #{label}"
+          u[:changed_files].each { |f| puts "    Modified: #{f}" }
+          puts ""
+        end
+        puts "Run 'kairos-chain skillset upgrade --apply' to apply updates."
       end
-      puts "Run 'kairos-chain skillset upgrade --apply' to apply updates."
+
+      if manual.any?
+        puts "" if applicable.any?
+        puts "Optional SkillSets available (not auto-installed; require explicit approval):"
+        manual.each { |u| puts "  #{u[:name]} v#{u[:available_version]} — #{u[:description]}" }
+        puts ""
+        puts "Install with: kairos-chain skillset install <name>"
+      end
     end
 
   when 'remove'
@@ -258,6 +280,7 @@ when 'skillset'
     puts "  install <path> [--layer L0|L1|L2]  Install a SkillSet from path"
     puts "  enable <name>                      Enable a SkillSet"
     puts "  disable <name>                     Disable a SkillSet"
+    puts "  upgrade [--apply]                  Check for/apply SkillSet updates from gem templates"
     puts "  remove <name>                      Remove a SkillSet"
     puts "  info <name>                        Show SkillSet details"
     puts "  package <name>                     Package a knowledge-only SkillSet as JSON archive"
