@@ -4,6 +4,25 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.49.1] - 2026-07-22
+
+### CLI fix — `skillset upgrade` messaging for non-core new SkillSets
+
+`kairos-chain skillset upgrade --apply` always runs with `core_only: true`
+(the plain CLI form has no way to pass explicit `names`), so a new,
+non-core SkillSet (e.g. `confidentiality_guard`, `daemon_runtime`,
+`kairos_hook_projector`) was never installed by `--apply`, regardless of
+how many times it was run — but the check-mode display mislabeled these as
+"files changed" and told the user to run `--apply`, which silently did
+nothing for them.
+
+- Detected upgrades are now split into "applicable" (existing-installed
+  diffs + core new SkillSets, which `--apply` does handle) and "manual"
+  (non-core new SkillSets, which require explicit
+  `kairos-chain skillset install <name>`). Both the check-mode listing and
+  the post-`--apply` summary report each group accurately.
+- Added the missing `upgrade` line to `kairos-chain skillset -h`.
+
 ## [3.49.0] - 2026-07-22
 
 ### ZK aggregate reproducibility spike (AUD-L4, Phases 1+2) — KairosChain's first genuine zero-knowledge proof
