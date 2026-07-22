@@ -5,6 +5,12 @@ require_relative 'lifecycle_hook'
 
 module KairosMcp
   class ToolRegistry
+    # Raised by SkillSets whose activation must never be swallowed
+    # (fail-closed regimes, e.g. confidentiality_guard): the loader
+    # re-raises instead of degrading to a warn, so an enabled regime can
+    # never be silently skipped and leave the server unguarded.
+    class FailClosedError < StandardError; end
+
     # Authorization denial raised by registered gates
     class GateDeniedError < StandardError
       attr_reader :tool_name, :role
@@ -273,17 +279,44 @@ module KairosMcp
 
       manager = SkillSetManager.new
       manager.enabled_skillsets.each do |skillset|
-        skillset.load!
-        skillset.tool_class_names.each do |cls|
-          # Phase 1.5: thread source attribution for capability_status manifest
-          register_if_defined(cls, source: "skillset:#{skillset.name}")
-        end
-        # 24/7 v0.4 §2.3 — register lifecycle hooks declared by this SkillSet.
-        skillset.lifecycle_hooks.each do |hook_name, class_name|
-          register_lifecycle_hook(hook_name, class_name, skillset_name: skillset.name)
+        # Per-skillset isolation: one failing SkillSet must not abort the
+        # loop and silently skip later ones (a fail-closed regime loaded
+        # later would otherwise never register its gate).
+        begin
+          skillset.load!
+          # Fail-closed activation hook (before tool registration): a
+          # regime that ships enabled must register its enforcement at load
+          # time, not as a side effect of some tool being instantiated.
+          # ANY failure to resolve or run the hook is fail-closed: a
+          # missing/typo'd hook constant must not degrade to a warn and
+          # leave an enabled regime unguarded.
+          if (hook = skillset.activation_hook)
+            begin
+              LifecycleHook.validate_class_name!(hook)
+              Object.const_get(hook).activate_on_load!(registry_class: self.class)
+            rescue FailClosedError
+              raise
+            rescue StandardError => e
+              raise FailClosedError,
+                    "activation_hook '#{hook}' (skillset '#{skillset.name}') failed to activate: " \
+                    "#{e.class}: #{e.message}"
+            end
+          end
+          skillset.tool_class_names.each do |cls|
+            # Phase 1.5: thread source attribution for capability_status manifest
+            register_if_defined(cls, source: "skillset:#{skillset.name}")
+          end
+          # 24/7 v0.4 §2.3 — register lifecycle hooks declared by this SkillSet.
+          skillset.lifecycle_hooks.each do |hook_name, class_name|
+            register_lifecycle_hook(hook_name, class_name, skillset_name: skillset.name)
+          end
+        rescue LifecycleHook::Conflict, FailClosedError
+          raise  # never swallow — integrity/fail-closed regimes depend on detection
+        rescue StandardError => e
+          warn "[ToolRegistry] Failed to load SkillSet '#{skillset.name}': #{e.message}"
         end
       end
-    rescue LifecycleHook::Conflict
+    rescue LifecycleHook::Conflict, FailClosedError
       raise  # never swallow — Bootstrap integrity depends on detection
     rescue StandardError => e
       warn "[ToolRegistry] Failed to load SkillSet tools: #{e.message}"

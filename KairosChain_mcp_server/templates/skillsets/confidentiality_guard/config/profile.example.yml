@@ -1,0 +1,34 @@
+# Confidentiality Guard policy profile — EXAMPLE (copy to profile.yml and edit).
+#
+# The profile is data, not code (design v0.3 §4). Its designations span the
+# guarded crossing classes; a class left undesignated is wholly denied
+# (CG-1 fail-closed). Activation with no profile file at all is total denial.
+#
+# All patterns must be valid Ruby regexes; an invalid pattern aborts
+# activation (fail-closed: the regime never runs on a policy it cannot pin).
+version: 1
+
+# Persistent-layer admissions (inward writes). Absent layer => denied.
+persistent_admissions:
+  l2: permitted
+  l1: denied
+
+# Restricted storage designations. Reads of designated roots are guarded
+# crossings: recorded when permitted (CG-4), denied otherwise. Paths are
+# resolved relative to the process working directory unless absolute.
+restricted_storage:
+  - id: chain_store
+    path: .kairos/storage
+    reads: denied
+
+# Content classes. A detection on a designated crossing denies the call
+# (transform-and-pass is a Slice 2 opt-in; any `consequence` other than
+# `deny` is unenforced in Slice 1 and therefore denies — CG-1 coverage).
+# Note: detection runs over the canonical JSON of the call's arguments, so
+# a key/value pair like {api_key: "..."} presents as "api_key":"..." — the
+# pattern therefore tolerates quotes between the name and the separator.
+content_classes:
+  - id: api_key
+    pattern: '(?i)\b(api[_-]?key|secret[_-]?key|access[_-]?token)\b["'']?\s*[:=]'
+  - id: private_key_block
+    pattern: '-----BEGIN [A-Z ]*PRIVATE KEY-----'

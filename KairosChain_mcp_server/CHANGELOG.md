@@ -4,6 +4,43 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.48.0] - 2026-07-22
+
+### Confidentiality Guard SkillSet — slice 1 (CG-1..CG-6)
+
+New `confidentiality_guard` SkillSet implementing design v0.3 (FROZEN,
+review-converged). A fail-closed, selectable-off data-confidentiality regime
+for enterprise environments. Slice 1 covers inward (L2/L1 write) and
+restricted-storage-read surfaces; outward crossings and unmapped
+resource-scheme reads are denied wholesale under the CG-1 coverage clause.
+
+- `lib/confidentiality_guard/regime.rb`: regime lifecycle + tool-surface
+  interception via a `ToolRegistry` gate (verdict precedes effect, CG-2).
+  Activation is environment-level (`KAIROS_CONFIDENTIALITY_GUARD` env >
+  config), read at load time via the skillset `activation_hook` (independent
+  of tool instantiation) with an eager `cg_status` belt-and-suspenders call;
+  policy pinned at activation; activation AND cessation recorded; gate
+  registered only after the regime is active (no fail-open window).
+- `policy.rb`: pinned, content-addressed policy profile; `File.realpath`-
+  matching path resolution (symlink- and `..`-safe, parity with the
+  external-tools readers). `surfaces.rb`: crossing classification with a
+  release-gated enrollment manifest. `verdict.rb`: deterministic LLM-free
+  conjunctive verdict (designation closed-world + content detection),
+  versioned verdict basis. `recorder.rb`: constitutive chain records bound
+  by salted commitments (sdp-1-aligned), never containing content; read
+  records carry the designation id, not the raw path. `canon.rb`: shared
+  canonical serialization faithful to false/nil and mixed string/symbol keys.
+- `tools/cg_status.rb`: read-only regime-state tool (CG-1).
+- 67 design-constraint + regression tests (`test/test_cg_guard.rb`).
+
+Core (minimal, guard-enabling): `tool_registry.rb` adds `FailClosedError`
+(re-raised by the loader, never swallowed), per-skillset isolated loading,
+and fail-closed `activation_hook` invocation; `skillset.rb` adds the
+`activation_hook` accessor. Impl review: 3 rounds with executable-probe
+personas; every deployment-grounded finding (enabled-but-unguarded start,
+copy source-read bypass, path-resolution parity, symlink+`..` bypass, loader
+fail-closed) resolved.
+
 ## [3.47.0] - 2026-07-22
 
 ### Synoptis — selective disclosure sdp-1 (AUD-L4 slice 1)

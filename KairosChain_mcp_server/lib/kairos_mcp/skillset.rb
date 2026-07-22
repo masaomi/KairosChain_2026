@@ -87,6 +87,16 @@ module KairosMcp
       @metadata['config_files'] || []
     end
 
+    # Optional fail-closed activation hook: a fully-qualified class name
+    # whose `activate_on_load!` runs at skillset-load time, independent of
+    # whether any of the SkillSet's tools are instantiated. Used by
+    # fail-closed regimes (confidentiality_guard) so an enabled guard
+    # registers its enforcement even if no tool is ever constructed.
+    def activation_hook
+      name = @metadata['activation_hook']
+      name.is_a?(String) && !name.empty? ? name : nil
+    end
+
     def knowledge_dir_names
       @metadata['knowledge_dirs'] || []
     end

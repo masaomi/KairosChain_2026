@@ -1,0 +1,18 @@
+# Confidentiality Guard SkillSet configuration (CG-1).
+#
+# The regime ships selectable-off. Flipping `enabled: true` activates the
+# fail-closed confidentiality regime as a whole at the next instance start —
+# there is no per-surface toggle (design v0.3, CG-1).
+#
+# Activation precedence (mechanism choice recorded here, invariant in CG-1):
+#   1. Environment variable KAIROS_CONFIDENTIALITY_GUARD ("1" forces on,
+#      "0" forces off) — highest precedence, environment-level act.
+#   2. This file's guard.enabled.
+# Both are read at instance start, outside the deciding model's reach.
+guard:
+  enabled: false
+  # Path to the enforced policy profile, relative to this config directory.
+  # The profile is pinned (content-addressed) at activation; edits to the
+  # file are inert until a subsequent activation-level act adopts them
+  # (CG-1), and edits made through instance tools are recorded (CG-4).
+  profile: profile.yml
