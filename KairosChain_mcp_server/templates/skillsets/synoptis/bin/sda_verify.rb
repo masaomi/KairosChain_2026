@@ -27,6 +27,16 @@
 #       commitment commit the same in-band integer.
 #   sda_verify.rb doi-set <dois.json>
 #       prints the DOI-set commitment (fix this BEFORE scoring; anchor via khab-1).
+#   sda_verify.rb range-verify <commitment_hex> <range_proof.json>
+#       verifies one score's zero-knowledge range proof (s in [0,7]) against its
+#       Pedersen commitment (aud_l4_zk_range_proof_design v0.3, Phase 2).
+#   sda_verify.rb full-audit-verify <bundle.json>
+#       the whole audit in one pass: C1 coverage (sdp-1 presentations), C3
+#       aggregate (verify_mean), C4 every per-score range proof.
+#       bundle.json = {"doi_set_commitment": hex, "aggregate": {"sum_s": "N",
+#       "sum_r": "N"}, "items": [{"commitment": enc, "range_proof": {...},
+#       "presentation": {...}} ...]} (presentation optional per item; its
+#       absence fails C1 for that item, reported not raised).
 #
 # Exit status: 0 = VERIFIED/REPORT, 1 = REJECTED, 2 = usage / unresolvable.
 
@@ -37,10 +47,13 @@ require_relative '../lib/synoptis/anchoring/selective_disclosure'
 require_relative '../lib/synoptis/anchoring/ec_group'
 require_relative '../lib/synoptis/anchoring/pedersen'
 require_relative '../lib/synoptis/anchoring/aggregate_disclosure'
+require_relative '../lib/synoptis/anchoring/range_proof'
 
 EC = Synoptis::Anchoring::EcGroup
 Ped = Synoptis::Anchoring::Pedersen
 Agg = Synoptis::Anchoring::AggregateDisclosure
+RP = Synoptis::Anchoring::RangeProof
+SD = Synoptis::Anchoring::SelectiveDisclosure
 
 def die(msg)
   warn "sda_verify: #{msg}"
@@ -158,6 +171,90 @@ when 'doi-set'
   puts "doi-set commitment: #{digest}"
   puts 'NOTE: fix this before any score exists and anchor it (khab-1); it forbids post-hoc DOI substitution.'
 
+when 'range-verify'
+  die 'usage: sda_verify.rb range-verify <commitment_hex> <range_proof.json>' unless ARGV.size == 2
+  commitment = ARGV[0].to_s
+  proof = read_file(ARGV[1])
+  ok = begin
+    RP.verify_range(commitment, proof)
+  rescue RP::RangeError => e
+    reject e.message
+  end
+  reject 'range proof does not verify (reconstruction or a per-bit OR equation failed)' unless ok
+  puts "VERIFIED: commitment #{commitment[0, 12]}… commits a score in [0, #{RP::VMAX}] — proven in zero knowledge (value not revealed)"
+  puts 'NOTE: soundness = discrete log (secp256k1) + CDS Sigma OR special-soundness + Fiat-Shamir (SHA-256 as RO); no trusted setup (SDP-5).'
+  puts 'NOTE: the proof shows the committed score is in-band, NOT that it is the true re-execution result (RPR-4/MPR-6 residue).'
+
+when 'full-audit-verify'
+  die 'usage: sda_verify.rb full-audit-verify <bundle.json>' unless ARGV.size == 1
+  bundle = load_json(ARGV[0], 'bundle')
+  die 'bundle must be a JSON object' unless bundle.is_a?(Hash)
+  b = bundle.transform_keys(&:to_s)
+  items = b['items']
+  agg_open = b['aggregate'].is_a?(Hash) ? b['aggregate'].transform_keys(&:to_s) : nil
+  die 'bundle.items must be a non-empty array' unless items.is_a?(Array) && !items.empty?
+  die 'bundle.aggregate must be {sum_s, sum_r}' unless agg_open && agg_open['sum_s'] && agg_open['sum_r']
+
+  sum_s = strict_int(agg_open['sum_s'].to_s, 'aggregate.sum_s')
+  sum_r = strict_int(agg_open['sum_r'].to_s, 'aggregate.sum_r')
+  views = items.map { |it| it.is_a?(Hash) ? it.transform_keys(&:to_s) : {} }
+  commitments = views.map { |it| it['commitment'].to_s }
+
+  # C1 — coverage: every item carries a verifying sdp-1 presentation.
+  c1_failures = []
+  views.each_with_index do |it, i|
+    if it['presentation'].is_a?(Hash)
+      begin
+        report = SD.verify_presentation(Synoptis::Anchoring::Entry.canonical_json(it['presentation']))
+        c1_failures << "item #{i}: presentation does not verify (#{report[:failures].first})" unless report[:valid]
+      rescue SD::DisclosureError, Synoptis::Anchoring::ChainCredential::CredentialError => e
+        c1_failures << "item #{i}: presentation unresolvable: #{e.message}"
+      end
+    else
+      c1_failures << "item #{i}: no endorsement presentation (coverage unestablished)"
+    end
+  end
+
+  # C3 — aggregate: the published mean opens over the committed scores.
+  c3_report = begin
+    Agg.verify_mean(commitments: commitments, sum_s: sum_s, sum_r: sum_r)
+  rescue Agg::AggregateError, EC::GroupError => e
+    reject "aggregate unresolvable: #{e.message}"
+  end
+
+  # C4 — every per-score range proof verifies against its commitment.
+  c4_failures = []
+  views.each_with_index do |it, i|
+    unless it['range_proof'].is_a?(Hash)
+      c4_failures << "item #{i}: no range proof"
+      next
+    end
+    begin
+      ok = RP.verify_range(it['commitment'].to_s, Synoptis::Anchoring::Entry.canonical_json(it['range_proof']))
+      c4_failures << "item #{i}: range proof fails (reconstruction or OR equation)" unless ok
+    rescue RP::RangeError => e
+      c4_failures << "item #{i}: range proof inadmissible: #{e.message}"
+    end
+  end
+
+  c1 = c1_failures.empty?
+  c3 = c3_report[:valid]
+  c4 = c4_failures.empty?
+  puts "C1 coverage:  #{c1 ? 'PASS' : 'FAIL'} (#{items.size} item(s))"
+  c1_failures.each { |f| puts "  - #{f}" }
+  puts "C3 aggregate: #{c3 ? 'PASS' : 'FAIL'}#{c3 ? " — mean #{c3_report[:mean_band].to_f.round(3)} of #{c3_report[:vmax]} (#{c3_report[:mean_percent].to_f.round(2)}%)" : ''}"
+  puts "C4 range:     #{c4 ? "PASS (every score proven in [0, #{RP::VMAX}] without disclosure)" : 'FAIL'}"
+  c4_failures.each { |f| puts "  - #{f}" }
+  puts "doi_set_commitment: #{b['doi_set_commitment']}" if b['doi_set_commitment']
+  puts 'NOTE: the aggregate is honest relative to the committed scores; that each score is the true re-execution result is NOT proven (RPR-4/MPR-6 residue).'
+  puts 'NOTE: commit the DOI set (khab-1) BEFORE any score exists, or substitution reopens (spike design §6c).'
+  if c1 && c3 && c4
+    puts 'VERIFIED: full audit holds (C1 coverage + C3 aggregate + C4 range).'
+  else
+    puts 'REJECTED: one or more audit claims fail.'
+    exit 1
+  end
+
 else
-  die 'usage: sda_verify.rb generators|commit|aggregate-verify|aggregate-schnorr|binding|doi-set …'
+  die 'usage: sda_verify.rb generators|commit|aggregate-verify|aggregate-schnorr|binding|doi-set|range-verify|full-audit-verify …'
 end
