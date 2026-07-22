@@ -4,6 +4,47 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.47.0] - 2026-07-22
+
+### Synoptis — selective disclosure sdp-1 (AUD-L4 slice 1)
+
+Implements AUD-L4 design v0.3 (SDP-1..5, FROZEN, review-converged) slice 1
+in the synoptis SkillSet. All additive: sdp-1 builds on khab-1/map-1/rpr-1
+exactly as each prior slice built on its predecessors; no pre-existing file
+changed.
+
+- `conventions/sdp-1.md`: content-addressed selective-disclosure convention —
+  hash-based salted field-level disclosure (content-blinding: field values
+  hidden, record digest / field names / count public; the ZK membership
+  family is disclosed as out of scope for a later convention). Field
+  commitments (one salted digest per field, total coverage, `sdp-1/field`
+  domain separation), convention-determined disclosure profile (closed
+  schema; predicate + opened set + currency, `format` always opened),
+  presentation (closed schema per shape), three predicates
+  (typed-existence / claimed-verdict / conforming-verdict with foreignness,
+  anterior-tolerance assessment, and sibling-aware tolerance-target
+  coherence inside the checked predicate), extent-bounded currency scan
+  (issuer rule, residues disclosed unconditionally), computational
+  hiding/soundness base stated (no trusted setup).
+- `selective_disclosure.rb`: build/parse/verify for field commitments,
+  profile, presentation (refuse-not-coerce, canonical-serialization
+  equality everywhere); signature verification from the record DIGEST alone
+  via the unchanged map-1 §1.1 attestation signature — blinded verdicts
+  without record content; conforming-verdict refuses (never degrades) when
+  operator credential or rpr-1 §2.1 assessment material is missing;
+  currency scan with unestablished-vs-unretracted discipline.
+- `bin/sdp_verify.rb`: offline verifier (commit / binding / presentation /
+  profile / currency / convention), exit-code discipline (0/1/2), strict
+  intake (delete_suffix, canonical numerals).
+- `test/test_sdp_disclosure.rb`: 61 design-constraint assertions
+  (SDP-1..5), including crafted-record shape refusal, verdict-vocabulary
+  closure, sibling-target coherence (rpr-1 §2.1 pooling agreement),
+  hiding of withheld values across artifacts and error paths, and
+  khab/map/rpr non-interference (37/75/76/88 regression green).
+
+Implementation review: 3 rounds, R3 4/6 APPROVE + executable-probe
+personas 2/2, zero remaining P0/P1 (dispositions in docs/drafts/).
+
 ## [3.46.0] - 2026-07-22
 
 ### Synoptis — reproduction endorsement rpr-1 (AUD-L3 slice 1)
