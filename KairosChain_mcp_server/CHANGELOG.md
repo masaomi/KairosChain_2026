@@ -4,6 +4,40 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.49.0] - 2026-07-22
+
+### ZK aggregate reproducibility spike (AUD-L4, Phases 1+2) — KairosChain's first genuine zero-knowledge proof
+
+Additive demonstrator in the `synoptis` SkillSet (candidate convention id
+`sda-1` if later promoted). Proves, over a public DOI set, that an auditor's
+published aggregate (mean reproducibility) is honestly computed from
+per-item scores that stay secret — with each hidden score proven in-range
+via a genuine zero-knowledge proof. Pure-Ruby secp256k1; no trusted setup;
+no new runtime dependency (OpenSSL is a test-only oracle).
+
+- Phase 1 — `ec_group.rb` (hand-rolled prime-order secp256k1, NUMS second
+  generator H), `pedersen.rb` (perfectly-hiding commitments, additive
+  homomorphism, aggregate opening + Σr-hiding Schnorr proof),
+  `aggregate_disclosure.rb` (SDP-2 dual-commitment score binding to rpr-1
+  endorsements, DOI-set commitment, mean verification).
+- Phase 2 — `range_proof.rb` (`Synoptis::Anchoring::RangeProof`):
+  bit-decomposition range proof for s ∈ [0, 7] (3-bit band). Per-bit
+  Cramer-Damgård-Schoenmakers '94 Schnorr OR proofs (b ∈ {0,1}) plus the
+  reconstruction invariant Σ 2^j·B_j = C; Fiat-Shamir (SHA-256) with
+  metadata- and index-bound transcripts. Fail-closed verifier admission
+  (closed schema, type-strict vmax/bits, point/scalar canonicality,
+  identity rejection) closes range-escape and encoding-malleability.
+- CLI: `sda_verify.rb` gains `commit`, `aggregate-verify`,
+  `aggregate-schnorr`, `binding`, `doi-set`, `range-verify`,
+  `full-audit-verify` (C1 coverage + C3 aggregate + C4 range in one pass).
+- Tests: 93 new (52 Phase 1 + 41 Phase 2) incl. the mandatory forgery
+  negatives (an out-of-range 32000 score cannot yield an accepting proof);
+  scalar-mul cross-validated against OpenSSL. Existing suites unchanged
+  (507 total green).
+- Design memos under `docs/drafts/`; design and implementation each
+  converged through philosophy-briefed multi-LLM review (impl round 2:
+  6/6 APPROVE).
+
 ## [3.48.0] - 2026-07-22
 
 ### Confidentiality Guard SkillSet — slice 1 (CG-1..CG-6)
