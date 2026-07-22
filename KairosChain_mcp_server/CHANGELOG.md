@@ -4,6 +4,43 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.46.0] - 2026-07-22
+
+### Synoptis — reproduction endorsement rpr-1 (AUD-L3 slice 1)
+
+Implements AUD-L3 design v0.4 (RPR-1..5, review-converged) slice 1 in the
+synoptis SkillSet. All additive: rpr-1 builds on map-1/khab-1 exactly as
+map-1 built on khab-1; no pre-existing file changed.
+
+- `conventions/rpr-1.md`: content-addressed reproduction-endorsement
+  convention — re-execution target (inputs/environment/pipeline/output
+  digests; the first three form the committed computation identification,
+  output excluded), target-bound result-free tolerance declaration
+  (bit-identity at rpr-1), reproduction endorsement carrying the adjudicated
+  verdict (reproduced / not-reproduced) and its adjudication mode
+  (hand / procedure), declaration-set assessment (order-independent, sibling
+  targets pooled by computation identification, residue disclosed), map-1 §3
+  retraction reused unchanged.
+- `reproduction.rb`: build/parse/digest for target, tolerance, endorsement
+  (closed schemas, canonical-serialization equality, refuse-not-coerce);
+  endorsement signing/verification via the unchanged map-1 §1.1 attestation
+  signature (ChainCredential); foreignness conformance check (RPR-4);
+  declaration-set assessment reporting invoked commitment (earliest
+  anterior), posterior commitments, digest-tiebroken rank, distinct-digest
+  multiplicity, and unresolved-equivalence residue.
+- `bin/rpr_verify.rb`: offline auditor verifier (target / tolerance /
+  endorsement / assess / convention). Strict intake (at most one trailing
+  LF via delete_suffix — CRLF refused), canonical base-10 numerals only,
+  exit-code discipline (0 verified/report, 1 rejected, 2 unresolvable),
+  RPR-1/RPR-4 condition disclosure in output.
+- `test/test_rpr_reproduction.rb`: 37 design-constraint assertions
+  (RPR-1..5), including presentation-order independence of the assessment
+  and rank, CRLF/padding refusal, and map-1 non-interference (75/75
+  regression green).
+
+Implementation review: 3 rounds, R3 5/5 APPROVE, zero remaining P0/P1
+(executable-probe personas; dispositions in docs/drafts/).
+
 ## [3.45.0] - 2026-07-21
 
 ### Synoptis — mutual anchoring protocol MAP-1..4 (map-1, AUD-L2)
