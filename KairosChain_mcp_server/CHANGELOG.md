@@ -4,6 +4,26 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.51.1] - 2026-07-23
+
+### CLI — `skillset upgrade` transparency log
+
+`kairos-chain skillset upgrade` (both check and `--apply`) now prints a
+structured report mirroring `kairos-chain upgrade --apply`, so a no-op run is
+visibly a completed check rather than a bare `All SkillSets are up to date.`
+one-liner. Every CHECKED SkillSet (an installed one with a gem-template
+counterpart) is listed with its status, followed by a summary:
+
+- `[UPGRADE]` / `[UPGRADED]` — version/files changed (changed files listed on
+  check), and, on `--apply`, `vFROM -> vTO (N files)`.
+- `[UNCHANGED]` — checked, no difference (the case that was previously invisible).
+- `[NEW-CORE]` — a core SkillSet not yet installed, installed on `--apply`.
+- `[OPTIONAL]` — a non-core new SkillSet, never auto-installed (explicit approval).
+- `## Summary` — counts of upgraded/installed, unchanged, and optional.
+
+Display-only: the upgrade decision (`upgrade_check` / `upgrade_apply`) is
+unchanged; `core_only: true` behavior for the plain CLI form is preserved.
+
 ## [3.51.0] - 2026-07-23
 
 ### Agent SkillSet — interruption resilience A-1 + A-2
