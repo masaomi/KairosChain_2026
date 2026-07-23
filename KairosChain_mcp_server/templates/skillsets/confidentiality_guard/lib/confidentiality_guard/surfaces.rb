@@ -60,6 +60,7 @@ module KairosMcp
         DISTILLATION_TOOLS = %w[
           cd_release_distillate
           cd_release_certificate
+          cd_release_package
         ].freeze
 
         # Outward crossings (crossing class a). Slice 1 ships no outward
