@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.6"
+version: "3.6.1"
 tags:
   - workflow
   - review
@@ -345,7 +345,7 @@ starting** and verify each against `config/multi_llm_review.yml`:
 - [ ] Your model (orchestrator): ___
 - [ ] Agent Team Personas model: = orchestrator model (NOT a different model)
 - [ ] Subprocess CLI models: Opus 4.6 AND Opus 4.8 (both, not either/or)
-- [ ] Codex models: gpt-5.5 (default) AND gpt-5.4 (both, not either/or)
+- [ ] Codex models: gpt-5.6-sol (default) AND gpt-5.5 (both, not either/or)
 - [ ] Cursor model: default (composer-2.5, no --model flag)
 - [ ] Total reviewer count: 6 (or 5 after orchestrator exclusion from subprocess)
 - [ ] Convergence rule: 4/6 APPROVE (full) or 3/5 APPROVE (after exclusion)
@@ -356,7 +356,7 @@ starting** and verify each against `config/multi_llm_review.yml`:
 | Mistake | Correct behavior | Why it happens |
 |---------|-----------------|----------------|
 | Exclude orchestrator model from Agent Team Personas | Agent Team uses orchestrator model — they provide persona diversity, not epistemic diversity | LLM misreads "do not assign yourself as a reviewer" as applying to Agent Team; it applies only to subprocess CLI |
-| Run only Codex GPT-5.4, skip 5.5 | Run both — they catch different things (5.5 found §5 schema contradiction in Phase 2 Case A that no other reviewer caught) | Cost-saving heuristic; roster has both for a reason |
+| Run only Codex GPT-5.6-sol, skip 5.5 | Run both — cross-generation entries catch different things (5.5 found §5 schema contradiction in Phase 2 Case A that no other reviewer caught) | Cost-saving heuristic; roster has both for a reason |
 | Use a smaller/cheaper model as Agent Team substitute | Use the orchestrator's own model with different personas | Confusing "model diversity" with "persona diversity" — Agent Team is the latter |
 | Run 3 reviewers instead of 6 (or 5 after exclusion) | Use the full roster from config | Ad-hoc "3 is enough" reasoning; config specifies 6 for empirical reasons |
 
@@ -580,7 +580,7 @@ which claude 2>/dev/null && echo "claude: available" || echo "claude: NOT FOUND"
 
 | Tool | Command | Prompt Input | Output Collection | Model |
 |------|---------|-------------|-------------------|-------|
-| **Codex** | `codex exec -m <model>` | stdin pipe: `cat prompt.md \| codex exec -` | `-o /path/output.md` | GPT-5.5 + GPT-5.4 (both roster entries, `-m` per entry) |
+| **Codex** | `codex exec -m <model>` | stdin pipe: `cat prompt.md \| codex exec -` | `-o /path/output.md` | GPT-5.6-sol + GPT-5.5 (both roster entries, `-m` per entry) |
 | **Cursor Agent** | `agent -p` | File reference (stdin NOT supported) | stdout redirect: `> output.md` | Composer-2.5 (default) |
 | **Claude Code** | Agent tool (internal) | Direct prompt string | Write to workspace file | Fable 5 (session) |
 | **Claude CLI (4.6)** | `claude -p --model claude-opus-4-6 --bare` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-4-6 --bare` | stdout redirect: `> output.md` | Opus 4.6 |
@@ -597,7 +597,7 @@ Based on cross-evaluation experiment (7 models × 4 tasks + Nomic, 518 CLI calls
 | **Reviewer: Claude CLI** | Opus 4.6 / Opus 4.8 | (default; config `effort: medium`) | Evaluator quality is effort-independent (low≈high: 8.35 vs 8.16) — per 2026-04-29 policy reviewers stay at default |
 | **Coding sub-agent** | Opus 4.7 | `--effort medium` | Cost-effective default; use `high` for complex tasks |
 | **Design sub-agent** | Opus 4.7 | `--effort medium` | Cost-effective default; use `high` for complex tasks |
-| **Codex** | GPT-5.5 (default) | (no flag) | Fixed effort |
+| **Codex** | GPT-5.6-sol / GPT-5.5 | (no flag) | Fixed effort |
 | **Cursor Agent** | Composer-2.5 | (no flag) | Fixed effort |
 
 Note (2026-06-10): the effort experiment data is from the Opus 4.6/4.7
@@ -898,11 +898,11 @@ Step 1: Generate review prompt
 Step 2: Detect environment and models
   - Run: which codex && which agent && which claude
   - Detect default models
-  - Report: "Auto mode: Codex (gpt-5.5, gpt-5.4), Agent (composer-2.5), Claude Team (claude-fable-5), Claude CLI (opus-4.6, opus-4.8)"
+  - Report: "Auto mode: Codex (gpt-5.6-sol, gpt-5.5), Agent (composer-2.5), Claude Team (claude-fable-5), Claude CLI (opus-4.6, opus-4.8)"
 
 Step 3: Execute N reviews in parallel (default 6 reviewers)
   - Bash(background): cat prompt.md | codex exec -m gpt-5.5 -C workspace -o log/review_codex_gpt5.5.md -
-  - Bash(background): cat prompt.md | codex exec -m gpt-5.4 -C workspace -o log/review_codex_gpt5.4.md -
+  - Bash(background): cat prompt.md | codex exec -m gpt-5.6-sol -C workspace -o log/review_codex_gpt5.6-sol.md -
   - Bash(background): agent -p --trust "Read prompt and review..." > log/review_cursor.md
   - Agent(background): Claude Team (orchestrator model, Fable 5) → write to log/review_claude_team_fable5.md
   - Bash(background): cat prompt.md | claude -p --model claude-opus-4-6 --bare > log/review_claude_opus4.6.md 2>log/review_claude_opus4.6.stderr.log
@@ -944,10 +944,10 @@ log/{artifact}_review{N}_consensus_{date}.md       # Consensus analysis
 ```
 
 LLM identifiers: `claude_team_fable5`, `claude_cli_opus4.6`, `claude_cli_opus4.8`,
-`codex_gpt5.5`, `codex_gpt5.4`, `cursor_composer2.5`, `cursor_gpt5.4`,
+`codex_gpt5.6-sol`, `codex_gpt5.5`, `cursor_composer2.5`, `cursor_gpt5.4`,
 `cursor_premium`
 (legacy, pre-2026-06-10: `claude_opus4.6`, `claude_team_opus4.6`, `claude_team_opus4.7`,
-`claude_cli_opus4.7`, `cursor_composer2`)
+`claude_cli_opus4.7`, `cursor_composer2`; retired 2026-07-23: `codex_gpt5.4`)
 
 ## Internal Agent Team Review
 
@@ -997,6 +997,13 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   epistemic diversity — the personas that authored R1 findings all approved
   their own fixes in R2, while subprocess reviewers caught the seams.
   Design record: `docs/drafts/multi_llm_review_unknowns_pass_v0.3.1_FROZEN.md`
+- Roster update (v3.6.1, 2026-07-23): Codex gpt-5.6-sol replaces gpt-5.4
+  (retired — its "everyday coding" register is covered by the frontier
+  entries). gpt-5.5 retained as the calibrated anchor for cross-generation
+  comparison. 5.6-sol's reviewer bias profile is uncalibrated — record
+  (a)/(b)/(c) breakdowns per round until a profile accumulates in
+  `multi_llm_reviewer_evaluation`; watch for agentic-coding drift into
+  implementation detail during design-phase reviews ((c) inflation)
 
 **Key insight**: Design reviews and implementation reviews find
 **categorically different bugs**. Both phases are necessary.

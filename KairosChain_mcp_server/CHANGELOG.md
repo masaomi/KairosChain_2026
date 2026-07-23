@@ -4,6 +4,15 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.51.3] - 2026-07-23
+
+### Multi-LLM Review — knowledge template sync (v3.6.1)
+
+Completes the 3.51.2 roster update: `templates/knowledge/multi_llm_review_workflow/`
+is synced to v3.6.1 (gpt-5.6-sol roster). 3.51.2 updated the skillset config
+template only, so `kairos-chain upgrade` reported a knowledge conflict against
+instances already carrying the v3.6.1 L1 locally. No code change.
+
 ## [3.51.2] - 2026-07-23
 
 ### Multi-LLM Review — Codex roster update (gpt-5.6-sol)
