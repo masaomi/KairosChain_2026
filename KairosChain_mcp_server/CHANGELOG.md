@@ -4,6 +4,46 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.50.0] - 2026-07-23
+
+### Chain Distillation SkillSet — slice 1 (CD-1..CD-6)
+
+New `chain_distillation` SkillSet implementing design v0.5 (review-converged
+5/6 APPROVE + persona unanimity): provenance-certified distillation of the
+instance chain into distributable SkillSets.
+
+- `cd_distill`: closed-world integer designation (genesis excluded,
+  decline-not-coerce), guard-judged distillate and certificate crossings
+  (separate, in order, single-encoded presentation), CD-6 constitutive
+  record before release (salted sdp-1-style commitments over the distillate
+  and the claim core excluding the record citation), content-independent
+  pre-assigned certificate identity, attestation-carrier seam
+  (`proof_id` = certificate identity), designation-overlap re-issuance
+  citation against then-revoked predecessors.
+- `cd_verify`: full-citation positive grounding (claim-core commitment
+  opening, identity, designation digest, guard policy sha, distillate
+  commitment, predecessors, citation block hash) plus chain-identity /
+  head-binding checks; pinned checkability-status table with
+  both-direction mislabeling fatal; closed claim-core vocabulary at every
+  depth; revocation folds into validity.
+- `cd_revoke`: identity-keyed chain-wide revocation, closed reason
+  vocabulary (`superseded|defective|withdrawn|other`).
+- Requires an active confidentiality-guard regime (CD-1: decline, never
+  degrade). 60 design-constraint tests incl. production-wiring and
+  real-Chain regressions (KAIROS_DATA_DIR-isolated).
+
+### Confidentiality Guard — slice-2 first increment (distillation crossing)
+
+- New `:distillation_outward` crossing class (`cd_release_distillate`,
+  `cd_release_certificate`): conjunctive per-destination verdict
+  (closed-world `distillation_crossings` profile designation AND content
+  classes), outward verdicts recorded pass or deny (CG-4); the general
+  outward class stays denied wholesale.
+- Certificate-crossing verdict records cite the certificate identity
+  (identifier-only, CG-4-compatible).
+- Template-layout require-path parity fix in `regime.rb` / `recorder.rb`.
+- Guard test suite: 75 design-constraint + regression tests.
+
 ## [3.49.1] - 2026-07-22
 
 ### CLI fix — `skillset upgrade` messaging for non-core new SkillSets
