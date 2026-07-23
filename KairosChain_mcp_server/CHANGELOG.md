@@ -4,6 +4,38 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.51.0] - 2026-07-23
+
+### Agent SkillSet — interruption resilience A-1 + A-2
+
+Addresses the failure mode where the orchestrator's API stalling leaves an
+auto-mode agent loop waiting on input: the running MCP server is intact, but
+the driver stops, and auto-permission is orthogonal to driver liveness.
+Design v0.3.1 FROZEN (design-by-invariant, multi-LLM review 3R converged).
+
+- **A-1 — AdvanceGate** (`lib/agent/advance_gate.rb`): every state-advancing
+  `agent_step` call passes through a per-session serialized, atomic, anchored
+  gate. INV-A2 (serialized atomic advance via `advance.lock` + tmp-rename
+  commit), INV-A3 (anchored at-most-once with a `seq:state:cycle` anchor,
+  committed outcomes replay on retry, side-effect intent bracket with
+  no-silent-drop), INV-A4 (`next_move` derivable from persisted state),
+  INV-A5 (adjudication as a gated judgment). `adjudicate` action added.
+  Impl review 4R converged, 49 probes.
+- **A-2 — delegated step executor** (`lib/agent/step_delegation.rb`,
+  `bin/agent_step_worker.rb`): INV-A1 driver independence. `agent_step` with
+  `execution: "delegated"` returns a resumable handle while a detached
+  (setsid) worker re-enters the SAME gated `agent_step` under server-side
+  ownership — delegate → wait → collect, transplanted from the review
+  SkillSet. All correctness inherited from the A-1 gate; the delegation layer
+  is coordination/observability only. New `agent_wait` tool; `agent_status`
+  surfaces the handle. Impl review 6R converged, 81 probes total.
+- Attended real-worker run with a live LLM-bearing step validated
+  (2026-07-23, isolated harness): the detached worker bootstrapped the full
+  ToolRegistry and ran ORIENT+DECIDE via the claude CLI; liveness, collect,
+  and collector-owned teardown all held.
+- Native body path unchanged (selectable-off). All prior agent-suite tests
+  remain at the main baseline.
+
 ## [3.50.0] - 2026-07-23
 
 ### Chain Distillation SkillSet — slice 1 (CD-1..CD-6)
