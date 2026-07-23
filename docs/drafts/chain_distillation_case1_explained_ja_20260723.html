@@ -433,15 +433,58 @@
 <div class="callout good">
 <strong>得られたもの</strong>：証明つき蒸留物のオブジェクト＋来歴証明書＋記録帳への刻印。「経験を資本にする」構想の <strong>product form B の第一実例</strong>。
 </div>
-<div class="callout">
-<strong>まだのもの</strong>：そのまま人に配れる「インストール可能な形（パッケージ）」や、共有場（Meeting Place）への預け入れは<strong>次の段階（slice 2）</strong>。今回はあくまで「証明つきの中身」を1つ作った段階。
+<div class="callout good">
+<strong>その後の進展（同日追記）</strong>：ここで「次の段階」としていた <strong>slice 2（配る仕組み）</strong>は、同日中に設計・実装・多段レビューを終えて完成しました（kairos-chain v3.52.0）。何ができるようになったかは、下の <strong>§11</strong> で前提知識なしから説明します。
 </div>
 <div class="callout">
 <strong>別物との区別</strong>：Anthropic 応募に向けた「能力証明書」は<strong>別の仕組み（form A＝記録帳そのものの選択開示）</strong>で、今回の form B とは違います。混同しないように、という注記が handoff にも明記されています。
 </div>
 
+<h2>11. Chain Distillation の全体像 — slice 1（証明する）と slice 2（配る）</h2>
+<p class="sub">この章だけ独立して読めます。「chain distillation とは結局何なのか」を、前提知識ゼロから通しで説明します。</p>
+
+<div class="card">
+<strong>一言でいうと</strong>：AI との共同作業の記録を毎日積んできた「記録帳（blockchain）」から、育った技能を<strong>取り出して、来歴証明書を付けて、人に配れるパッケージにする</strong>仕組みです。お酒の「蒸留」に例えて chain distillation（記録帳の蒸留）と呼んでいます。
+</div>
+
+<p>なぜこんな仕組みが要るのか。記録帳そのものは秘密だらけで人に渡せません。かといって技能だけをコピーして渡すと、「これは本当に長い実践から生まれたものか、それとも昨日でっち上げたものか」を受け取った側が確かめる方法がありません。そこで<strong>中身（技能）と証拠（証明書）を分けて</strong>、中身は普通に配り、証拠のほうは「どの記録帳の、どの記録から、どんな門番の監視下で取り出したか」だけを、秘密を一切含まない形で誰でも照合できるようにしました。</p>
+
+<h3 style="margin-top:18px">slice 1 — 証明する（この文書の §0〜§9 で見てきたもの）</h3>
+<table class="files">
+  <tr><th>手順</th><th>何をするか</th></tr>
+  <tr><td>① 指定</td><td>記録帳の中から「この経験から取り出しました」という記録の番号を指定する（番号だけ。中身は出さない）</td></tr>
+  <tr><td>② 門番</td><td>取り出した中身を機密の門番（confidentiality guard）が検査する。秘密が混ざっていれば<strong>その場で拒否</strong>。門番を迂回する裏口は構造的に存在しない</td></tr>
+  <tr><td>③ 刻印</td><td>「いつ・何を指定して・どの門番設定で蒸留したか」を記録帳そのものに刻む。後から日付や経緯を偽装できない</td></tr>
+  <tr><td>④ 証明書</td><td>中身と暗号で結ばれた来歴証明書を発行する。中身をすり替えると照合が必ず失敗する</td></tr>
+</table>
+<p class="sub">ポイント：証明書が語るのは「出どころ」だけです。「この技能は優れている」とは<strong>言えない仕組み</strong>になっています（§6）。</p>
+
+<h3 style="margin-top:18px">slice 2 — 配る（2026-07-23 完成、v3.52.0）</h3>
+<p>slice 1 は「証明つきの中身」を手元に作るところまででした。slice 2 はそれを<strong>実際に世の中へ出す</strong>部分です。新しい約束は 5 つあります。</p>
+<table class="files">
+  <tr><th>約束</th><th>平たく言うと</th></tr>
+  <tr><td>① 証明書は同梱</td><td>配布パッケージの中に証明書が必ず入る。剥がして中身だけ配ると受け取り側の照合で必ず露見する（「剥がせない」ではなく<strong>剥がすとバレる</strong>）</td></tr>
+  <tr><td>② 二つの写し</td><td>証明書は「パッケージ内の写し（ネットがなくても検証できる。ただし取得時点で凍結）」と「照会窓口（attestation carrier — 失効を後から知らせる鏡）」の二形態で旅をする。真実は常に発行元の記録帳にあり、鏡は記録帳を写すだけ（逆はない）</td></tr>
+  <tr><td>③ 預け入れも門番</td><td>共有場（Meeting Place）へ預ける行為そのものも門番の判定を通る。判定が下りる前には、パッケージ作成も預け入れも照会窓口の公開も<strong>一切起きない</strong></td></tr>
+  <tr><td>④ 失効品は出さない</td><td>自分の記録帳で失効（revoke）済みの証明書は再び預けようとしても拒否される。名札（識別番号）を張り替える小細工も、中身との暗号的な結び付きで捕まる</td></tr>
+  <tr><td>⑤ 失効は追いかけて届く</td><td>配った後に失効した場合、照会窓口に鏡写しされ、再確認する取得者には見える。配り主には自分の出品を取り下げる義務が残る。「凍結された写し」しか見ない人には届かない — これは隠さず<strong>限界として明記</strong></td></tr>
+</table>
+
+<div class="fig">
+<strong>配ってから失効するまでの一本の流れ（実機テストで検証済み）</strong><br>
+蒸留（slice 1）→ 預け入れ（門番判定 → パッケージ化 → 共有場へ → 照会窓口が開く）→ 誰かが取得 → 取得者が検証「有効」→ 発行元が失効を刻印 → 照会窓口へ鏡写し → 取得者が再確認すると「失効」→ 同じものを再び預けようとしても拒否
+</div>
+
+<div class="callout">
+<strong>正直な但し書き（slice 2 版）</strong>：万能ではありません。(1) 取得したまま二度と確認しない人は、取得時点で有効だった証明書を持ち続けます。(2) 中身も証明書も丸ごと偽造された場合、その偽造品はどの記録帳にも根を持たないため「根拠まで辿る検証」では必ず落ちますが、写しだけを見る簡易検証では見抜けません。どちらも仕組みが隠している弱点ではなく、<strong>設計文書に残余として明記された境界</strong>です。境界をさらに狭める改良（記録への決定的な内容鍵の追加）は次の設計課題として登録されています。
+</div>
+
+<div class="callout good">
+<strong>作りの特徴</strong>：slice 2 は新しい配布網を発明していません。既存の共有場（skillset_exchange / Meeting Place）と既存の照会基盤（synoptis attestation）を<strong>一切改変せずそのまま使い</strong>、門番（confidentiality guard）への変更も登録 1 行だけで分岐版を作りません。「新しい要求は core を太らせず SkillSet で」という KairosChain の原則どおり、蒸留の仕組み自体も gem に同梱される一つの SkillSet（chain_distillation、L1 部品）です。設計・実装とも 8 体の独立レビュー担当（Claude 2 系統・GPT 2 系統・Cursor・専任 persona 3 役）による多段レビューを、blocking 指摘ゼロになるまで計 11 ラウンド回して確定しました。
+</div>
+
 <footer>
-  作成: 2026-07-23 ／ 対象: chain distillation case #1（multi_llm_review_workflow, product form B）<br>
+  作成: 2026-07-23 ／ 対象: chain distillation case #1（multi_llm_review_workflow, product form B）。§11 は slice 1/2 全体像（同日加筆）<br>
   関連ファイル: <code>docs/drafts/chain_distillation_case1_*</code> ／ L2 記録: <code>chain_distillation_case1_real_distillation_done_20260723</code><br>
   この HTML は前提知識なしで読めることを目的とした人間向け解説です（技術的な正確さは各 draft / 設計 v0.5 を参照）。
 </footer>
