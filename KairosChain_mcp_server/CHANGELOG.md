@@ -4,6 +4,20 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.51.2] - 2026-07-23
+
+### Multi-LLM Review — Codex roster update (gpt-5.6-sol)
+
+Template config only, no code change. In
+`templates/skillsets/multi_llm_review/config/multi_llm_review.yml`, the Codex
+reviewer `gpt-5.4` is retired and replaced by `gpt-5.6-sol`
+(`role_label: codex_gpt5.6-sol`). `gpt-5.5` stays as the calibrated anchor
+for cross-generation comparison. 5.6-sol's reviewer bias profile is not yet
+calibrated — record (a)/(b)/(c) breakdowns per round until a profile
+accumulates. Roster size (6) and convergence rules are unchanged. The
+matching L1 knowledge `multi_llm_review_workflow` was updated to v3.6.1
+(instance-local, chain-recorded).
+
 ## [3.51.1] - 2026-07-23
 
 ### CLI — `skillset upgrade` transparency log

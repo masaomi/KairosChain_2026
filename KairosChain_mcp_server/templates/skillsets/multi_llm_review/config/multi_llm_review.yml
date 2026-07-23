@@ -5,7 +5,7 @@
 
 # Convergence rules
 # Roster has 6 reviewers (claude_team_fable5, claude_cli_opus4.6,
-# claude_cli_opus4.8, codex_gpt5.4, codex_gpt5.5, cursor_composer2.5).
+# claude_cli_opus4.8, codex_gpt5.6-sol, codex_gpt5.5, cursor_composer2.5).
 # Rules are ratio-based (parser interprets "N/M" as N/M fraction applied
 # to successful count), so the literal numerator/denominator is
 # informational; what matters is the ratio.
@@ -120,13 +120,18 @@ reviewers:
     effort: medium
     role_label: claude_cli_opus4.8
 
+  # GPT-5.6-sol added 2026-07-23, replacing gpt-5.4 (retired same day; to
+  # restore, set model back to gpt-5.4). 5.6-sol's reviewer bias profile is
+  # not yet calibrated — record (a)/(b)/(c) breakdowns per round (see
+  # multi_llm_reviewer_evaluation) until a profile accumulates. gpt-5.5
+  # stays as the calibrated anchor for cross-generation comparison.
   - provider: codex
-    model: gpt-5.4
+    model: gpt-5.6-sol
     effort: medium
-    role_label: codex_gpt5.4
+    role_label: codex_gpt5.6-sol
 
-  # GPT-5.5 added 2026-04-24 for benchmarking against gpt-5.4. Both codex
-  # entries dispatch via the same `codex exec` CLI; the adapter passes
+  # GPT-5.5 added 2026-04-24. Both codex entries dispatch via the same
+  # `codex exec` CLI; the adapter passes
   # `-m <model>` so the response can be attributed per-model.
   #
   # Transport backend (2026-07-03): codex entries default to the `codex exec` CLI.
