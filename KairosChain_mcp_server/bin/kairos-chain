@@ -141,18 +141,43 @@ when 'skillset'
     manual = upgrades.select { |u| u[:new_skillset] && !KairosMcp::SkillSetManager::CORE_SKILLSETS.include?(u[:name]) }
     applicable = upgrades - manual
 
-    if upgrades.empty?
-      puts "All SkillSets are up to date."
-    elsif apply
+    # Diagnostic transparency: report the full set of CHECKED SkillSets — not
+    # only the ones that changed — so a no-op run is visibly a completed check
+    # rather than a bare one-liner, mirroring `kairos-chain upgrade --apply`.
+    # This is display-only; the upgrade decision itself (upgrade_check /
+    # upgrade_apply) is unchanged. "Checked" = an installed SkillSet that has a
+    # gem-template counterpart (exactly what upgrade_check compares).
+    templates_dir = File.join(KairosMcp.gem_root, 'templates', 'skillsets')
+    checkable = manager.all_skillsets
+                       .select { |ss| File.directory?(File.join(templates_dir, ss.name)) }
+                       .sort_by(&:name)
+    existing_upgrade_names = applicable.reject { |u| u[:new_skillset] }.map { |u| u[:name] }
+    new_core = applicable.select { |u| u[:new_skillset] }
+
+    if apply
       results = manager.upgrade_apply(core_only: true)
+      upgraded_names = results.map { |r| r[:name] }
+      puts "# Applying SkillSet Upgrade"
+      puts ""
+      puts "## SkillSets"
       results.each do |r|
-        puts "Updated #{r[:name]}: v#{r[:from]} -> v#{r[:to]} (#{r[:files_updated]} files)"
+        puts "  [UPGRADED]  #{r[:name].ljust(22)} v#{r[:from]} -> v#{r[:to]} (#{r[:files_updated]} files)"
       end
-      puts "Done. #{results.size} SkillSet(s) upgraded."
+      checkable.reject { |ss| upgraded_names.include?(ss.name) }.each do |ss|
+        puts "  [UNCHANGED] #{ss.name.ljust(22)} v#{ss.version}"
+      end
+      manual.each do |u|
+        puts "  [OPTIONAL]  #{u[:name].ljust(22)} v#{u[:available_version]} (not installed)"
+      end
+      puts ""
+      puts "## Summary"
+      puts "  Upgraded/installed:        #{results.size}"
+      puts "  Unchanged:                 #{checkable.reject { |ss| upgraded_names.include?(ss.name) }.size}"
+      puts "  Optional (not installed):  #{manual.size}"
 
       if manual.any?
         puts ""
-        puts "Not installed (optional, requires explicit approval):"
+        puts "Optional SkillSets require explicit approval:"
         manual.each { |u| puts "  kairos-chain skillset install #{u[:name]}" }
       end
 
@@ -174,24 +199,39 @@ when 'skillset'
         end
       end
     else
-      if applicable.any?
-        puts "SkillSet upgrades available:"
-        puts ""
-        applicable.each do |u|
+      upgrade_by_name = applicable.reject { |u| u[:new_skillset] }.each_with_object({}) { |u, h| h[u[:name]] = u }
+      puts "# SkillSet Upgrade Check"
+      puts ""
+      puts "## SkillSets"
+      checkable.each do |ss|
+        if (u = upgrade_by_name[ss.name])
           label = u[:version_bump] ? "v#{u[:installed_version]} -> v#{u[:available_version]}" : "files changed"
-          puts "  #{u[:name]}: #{label}"
-          u[:changed_files].each { |f| puts "    Modified: #{f}" }
-          puts ""
+          puts "  [UPGRADE]   #{ss.name.ljust(22)} #{label}"
+          u[:changed_files].each { |f| puts "                #{f}" }
+        else
+          puts "  [UNCHANGED] #{ss.name.ljust(22)} v#{ss.version}"
         end
+      end
+      new_core.each do |u|
+        puts "  [NEW-CORE]  #{u[:name].ljust(22)} v#{u[:available_version]} (will install on --apply)"
+      end
+      manual.each do |u|
+        puts "  [OPTIONAL]  #{u[:name].ljust(22)} v#{u[:available_version]} (not installed)"
+      end
+      puts ""
+      puts "## Summary"
+      puts "  Available upgrades:        #{applicable.size}"
+      puts "  Unchanged:                 #{checkable.size - existing_upgrade_names.size}"
+      puts "  Optional (not installed):  #{manual.size}"
+
+      if applicable.any?
+        puts ""
         puts "Run 'kairos-chain skillset upgrade --apply' to apply updates."
       end
-
       if manual.any?
-        puts "" if applicable.any?
-        puts "Optional SkillSets available (not auto-installed; require explicit approval):"
-        manual.each { |u| puts "  #{u[:name]} v#{u[:available_version]} — #{u[:description]}" }
         puts ""
-        puts "Install with: kairos-chain skillset install <name>"
+        puts "Optional SkillSets (require explicit approval):"
+        manual.each { |u| puts "  kairos-chain skillset install #{u[:name]}  # #{u[:description]}" }
       end
     end
 
