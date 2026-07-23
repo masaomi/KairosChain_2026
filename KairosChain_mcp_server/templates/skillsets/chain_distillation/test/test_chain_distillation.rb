@@ -15,6 +15,8 @@ require_relative '../lib/chain_distillation/canon'
 require_relative '../lib/chain_distillation/recorder'
 require_relative '../lib/chain_distillation/certificate'
 require_relative '../lib/chain_distillation/distiller'
+require_relative '../lib/chain_distillation/depositor'
+require_relative '../lib/chain_distillation/carrier_wiring'
 
 CG = KairosMcp::SkillSets::ConfidentialityGuard
 CD = KairosMcp::SkillSets::ChainDistillation
@@ -109,9 +111,33 @@ def with_stack(profile_yaml, activate_guard: true)
       CD::Distiller.registry_class = nil
       CD::Distiller.guard_regime = nil
       CD::Distiller.carrier = nil
+      CD::Depositor.exchange = nil
+      CD::Depositor.package_root = nil
+      CD::Depositor.exposure_path = nil
+      CD::CarrierWiring.registry = nil
       CG::Regime.skillset_root = File.expand_path('../../confidentiality_guard', __dir__)
     end
   end
+end
+
+# Slice-2 profile: the deposit crossing joins the enrolled distillation
+# family (the production guard profile must designate it the same way).
+# The crossing name is distinct from the cd_deposit TOOL name (impl R1).
+DEPOSIT_PROFILE = DISTILL_PROFILE.merge(
+  'distillation_crossings' => %w[cd_release_distillate cd_release_certificate cd_release_package]
+).freeze
+
+# In-memory carrier registry (the synoptis registry surface the wiring
+# consumes: store_proof / find_proof / revoked? / store_revocation).
+class FakeCarrierRegistry
+  def initialize
+    @proofs = {}
+    @revocations = {}
+  end
+  def store_proof(envelope) = (@proofs[envelope.proof_id] = envelope).proof_id
+  def find_proof(proof_id) = @proofs[proof_id]
+  def revoked?(proof_id) = @revocations.key?(proof_id)
+  def store_revocation(revocation) = @revocations[revocation[:proof_id] || revocation['proof_id']] = revocation
 end
 
 entries_of = ->(fake) {
@@ -456,6 +482,636 @@ Dir.mktmpdir do |root|
     CD::Distiller.registry_class = nil
     CD::Distiller.guard_regime = nil
     CD::Distiller.carrier = nil
+    CG::Regime.skillset_root = File.expand_path('../../confidentiality_guard', __dir__)
+  end
+end
+
+# ===========================================================================
+# SLICE 2 (design v0.4 FROZEN, CD-7..CD-11): distribution.
+# ===========================================================================
+
+# Helper: a full distill under the deposit-enrolled profile, returning the
+# artifacts a depositor holds.
+def distill_for_deposit
+  r = CD::Distiller.distill(designation: [1, 2], distillate: DISTILLATE)
+  [r[:certificate], r[:distillate_json], r[:certificate]['claim_core']['certificate_identity']]
+end
+
+def fresh_deposit_seams(root)
+  CD::Depositor.package_root = File.join(root, 'pkgs')
+  CD::Depositor.exposure_path = File.join(root, 'exposure.json')
+  reg = FakeCarrierRegistry.new
+  CD::CarrierWiring.registry = reg
+  reg
+end
+
+# ---------------------------------------------------------------------------
+# CD-9/CD-1 register: no active regime -> deposit declines, never degrades.
+with_stack(DEPOSIT_PROFILE, activate_guard: false) do |_fake|
+  begin
+    CD::Depositor.deposit(certificate: {}, distillate_json: '{}', skillset_name: 'demo_pack')
+    assert(false, 'CD-9: deposit without active regime must decline')
+  rescue CD::Distiller::Declined => e
+    assert(JSON.parse(e.message)['rule'] == 'cd-9/guard-regime-inactive',
+           'CD-9: regime-inactive decline names the rule')
+  end
+end
+
+# ---------------------------------------------------------------------------
+# CD-7/CD-8/CD-9 happy path: crossing order, package constituents, exposure.
+with_stack(DEPOSIT_PROFILE) do |fake|
+  Dir.mktmpdir do |root|
+    fresh_deposit_seams(root)
+    exchange_calls = []
+    CD::Depositor.exchange = ->(name) { exchange_calls << name; { status: 'listed' } }
+
+    crossings = []
+    original = FakeRegistry.method(:run_gates)
+    FakeRegistry.define_singleton_method(:run_gates) do |tool_name, arguments, safety = nil|
+      crossings << tool_name
+      original.call(tool_name, arguments, safety)
+    end
+
+    cert, djson, identity = distill_for_deposit
+    assert(!CD::Depositor.exposed?(identity),
+           'CD-8: no exposure before deposit approval (issuance alone exposes nothing)')
+
+    result = CD::Depositor.deposit(certificate: cert, distillate_json: djson,
+                                   skillset_name: 'demo_pack')
+    assert(result[:status] == 'deposited', 'CD-9: admitted deposit completes')
+    assert(crossings.include?('cd_release_package'),
+           'CD-9: the deposit rides its own guard-judged crossing (distinct from the tool name)')
+    assert(!crossings.include?('cd_deposit'),
+           'CD-9: the tool name itself is never a judged crossing (no double judgment)')
+
+    # CD-7: SkillSet layout with the certificate a mandatory constituent.
+    dir = result[:package_path]
+    assert(File.exist?(File.join(dir, 'skillset.json')), 'CD-7: package carries skillset.json')
+    assert(File.exist?(File.join(dir, 'knowledge', 'demo_pack.json')),
+           'CD-7: package carries the distillate as knowledge content')
+    cert_file = File.join(dir, 'certificate.json')
+    assert(File.exist?(cert_file), 'CD-7: certificate.json is a package constituent (BL-S2-6)')
+    assert(JSON.parse(File.read(cert_file)) == JSON.parse(JSON.generate(cert)),
+           'CD-7: the packaged certificate is the issued certificate, byte-equal as JSON')
+    assert(File.read(File.join(dir, 'knowledge', 'demo_pack.json')) == djson,
+           'CD-7: the packaged distillate is the certified distillate string')
+
+    # BL-S2-1: exchange consumed unchanged through the delegate seam.
+    assert(exchange_calls == ['demo_pack'], 'BL-S2-1: exchange delegate called once with the package name')
+
+    # CD-8: exposure marker exists only after approval + listing.
+    assert(CD::Depositor.exposed?(identity), 'CD-8: exposure begins at deposit approval')
+
+    # The deposit verdict record cites the certificate identity (CD-1
+    # discipline carried to the deposit crossing).
+    entries = fake.blocks.each_with_object({}) { |b, acc|
+      acc[b.index] = (JSON.parse(b.data.first) rescue nil)
+    }.compact
+    dep_verdict = entries.values.find { |e|
+      e['type'] == 'cg_guard_decision' && e.dig('crossing', 'tool') == 'cd_release_package'
+    }
+    assert(dep_verdict && dep_verdict.dig('crossing', 'certificate_identity') == identity,
+           'CD-9: deposit verdict record cites the certificate identity')
+
+    FakeRegistry.define_singleton_method(:run_gates, original)
+  end
+end
+
+# ---------------------------------------------------------------------------
+# CD-9 admission: binding mismatch declines; nothing presents as certified
+# without surviving the binding check. Verdict precedes effect: no package,
+# no exchange call, no exposure on any decline.
+with_stack(DEPOSIT_PROFILE) do |_fake|
+  Dir.mktmpdir do |root|
+    fresh_deposit_seams(root)
+    exchange_calls = []
+    CD::Depositor.exchange = ->(name) { exchange_calls << name; { status: 'listed' } }
+    cert, _djson, identity = distill_for_deposit
+    other = CD::Canon.canonical('skill' => 'not-the-certified-content')
+    begin
+      CD::Depositor.deposit(certificate: cert, distillate_json: other, skillset_name: 'demo_pack')
+      assert(false, 'CD-9: binding mismatch must decline')
+    rescue CD::Distiller::Declined => e
+      assert(JSON.parse(e.message)['rule'] == 'cd-9/binding-or-verification-failure',
+             'CD-9: binding mismatch names the rule')
+    end
+    assert(!Dir.exist?(File.join(root, 'pkgs', 'demo_pack')),
+           'CD-9: declined deposit materializes no package')
+    assert(exchange_calls.empty?, 'CD-9: declined deposit never reaches the exchange')
+    assert(!CD::Depositor.exposed?(identity), 'CD-8: declined deposit exposes nothing')
+  end
+end
+
+# ---------------------------------------------------------------------------
+# CD-9: undesignated deposit crossing (slice-1 profile without cd_deposit)
+# denies at the guard — verdict precedes every effect (Scenario C).
+with_stack(DISTILL_PROFILE) do |_fake|
+  Dir.mktmpdir do |root|
+    fresh_deposit_seams(root)
+    exchange_calls = []
+    CD::Depositor.exchange = ->(name) { exchange_calls << name; { status: 'listed' } }
+    cert, djson, identity = distill_for_deposit
+    assert_raises(KairosMcp::ToolRegistry::GateDeniedError,
+                  'CD-9: undesignated deposit crossing denied by the guard') do
+      CD::Depositor.deposit(certificate: cert, distillate_json: djson, skillset_name: 'demo_pack')
+    end
+    assert(!Dir.exist?(File.join(root, 'pkgs', 'demo_pack')),
+           'CD-9/Scenario C: denied crossing leaves no package')
+    assert(exchange_calls.empty?, 'CD-9/Scenario C: denied crossing leaves no listing call')
+    assert(!CD::Depositor.exposed?(identity),
+           'CD-8/Scenario C: denied crossing leaves the carrier unexposed')
+  end
+end
+
+# ---------------------------------------------------------------------------
+# CD-9: revoked-at-judgment (source-local) declines; the trusted-claim
+# register excuses remote unobservability, never local non-checking.
+with_stack(DEPOSIT_PROFILE) do |_fake|
+  Dir.mktmpdir do |root|
+    fresh_deposit_seams(root)
+    CD::Depositor.exchange = ->(_name) { { status: 'listed' } }
+    cert, djson, identity = distill_for_deposit
+    CD::Recorder.record_revocation(certificate_identity: identity, reason: 'defective')
+    begin
+      CD::Depositor.deposit(certificate: cert, distillate_json: djson, skillset_name: 'demo_pack')
+      assert(false, 'CD-9: revoked certificate must not distribute from its source instance')
+    rescue CD::Distiller::Declined => e
+      assert(JSON.parse(e.message)['rule'] == 'cd-9/revoked-at-judgment',
+             'CD-9: revoked-at-judgment names the rule')
+    end
+  end
+end
+
+# ---------------------------------------------------------------------------
+# CD-9: third-party depositor (certificate names another source chain) —
+# the revocation clause binds vacuously; certificate-local checks still
+# gate admission (disclosed residual, CD-11).
+with_stack(DEPOSIT_PROFILE) do |_fake|
+  Dir.mktmpdir do |root|
+    fresh_deposit_seams(root)
+    CD::Depositor.exchange = ->(_name) { { status: 'listed' } }
+    cert, djson, _identity = distill_for_deposit
+    # A GENUINELY foreign certificate: its identity has no cd_distillation
+    # record on this chain (locality is identity-keyed — a mere
+    # chain_identity edit on a locally issued certificate now gets FULL
+    # local grounding and fails, see the grounding-evasion test below).
+    foreign = JSON.parse(JSON.generate(cert))
+    foreign['claim_core']['certificate_identity'] = 'f0e1d2c3-0000-4000-8000-feedfacefeed'
+    foreign['claim_core']['identity']['chain_identity'] = 'block1-sha256:feedfacefeedface'
+    result = CD::Depositor.deposit(certificate: foreign, distillate_json: djson,
+                                   skillset_name: 'foreign_pack')
+    assert(result[:status] == 'deposited',
+           'CD-9: third-party re-deposit admits vacuously (revocation not locally decidable — disclosed residual)')
+    # A coincidental LOCAL revocation record for the foreign identity does
+    # not veto the vacuous case: the decline binds only where this chain
+    # ISSUED the identity (CD-6 chain scoping; impl review R3 (b)).
+    CD::Recorder.record_revocation(certificate_identity: foreign['claim_core']['certificate_identity'],
+                                   reason: 'other')
+    again = CD::Depositor.deposit(certificate: foreign, distillate_json: djson,
+                                  skillset_name: 'foreign_pack')
+    assert(again[:status] == 'deposited',
+           'CD-9: locally revoking a never-issued foreign identity does not veto the vacuous lane')
+    # No local SHADOW carrier for foreign certificates (impl review R6
+    # (b)): their mirror form is the source chain's carrier (BL-S2-7).
+    assert(CD::CarrierWiring.registry.find_proof(foreign['claim_core']['certificate_identity']).nil?,
+           'CD-8: third-party deposit mints no local carrier envelope')
+    # But a third-party package failing the binding check still declines.
+    begin
+      CD::Depositor.deposit(certificate: foreign, distillate_json: '{"x":1}', skillset_name: 'foreign_pack')
+      assert(false, 'CD-9: third-party binding mismatch must still decline')
+    rescue CD::Distiller::Declined
+      assert(true, 'CD-9: third-party binding mismatch declines')
+    end
+  end
+end
+
+# ---------------------------------------------------------------------------
+# CD-7 name-collision guard (impl review R3 (a)): the package root is the
+# live skillsets directory — a deposit must never overwrite an existing
+# SkillSet that is not this certificate's own prior package; re-deposit of
+# the same certificate over its own package remains allowed.
+with_stack(DEPOSIT_PROFILE) do |_fake|
+  Dir.mktmpdir do |root|
+    fresh_deposit_seams(root)
+    CD::Depositor.exchange = ->(_name) { { status: 'listed' } }
+    cert, djson, _identity = distill_for_deposit
+    occupied = File.join(root, 'pkgs', 'occupied_pack')
+    FileUtils.mkdir_p(occupied)
+    File.write(File.join(occupied, 'skillset.json'), '{"name":"occupied_pack"}')
+    begin
+      CD::Depositor.deposit(certificate: cert, distillate_json: djson, skillset_name: 'occupied_pack')
+      assert(false, 'CD-7: deposit over a foreign existing SkillSet must decline')
+    rescue CD::Distiller::Declined => e
+      assert(JSON.parse(e.message)['rule'] == 'cd-7/package-name-collision',
+             'CD-7: name collision names the rule')
+    end
+    assert(File.read(File.join(occupied, 'skillset.json')) == '{"name":"occupied_pack"}',
+           'CD-7: the existing SkillSet is untouched by the declined deposit')
+    # Same-certificate re-deposit over its own package is allowed.
+    ok1 = CD::Depositor.deposit(certificate: cert, distillate_json: djson, skillset_name: 'own_pack')
+    assert(ok1[:status] == 'deposited', 'CD-7: first deposit succeeds')
+    ok2 = CD::Depositor.deposit(certificate: cert, distillate_json: djson, skillset_name: 'own_pack')
+    assert(ok2[:status] == 'deposited', 'CD-7: re-deposit over own package allowed (append-honest)')
+  end
+end
+
+# ---------------------------------------------------------------------------
+# CD-8 carrier wiring: the envelope is written at issuance with the injected
+# content-independent proof_id (slice-2 wiring of the slice-1 seam).
+with_stack(DEPOSIT_PROFILE) do |_fake|
+  stored = []
+  fake_registry = Object.new
+  fake_registry.define_singleton_method(:store_proof) { |env| stored << env; env.proof_id }
+  # Load the real synoptis envelope for the wiring path.
+  begin
+    require_relative '../../synoptis/lib/synoptis/proof_envelope'
+    wired = CD::CarrierWiring.wire!(registry: fake_registry)
+    assert(wired, 'CD-8: carrier wiring succeeds with a registry')
+    cert, _djson, identity = distill_for_deposit
+    assert(stored.size == 1 && stored.first.proof_id == identity,
+           'CD-8/CD-6: carrier envelope keyed by the injected pre-assigned identity')
+    assert(JSON.parse(stored.first.claim)['claim_core']['certificate_identity'] == identity,
+           'CD-8: the carried claim is the certificate itself (identity round-trips)')
+    assert(stored.first.ttl.nil?,
+           'CD-8: carrier envelope does not expire on its own — revocation state is chain-authoritative (CD-6)')
+    _ = cert
+  rescue LoadError
+    assert(true, 'CD-8: synoptis not present in this checkout — wiring degrades to unwired (disclosed)')
+  end
+end
+
+# ---------------------------------------------------------------------------
+# CD-11 end to end: deposit -> acquire (copy) -> verify valid -> revoke ->
+# re-deposit declines and verification reports revoked; the revocation
+# response carries the listing duty (BL-S2-8 withdrawal route).
+with_stack(DEPOSIT_PROFILE) do |fake|
+  Dir.mktmpdir do |root|
+    fresh_deposit_seams(root)
+    CD::Depositor.exchange = ->(_name) { { status: 'listed' } }
+    cert, djson, identity = distill_for_deposit
+    result = CD::Depositor.deposit(certificate: cert, distillate_json: djson,
+                                   skillset_name: 'e2e_pack')
+    assert(result[:status] == 'deposited', 'CD-11 e2e: deposit succeeds')
+
+    # Simulated acquisition: the acquirer holds the package constituents.
+    acquired_cert = JSON.parse(File.read(File.join(result[:package_path], 'certificate.json')))
+    acquired_json = File.read(File.join(result[:package_path], 'knowledge', 'e2e_pack.json'))
+
+    v1 = CD::Certificate.verify(acquired_cert, chain_entries: entries_of.call(fake),
+                                distillate_json: acquired_json)
+    assert(v1[:valid] && v1[:revoked] == false, 'CD-11 e2e: acquired package verifies before revocation')
+
+    CD::Recorder.record_revocation(certificate_identity: identity, reason: 'withdrawn')
+
+    v2 = CD::Certificate.verify(acquired_cert, chain_entries: entries_of.call(fake),
+                                distillate_json: acquired_json)
+    assert(v2[:revoked] == true && !v2[:valid],
+           'CD-11 e2e: a re-checking holder with chain access observes the revocation')
+
+    # Offline snapshot alone: the frozen in-package copy still verifies
+    # chain-less — the disclosed residual, not a failure (CD-8).
+    v3 = CD::Certificate.verify(acquired_cert, distillate_json: acquired_json)
+    assert(v3[:valid] && v3[:revoked].nil?,
+           'CD-8: the snapshot alone verifies at acquisition-time semantics (disclosed residual)')
+
+    # Re-deposit of the revoked certificate declines at the source.
+    begin
+      CD::Depositor.deposit(certificate: cert, distillate_json: djson, skillset_name: 'e2e_pack')
+      assert(false, 'CD-11 e2e: revoked re-deposit must decline')
+    rescue CD::Distiller::Declined => e
+      assert(JSON.parse(e.message)['rule'] == 'cd-9/revoked-at-judgment',
+             'CD-11 e2e: revoked re-deposit names the rule')
+    end
+
+    # CD-9 anti-spoof (impl review R1 (a)): editing the certificate's
+    # chain_identity claim must NOT dodge the identity-keyed local
+    # revocation scan — the scan is unconditional.
+    spoofed = JSON.parse(JSON.generate(cert))
+    spoofed['claim_core']['identity']['chain_identity'] = 'block1-sha256:spoofed'
+    begin
+      CD::Depositor.deposit(certificate: spoofed, distillate_json: djson, skillset_name: 'e2e_pack')
+      assert(false, 'CD-9: chain-identity spoof must not evade the revocation scan')
+    rescue CD::Distiller::Declined => e
+      assert(JSON.parse(e.message)['rule'] == 'cd-9/revoked-at-judgment',
+             'CD-9: spoofed identity still declines revoked-at-judgment (identity-keyed, unconditional)')
+    end
+
+    # Re-identity bypass closed (impl review R4 (a)): relabeling the
+    # revoked certificate under a fresh identity must not shed the
+    # revocation — the commitment-keyed scan binds the CONTENT.
+    relabeled = JSON.parse(JSON.generate(cert))
+    relabeled['claim_core']['certificate_identity'] = '99999999-0000-4000-8000-relabeledid1'
+    relabeled['claim_core']['identity']['chain_identity'] = 'block1-sha256:elsewhere'
+    begin
+      CD::Depositor.deposit(certificate: relabeled, distillate_json: djson, skillset_name: 'e2e_pack')
+      assert(false, 'CD-9: relabeled revoked certificate must decline (commitment-keyed)')
+    rescue CD::Distiller::Declined => e
+      assert(JSON.parse(e.message)['rule'] == 'cd-9/revoked-at-judgment',
+             'CD-9: commitment-keyed revocation scan catches the relabeled identity')
+    end
+    # Relabeled identity that still names THIS chain: grounding is forced
+    # (chain-identity locality) and the missing record fails it.
+    relabeled_local = JSON.parse(JSON.generate(cert))
+    relabeled_local['claim_core']['certificate_identity'] = '99999999-0000-4000-8000-relabeledid2'
+    begin
+      CD::Depositor.deposit(certificate: relabeled_local, distillate_json: djson, skillset_name: 'e2e_pack')
+      assert(false, 'CD-9: relabeled identity naming this chain must decline')
+    rescue CD::Distiller::Declined => e
+      rule = JSON.parse(e.message)['rule']
+      assert(%w[cd-9/revoked-at-judgment cd-9/binding-or-verification-failure].include?(rule),
+             "CD-9: relabeled local-claiming certificate declines (#{rule})")
+    end
+
+    # CD-6/CD-11 mirror: the carrier mirrors the chain-side revocation
+    # (never the reverse) and a carrier-side query reports revoked.
+    reg = CD::CarrierWiring.registry
+    mirror = CD::CarrierWiring.mirror_revocation(identity, 'withdrawn')
+    assert(mirror['status'] == 'revoked', "CD-11: carrier mirror succeeds (got #{mirror})")
+    assert(reg.revoked?(identity), 'CD-11: carrier registry reports revoked after the mirror')
+  end
+end
+
+# ---------------------------------------------------------------------------
+# CD-8: no reachable carrier -> deposit declines (mirror form mandatory for
+# distribution; in-instance distillation stays slice-1-compatible).
+with_stack(DEPOSIT_PROFILE) do |_fake|
+  Dir.mktmpdir do |root|
+    fresh_deposit_seams(root)
+    CD::CarrierWiring.registry = false
+    CD::Depositor.exchange = ->(_name) { { status: 'listed' } }
+    cert, djson, _identity = distill_for_deposit
+    begin
+      CD::Depositor.deposit(certificate: cert, distillate_json: djson, skillset_name: 'demo_pack')
+      assert(false, 'CD-8: deposit without a reachable carrier must decline')
+    rescue CD::Distiller::Declined => e
+      assert(JSON.parse(e.message)['rule'] == 'cd-8/carrier-unavailable',
+             'CD-8: carrier-unavailable decline names the rule')
+    end
+  end
+end
+
+# ---------------------------------------------------------------------------
+# CD-8 exposure-store integrity (impl review R1 (a)): a corrupt store is
+# quarantined and declines loudly BEFORE any effect — never silently
+# reinitialized (prior exposure records must not vanish).
+with_stack(DEPOSIT_PROFILE) do |_fake|
+  Dir.mktmpdir do |root|
+    fresh_deposit_seams(root)
+    CD::Depositor.exchange = ->(_name) { { status: 'listed' } }
+    exchange_calls = 0
+    CD::Depositor.exchange = ->(_name) { exchange_calls += 1; { status: 'listed' } }
+    cert, djson, identity = distill_for_deposit
+    first = CD::Depositor.deposit(certificate: cert, distillate_json: djson, skillset_name: 'pack_one')
+    assert(first[:status] == 'deposited', 'CD-8: first deposit succeeds')
+    File.write(File.join(root, 'exposure.json'), '{not valid json!!')
+    calls_before = exchange_calls
+    second = CD::Distiller.distill(designation: [3], distillate: { 'skill' => 'two' })
+    begin
+      CD::Depositor.deposit(certificate: second[:certificate],
+                            distillate_json: second[:distillate_json], skillset_name: 'pack_two')
+      assert(false, 'CD-8: corrupt exposure store must decline')
+    rescue CD::Distiller::Declined => e
+      assert(JSON.parse(e.message)['rule'] == 'cd-8/exposure-store-corrupt',
+             'CD-8: corrupt store names the rule')
+    end
+    assert(exchange_calls == calls_before, 'CD-8: corrupt store declines before the exchange leg')
+    assert(!Dir.exist?(File.join(root, 'pkgs', 'pack_two')), 'CD-8: corrupt store declines before packaging')
+    # The corrupt file is left EXACTLY as found (read-only admission —
+    # impl review R4: not even a forensic copy is written pre-verdict),
+    # and the next deposit keeps declining, never a fresh empty ledger
+    # (impl review R2 (a)).
+    assert(File.read(File.join(root, 'exposure.json')) == '{not valid json!!',
+           'CD-8: corrupt store preserved byte-identical (admission is read-only)')
+    begin
+      CD::Depositor.deposit(certificate: second[:certificate],
+                            distillate_json: second[:distillate_json], skillset_name: 'pack_three')
+      assert(false, 'CD-8: deposits keep declining while the store is corrupt')
+    rescue CD::Distiller::Declined => e
+      assert(JSON.parse(e.message)['rule'] == 'cd-8/exposure-store-corrupt',
+             'CD-8: subsequent deposit still declines on the corrupt store')
+    end
+    _ = identity
+  end
+end
+
+# ---------------------------------------------------------------------------
+# CD-9/CG-3: the deposit crossing judges the CERTIFICATE content too — a
+# secret smuggled into a certificate field (with a spoofed foreign chain
+# identity, so chainless verification cannot catch the tamper) must be
+# denied at the crossing, never ride out inside certificate.json (impl
+# review R2 (a)).
+with_stack(DEPOSIT_PROFILE) do |_fake|
+  Dir.mktmpdir do |root|
+    fresh_deposit_seams(root)
+    exchange_calls = []
+    CD::Depositor.exchange = ->(name) { exchange_calls << name; { status: 'listed' } }
+    cert, djson, _identity = distill_for_deposit
+    smuggled = JSON.parse(JSON.generate(cert))
+    smuggled['claim_core']['certificate_identity'] = 'ab12cd34-0000-4000-8000-smuggleident'
+    smuggled['claim_core']['identity']['chain_identity'] = "block1-sha256:feedface #{SECRET}"
+    assert_raises(KairosMcp::ToolRegistry::GateDeniedError,
+                  'CD-9: secret inside a certificate field is denied at the deposit crossing') do
+      CD::Depositor.deposit(certificate: smuggled, distillate_json: djson, skillset_name: 'smuggle_pack')
+    end
+    assert(!Dir.exist?(File.join(root, 'pkgs', 'smuggle_pack')),
+           'CD-9: denied certificate-content crossing leaves no package')
+    assert(exchange_calls.empty?, 'CD-9: denied certificate-content crossing never reaches the exchange')
+
+    # Secret in the caller's DESCRIPTION is judged at the crossing too
+    # (impl review R3 — the description lands in the packaged manifest).
+    assert_raises(KairosMcp::ToolRegistry::GateDeniedError,
+                  'CD-9: secret inside the listing description is denied at the deposit crossing') do
+      CD::Depositor.deposit(certificate: cert, distillate_json: djson,
+                            skillset_name: 'desc_pack', description: "great skills #{SECRET}")
+    end
+    assert(!Dir.exist?(File.join(root, 'pkgs', 'desc_pack')),
+           'CD-9: denied description crossing leaves no package')
+
+    # Grounding evasion closed (impl review R3 (b)): a LOCALLY ISSUED
+    # certificate whose chain_identity is edited to a foreign value keeps
+    # its identity-keyed locality — full grounding runs and the tamper
+    # declines; the mutable claim cannot buy the vacuous lane.
+    evader = JSON.parse(JSON.generate(cert))
+    evader['claim_core']['identity']['chain_identity'] = 'block1-sha256:feedfacefeedface'
+    begin
+      CD::Depositor.deposit(certificate: evader, distillate_json: djson, skillset_name: 'evade_pack')
+      assert(false, 'CD-9: locally issued certificate with edited chain_identity must decline')
+    rescue CD::Distiller::Declined => e
+      assert(JSON.parse(e.message)['rule'] == 'cd-9/binding-or-verification-failure',
+             'CD-9: identity-keyed locality forces full grounding on the tampered local certificate')
+    end
+  end
+end
+
+# ---------------------------------------------------------------------------
+# Deposit-crossing content judgment: content classes govern the deposit
+# crossing like any distillation crossing (CG-3 conjunctive coverage) — a
+# certificate over secret-bearing content can exist only if the release
+# crossings were somehow passed, but the deposit crossing still judges the
+# presented content independently.
+with_stack(DEPOSIT_PROFILE) do |_fake|
+  Dir.mktmpdir do |root|
+    fresh_deposit_seams(root)
+    CD::Depositor.exchange = ->(_name) { { status: 'listed' } }
+    cert, djson, _identity = distill_for_deposit
+    # Tamper the distillate to smuggle a secret AND recompute nothing:
+    # binding fails first (the certificate refuses the content); this pins
+    # that the secret path cannot even reach the crossing bound to a
+    # mismatched certificate.
+    secret_json = CD::Canon.canonical('body' => SECRET)
+    begin
+      CD::Depositor.deposit(certificate: cert, distillate_json: secret_json, skillset_name: 'demo_pack')
+      assert(false, 'CD-9: secret content under a mismatched certificate declines (binding first)')
+    rescue CD::Distiller::Declined
+      assert(true, 'CD-9: secret content under a mismatched certificate declines at binding')
+    end
+    _ = djson
+  end
+end
+
+# ---------------------------------------------------------------------------
+# Production-wiring regression (slice 2): REAL Chain, REAL regime gate, real
+# path resolution for package root and exposure store via KAIROS_DATA_DIR;
+# the exchange delegate is injected ONLY at the network boundary (the seam
+# the design names in BL-S2-1).
+Dir.mktmpdir do |root|
+  FileUtils.mkdir_p(File.join(root, 'config'))
+  File.write(File.join(root, 'config', 'confidentiality_guard.yml'),
+             { 'guard' => { 'enabled' => true, 'profile' => 'profile.yml' } }.to_yaml)
+  File.write(File.join(root, 'config', 'profile.yml'), DEPOSIT_PROFILE.to_yaml)
+  old_data_dir = ENV['KAIROS_DATA_DIR']
+  ENV['KAIROS_DATA_DIR'] = File.join(root, '.kairos')
+  # KairosMcp.data_dir memoizes at boot in production; pin it here exactly
+  # as a freshly booted server would resolve it, so the Depositor's real
+  # default paths are exercised against THIS root (not a stale memo from an
+  # earlier test section).
+  KairosMcp.data_dir = File.join(root, '.kairos') if KairosMcp.respond_to?(:data_dir=)
+  seeder = KairosMcp::KairosChain::Chain.new
+  3.times { |i| seeder.add_block([JSON.generate('type' => 'seed', 'n' => i)]) }
+  CG::Regime.skillset_root = root
+  FakeRegistry.clear!
+  CD::Distiller.registry_class = FakeRegistry
+  CD::Distiller.guard_regime = CG::Regime
+  exchange_calls = []
+  CD::Depositor.exchange = ->(name) { exchange_calls << name; { status: 'listed' } }
+  begin
+    CG::Regime.ensure_activated!(registry_class: FakeRegistry)
+    # REAL carrier wiring (impl review R1 (a)): the default registry under
+    # the real data dir, wired BEFORE issuance exactly as cd_distill does —
+    # the envelope must be persisted for the issued identity, or the CD-8
+    # channel is dead in production while every isolated test passes.
+    carrier_wired = CD::CarrierWiring.wire!
+    result = CD::Distiller.distill(designation: [1, 3], distillate: DISTILLATE)
+    cert = result[:certificate]
+    identity = cert['claim_core']['certificate_identity']
+    if carrier_wired
+      reg = Synoptis::Registry::FileRegistry.new(
+        data_dir: File.join(root, '.kairos', 'synoptis_data')
+      )
+      envelope = reg.find_proof(identity)
+      assert(!envelope.nil?, 'real-chain: carrier envelope persisted at issuance (CD-8 channel live)')
+      assert(envelope && JSON.parse(envelope.claim)['claim_core']['certificate_identity'] == identity,
+             'real-chain: persisted envelope carries the certificate keyed by its identity')
+    else
+      assert(false, 'real-chain: carrier wiring must succeed in this checkout (synoptis present)')
+    end
+    dep = CD::Depositor.deposit(certificate: cert, distillate_json: result[:distillate_json],
+                                skillset_name: 'prod_pack')
+    assert(dep[:status] == 'deposited', 'real-chain: deposit succeeds under the real regime gate')
+    # Real default path resolution: package under .kairos/skillsets, marker
+    # under .kairos/storage (the works-in-tests/dead-in-prod class).
+    assert(dep[:package_path] == File.join(root, '.kairos', 'skillsets', 'prod_pack'),
+           "real-chain: package materializes under the real data dir (got #{dep[:package_path]})")
+    assert(File.exist?(File.join(root, '.kairos', 'skillsets', 'prod_pack', 'certificate.json')),
+           'real-chain: certificate.json present in the real package')
+    # The materialized package must be depositable through the SHIPPED
+    # validation chain (discovery + knowledge-only + validity): pins that
+    # certificate.json at the package root survives the exchange's own
+    # gate, not just our packaging (impl review R2 (c)).
+    begin
+      require_relative '../../skillset_exchange/lib/skillset_exchange/exchange_validator'
+      require_relative '../../../../lib/kairos_mcp/skillset_manager'
+      manager = KairosMcp::SkillSetManager.new
+      validation = ::SkillsetExchange::ExchangeValidator.new(config: {})
+                     .validate_for_deposit('prod_pack', manager: manager)
+      assert(validation[:valid] == true,
+             "real-chain: materialized package passes the shipped deposit validation (#{validation[:errors]})")
+    rescue LoadError, NameError => e
+      assert(false, "real-chain: shipped validation chain must load (#{e.class}: #{e.message})")
+    end
+    assert(File.exist?(File.join(root, '.kairos', 'storage', 'cd_exposure.json')),
+           'real-chain: exposure marker persists under the real storage dir')
+    assert(exchange_calls == ['prod_pack'], 'real-chain: exchange delegate reached exactly once')
+    # The deposit verdict record persists on the reloaded real store and
+    # cites the identity (slice-1 R3 P0 class: records must survive).
+    reloaded = KairosMcp::KairosChain::Chain.new
+    persisted = reloaded.chain.each_with_object({}) do |blk, acc|
+      first = Array(blk.data).first
+      acc[blk.index] = (JSON.parse(first) rescue nil) if first.is_a?(String)
+    end.compact
+    dep_verdicts = persisted.values.select { |e|
+      e['type'] == 'cg_guard_decision' && e.dig('crossing', 'tool') == 'cd_release_package'
+    }
+    assert(dep_verdicts.size == 1 && dep_verdicts.first.dig('crossing', 'certificate_identity') == identity,
+           'real-chain: deposit verdict record persisted and cites the identity')
+    # Revocation end to end on the real store: revoke, mirror to the real
+    # carrier registry (chain authoritative, carrier mirrors), then
+    # re-deposit declines and verification reports revoked.
+    CD::Recorder.record_revocation(certificate_identity: identity, reason: 'withdrawn')
+    mirror = CD::CarrierWiring.mirror_revocation(identity, 'withdrawn')
+    assert(mirror['status'] == 'revoked', "real-chain: carrier mirror succeeds (got #{mirror})")
+    real_reg = Synoptis::Registry::FileRegistry.new(
+      data_dir: File.join(root, '.kairos', 'synoptis_data')
+    )
+    assert(real_reg.revoked?(identity),
+           'real-chain: the real carrier registry reports revoked after the mirror (CD-11 remote leg)')
+    begin
+      CD::Depositor.deposit(certificate: cert, distillate_json: result[:distillate_json],
+                            skillset_name: 'prod_pack')
+      assert(false, 'real-chain: revoked re-deposit must decline')
+    rescue CD::Distiller::Declined => e
+      assert(JSON.parse(e.message)['rule'] == 'cd-9/revoked-at-judgment',
+             'real-chain: revoked re-deposit names the rule')
+    end
+    vr = CD::Certificate.verify(cert, chain_entries: CD::Distiller.chain_entries,
+                                chain_hashes: CD::Distiller.chain_block_hashes,
+                                distillate_json: result[:distillate_json])
+    assert(vr[:revoked] == true, 'real-chain: revocation visible to a chain-access verifier')
+
+    # DEFAULT exchange delegate against the SHIPPED tool (impl review R1
+    # (a)): with no Meeting Place connection the tool RETURNS an error as
+    # text content without raising; the fail-closed normalization must
+    # classify it as exchange failure — status deposit_incomplete, no
+    # exposure — never as success (works-in-tests/dead-in-prod class).
+    CD::Depositor.exchange = nil
+    second = CD::Distiller.distill(designation: [2], distillate: { 'skill' => 'second' })
+    second_id = second[:certificate]['claim_core']['certificate_identity']
+    dep2 = CD::Depositor.deposit(certificate: second[:certificate],
+                                 distillate_json: second[:distillate_json],
+                                 skillset_name: 'unlisted_pack')
+    assert(dep2[:status] == 'deposit_incomplete',
+           "real-chain: unconnected exchange is a visible failure, not success (got #{dep2[:status]})")
+    assert(dep2[:exchange_result].is_a?(Hash) && dep2[:exchange_result][:status] == 'exchange_error',
+           'real-chain: shipped-tool error answer normalized fail-closed')
+    detail = dep2[:exchange_result][:detail]
+    assert(detail.is_a?(Hash) && detail['error'].to_s.include?('Not connected'),
+           "real-chain: the LIVE shipped tool answered (not a load failure) — got #{detail.inspect}")
+    assert(!CD::Depositor.exposed?(second_id),
+           'real-chain: no exposure for a package that never reached a listing (CD-8)')
+    assert(File.exist?(File.join(root, '.kairos', 'skillsets', 'unlisted_pack', 'certificate.json')),
+           'real-chain: package persists for the operator retry (fail-visible, not rolled back)')
+  ensure
+    ENV['KAIROS_DATA_DIR'] = old_data_dir
+    KairosMcp.reset_data_dir! if KairosMcp.respond_to?(:reset_data_dir!)
+    CG::Regime.reset!
+    CG::Recorder.chain_factory = nil
+    CD::Recorder.chain_factory = nil
+    CD::Distiller.registry_class = nil
+    CD::Distiller.guard_regime = nil
+    CD::Distiller.carrier = nil
+    CD::Depositor.exchange = nil
+    CD::Depositor.package_root = nil
+    CD::Depositor.exposure_path = nil
     CG::Regime.skillset_root = File.expand_path('../../confidentiality_guard', __dir__)
   end
 end

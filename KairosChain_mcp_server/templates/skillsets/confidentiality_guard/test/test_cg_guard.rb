@@ -174,8 +174,8 @@ assert(CG::Surfaces::OUTWARD_TOOLS.sort == %w[
          chain_export llm_call meeting_attest_skill meeting_deposit
          meeting_publish_needs meeting_update_deposit philosophy_anchor safe_git_push skillset_deposit
        ], 'CG-2: outward enrollment matches pinned manifest')
-assert(CG::Surfaces::DISTILLATION_TOOLS.sort == %w[cd_release_certificate cd_release_distillate],
-       'CG-2: distillation-crossing enrollment matches pinned manifest (guard slice-2 first increment)')
+assert(CG::Surfaces::DISTILLATION_TOOLS.sort == %w[cd_release_certificate cd_release_distillate cd_release_package],
+       'CG-2: distillation-crossing enrollment matches pinned manifest (guard slice-2 increments: release pair + deposit)')
 
 # ---------------------------------------------------------------------------
 # Guard slice-2 first increment: distillation crossing (chain_distillation
@@ -220,6 +220,65 @@ with_regime(DISTILL_PROFILE) do |fake, _root|
     r['type'] == 'cg_guard_decision' && r.dig('crossing', 'certificate_identity') == 'cert-uuid-1'
   end
   assert(cited, 'distillation: certificate-crossing verdict record cites the certificate identity (identifier only)')
+end
+
+# ---------------------------------------------------------------------------
+# Guard increment for chain_distillation slice 2 (design v0.4 FROZEN, CD-9):
+# the deposit crossing joins the distillation family; the deny surface is
+# otherwise unmodified; the BL-S2-8 withdrawal-route premise is pinned.
+DEPOSIT_CROSSING_PROFILE = PERMISSIVE.merge(
+  'distillation_crossings' => %w[cd_release_distillate cd_release_certificate cd_release_package]
+).freeze
+
+# Classification: cd_deposit is a :distillation_outward crossing carrying the
+# certificate identity into the descriptor (identifier only, CG-4).
+desc = CG::Surfaces.classify('cd_release_package', { 'certificate_identity' => 'cert-uuid-2' })
+assert(desc[:class] == :distillation_outward && desc[:certificate_identity] == 'cert-uuid-2',
+       'CD-9: cd_release_package classifies as :distillation_outward and carries the identity')
+
+# The cd_deposit TOOL name is deliberately NOT a crossing: the internal
+# cd_release_package crossing is the judged surface (slice-1 pattern), so
+# the registry never double-judges the tool call ahead of admission.
+assert(CG::Surfaces.classify('cd_deposit', {}).nil?,
+       'CD-9: the cd_deposit tool name is unclassified (no registry-level double judgment)')
+
+# The general deposit tools remain wholesale-denied (deny posture unmodified).
+assert(CG::Surfaces.classify('meeting_deposit', {})[:class] == :outward &&
+       CG::Surfaces.classify('meeting_update_deposit', {})[:class] == :outward &&
+       CG::Surfaces.classify('skillset_deposit', {})[:class] == :outward,
+       'CD-9: general deposit/update tools stay on the outward deny surface')
+
+# BL-S2-8 premise, verified at resolution time as the backlog requires: the
+# withdrawal tools sit OUTSIDE every guard classification (undenied route
+# for the revoker's listing duty, CD-11).
+assert(CG::Surfaces.classify('meeting_withdraw', {}).nil? &&
+       CG::Surfaces.classify('skillset_withdraw', {}).nil?,
+       'BL-S2-8: withdrawal route is outside the deny surface (premise verified)')
+
+with_regime(PERMISSIVE) do |_fake, _root|
+  assert_raises(KairosMcp::ToolRegistry::GateDeniedError,
+                'CD-9: undesignated cd_release_package crossing denied (closed-world)') do
+    FakeRegistry.run_gates('cd_release_package', { 'content' => 'clean distillate' })
+  end
+end
+
+with_regime(DEPOSIT_CROSSING_PROFILE) do |fake, _root|
+  FakeRegistry.run_gates('cd_release_package',
+                         { 'content' => 'clean distillate', 'certificate_identity' => 'cert-uuid-3' })
+  passed = records.call(fake).select { |r| r['type'] == 'cg_guard_decision' && r['verdict'] == 'pass' }
+  assert(passed.any? { |r| r['rule'] == 'designation/distillation:cd_release_package' &&
+                           r.dig('crossing', 'certificate_identity') == 'cert-uuid-3' },
+         'CD-9: designated deposit crossing passes, recorded, citing the identity')
+  assert_raises(KairosMcp::ToolRegistry::GateDeniedError,
+                'CD-9: content-class hit on the deposit crossing denies conjunctively') do
+    FakeRegistry.run_gates('cd_release_package', { 'content' => SECRET })
+  end
+  # The rest of the outward class stays denied even with the deposit
+  # crossing designated (no ambient widening).
+  assert_raises(KairosMcp::ToolRegistry::GateDeniedError,
+                'CD-9: meeting_update_deposit still denied under the deposit-enrolled profile') do
+    FakeRegistry.run_gates('meeting_update_deposit', { 'name' => 'x' })
+  end
 end
 
 # CG-2: verdict precedes effect — the deny raise happens at the gate, before

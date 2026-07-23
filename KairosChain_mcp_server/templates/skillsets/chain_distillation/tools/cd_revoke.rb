@@ -2,6 +2,7 @@
 
 require 'json'
 require_relative '../lib/chain_distillation/recorder'
+require_relative '../lib/chain_distillation/carrier_wiring'
 
 module KairosMcp
   module SkillSets
@@ -47,8 +48,17 @@ module KairosMcp
               certificate_identity: identity,
               reason: args['reason'].to_s
             )
+            # CD-6/CD-11 (slice 2): the chain record above is authoritative;
+            # the carrier MIRRORS it (never the reverse), best-effort and
+            # fail-visible — a failed mirror is disclosed lag, not a
+            # rollback.
+            mirror = CarrierWiring.mirror_revocation(identity, args['reason'].to_s)
+            # CD-11 (slice 2): the revoker owes maintenance of listings
+            # under their own control; withdrawal route (BL-S2-8).
             text_content(JSON.generate(status: 'revoked', certificate_identity: identity,
-                                       block_index: result[:block_index]))
+                                       block_index: result[:block_index],
+                                       carrier_mirror: mirror,
+                                       listing_duty: 'withdraw or update every deposit listing under your control (CD-11; skillset_withdraw / meeting_withdraw are outside the guard deny surface)'))
           end
         end
       end

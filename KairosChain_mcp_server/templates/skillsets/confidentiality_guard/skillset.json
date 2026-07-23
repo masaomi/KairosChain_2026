@@ -1,6 +1,6 @@
 {
   "name": "confidentiality_guard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Fail-closed data-confidentiality regime for enterprise environments. Slice 1: inward (L2/L1 write) and restricted-storage-read surfaces; outward crossings denied wholesale under the CG-1 coverage clause. Design: confidentiality_guard_skillset_design v0.3 (FROZEN), invariants CG-1..CG-6.",
   "author": "KairosChain",
   "layer": "L1",

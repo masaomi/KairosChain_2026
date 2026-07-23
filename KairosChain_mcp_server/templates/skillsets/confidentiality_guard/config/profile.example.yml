@@ -37,7 +37,9 @@ content_classes:
 # the chain_distillation track). Closed-world: only the listed release
 # crossings are judged per-destination; absence denies (CG-1). Content
 # classes above still apply conjunctively to whatever crosses here.
-# Uncomment to permit certified distillation releases:
+# Uncomment to permit certified distillation releases; cd_release_package
+# is the slice-2 deposit crossing (certified-distillate distribution):
 # distillation_crossings:
 #   - cd_release_distillate
 #   - cd_release_certificate
+#   - cd_release_package

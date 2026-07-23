@@ -2,6 +2,7 @@
 
 require 'json'
 require_relative '../lib/chain_distillation/distiller'
+require_relative '../lib/chain_distillation/carrier_wiring'
 
 module KairosMcp
   module SkillSets
@@ -46,16 +47,27 @@ module KairosMcp
 
           def call(arguments)
             args = arguments.is_a?(Hash) ? arguments : {}
+            # CD-8 (slice 2): the carrier envelope is written AT ISSUANCE,
+            # so the wiring must precede distillation — wiring only at
+            # deposit time would skip every certificate's envelope (impl
+            # review R1). Idempotent; degrades to unwired when synoptis is
+            # absent (disclosed, slice-1 behavior).
+            CarrierWiring.wire! unless Distiller.carrier
             result = Distiller.distill(
               designation: args['designation'],
               distillate: args['distillate'],
               safety: @safety,
               attester_id: args['attester_id']
             )
+            # distillate_json travels back to the caller: the CANONICAL
+            # string the commitment binds is what cd_deposit must present,
+            # and the caller's own copy cannot be trusted to re-canonicalize
+            # byte-identically across the MCP boundary (impl review R1 (a)).
             text_content(JSON.generate(
               status: 'distilled',
               certificate: result[:certificate],
-              record_block_index: result[:record_block_index]
+              record_block_index: result[:record_block_index],
+              distillate_json: result[:distillate_json]
             ))
           rescue Distiller::Declined => e
             text_content(e.message)
