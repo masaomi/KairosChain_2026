@@ -21,7 +21,10 @@ module KairosMcp
             'Advance the agent session by one step. Actions depend on current state: ' \
               '"approve" at [observed] runs Orient+Decide, at [proposed] runs Act+Reflect, ' \
               'at [checkpoint] starts next cycle. "revise" re-runs Decide with feedback. ' \
-              '"skip" skips Act. "stop" terminates.'
+              '"skip" skips Act. "stop" terminates. "adjudicate" resolves an unresolved ' \
+              'side-effect after an interruption. Pass the anchor from agent_status ' \
+              '(next_move) to make the call replay-safe: a re-issued identical call ' \
+              'returns the recorded outcome instead of re-executing.'
           end
 
           def category
@@ -46,12 +49,35 @@ module KairosMcp
                 },
                 action: {
                   type: 'string',
-                  description: 'Action: "approve", "revise", "skip", or "stop"',
-                  enum: %w[approve revise skip stop]
+                  description: 'Action: "approve", "revise", "skip", "stop", or "adjudicate"',
+                  enum: %w[approve revise skip stop adjudicate]
                 },
                 feedback: {
                   type: 'string',
                   description: 'Feedback for "revise" action (optional)'
+                },
+                anchor: {
+                  type: 'string',
+                  description: 'Anchor of the session state this call was issued against ' \
+                               '(from agent_status next_move or the previous response). ' \
+                               'Optional: an anchorless call is issued against the current state. ' \
+                               'With an anchor, a re-issued identical call replays the recorded ' \
+                               'outcome; a stale anchor is rejected with the current state.'
+                },
+                resolution: {
+                  type: 'string',
+                  description: 'For "adjudicate": "reattempt" (re-run the interrupted act) or ' \
+                               '"already_done" (the effect happened; record and move on)',
+                  enum: %w[reattempt already_done]
+                },
+                execution: {
+                  type: 'string',
+                  description: '"inline" (default) runs the step in this call. "delegated" ' \
+                               'returns immediately with a step token while a detached worker ' \
+                               'runs the same gated step under server-side ownership; collect ' \
+                               'with agent_wait. Use for long-running steps that must survive ' \
+                               'the caller.',
+                  enum: %w[inline delegated]
                 },
                 apply_permission_hook: {
                   type: 'boolean',
@@ -75,18 +101,29 @@ module KairosMcp
               return text_content(JSON.generate(result)) unless result['status'] == 'ok'
             end
 
-            case action
-            when 'stop'
-              handle_stop(session)
-            when 'approve'
-              handle_approve(session)
-            when 'revise'
-              handle_revise(session, feedback)
-            when 'skip'
-              handle_skip(session)
-            else
-              error_result("Unknown action: #{action}")
+            # Slice A-2 (INV-A1): a delegated step returns a resumable handle
+            # while a detached worker re-enters this same gated path. The
+            # initiating call does not advance state itself — the worker's
+            # call does, under the full A-1 gate.
+            if arguments['execution'] == 'delegated'
+              return handle_delegated_start(session, arguments)
             end
+
+            # Interruption resilience Slice A (design v0.3.1 FROZEN): every
+            # state-advancing call passes through the AdvanceGate — serialized
+            # against concurrent callers (INV-A2), anchored at-most-once
+            # (INV-A3), with committed outcomes replayable after a retry.
+            gate = AdvanceGate.new(session.guard_dir)
+            result = gate.with_lock do
+              advance_under_lock(gate, session, action, arguments, feedback)
+            end
+            if result.is_a?(Hash) && result['status'] == 'busy'
+              return text_content(JSON.generate(result.merge(
+                'session_id' => session.session_id,
+                'hint' => 'another advance is in flight; read agent_status and re-issue its next_move when it settles'
+              )))
+            end
+            result
           rescue StandardError => e
             text_content(JSON.generate({
               'status' => 'error', 'error' => "#{e.class}: #{e.message}"
@@ -95,14 +132,252 @@ module KairosMcp
 
           private
 
+          # Slice A-2: open (or re-join) the delegation handle and spawn the
+          # detached worker. Idempotent at delegation-start (INV-A3): a
+          # re-issued delegated call for the same action+anchor returns the
+          # existing token instead of spawning a second worker. A ready
+          # result from the previous delegation is surfaced, not clobbered.
+          def handle_delegated_start(session, arguments)
+            delegation = StepDelegation.new(session.guard_dir)
+            gate = AdvanceGate.new(session.guard_dir)
+
+            # Honor the same anchored-retry contract as the inline path: a
+            # caller-supplied anchor that is stale (or already consumed by a
+            # different judgment) is rejected/replayed here rather than
+            # silently delegated against the current state.
+            action_key = replay_action_key(arguments['action'], arguments, arguments['feedback'])
+            if arguments['anchor'] && arguments['anchor'] != gate.current_anchor(session)
+              disp = gate.check(arguments['anchor'], action_key, session)
+              case disp['disposition']
+              when 'replay'
+                return text_content(JSON.generate(disp['outcome'].merge('replayed' => true)))
+              when 'rejected'
+                return text_content(JSON.generate({
+                  'status' => 'anchor_rejected', 'session_id' => session.session_id,
+                  'reason' => disp['reason'], 'state' => session.state,
+                  'next_move' => gate.next_move(session)
+                }))
+              end
+            end
+
+            recorded = {
+              'action' => arguments['action'],
+              'feedback' => arguments['feedback'],
+              'resolution' => arguments['resolution']
+            }.compact
+            # open_handle injects the issue-anchor into the worker args so the
+            # re-entry is always anchored (INV-A3), dedups by (anchor,
+            # action_key) under delegation.lock (no double-spawn, and a
+            # different judgment at the same anchor is NOT a reuse). It returns
+            # :ready (finished, uncollected), :existing (a live worker for this
+            # exact anchor+action), or :opened (fresh).
+            disposition, token = delegation.open_handle(recorded, gate.current_anchor(session), action_key)
+
+            if disposition == :opened
+              begin
+                delegation.spawn_worker(session.session_id)
+              rescue StandardError => e
+                delegation.clear_pending_if(token)
+                return error_result("failed to spawn delegated worker: #{e.message}")
+              end
+            end
+
+            if disposition == :ready
+              return text_content(JSON.generate({
+                'status' => 'delegation_ready', 'session_id' => session.session_id,
+                'step_token' => token,
+                'next_action' => { 'tool' => 'agent_wait',
+                                   'args' => { 'session_id' => session.session_id },
+                                   'purpose' => 'a delegated step already finished for this state; collect its outcome' }
+              }))
+            end
+
+            text_content(JSON.generate({
+              'status' => 'delegation_pending', 'session_id' => session.session_id,
+              'step_token' => token, 'reused' => (disposition == :existing),
+              'next_action' => { 'tool' => 'agent_wait',
+                                 'args' => { 'session_id' => session.session_id,
+                                             'max_wait_seconds' => 600 },
+                                 'purpose' => 'block until the delegated step completes; every status returns a recovery hint' }
+            }))
+          end
+
+          # Runs with the per-session advance lock held (INV-A2).
+          def advance_under_lock(gate, stale_session, action, arguments, feedback)
+            # Reload under the lock: the pre-lock session object may be stale
+            # if another advance committed while this call raced it. The
+            # anchor must be checked against the persisted truth, never a
+            # snapshot (INV-A2/A3). Fail closed if the persisted record is
+            # gone — advancing on a snapshot would mask store corruption.
+            session = Session.load(stale_session.session_id)
+            unless session
+              return error_result(
+                "session record unreadable for #{stale_session.session_id}; refusing to advance on a stale snapshot")
+            end
+
+            # An unresolved side-effect point takes precedence over every other
+            # pending advance (INV-A4 uniqueness): only its adjudication, or a
+            # stop, may proceed. Stale-intent cleanup is a write and therefore
+            # happens only here, under the lock.
+            # Stopping an already-terminated session is a no-op, not a new
+            # advance (mirrors agent_stop's idempotency): no duplicate
+            # commits, no seq churn.
+            if action == 'stop' && session.state == 'terminated'
+              return text_content(JSON.generate({
+                'status' => 'ok', 'session_id' => session.session_id,
+                'state' => 'terminated', 'already_terminated' => true
+              }))
+            end
+
+            intent = gate.unresolved_intent(cleanup: true)
+            if intent && !%w[adjudicate stop].include?(action)
+              return text_content(JSON.generate({
+                'status' => 'unresolved_effect', 'session_id' => session.session_id,
+                'state' => session.state, 'unresolved_intent' => intent,
+                'next_move' => gate.next_move(session)
+              }))
+            end
+
+            # Replay identity is the judgment's full content, not just its
+            # verb: an adjudicate re-issued with a different resolution, or a
+            # revise with different feedback, is a different judgment and must
+            # never replay the other's outcome (it is rejected instead).
+            action_key = replay_action_key(action, arguments, feedback)
+            disposition = gate.check(arguments['anchor'], action_key, session)
+            case disposition['disposition']
+            when 'replay'
+              # INV-A3: identical judgment re-sent — return the recorded
+              # outcome, execute nothing.
+              return text_content(JSON.generate(
+                disposition['outcome'].merge('replayed' => true)))
+            when 'rejected'
+              return text_content(JSON.generate({
+                'status' => 'anchor_rejected', 'session_id' => session.session_id,
+                'reason' => disposition['reason'], 'state' => session.state,
+                'next_move' => gate.next_move(session)
+              }))
+            end
+
+            @gate = gate
+            @anchor_at_issue = gate.current_anchor(session)
+
+            result = case action
+                     when 'stop' then handle_stop(session)
+                     when 'approve' then handle_approve(session)
+                     when 'revise' then handle_revise(session, feedback)
+                     when 'skip' then handle_skip(session)
+                     when 'adjudicate' then handle_adjudicate(session, arguments['resolution'])
+                     else error_result("Unknown action: #{action}")
+                     end
+
+            commit_advance(gate, session, action, action_key, result)
+          ensure
+            @gate = nil
+            @anchor_at_issue = nil
+          end
+
+          def replay_action_key(action, arguments, feedback)
+            case action
+            when 'adjudicate' then "adjudicate:#{arguments['resolution']}"
+            when 'revise' then "revise:#{Digest::SHA256.hexdigest(feedback.to_s)[0, 16]}"
+            else action
+            end
+          end
+
+          # Commits a completed advance to the gate log (INV-A2/A3): the
+          # response the caller sees and the record a retry replays are the
+          # same object.
+          def commit_advance(gate, session, action, action_key, result)
+            outcome = begin
+              JSON.parse(result[0][:text])
+            rescue StandardError
+              nil
+            end
+            return result unless outcome.is_a?(Hash)
+            return result if outcome['status'] == 'unresolved_effect'
+
+            # The commit criterion is the persisted truth, not the status
+            # string: some paths (the autonomous loop) persist real
+            # transitions before returning an error-status outcome. A call
+            # whose persisted state did not move is not an advance — its
+            # anchor stays valid for a retry.
+            persisted = Session.load(session.session_id)
+            at = @anchor_at_issue.to_s.split(':')
+            advanced = persisted &&
+                       (persisted.state != at[1] || persisted.cycle_number.to_s != at[2])
+            return result if outcome['status'] == 'error' && !advanced
+
+            ref = persisted || session
+            outcome['anchor'] = "#{gate.seq + 1}:#{ref.state}:#{ref.cycle_number}"
+            gate.commit(@anchor_at_issue, action_key, outcome)
+            # A stop issued over an unresolved side effect must not erase the
+            # unresolved record: the intent file stays as the audit trace of
+            # the ambiguity (the outcome carries it too).
+            gate.close_intent unless outcome['unresolved_intent_at_stop']
+            text_content(JSON.generate(outcome))
+          end
+
+          # INV-A3/A5: adjudication of an unresolved side-effect is itself a
+          # gated human judgment — the system never resolves the ambiguity
+          # silently in either direction.
+          def handle_adjudicate(session, resolution)
+            # A terminated session is never resurrected: a stale intent left
+            # behind by a stop is an audit record, not a pending move.
+            if session.state == 'terminated'
+              return error_result('session is terminated; its unresolved intent is an audit record, not adjudicable')
+            end
+
+            intent = @gate&.unresolved_intent
+            return error_result('nothing to adjudicate: no unresolved side-effect') unless intent
+
+            case resolution
+            when 'reattempt'
+              # The interrupted act never recorded; its decision payload is
+              # still persisted. Re-enter the ACT path from the stable
+              # pre-act state under the human's explicit judgment. The old
+              # intent is NOT closed here: it stays surfaced until either the
+              # re-run opens its own intent (atomic overwrite) or the advance
+              # commits — a crash in between must not lose the unresolved
+              # point.
+              session.update_state('proposed')
+              session.save
+              run_act_reflect(session)
+            when 'already_done'
+              # The intent is closed only after this adjudication commits
+              # (commit_advance), never before it is durably recorded.
+              session.save_progress(
+                { 'confidence' => 0.0, 'adjudication' => 'already_done' },
+                session.cycle_number + 1,
+                'act adjudicated by human as already completed; outcome was not machine-recorded',
+                (session.load_decision || {})['summary'] || ''
+              )
+              session.increment_cycle
+              session.update_state('checkpoint')
+              session.save
+              text_content(JSON.generate({
+                'status' => 'ok', 'session_id' => session.session_id,
+                'state' => 'checkpoint', 'adjudication' => 'already_done',
+                'note' => 'the next OBSERVE re-reads reality; the unrecorded effect is picked up there'
+              }))
+            else
+              error_result('adjudicate requires resolution: "reattempt" or "already_done"')
+            end
+          end
+
           def handle_stop(session)
+            payload = {
+              'status' => 'ok', 'session_id' => session.session_id,
+              'state' => 'terminated', 'reason' => 'user_stop'
+            }
+            # A stop over an unresolved side effect is permitted (the human
+            # gate may always terminate) but the ambiguity is recorded, never
+            # silently discarded (INV-A3).
+            intent = @gate&.unresolved_intent
+            payload['unresolved_intent_at_stop'] = intent if intent
             session.update_state('terminated')
             session.save
             log_agent(:info, 'session_stopped', session, reason: 'user_stop')
-            text_content(JSON.generate({
-              'status' => 'ok', 'session_id' => session.session_id,
-              'state' => 'terminated', 'reason' => 'user_stop'
-            }))
+            text_content(JSON.generate(payload))
           end
 
           def handle_approve(session)
@@ -238,6 +513,12 @@ module KairosMcp
                       summary: decision_payload['summary'].to_s[0..80])
 
             session.update_state('acting')
+            # INV-A3 side-effect bracket: the intent is persisted before the
+            # act's external effect begins and cleared only after the advance
+            # commits. A crash in between leaves the intent as an unresolved
+            # point — surfaced for human adjudication, never silently dropped
+            # or re-run.
+            @gate&.open_intent(@anchor_at_issue, decision_payload)
             act_result = run_act(session, decision_payload)
 
             verdict_const = ::KairosMcp::SkillSets::Agent::Verdict

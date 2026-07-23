@@ -13,7 +13,8 @@
     "KairosMcp::SkillSets::Agent::Tools::AgentStart",
     "KairosMcp::SkillSets::Agent::Tools::AgentStep",
     "KairosMcp::SkillSets::Agent::Tools::AgentStatus",
-    "KairosMcp::SkillSets::Agent::Tools::AgentStop"
+    "KairosMcp::SkillSets::Agent::Tools::AgentStop",
+    "KairosMcp::SkillSets::Agent::Tools::AgentWait"
   ],
   "config_files": ["config/agent.yml"],
   "knowledge_dirs": ["knowledge/agent_guide"],
