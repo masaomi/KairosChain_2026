@@ -174,6 +174,53 @@ assert(CG::Surfaces::OUTWARD_TOOLS.sort == %w[
          chain_export llm_call meeting_attest_skill meeting_deposit
          meeting_publish_needs meeting_update_deposit philosophy_anchor safe_git_push skillset_deposit
        ], 'CG-2: outward enrollment matches pinned manifest')
+assert(CG::Surfaces::DISTILLATION_TOOLS.sort == %w[cd_release_certificate cd_release_distillate],
+       'CG-2: distillation-crossing enrollment matches pinned manifest (guard slice-2 first increment)')
+
+# ---------------------------------------------------------------------------
+# Guard slice-2 first increment: distillation crossing (chain_distillation
+# design v0.5 §5). Conjunctive per-destination verdict; outward verdicts
+# recorded pass or deny (CG-4); the rest of the outward class stays denied.
+DISTILL_PROFILE = PERMISSIVE.merge(
+  'distillation_crossings' => %w[cd_release_distillate cd_release_certificate]
+).freeze
+
+with_regime(PERMISSIVE) do |_fake, _root|
+  assert_raises(KairosMcp::ToolRegistry::GateDeniedError,
+                'distillation: undesignated crossing denied (closed-world, CG-1)') do
+    FakeRegistry.run_gates('cd_release_distillate', { 'content' => 'clean payload' })
+  end
+end
+
+with_regime(DISTILL_PROFILE) do |fake, _root|
+  FakeRegistry.run_gates('cd_release_distillate', { 'content' => 'clean payload' })
+  passed = records.call(fake).select { |r| r['type'] == 'cg_guard_decision' && r['verdict'] == 'pass' }
+  assert(passed.any? { |r| r['rule'] == 'designation/distillation:cd_release_distillate' },
+         'distillation: designated clean crossing passes and is RECORDED (outward CG-4)')
+  assert_raises(KairosMcp::ToolRegistry::GateDeniedError,
+                'distillation: content-class hit denies conjunctively (CG-3/CG-6)') do
+    FakeRegistry.run_gates('cd_release_certificate', { 'content' => SECRET })
+  end
+  denied = records.call(fake).select { |r| r['type'] == 'cg_guard_decision' && r['verdict'] == 'deny' }
+  assert(denied.any? { |r| r['rule'].start_with?('content/') && r.dig('crossing', 'tool') == 'cd_release_certificate' },
+         'distillation: denial recorded with rule and crossing, no content (CG-4)')
+  # The remainder of the outward class stays denied wholesale.
+  assert_raises(KairosMcp::ToolRegistry::GateDeniedError,
+                'distillation: general outward class still denied wholesale (CG-1 coverage)') do
+    FakeRegistry.run_gates('llm_call', { 'prompt' => 'clean' })
+  end
+  status = CG::Regime.status
+  assert(status[:surfaces][:distillation_outward] == CG::Surfaces::DISTILLATION_TOOLS,
+         'distillation: surface inspectable in regime status (CG-1)')
+  # CD-1 coupling: a caller-presented certificate identity (an identifier)
+  # is carried into the verdict record so the record cites the certificate.
+  FakeRegistry.run_gates('cd_release_certificate',
+                         { 'content' => 'clean cert', 'certificate_identity' => 'cert-uuid-1' })
+  cited = records.call(fake).any? do |r|
+    r['type'] == 'cg_guard_decision' && r.dig('crossing', 'certificate_identity') == 'cert-uuid-1'
+  end
+  assert(cited, 'distillation: certificate-crossing verdict record cites the certificate identity (identifier only)')
+end
 
 # CG-2: verdict precedes effect — the deny raise happens at the gate, before
 # any tool body could run (gates run before tool.call in ToolRegistry).

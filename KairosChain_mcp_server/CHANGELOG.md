@@ -84,7 +84,7 @@ resource-scheme reads are denied wholesale under the CG-1 coverage clause.
   records carry the designation id, not the raw path. `canon.rb`: shared
   canonical serialization faithful to false/nil and mixed string/symbol keys.
 - `tools/cg_status.rb`: read-only regime-state tool (CG-1).
-- 67 design-constraint + regression tests (`test/test_cg_guard.rb`).
+- 67 design-constraint + regression tests (`test/test_cg_guard.rb`); 75 as of the chain_distillation guard slice-2 first increment (distillation crossing).
 
 Core (minimal, guard-enabling): `tool_registry.rb` adds `FailClosedError`
 (re-raised by the loader, never swallowed), per-skillset isolated loading,

@@ -42,7 +42,9 @@ module KairosMcp
             # In-server the chain class is already loaded; the require path
             # is a template-layout fallback for standalone runs (tests).
             unless defined?(KairosMcp::KairosChain::Chain)
-              require_relative '../../../../lib/kairos_mcp/kairos_chain/chain'
+              # Template layout: 5 ups to the server root (impl review
+              # parity fix with chain_distillation R1).
+              require_relative '../../../../../lib/kairos_mcp/kairos_chain/chain'
             end
             KairosMcp::KairosChain::Chain.new
           end
@@ -106,6 +108,7 @@ module KairosMcp
           fields = { 'class' => descriptor[:class].to_s, 'tool' => descriptor[:tool] }
           fields['layer'] = descriptor[:layer] if descriptor[:layer]
           fields['designation'] = descriptor[:designation] if descriptor[:designation]
+          fields['certificate_identity'] = descriptor[:certificate_identity] if descriptor[:certificate_identity]
           fields
         end
       end

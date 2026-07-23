@@ -1,0 +1,18 @@
+{
+  "name": "chain_distillation",
+  "version": "0.1.0",
+  "description": "Provenance-certified distillation of the instance chain into distributable SkillSets (design v0.5, CD-1..CD-6, slice 1: distill and certify in-instance)",
+  "author": "KairosChain",
+  "layer": "L1",
+  "depends_on": [
+    { "name": "confidentiality_guard", "version": ">= 0.1.0" }
+  ],
+  "provides": ["chain-distillation", "provenance-certificate"],
+  "tool_classes": [
+    "KairosMcp::SkillSets::ChainDistillation::Tools::CdDistill",
+    "KairosMcp::SkillSets::ChainDistillation::Tools::CdVerify",
+    "KairosMcp::SkillSets::ChainDistillation::Tools::CdRevoke"
+  ],
+  "config_files": ["config/chain_distillation.yml"],
+  "min_core_version": "2.8.0"
+}

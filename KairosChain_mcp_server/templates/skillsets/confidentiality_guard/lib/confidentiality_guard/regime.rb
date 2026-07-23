@@ -210,6 +210,7 @@ module KairosMcp
               inward_write: Surfaces::INWARD_WRITE_TOOLS.keys,
               storage_read: Surfaces::STORAGE_READ_TOOLS.keys,
               unmapped_read_denied: Surfaces::UNMAPPED_READ_TOOLS,
+              distillation_outward: Surfaces::DISTILLATION_TOOLS,
               outward_denied_wholesale: Surfaces::OUTWARD_TOOLS
             }
           }
@@ -308,7 +309,9 @@ module KairosMcp
           # In-server the registry is already loaded; the require path is a
           # template-layout fallback for standalone runs (tests).
           unless defined?(KairosMcp::ToolRegistry)
-            require_relative '../../../../lib/kairos_mcp/tool_registry'
+            # Template layout: 5 ups to the server root (impl review parity
+            # fix with chain_distillation R1).
+            require_relative '../../../../../lib/kairos_mcp/tool_registry'
           end
           KairosMcp::ToolRegistry
         end

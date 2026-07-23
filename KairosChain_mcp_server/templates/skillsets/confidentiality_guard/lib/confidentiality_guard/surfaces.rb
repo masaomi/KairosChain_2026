@@ -50,6 +50,18 @@ module KairosMcp
           resource_render
         ].freeze
 
+        # Distillation crossings (guard slice-2 first increment, delivered
+        # with the chain_distillation track by attended decision 2026-07-22;
+        # chain_distillation design v0.5 §5). These two names are the
+        # distillation track's release crossings — distillate first, then
+        # certificate (CD-1 ordering) — judged per-destination by Verdict
+        # instead of the wholesale outward denial. Owned by the guard track;
+        # the remainder of the outward class stays denied below.
+        DISTILLATION_TOOLS = %w[
+          cd_release_distillate
+          cd_release_certificate
+        ].freeze
+
         # Outward crossings (crossing class a). Slice 1 ships no outward
         # enforcement, so under CG-1's coverage clause every member of this
         # class is denied wholesale while the regime is active. Slice 2
@@ -95,6 +107,15 @@ module KairosMcp
           end
           if UNMAPPED_READ_TOOLS.include?(tool_name)
             return { class: :unmapped_read, tool: tool_name }
+          end
+          if DISTILLATION_TOOLS.include?(tool_name)
+            # The certificate identity, when the caller presents one, is an
+            # identifier carried into the descriptor so the verdict record
+            # cites it (chain_distillation CD-1; identifiers-only, CG-4).
+            descriptor = { class: :distillation_outward, tool: tool_name }
+            identity = args['certificate_identity']
+            descriptor[:certificate_identity] = identity if identity.is_a?(String) && !identity.empty?
+            return descriptor
           end
           if OUTWARD_TOOLS.include?(tool_name)
             return { class: :outward, tool: tool_name }

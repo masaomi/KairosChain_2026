@@ -2,7 +2,7 @@
 name: confidentiality_guard_skillset_design
 title: "Confidentiality Guard SkillSet — fail-closed data-confidentiality regime for enterprise environments"
 version: 0.3
-status: DRAFT (post-R2 revision)
+status: FROZEN (masaomi declaration 2026-07-22; R3 4/6 APPROVE + persona unanimity 3/3, zero P0 — see L2 confidentiality_guard_design_v03_review_converged_20260722)
 date: 2026-07-22
 revises: v0.2 (R2 4/6 APPROVE but (a)-class P0s remained — resolved here: permitted restricted-storage reads now recorded (CG-4); profile designations span every guarded crossing class incl. persistent-layer admission (§4); enrollment completeness moved from backlog to release-gated design constraint (CG-2); cessation recorded so guard-active intervals reconstructible (CG-1); verdict basis versioned incl. detection machinery (CG-3/CG-4); strictest-wins order defined deny>transform>pass (CG-5); transform output re-judged (CG-6); salt residual stated honestly (CG-4)
 layer_target: SkillSet (plugin level, not L0 core); policy content is user-editable data

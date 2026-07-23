@@ -30,6 +30,20 @@ module KairosMcp
             # CG-1 coverage clause: slice 1 ships no outward enforcement,
             # so the whole class is denied, not passed.
             deny('coverage/outward-unenforced', descriptor, basis)
+          when :distillation_outward
+            # Guard slice-2 first increment (distillation crossing only):
+            # conjunctive per-destination verdict. The crossing must be
+            # affirmatively designated by the policy (closed-world, CG-1)
+            # AND the presented content must clear the content classes.
+            # Outward verdicts are recorded pass or deny (CG-4).
+            destination = descriptor[:tool]
+            return deny("designation/absent:#{destination}", descriptor, basis) unless policy.distillation_crossing?(destination)
+            if (hit = policy.content_class_hit(content_json))
+              deny("content/#{hit[:id]}", descriptor, basis)
+            else
+              { verdict: 'pass', rule: "designation/distillation:#{destination}", crossing: descriptor,
+                recordable: true, basis: basis }
+            end
           when :inward_write
             admission = policy.persistent_admission(descriptor[:layer])
             return deny("designation/absent:#{descriptor[:layer]}", descriptor, basis) unless admission == 'permitted'

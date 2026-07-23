@@ -103,6 +103,14 @@ module KairosMcp
           raise
         end
 
+        # Distillation-crossing designations (guard slice-2 first
+        # increment): closed-world list of distillation release crossings
+        # the profile affirmatively permits. Absence of the key or of the
+        # entry is denial (CG-1).
+        def distillation_crossing?(destination)
+          Array(@data['distillation_crossings']).include?(destination)
+        end
+
         # First content-class detection hit on the presented content, or nil.
         # Deterministic: classes are evaluated in profile order (CG-3).
         def content_class_hit(content)

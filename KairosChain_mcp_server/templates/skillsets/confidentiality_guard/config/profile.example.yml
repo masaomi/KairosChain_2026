@@ -32,3 +32,12 @@ content_classes:
     pattern: '(?i)\b(api[_-]?key|secret[_-]?key|access[_-]?token)\b["'']?\s*[:=]'
   - id: private_key_block
     pattern: '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+
+# Distillation crossings (guard slice-2 first increment, delivered with
+# the chain_distillation track). Closed-world: only the listed release
+# crossings are judged per-destination; absence denies (CG-1). Content
+# classes above still apply conjunctively to whatever crosses here.
+# Uncomment to permit certified distillation releases:
+# distillation_crossings:
+#   - cd_release_distillate
+#   - cd_release_certificate

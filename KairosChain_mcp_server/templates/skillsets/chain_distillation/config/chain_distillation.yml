@@ -1,0 +1,13 @@
+# Chain Distillation SkillSet configuration (design v0.5 slice 1).
+#
+# The distiller carries no activation switch of its own: CD-1 couples
+# certified distillation to the confidentiality guard regime, whose
+# activation is environment-level (KAIROS_CONFIDENTIALITY_GUARD / the
+# guard's own config). With the regime inactive the distiller declines.
+#
+# The guard-side designation for the distillation crossings lives in the
+# GUARD's profile (distillation_crossings key) — the guard track owns
+# that surface; see confidentiality_guard/config/profile.example.yml.
+distillation:
+  # Reserved for slice-2 (distribution) settings.
+  {}
