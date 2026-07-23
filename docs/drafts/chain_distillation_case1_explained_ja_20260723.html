@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>来歴証明つき「蒸留」— 今日やったことの図解（2026-07-23）</title>
+<style>
+  :root {
+    --ink: #1c2530;
+    --sub: #55636f;
+    --line: #d9e0e6;
+    --bg: #f7f9fb;
+    --card: #ffffff;
+    --accent: #2f6f5b;
+    --accent2: #b4691f;
+    --warn: #a23b3b;
+    --code-bg: #f0f3f5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--ink);
+    font-family: -apple-system, "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+    line-height: 1.85; font-size: 16px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 40px 24px 80px; }
+  header.hero {
+    background: linear-gradient(135deg, #24493f 0%, #2f6f5b 100%);
+    color: #fff; border-radius: 16px; padding: 34px 32px; margin-bottom: 34px;
+  }
+  header.hero h1 { margin: 0 0 8px; font-size: 25px; line-height: 1.5; }
+  header.hero .lead { margin: 0; opacity: 0.92; font-size: 15px; }
+  header.hero .badge {
+    display: inline-block; margin-bottom: 14px; padding: 4px 12px;
+    background: rgba(255,255,255,0.18); border-radius: 999px; font-size: 12.5px; letter-spacing: .04em;
+  }
+  h2 {
+    font-size: 20px; margin: 44px 0 14px; padding-bottom: 8px;
+    border-bottom: 2px solid var(--accent); display: inline-block;
+  }
+  h3 { font-size: 16.5px; margin: 26px 0 8px; color: var(--accent); }
+  p { margin: 10px 0; }
+  .sub { color: var(--sub); }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 20px 22px; margin: 16px 0;
+  }
+  .callout {
+    border-left: 4px solid var(--accent2); background: #fdf6ee;
+    padding: 12px 18px; border-radius: 6px; margin: 16px 0;
+  }
+  .callout.warn { border-left-color: var(--warn); background: #fbf0f0; }
+  .callout.good { border-left-color: var(--accent); background: #eef6f2; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14.5px; }
+  th, td { border: 1px solid var(--line); padding: 9px 12px; text-align: left; vertical-align: top; }
+  th { background: #eef2f5; font-weight: 600; }
+  code {
+    background: var(--code-bg); padding: 1.5px 6px; border-radius: 4px;
+    font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; color: #234;
+    word-break: break-all;
+  }
+  .fig { margin: 22px 0; text-align: center; }
+  .fig svg { max-width: 100%; height: auto; }
+  .fig figcaption { color: var(--sub); font-size: 13px; margin-top: 8px; }
+  .files li { margin: 6px 0; }
+  .kv { font-size: 14px; }
+  .kv td:first-child { white-space: nowrap; color: var(--sub); }
+  .step-num {
+    display: inline-flex; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent); color: #fff; align-items: center; justify-content: center;
+    font-size: 13px; margin-right: 8px; flex: none;
+  }
+  footer { margin-top: 50px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--sub); font-size: 13px; }
+  .tag { display:inline-block; padding:2px 8px; border-radius:5px; font-size:12px; font-weight:600; }
+  .tag.yes { background:#e2f0e9; color:#256b52; }
+  .tag.no { background:#f6e5e5; color:#9a3b3b; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <span class="badge">2026-07-23 ・ KairosChain / MasaChain</span>
+  <h1>来歴証明つき「蒸留」を初めて実行した — その中身を図解で</h1>
+  <p class="lead">専門用語をゼロから噛み砕きます。今日どんなファイルを作り、それが「何を証明していて、何を証明していないか」を、順を追って説明します。</p>
+</header>
+
+<h2>0. まず一言でいうと</h2>
+<div class="card">
+<p><strong>自分の作業記録を材料にして、配布できる「知識の要約」を1つ作り、それに「これは確かに自分の記録から生まれたものだ」という<span style="color:var(--accent)">偽造できない証明書</span>を付けた</strong> — これが今日やったことです。</p>
+<p>題材にした能力は <strong>「複数の AI で相互レビューする手順（multi-LLM review）」</strong>。長年ためてきたこの know-how を、短い要約（蒸留物）にまとめ、来歴の証明書を発行しました。</p>
+</div>
+
+<h2>1. 登場人物（前提用語をゼロから）</h2>
+<p class="sub">この先を読むのに必要な言葉だけ、先に押さえます。</p>
+<table>
+  <tr><th>言葉</th><th>ふつうの言葉でいうと</th></tr>
+  <tr><td><strong>chain（チェーン）</strong></td><td>作業の出来事を1件ずつ、順番に並べて刻んだ「消せない記録帳」。あとから書き換えられない。今回のは <code>MasaChain</code> と呼ぶ個人の記録帳で、現在346件の記録がある。</td></tr>
+  <tr><td><strong>記録番号（index）</strong></td><td>記録帳の各行につく通し番号。1番から。今回は 41番〜254番のうち14件を「材料」に指定した。</td></tr>
+  <tr><td><strong>蒸留物（distillate）</strong></td><td>ためた記録の中身をぎゅっと煮詰めた「要約ドキュメント」。今回は複数AIレビュー手順の核だけを1枚に凝縮したもの。<em>人と AI が書いた創作物</em>であって、記録の自動コピーではない。</td></tr>
+  <tr><td><strong>来歴（provenance）</strong></td><td>「これはどこ由来か」という出どころの履歴。今回の証明書が保証するのはこの部分。</td></tr>
+  <tr><td><strong>証明書（certificate）</strong></td><td>蒸留物に添える小さなデータ。「この chain の、この記録番号群から生まれた」という主張を、<strong>暗号のハッシュ</strong>で裏づける。中身（記録の本文）は一切含まない。</td></tr>
+  <tr><td><strong>guard（ガード／関所）</strong></td><td>外に出す前に内容を検査する門番。API キーや秘密鍵のような機密が混ざっていたら通さない。通ったものだけが世に出る。</td></tr>
+</table>
+
+<h2>2. 蒸留された中身そのもの — 「Multi-LLM review」とは何か</h2>
+<p class="sub">ここが本題です。今回証明書を付けた蒸留物の<strong>中身の能力</strong>を、前提知識なしで説明します。（ここまでは「どう蒸留したか」、ここからは「何を蒸留したのか」です。）</p>
+
+<h3>2-1. どんな困りごとを解くのか</h3>
+<div class="card">
+<p>AI に文章や設計やプログラムを作らせたとき、<strong>その同じ AI に「自分でチェックして」と頼んでも、自分の盲点は見つけにくい</strong>。人間が自分の書いた文章の誤字に気づきにくいのと同じです。</p>
+<p>そこで <strong>「同じ成果物を、複数の独立した AI に別々にレビューさせ、指摘を突き合わせる」</strong>。これが Multi-LLM review です。1体では見逃す欠陥を、面子（めんつ）の違う複数体なら誰かが捕まえる、という発想です。</p>
+</div>
+
+<h3>2-2. 誰がレビューするのか（顔ぶれ）</h3>
+<p>今回の手順では、標準で<strong>6体</strong>のレビュアーを走らせます。ポイントは「同じ会社の別モデル」と「別会社のモデル」を混ぜること。狙う多様性の種類が違うからです。</p>
+
+<div class="fig">
+<svg viewBox="0 0 820 300" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
+  <!-- Claude camp -->
+  <rect x="24" y="24" width="470" height="252" rx="12" fill="#eef6f2" stroke="#9cc7b5"/>
+  <text x="259" y="50" text-anchor="middle" font-size="14" font-weight="bold" fill="#256b52">Claude 陣営（同じ会社・別モデル / 別人格）</text>
+  <text x="259" y="70" text-anchor="middle" font-size="11.5" fill="#3c6e5c">狙い: 言い回し・着想の枠組みの多様性</text>
+
+  <rect x="44" y="88" width="200" height="76" rx="9" fill="#fff" stroke="#bcd6ca"/>
+  <text x="144" y="112" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#1c2530">取りまとめ役の分身チーム</text>
+  <text x="144" y="132" text-anchor="middle" font-size="11" fill="#55636f">同じモデルに複数の「人格」で</text>
+  <text x="144" y="148" text-anchor="middle" font-size="11" fill="#55636f">別々の観点を演じさせる</text>
+
+  <rect x="274" y="88" width="200" height="76" rx="9" fill="#fff" stroke="#bcd6ca"/>
+  <text x="374" y="112" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#1c2530">Claude 外部プロセス ×2</text>
+  <text x="374" y="132" text-anchor="middle" font-size="11" fill="#55636f">世代違いの2モデル</text>
+  <text x="374" y="148" text-anchor="middle" font-size="11" fill="#55636f">（厳しめ／曖昧許容など癖が違う）</text>
+
+  <rect x="44" y="182" width="430" height="74" rx="9" fill="#f4faf7" stroke="#cfe4d9"/>
+  <text x="259" y="206" text-anchor="middle" font-size="11.5" fill="#3c6e5c">※「取りまとめ役」＝成果物を作り、レビューを集約し、直す主 AI。</text>
+  <text x="259" y="226" text-anchor="middle" font-size="11.5" fill="#3c6e5c">自分で自分をレビューしないよう、自分と同じモデルの枠は自動で外す。</text>
+  <text x="259" y="246" text-anchor="middle" font-size="11.5" fill="#3c6e5c">（自分の身元を自分で申告する「自己言及」の仕組み）</text>
+
+  <!-- Other vendors -->
+  <rect x="510" y="24" width="286" height="252" rx="12" fill="#e9eef7" stroke="#a9bce0"/>
+  <text x="653" y="50" text-anchor="middle" font-size="14" font-weight="bold" fill="#2b477f">別会社のモデル</text>
+  <text x="653" y="70" text-anchor="middle" font-size="11.5" fill="#3c5488">狙い: 着眼点そのものの多様性</text>
+
+  <rect x="530" y="88" width="246" height="72" rx="9" fill="#fff" stroke="#b8c7e4"/>
+  <text x="653" y="112" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#1c2530">Codex（GPT 系）</text>
+  <text x="653" y="132" text-anchor="middle" font-size="11" fill="#55636f">実装寄り・厳しめ。独自の</text>
+  <text x="653" y="148" text-anchor="middle" font-size="11" fill="#55636f">価値観で却下しがちな癖あり</text>
+
+  <rect x="530" y="176" width="246" height="72" rx="9" fill="#fff" stroke="#b8c7e4"/>
+  <text x="653" y="200" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#1c2530">Cursor（Composer）</text>
+  <text x="653" y="220" text-anchor="middle" font-size="11" fill="#55636f">コードに即した具体的な</text>
+  <text x="653" y="236" text-anchor="middle" font-size="11" fill="#55636f">指摘を出しやすい</text>
+</svg>
+<figcaption>図2: レビュアーの顔ぶれ。同社別モデル＝表現の多様性、別会社＝着眼点の多様性。両方を混ぜるのが肝。</figcaption>
+</div>
+
+<div class="callout">
+<strong>なぜ別会社を混ぜるのか。</strong> 同じ会社のモデルは思考の癖が似ていて、同じ盲点を共有しがちです。まったく別の系統のモデル（Codex, Cursor）は、Claude 勢が全員見落とした欠陥を拾うことがあります。実際、過去に「設計と実装のズレ（設計書にある関数が実際には存在しない、など）」を別会社モデルだけが捕まえた例が記録されています。この“設計と実装のつなぎ目”が、1体レビューで最も見逃されやすい急所です。
+</div>
+
+<h3>2-3. レビューの流れ（1周＝1ラウンド）</h3>
+<div class="fig">
+<svg viewBox="0 0 820 250" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
+  <defs>
+    <marker id="arw3" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#55636f"/>
+    </marker>
+  </defs>
+  <rect x="20" y="60" width="150" height="70" rx="9" fill="#eef2f5" stroke="#c9d3da"/>
+  <text x="95" y="88" text-anchor="middle" font-size="12" font-weight="bold" fill="#1c2530">① 成果物＋</text>
+  <text x="95" y="106" text-anchor="middle" font-size="12" font-weight="bold" fill="#1c2530">レビュー依頼文</text>
+
+  <rect x="210" y="30" width="150" height="130" rx="9" fill="#e9eef7" stroke="#a9bce0"/>
+  <text x="285" y="58" text-anchor="middle" font-size="12" font-weight="bold" fill="#2b477f">② 6体が並行で</text>
+  <text x="285" y="76" text-anchor="middle" font-size="12" font-weight="bold" fill="#2b477f">別々にレビュー</text>
+  <text x="285" y="100" text-anchor="middle" font-size="11" fill="#3c5488">同じ成果物を見て</text>
+  <text x="285" y="118" text-anchor="middle" font-size="11" fill="#3c5488">それぞれ独立に</text>
+  <text x="285" y="136" text-anchor="middle" font-size="11" fill="#3c5488">合否＋指摘を出す</text>
+
+  <rect x="400" y="30" width="160" height="130" rx="9" fill="#fdf6ee" stroke="#e0b98a"/>
+  <text x="480" y="58" text-anchor="middle" font-size="12" font-weight="bold" fill="#8a5010">③ 取りまとめ役が</text>
+  <text x="480" y="76" text-anchor="middle" font-size="12" font-weight="bold" fill="#8a5010">集約・分類</text>
+  <text x="480" y="100" text-anchor="middle" font-size="11" fill="#7a5010">誰が何を言ったか表に</text>
+  <text x="480" y="118" text-anchor="middle" font-size="11" fill="#7a5010">→ 各指摘を(a)(b)(c)へ</text>
+  <text x="480" y="136" text-anchor="middle" font-size="11" fill="#7a5010">（次項）</text>
+
+  <rect x="600" y="60" width="150" height="70" rx="9" fill="#eef6f2" stroke="#9cc7b5"/>
+  <text x="675" y="82" text-anchor="middle" font-size="12" font-weight="bold" fill="#256b52">④ 判定</text>
+  <text x="675" y="102" text-anchor="middle" font-size="11" fill="#256b52">合格なら次へ／</text>
+  <text x="675" y="118" text-anchor="middle" font-size="11" fill="#256b52">欠陥ありなら直す</text>
+
+  <line x1="170" y1="95" x2="208" y2="95" stroke="#55636f" stroke-width="1.6" marker-end="url(#arw3)"/>
+  <line x1="360" y1="95" x2="398" y2="95" stroke="#55636f" stroke-width="1.6" marker-end="url(#arw3)"/>
+  <line x1="560" y1="95" x2="598" y2="95" stroke="#55636f" stroke-width="1.6" marker-end="url(#arw3)"/>
+
+  <!-- feedback loop -->
+  <path d="M675,130 L675,195 L95,195 L95,132" fill="none" stroke="#a23b3b" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#arw3)"/>
+  <text x="385" y="215" text-anchor="middle" font-size="11.5" fill="#a23b3b">欠陥が残る間はこのループを回す（前回の“差分”だけを再レビュー。ゼロからやり直さない）</text>
+</svg>
+<figcaption>図3: レビュー1ラウンドの流れ。合格するまで「直して再レビュー」を繰り返す。回を追うごとに指摘は「大穴→修正ミス→細かい調整」と収束していく。</figcaption>
+</div>
+
+<h3>2-4. 一番の肝 — 指摘を3種類に仕分ける (a)/(b)/(c)</h3>
+<p>複数の AI を使うと、必ず「本物の欠陥」と「そのモデルの価値観・好みにすぎない指摘」が混ざります。ここを仕分けないと、<strong>好みの指摘に振り回されていつまでも合格しない</strong>（レビューが収束しない）。この仕分けこそ、この手順で最も価値のある部分です。</p>
+
+<div class="fig">
+<svg viewBox="0 0 820 240" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
+  <rect x="20" y="30" width="250" height="180" rx="12" fill="#fbf0f0" stroke="#e0b0b0"/>
+  <text x="145" y="58" text-anchor="middle" font-size="14" font-weight="bold" fill="#9a3b3b">(a) 本物の欠陥</text>
+  <text x="145" y="82" text-anchor="middle" font-size="11.5" fill="#1c2530">仕様違反・バグ・データ破壊・</text>
+  <text x="145" y="100" text-anchor="middle" font-size="11.5" fill="#1c2530">競合など。哲学と無関係に×</text>
+  <rect x="45" y="120" width="200" height="34" rx="7" fill="#9a3b3b"/>
+  <text x="145" y="142" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#fff">→ ブロッキング（直す）</text>
+  <text x="145" y="182" text-anchor="middle" font-size="11" fill="#7a4b4b">「これは動かない／壊れる」</text>
+
+  <rect x="285" y="30" width="250" height="180" rx="12" fill="#fdf6ee" stroke="#e0b98a"/>
+  <text x="410" y="58" text-anchor="middle" font-size="14" font-weight="bold" fill="#8a5010">(b) 設計思想からのズレ</text>
+  <text x="410" y="82" text-anchor="middle" font-size="11.5" fill="#1c2530">このプロジェクトが掲げる</text>
+  <text x="410" y="100" text-anchor="middle" font-size="11.5" fill="#1c2530">設計原則に反している</text>
+  <rect x="310" y="120" width="200" height="34" rx="7" fill="#8a5010"/>
+  <text x="410" y="142" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#fff">→ ブロッキング（直す）</text>
+  <text x="410" y="182" text-anchor="middle" font-size="11" fill="#7a5010">「原則に照らして外れている」</text>
+
+  <rect x="550" y="30" width="250" height="180" rx="12" fill="#eef2f5" stroke="#c9d3da"/>
+  <text x="675" y="58" text-anchor="middle" font-size="14" font-weight="bold" fill="#55636f">(c) 価値観の相違</text>
+  <text x="675" y="82" text-anchor="middle" font-size="11.5" fill="#1c2530">レビュアーの好み・一般論</text>
+  <text x="675" y="100" text-anchor="middle" font-size="11.5" fill="#1c2530">（原則から導けない指摘）</text>
+  <rect x="575" y="120" width="200" height="34" rx="7" fill="#8895a1"/>
+  <text x="675" y="142" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#fff">→ 参考どまり（止めない）</text>
+  <text x="675" y="182" text-anchor="middle" font-size="11" fill="#55636f">迷ったら (c) に倒す</text>
+</svg>
+<figcaption>図4: 指摘の3分類。合否を左右するのは (a)+(b) だけ。(c) は記録に残すが合格を妨げない。迷ったら (c)（安全側＝過剰に止めない）。</figcaption>
+</div>
+
+<div class="callout">
+<strong>なぜこの仕分けが要るのか（実話ベース）。</strong> 別会社モデル（特に Codex）は、自分の価値観で「却下（REJECT）」を出しがちだと観察されています。それを全部「本物の欠陥」と受け取ると、直しても直しても新しい好みの指摘が出て、永遠に合格しません。だから「本物の欠陥・原則ズレ (a)(b)」と「ただの好み (c)」を最初に切り分け、合否は前者だけで決める。これで<strong>価値観の食い違いを、本物の欠陥と取り違えずに済む</strong>。
+</div>
+
+<h3>2-5. いつ合格とするか（収束の判定規則）</h3>
+<table>
+  <tr><th>状況</th><th>判定</th></tr>
+  <tr><td>6体中 <strong>4体以上が合格（APPROVE）</strong> で、(a)(b) の却下がゼロ</td><td><span class="tag yes">次の工程へ進む</span></td></tr>
+  <tr><td>(a) か (b) の却下・不合格が1つでもある</td><td><span class="tag no">直して再レビュー</span></td></tr>
+  <tr><td>却下が (c)（好み）だけ</td><td>参考として記録・止めない</td></tr>
+  <tr><td>1体だけが出した指摘（少数意見）</td><td>捨てない。中身を吟味（専門性ゆえの発見のことが多い）</td></tr>
+</table>
+<p class="sub">多数決で少数意見を切り捨てないのが原則です。1体だけが見つけた深刻な欠陥、というのが現実に起きるからです。</p>
+
+<h3>2-6. 事前のひと工夫（下書きの前・レビューの前）</h3>
+<table>
+  <tr><th>工夫</th><th>何をするか</th><th>なぜ</th></tr>
+  <tr><td><strong>Unknowns Pass</strong><br>（下書き前）</td><td>取りまとめ役が「答え次第で設計が変わる重要な疑問」を並べ、<strong>人間に一問ずつ質問</strong>して先に潰す。答えないと決めた疑問は「未解決」と明記する。</td><td>盲点を、高コストな“レビューの往復”ではなく、安価な“事前対話”で消すため。無自覚な穴が下書きに入るのを防ぐ。</td></tr>
+  <tr><td><strong>Design Direction Block</strong><br>（レビュー前）</td><td>各レビュアーに「この成果物は何を解くか／何は範囲外か／却下した代案とその理由」を先に伝える。</td><td>範囲外への“ないものねだり”指摘を、最初から (c) 扱いにできる。的外れな却下でループが伸びるのを防ぐ。</td></tr>
+</table>
+
+<div class="callout good">
+<strong>まとめ（2-7. なぜこれが「資本」なのか）。</strong> Multi-LLM review は単なる「AI に複数回チェックさせる」ではありません。<strong>①面子の違うレビュアーを混ぜる → ②指摘を(a)(b)(c)に仕分ける → ③(a)(b)だけで合否を決め、収束するまで差分を回す</strong> という、失敗（＝収束しないループ）から学んで固めた<strong>運用の型</strong>です。長年の試行で磨いたこの型こそ、今回「蒸留物」として要約し、来歴証明を付けた中身です。
+</div>
+
+<h2>3. 全体の流れ（6ステップ）</h2>
+<p>今日 <code>cd_distill</code> という道具を1回呼んだだけですが、その内部では次の順で処理が走りました。<strong>順番そのものが安全設計</strong>です（門番の判定 → 記録 → 証明書、の順で、あと戻りできない）。</p>
+
+<div class="fig">
+<svg viewBox="0 0 820 470" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
+  <defs>
+    <marker id="arw" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#55636f"/>
+    </marker>
+  </defs>
+  <!-- Step 1 -->
+  <rect x="30" y="30" width="220" height="72" rx="10" fill="#eef2f5" stroke="#c9d3da"/>
+  <text x="140" y="55" text-anchor="middle" font-size="13" font-weight="bold" fill="#1c2530">① 材料を指定 (designate)</text>
+  <text x="140" y="76" text-anchor="middle" font-size="11.5" fill="#55636f">記録番号 14件</text>
+  <text x="140" y="92" text-anchor="middle" font-size="11" fill="#55636f">[41,49,51,...,254]</text>
+  <!-- Step 2 -->
+  <rect x="300" y="30" width="220" height="72" rx="10" fill="#eef2f5" stroke="#c9d3da"/>
+  <text x="410" y="55" text-anchor="middle" font-size="13" font-weight="bold" fill="#1c2530">② 蒸留物を著述</text>
+  <text x="410" y="76" text-anchor="middle" font-size="11.5" fill="#55636f">人＋AI が要約を創作</text>
+  <text x="410" y="92" text-anchor="middle" font-size="11" fill="#55636f">（記録の自動コピーではない）</text>
+  <!-- Step 3 guard -->
+  <rect x="570" y="30" width="220" height="72" rx="10" fill="#fdf6ee" stroke="#e0b98a"/>
+  <text x="680" y="55" text-anchor="middle" font-size="13" font-weight="bold" fill="#8a5010">③ 門番 (guard) 検査</text>
+  <text x="680" y="76" text-anchor="middle" font-size="11.5" fill="#8a5010">機密混入なら拒否</text>
+  <text x="680" y="92" text-anchor="middle" font-size="11" fill="#8a5010">→ 通過 (block 347)</text>
+
+  <line x1="250" y1="66" x2="298" y2="66" stroke="#55636f" stroke-width="1.6" marker-end="url(#arw)"/>
+  <line x1="520" y1="66" x2="568" y2="66" stroke="#55636f" stroke-width="1.6" marker-end="url(#arw)"/>
+
+  <!-- down arrow -->
+  <line x1="680" y1="102" x2="680" y2="150" stroke="#55636f" stroke-width="1.6" marker-end="url(#arw)"/>
+
+  <!-- Step 4 record -->
+  <rect x="570" y="152" width="220" height="72" rx="10" fill="#eef6f2" stroke="#9cc7b5"/>
+  <text x="680" y="177" text-anchor="middle" font-size="13" font-weight="bold" fill="#256b52">④ 記録帳に刻む (CD-6)</text>
+  <text x="680" y="198" text-anchor="middle" font-size="11.5" fill="#256b52">放出より前に記録</text>
+  <text x="680" y="214" text-anchor="middle" font-size="11" fill="#256b52">→ block 348</text>
+
+  <line x1="568" y1="188" x2="520" y2="188" stroke="#55636f" stroke-width="1.6" marker-end="url(#arw)"/>
+
+  <!-- Step 5 cert -->
+  <rect x="300" y="152" width="220" height="72" rx="10" fill="#eef6f2" stroke="#9cc7b5"/>
+  <text x="410" y="177" text-anchor="middle" font-size="13" font-weight="bold" fill="#256b52">⑤ 証明書を発行</text>
+  <text x="410" y="198" text-anchor="middle" font-size="11.5" fill="#256b52">記録番号への束縛＋</text>
+  <text x="410" y="214" text-anchor="middle" font-size="11" fill="#256b52">中身のハッシュを固定</text>
+
+  <line x1="300" y1="188" x2="252" y2="188" stroke="#55636f" stroke-width="1.6" marker-end="url(#arw)"/>
+
+  <!-- Step 6 verify -->
+  <rect x="30" y="152" width="220" height="72" rx="10" fill="#e9eef7" stroke="#a9bce0"/>
+  <text x="140" y="177" text-anchor="middle" font-size="13" font-weight="bold" fill="#2b477f">⑥ 検証 (cd_verify)</text>
+  <text x="140" y="198" text-anchor="middle" font-size="11.5" fill="#2b477f">第三者が再計算して照合</text>
+  <text x="140" y="214" text-anchor="middle" font-size="11" fill="#2b477f">→ valid:true / 失効なし</text>
+
+  <!-- result banner -->
+  <rect x="130" y="270" width="560" height="60" rx="12" fill="#256b52"/>
+  <text x="410" y="298" text-anchor="middle" font-size="15" font-weight="bold" fill="#fff">結果: 検証成功 { valid: true, errors: [], revoked: false }</text>
+  <text x="410" y="318" text-anchor="middle" font-size="12" fill="#d7ece2">＝ 出どころが本物で、すり替えもされていない、と誰でも確認できる状態</text>
+  <line x1="140" y1="224" x2="140" y2="268" stroke="#55636f" stroke-width="1.6" marker-end="url(#arw)"/>
+
+  <!-- legend -->
+  <text x="30" y="372" font-size="12" fill="#55636f">■ 灰＝入力の準備　■ 橙＝門番の検査　■ 緑＝記録帳への刻印と証明　■ 青＝検証</text>
+  <text x="30" y="398" font-size="12" fill="#55636f">※ ③門番 → ④記録 → ⑤証明書 の順は変えられない。「判定してから記録し、記録してから証明する」。</text>
+  <text x="30" y="420" font-size="12" fill="#55636f">※ もし③で機密が見つかれば、④以降は起きず、何も記録・発行されない（＝安全側に倒れる）。</text>
+</svg>
+<figcaption>図1: 蒸留から検証までの流れ。順序そのものが「偽造・後付けできない」ことを担保している。</figcaption>
+</div>
+
+<h2>4. 今日できたファイル（4つ）</h2>
+<p>すべて <code>docs/drafts/</code> にあります。第三者に検証してもらうときは、<strong>証明書と canonical のペア</strong>を渡します。</p>
+<table class="files">
+  <tr><th>ファイル</th><th>これは何か</th></tr>
+  <tr><td><code>..._distillate_multi_llm_review.json</code></td><td><strong>蒸留物の本体</strong>。複数AIレビュー手順の核（いつ使うか・手順・収束の判定規則・落とし穴）を1枚に凝縮した要約。人＋AI の創作物。</td></tr>
+  <tr><td><code>..._distillate_canonical.txt</code></td><td>蒸留物を<strong>一意な文字列に正規化</strong>したもの。検証で「中身が1文字も変わっていない」ことを確かめるために使う。</td></tr>
+  <tr><td><code>..._certificate.json</code></td><td><strong>来歴証明書</strong>。出どころ（どの chain・どの記録番号）と中身のハッシュを固定。記録の本文は含まない。</td></tr>
+  <tr><td><code>..._RUN_PLAN.md</code></td><td>今回の実行レシピ。次回（case #2）も同じ手順で再現できる。</td></tr>
+</table>
+
+<h2>5. 証明書には何が書いてあるか</h2>
+<p>証明書の中身を「人の言葉」に翻訳するとこうなります。実際の値も併記します。</p>
+<table class="kv">
+  <tr><th>証明書の項目</th><th>意味（人の言葉）</th><th>実際の値</th></tr>
+  <tr><td>chain_identity</td><td>どの記録帳から生まれたか（帳簿の1件目のハッシュで固定＝身元）</td><td><code>block1-sha256:19bcc95a…</code></td></tr>
+  <tr><td>designation</td><td>材料に指定した記録番号（＝出どころの主張）</td><td><code>[41,49,51,64,65,66,67,73,135,159,226,230,231,254]</code></td></tr>
+  <tr><td>designation_digest</td><td>その番号リストの要約ハッシュ（誰でも再計算できる）</td><td><code>7f1dd14a…</code></td></tr>
+  <tr><td>span</td><td>材料が散らばる範囲（41番〜254番）</td><td><code>41 – 254</code></td></tr>
+  <tr><td>distillate_commitment</td><td>蒸留物の中身の指紋（すり替え防止）</td><td><code>043ae5a1…</code></td></tr>
+  <tr><td>certificate_identity</td><td>この証明書1枚の背番号（中身より先に決めた）</td><td><code>dab95c13-…</code></td></tr>
+  <tr><td>record_citation</td><td>「刻んだ」証拠の記録番号（記録帳の何行目か）</td><td><code>block 348</code></td></tr>
+  <tr><td>revocation_channel</td><td>あとで無効化するときの窓口（今は無効化なし）</td><td><code>source-chain:cd_revocation</code></td></tr>
+</table>
+
+<h2>6. 一番大事な区別 — 「出どころ」は証明する。「良し悪し」は証明しない</h2>
+<p>ここを取り違えると意味を誤解します。この証明書が言えること／言えないことは、はっきり分かれています。</p>
+
+<div class="fig">
+<svg viewBox="0 0 820 250" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
+  <rect x="30" y="30" width="360" height="190" rx="12" fill="#eef6f2" stroke="#9cc7b5"/>
+  <text x="210" y="60" text-anchor="middle" font-size="15" font-weight="bold" fill="#256b52">✓ 証明できること（来歴）</text>
+  <text x="55" y="92" font-size="13" fill="#1c2530">・この記録帳（MasaChain）由来である</text>
+  <text x="55" y="118" font-size="13" fill="#1c2530">・この記録番号群を材料に指定した</text>
+  <text x="55" y="144" font-size="13" fill="#1c2530">・門番の検査を通って世に出た</text>
+  <text x="55" y="170" font-size="13" fill="#1c2530">・中身がすり替えられていない</text>
+  <text x="55" y="196" font-size="13" fill="#1c2530">・偽造には「偽の記録帳の過去」が要る</text>
+
+  <rect x="430" y="30" width="360" height="190" rx="12" fill="#fbf0f0" stroke="#e0b0b0"/>
+  <text x="610" y="60" text-anchor="middle" font-size="15" font-weight="bold" fill="#9a3b3b">✗ 証明しないこと（品質）</text>
+  <text x="455" y="92" font-size="13" fill="#1c2530">・この要約が「役に立つ」かどうか</text>
+  <text x="455" y="118" font-size="13" fill="#1c2530">・内容が「正しい」かどうか</text>
+  <text x="455" y="144" font-size="13" fill="#1c2530">・品質が「高い」かどうか</text>
+  <text x="455" y="178" font-size="12.5" fill="#7a4b4b">※ そもそも証明書に「品質」を書く欄が</text>
+  <text x="455" y="196" font-size="12.5" fill="#7a4b4b">　構造的に存在しない（書くと検証が落ちる）</text>
+</svg>
+<figcaption>図2: 来歴（出どころ）と品質（良し悪し）は別物。この証明書は左だけを保証する。品質を言いたければ別の仕組み（再現の裏書き）を使う。</figcaption>
+</div>
+
+<div class="callout">
+<strong>なぜこの分離が大事か。</strong> 「出どころが本物」と「中身が優秀」はまったく別の話です。両者を混ぜると「由来があるから良いものだ」という誤読が生まれます。だからこの仕組みは、証明書が品質をうたえないように<strong>わざと</strong>作られています。
+</div>
+
+<h2>7. 秘密は漏れない — 「番号だけ」を束ねる設計</h2>
+<p>材料に指定するのは記録の<strong>番号だけ</strong>で、記録の<strong>本文は証明書に入りません</strong>。だからたとえ秘密を含む記録でも、「指定する」行為自体は安全です。危ないのは、蒸留物の本文にうっかり秘密を書き写すこと。そこは門番が止めます。</p>
+
+<div class="fig">
+<svg viewBox="0 0 820 200" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
+  <defs>
+    <marker id="arw2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#55636f"/>
+    </marker>
+  </defs>
+  <rect x="30" y="40" width="200" height="110" rx="10" fill="#eef2f5" stroke="#c9d3da"/>
+  <text x="130" y="66" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#1c2530">記録帳の中身</text>
+  <text x="130" y="90" text-anchor="middle" font-size="11.5" fill="#55636f">本文（秘密を含むことも）</text>
+  <text x="130" y="112" text-anchor="middle" font-size="11.5" fill="#9a3b3b">🔒 ここは外に出ない</text>
+  <text x="130" y="134" text-anchor="middle" font-size="11.5" fill="#55636f">番号だけ取り出す</text>
+
+  <line x1="230" y1="95" x2="290" y2="95" stroke="#55636f" stroke-width="1.6" marker-end="url(#arw2)"/>
+
+  <rect x="292" y="55" width="200" height="80" rx="10" fill="#eef6f2" stroke="#9cc7b5"/>
+  <text x="392" y="82" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#256b52">証明書に載るのは</text>
+  <text x="392" y="105" text-anchor="middle" font-size="11.5" fill="#256b52">番号 [41, 49, …] と</text>
+  <text x="392" y="123" text-anchor="middle" font-size="11.5" fill="#256b52">ハッシュだけ</text>
+
+  <line x1="492" y1="95" x2="552" y2="95" stroke="#55636f" stroke-width="1.6" marker-end="url(#arw2)"/>
+
+  <rect x="554" y="40" width="236" height="110" rx="10" fill="#fdf6ee" stroke="#e0b98a"/>
+  <text x="672" y="66" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#8a5010">門番の最終検査</text>
+  <text x="672" y="90" text-anchor="middle" font-size="11.5" fill="#8a5010">蒸留物本文に秘密が</text>
+  <text x="672" y="108" text-anchor="middle" font-size="11.5" fill="#8a5010">混じっていたら拒否</text>
+  <text x="672" y="132" text-anchor="middle" font-size="11.5" fill="#256b52">今回は混入なし → 通過</text>
+</svg>
+<figcaption>図3: 「番号だけ束ねる」＋「本文は門番が検査」。二段構えで秘密の漏えいを構造的に防ぐ。</figcaption>
+</div>
+
+<h2>8. 一つだけ正直な但し書き — 「anchor-pending」</h2>
+<div class="card">
+<p>証明書には、各主張が「今どれくらい確かめられるか」の一覧が付いています。今回そのうち2項目（材料の導出まわりと記録まわり）が <code>anchor-pending</code>（＝<strong>係留待ち</strong>）と表示されました。</p>
+<p>意味は単純です。この記録帳にはまだ「頭の係留（head-anchor）」という追加の裏づけ装置が付いていないため、<strong>その2項目は係留が付いたら完全に検証可能になる</strong> — という<strong>正直な開示</strong>です。ごまかして「もう完全に確かめられる」と偽ると、検証全体がわざと失敗するように作られています。「確かめられる範囲を、確かめられるとおりに表示する」誠実さが仕組みに埋め込まれています。</p>
+</div>
+
+<h2>9. ついでに — 「ただ記録を眺めるツール」との違い</h2>
+<p>KairosChain には <code>dream_scan</code> という別の道具もあります。名前が似た作業に見えますが、向きが正反対です。今回の蒸留（<code>cd_distill</code>）と並べると違いがはっきりします。</p>
+<table>
+  <tr><th></th><th><code>dream_scan</code>（眺めてまとめる）</th><th>今回の蒸留 <code>cd_distill</code>（切り出して証明する）</th></tr>
+  <tr><td>向き</td><td>内向き（記憶を整理する）</td><td>外向き（配布物を作る）</td></tr>
+  <tr><td>出力</td><td>「こうしたら？」という示唆</td><td>材料に暗号で束縛された証拠</td></tr>
+  <tr><td>材料との結びつき</td><td><span class="tag no">なし</span> 読み手はツールを信じるしかない</td><td><span class="tag yes">あり</span> 誰でも再計算して照合できる</td></tr>
+  <tr><td>痕跡</td><td>ほぼ残さない</td><td>行為そのものを記録帳に刻む（block 348）</td></tr>
+  <tr><td>門番</td><td>なし（読むだけ）</td><td>あり（機密は通さない）</td></tr>
+</table>
+
+<h2>10. 今回のスコープと位置づけ</h2>
+<div class="callout good">
+<strong>得られたもの</strong>：証明つき蒸留物のオブジェクト＋来歴証明書＋記録帳への刻印。「経験を資本にする」構想の <strong>product form B の第一実例</strong>。
+</div>
+<div class="callout">
+<strong>まだのもの</strong>：そのまま人に配れる「インストール可能な形（パッケージ）」や、共有場（Meeting Place）への預け入れは<strong>次の段階（slice 2）</strong>。今回はあくまで「証明つきの中身」を1つ作った段階。
+</div>
+<div class="callout">
+<strong>別物との区別</strong>：Anthropic 応募に向けた「能力証明書」は<strong>別の仕組み（form A＝記録帳そのものの選択開示）</strong>で、今回の form B とは違います。混同しないように、という注記が handoff にも明記されています。
+</div>
+
+<footer>
+  作成: 2026-07-23 ／ 対象: chain distillation case #1（multi_llm_review_workflow, product form B）<br>
+  関連ファイル: <code>docs/drafts/chain_distillation_case1_*</code> ／ L2 記録: <code>chain_distillation_case1_real_distillation_done_20260723</code><br>
+  この HTML は前提知識なしで読めることを目的とした人間向け解説です（技術的な正確さは各 draft / 設計 v0.5 を参照）。
+</footer>
+
+</div>
+</body>
+</html>

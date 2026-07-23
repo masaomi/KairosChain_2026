@@ -1,0 +1,40 @@
+{
+  "_note": "Chain-distillation provenance certificate (CD-1..CD-6), case #1, product form B. Capability: multi_llm_review_workflow. Issued 2026-07-23 from MasaChain_2026. Verify with cd_verify(certificate, distillate_json=<canonical>, use_chain=true) — expect {valid:true, revoked:false}. The distillate this certifies is chain_distillation_case1_distillate_multi_llm_review.json; its canonical form (for the distillate_commitment check) is chain_distillation_case1_distillate_canonical.txt.",
+  "claim_core": {
+    "convention": "cd-1",
+    "certificate_identity": "dab95c13-92fe-46bf-9df0-73f0d651cf54",
+    "identity": {
+      "chain_identity": "block1-sha256:19bcc95a7b5946ca2c1029728cb623975c2807690f8fd354ca6799878c4b7efd",
+      "chain_head_index": 347,
+      "chain_head_hash": "068641e5f96686b0eab3f83bfa8e8ef676c61c61c1897052fd6d279deaa89e5a"
+    },
+    "derivation": {
+      "designation": [41, 49, 51, 64, 65, 66, 67, 73, 135, 159, 226, 230, 231, 254],
+      "designation_digest": "7f1dd14ad3ce9f00eeb3aae5ec83da86da1da81fc14ab2c00b78fbc67b01d5e5",
+      "span": {"first_index": 41, "last_index": 254},
+      "guard_policy_sha256": "9cc0849bb6c0258e89b4cdc8c45c56a3fe999e3a57db89f075ce1293eb29340c",
+      "distillate_commitment": "043ae5a19abacefaafa10eda475ef7dd37a20cc9bcedd3d4a5c27e2437d02ada",
+      "verdict_block_indices": [347]
+    },
+    "recording": {"revocation_channel": "source-chain:cd_revocation"},
+    "predecessors": [],
+    "statuses": {
+      "identity.binding": "checkable",
+      "identity.continuity": "trusted",
+      "identity.uniqueness": "trusted",
+      "derivation": "anchor-pending",
+      "recording": "anchor-pending",
+      "reissuance_citation_observance": "trusted",
+      "drawn_from": "trusted",
+      "revocation_status": "trusted"
+    }
+  },
+  "record_citation": {
+    "block_index": 348,
+    "block_hash": "30a1924c24d3c26f56112e6c9383bf9e06066478832741960a11ed851f14c700"
+  },
+  "openings": {
+    "claim_core_salt": "3831f880346d0c301c1ad3478dd05e50",
+    "distillate_salt": "4b8b49c9bfe0ab197ddeecd294ebd017"
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "kind": "knowledge_distillate",
+  "capability": "multi_llm_review_workflow",
+  "title": "Multi-LLM Review — condensed distillate (case #1, product form B)",
+  "version": "distill-1",
+  "authored_by": "human+model (masaomi + KairosChain orchestrator)",
+  "authorship_note": "This content is authored by human and model, not mechanically extracted from the source chain. The accompanying provenance certificate (CD-1..CD-6) binds only the input designation identifiers and an output commitment over this text; it characterizes nothing about the authoring transformation and expresses no quality claim (CD-3: provenance is not quality).",
+  "core": {
+    "thesis": "Several independent LLMs review the same artifact; an orchestrator classifies and integrates their findings. Cross-model reviewers give epistemic diversity; same-model personas give framing diversity. The two are complementary, and value-system divergence must be separated from genuine defects or review loops fail to converge.",
+    "when_to_use": {
+      "full_review": "security / identity / money involved, or the change crosses SkillSet boundaries or touches core hooks, or it is a Tier 3+ redesign / important document.",
+      "single_review": "new logic within an existing pattern, self-contained, clear implementation path.",
+      "skip": "typos, comments, formatting, dev-only fixtures."
+    },
+    "procedure_skeleton": [
+      "0. Load reviewer characteristics before dispatch (per-reviewer biases, value-divergence, finding classification). Skipping this misreads reviewer output.",
+      "0.25 Unknowns Pass (qualifying design/doc reviews, pre-draft): the orchestrator enumerates the highest-impact unknowns without answering them, interviews the human one question at a time, and drives every unknown to a terminal state (Resolved by the human, or Declared as an Open Unknown). Round 1 is not dispatched until every surfaced unknown is terminal.",
+      "0.5 Design Direction Block (design/doc reviews): prepend problem solved / not solved, >=2 rejected alternatives with reasons, adopted tradeoffs (axis: X over Y because ...), and any Declared Open Unknowns, so reviewers can tell in-scope critique from out-of-scope expectation.",
+      "1. Primary LLM produces the artifact plus a review prompt carrying full inline content.",
+      "2. N independent reviewers (>=2) run in parallel on the identical artifact.",
+      "3. Orchestrator collects and synthesizes: build a concordance matrix, evaluate minority findings on substance, produce a revised artifact plus a resolution matrix.",
+      "4. Classify each finding, apply the convergence rule, and either proceed or re-review the delta."
+    ],
+    "finding_classification": {
+      "a_deployment_grounded": "spec violation, runtime bug, data corruption, concurrency hazard — independent of philosophy. Blocking.",
+      "b_philosophy_aligned": "deviation from the project's stated design principles. Blocking.",
+      "c_value_divergent": "reviewer style preference or generic best-practice not entailed by the project's principles. Advisory only, never blocking. When unsure between (b) and (c), default to (c).",
+      "note": "Only (a)+(b) count toward convergence thresholds. A finding that merely restates a human-seen Declared Open Unknown is demoted to (c); but if it is unclear whether the finding restates the unknown or shows the deferral itself is unsafe, treat it as blocking (gates fail closed)."
+    },
+    "convergence_rule": "4/6 APPROVE on the full roster (or 3/5 after orchestrator exclusion) with no (a)/(b) REJECT means proceed. Any (a)/(b) REJECT or FAIL means revise and re-review. A (c)-only REJECT is advisory and non-blocking. A single reviewer's substantiated FAIL can identify a real defect others missed — never dismiss a finding by majority alone without evaluating its substance.",
+    "consensus_reading": {
+      "unanimous": "architectural-level gap — must fix.",
+      "majority": "implementation-level issue — should fix.",
+      "singleton": "specialty-specific insight — evaluate on substance, often the most novel finding; do not discard as a minority opinion."
+    },
+    "key_insight": "Design reviews and implementation reviews find categorically different bug classes; both phases are necessary. The design-implementation seam (whether a designed API actually exists) is the highest-value layer and the one a single LLM reviewing its own design is most likely to miss.",
+    "orchestrator_self_reference": "The orchestrating LLM must report its own model identity so the roster can exclude or delegate the entry matching it — the system truthfully reports its own state to itself, keeping the same review composition valid regardless of which model the operator has toggled to.",
+    "anti_patterns": [
+      "Merging design and implementation review into one pass.",
+      "Advancing to the next phase before the current review converges.",
+      "Re-reviewing from scratch each round instead of only the delta.",
+      "Relying on a single internal agent team instead of cross-provider reviewers.",
+      "Dismissing a singleton finding without evaluating its substance."
+    ]
+  }
+}
