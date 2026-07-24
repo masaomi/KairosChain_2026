@@ -54,10 +54,10 @@ module KairosMcp
           injected = registry
           Distiller.carrier = lambda do |proof_id:, attester_id:, subject_ref:, claim:|
             reg = injected || self.registry
-            unless defined?(Synoptis::ProofEnvelope)
+            unless defined?(::Synoptis::ProofEnvelope)
               require_relative '../../../synoptis/lib/synoptis/proof_envelope'
             end
-            envelope = Synoptis::ProofEnvelope.new(
+            envelope = ::Synoptis::ProofEnvelope.new(
               proof_id: proof_id,
               attester_id: attester_id.to_s,
               subject_ref: subject_ref.to_s,
@@ -129,11 +129,11 @@ module KairosMcp
               remedy: 'a carrier envelope exists for this identity but does not carry this certificate; inspect the carrier before depositing'
             )
           end
-          unless defined?(Synoptis::ProofEnvelope)
+          unless defined?(::Synoptis::ProofEnvelope)
             require_relative '../../../synoptis/lib/synoptis/proof_envelope'
           end
           digest = certificate.dig('claim_core', 'derivation', 'distillate_commitment')
-          envelope = Synoptis::ProofEnvelope.new(
+          envelope = ::Synoptis::ProofEnvelope.new(
             proof_id: identity,
             attester_id: attester_id,
             subject_ref: "distillate:#{digest}",
@@ -156,7 +156,7 @@ module KairosMcp
             require_relative '../../../synoptis/lib/synoptis/revocation_manager'
             envelope = reg.find_proof(identity)
             return { 'status' => 'no_envelope', 'note' => 'no carrier envelope for this identity' } unless envelope
-            manager = Synoptis::RevocationManager.new(registry: reg)
+            manager = ::Synoptis::RevocationManager.new(registry: reg)
             result = manager.revoke(proof_id: identity, reason: reason,
                                     revoker_id: envelope.attester_id)
             JSON.parse(JSON.generate(result))
@@ -169,7 +169,7 @@ module KairosMcp
           require_relative '../../../synoptis/lib/synoptis/proof_envelope'
           require_relative '../../../synoptis/lib/synoptis/registry/file_registry'
           dir = File.join(data_root, 'synoptis_data')
-          Synoptis::Registry::FileRegistry.new(data_dir: dir)
+          ::Synoptis::Registry::FileRegistry.new(data_dir: dir)
         rescue LoadError
           nil
         end

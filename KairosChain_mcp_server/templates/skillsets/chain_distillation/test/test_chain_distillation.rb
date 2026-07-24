@@ -21,6 +21,19 @@ require_relative '../lib/chain_distillation/carrier_wiring'
 CG = KairosMcp::SkillSets::ConfidentialityGuard
 CD = KairosMcp::SkillSets::ChainDistillation
 
+# Production namespace shadow (regression pin, production smoke 2026-07-24):
+# the live MCP server defines KairosMcp::SkillSets::Synoptis for the synoptis
+# tool classes, so an UNANCHORED `Synoptis::...` inside ChainDistillation
+# resolves to that empty module instead of ::Synoptis and dies with
+# `uninitialized constant`. Defining the shadow here makes every carrier
+# test fail unless references are ::-anchored.
+module KairosMcp
+  module SkillSets
+    module Synoptis
+    end
+  end
+end
+
 $pass = 0
 $fail = 0
 
@@ -1005,7 +1018,7 @@ Dir.mktmpdir do |root|
     cert = result[:certificate]
     identity = cert['claim_core']['certificate_identity']
     if carrier_wired
-      reg = Synoptis::Registry::FileRegistry.new(
+      reg = ::Synoptis::Registry::FileRegistry.new(
         data_dir: File.join(root, '.kairos', 'synoptis_data')
       )
       envelope = reg.find_proof(identity)
@@ -1060,7 +1073,7 @@ Dir.mktmpdir do |root|
     CD::Recorder.record_revocation(certificate_identity: identity, reason: 'withdrawn')
     mirror = CD::CarrierWiring.mirror_revocation(identity, 'withdrawn')
     assert(mirror['status'] == 'revoked', "real-chain: carrier mirror succeeds (got #{mirror})")
-    real_reg = Synoptis::Registry::FileRegistry.new(
+    real_reg = ::Synoptis::Registry::FileRegistry.new(
       data_dir: File.join(root, '.kairos', 'synoptis_data')
     )
     assert(real_reg.revoked?(identity),
