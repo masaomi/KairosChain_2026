@@ -10,15 +10,36 @@ meeting.genomicschain.io {
 	# durably: rewrite to the app's ANC-7 public view under /place/web/anchor/<slug>.
 	handle /anchor/* {
 		rewrite * /place/web{uri}
-		reverse_proxy meeting-place:8080
+		# Overwrite any client-supplied X-Real-IP with the real connection peer so
+		# the app's IP-based public rate limiter keys on the true client, not a
+		# spoofable header or the shared proxy IP.
+		reverse_proxy meeting-place:8080 {
+			header_up X-Real-IP {remote_host}
+		}
 	}
 
 	# API routes to KairosChain app
+	# request_body caps the pre-parse body size (app-level deposit cap is ~100KB;
+	# 256KB leaves headroom for metadata/envelope while rejecting oversized bodies with 413).
 	handle /place/* {
-		reverse_proxy meeting-place:8080
+		request_body {
+			max_size 256KB
+		}
+		# header_up X-Real-IP {remote_host}: the anonymous /place/web/* surface
+		# (skill catalog, SkillSet catalog, ANC-7 verify) rate-limits per client
+		# IP; {remote_host} overwrites any forged X-Real-IP and avoids collapsing
+		# all clients into the single Caddy container IP.
+		reverse_proxy meeting-place:8080 {
+			header_up X-Real-IP {remote_host}
+		}
 	}
 	handle /meeting/* {
-		reverse_proxy meeting-place:8080
+		request_body {
+			max_size 256KB
+		}
+		reverse_proxy meeting-place:8080 {
+			header_up X-Real-IP {remote_host}
+		}
 	}
 	handle /health {
 		reverse_proxy meeting-place:8080

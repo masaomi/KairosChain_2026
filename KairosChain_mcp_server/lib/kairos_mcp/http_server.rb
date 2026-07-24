@@ -374,10 +374,22 @@ module KairosMcp
           require_path = File.join(ss.path, ext_def['require'])
           require require_path
           ext_class = Object.const_get(ext_def['class'])
-          router.register_extension(
-            ext_class.new(router),
-            route_action_map: ext_def['route_actions'] || {}
-          )
+          # public_routes (skillset web catalog design WC-2): pass only when the
+          # installed hestia PlaceRouter supports it, so a newer gem composes
+          # with an older hestia SkillSet (and vice versa) without breaking.
+          supports_public = router.method(:register_extension).parameters.any? { |_type, name| name == :public_routes }
+          if supports_public
+            router.register_extension(
+              ext_class.new(router),
+              route_action_map: ext_def['route_actions'] || {},
+              public_routes: ext_def['public_routes'] || []
+            )
+          else
+            router.register_extension(
+              ext_class.new(router),
+              route_action_map: ext_def['route_actions'] || {}
+            )
+          end
         rescue StandardError => e
           $stderr.puts "[HttpServer] Failed to load extension '#{ext_def['class']}' " \
                        "from SkillSet '#{ss.name}': #{e.message}"

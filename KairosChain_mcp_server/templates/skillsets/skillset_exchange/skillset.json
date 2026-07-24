@@ -26,7 +26,8 @@
         "skillset_browse": "browse",
         "skillset_content": "browse",
         "skillset_withdraw": "deposit_skill"
-      }
+      },
+      "public_routes": ["/place/web/skillsets"]
     }
   ],
   "plugin": {

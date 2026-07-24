@@ -4,6 +4,40 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.53.0] - 2026-07-24
+
+### SkillSet Web Catalog — anonymous public presentation surface for SkillSet deposits
+
+Adds an anonymous, read-only web catalog for Meeting Place SkillSet deposits
+(including certified distillates), closing the presentation gap with the
+existing skill catalog: SkillSet deposits were previously reachable only
+through the authenticated agent API and had no browser-visible surface.
+
+Design `skillset_web_catalog` v0.3.1 FROZEN (design review 3 rounds, R3 6/6
+APPROVE unanimous; implementation review 3 rounds, R3 8/8 APPROVE unanimous).
+
+- **PlaceRouter public-route mechanism (WC-1/WC-2)**: extensions declare
+  unauthenticated `/place/web/` routes via `#public_route_prefixes` (the
+  capability travels with the extension, so every registration path wires it);
+  read-only by construction, dispatched through `#public_call` with no peer
+  identity; declarations are recorded and introspectable; the window
+  contributes method restriction, per-client rate limiting, and transport
+  security headers (CSP `default-src 'none'`, `X-Frame-Options: DENY`,
+  `nosniff`).
+- **skillset_exchange catalog (WC-3/WC-4/WC-5)**: anonymous `/place/web/skillsets`
+  listing + per-deposit detail views. Certificate summary is projected onto the
+  CD-2 checkability vocabulary at the deposit crossing (never on the anonymous
+  path); provenance is rendered as a co-equal field with three truthful states
+  and no ranking/badge/filter keyed on certificate presence (CD-3); depositor
+  text is structurally separated and HTML-escaped; per-deposit-instance
+  addresses sever withdrawn/replaced listings; `no-store` caching.
+- **docker/Caddyfile**: `header_up X-Real-IP {remote_host}` on the meeting-place
+  reverse-proxy blocks so the per-client rate limit keys on the real client and
+  cannot be spoofed or collapsed to the shared proxy IP.
+
+New test suite `test_skillset_web_catalog.rb` (68 assertions). Exchange
+interfaces, storage, and the hestia skill catalog are consumed unchanged.
+
 ## [3.51.3] - 2026-07-23
 
 ### Multi-LLM Review — knowledge template sync (v3.6.1)

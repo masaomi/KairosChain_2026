@@ -79,20 +79,112 @@ module Hestia
       @self_id = nil
       @extensions = []
       @extension_action_map = {}
+      # WC-2 (skillset web catalog design): public (unauthenticated) routes
+      # declared by extensions. The router learns only that an extension has
+      # public routes under a prefix, never what they mean. Declarations are
+      # recorded acts (introspectable via #status).
+      @public_routes = {}
+      @public_route_declarations = []
+      @public_rate_limiter = nil
     end
+
+    # Public web namespace an extension may declare routes under. Constraining
+    # the namespace keeps the public surface within the window's established
+    # anonymous-access discipline.
+    PUBLIC_ROUTE_NAMESPACE = '/place/web/'
 
     # Register a PlaceRouter extension for additional endpoint handling.
     # Extensions receive authenticated requests and return Rack responses or nil.
     # Idempotent: skips if an extension of the same class is already registered.
     #
+    # Public routes (WC-1/WC-2): an extension may additionally declare
+    # unauthenticated, read-only route prefixes under /place/web/. The router
+    # enforces the window discipline (GET/HEAD only, IP rate limiting) and
+    # dispatches via #public_call(env) — a separate entry point that carries no
+    # authenticated capability, so the anonymous invocation path is read-only
+    # at the capability level, not merely by method filtering. The declaration
+    # is a recorded act, kept in the router's declaration registry.
+    #
+    # Public routes are sourced from the extension itself when it responds to
+    # #public_route_prefixes (the capability travels with the extension, WC-2),
+    # so every registration path — startup, lazy tool-triggered, STDIO —
+    # wires them identically without each call site having to remember. An
+    # explicit +public_routes+ argument, when given, is unioned in (used by
+    # tests and the config-driven path).
+    #
+    # Idempotent-with-upgrade: a second registration of the same class is
+    # skipped, but if the already-registered instance carries no public routes
+    # and this call supplies them, they are attached to the existing instance —
+    # so a lazy path that registered first (without routes) does not
+    # permanently disable the catalog.
+    #
     # @param extension [Object] Extension instance responding to #call(env, peer_id:)
     # @param route_action_map [Hash] Maps route segments to action names for access control
-    def register_extension(extension, route_action_map: {})
-      return if @extensions.any? { |e| e.class == extension.class }
+    # @param public_routes [Array<String>] Extra path prefixes under /place/web/ served unauthenticated
+    def register_extension(extension, route_action_map: {}, public_routes: [])
+      declared = public_routes.dup
+      if extension.respond_to?(:public_route_prefixes)
+        declared |= Array(extension.public_route_prefixes)
+      end
+
+      existing = @extensions.find { |e| e.class == extension.class }
+      if existing
+        # Upgrade an earlier lazy registration: attach only the prefixes the
+        # existing instance does not already own, under the same public_call
+        # validation a fresh registration gets.
+        missing = declared.reject { |prefix| route_owned_by?(existing, prefix) }
+        unless missing.empty?
+          validate_public_call!(existing, missing)
+          attach_public_routes(existing, missing)
+        end
+        return
+      end
+
+      validate_public_call!(extension, declared) unless declared.empty?
 
       @extensions << extension
       @extension_action_map.merge!(route_action_map)
+      attach_public_routes(extension, declared) unless declared.empty?
     end
+
+    # Recorded public-route declarations (WC-2: declaration as a recorded,
+    # checkable act). Deep read-only copy (strings included) so callers cannot
+    # mutate the registry.
+    def public_route_declarations
+      @public_route_declarations.map { |d| { **d, prefixes: d[:prefixes].map(&:dup) } }
+    end
+
+    # Attach validated public route prefixes to an extension and record the
+    # declaration. Shared by fresh registration and lazy-upgrade paths.
+    def attach_public_routes(extension, prefixes)
+      prefixes.each do |prefix|
+        unless prefix.is_a?(String) && prefix.start_with?(PUBLIC_ROUTE_NAMESPACE) &&
+               prefix.chomp('/').length > PUBLIC_ROUTE_NAMESPACE.length
+          raise ArgumentError,
+                "public route prefix must be under #{PUBLIC_ROUTE_NAMESPACE} with a non-empty segment: #{prefix.inspect}"
+        end
+        @public_routes[prefix.chomp('/')] = extension
+      end
+      @public_route_declarations << {
+        extension_class: extension.class.name,
+        prefixes: prefixes.map { |p| p.dup.freeze },
+        declared_at: Time.now.utc.iso8601
+      }
+    end
+    private :attach_public_routes
+
+    def validate_public_call!(extension, prefixes)
+      return if prefixes.empty?
+      return if extension.respond_to?(:public_call)
+
+      raise ArgumentError, "#{extension.class} declares public routes but does not respond to #public_call"
+    end
+    private :validate_public_call!
+
+    def route_owned_by?(extension, prefix)
+      @public_routes[prefix.chomp('/')].equal?(extension)
+    end
+    private :route_owned_by?
 
     # Start the Meeting Place: initialize components and self-register.
     #
@@ -246,6 +338,14 @@ module Hestia
       request_method = env['REQUEST_METHOD']
       path = env['PATH_INFO']
 
+      # Extension-declared public routes (WC-1/WC-2): checked before the
+      # WebRouter because their prefixes are more specific than the shared
+      # /place/web/ namespace. The window contributes method restriction and
+      # rate limiting here; content-side escaping is owned by the extension.
+      if (public_ext = match_public_route(path))
+        return handle_public_extension_route(env, public_ext, request_method)
+      end
+
       # Public, unauthenticated, read-only web surface (ANC-7 verification view,
       # skill catalog, JSON API). Delegated before the auth flow — same position
       # as the other unauthenticated endpoints below. The WebRouter enforces
@@ -363,11 +463,94 @@ module Hestia
         uptime_seconds: @started_at ? (Time.now.utc - @started_at).to_i : 0,
         deposits: @skill_board.deposit_stats,
         last_heartbeat_check: heartbeat_result,
-        federation_cleanup: cleanup_result
+        federation_cleanup: cleanup_result,
+        public_route_declarations: public_route_declarations
       }
     end
 
     private
+
+    # --- Extension public routes (window discipline) ---
+
+    # Match a request path against declared public route prefixes.
+    # Longest-prefix wins, so a more specific prefix is never shadowed by a
+    # broader one regardless of declaration order.
+    def match_public_route(path)
+      return nil if @public_routes.empty?
+
+      normalized = path.chomp('/')
+      best = nil
+      @public_routes.each do |prefix, ext|
+        next unless normalized == prefix || path.start_with?("#{prefix}/")
+        best = [prefix, ext] if best.nil? || prefix.length > best[0].length
+      end
+      best&.last
+    end
+
+    # Transport security headers the anonymous window contributes to every
+    # extension-served public response (WC-1: the window owns transport
+    # discipline). Mirrors the WebRouter's public HTML posture. The extension
+    # keeps content-specific headers (its own Content-Type, Cache-Control).
+    PUBLIC_SECURITY_HEADERS = {
+      'X-Content-Type-Options' => 'nosniff',
+      'X-Frame-Options' => 'DENY',
+      'Content-Security-Policy' => "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'"
+    }.freeze
+
+    # Serve an extension-declared public route under the window discipline:
+    # read-only methods only, IP rate limiting shared across all extension
+    # public routes, and dispatch through #public_call — which receives no
+    # peer identity and no session capability (invocation-level read-only).
+    def handle_public_extension_route(env, extension, request_method)
+      unless %w[GET HEAD].include?(request_method)
+        return decorate_public([405, { 'Content-Type' => 'text/plain', 'Allow' => 'GET, HEAD' }, ['Method Not Allowed']], request_method)
+      end
+
+      # Resolve the client IP through the same trusted-proxy-aware resolver the
+      # authenticated path uses, so the anonymous rate limit is per real client
+      # and cannot be bypassed by a forged X-Real-IP / X-Forwarded-For header.
+      ip = resolve_public_ip(env)
+      unless public_extension_rate_limiter.allow?(ip)
+        return decorate_public([429, { 'Content-Type' => 'text/plain' }, ['Rate limit exceeded. Try again later.']], request_method)
+      end
+
+      result = extension.public_call(env)
+      result ||= [404, { 'Content-Type' => 'text/html' }, ['Not Found']]
+      decorate_public(result, request_method)
+    rescue StandardError => e
+      $stderr.puts "[PlaceRouter] Public extension route error: #{e.class}: #{e.message}"
+      decorate_public([500, { 'Content-Type' => 'text/plain' }, ['Internal Server Error']], request_method)
+    end
+
+    # Client IP for anonymous rate limiting. Uses ServiceGrant's trusted-proxy
+    # resolver when present (as the authenticated path does); otherwise falls
+    # back to REMOTE_ADDR — never a raw client-suppliable header, so the limit
+    # cannot be evaded by spoofing X-Real-IP.
+    def resolve_public_ip(env)
+      if defined?(ServiceGrant) && ServiceGrant.respond_to?(:ip_resolver) && ServiceGrant.ip_resolver
+        ServiceGrant.ip_resolver.resolve(env) || env['REMOTE_ADDR'] || 'unknown'
+      else
+        env['REMOTE_ADDR'] || 'unknown'
+      end
+    end
+
+    # Add the window's transport security headers and strip the body for HEAD.
+    def decorate_public(response, request_method)
+      status, headers, body = response
+      # Window security headers win over anything the extension set — the
+      # window owns transport discipline (WC-1); the extension keeps its
+      # content headers (Content-Type, Cache-Control) which are not in the set.
+      merged = headers.merge(PUBLIC_SECURITY_HEADERS)
+      body = [] if request_method == 'HEAD'
+      [status, merged, body]
+    end
+
+    def public_extension_rate_limiter
+      @public_rate_limiter ||= begin
+        require_relative 'public_rate_limiter'
+        PublicRateLimiter.new
+      end
+    end
 
     # --- Handlers ---
 
