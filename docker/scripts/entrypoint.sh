@@ -21,7 +21,7 @@ if [ ! -f "$KAIROS_DATA_DIR/.kairos_meta.yml" ]; then
 else
   echo "[entrypoint] Volume already initialized."
   # Sync skillsets from template (handles both missing and upgraded skillsets)
-  for ss in mmp hestia synoptis multiuser service_grant; do
+  for ss in mmp hestia synoptis multiuser service_grant skillset_exchange; do
     if [ ! -d "/app/.kairos-template/skillsets/$ss" ]; then
       continue
     fi

@@ -49,6 +49,7 @@ RUN kairos-chain init /app/.kairos-template && \
     kairos-chain skillset install /app/skillset-sources/synoptis  --data-dir /app/.kairos-template && \
     kairos-chain skillset install /app/skillset-sources/multiuser --data-dir /app/.kairos-template && \
     kairos-chain skillset install /app/skillset-sources/service_grant --data-dir /app/.kairos-template && \
+    kairos-chain skillset install /app/skillset-sources/skillset_exchange --data-dir /app/.kairos-template && \
     rm -rf /app/skillset-sources
 
 RUN ruby -e "require 'pg'; puts 'pg OK'" && \
