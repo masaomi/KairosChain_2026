@@ -457,6 +457,17 @@ module KairosMcp
 
         if !File.exist?(dst)
           changed << rel
+        elsif rel.start_with?('config/')
+          # An existing config/ file is operator-owned state (activation
+          # flags, adopted profiles): a difference from the template is
+          # user customization, not a pending upgrade — never listed and
+          # therefore never overwritten by upgrade_apply. Parity with
+          # install(force:)'s config preservation and the docker
+          # entrypoint's config-preserving sync. (Production incident
+          # 2026-07-24: upgrade --apply silently reset the confidentiality
+          # guard's enabled: true to the template's false.) Absent config
+          # files still install above (new shipped config).
+          next
         elsif Digest::SHA256.file(src).hexdigest != Digest::SHA256.file(dst).hexdigest
           changed << rel
         end
