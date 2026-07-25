@@ -4,6 +4,54 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.53.1] - 2026-07-25
+
+### Multi-LLM Review — Opus 5 enters the roster, Opus 4.8 retires (v3.6.2)
+
+Both frontier Claude models (Opus 5, Fable 5) now sit in the reviewer roster at
+once. This is not redundancy: whichever one is the session orchestrator matches
+`orchestrator_model` and is taken by the default `delegate` strategy as the
+persona-team slot, so the other is dispatched as a `claude -p` subprocess. The
+Claude side therefore resolves to "orchestrator persona + other frontier model
+via CLI + Opus 4.6 via CLI" under either orchestrator, with no per-orchestrator
+configuration branch and no dispatcher change.
+
+Opus 4.8 retires by the same succession logic that retired 4.7 in 3.51.2 (the
+strictness / systematizing register passes to the direct successor). Roster size
+stays 6, so `convergence_rule` (4/6) and `convergence_rule_after_exclusion`
+(3/5) are unchanged.
+
+- **`templates/skillsets/multi_llm_review/config/multi_llm_review.yml`**: roster
+  is now `claude-opus-5`, `claude-fable-5`, `claude-opus-4-6`, `gpt-5.6-sol`,
+  `gpt-5.5`, cursor default. The two frontier entries carry CLI-neutral
+  `role_label`s (`claude_cli_opus5`, `claude_cli_fable5`) because either can
+  take either path; the delegated one is relabelled `claude_team_<model>` by
+  PersonaAssembly at collect.
+- **`templates/skillsets/llm_client/lib/llm_client/claude_code_adapter.rb`**:
+  `DEFAULT_MODEL` `claude-opus-4-8` -> `claude-opus-5`. Fallback only — roster
+  entries always pass an explicit model; the constant exists so an unspecified
+  call cannot be auto-routed to Haiku.
+- **`templates/knowledge/multi_llm_review_workflow/` v3.6.1 -> v3.6.2**: roster,
+  CLI matrix, effort table, and orchestrator self-identification section updated
+  for the rotating-frontier arrangement.
+
+Two corrections folded into the same knowledge revision:
+
+- **`--bare` removed from every `claude -p` example.** The flag skips credential
+  loading, so the subprocess returns "Not logged in" (established 2026-07-23)
+  while the knowledge entry still mandated it. Project-instruction bias is
+  suppressed by `review_context: independent` instead.
+- **`orchestrator_model` must be the bare model ID.** Opus 5 reports itself as
+  `claude-opus-5[1m]`; the roster compares by exact string and PersonaAssembly's
+  validator rejects `[`, so passing the raw self-report silently defeats
+  self-exclusion and lets the orchestrator review its own output.
+
+Opus 5's reviewer bias profile is uncalibrated — record (a)/(b)/(c) breakdowns
+per round in `multi_llm_reviewer_evaluation` until a profile accumulates.
+
+No dispatcher, tool, or schema changes. Existing suite green (multi_llm_review
+skillset tests: 249 runs, 0 failures).
+
 ## [3.53.0] - 2026-07-24
 
 ### SkillSet Web Catalog — anonymous public presentation surface for SkillSet deposits

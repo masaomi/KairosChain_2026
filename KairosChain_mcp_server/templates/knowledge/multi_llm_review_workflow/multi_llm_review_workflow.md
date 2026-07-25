@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.6.1"
+version: "3.6.2"
 tags:
   - workflow
   - review
@@ -344,7 +344,8 @@ starting** and verify each against `config/multi_llm_review.yml`:
 ```
 - [ ] Your model (orchestrator): ___
 - [ ] Agent Team Personas model: = orchestrator model (NOT a different model)
-- [ ] Subprocess CLI models: Opus 4.6 AND Opus 4.8 (both, not either/or)
+- [ ] Subprocess CLI models: Opus 4.6 AND whichever of Opus 5 / Fable 5 is NOT
+      the orchestrator (both, not either/or)
 - [ ] Codex models: gpt-5.6-sol (default) AND gpt-5.5 (both, not either/or)
 - [ ] Cursor model: default (composer-2.5, no --model flag)
 - [ ] Total reviewer count: 6 (or 5 after orchestrator exclusion from subprocess)
@@ -576,15 +577,20 @@ which claude 2>/dev/null && echo "claude: available" || echo "claude: NOT FOUND"
 - Any of codex/agent missing → Manual mode
 - User override: `mode: manual` or `mode: auto`
 
-### CLI Tool Matrix (tested 2026-03-28; Claude CLI 4.6/4.8 rows verified live 2026-06-10)
+### CLI Tool Matrix (tested 2026-03-28; Claude CLI rows re-verified 2026-07-25 for the Opus 5 roster)
 
 | Tool | Command | Prompt Input | Output Collection | Model |
 |------|---------|-------------|-------------------|-------|
 | **Codex** | `codex exec -m <model>` | stdin pipe: `cat prompt.md \| codex exec -` | `-o /path/output.md` | GPT-5.6-sol + GPT-5.5 (both roster entries, `-m` per entry) |
 | **Cursor Agent** | `agent -p` | File reference (stdin NOT supported) | stdout redirect: `> output.md` | Composer-2.5 (default) |
-| **Claude Code** | Agent tool (internal) | Direct prompt string | Write to workspace file | Fable 5 (session) |
-| **Claude CLI (4.6)** | `claude -p --model claude-opus-4-6 --bare` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-4-6 --bare` | stdout redirect: `> output.md` | Opus 4.6 |
-| **Claude CLI (4.8)** | `claude -p --model claude-opus-4-8 --bare` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-4-8 --bare` | stdout redirect: `> output.md` | Opus 4.8 |
+| **Claude Code** | Agent tool (internal) | Direct prompt string | Write to workspace file | Orchestrator model (Opus 5 or Fable 5) |
+| **Claude CLI (4.6)** | `claude -p --model claude-opus-4-6` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-4-6` | stdout redirect: `> output.md` | Opus 4.6 |
+| **Claude CLI (frontier)** | `claude -p --model <claude-opus-5\|claude-fable-5>` | stdin pipe: `cat prompt.md \| claude -p --model <model>` | stdout redirect: `> output.md` | Whichever frontier model is NOT the orchestrator |
+
+`--bare` must NOT be passed (established 2026-07-23): it skips credential
+loading and the subprocess fails with "Not logged in". The project-instruction
+bias it was meant to suppress is handled by `review_context: independent`
+instead.
 
 ### Thinking Effort Configuration (validated 2026-04-20)
 
@@ -592,16 +598,16 @@ Based on cross-evaluation experiment (7 models × 4 tasks + Nomic, 518 CLI calls
 
 | Role | Model | Effort Flag | Rationale |
 |------|-------|-------------|-----------|
-| **Primary (orchestrator)** | Fable 5 (session default) | (default) | Sufficient for integration, dialogue, judgment |
-| **Reviewer: Agent Team** | = orchestrator (Fable 5) | (default) | Personas inherit orchestrator model |
-| **Reviewer: Claude CLI** | Opus 4.6 / Opus 4.8 | (default; config `effort: medium`) | Evaluator quality is effort-independent (low≈high: 8.35 vs 8.16) — per 2026-04-29 policy reviewers stay at default |
+| **Primary (orchestrator)** | Opus 5 or Fable 5 (session default) | (default) | Sufficient for integration, dialogue, judgment |
+| **Reviewer: Agent Team** | = orchestrator | (default) | Personas inherit orchestrator model |
+| **Reviewer: Claude CLI** | Opus 4.6 / the non-orchestrator frontier model | (default; config `effort: medium`) | Evaluator quality is effort-independent (low≈high: 8.35 vs 8.16) — per 2026-04-29 policy reviewers stay at default |
 | **Coding sub-agent** | Opus 4.7 | `--effort medium` | Cost-effective default; use `high` for complex tasks |
 | **Design sub-agent** | Opus 4.7 | `--effort medium` | Cost-effective default; use `high` for complex tasks |
 | **Codex** | GPT-5.6-sol / GPT-5.5 | (no flag) | Fixed effort |
 | **Cursor Agent** | Composer-2.5 | (no flag) | Fixed effort |
 
-Note (2026-06-10): the effort experiment data is from the Opus 4.6/4.7
-generation. Fable 5 and Opus 4.8 effort sensitivity is not yet calibrated;
+Note (2026-07-25): the effort experiment data is from the Opus 4.6/4.7
+generation. Opus 5 and Fable 5 effort sensitivity is not yet calibrated;
 defaults apply until re-measured.
 
 Key findings:
@@ -632,8 +638,13 @@ agent --list-models 2>&1 | grep "(current\|default)"
 **Rule**: When invoking `multi_llm_review` (or running this workflow manually), the
 orchestrating LLM MUST pass its own model identifier as `orchestrator_model`.
 
-**Rationale**: The reviewer roster contains multiple Claude entries (Fable 5
-team slot, Opus 4.6 CLI, Opus 4.8 CLI). To avoid the orchestrator reviewing its
+**Rationale**: The reviewer roster contains multiple Claude entries (Opus 5,
+Fable 5, Opus 4.6). Both frontier models sit in the roster on purpose: whichever
+one is the current session model matches `orchestrator_model` and becomes the
+persona-team slot, and the other is dispatched as a `claude -p` subprocess. The
+Claude side is therefore always {orchestrator persona} + {other frontier model}
++ {Opus 4.6}, with no per-orchestrator config branch.
+To avoid the orchestrator reviewing its
 own output (no independent signal), the dispatcher excludes or delegates the
 roster entry whose `model` matches `orchestrator_model` (per
 `orchestrator_strategy`). This keeps the same SkillSet useful
@@ -654,7 +665,9 @@ composition adapts automatically.
 **How orchestrator obtains its model ID**:
 - Claude Code sessions: read the system prompt line "You are powered by the
   model named ... The exact model ID is ...". Use the exact ID as stated,
-  whatever its form (e.g. `claude-fable-5`, `claude-opus-4-8`).
+  whatever its form (e.g. `claude-opus-5`, `claude-fable-5`). Strip any context
+  suffix — `claude-opus-5[1m]` is passed as `claude-opus-5`, since the roster
+  matches on the bare model ID.
 - Other hosts: use whatever introspection the host provides; if none, pass
   `null` and accept that no exclusion happens.
 
@@ -663,7 +676,7 @@ composition adapts automatically.
 multi_llm_review(
   artifact_path: "log/design.md",
   review_type: "design",
-  orchestrator_model: "claude-fable-5"    # MUST be set by caller
+  orchestrator_model: "claude-opus-5"    # MUST be set by caller; bare ID, no [1m] suffix
 )
 ```
 
@@ -680,16 +693,16 @@ multi_llm_review(
 - If `orchestrator_model` is `null` or unmatched, full roster runs (back-compat).
 
 **Manual-mode equivalent**: When orchestrating by hand, do not assign yourself
-as a subprocess reviewer. Run the Claude CLI subprocess reviewers (Opus 4.6 and
-Opus 4.8); if your own model matches one of them, skip that entry and use the
-after-exclusion convergence rule.
+as a subprocess reviewer. Run the Claude CLI subprocess reviewers (Opus 4.6 plus
+the frontier model you are not); if your own model matches one of them, skip that
+entry and use the after-exclusion convergence rule.
 
 ### Orchestrator Delegation Protocol (Two-Phase, default)
 
 The `delegate` strategy lets the orchestrator perform persona-based "Agent Team"
 review in its own context — preserving inherited project context that a fresh
 `claude -p` subprocess loses. Subprocess reviewers (codex, cursor, Claude CLI
-Opus 4.6/4.8) remain single-LLM.
+Opus 4.6 and the non-orchestrator frontier model) remain single-LLM.
 
 **Why**: The orchestrator already holds the artifact in context with full project
 awareness. Re-shipping it to a sandboxed subprocess discards that context. Same-
@@ -792,9 +805,9 @@ readable until GC. Read them directly and synthesize manually, then re-run
 - **Cursor Agent trust**: `--trust` required for headless/non-interactive mode
 - **Codex workspace**: `-C /path/to/workspace` to set working directory
 - **Claude Agent paths**: Write within workspace (e.g., `log/`), not `/tmp`
-- **Claude CLI (Opus 4.6 / 4.8)**: `claude -p --model claude-opus-4-6 --bare` (likewise `claude-opus-4-8`) runs as external process. Uses stdin pipe (like Codex). `--bare` required for review tasks (skips hooks, CLAUDE.md, avoids bias from project instructions). Without `--bare`, CLAUDE.md's three-layer response structure may distort review output
-- **Claude CLI parallelism**: Agent tool (internal, orchestrator model = Fable 5) + Bash `claude -p` (external, Opus 4.6 / 4.8) run truly in parallel as separate processes
-- **Claude CLI file access**: `claude -p` with `--bare` has no MCP tools or file access. Ensure review prompt includes all artifact content inline (rule #6). Use `--add-dir` + `--allowedTools "Read,Glob,Grep"` if file access is needed (but note: this loads CLAUDE.md unless `--bare` is also used)
+- **Claude CLI (Opus 4.6 / non-orchestrator frontier model)**: `claude -p --model claude-opus-4-6` (likewise `claude-opus-5` or `claude-fable-5`) runs as external process. Uses stdin pipe (like Codex). Do NOT pass `--bare` — it skips credential loading and the subprocess dies with "Not logged in" (established 2026-07-23). Project-instruction bias is suppressed via `review_context: independent`, not via `--bare`
+- **Claude CLI parallelism**: Agent tool (internal, orchestrator model) + Bash `claude -p` (external, Opus 4.6 + the other frontier model) run truly in parallel as separate processes
+- **Claude CLI file access**: a plain `claude -p` review subprocess should not need file access. Ensure the review prompt includes all artifact content inline (rule #6). Use `--add-dir` + `--allowedTools "Read,Glob,Grep"` if file access is genuinely needed, and accept that CLAUDE.md is loaded (the old `--bare` workaround is unusable — see above)
 
 ## Prompt Generation Rules
 
@@ -898,15 +911,16 @@ Step 1: Generate review prompt
 Step 2: Detect environment and models
   - Run: which codex && which agent && which claude
   - Detect default models
-  - Report: "Auto mode: Codex (gpt-5.6-sol, gpt-5.5), Agent (composer-2.5), Claude Team (claude-fable-5), Claude CLI (opus-4.6, opus-4.8)"
+  - Report: "Auto mode: Codex (gpt-5.6-sol, gpt-5.5), Agent (composer-2.5), Claude Team (orchestrator model), Claude CLI (opus-4.6, other frontier model)"
 
 Step 3: Execute N reviews in parallel (default 6 reviewers)
   - Bash(background): cat prompt.md | codex exec -m gpt-5.5 -C workspace -o log/review_codex_gpt5.5.md -
   - Bash(background): cat prompt.md | codex exec -m gpt-5.6-sol -C workspace -o log/review_codex_gpt5.6-sol.md -
   - Bash(background): agent -p --trust "Read prompt and review..." > log/review_cursor.md
-  - Agent(background): Claude Team (orchestrator model, Fable 5) → write to log/review_claude_team_fable5.md
-  - Bash(background): cat prompt.md | claude -p --model claude-opus-4-6 --bare > log/review_claude_opus4.6.md 2>log/review_claude_opus4.6.stderr.log
-  - Bash(background): cat prompt.md | claude -p --model claude-opus-4-8 --bare > log/review_claude_opus4.8.md 2>log/review_claude_opus4.8.stderr.log
+  - Agent(background): Claude Team (orchestrator model, e.g. Opus 5) → write to log/review_claude_team_opus5.md
+  - Bash(background): cat prompt.md | claude -p --model claude-opus-4-6 > log/review_claude_opus4.6.md 2>log/review_claude_opus4.6.stderr.log
+  - Bash(background): cat prompt.md | claude -p --model claude-fable-5 > log/review_claude_fable5.md 2>log/review_claude_fable5.stderr.log
+    (if the orchestrator is Fable 5 instead, swap this line for --model claude-opus-5)
 
 Step 4: Collect and validate
   - Wait for all to complete (background task notifications)
@@ -943,11 +957,14 @@ log/{artifact}_review{N}_{llm_id}_{date}.md       # Individual reviews
 log/{artifact}_review{N}_consensus_{date}.md       # Consensus analysis
 ```
 
-LLM identifiers: `claude_team_fable5`, `claude_cli_opus4.6`, `claude_cli_opus4.8`,
+LLM identifiers: `claude_cli_opus5`, `claude_cli_fable5`, `claude_cli_opus4.6`,
 `codex_gpt5.6-sol`, `codex_gpt5.5`, `cursor_composer2.5`, `cursor_gpt5.4`,
-`cursor_premium`
+`cursor_premium`. The delegated slot is reported as `claude_team_<model>`
+(e.g. `claude_team_claude-opus-5`), assembled at collect time — the roster's
+own labels stay CLI-neutral because either frontier entry can take either path.
 (legacy, pre-2026-06-10: `claude_opus4.6`, `claude_team_opus4.6`, `claude_team_opus4.7`,
-`claude_cli_opus4.7`, `cursor_composer2`; retired 2026-07-23: `codex_gpt5.4`)
+`claude_cli_opus4.7`, `cursor_composer2`; retired 2026-07-23: `codex_gpt5.4`;
+retired 2026-07-25: `claude_cli_opus4.8`, `claude_team_fable5`)
 
 ## Internal Agent Team Review
 
@@ -1004,6 +1021,26 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   (a)/(b)/(c) breakdowns per round until a profile accumulates in
   `multi_llm_reviewer_evaluation`; watch for agentic-coding drift into
   implementation detail during design-phase reviews ((c) inflation)
+- Roster update (v3.6.2, 2026-07-25): Opus 5 enters the roster and Opus 4.8
+  retires — the same succession logic that retired 4.7 on 2026-06-10 (the
+  strictness / systematizing register passes to the direct successor). The
+  Claude side now holds BOTH frontier models (Opus 5, Fable 5) plus Opus 4.6.
+  This is deliberate: whichever frontier model is the session orchestrator is
+  matched by `orchestrator_model` and becomes the persona-team slot, and the
+  other is dispatched as a `claude -p` subprocess — so the composition
+  "orchestrator persona + other frontier via CLI + 4.6 via CLI" holds under
+  either orchestrator with no config branching. Roster size stays 6, so
+  `convergence_rule` (4/6) and `convergence_rule_after_exclusion` (3/5) are
+  unchanged. Roster `role_label`s for the two frontier entries are CLI-neutral
+  (`claude_cli_opus5`, `claude_cli_fable5`) because either can take either
+  path; the delegated one is relabelled `claude_team_<model>` at collect.
+  Opus 5's reviewer bias profile is uncalibrated — record (a)/(b)/(c)
+  breakdowns per round until a profile accumulates in
+  `multi_llm_reviewer_evaluation`
+- `--bare` correction (v3.6.2, 2026-07-25): all `claude -p` examples had
+  carried `--bare` since v3.0. It skips credential loading, so the subprocess
+  returns "Not logged in" (established 2026-07-23). Removed everywhere;
+  project-instruction bias is suppressed by `review_context: independent`
 
 **Key insight**: Design reviews and implementation reviews find
 **categorically different bugs**. Both phases are necessary.

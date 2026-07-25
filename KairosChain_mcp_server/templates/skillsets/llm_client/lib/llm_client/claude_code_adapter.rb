@@ -19,10 +19,13 @@ module KairosMcp
       # - SafeSubprocess handles subprocess lifecycle (PID tracking, env sanitization)
       class ClaudeCodeAdapter < Adapter
         DEFAULT_TIMEOUT = 120
-        # Default to Opus 4.8 explicitly. Without --model, Claude Code may
+        # Default to Opus 5 explicitly. Without --model, Claude Code may
         # auto-route to Haiku for simple/long-context prompts, silently
         # downgrading reviewer quality.
-        DEFAULT_MODEL = 'claude-opus-4-8'
+        # Updated 2026-07-25: was claude-opus-4-8, retired from the
+        # multi_llm_review roster when Opus 5 entered it. This constant is a
+        # fallback only — roster entries always pass an explicit model.
+        DEFAULT_MODEL = 'claude-opus-5'
         SANDBOX_CWD = '/tmp/kairos_sandbox'
         SANDBOX_HOME = '/tmp/kairos_claude_home'
 
