@@ -4,6 +4,35 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.55.0] - 2026-07-27
+
+### Added
+
+- **`project_manager` SkillSet now ships with the gem** (v0.2.0). Previously
+  instance-local. Registers projects and work items, answers queries, produces a
+  session-start digest with derived dormancy, and records irreversible project
+  actions on the attestation chain. Ships a secretary-persona sub-agent under
+  `plugin/agents`, so the secretarial disposition runs in its own context under
+  any instruction mode rather than replacing the active one.
+- **`scripts/l2_scan.py`** — read-only derivation of activity evidence from the
+  L2 context store. Reports, per work item, first and last activity, distinct
+  records, distinct active days, the interval against the memo's own marker, and
+  the most recent nearby record by name. It matches on a document's name, saved
+  path and tags — never its body, which measured roughly 25% precision — and it
+  claims no attribution: tags name subjects while items name work that remains,
+  so one record sits correctly under several items and the output is evidence for
+  the operator to judge. Writes nothing.
+
+### Notes
+
+- The operator's own data (the work-item store and the item-to-record mapping)
+  stays instance-local under `.kairos/pm/` and is not part of the package.
+- Designs: `docs/drafts/project_manager_plugin_projection_draft_v0.7_FROZEN.md`
+  (sub-agent and confinement) and
+  `docs/drafts/project_manager_l2_derivation_draft_v0.12.md` (derivation).
+  Both state that the SkillSet stays instance-local; that is superseded by this
+  release on the operator's decision.
+
 ## [3.54.3] - 2026-07-27
 
 ### multi_llm_review SkillSet 0.5.2 — the cursor reviewer pins its model

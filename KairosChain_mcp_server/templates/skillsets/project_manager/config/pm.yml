@@ -1,0 +1,11 @@
+# project_manager configuration (mechanism values — design §11)
+digest:
+  # Deadline horizon: items due within N days appear in the digest's due bucket.
+  approaching_days: 7
+  # Dormancy threshold: high-salience items untouched for N days surface as dormant.
+  # Dormancy derives from the last-meaningful-touch marker (never a stored field).
+  dormancy_days: 14
+
+# Constitutive records (pm_record) must not silently expire; the synoptis engine
+# would default a nil ttl to 24h, so an effectively-permanent ttl is passed.
+record_ttl_seconds: 3153600000  # 100 years
