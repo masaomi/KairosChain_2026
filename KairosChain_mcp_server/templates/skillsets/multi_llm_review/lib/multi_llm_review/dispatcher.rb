@@ -156,8 +156,9 @@ module KairosMcp
           }
           args['model'] = model if model
 
-          # Per-reviewer effort override (memory-documented strategy:
-          # Opus 4.7 reviewer = low, Opus 4.6 reviewer = medium)
+          # Per-reviewer effort override. The value comes from config; the
+          # 2026-04-29 policy keeps reviewers at their default effort because
+          # evaluator quality is effort-independent.
           effort = reviewer[:effort] || reviewer['effort']
           args['effort'] = effort if effort
 

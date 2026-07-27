@@ -144,7 +144,9 @@ module KairosMcp
                 orchestrator_model: {
                   type: %w[string null],
                   description: 'Self-referential model identifier of the calling orchestrator ' \
-                    '(e.g., "claude-opus-4-7"). Used by exclude/delegate strategies to ' \
+                    '(e.g., "claude-opus-5"). Pass the bare ID — strip any context ' \
+                    'suffix such as "[1m]", which the roster comparison rejects. ' \
+                    'Used by exclude/delegate strategies to ' \
                     'identify the roster entry corresponding to the caller. Claude Code ' \
                     'orchestrators should read the model ID from their own system prompt.'
                 },
