@@ -4,6 +4,33 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.54.2] - 2026-07-27
+
+### multi_llm_review SkillSet 0.5.1 — so 3.54.1's changes actually propagate
+
+3.54.1 shipped the roster change without bumping the SkillSet's own version, and
+`skillset upgrade` is gated strictly on `Gem::Version` comparison. An existing
+instance therefore reported `[UNCHANGED] multi_llm_review v0.5.0` and kept its
+`lib/` and `tools/` as they were — the shipped changes reached the gem and stopped
+there.
+
+Two things were stranded by that. The `orchestrator_model` description is the one
+that matters: it now states that the identifier must be passed as a bare ID with a
+context suffix such as `[1m]` stripped, because the roster comparison rejects the
+suffixed form and the caller then dispatches a subprocess against itself. That is
+a behavioural instruction an orchestrating model reads at call time, not a comment.
+The dispatcher's per-reviewer effort comment was stranded with it.
+
+Nothing about the fix is new content; this release exists so the previous one is
+deliverable. Config files stay operator-owned and are not replaced, so an instance
+that has already tuned its roster keeps it across the upgrade.
+
+- **`templates/skillsets/multi_llm_review/skillset.json`**: 0.5.0 → 0.5.1.
+
+Lesson recorded for future SkillSet edits: bumping the gem version is not enough.
+A change under `templates/skillsets/<name>/` reaches an existing instance only if
+that SkillSet's own `version` also moves.
+
 ## [3.54.1] - 2026-07-27
 
 ### Fable 5 retired from the multi-LLM review roster
