@@ -160,10 +160,16 @@ reviewers:
     effort: medium
     role_label: codex_gpt5.5
 
+  # Model pinned explicitly 2026-07-27. This entry previously carried no
+  # `model` key and relied on the cursor CLI default, which is user-editable
+  # (~/.cursor/cli-config.json) and had been changed to claude-opus-4-8. The
+  # roster then silently ran three Anthropic slots out of five while still
+  # labelling this one cursor_composer2.5, so provider diversity was lost and
+  # the recorded label no longer matched the model that answered. Pinning the
+  # model makes the roster independent of the CLI default.
   - provider: cursor
+    model: composer-2.5
     role_label: cursor_composer2.5
-    # No `model` key → cursor adapter omits --model → cursor's default (composer-2.5-fast as of 2026-05).
-    # This entry preserves the original 5-reviewer roster behavior.
 
   # ----------------------------------------------------------------------
   # Multi-model cursor option (Phase 12 PR3-β, available since v3.22.1).

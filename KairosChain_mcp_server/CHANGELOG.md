@@ -4,6 +4,34 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.54.3] - 2026-07-27
+
+### multi_llm_review SkillSet 0.5.2 — the cursor reviewer pins its model
+
+The cursor roster entry carried no `model` key, so `cursor_adapter` omitted
+`--model` and the reviewer ran on whatever the cursor CLI had as its default. That
+default lives in `~/.cursor/cli-config.json`, is operator-editable from the
+interactive Cursor client, and had been set to `claude-opus-4-8`.
+
+The roster was therefore dispatching three Anthropic slots out of five — the
+orchestrator's own persona team, Opus 4.6 via `claude -p`, and this entry — while
+still labelling this one `cursor_composer2.5`. Both properties the roster exists for
+were lost at once: provider diversity, which is the reason a five-model roster is
+worth its cost, and the correspondence between a recorded `role_label` and the model
+that actually answered, without which per-reviewer calibration accumulates against
+the wrong name. Neither failure is visible from the review output.
+
+The entry now names `composer-2.5` explicitly, which makes the roster independent of
+a setting that is not part of this repository. The comment above it records why the
+key is there, so a future edit does not remove it as redundant.
+
+Config files stay operator-owned: an instance whose roster is untouched picks the
+pinned model up on upgrade, and an instance that has already tuned its roster keeps
+its own and should apply the same pin by hand.
+
+- **`templates/skillsets/multi_llm_review/config/multi_llm_review.yml`**: cursor entry gains `model: composer-2.5`.
+- **`templates/skillsets/multi_llm_review/skillset.json`**: 0.5.1 → 0.5.2.
+
 ## [3.54.2] - 2026-07-27
 
 ### multi_llm_review SkillSet 0.5.1 — so 3.54.1's changes actually propagate
