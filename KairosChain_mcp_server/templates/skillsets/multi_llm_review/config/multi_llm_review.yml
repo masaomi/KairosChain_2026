@@ -4,16 +4,16 @@
 # to avoid duplication.
 
 # Convergence rules
-# Roster has 6 reviewers (claude_cli_opus5, claude_cli_fable5,
-# claude_cli_opus4.6, codex_gpt5.6-sol, codex_gpt5.5, cursor_composer2.5).
+# Roster has 5 reviewers (claude_cli_opus5, claude_cli_opus4.6,
+# codex_gpt5.6-sol, codex_gpt5.5, cursor_composer2.5).
 # Rules are ratio-based (parser interprets "N/M" as N/M fraction applied
 # to successful count), so the literal numerator/denominator is
 # informational; what matters is the ratio.
-convergence_rule: "4/6 APPROVE"  # ceil(6 * 0.6) = 4 of the 6-reviewer roster
+convergence_rule: "3/5 APPROVE"  # ceil(5 * 0.6) = 3 of the 5-reviewer roster
 min_quorum: 2                    # minimum successful reviews for any verdict
 
 # Self-referential orchestrator exclusion.
-# When the caller passes orchestrator_model (e.g. "claude-fable-5"), any
+# When the caller passes orchestrator_model (e.g. "claude-opus-5"), any
 # roster entry with that exact model is dropped before dispatch — the
 # orchestrator should not review its own output.
 # Under the "exclude" strategy, when at least one entry is excluded,
@@ -32,15 +32,15 @@ exclude_orchestrator_model: true
 # "exclude": legacy behavior — drop the matching reviewer entirely.
 # "subprocess": spawn fresh claude -p for the matching reviewer.
 default_orchestrator_strategy: "delegate"
-# After excluding 1 orchestrator from 6 → 5 reviewers. Same ceil(N * 0.6)
-# majority basis (ceil(5 * 0.6) = 3 → 3 of 5 must APPROVE). Note the two
-# rules are not the same literal ratio (4/6 ≈ 0.67 vs 3/5 = 0.60); since the
-# parser applies the ratio to the successful count, the full-roster rule is
-# slightly stricter when some reviewers fail. Accepted as-is.
+# After excluding 1 orchestrator from 5 → 4 reviewers. Same ceil(N * 0.6)
+# majority basis (ceil(4 * 0.6) = 3 → 3 of 4 must APPROVE). The two rules are
+# not the same literal ratio (3/5 = 0.60 vs 3/4 = 0.75); since the parser
+# applies the ratio to the successful count, the post-exclusion rule is
+# stricter when some reviewers fail. Accepted as-is.
 # Applies to the "exclude" strategy only — "subprocess" keeps the full
 # roster, and "delegate" re-adds the orchestrator slot at collect, so the
-# full-roster rule (4/6) governs both (verified live 2026-06-10).
-convergence_rule_after_exclusion: "3/5 APPROVE"
+# full-roster rule (3/5) governs both (verified live 2026-06-10).
+convergence_rule_after_exclusion: "3/4 APPROVE"
 
 # Two-phase delegation (orchestrator_strategy: "delegate").
 # Phase 1 dispatches subprocess reviewers synchronously, persists their
@@ -110,10 +110,15 @@ reviewers:
     effort: medium
     role_label: claude_cli_opus5
 
-  - provider: claude_code
-    model: claude-fable-5
-    effort: medium
-    role_label: claude_cli_fable5
+  # Fable 5 retired from the roster 2026-07-26 after five consecutive
+  # non-substantive returns (85-128 characters in 5-7 seconds, each an
+  # opening sentence with no findings and no verdict text). The slot was
+  # not producing a review, so it lowered the achievable numerator without
+  # contributing signal. To restore, re-add an entry with model
+  # claude-fable-5 and widen convergence_rule back to a 6-reviewer basis.
+  # Consequence of the removal: the Claude CLI side is opus4.6 only when the
+  # orchestrator is opus5, since the orchestrator's own slot is delegated to
+  # the persona team rather than spawned as a subprocess.
 
   # Opus 4.6 stays for its documented complementary bias
   # (ambiguity-preserving, self-reference-friendly) — it is the calibrated

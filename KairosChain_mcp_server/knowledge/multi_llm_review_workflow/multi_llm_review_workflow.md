@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.6.2"
+version: "3.6.3"
 tags:
   - workflow
   - review
@@ -601,14 +601,22 @@ Based on cross-evaluation experiment (7 models × 4 tasks + Nomic, 518 CLI calls
 | **Primary (orchestrator)** | Opus 5 or Fable 5 (session default) | (default) | Sufficient for integration, dialogue, judgment |
 | **Reviewer: Agent Team** | = orchestrator | (default) | Personas inherit orchestrator model |
 | **Reviewer: Claude CLI** | Opus 4.6 / the non-orchestrator frontier model | (default; config `effort: medium`) | Evaluator quality is effort-independent (low≈high: 8.35 vs 8.16) — per 2026-04-29 policy reviewers stay at default |
-| **Coding sub-agent** | Opus 4.7 | `--effort medium` | Cost-effective default; use `high` for complex tasks |
-| **Design sub-agent** | Opus 4.7 | `--effort medium` | Cost-effective default; use `high` for complex tasks |
+| **Coding sub-agent** | Opus 5 | `--effort xhigh` | Published starting point for coding/agentic work; not measured here (see note) |
+| **Design sub-agent** | Opus 5 | `--effort high` | Published starting point for intelligence-sensitive work; not measured here (see note) |
 | **Codex** | GPT-5.6-sol / GPT-5.5 | (no flag) | Fixed effort |
 | **Cursor Agent** | Composer-2.5 | (no flag) | Fixed effort |
 
 Note (2026-07-25): the effort experiment data is from the Opus 4.6/4.7
 generation. Opus 5 and Fable 5 effort sensitivity is not yet calibrated;
 defaults apply until re-measured.
+
+Note (2026-07-26): the coding / design sub-agent rows moved from Opus 4.7
+(retired 2026-06-10) to Opus 5. Their effort values are Anthropic's published
+starting points for Opus 5, not measurements from this project — treat them as
+a starting point to sweep down from, not a validated setting. Separately, the
+**sub-author** role for self-referential passages stays Opus 4.6: it is chosen
+for its ambiguity-preserving bias, not for capability, so a frontier successor
+does not replace it.
 
 Key findings:
 - **Opus 4.6** high effort improves Evaluator/Strategy (+0.43/+0.200 Nomic), not Response
@@ -957,14 +965,16 @@ log/{artifact}_review{N}_{llm_id}_{date}.md       # Individual reviews
 log/{artifact}_review{N}_consensus_{date}.md       # Consensus analysis
 ```
 
-LLM identifiers: `claude_cli_opus5`, `claude_cli_fable5`, `claude_cli_opus4.6`,
+LLM identifiers: `claude_cli_opus5`, `claude_cli_opus4.6`,
 `codex_gpt5.6-sol`, `codex_gpt5.5`, `cursor_composer2.5`, `cursor_gpt5.4`,
 `cursor_premium`. The delegated slot is reported as `claude_team_<model>`
 (e.g. `claude_team_claude-opus-5`), assembled at collect time — the roster's
 own labels stay CLI-neutral because either frontier entry can take either path.
 (legacy, pre-2026-06-10: `claude_opus4.6`, `claude_team_opus4.6`, `claude_team_opus4.7`,
 `claude_cli_opus4.7`, `cursor_composer2`; retired 2026-07-23: `codex_gpt5.4`;
-retired 2026-07-25: `claude_cli_opus4.8`, `claude_team_fable5`)
+retired 2026-07-25: `claude_cli_opus4.8`, `claude_team_fable5`;
+retired 2026-07-26: `claude_cli_fable5` — five consecutive non-substantive
+returns, 85-128 characters in 5-7 seconds, no findings and no verdict text)
 
 ## Internal Agent Team Review
 
@@ -1029,11 +1039,12 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   matched by `orchestrator_model` and becomes the persona-team slot, and the
   other is dispatched as a `claude -p` subprocess — so the composition
   "orchestrator persona + other frontier via CLI + 4.6 via CLI" holds under
-  either orchestrator with no config branching. Roster size stays 6, so
-  `convergence_rule` (4/6) and `convergence_rule_after_exclusion` (3/5) are
-  unchanged. Roster `role_label`s for the two frontier entries are CLI-neutral
-  (`claude_cli_opus5`, `claude_cli_fable5`) because either can take either
-  path; the delegated one is relabelled `claude_team_<model>` at collect.
+  either orchestrator with no config branching. Since Fable 5 was retired on
+  2026-07-26 the roster is 5, so `convergence_rule` is `3/5` and
+  `convergence_rule_after_exclusion` is `3/4`. With Opus 5 as orchestrator its
+  own slot is delegated to the persona team, so the Claude CLI side is
+  `claude_cli_opus4.6` alone; the delegated slot is relabelled
+  `claude_team_<model>` at collect.
   Opus 5's reviewer bias profile is uncalibrated — record (a)/(b)/(c)
   breakdowns per round until a profile accumulates in
   `multi_llm_reviewer_evaluation`
@@ -1041,6 +1052,14 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   carried `--bare` since v3.0. It skips credential loading, so the subprocess
   returns "Not logged in" (established 2026-07-23). Removed everywhere;
   project-instruction bias is suppressed by `review_context: independent`
+- Sub-agent model correction (v3.6.3, 2026-07-26): the coding / design
+  sub-agent rows in the effort table still named Opus 4.7, retired 2026-06-10
+  — a stale row an instruction-following orchestrator would execute verbatim,
+  launching a subprocess on a retired model. Moved to Opus 5, with the effort
+  values marked as published starting points rather than measurements from this
+  project. The sub-author role is explicitly excluded from the succession: it
+  stays Opus 4.6 because the reason for choosing it is a bias profile
+  (ambiguity-preserving, self-reference-friendly), not capability
 
 **Key insight**: Design reviews and implementation reviews find
 **categorically different bugs**. Both phases are necessary.

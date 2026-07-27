@@ -4,6 +4,35 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.54.1] - 2026-07-27
+
+### Fable 5 retired from the multi-LLM review roster
+
+Five consecutive rounds returned nothing substantive from that slot: 85 to 128
+characters in 5 to 7 seconds, each an opening sentence with no findings and no
+verdict text. A slot that does not produce a review still counts toward the
+denominator, so it lowered the achievable numerator without contributing signal —
+with six configured reviewers and one permanently silent, `4/6` could not be
+reached even when every working reviewer approved.
+
+The roster is now five and the convergence rule is `3/5` (`3/4` after
+orchestrator exclusion), keeping the same `ceil(N * 0.6)` majority basis. One
+consequence is worth stating: with Opus 5 as orchestrator its own slot is
+delegated to the persona team, so the Claude CLI side is Opus 4.6 alone.
+
+Restoring the entry is a config edit plus widening the rule back to a six-reviewer
+basis; the retirement rationale is recorded inline where the roster lives.
+
+- **`templates/skillsets/multi_llm_review/config/multi_llm_review.yml`**: entry
+  removed, `convergence_rule` and `convergence_rule_after_exclusion` adjusted,
+  roster header and the orchestrator-exclusion example updated.
+- **`templates/knowledge/multi_llm_review_workflow/`**: identifier list, retirement
+  history, and the two-frontier-entry rationale corrected.
+
+Note for operators of an existing instance: `config/` files are operator-owned and
+are not replaced on upgrade, so an instance that already ran the six-reviewer
+roster keeps it until the config is edited by hand.
+
 ## [3.54.0] - 2026-07-26
 
 ### SkillSet-declared knowledge becomes reachable
