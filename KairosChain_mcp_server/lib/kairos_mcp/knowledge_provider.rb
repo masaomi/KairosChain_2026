@@ -4,6 +4,7 @@ require 'digest'
 require 'fileutils'
 require 'yaml'
 require_relative 'anthropic_skill_parser'
+require_relative 'skillset_manager'
 require_relative 'kairos_chain/chain'
 require_relative 'vector_search/provider'
 require_relative '../kairos_mcp'
@@ -39,7 +40,11 @@ module KairosMcp
     # @param knowledge_dir [String] Path to knowledge directory
     # @param vector_search_enabled [Boolean] Enable vector search
     # @param storage_backend [Storage::Backend, nil] Storage backend to use
-    def initialize(knowledge_dir = nil, vector_search_enabled: true, storage_backend: nil, user_context: nil)
+    # @param include_skillset_knowledge [Boolean] Register knowledge dirs declared
+    #   by enabled SkillSets. Default true; pass false to build a provider scoped
+    #   strictly to the main knowledge dir.
+    def initialize(knowledge_dir = nil, vector_search_enabled: true, storage_backend: nil,
+                   user_context: nil, include_skillset_knowledge: true)
       knowledge_dir ||= KairosMcp.knowledge_dir(user_context: user_context)
       @knowledge_dir = knowledge_dir
       @user_context = user_context
@@ -49,19 +54,34 @@ module KairosMcp
       @index_built = false
       @external_dirs = []
       FileUtils.mkdir_p(@knowledge_dir)
+      register_skillset_knowledge_dirs if include_skillset_knowledge
     end
 
     # Register an external knowledge directory (e.g. from a SkillSet)
     # Knowledge is read-only from external dirs; no merge into the main dir.
     #
-    # @param dir [String] Absolute path to the knowledge directory
+    # @param dir [String] Absolute path to the container directory holding entry
+    #   subdirectories (e.g. `<skillset>/knowledge`), not an entry directory itself
     # @param source [String] Identifier for the source (e.g. "skillset:mmp")
     # @param layer [Symbol] Layer governance (:L0, :L1, :L2)
     # @param index [Boolean] Whether to include in vector search index
-    def add_external_dir(dir, source:, layer: :L1, index: true)
+    # @param only [Array<String>, nil] Entry names to expose. nil exposes every
+    #   subdirectory. Passing the declared set keeps undeclared knowledge shipped
+    #   inside a SkillSet from becoming visible as L1 by proximity alone.
+    #
+    # Idempotent by directory: registering the same dir twice (e.g. once from the
+    # SkillSet manifest at construction, once from a SkillSet that also registers
+    # itself) keeps the first registration rather than duplicating list entries.
+    def add_external_dir(dir, source:, layer: :L1, index: true, only: nil)
       return unless File.directory?(dir)
 
-      @external_dirs << { dir: dir, source: source, layer: layer, index: index }
+      absolute = File.expand_path(dir)
+      return if @external_dirs.any? { |ext| ext[:dir] == absolute }
+
+      @external_dirs << {
+        dir: absolute, source: source, layer: layer, index: index,
+        only: only && Array(only).map { |n| File.basename(n.to_s) }
+      }
       @index_built = false if index # Invalidate index when new indexed dir added
     end
 
@@ -92,7 +112,7 @@ module KairosMcp
 
       # Include knowledge from external directories (SkillSets)
       @external_dirs.each do |ext|
-        external_skill_dirs(ext[:dir]).each do |dir|
+        external_skill_dirs(ext[:dir], only: ext[:only]).each do |dir|
           skill = AnthropicSkillParser.parse(dir)
           next unless skill
 
@@ -124,6 +144,8 @@ module KairosMcp
 
       # Search external directories
       @external_dirs.each do |ext|
+        next if ext[:only] && !ext[:only].include?(name)
+
         ext_skill_dir = File.join(ext[:dir], name)
         return AnthropicSkillParser.parse(ext_skill_dir) if File.directory?(ext_skill_dir)
       end
@@ -327,7 +349,7 @@ module KairosMcp
 
       # Include external dirs that have indexing enabled
       @external_dirs.select { |ext| ext[:index] }.each do |ext|
-        external_skill_dirs(ext[:dir]).each do |dir|
+        external_skill_dirs(ext[:dir], only: ext[:only]).each do |dir|
           skill = AnthropicSkillParser.parse(dir)
           next unless skill
 
@@ -523,6 +545,43 @@ module KairosMcp
 
     private
 
+    # Register the knowledge directories declared by every enabled SkillSet.
+    #
+    # `knowledge_dirs` in skillset.json is the single declaration of what a
+    # SkillSet contributes to L1. Resolving it here — instead of relying on each
+    # SkillSet to register itself during load! — keeps the declaration
+    # load-bearing for every provider instance, including the short-lived ones
+    # tools build per call. Without this, knowledge bundled with a SkillSet is
+    # write-only: present on disk, declared in the manifest, and unreachable by
+    # name.
+    #
+    # `knowledge_dirs` declares individual entry directories, while an external
+    # registration covers a container of entries. Declared entries are therefore
+    # grouped by their container and exposed via `only:`, so that knowledge a
+    # SkillSet ships but does not declare stays invisible — proximity on disk is
+    # not a declaration.
+    #
+    # Failure is isolated per SkillSet and overall: a malformed manifest or an
+    # unreadable directory degrades to "that SkillSet contributes no knowledge",
+    # never to a broken knowledge layer.
+    def register_skillset_knowledge_dirs
+      manager = SkillSetManager.new
+
+      manager.enabled_skillsets.each do |skillset|
+        skillset.knowledge_dirs.group_by { |dir| File.dirname(dir) }.each do |container, entries|
+          add_external_dir(container,
+                           source: "skillset:#{skillset.name}",
+                           layer: skillset.layer,
+                           index: skillset.index_knowledge?,
+                           only: entries.map { |e| File.basename(e) })
+        end
+      rescue StandardError => e
+        warn "[KnowledgeProvider] Skipped knowledge dirs for SkillSet '#{skillset.name}': #{e.message}"
+      end
+    rescue StandardError => e
+      warn "[KnowledgeProvider] SkillSet knowledge registration skipped: #{e.message}"
+    end
+
     def vector_search
       @vector_search ||= VectorSearch.create(index_path: KairosMcp.knowledge_index_path)
     end
@@ -609,10 +668,13 @@ module KairosMcp
     end
 
     # List subdirectories in an external knowledge dir
-    def external_skill_dirs(dir)
+    def external_skill_dirs(dir, only: nil)
       return [] unless File.directory?(dir)
 
-      Dir[File.join(dir, '*')].select { |f| File.directory?(f) && !backup_dir?(f) }
+      dirs = Dir[File.join(dir, '*')].select { |f| File.directory?(f) && !backup_dir?(f) }
+      return dirs unless only
+
+      dirs.select { |f| only.include?(File.basename(f)) }
     end
 
     # Detect upgrade backup directories (`.bak.<timestamp>`, `<name>.bak.<timestamp>`).

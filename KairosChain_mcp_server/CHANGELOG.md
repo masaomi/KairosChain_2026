@@ -4,6 +4,62 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.54.0] - 2026-07-26
+
+### SkillSet-declared knowledge becomes reachable
+
+`knowledge_dirs` in `skillset.json` was a declaration nothing read. Knowledge
+bundled with a SkillSet was therefore write-only: present on disk, declared in
+the manifest, and unreachable by name. Two independent causes, either sufficient
+on its own — no core path consumed the field, and `add_external_dir` mutates a
+single provider instance during SkillSet load while `knowledge_get` builds a
+fresh provider per call, discarding the registration.
+
+Resolution moved from imperative load-time mutation to declarative manifest
+reading, which puts `knowledge_dirs` on the same footing as `tool_classes` and
+`config_files`: the manifest is what governs. On a representative instance this
+takes SkillSet-derived L1 entries from 0 to 23 across 16 SkillSets.
+
+- **`lib/kairos_mcp/knowledge_provider.rb`**: `#initialize` now registers the
+  knowledge directories of every *enabled* SkillSet. Opt out with
+  `include_skillset_knowledge: false` for a provider scoped strictly to the main
+  knowledge dir.
+- **`add_external_dir` gains `only:`**. The method takes a *container* of
+  entries, while `knowledge_dirs` declares *entry* directories; declared entries
+  are grouped by container and passed as `only:`. Without it, registering the
+  container would expose undeclared siblings — proximity on disk would become a
+  declaration. Knowledge a SkillSet ships without declaring stays invisible.
+- **`add_external_dir` is idempotent** by absolute path, so the five SkillSets
+  that also register themselves do not produce duplicate `list` entries.
+- **Failure is isolated**: a malformed `skillset.json` degrades to "no SkillSet
+  knowledge" with a warning on stderr, never to a broken knowledge layer.
+- **`templates/skillsets/hestia/skillset.json`**: declares
+  `knowledge/hestia_chain_migration`, which shipped undeclared since its
+  introduction — the only declared-vs-actual mismatch across all SkillSets, and
+  how the undeclared-knowledge case was found.
+- **`test_skillset_knowledge_registration.rb`** (new, 15 assertions): retrieval
+  by name, `list` source/layer tagging, disabled SkillSets contributing nothing,
+  opt-out, idempotency, undeclared siblings staying invisible, and survival of a
+  malformed manifest.
+
+### New L1 knowledge
+
+- **`kairoschain_development_pitfalls`**: failure modes that cannot be inferred
+  from reading the code being touched — the gem ships only `templates/`, so
+  entries under the dev-repo `knowledge/` reach nobody; `.kairos/` resolves
+  against the current working directory and silently creates a second data
+  directory on a wrong resolution; declared-but-undeclared knowledge; a truthy
+  return that is not a success (`PlaceRouter#authenticate!`); and an observed but
+  unexplained `instructions_mode` revert after upgrade.
+- **`instance_session_protocol`**: the procedural half of an instance's operating
+  discipline — session-start calls, layer-state surfacing, continuity, knowledge
+  baseline, during-work and session-end tool discipline. Extracted from the
+  `masa` instruction mode so norms stay in the mode and the runbook loads on
+  demand. Contains no normative content.
+- **`hestiachain_meeting_place`** gains § Interaction Policy: the outbound
+  redaction / inbound review / per-operation gate checklist, likewise extracted
+  from instruction-mode text.
+
 ## [3.53.1] - 2026-07-25
 
 ### Multi-LLM Review — Opus 5 enters the roster, Opus 4.8 retires (v3.6.2)

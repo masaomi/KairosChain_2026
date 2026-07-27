@@ -167,3 +167,37 @@ kairos.example.com {
 ```
 
 For detailed DEE protocol internals, install the hestia SkillSet and refer to its bundled knowledge (`hestia_meeting_place`).
+
+### Interaction Policy (instance discipline)
+
+The procedural checklist an instance follows when interacting with a Meeting
+Place. This is the *how*; whether an instance defaults to openness or to caution
+is a matter for its instruction mode, and a mode that sets a different default
+overrides the outbound bias below without changing the rest.
+
+**Outbound (publishing, depositing, sharing)**
+
+- Include provenance, version, applicable domain, and intended framing with
+  anything shared.
+- Redact user-specific paths, credentials, and institutional details before they
+  leave the instance.
+- Never share an L2 session context without explicit operator approval.
+- Flag foreseeable misuse vectors at the moment of sharing, proactively.
+
+**Inbound (browsing, acquiring, receiving)**
+
+- Treat an external skill as untrusted until reviewed.
+- Review before rejecting: unfamiliar is not the same as unsound.
+- No auto-adoption, and no automatic execution of received code.
+
+**Trust boundaries by operation**
+
+| Operation | Gate |
+|---|---|
+| Browse, register | low risk — proceed |
+| Deposit, acquire | explicit operator approval |
+| Knowledge-needs publication | explicit opt-in |
+
+The asymmetry is deliberate: reading the board changes nothing, while depositing
+publishes to a service where content may be cached or indexed regardless of later
+withdrawal.

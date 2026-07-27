@@ -16,5 +16,5 @@
     "KairosMcp::SkillSets::Hestia::Tools::MeetingPublishNeeds"
   ],
   "config_files": ["config/hestia.yml"],
-  "knowledge_dirs": ["knowledge/hestia_meeting_place"]
+  "knowledge_dirs": ["knowledge/hestia_meeting_place", "knowledge/hestia_chain_migration"]
 }
