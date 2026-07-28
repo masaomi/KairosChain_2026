@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative 'verdict_vocabulary'
+
 module KairosMcp
   module SkillSets
     module MultiLlmReview
@@ -25,14 +27,23 @@ module KairosMcp
 
         # Canonical verdicts recognized by downstream Consensus.
         ALLOWED_VERDICTS = %w[APPROVE REVISE REJECT].freeze
-        # Additional verdict synonyms recognized during normalization.
-        # The regexes accept underscore / hyphen / space as separators so
-        # variants like NO_GO, NO-GO, NO GO, NEEDS_REVISION all normalize.
-        APPROVE_ALIASES = /\b(?:APPROVE[DS]?|PASS(?:ED)?|ACCEPT(?:ED)?|LGTM|SHIP[_\s]*IT)\b/i
-        REJECT_ALIASES  = /\b(?:REJECT(?:ED)?|FAIL(?:ED|URE)?|BLOCK(?:ED|ER|ING)?|NO[_\s\-]*GO|NACK|DENY|VETO)\b/i
-        REVISE_ALIASES  = /\b(?:REVISE|CHANGES?[_\s]*REQUIRED|NEEDS?[_\s]*(?:WORK|REVISION|CHANGES?)|REWORK)\b/i
+        # The words themselves live in VerdictVocabulary, because a reviewer
+        # answering NO-GO means the same thing whether a persona or an external
+        # slot carried the answer here. These names remain so that callers and
+        # tests that reference them keep working.
+        APPROVE_ALIASES = VerdictVocabulary::APPROVE
+        REJECT_ALIASES  = VerdictVocabulary::REJECT
+        REVISE_ALIASES  = VerdictVocabulary::REVISE
 
         module_function
+
+        # The name this system records a persona team under. Constructed here,
+        # where the persona entry is built, and read from here by ObserverSet —
+        # which needs it before the entry exists, to refuse a roster that
+        # already contains that name.
+        def role_label_for(model)
+          "claude_team_#{model}"
+        end
 
         # @param orchestrator_reviews [Array<Hash>] each: {persona, verdict, findings, reasoning}
         # @param orchestrator_model [String]
@@ -53,15 +64,61 @@ module KairosMcp
           raw_text = build_raw_text(orchestrator_reviews, combined)
 
           {
-            role_label: "claude_team_#{orchestrator_model}",
+            role_label: role_label_for(orchestrator_model),
             provider: 'claude_code',
             model: orchestrator_model,
+            # INV-P1. The persona runs in the caller's harness, where this
+            # system cannot see it, so this name is what the caller said and
+            # not what was observed. Saying which of the two it is costs one
+            # field and is the difference between a record and a guess.
+            model_source: 'declared',
+            # The team's verdict is decided here, from the personas' stated
+            # verdicts, and is carried as a field rather than left to be
+            # re-derived from the rendered text. Re-deriving it made the team
+            # verdict a function of what the personas happened to quote: in
+            # round 4 a persona quoted a JSON reply shape inside a finding and
+            # three REVISE verdicts were recorded as an APPROVE.
+            verdict: combined,
+            # INV-P1 / INV-E4. This row is a declaration standing in for an
+            # observer, not an observer that ran, and without a field saying
+            # so it is shaped exactly like a dispatched slot whose transport
+            # could not report its model.
+            synthetic: true,
+            # INV-E2 reaches the persona too, but not through the character
+            # count used for free text: this entry is a structured submission,
+            # so what makes it substantive is structural. A submission whose
+            # personas carry neither reasoning nor findings is the hollow case
+            # — a terse but structured one is not.
+            substantive: orchestrator_reviews.any? { |r| persona_says_something?(r) },
             raw_text: raw_text,
             elapsed_seconds: 0,
             error: nil,
-            status: :success,
-            synthetic: true
+            status: :success
           }
+        end
+
+        def persona_says_something?(review)
+          reasoning = (review['reasoning'] || review[:reasoning]).to_s.strip
+          return true unless reasoning.empty?
+
+          findings = review['findings'] || review[:findings]
+          return false unless findings.respond_to?(:any?)
+
+          # A findings array of nils or blanks is not a finding. Counting the
+          # array's length alone let a verdict-only submission through by
+          # padding it with empty entries.
+          findings.any? { |f| finding_says_something?(f) }
+        end
+
+        # A severity with no issue text renders as an empty finding, so it is
+        # not substance — the tag alone says nothing about what is wrong.
+        def finding_says_something?(finding)
+          case finding
+          when Hash
+            (finding['issue'] || finding[:issue]).to_s.strip != ''
+          when nil then false
+          else finding.to_s.strip != ''
+          end
         end
 
         def validate_orchestrator_model!(model)
@@ -101,13 +158,14 @@ module KairosMcp
         end
 
         def normalize_verdict(raw, context: nil)
-          upper = raw.to_s.upcase
-          # Order: REJECT first, then APPROVE, then REVISE — if a string
-          # contains both (e.g. "I approve but with concerns that may lead to
-          # reject"), REJECT wins to stay on the safe side of precedence.
-          return 'REJECT'  if upper.match?(REJECT_ALIASES)
-          return 'APPROVE' if upper.match?(APPROVE_ALIASES)
-          return 'REVISE'  if upper.match?(REVISE_ALIASES)
+          # Precedence (REJECT, then REVISE, then APPROVE) is decided in
+          # VerdictVocabulary and is the same precedence used to combine the
+          # personas below: a value carrying more than one judgement word has
+          # qualified one judgement, not stated two, and the qualification is
+          # what a reader needs to survive.
+          stated = VerdictVocabulary.classify(raw)
+          return stated if stated
+
           # Conservative fallback: unknown verdicts are logged and treated as
           # REVISE (do not let them silently pass as APPROVE or silently block
           # as REJECT; REVISE requires orchestrator attention).

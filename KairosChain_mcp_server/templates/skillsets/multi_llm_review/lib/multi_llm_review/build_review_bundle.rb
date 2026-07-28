@@ -107,10 +107,16 @@ module KairosMcp
           "sha256:#{Digest::SHA256.hexdigest(canonical)}"
         end
 
+        # The fingerprint has to cover what actually decides a run. The
+        # escalation container governs the denominator directly, so leaving it
+        # out meant an identical hash could describe two runs judged by
+        # different rules. The substance rule takes no config, so there is
+        # nothing to cover for it.
         def self.config_hash(config)
           relevant = config.slice(
             'convergence_rule', 'min_quorum', 'convergence_rule_after_exclusion',
-            'exclude_orchestrator_model', 'default_orchestrator_strategy', 'effort_map'
+            'exclude_orchestrator_model', 'default_orchestrator_strategy', 'effort_map',
+            'escalation_reviewers'
           )
           "sha256:#{Digest::SHA256.hexdigest(canonical_json(relevant))}"
         end

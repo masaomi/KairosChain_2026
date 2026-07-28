@@ -38,6 +38,7 @@ token = ARGV[0] or abort 'usage: dispatch_worker.rb <token>'
 $LOAD_PATH.unshift(File.expand_path('../lib', __dir__))
 require 'multi_llm_review/pending_state'
 require 'multi_llm_review/dispatcher'
+require 'multi_llm_review/review_serializer'
 require 'multi_llm_review/main_state'
 
 $LOAD_PATH.unshift(File.expand_path('../../llm_client/lib', __dir__))
@@ -278,16 +279,7 @@ begin
     'token' => token,
     'completed_at' => Time.now.iso8601,
     'elapsed_seconds' => elapsed.round(2),
-    'results' => results.map do |r|
-      {
-        'role_label' => r[:role_label], 'provider' => r[:provider], 'model' => r[:model],
-        'raw_text' => r[:raw_text].to_s,
-        'elapsed_seconds' => r[:elapsed_seconds],
-        'error' => r[:error],
-        'status' => r[:status].to_s,
-        'usage' => r[:usage]     # v0.3 F-USR: preserved for Phase 2 replay
-      }
-    end,
+    'results' => results.map { |r| KairosMcp::SkillSets::MultiLlmReview::ReviewSerializer.serialize(r) },
     'exit_summary' => {
       'successful' => results.count { |r| r[:status] == :success },
       'errored'    => results.count { |r| r[:status] == :error },

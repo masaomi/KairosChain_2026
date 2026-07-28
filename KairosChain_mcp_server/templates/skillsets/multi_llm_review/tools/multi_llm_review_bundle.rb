@@ -3,6 +3,7 @@
 require 'json'
 require 'yaml'
 require_relative '../lib/multi_llm_review/build_review_bundle'
+require_relative '../lib/multi_llm_review/observer_set'
 require_relative '../lib/multi_llm_review/sanitizer'
 
 module KairosMcp
@@ -70,10 +71,11 @@ module KairosMcp
                   items: { type: 'object' },
                   description: 'Findings from prior round to verify as resolved (optional)'
                 },
-                reviewers_override: {
-                  type: 'array',
-                  items: { type: 'object' },
-                  description: 'Override roster from config (optional)'
+                escalate: {
+                  type: 'boolean',
+                  description: 'Include the reserve observers declared in config ' \
+                    '(escalation_reviewers) in the bundle. Default false.',
+                  default: false
                 }
               },
               required: %w[artifact_content artifact_name review_type]
@@ -82,7 +84,29 @@ module KairosMcp
 
           def call(arguments)
             config = load_review_config
-            reviewers = resolve_reviewers(arguments, config)
+
+            # INV-E1: refused here for the same reason the dispatch tool
+            # refuses it. Silently ignoring it would leave a stale caller
+            # believing it had chosen the observers.
+            if arguments['reviewers_override']
+              return text_content(JSON.generate(
+                'status' => 'error',
+                'bundle_schema_version' => BuildReviewBundle::SCHEMA_VERSION,
+                'error' => 'reviewers_override was removed: the reviewer roster is ' \
+                           'canonical in config and cannot be replaced per call. ' \
+                           'To include the reserve observers, set escalate: true.'
+              ))
+            end
+
+            begin
+              reviewers = resolve_reviewers(arguments, config)
+            rescue ObserverSet::RosterError => e
+              return text_content(JSON.generate(
+                'status' => 'error',
+                'bundle_schema_version' => BuildReviewBundle::SCHEMA_VERSION,
+                'error' => e.message
+              ))
+            end
 
             if reviewers.empty?
               return text_content(JSON.generate(
@@ -124,13 +148,20 @@ module KairosMcp
             end
           end
 
+          # INV-E1 covers this path too. A bundle names which observers a
+          # human is to hand the artifact to, so letting the caller supply that
+          # list would split the canonical set exactly as the dispatch path
+          # would — the fact that the running happens by hand does not make the
+          # roster less canonical.
           def resolve_reviewers(arguments, config)
-            list = if arguments['reviewers_override'] && !arguments['reviewers_override'].empty?
-                     arguments['reviewers_override']
-                   else
-                     config['reviewers'] || []
-                   end
-            list.map { |r| r.transform_keys(&:to_sym) }
+            list = (config['reviewers'] || []).dup
+            list += (config['escalation_reviewers'] || []) if arguments['escalate']
+            slots = list.map { |r| r.transform_keys(&:to_sym) }
+            # INV-E5 applies to a slot a human will run by hand just as much as
+            # to one this process spawns: a slot that does not name its model
+            # sends the human to whatever the CLI defaults to.
+            ObserverSet.validate_slots!(slots) unless slots.empty?
+            slots
           end
         end
       end

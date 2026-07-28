@@ -88,8 +88,13 @@ timeout_seconds: 600              # global deadline for all reviewers
 max_concurrent: 2                 # semaphore limit (2 for laptop, 4 for CI)
 
 # Reviewer roster
-# Each entry specifies a provider (maps to llm_client adapter), optional model,
-# and optional effort level. role_label is used in consensus output.
+# Each entry names a provider (maps to an llm_client adapter) and the model it
+# calls. Both are required: a slot that omits the model inherits whatever the
+# external CLI happens to default to, which is user-editable and outside this
+# repository — that is how a recorded role label and the answering model came
+# apart on 2026-07-27. A slot without a model is refused rather than warned
+# about, so an omission stops the run instead of quietly changing who reviewed.
+# effort is optional. role_label is used in consensus output.
 #
 # Default effort per reviewer (medium baseline). When the multi_llm_review
 # tool receives a `complexity` argument (or auto-detects it), these defaults
@@ -177,7 +182,7 @@ reviewers:
   # (e.g., when only Cursor login is available), add entries below and
   # disable other providers' entries above. Models supported by `agent`
   # depend on your Cursor subscription/CLI version. Verified examples:
-  #   - composer-2 (default; no --model needed)
+  #   - composer-2.5
   #   - gpt-5.4-high
   #   - claude-sonnet-4-6 (if available)
   # role_label is what shows up in convergence output.
@@ -188,6 +193,44 @@ reviewers:
   # - provider: cursor
   #   model: claude-sonnet-4-6
   #   role_label: cursor_sonnet4.6
+
+# Reserve observers (INV-E3).
+#
+# These are not part of the roster above. They join only when a caller passes
+# escalate: true, which it does for an artifact it judges hard enough to be
+# worth extra observers — the judgement is the caller's, and this SkillSet
+# does not try to infer it.
+#
+# The container is provider-neutral on purpose. Its first intended occupant
+# (Fable 5) depends on a subscription that may end, and the point of writing
+# it as a container rather than as a place for one model is that the design
+# survives that. To retire the container, delete these lines; a caller that
+# still passes escalate: true then simply gets the roster.
+#
+# Adding an observer raises the required agreement, because the convergence
+# rule is a ratio applied to the denominator.
+#
+# NOTE on the first occupant: Fable 5 was retired from the roster on
+# 2026-07-26 for returning 85-128 characters with no verdict and no findings,
+# five rounds running — not for cost. That reply shape is now kept out of the
+# denominator by the no-verdict half of INV-E2, not by the substance half: it
+# has plenty of text, so a residue rule counts it. An earlier version of this
+# comment claimed the substance rule handled it; that was false, and it was
+# false in the direction that invites restoring the occupant. Whether the slot
+# contributes anything remains unproven — try one round and read the output
+# before relying on it.
+escalation_reviewers:
+  - provider: claude_code
+    model: claude-fable-5
+    effort: medium
+    role_label: claude_cli_fable5
+
+# INV-E2 (substance) has no setting here on purpose. A reply counts as a review
+# when anything remains once its verdict is removed, and that is the whole rule.
+# Three earlier versions expressed it as a character floor and each broke in a
+# different direction; the last one discarded Japanese reviews, which is how a
+# tunable number reveals that it encodes a language rather than a threshold.
+# See lib/multi_llm_review/consensus.rb for what the rule can and cannot do.
 
 # Complexity → per-provider effort mapping.
 # multi_llm_review tool auto-detects complexity from review_type + artifact size,

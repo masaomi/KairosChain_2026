@@ -175,10 +175,23 @@ module KairosMcp
 
         def build_success(reviewer, llm_response, t0)
           elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0
+          declared = reviewer[:model] || reviewer['model']
+          # INV-E5. Some transports report the model that actually answered;
+          # others return plain text and cannot. Where the report exists it is
+          # taken and any divergence from the slot's own definition is made
+          # visible; where it does not, the record says so rather than passing
+          # the request off as an observation.
+          observed = llm_response.dig('response', 'model_observed')
+          observed = nil if observed.to_s.strip.empty?
+
           {
             role_label: reviewer[:role_label] || reviewer['role_label'] || reviewer[:provider],
             provider: llm_response['provider'] || reviewer[:provider],
-            model: llm_response.dig('response', 'model') || reviewer[:model],
+            model: declared || llm_response.dig('response', 'model'),
+            model_declared: declared,
+            model_observed: observed,
+            model_source: observed ? 'observed' : 'declared',
+            model_divergence: observed && declared && observed != declared,
             raw_text: llm_response.dig('response', 'content') || '',
             elapsed_seconds: elapsed.round(1),
             error: nil,
@@ -190,11 +203,17 @@ module KairosMcp
           }
         end
 
+        # INV-E4: a slot that failed still has an identity, and the record has
+        # to say which slot left the denominator. Omitting the model here made
+        # a transport failure anonymous in the composition.
         def build_error(reviewer, err, t0)
           elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0
           {
             role_label: reviewer[:role_label] || reviewer['role_label'] || reviewer[:provider],
             provider: reviewer[:provider] || reviewer['provider'],
+            model: reviewer[:model] || reviewer['model'],
+            model_declared: reviewer[:model] || reviewer['model'],
+            model_source: 'declared',
             elapsed_seconds: elapsed.round(1),
             error: err,
             status: :error
@@ -205,6 +224,9 @@ module KairosMcp
           {
             role_label: reviewer[:role_label] || reviewer['role_label'] || reviewer[:provider],
             provider: reviewer[:provider] || reviewer['provider'],
+            model: reviewer[:model] || reviewer['model'],
+            model_declared: reviewer[:model] || reviewer['model'],
+            model_source: 'declared',
             elapsed_seconds: 0,
             error: { 'type' => 'skip', 'message' => reason },
             status: :skip

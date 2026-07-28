@@ -13,6 +13,8 @@ require_relative '../lib/multi_llm_review/worker_spawner'
 require_relative '../lib/multi_llm_review/feedback_formatter'
 require_relative '../lib/multi_llm_review/sanitizer'
 require_relative '../lib/multi_llm_review/build_review_bundle'
+require_relative '../lib/multi_llm_review/observer_set'
+require_relative '../lib/multi_llm_review/review_serializer'
 
 module KairosMcp
   module SkillSets
@@ -105,11 +107,26 @@ module KairosMcp
                     'Default: independent (prevents contamination bias).',
                   default: 'independent'
                 },
-                reviewers_override: {
-                  type: 'array',
-                  description: 'Override reviewer roster from config (optional). ' \
-                    'Each entry: {provider, model, role_label}',
-                  items: { type: 'object' }
+                escalate: {
+                  type: 'boolean',
+                  description: 'Add the reserve observers declared in config ' \
+                    '(escalation_reviewers) for this call only. Use for artifacts the ' \
+                    'caller judges hard enough to be worth extra observers; difficulty ' \
+                    'is the caller\'s judgement, not this tool\'s. Adding observers ' \
+                    'raises the required agreement, since the rule is a ratio. ' \
+                    'Default false.',
+                  default: false
+                },
+                persona_model: {
+                  type: %w[string null],
+                  description: 'Model the caller will actually run its persona team on, ' \
+                    'when that differs from the caller itself (e.g. a Fable 5 session ' \
+                    'spawning Opus 5 personas). The roster slot matching this model is ' \
+                    'occupied by the persona result instead of being dispatched. ' \
+                    'Omit when the persona runs on the calling model — the ' \
+                    'orchestrator_model declaration then stands in this position. ' \
+                    'This value is recorded as a declaration and is never verified: ' \
+                    'the persona runs outside this system and cannot be observed from it.'
                 },
                 convergence_rule_override: {
                   type: 'string',
@@ -176,7 +193,29 @@ module KairosMcp
 
           def call(arguments)
             config = load_review_config
-            reviewers = resolve_reviewers(arguments, config)
+
+            # INV-E1: the canonical set is not replaceable from the caller
+            # side. The argument that used to allow it is gone; a call that
+            # still carries it is refused rather than silently ignored, so a
+            # stale runbook fails loudly instead of reviewing against a roster
+            # nobody can see.
+            if arguments['reviewers_override']
+              return text_content(JSON.generate({
+                'status' => 'error',
+                'error' => 'reviewers_override was removed: the reviewer roster is ' \
+                           'canonical in config and cannot be replaced per call. ' \
+                           'To add observers for a hard artifact, set escalate: true ' \
+                           '(config key: escalation_reviewers).'
+              }))
+            end
+
+            begin
+              reviewers = resolve_reviewers(arguments, config)
+            rescue ObserverSet::RosterError => e
+              return text_content(JSON.generate({
+                'status' => 'error', 'error' => e.message
+              }))
+            end
             review_context = arguments['review_context'] ||
                              config['default_review_context'] || 'independent'
             review_round = arguments['review_round'] || 1
@@ -198,12 +237,75 @@ module KairosMcp
             strategy = arguments['orchestrator_strategy'] ||
                        config['default_orchestrator_strategy'] ||
                        'delegate'
-            reviewers, partitioned_count = partition_for_strategy(
-              reviewers, orchestrator_model, strategy, config
-            )
+
+            # INV-P2 is implemented in ObserverSet. `orchestrator_strategy`
+            # survives as the way the caller expresses the two choices the
+            # invariant leaves to it: whether its own slot should run anyway
+            # in a fresh context ("subprocess"), and whether its declaration
+            # should stand in the persona position at all ("exclude" suppresses
+            # that fallback, so no persona is convened and the run is single
+            # phase).
+            persona_model = arguments['persona_model']
+            escalate = arguments['escalate'] ? true : false
+
+            # The two legacy strategies keep their published meanings.
+            # "subprocess" buys a fresh context on the caller's own model: the
+            # slot runs, and no persona is convened unless one was declared
+            # outright. "exclude" drops the slot and convenes nothing. Only the
+            # default lets the caller's declaration stand in the persona
+            # position, which is the INV-P2 fallback.
+            separate_context = (strategy == 'subprocess')
+            # Declared-ness is emptiness, not truthiness: "" is truthy in Ruby,
+            # so a caller passing an empty persona_model under a single-phase
+            # strategy convened a persona anyway and got delegation_pending
+            # where both legacy strategies promise a verdict. ObserverSet reads
+            # the same declaration through present/1, and the two must agree
+            # about what counts as declared.
+            convene_persona = if persona_model.to_s.strip.empty?
+                                strategy != 'exclude' && strategy != 'subprocess'
+                              else
+                                true
+                              end
+
+            # The key predates this change and gated the "exclude" strategy
+            # only — the delegate path never consulted it. Widening its reach
+            # now would move the denominator under a config nobody edited, so
+            # it keeps exactly the scope it had.
+            if strategy == 'exclude' && !config.fetch('exclude_orchestrator_model', true)
+              separate_context = true
+            end
+
+            begin
+              observers = ObserverSet.build(
+                roster: reviewers,
+                escalation: config['escalation_reviewers'],
+                escalate: escalate,
+                persona_model: persona_model,
+                orchestrator_model: orchestrator_model,
+                separate_context: separate_context,
+                convene_persona: convene_persona
+              )
+            rescue ObserverSet::RosterError => e
+              return text_content(JSON.generate({
+                'status' => 'error', 'error' => e.message
+              }))
+            end
+
+            reviewers = observers.dispatch
+            persona_convened = observers.persona[:convened]
+            # The post-exclusion rule is part of the "exclude" contract and is
+            # still honoured. Removing it would have moved a shipped gate
+            # without any caller asking for it.
+            #
+            # It asks whether the denominator actually shrank, not which
+            # reason fired. Asking the reason lowered the bar in a run that
+            # lost nothing: under "exclude" with a persona declared on a model
+            # no slot names, the caller's slot leaves and an independent
+            # persona answers in the set, so the observer count is unchanged
+            # and the eased rule applied to a full roster.
             convergence_rule = if arguments['convergence_rule_override']
                                  base_rule
-                               elsif strategy == 'exclude' && partitioned_count > 0
+                               elsif strategy == 'exclude' && observers.observers_lost.positive?
                                  config['convergence_rule_after_exclusion'] || base_rule
                                else
                                  base_rule
@@ -254,11 +356,11 @@ module KairosMcp
             parallel_cfg = config.dig('delegation', 'parallel') || {}
             parallel_default = parallel_cfg.fetch('default', true)
             parallel_flag = arguments.key?('parallel') ? arguments['parallel'] : parallel_default
-            if strategy == 'delegate' && partitioned_count > 0 && parallel_flag
+            if persona_convened && parallel_flag
               return delegate_response_async(
                 reviewers: reviewers, messages: messages, system_prompt: system_prompt,
                 arguments: arguments, config: config,
-                orchestrator_model: orchestrator_model,
+                orchestrator_model: orchestrator_model, observers: observers,
                 convergence_rule: convergence_rule, min_quorum: min_quorum,
                 review_round: review_round, complexity: complexity,
                 review_context: review_context,
@@ -278,12 +380,13 @@ module KairosMcp
             # Delegate strategy: don't compute final consensus here. Persist
             # subprocess results to pending state and return a delegation manifest
             # so the orchestrator can submit its persona team review via collect.
-            if strategy == 'delegate' && partitioned_count > 0
+            if persona_convened
               return delegate_response(
                 raw_results: raw_results,
                 arguments: arguments,
                 config: config,
                 orchestrator_model: orchestrator_model,
+                observers: observers,
                 convergence_rule: convergence_rule,
                 min_quorum: min_quorum,
                 review_round: review_round,
@@ -292,8 +395,12 @@ module KairosMcp
             end
 
             # Compute consensus
-            consensus = Consensus.aggregate(raw_results, convergence_rule,
-                                            min_quorum: min_quorum)
+            consensus = Consensus.aggregate(
+              raw_results, convergence_rule,
+              min_quorum: min_quorum,
+              excluded_slots: observers.excluded,
+              escalation: escalation_record(observers)
+            )
 
             findings_string_keys = consensus[:aggregated_findings].map { |f| hash_to_string_keys(f) }
             sanitized_findings = findings_string_keys.map do |f|
@@ -315,17 +422,7 @@ module KairosMcp
               'verdict' => consensus[:verdict],
               'feedback_text' => feedback_text,
               'convergence' => hash_to_string_keys(consensus[:convergence]),
-              'reviews' => consensus[:reviews].map { |r|
-                {
-                  'role_label' => r[:role_label],
-                  'provider' => r[:provider],
-                  'model' => r[:model],
-                  'verdict' => r[:verdict],
-                  'elapsed_seconds' => r[:elapsed_seconds],
-                  'error' => r[:error],
-                  'raw_text_length' => r[:raw_text].to_s.length
-                }
-              },
+              'reviews' => consensus[:reviews].map { |r| ReviewSerializer.payload_row(r) },
               'aggregated_findings' => sanitized_findings,
               'review_round' => review_round,
               'review_type' => arguments['review_type'],
@@ -334,7 +431,7 @@ module KairosMcp
               'llm_calls' => raw_results.count { |r| r[:status] == :success },
               'orchestrator_model' => orchestrator_model,
               'orchestrator_strategy' => strategy,
-              'excluded_reviewers' => (strategy == 'exclude' ? partitioned_count : 0)
+              'excluded_reviewers' => observers.excluded.size
             }
 
             # Phase 1.5 — Acknowledgment invariant: articulate which fallback path
@@ -343,7 +440,7 @@ module KairosMcp
             # (Claude Code Agent tool). When strategy='delegate', the orchestrator
             # delegates to its own harness for personas — that is the harness_specific
             # path. When subprocess-only ran, the path is harness_assisted.
-            payload['harness_assistance_used'] = build_acknowledgment(strategy, raw_results)
+            payload['harness_assistance_used'] = build_acknowledgment(persona_convened, raw_results)
 
             text_content(JSON.generate(payload))
           rescue StandardError => e
@@ -357,9 +454,13 @@ module KairosMcp
 
           # Phase 1.5 — articulate which fallback_chain path actually ran.
           # Returns Hash with path_taken/tier_actually_used/target_harness/acknowledgment.
-          def build_acknowledgment(strategy, raw_results)
+          # Keyed on whether a persona was actually convened, not on the
+          # strategy name: a run can name the default strategy and still
+          # convene nothing (no declarations at all), and claiming the gate ran
+          # in that case is a declaration the record cannot support.
+          def build_acknowledgment(persona_convened, raw_results)
             successful_subprocess = raw_results.count { |r| r[:status] == :success }
-            if strategy == 'delegate'
+            if persona_convened
               {
                 'path_taken' => 'claude_code_agent_personas',
                 'tier_actually_used' => 'harness_specific',
@@ -383,27 +484,17 @@ module KairosMcp
             end
           end
 
-          def load_review_config
-            config_path = File.join(__dir__, '..', 'config', 'multi_llm_review.yml')
-            if File.exist?(config_path)
-              YAML.safe_load(File.read(config_path), permitted_classes: [Symbol]) || {}
-            else
-              default_config
-            end
+          def config_path
+            File.expand_path(File.join(__dir__, '..', 'config', 'multi_llm_review.yml'))
           end
 
-          def default_config
-            {
-              'convergence_rule' => '3/4 APPROVE',
-              'min_quorum' => 2,
-              'timeout_seconds' => 300,
-              'max_concurrent' => 2,
-              'reviewers' => [
-                { 'provider' => 'claude_code', 'role_label' => 'claude_team' },
-                { 'provider' => 'codex', 'role_label' => 'codex' },
-                { 'provider' => 'cursor', 'role_label' => 'cursor' }
-              ]
-            }
+          # A missing file yields an empty config rather than a substitute one.
+          # What that costs is decided one caller down, where the roster is
+          # resolved and the absence can be reported with the file to look at.
+          def load_review_config
+            return {} unless File.exist?(config_path)
+
+            YAML.safe_load(File.read(config_path), permitted_classes: [Symbol]) || {}
           end
 
           # Resolve complexity: explicit arg > auto-detection.
@@ -444,51 +535,91 @@ module KairosMcp
             end
           end
 
-          # Drop reviewers whose model exactly matches the orchestrator's
-          # model. Returns [filtered_reviewers, excluded_count].
-          # No-op when orchestrator_model is nil/empty or the config flag
-          # exclude_orchestrator_model is false.
-          def exclude_orchestrator(reviewers, orchestrator_model, config)
-            return [reviewers, 0] if orchestrator_model.nil? ||
-                                     orchestrator_model.to_s.empty?
-            return [reviewers, 0] unless config.fetch('exclude_orchestrator_model', true)
-
-            kept = reviewers.reject do |r|
-              (r[:model] || r['model']).to_s == orchestrator_model.to_s
-            end
-            [kept, reviewers.size - kept.size]
-          end
-
-          # Partition roster according to orchestrator_strategy.
-          #   exclude    - same as exclude_orchestrator (drop matching).
-          #   subprocess - keep all reviewers; matching becomes a normal subprocess.
-          #   delegate   - drop matching reviewer here (orchestrator submits later via collect).
-          # Returns [reviewers_to_dispatch, partitioned_count].
-          def partition_for_strategy(reviewers, orchestrator_model, strategy, config)
-            case strategy
-            when 'subprocess'
-              [reviewers, 0]
-            when 'delegate'
-              return [reviewers, 0] if orchestrator_model.nil? ||
-                                       orchestrator_model.to_s.empty?
-              kept = reviewers.reject do |r|
-                (r[:model] || r['model']).to_s == orchestrator_model.to_s
+          # A token whose directory this call owns. UUID collision retry
+          # (EEXIST on Dir.mkdir per PendingState§token_dir); both delegation
+          # paths need it, and the one that open-coded it is the one that
+          # ended up not creating the directory at all.
+          def create_token_dir!
+            10.times do
+              token = PendingState.generate_token
+              begin
+                PendingState.create_token_dir!(token)
+                return token
+              rescue Errno::EEXIST
+                next
               end
-              [kept, reviewers.size - kept.size]
-            else # 'exclude' (default)
-              exclude_orchestrator(reviewers, orchestrator_model, config)
             end
+            raise 'could not generate unique token dir after 10 attempts'
           end
+
+          # The directory exists before the state is written, so a failed write
+          # leaves a token whose directory is there and whose state is not.
+          # load_state then returns nil and collect answers
+          # `expired_or_unknown_token` — telling the caller its token ran out
+          # when in fact this call never finished creating it. Removing the
+          # directory makes the failure be the failure it was.
+          # `ensure` rather than `rescue StandardError`: an Interrupt during a
+          # long delegation is the realistic way this fails, and it is not a
+          # StandardError. The cleanup's own failure is swallowed so it cannot
+          # replace the exception that caused it — losing the real error to a
+          # read-only filesystem would be the second-worst outcome after
+          # losing the token.
+          def with_token_dir
+            token = create_token_dir!
+            done = false
+            begin
+              yield token
+              done = true
+            ensure
+              unless done
+                begin
+                  FileUtils.rm_rf(PendingState.token_dir(token))
+                rescue StandardError => e
+                  warn "[multi_llm_review] token dir cleanup failed: #{e.class}: #{e.message}"
+                end
+              end
+            end
+            token
+          end
+
+          # INV-E4: whether this run was escalated, and by whom, belongs in the
+          # record even when the answer is "it was not". "slots" is what the
+          # container offered; "dispatched" is what it actually added, and the
+          # two differ whenever a reserve slot was taken over by the persona or
+          # dropped as the caller's own. Recording only the offer let a reader
+          # count an observer that never answered.
+          def escalation_record(observers)
+            {
+              # "requested" is what the caller asked for, "escalated" whether
+              # the container had anything to give, "slots" what it offered and
+              # "dispatched" what actually ran. Collapsing these lost the case
+              # that matters most: a caller escalating against an empty or
+              # misspelt container recorded identically to one that never asked.
+              'requested' => observers.escalation_requested,
+              'escalated' => observers.escalated,
+              'slots' => observers.escalation_labels,
+              'dispatched' => observers.escalation_dispatched
+            }
+          end
+
+          # Roster partitioning moved to ObserverSet (INV-P2). The two helpers
+          # that used to live here decided the same slot from two places, which
+          # is how the caller-equals-persona case became ambiguous; the set is
+          # now built in one pass with explicit precedence.
 
           # Build the delegation manifest response. Persists subprocess results
           # to pending state under a UUID v4 token; orchestrator then submits
           # its persona team review via multi_llm_review_collect.
           def delegate_response(raw_results:, arguments:, config:, orchestrator_model:,
-                                convergence_rule:, min_quorum:, review_round:, complexity:)
-            # Validate orchestrator_model charset/length early (defense in
-            # depth — partition_for_strategy also guards empty/nil).
+                                observers:, convergence_rule:, min_quorum:,
+                                review_round:, complexity:)
+            # Validate the model that will actually stand in the persona
+            # position — which is the persona declaration when there is one,
+            # and the caller's own declaration otherwise. Validating the caller
+            # unconditionally made the documented "declare only persona_model"
+            # case fail on a nil that INV-P2 permits.
             begin
-              PersonaAssembly.validate_orchestrator_model!(orchestrator_model)
+              PersonaAssembly.validate_orchestrator_model!(observers.persona[:model])
             rescue ArgumentError => e
               return text_content(JSON.generate({
                 'status' => 'error',
@@ -528,10 +659,15 @@ module KairosMcp
             deadline_secs = arguments['collect_deadline_seconds_override'] ||
                             config.dig('delegation', 'collect_deadline_seconds') || 1800
             now = Time.now
-            token = PendingState.generate_token
-
-            PendingState.write(token, {
-              'token' => token,
+            # Written in the same layout as the parallel path. It used to be
+            # written as a single legacy file, and collect takes its lock on a
+            # file inside the token directory — so for every synchronous
+            # delegation the lock was silently skipped and two collects on one
+            # token could both run consensus and both write the cache. The
+            # storage layout is not what decides whether a run is serialised.
+            token = with_token_dir do |t|
+            PendingState.write_state(t, {
+              'token' => t,
               'created_at' => now.iso8601,
               'collect_deadline' => (now + deadline_secs).iso8601,
               'review_type' => arguments['review_type'],
@@ -539,11 +675,33 @@ module KairosMcp
               'review_round' => review_round,
               'complexity' => complexity,
               'orchestrator_model' => orchestrator_model,
+              # INV-P1 / INV-E4: the persona model is a declaration, and the
+              # slots that never ran are part of how the denominator came out.
+              # Both have to survive into collect, which is where the record is
+              # finally written.
+              # The strategy that actually ran, so collect does not report a
+              # constant. `strategy` itself is call-local, so it is re-derived
+              # from the same two sources the call body used.
+              'orchestrator_strategy' => arguments['orchestrator_strategy'] ||
+                                         config['default_orchestrator_strategy'] || 'delegate',
+              'persona_model' => observers.persona[:model],
+              'persona_independent' => observers.persona[:independent],
+              'excluded_slots' => observers.excluded.map { |e| hash_to_string_keys(e) },
+              'escalation' => escalation_record(observers),
               'convergence_rule' => convergence_rule,
               'min_quorum' => min_quorum,
+              # Stated rather than left to collect's legacy default, now that
+              # this path looks like the parallel one from the outside.
+              'parallel' => false,
               'subprocess_results' => raw_results.map { |r| serialize_review(r) },
               'collected' => false
             })
+
+              # Phase 2 flocks this file; it exists here for the same reason it
+              # exists on the parallel path. Inside the block, so that a token
+              # directory without its lock is not left behind either.
+              FileUtils.touch(PendingState.collect_lock_path(t))
+            end
 
             text_content(JSON.generate({
               'status' => 'delegation_pending',
@@ -570,12 +728,12 @@ module KairosMcp
           # the orchestrator's persona Agent reviews. Returns a delegation
           # manifest immediately (~50ms).
           def delegate_response_async(reviewers:, messages:, system_prompt:,
-                                      arguments:, config:, orchestrator_model:,
+                                      arguments:, config:, orchestrator_model:, observers:,
                                       convergence_rule:, min_quorum:, review_round:,
                                       complexity:, review_context:,
                                       max_concurrent:, timeout_secs:, parallel_cfg:)
             begin
-              PersonaAssembly.validate_orchestrator_model!(orchestrator_model)
+              PersonaAssembly.validate_orchestrator_model!(observers.persona[:model])
             rescue ArgumentError => e
               return text_content(JSON.generate({ 'status' => 'error', 'error' => e.message }))
             end
@@ -604,22 +762,14 @@ module KairosMcp
             min_deadline_secs = (worker_lifespan_secs + (poll_interval * 20)).ceil
             deadline_secs = [deadline_secs.to_i, min_deadline_secs].max
 
-            # UUID collision retry (EEXIST on Dir.mkdir per PendingState§token_dir).
-            token = nil
-            10.times do
-              t = PendingState.generate_token
-              begin
-                PendingState.create_token_dir!(t)
-                token = t
-                break
-              rescue Errno::EEXIST
-                next
-              end
-            end
-            raise 'could not generate unique token dir after 10 attempts' unless token
-
-            PendingState.write_request(token, {
-              'token' => token,
+            # Same rollback as the synchronous path. Round 8 found this one
+            # still bare: the helper existed, the synchronous caller used it,
+            # and the default delegation shape — this one, which writes three
+            # files and spawns a process — did not. A fix applied to one of two
+            # callers is the shape that keeps recurring here.
+            token = with_token_dir do |t|
+            PendingState.write_request(t, {
+              'token' => t,
               'reviewers' => reviewers.map { |r| r.transform_keys(&:to_s) },
               'system_prompt' => system_prompt,
               'messages' => messages,
@@ -629,9 +779,9 @@ module KairosMcp
               'spawned_at' => now.iso8601
             })
 
-            PendingState.write_state(token, {
+            PendingState.write_state(t, {
               'schema_version' => 4,
-              'token' => token,
+              'token' => t,
               'created_at' => now.iso8601,
               'collect_deadline' => (now + deadline_secs).iso8601,
               'review_type' => arguments['review_type'],
@@ -639,6 +789,19 @@ module KairosMcp
               'review_round' => review_round,
               'complexity' => complexity,
               'orchestrator_model' => orchestrator_model,
+              # INV-P1 / INV-E4: the persona model is a declaration, and the
+              # slots that never ran are part of how the denominator came out.
+              # Both have to survive into collect, which is where the record is
+              # finally written.
+              # The strategy that actually ran, so collect does not report a
+              # constant. `strategy` itself is call-local, so it is re-derived
+              # from the same two sources the call body used.
+              'orchestrator_strategy' => arguments['orchestrator_strategy'] ||
+                                         config['default_orchestrator_strategy'] || 'delegate',
+              'persona_model' => observers.persona[:model],
+              'persona_independent' => observers.persona[:independent],
+              'excluded_slots' => observers.excluded.map { |e| hash_to_string_keys(e) },
+              'escalation' => escalation_record(observers),
               'convergence_rule' => convergence_rule,
               'min_quorum' => min_quorum,
               'parallel' => true,
@@ -649,7 +812,8 @@ module KairosMcp
             })
 
             # Ensure collect.lock exists for Phase 2's flock.
-            FileUtils.touch(PendingState.collect_lock_path(token))
+            FileUtils.touch(PendingState.collect_lock_path(t))
+            end
 
             begin
               WorkerSpawner.spawn(token: token, dir: PendingState.token_dir(token))
@@ -694,23 +858,27 @@ module KairosMcp
 
           # Convert a Dispatcher review hash to JSON-safe form for pending state.
           def serialize_review(r)
-            {
-              'role_label' => r[:role_label],
-              'provider' => r[:provider],
-              'model' => r[:model],
-              'raw_text' => r[:raw_text],
-              'elapsed_seconds' => r[:elapsed_seconds],
-              'error' => r[:error],
-              'status' => r[:status].to_s
-            }
+            ReviewSerializer.serialize(r)
           end
 
-          def resolve_reviewers(arguments, config)
-            if arguments['reviewers_override'] && !arguments['reviewers_override'].empty?
-              arguments['reviewers_override'].map { |r| symbolize_keys(r) }
-            else
-              (config['reviewers'] || default_config['reviewers']).map { |r| symbolize_keys(r) }
+          # INV-E1: config is the only source. There is deliberately no
+          # argument that can substitute for it, and no built-in roster to fall
+          # back to either — a fallback roster is a second canonical set, and
+          # the one that used to live here named three slots with no model,
+          # which INV-E5 forbids. It could therefore only ever produce a refusal
+          # naming reviewers the operator had never configured. A missing or
+          # empty roster is a deployment fault and says so, with the file to
+          # look at.
+          def resolve_reviewers(_arguments, config)
+            entries = config['reviewers']
+            if !entries.is_a?(Array) || entries.empty?
+              raise ObserverSet::RosterError,
+                    'no reviewer roster is configured; the canonical set lives in ' \
+                    "#{config_path} under the key \"reviewers\", and this tool has " \
+                    'no built-in roster to fall back to'
             end
+
+            entries.map { |r| symbolize_keys(r) }
           end
 
           def symbolize_keys(hash)

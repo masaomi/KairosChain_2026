@@ -5,6 +5,7 @@ require 'time'
 require_relative '../lib/multi_llm_review/consensus'
 require_relative '../lib/multi_llm_review/pending_state'
 require_relative '../lib/multi_llm_review/persona_assembly'
+require_relative '../lib/multi_llm_review/review_serializer'
 require_relative '../lib/multi_llm_review/wait_for_worker'
 require_relative '../lib/multi_llm_review/worker_reaper'
 require_relative '../lib/multi_llm_review/feedback_formatter'
@@ -78,6 +79,20 @@ module KairosMcp
                   },
                   minItems: PersonaAssembly::MIN_PERSONAS,
                   maxItems: PersonaAssembly::MAX_PERSONAS
+                },
+                # Read by call_locked since the parallel path existed, and
+                # unreachable that whole time: a caller sends what the schema
+                # declares, so an argument absent from it is an argument nobody
+                # can pass. Declared here rather than deleted because the case
+                # it exists for is real — a slow roster outruns the configured
+                # wait and the whole round is lost to a timeout the caller
+                # could see coming.
+                collect_max_wait_seconds: {
+                  type: 'integer',
+                  description: 'Override how long this call waits for the ' \
+                    'subprocess worker to finish before reporting a timeout ' \
+                    '(default from config: delegation.parallel.' \
+                    'collect_max_wait_seconds). Only used on the parallel path.'
                 }
               },
               required: %w[collect_token orchestrator_reviews]
@@ -179,8 +194,12 @@ module KairosMcp
 
             reviews = arguments['orchestrator_reviews']
             begin
+              # INV-P1: the persona entry is labelled with the model the caller
+              # declared it would run on, which may differ from the caller
+              # itself. Older tokens carry no such declaration, so the caller
+              # model stands in — the same fallback INV-P2 states.
               orchestrator_entry = PersonaAssembly.assemble(
-                reviews, state['orchestrator_model']
+                reviews, state['persona_model'] || state['orchestrator_model']
               )
             rescue ArgumentError => e
               return text_content(JSON.generate({
@@ -247,7 +266,14 @@ module KairosMcp
             consensus = Consensus.aggregate(
               all_reviews,
               state['convergence_rule'] || '3/4 APPROVE',
-              min_quorum: state['min_quorum'] || 2
+              # INV-E2 reaches every observer, the persona included: a persona
+              # submission that carries verdicts and nothing else leaves the
+              # denominator exactly as a subprocess reply would. The rule takes
+              # no parameter, so there is nothing here for a stale pending state
+              # to carry a different answer for.
+              min_quorum: state['min_quorum'] || 2,
+              excluded_slots: symbolize_excluded(state['excluded_slots']),
+              escalation: state['escalation']
             )
 
             # llm_calls counts actual LLM invocations (subprocess reviewers).
@@ -276,17 +302,7 @@ module KairosMcp
               'verdict' => consensus[:verdict],
               'feedback_text' => feedback_text,
               'convergence' => hash_to_string_keys(consensus[:convergence]),
-              'reviews' => consensus[:reviews].map { |r|
-                {
-                  'role_label' => r[:role_label],
-                  'provider' => r[:provider],
-                  'model' => r[:model],
-                  'verdict' => r[:verdict],
-                  'elapsed_seconds' => r[:elapsed_seconds],
-                  'error' => r[:error],
-                  'raw_text_length' => r[:raw_text].to_s.length
-                }
-              },
+              'reviews' => consensus[:reviews].map { |r| ReviewSerializer.payload_row(r) },
               'aggregated_findings' => sanitized_findings,
               'review_round' => state['review_round'],
               'review_type' => state['review_type'],
@@ -295,7 +311,11 @@ module KairosMcp
               'llm_calls' => actual_llm_calls,
               'persona_count' => reviews.size,
               'orchestrator_model' => state['orchestrator_model'],
-              'orchestrator_strategy' => 'delegate'
+              # The constant was a lie whenever a persona was convened under a
+              # strategy other than the default — which an explicit persona
+              # declaration makes possible.
+              'orchestrator_strategy' => state['orchestrator_strategy'] || 'delegate',
+              'persona_model' => state['persona_model']
             }
 
             # v0.3 path: cache via collected.json sidecar (never touches
@@ -332,14 +352,23 @@ module KairosMcp
                 end
               end
             else
-              # Legacy back-compat: keep old inline cache behavior.
+              # Non-parallel path: the cache lives inline in the state.
               state['collected'] = true
               state['collected_at'] = Time.now.iso8601
               state['final_payload'] = payload
               begin
-                PendingState.write(token, state)
+                # Written back where it was read from. load_state prefers the
+                # token directory and falls back to the legacy single file, so
+                # writing the legacy file for a token that has a directory
+                # hides the cache from the next call and the replay that
+                # idempotency depends on never fires.
+                if File.exist?(PendingState.state_path(token))
+                  PendingState.write_state(token, state)
+                else
+                  PendingState.write(token, state)
+                end
               rescue StandardError => e
-                warn "[multi_llm_review_collect] legacy cache write failed: #{e.class}: #{e.message}"
+                warn "[multi_llm_review_collect] cache write failed: #{e.class}: #{e.message}"
               end
             end
 
@@ -358,16 +387,15 @@ module KairosMcp
           end
 
           def deserialize_review(h)
-            {
-              role_label: h['role_label'],
-              provider: h['provider'],
-              model: h['model'],
-              raw_text: h['raw_text'].to_s,
-              elapsed_seconds: h['elapsed_seconds'] || 0,
-              error: h['error'],
-              status: (h['status'] || 'success').to_sym,
-              usage: h['usage']    # v0.3 F-USR: preserved for UsageTracker replay
-            }
+            ReviewSerializer.deserialize(h)
+          end
+
+          # Pending state is JSON, so the slots that never ran come back with
+          # string keys; Consensus reads them symbolised like everything else.
+          def symbolize_excluded(entries)
+            (entries || []).map do |e|
+              e.is_a?(Hash) ? e.transform_keys(&:to_sym) : e
+            end
           end
 
           def hash_to_string_keys(hash)

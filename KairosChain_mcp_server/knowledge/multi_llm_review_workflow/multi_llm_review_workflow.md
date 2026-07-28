@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.6.3"
+version: "3.7.3"
 tags:
   - workflow
   - review
@@ -339,27 +339,44 @@ configuration from `config/multi_llm_review.yml`, eliminating this error class.
 ### Pre-flight checklist (Path A only)
 
 If Path B is unavailable and you must use Path A, extract these values **before
-starting** and verify each against `config/multi_llm_review.yml`:
+starting** and verify each against `config/multi_llm_review.yml`. The config is
+canonical; the numbers written below are a cross-check, not a substitute — when
+they disagree, the config is right and this section is stale.
 
 ```
 - [ ] Your model (orchestrator): ___
-- [ ] Agent Team Personas model: = orchestrator model (NOT a different model)
-- [ ] Subprocess CLI models: Opus 4.6 AND whichever of Opus 5 / Fable 5 is NOT
-      the orchestrator (both, not either/or)
-- [ ] Codex models: gpt-5.6-sol (default) AND gpt-5.5 (both, not either/or)
-- [ ] Cursor model: default (composer-2.5, no --model flag)
-- [ ] Total reviewer count: 6 (or 5 after orchestrator exclusion from subprocess)
-- [ ] Convergence rule: 4/6 APPROVE (full) or 3/5 APPROVE (after exclusion)
+- [ ] Agent Team Personas model: = orchestrator model (NOT a different model),
+      unless you are running personas on a different model on purpose — then
+      it is whatever you declare as persona_model (see § Persona execution model)
+- [ ] Subprocess CLI model: Opus 4.6. The other Claude roster slot is Opus 5,
+      which under the default "delegate" strategy is taken by your persona team
+      rather than spawned — so when you are Opus 5, Opus 4.6 is the only Claude
+      CLI subprocess
+- [ ] Codex models: gpt-5.6-sol AND gpt-5.5 (both, not either/or), each with -m
+- [ ] Cursor model: composer-2.5, passed explicitly as --model composer-2.5
+- [ ] Total reviewer count: 5 (or 4 after orchestrator exclusion from subprocess)
+- [ ] Convergence rule: 3/5 APPROVE (full) or 3/4 APPROVE (after exclusion)
 ```
+
+**Every slot names its model on the command line (INV-E5).** A reviewer launched
+without an explicit model flag inherits the external CLI's own default, which
+lives outside this repository and is user-editable. This is not hypothetical:
+on 2026-07-27 the cursor slot had no pinned model, `~/.cursor/cli-config.json`
+had been changed to `claude-opus-4-8`, and the roster ran three Anthropic slots
+out of five while still recording the answer as `cursor_composer2.5`. Provider
+diversity was silently lost and the record named a model that had not answered.
+Path B refuses such a slot outright; on Path A nothing refuses it but you.
 
 ### Common mistakes (Path A)
 
 | Mistake | Correct behavior | Why it happens |
 |---------|-----------------|----------------|
+| Launch a reviewer without an explicit model flag | Always pass `--model` / `-m`. A slot with no flag takes the CLI's user-editable default | "The default is the one we want" — it was, until someone changed it outside this repo |
 | Exclude orchestrator model from Agent Team Personas | Agent Team uses orchestrator model — they provide persona diversity, not epistemic diversity | LLM misreads "do not assign yourself as a reviewer" as applying to Agent Team; it applies only to subprocess CLI |
 | Run only Codex GPT-5.6-sol, skip 5.5 | Run both — cross-generation entries catch different things (5.5 found §5 schema contradiction in Phase 2 Case A that no other reviewer caught) | Cost-saving heuristic; roster has both for a reason |
 | Use a smaller/cheaper model as Agent Team substitute | Use the orchestrator's own model with different personas | Confusing "model diversity" with "persona diversity" — Agent Team is the latter |
-| Run 3 reviewers instead of 6 (or 5 after exclusion) | Use the full roster from config | Ad-hoc "3 is enough" reasoning; config specifies 6 for empirical reasons |
+| Run 3 reviewers instead of the configured roster | Use the full roster from config | Ad-hoc "3 is enough" reasoning; the roster size is empirical |
+| Count a reply that carries only a verdict | Drop it from the denominator, and say why | A bare "APPROVE" looks like agreement and raises the bar for everyone else without contributing (see § Substance and the denominator) |
 
 ## Roles
 
@@ -469,13 +486,27 @@ The rule applies **after** orchestrator classifies each finding as (a)/(b)/(c) p
 findings count toward the thresholds below; (c) findings are recorded as advisory
 and never block.
 
-- **4/6 APPROVE** full roster, or **3/5 APPROVE** after orchestrator exclusion ("exclude" strategy only — the default "delegate" strategy keeps 6 voters via collect) (no (a)/(b) REJECT) = proceed to next step
+- **3/5 APPROVE** full roster, or **3/4 APPROVE** after orchestrator exclusion ("exclude" strategy only — the default "delegate" strategy keeps 5 voters via collect) (no (a)/(b) REJECT) = proceed to next step
 - **Any (a) or (b) REJECT or FAIL** = revise and re-review
 - **(c)-only REJECT** = record as advisory, non-blocking
 - **Unanimous APPROVE** (no (a)/(b)) = highest confidence, proceed
 - Legacy 3-reviewer mode: 2/3 APPROVE (no (a)/(b)) = proceed
 - Codex REJECT with (a)/(b) findings + others APPROVE = likely real issue, investigate before overriding
 - Codex REJECT with only (c) findings = expected per Codex value-system divergence; non-blocking
+
+**The ratio is not the only way a round closes, and it is not the primary one.**
+Two roster entries (both Codex) are structurally unlikely to reach APPROVE — 24
+consecutive REJECTs on one design loop — so a ratio threshold may never be met on
+a document they are unhappy with. The intended close is the **exhaustion of (a)
+and (b) findings, declared by the human**. A round where every deployment-grounded
+and philosophy-aligned finding has been answered is converged whether or not the
+numerator moved. Do not treat a reached ratio as sufficient on its own either:
+check what the approving replies actually said before counting them.
+
+**Escalating raises the bar.** The rule is a ratio over the observers that
+counted, so adding reserve observers with `escalate: true` raises the number of
+agreements required. That is the intended cost of a wider panel, not a defect —
+but do not escalate a round you are hoping to close.
 
 For normative detail and the underlying classification, see
 `multi_llm_reviewer_evaluation` § Convergence Rule (Updated).
@@ -485,7 +516,7 @@ For normative detail and the underlying classification, see
 | Agreement | Meaning | Action |
 |-----------|---------|--------|
 | **N/N** (unanimous) | Architectural-level gap | Must fix |
-| **Majority** (e.g. 4/6, 3/5) | Implementation-level issue | Should fix |
+| **Majority** (e.g. 3/5, 3/4) | Implementation-level issue | Should fix |
 | **1/N only** | Specialty-specific insight | Do NOT ignore — often the most novel finding |
 
 1/N findings are not "minority opinions to discard." They represent unique expertise.
@@ -572,25 +603,33 @@ which agent 2>/dev/null && echo "agent: available" || echo "agent: NOT FOUND"
 which claude 2>/dev/null && echo "claude: available" || echo "claude: NOT FOUND"
 ```
 
-- All three available → Auto mode (6 reviewers, default)
+- All three available → Auto mode (the configured roster, currently 5 reviewers)
 - Codex + Agent only → Auto mode (legacy, reduced roster — apply "Legacy 3-reviewer mode: 2/3 APPROVE" from Convergence Rules)
 - Any of codex/agent missing → Manual mode
 - User override: `mode: manual` or `mode: auto`
 
-### CLI Tool Matrix (tested 2026-03-28; Claude CLI rows re-verified 2026-07-25 for the Opus 5 roster)
+### CLI Tool Matrix (tested 2026-03-28; model flags made mandatory 2026-07-27)
+
+Every row names its model explicitly. There is no "default model" column any
+more, because the defaults belong to the CLIs and the CLIs are configured
+outside this repository — see the incident recorded in § Pre-flight checklist.
 
 | Tool | Command | Prompt Input | Output Collection | Model |
 |------|---------|-------------|-------------------|-------|
-| **Codex** | `codex exec -m <model>` | stdin pipe: `cat prompt.md \| codex exec -` | `-o /path/output.md` | GPT-5.6-sol + GPT-5.5 (both roster entries, `-m` per entry) |
-| **Cursor Agent** | `agent -p` | File reference (stdin NOT supported) | stdout redirect: `> output.md` | Composer-2.5 (default) |
-| **Claude Code** | Agent tool (internal) | Direct prompt string | Write to workspace file | Orchestrator model (Opus 5 or Fable 5) |
-| **Claude CLI (4.6)** | `claude -p --model claude-opus-4-6` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-4-6` | stdout redirect: `> output.md` | Opus 4.6 |
-| **Claude CLI (frontier)** | `claude -p --model <claude-opus-5\|claude-fable-5>` | stdin pipe: `cat prompt.md \| claude -p --model <model>` | stdout redirect: `> output.md` | Whichever frontier model is NOT the orchestrator |
+| **Codex** | `codex exec -m <model>` | stdin pipe: `cat prompt.md \| codex exec -m <model> -` | `-o /path/output.md` | gpt-5.6-sol + gpt-5.5 (both roster entries, `-m` per entry) |
+| **Cursor Agent** | `agent -p --model composer-2.5` | File reference (stdin NOT supported) | stdout redirect: `> output.md` | composer-2.5, passed explicitly — never relying on the CLI default |
+| **Claude Code** | Agent tool (internal) | Direct prompt string | Write to workspace file | Orchestrator model, or the declared `persona_model` when personas run elsewhere |
+| **Claude CLI (4.6)** | `claude -p --model claude-opus-4-6` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-4-6` | stdout redirect: `> output.md` | Opus 4.6 — the calibrated anchor, deliberately not a frontier model |
+| **Claude CLI (frontier)** | `claude -p --model claude-opus-5` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-5` | stdout redirect: `> output.md` | Runs only when Opus 5 is *not* the orchestrator; when it is, that slot is taken by the persona team |
 
 `--bare` must NOT be passed (established 2026-07-23): it skips credential
 loading and the subprocess fails with "Not logged in". The project-instruction
 bias it was meant to suppress is handled by `review_context: independent`
 instead.
+
+Fable 5 appears in no row above. It was retired from the roster on 2026-07-26
+after five consecutive non-substantive returns, and now sits in the reserve
+container — see § Reserve observers (escalation).
 
 ### Thinking Effort Configuration (validated 2026-04-20)
 
@@ -598,9 +637,9 @@ Based on cross-evaluation experiment (7 models × 4 tasks + Nomic, 518 CLI calls
 
 | Role | Model | Effort Flag | Rationale |
 |------|-------|-------------|-----------|
-| **Primary (orchestrator)** | Opus 5 or Fable 5 (session default) | (default) | Sufficient for integration, dialogue, judgment |
-| **Reviewer: Agent Team** | = orchestrator | (default) | Personas inherit orchestrator model |
-| **Reviewer: Claude CLI** | Opus 4.6 / the non-orchestrator frontier model | (default; config `effort: medium`) | Evaluator quality is effort-independent (low≈high: 8.35 vs 8.16) — per 2026-04-29 policy reviewers stay at default |
+| **Primary (orchestrator)** | session default | (default) | Sufficient for integration, dialogue, judgment |
+| **Reviewer: Agent Team** | = orchestrator, or the declared `persona_model` | (default) | Personas inherit whichever model actually runs them |
+| **Reviewer: Claude CLI** | Opus 4.6, plus any frontier roster slot the orchestrator is not | (default; config `effort: medium`) | Evaluator quality is effort-independent (low≈high: 8.35 vs 8.16) — per 2026-04-29 policy reviewers stay at default |
 | **Coding sub-agent** | Opus 5 | `--effort xhigh` | Published starting point for coding/agentic work; not measured here (see note) |
 | **Design sub-agent** | Opus 5 | `--effort high` | Published starting point for intelligence-sensitive work; not measured here (see note) |
 | **Codex** | GPT-5.6-sol / GPT-5.5 | (no flag) | Fixed effort |
@@ -633,7 +672,10 @@ positioned to evaluate in context.
 
 ### Model Detection
 
-Before executing reviews, detect and record models:
+Detection tells you what a CLI *would* pick if you did not say. Use it to notice
+that a default has drifted — never to decide which model a reviewer runs. Every
+slot names its own model (INV-E5), so a detected default that differs from the
+roster is a warning about the environment, not an instruction to follow.
 
 ```bash
 codex exec -C . -o /dev/null "What model are you? Reply with only the model name."
@@ -641,17 +683,24 @@ agent --list-models 2>&1 | grep "(current\|default)"
 # Claude Code: known from session
 ```
 
+Where a transport reports back which model actually answered, record it beside
+the declared one. Path B does this automatically: `model_source` reads
+`observed` or `declared`, and `model_divergence` is true when the two disagree.
+Divergence is recorded rather than corrected — the run is not retried, but the
+record no longer claims a model that did not answer.
+
 ### Orchestrator Self-Identification (Self-Referential Model Reporting)
 
 **Rule**: When invoking `multi_llm_review` (or running this workflow manually), the
 orchestrating LLM MUST pass its own model identifier as `orchestrator_model`.
 
-**Rationale**: The reviewer roster contains multiple Claude entries (Opus 5,
-Fable 5, Opus 4.6). Both frontier models sit in the roster on purpose: whichever
-one is the current session model matches `orchestrator_model` and becomes the
-persona-team slot, and the other is dispatched as a `claude -p` subprocess. The
-Claude side is therefore always {orchestrator persona} + {other frontier model}
-+ {Opus 4.6}, with no per-orchestrator config branch.
+**Rationale**: The reviewer roster contains more than one Claude entry (Opus 5
+and Opus 4.6 as of 2026-07-26). A frontier slot sits in the roster on purpose:
+when it is the current session model it matches `orchestrator_model` and becomes
+the persona-team slot; when it is not, it is dispatched as a `claude -p`
+subprocess. With the current two-entry Claude side, an Opus 5 orchestrator leaves
+Opus 4.6 as the only Claude CLI subprocess. No per-orchestrator config branch is
+needed either way.
 To avoid the orchestrator reviewing its
 own output (no independent signal), the dispatcher excludes or delegates the
 roster entry whose `model` matches `orchestrator_model` (per
@@ -691,19 +740,35 @@ multi_llm_review(
 **Dispatcher behavior** (config: `exclude_orchestrator_model: true`, default `true`):
 - If `orchestrator_model` matches a roster entry's `model`, that entry is skipped.
 - `min_quorum` and `convergence_rule` apply to the remaining reviewers.
-- 6-reviewer roster → 5 reviewers; `convergence_rule_after_exclusion: "3/5 APPROVE"`
+- 5-reviewer roster → 4 reviewers; `convergence_rule_after_exclusion: "3/4 APPROVE"`
   (from config) replaces the full-roster rule. This reduced count applies to the
   "exclude" strategy only. The "subprocess" strategy keeps the full roster (the
   matching entry runs as a fresh CLI process instead of being skipped). Under the
   default "delegate" strategy, the matching entry is dropped at dispatch but
-  re-added at collect as the persona-team entry, so the voter count returns to 6
-  and the full-roster rule (4/6 APPROVE) applies — verified live 2026-06-10.
+  re-added at collect as the persona-team entry, so the voter count returns to 5
+  and the full-roster rule (3/5 APPROVE) applies.
+- **At most one roster entry leaves for matching the caller.** This is only
+  visible on a roster carrying three or more entries on the orchestrator's own
+  model: the first is taken over by the persona team, the second leaves as the
+  caller's own, and any beyond that run — as fresh external processes on that
+  model, which is what the "subprocess" strategy buys deliberately. On the
+  current roster (one Opus 5 entry) the question does not arise. Settled
+  2026-07-27: the invariant fixes a count for the persona clause and states none
+  for this one, and the shipped behaviour follows the text rather than widening
+  it. A caller who wants a same-model slot to run anyway asks for it with
+  `orchestrator_strategy: "subprocess"`.
 - If `orchestrator_model` is `null` or unmatched, full roster runs (back-compat).
 
 **Manual-mode equivalent**: When orchestrating by hand, do not assign yourself
-as a subprocess reviewer. Run the Claude CLI subprocess reviewers (Opus 4.6 plus
-the frontier model you are not); if your own model matches one of them, skip that
-entry and use the after-exclusion convergence rule.
+as a subprocess reviewer. Run the Claude CLI subprocess reviewers (Opus 4.6, plus
+any frontier roster slot you are not); if your own model matches one of them,
+skip that entry and use the after-exclusion convergence rule.
+
+**The roster cannot be replaced per call.** There was once a `reviewers_override`
+argument; it is gone, and a call that still carries it is refused with an error
+rather than silently ignored, so a stale runbook fails loudly instead of
+reviewing against a roster nobody can see. To widen a panel for one hard
+artifact, use `escalate: true` — see § Reserve observers below.
 
 ### Orchestrator Delegation Protocol (Two-Phase, default)
 
@@ -749,6 +814,173 @@ cross-model subprocess reviewers give epistemic diversity. The two are complemen
 `default_orchestrator_strategy`). `"exclude"` remains available as the legacy
 strategy. (Historical note: delegate was opt-in until validated by use; it has
 been the config default since v3.x.)
+
+### Persona execution model (`persona_model`)
+
+The persona team normally runs on the orchestrator's own model, and declaring
+`orchestrator_model` is enough — that declaration stands in the persona position
+and the matching roster slot is taken over by the persona result.
+
+Pass `persona_model` when the personas will actually run on a **different** model
+from the caller. The case this exists for: a cheaper session orchestrating a
+review while spawning its persona sub-agents on a stronger model. Then the slot
+that gets taken over is the one matching `persona_model`, not the one matching
+the caller.
+
+```
+multi_llm_review(
+  orchestrator_model: "claude-fable-5",   # who is calling
+  persona_model:      "claude-opus-5",    # who the personas actually run on
+  ...
+)
+```
+
+| Declared | Persona convened? | Which roster slot it takes | Caller's own slot |
+|---|---|---|---|
+| `orchestrator_model` only | Yes, on the caller's model | The one matching the caller | Taken by the persona |
+| Both, different models | Yes, on `persona_model` | The one matching `persona_model` | Leaves the set (not self-reviewed) |
+| `persona_model` matches no roster slot | Yes | None — it joins as an independent observer, widening the denominator | Leaves the set |
+| Neither | No persona; the run completes in one phase | — | — |
+
+**This declaration is never verified.** The persona team runs outside this
+system, in the caller's own harness, and nothing here can observe which model
+answered. It is recorded as a declaration and kept apart from observed
+provenance in the record (`model_source: declared`). A caller that declares
+falsely produces a record that is wrong and internally consistent; the honesty of
+this field is the caller's, not the tool's.
+
+### Reserve observers (escalation)
+
+The roster in config is the canonical set and cannot be replaced per call. What a
+caller *can* do is add the reserve observers declared under
+`escalation_reviewers`, for one call:
+
+```
+multi_llm_review(escalate: true, ...)
+```
+
+Points worth knowing before using it:
+
+- **Difficulty is the caller's judgement.** The tool does not decide that an
+  artifact is hard; it only takes the answer. There is deliberately no automatic
+  escalation.
+- **Escalating raises the bar.** The convergence rule is a ratio over the
+  observers that counted, so a wider panel needs more agreements.
+- **The container is provider-neutral.** It is a place to put a temporary
+  observer, not a slot reserved for a particular model. Removing an occupant is
+  a deletion in config and nothing else; a caller that still passes `escalate:
+  true` afterwards simply adds nothing and the verdict is unaffected.
+- Reserve entries obey INV-E5 exactly like roster entries: they name their
+  provider and model, and inherit no CLI default.
+
+As of 2026-07-26 the container holds Fable 5, which was retired from the roster
+after five consecutive non-substantive returns.
+
+### Substance and the denominator
+
+A reply counts toward the denominator when it **carries a verdict** and **says
+something beyond it**. Both conditions, separately checked; a reply failing
+either leaves the denominator rather than being counted, because otherwise it
+raises the agreement everyone else must reach while contributing none of its own.
+
+The two failures look nothing alike, and conflating them is why this rule was
+rebuilt four times:
+
+| Reply | Carries a verdict? | Says something? | Outcome |
+|---|---|---|---|
+| `APPROVE` | yes | no | `insubstantial` |
+| `APPROVE. P0` | yes | no (a severity names no defect) | `insubstantial` |
+| `I'll review this and give my assessment.` | **no** | yes | `no_verdict` |
+| `競合状態あり` | no (no verdict word) | yes | `no_verdict` |
+| `REJECT: P0 key logged in plaintext` | yes | yes | counts |
+| `NO-GO` + findings | yes (see the vocabulary below) | yes | counts as REJECT |
+
+The second row is the shape that retired Fable 5 — long enough to pass any
+substance rule, and stating no judgement. Three rebuilds of the substance rule
+missed it because they were all looking at the wrong half. A reply that states
+no verdict used to be counted as a conservative `REVISE`, which blocked
+convergence on a judgement its author never gave.
+
+- The test is mechanical and has no setting: **does anything remain once the
+  verdict word is removed?** No model is asked to judge whether a review is good.
+- It applies to every observer equally, the persona team included. A persona
+  submission whose findings are blank leaves the denominator exactly as a
+  subprocess reply would — and so does a structured reply from any other slot.
+  A JSON reply is judged by **the words it carries, whatever keys they live
+  under**, not by the text it renders to and not by keys named in advance.
+  Judging it by rendered text counted its own key names as content: the residue
+  of `{"overall_verdict": "APPROVE", "findings": [], "reasoning": ""}` is three
+  words of schema and no review. Naming the keys instead threw away real
+  reviews: a REJECT whose findings used `description` was recorded as an empty
+  submission. **Answer in whatever shape you like** — nothing here requires a
+  particular key.
+- **Open your reply with your verdict.** A structured submission states its
+  verdict as a field; a free-text reply states it in an `**Overall Verdict**`
+  header **on the first line, before anything else**. A header anywhere else is
+  not read as yours — it may be a sample you are discussing — so quoting verdict
+  headers further down is safe and needs no escaping.
+
+  Three rounds tried to tell a stated header from a displayed one by reading the
+  text more cleverly, and each attempt opened a hole in the direction that
+  passes: round 4 anchored the search to the start of a line, and a line inside
+  a fence starts a line; round 6 excluded fenced and blockquoted regions, and a
+  four-backtick fence closes on the inner three-backtick line, taking the rest
+  of the reply — including the real verdict — with it. A quotation and a
+  statement are the same characters, so no amount of reading decides between
+  them. Position does, because a quotation cannot be first unless the reviewer
+  chose to open with one.
+
+  A reply that opens with a preamble falls to a last-resort word scan over the
+  whole text. That is a guess, and it reads quotations along with everything
+  else — but it checks REJECT first, so it cannot turn a stated rejection into
+  a recorded approval.
+- **The words that count as a verdict are one list, the same for every
+  observer.** `APPROVE / PASS / ACCEPT / LGTM / SHIP IT`,
+  `REJECT / FAIL / BLOCK / NO-GO / NACK / DENY / VETO`,
+  `REVISE / CHANGES REQUIRED / NEEDS WORK / NEEDS REVISION / REWORK`. Where a
+  reply carries more than one, the blocking reading wins (REJECT, then REVISE,
+  then APPROVE) — a reply saying two of them has qualified one judgement, not
+  stated two. Japanese verdict words are deliberately **not** in this list
+  (author decision, 2026-07-28): a Japanese review counts on its findings, but
+  its judgement must be stated in one of the words above.
+- It is **not** a quality bar, and must not be tuned into one. `競合状態あり` is a
+  review. So is `REJECT: P0 private key logged in plaintext`. Earlier versions of
+  this rule measured length and, at one setting, discarded Japanese reviews
+  entirely — reviewers answer in the artifact's language, and this project's
+  artifacts are largely Japanese.
+- What leaves the denominator is recorded with the reason, per reviewer and
+  again in `denominator_composition`. A slot that answered emptily and a slot
+  that never answered are both absent from the numerator and must never be
+  confused in the record, so `skip_reason` distinguishes: `insubstantial` (a
+  reply that said nothing beyond its verdict), `no_verdict` (a reply that stated
+  no judgement), `transport` (a call that was attempted and failed),
+  `not_dispatched` or the dispatcher's own wording such as `dispatch_timeout`
+  (a slot this system declined to run), and `declined` (a submission that stated
+  SKIP for itself — reachable only by a caller that declares it, which nothing
+  in this repository currently does). Only a token-shaped reason is carried
+  through; anything else becomes `not_dispatched`, so a traceback or a sentence
+  cannot land in a field documented as a small vocabulary. Nothing is defaulted:
+  a row with no reason omits the field, because a default here states a cause
+  the record does not know.
+
+- **The escalation record is filled in only where it is wholly absent.** Pending
+  state written before escalation existed carries no such field, and that one
+  case is answered truthfully — a version with no escalation to offer cannot
+  have been asked for it. A record that exists is carried as recorded, gaps and
+  all: completing a partial one wrote `requested: false` beside
+  `escalated: true`, a pair the producing code cannot emit. Silence about a key
+  is legible to a reader; a value asserted where none was recorded is not.
+- The count beside these is `observers_reporting` — the observers that answered,
+  which is not the number of slots the configuration named. That question is
+  answered by `denominator_composition`, which lists every observer including
+  the ones that never ran and why.
+
+**What this rule cannot do.** It cannot tell a terse honest approval from a lazy
+one. `**Overall Verdict**: APPROVE / No findings` is the exact form the reviewer
+prompt asks for when a reviewer finds nothing, so it counts — the only way to
+exclude it would be to exclude every honest terse approval with it. When a round
+reaches its ratio, read what the approving replies actually said before treating
+the ratio as convergence. That judgement is the human's and no rule replaces it.
 
 #### Async/Parallel Collect Timing — Iron Rule
 
@@ -808,13 +1040,19 @@ readable until GC. Read them directly and synthesize manually, then re-run
 
 ### Critical CLI Notes
 
+- **Every launch names its model** (INV-E5): `--model` for `claude` and `agent`,
+  `-m` for `codex`. A launch without it inherits a user-editable CLI default from
+  outside this repository — see § Pre-flight checklist for what that cost once
 - **Cursor Agent stdin**: `cat file | agent -p -` does NOT work. Use file-reference:
-  `agent -p --trust "Read log/prompt.md and follow the instructions."`
+  `agent -p --trust --model composer-2.5 "Read log/prompt.md and follow the instructions."`
 - **Cursor Agent trust**: `--trust` required for headless/non-interactive mode
+- **Cursor Agent model**: `--model composer-2.5` is mandatory, not optional. The
+  CLI default lives in `~/.cursor/cli-config.json` and has been changed there
+  before, silently swapping the model behind an unchanged role label
 - **Codex workspace**: `-C /path/to/workspace` to set working directory
 - **Claude Agent paths**: Write within workspace (e.g., `log/`), not `/tmp`
-- **Claude CLI (Opus 4.6 / non-orchestrator frontier model)**: `claude -p --model claude-opus-4-6` (likewise `claude-opus-5` or `claude-fable-5`) runs as external process. Uses stdin pipe (like Codex). Do NOT pass `--bare` — it skips credential loading and the subprocess dies with "Not logged in" (established 2026-07-23). Project-instruction bias is suppressed via `review_context: independent`, not via `--bare`
-- **Claude CLI parallelism**: Agent tool (internal, orchestrator model) + Bash `claude -p` (external, Opus 4.6 + the other frontier model) run truly in parallel as separate processes
+- **Claude CLI (Opus 4.6 / any non-orchestrator frontier slot)**: `claude -p --model claude-opus-4-6` (likewise `claude-opus-5`) runs as external process. Uses stdin pipe (like Codex). Do NOT pass `--bare` — it skips credential loading and the subprocess dies with "Not logged in" (established 2026-07-23). Project-instruction bias is suppressed via `review_context: independent`, not via `--bare`
+- **Claude CLI parallelism**: Agent tool (internal, orchestrator model) + Bash `claude -p` (external, Opus 4.6 and any other Claude roster slot the orchestrator is not) run truly in parallel as separate processes
 - **Claude CLI file access**: a plain `claude -p` review subprocess should not need file access. Ensure the review prompt includes all artifact content inline (rule #6). Use `--add-dir` + `--allowedTools "Read,Glob,Grep"` if file access is genuinely needed, and accept that CLAUDE.md is loaded (the old `--bare` workaround is unusable — see above)
 
 ## Prompt Generation Rules
@@ -916,19 +1154,23 @@ Step 1: Generate review prompt
   - Include all 7 required items (see Prompt Generation Rules)
   - Append full artifact content
 
-Step 2: Detect environment and models
+Step 2: Detect environment, and check the roster against config
   - Run: which codex && which agent && which claude
-  - Detect default models
-  - Report: "Auto mode: Codex (gpt-5.6-sol, gpt-5.5), Agent (composer-2.5), Claude Team (orchestrator model), Claude CLI (opus-4.6, other frontier model)"
+  - Read the roster from config/multi_llm_review.yml — do NOT read CLI defaults
+    and treat them as the roster. Detection only tells you whether a default has
+    drifted; the model each slot runs is named on the command line.
+  - Report: "Auto mode: Codex (gpt-5.6-sol, gpt-5.5), Cursor (composer-2.5),
+    Claude Team (orchestrator model), Claude CLI (opus-4.6)"
 
-Step 3: Execute N reviews in parallel (default 6 reviewers)
+Step 3: Execute the configured roster in parallel (currently 5 slots, one of
+        which is your own persona team)
   - Bash(background): cat prompt.md | codex exec -m gpt-5.5 -C workspace -o log/review_codex_gpt5.5.md -
   - Bash(background): cat prompt.md | codex exec -m gpt-5.6-sol -C workspace -o log/review_codex_gpt5.6-sol.md -
-  - Bash(background): agent -p --trust "Read prompt and review..." > log/review_cursor.md
+  - Bash(background): agent -p --trust --model composer-2.5 "Read prompt and review..." > log/review_cursor.md
   - Agent(background): Claude Team (orchestrator model, e.g. Opus 5) → write to log/review_claude_team_opus5.md
   - Bash(background): cat prompt.md | claude -p --model claude-opus-4-6 > log/review_claude_opus4.6.md 2>log/review_claude_opus4.6.stderr.log
-  - Bash(background): cat prompt.md | claude -p --model claude-fable-5 > log/review_claude_fable5.md 2>log/review_claude_fable5.stderr.log
-    (if the orchestrator is Fable 5 instead, swap this line for --model claude-opus-5)
+    (add a line per further Claude roster slot you are not; with the 2026-07-26
+     roster an Opus 5 orchestrator has none, so opus-4.6 is the only one)
 
 Step 4: Collect and validate
   - Wait for all to complete (background task notifications)
@@ -1060,6 +1302,90 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   project. The sub-author role is explicitly excluded from the succession: it
   stays Opus 4.6 because the reason for choosing it is a bias profile
   (ambiguity-preserving, self-reference-friendly), not capability
+- Model flags made mandatory, roster figures corrected, escalation and persona
+  declaration documented (v3.7, 2026-07-27): the Path A procedure still taught
+  launching cursor with no `--model`, which is precisely how the 2026-07-27
+  incident happened — the CLI default had been changed to `claude-opus-4-8`
+  outside this repository, so the roster ran three Anthropic slots out of five
+  while still recording `cursor_composer2.5`. Path B now refuses a slot that
+  does not name its model (INV-E5); Path A had no such guard and was still
+  teaching the unguarded form, making this the one route where the incident
+  could recur with no code in the way. Every CLI example now names its model.
+  Separately, the roster figures were a generation stale throughout (6
+  reviewers, `4/6`, Fable 5 in the roster) — corrected to 5 and `3/5`, with
+  Fable 5 moved to the reserve container. Three capabilities that existed in
+  the tool but appeared nowhere here are now documented: `escalate` (reserve
+  observers), `persona_model` (personas running on a model other than the
+  caller's), and the substance rule that keeps verdict-only replies out of the
+  denominator. `reviewers_override` is recorded as removed and refused rather
+  than silently ignored. Convergence guidance gained the point that had been
+  carried only in operator memory: exhaustion of (a)+(b) findings, declared by
+  the human, is the primary close — a reached ratio is neither necessary nor
+  sufficient on its own
+
+- Verdict determination hardened after a live failure (v3.7.1, 2026-07-27):
+  round 4 of the escalation/persona implementation review recorded the persona
+  team's REVISE as an APPROVE. The team's verdict was being re-derived by
+  searching the assembled text, and a persona had quoted
+  `{"overall_verdict": "APPROVE", ...}` inside a finding as an example of a
+  defect; the search found the quotation before the `**Overall Verdict**:
+  REVISE` on line 1. Three fixes: a structured submission now states its verdict
+  as a field and nothing in its prose overrules it; the header is recognised
+  only at the start of a line; and a JSON verdict is read by parsing a reply
+  that *is* a JSON document rather than by scanning prose for an object. The
+  residual limitation is recorded in § Substance and the denominator — the
+  last-resort word heuristic still sees verdict words inside quotations, so
+  state your verdict in the header when discussing reply shapes. Separately,
+  INV-E2 was found to have been implemented by half: it asks that a counted
+  reply *carry a verdict* and *have substance*, and only substance was checked,
+  so an opening sentence with no judgement in it entered the denominator as a
+  conservative REVISE — the exact shape that retired Fable 5, blocking
+  convergence on nobody's verdict
+
+- Three of round 4's own fixes reopened what they closed (v3.7.2, 2026-07-28):
+  round 5 of the same implementation review found that each of the three
+  verdict fixes recorded above had left a hole, and all three in the direction
+  that passes. Start-of-line header matching does not exclude a quotation,
+  because a line inside a fenced block starts a line — the header is now read
+  from what the reviewer said, with fences and blockquotes excluded, and a
+  reply that is entirely fenced is read whole because it is quoting nothing.
+  Judging a structured reply by named keys (`reasoning`, `issue`) threw away a
+  REJECT whose findings used `description` — the rule now asks whether anything
+  was said in words, under any key. And the words that count as a verdict were
+  two different lists, so `NO-GO` from a persona was a REJECT while `NO-GO`
+  from an external slot was no judgement at all; there is now one list, with
+  one precedence. Alongside these: `skip_reason` distinguishes five outcomes
+  where it previously flattened three into `transport`; `total_configured` was
+  renamed `observers_reporting` because it never counted what it claimed; the
+  eased convergence rule after an exclusion now asks whether the denominator
+  actually shrank rather than which reason fired; and a synchronous delegation
+  writes the same storage layout as the parallel one, so the lock serialising
+  two concurrent collects is no longer silently skipped
+
+- Position replaces cleverness in verdict reading (v3.7.3, 2026-07-28): round 6
+  was reviewed and rejected by five of six observers, all of them naming the
+  same shape — the fixes of round 6 had reopened what they closed, in the
+  direction that passes. Two were shipped defects: the header capture was
+  written with `\s`, which includes the newline in Ruby, so it ran past the
+  header into the following prose and recorded a stated APPROVE followed by
+  "No blocking issues" as a REJECT; and the fence regex tracked neither fence
+  length nor delimiter, so a four-backtick block quoting a three-backtick
+  sample gave the quoted verdict the reviewer's vote. Rather than a fourth
+  attempt at reading free text more carefully, the rule is now positional: the
+  reviewer's verdict is the header the reply opens with, and the fence and
+  blockquote machinery is deleted. The prompt asks for it there, and this test
+  now pins that it does. Alongside: a partial escalation record is carried as
+  recorded rather than completed with values the producing code cannot emit;
+  only a token-shaped skip reason is carried into the record; and a row with no
+  reason omits the field in the per-reviewer list as it already did in the
+  composition.
+
+  The round's other lesson was about testing, and it is recorded here because
+  it generalises past this SkillSet: **a regex pinned by one literal example is
+  free everywhere else**. Round 6's own mutation pass replaced whole functions
+  and killed 21 of 21; the review's mutation pass went after regex internals —
+  fence markers, character classes, digit ranges, word boundaries — and 18 of
+  27 survived. Mutate the inside of a pattern, not only the pattern.
 
 **Key insight**: Design reviews and implementation reviews find
 **categorically different bugs**. Both phases are necessary.

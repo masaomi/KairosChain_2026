@@ -3,6 +3,7 @@
 require 'minitest/autorun'
 require 'json'
 require_relative '../lib/multi_llm_review/consensus'
+require_relative '../lib/multi_llm_review/observer_set'
 require_relative '../lib/multi_llm_review/prompt_builder'
 require_relative '../lib/multi_llm_review/dispatcher'
 
@@ -25,11 +26,28 @@ module KairosMcp
   module SkillSets
     module MultiLlmReview
       class TestConsensus < Minitest::Test
+        # INV-E2 (v0.6): a reply has to say something beyond its verdict to
+        # enter the denominator. The tests in this class are about the
+        # aggregation arithmetic rather than about substance, so their
+        # fixtures carry a body. The substance rule itself is covered in
+        # test_observer_set.rb.
+        # The verdict is stated in the one form the reading path accepts: the
+        # header, on the first line, carrying a verdict name and nothing else.
+        # These fixtures used to state it as prose ("I APPROVE this design"),
+        # which the parser inferred from — and inference is what this SkillSet
+        # stopped doing in round 9, because it read negations as approvals and
+        # terse approvals as rejections.
+        def body(verdict)
+          "**Overall Verdict**: #{verdict}\n\n" +
+            ('Checked the dispatch path, the denominator arithmetic and the ' \
+             'recording of slots that never ran; notes follow. ' * 3)
+        end
+
         def test_all_approve
           reviews = [
-            { role_label: 'r1', raw_text: 'Overall Verdict: APPROVE', status: :success },
-            { role_label: 'r2', raw_text: 'APPROVE - looks good', status: :success },
-            { role_label: 'r3', raw_text: 'I APPROVE this design', status: :success }
+            { role_label: 'r1', raw_text: body('APPROVE'), status: :success },
+            { role_label: 'r2', raw_text: body('APPROVE'), status: :success },
+            { role_label: 'r3', raw_text: body('APPROVE'), status: :success }
           ]
           result = Consensus.aggregate(reviews, '3/4 APPROVE', min_quorum: 2)
           assert_equal 'APPROVE', result[:verdict]
@@ -39,9 +57,9 @@ module KairosMcp
 
         def test_any_reject_means_revise
           reviews = [
-            { role_label: 'r1', raw_text: 'APPROVE', status: :success },
-            { role_label: 'r2', raw_text: 'REJECT - security issue', status: :success },
-            { role_label: 'r3', raw_text: 'APPROVE', status: :success }
+            { role_label: 'r1', raw_text: body('APPROVE'), status: :success },
+            { role_label: 'r2', raw_text: body('REJECT'), status: :success },
+            { role_label: 'r3', raw_text: body('APPROVE'), status: :success }
           ]
           result = Consensus.aggregate(reviews, '2/3 APPROVE', min_quorum: 2)
           assert_equal 'REVISE', result[:verdict]
@@ -50,8 +68,8 @@ module KairosMcp
 
         def test_skip_excluded_from_denominator
           reviews = [
-            { role_label: 'r1', raw_text: 'APPROVE', status: :success },
-            { role_label: 'r2', raw_text: 'APPROVE', status: :success },
+            { role_label: 'r1', raw_text: body('APPROVE'), status: :success },
+            { role_label: 'r2', raw_text: body('APPROVE'), status: :success },
             { role_label: 'r3', raw_text: '', status: :error, error: { 'type' => 'timeout' } },
             { role_label: 'r4', raw_text: '', status: :skip }
           ]
@@ -75,8 +93,8 @@ module KairosMcp
 
         def test_structured_json_verdict
           reviews = [
-            { role_label: 'r1', raw_text: '{"overall_verdict": "APPROVE", "findings": []}', status: :success },
-            { role_label: 'r2', raw_text: '{"overall_verdict": "approve"}', status: :success },
+            { role_label: 'r1', raw_text: '{"overall_verdict": "APPROVE", "reasoning": "the denominator arithmetic holds"}', status: :success },
+            { role_label: 'r2', raw_text: '{"overall_verdict": "approve", "reasoning": "same, checked separately"}', status: :success },
             { role_label: 'r3', raw_text: '{"overall_verdict": "REJECT", "findings": ["P0: bug"]}', status: :success }
           ]
           result = Consensus.aggregate(reviews, '2/3 APPROVE', min_quorum: 2)
@@ -86,8 +104,8 @@ module KairosMcp
         def test_ratio_threshold_with_degraded_quorum
           # "3/4 APPROVE" with 2 successful: threshold = ceil(2 * 0.75) = 2
           reviews = [
-            { role_label: 'r1', raw_text: 'APPROVE', status: :success },
-            { role_label: 'r2', raw_text: 'APPROVE', status: :success },
+            { role_label: 'r1', raw_text: body('APPROVE'), status: :success },
+            { role_label: 'r2', raw_text: body('APPROVE'), status: :success },
             { role_label: 'r3', raw_text: '', status: :skip },
             { role_label: 'r4', raw_text: '', status: :skip }
           ]
@@ -97,9 +115,9 @@ module KairosMcp
 
         def test_not_enough_approvals_means_revise
           reviews = [
-            { role_label: 'r1', raw_text: 'APPROVE', status: :success },
-            { role_label: 'r2', raw_text: 'looks good but NEEDS WORK', status: :success },
-            { role_label: 'r3', raw_text: 'more details needed', status: :success }
+            { role_label: 'r1', raw_text: body('APPROVE'), status: :success },
+            { role_label: 'r2', raw_text: body('NEEDS WORK'), status: :success },
+            { role_label: 'r3', raw_text: body('REVISE'), status: :success }
           ]
           result = Consensus.aggregate(reviews, '3/4 APPROVE', min_quorum: 2)
           assert_equal 'REVISE', result[:verdict]
@@ -139,16 +157,49 @@ module KairosMcp
           assert_equal 'APPROVE', result[:verdict], "APPROVE with concerns should not be REVISE"
         end
 
-        def test_verdict_extraction_fail_maps_to_reject
-          review = { role_label: 'r1', raw_text: 'FAIL - critical bug found', status: :success }
-          result = Consensus.extract_verdict(review)
-          assert_equal 'REJECT', result[:verdict]
+        # FAIL is one of the words that names a rejection, and it is read when
+        # it is what the header states. "FAIL - critical bug found" is not: it
+        # is a sentence that begins with the word, and reading a verdict out of
+        # a sentence is what round 9 stopped doing.
+        def test_fail_is_a_rejection_when_the_header_states_it
+          stated = { role_label: 'r1', raw_text: "**Overall Verdict**: FAILED\n\nP0: critical bug", status: :success }
+          assert_equal 'REJECT', Consensus.extract_verdict(stated)[:verdict]
+
+          in_prose = { role_label: 'r1', raw_text: 'FAIL - critical bug found', status: :success }
+          out = Consensus.extract_verdict(in_prose)
+          assert_equal 'SKIP', out[:verdict]
+          assert_equal Consensus::SKIP_REASON_NO_VERDICT, out[:skip_reason]
         end
 
-        def test_verdict_extraction_unparseable_defaults_to_revise
+        # INV-E2 asks two things of a reply that counts: that it carry a
+        # verdict and that it have substance. A reply stating no judgement
+        # leaves the denominator rather than being counted as a REVISE its
+        # author never gave. This replaced a conservative-REVISE default that
+        # was worse than it looked — an opening sentence with no judgement in
+        # it, the exact shape that retired one roster occupant, used to block
+        # convergence on nobody's verdict.
+        def test_a_reply_stating_no_verdict_leaves_the_denominator
           review = { role_label: 'r1', raw_text: 'I have mixed feelings about this.', status: :success }
           result = Consensus.extract_verdict(review)
-          assert_equal 'REVISE', result[:verdict]
+
+          assert_equal 'SKIP', result[:verdict]
+          assert_equal Consensus::SKIP_REASON_NO_VERDICT, result[:skip_reason]
+        end
+
+        # The retired occupant's actual failure shape: long enough to pass any
+        # substance rule, and carrying no judgement at all.
+        def test_an_opening_sentence_with_no_judgement_leaves_the_denominator
+          review = { role_label: 'r1', status: :success,
+                     raw_text: 'I will review this design document now and provide my assessment.' }
+          result = Consensus.extract_verdict(review)
+
+          assert_equal 'SKIP', result[:verdict]
+          assert_equal Consensus::SKIP_REASON_NO_VERDICT, result[:skip_reason]
+          # It is not insubstantial — it is substantial and says nothing. The
+          # record has to keep those apart or the next reader retunes the
+          # wrong rule, which is how three rebuilds of the substance rule
+          # missed this case.
+          assert Consensus.substantive?(review[:raw_text])
         end
       end
 
@@ -346,73 +397,11 @@ module KairosMcp
         end
       end
 
-      class TestOrchestratorExclusion < Minitest::Test
-        def setup
-          @tool = Tools::MultiLlmReview.new
-          @reviewers = [
-            { provider: 'claude_code', model: 'claude-opus-4-7', role_label: 'team_47' },
-            { provider: 'claude_code', model: 'claude-opus-4-6', role_label: 'cli_46' },
-            { provider: 'codex', role_label: 'codex' },
-            { provider: 'cursor', role_label: 'cursor' }
-          ]
-        end
-
-        def test_excludes_matching_model
-          kept, n = @tool.send(:exclude_orchestrator, @reviewers,
-                               'claude-opus-4-7',
-                               { 'exclude_orchestrator_model' => true })
-          assert_equal 1, n
-          assert_equal 3, kept.size
-          refute(kept.any? { |r| r[:model] == 'claude-opus-4-7' })
-        end
-
-        def test_excludes_other_opus
-          kept, n = @tool.send(:exclude_orchestrator, @reviewers,
-                               'claude-opus-4-6',
-                               { 'exclude_orchestrator_model' => true })
-          assert_equal 1, n
-          assert(kept.any? { |r| r[:model] == 'claude-opus-4-7' })
-          refute(kept.any? { |r| r[:model] == 'claude-opus-4-6' })
-        end
-
-        def test_no_match_keeps_all
-          kept, n = @tool.send(:exclude_orchestrator, @reviewers,
-                               'claude-sonnet-4-6',
-                               { 'exclude_orchestrator_model' => true })
-          assert_equal 0, n
-          assert_equal 4, kept.size
-        end
-
-        def test_nil_orchestrator_is_noop
-          kept, n = @tool.send(:exclude_orchestrator, @reviewers, nil,
-                               { 'exclude_orchestrator_model' => true })
-          assert_equal 0, n
-          assert_equal 4, kept.size
-        end
-
-        def test_empty_orchestrator_is_noop
-          kept, n = @tool.send(:exclude_orchestrator, @reviewers, '',
-                               { 'exclude_orchestrator_model' => true })
-          assert_equal 0, n
-          assert_equal 4, kept.size
-        end
-
-        def test_disabled_flag_keeps_all
-          kept, n = @tool.send(:exclude_orchestrator, @reviewers,
-                               'claude-opus-4-7',
-                               { 'exclude_orchestrator_model' => false })
-          assert_equal 0, n
-          assert_equal 4, kept.size
-        end
-
-        def test_default_when_flag_missing_excludes
-          # Missing key defaults to true (opt-out, not opt-in)
-          kept, n = @tool.send(:exclude_orchestrator, @reviewers,
-                               'claude-opus-4-7', {})
-          assert_equal 1, n
-          assert_equal 3, kept.size
-        end
-      end
+      # TestOrchestratorExclusion was removed with the helpers it exercised.
+      # Deciding which slot leaves the observer set now happens in one place
+      # (ObserverSet, INV-P2) instead of two, and is covered by
+      # test_observer_set.rb — including the case these tests could not have
+      # caught, where the caller and the persona name the same model.
 
       class TestPendingState < Minitest::Test
         def setup
@@ -849,6 +838,19 @@ module KairosMcp
       end
 
       class TestDelegateStrategy < Minitest::Test
+        # v0.6: delegate_response records how the observer set was built, so
+        # these tests hand it a minimal one. What the set contains is not what
+        # they are testing — that lives in test_observer_set.rb.
+        # v0.6: delegate_response records how the observer set was built and
+        # validates the model that will stand in the persona position, so these
+        # tests hand it a set whose persona declaration is the thing under test.
+        def stub_observers(persona = 'claude-opus-4-7')
+          ObserverSet.build(
+            roster: [{ provider: 'codex', model: 'gpt-5.5', role_label: 'codex' }],
+            orchestrator_model: persona
+          )
+        end
+
         def setup
           @tmp = Dir.mktmpdir('mlr-delegate-')
           @orig_cwd = Dir.pwd
@@ -874,41 +876,11 @@ module KairosMcp
           end
         end
 
-        def test_partition_for_strategy_delegate_drops_match
-          reviewers = [
-            { provider: 'claude_code', model: 'claude-opus-4-7', role_label: 'r47' },
-            { provider: 'claude_code', model: 'claude-opus-4-6', role_label: 'r46' },
-            { provider: 'codex', role_label: 'codex' }
-          ]
-          kept, n = @tool.send(:partition_for_strategy,
-                               reviewers, 'claude-opus-4-7', 'delegate', {})
-          assert_equal 1, n
-          assert_equal 2, kept.size
-          refute(kept.any? { |r| r[:model] == 'claude-opus-4-7' })
-        end
-
-        def test_partition_for_strategy_subprocess_keeps_all
-          reviewers = [
-            { provider: 'claude_code', model: 'claude-opus-4-7', role_label: 'r47' },
-            { provider: 'codex', role_label: 'codex' }
-          ]
-          kept, n = @tool.send(:partition_for_strategy,
-                               reviewers, 'claude-opus-4-7', 'subprocess', {})
-          assert_equal 0, n
-          assert_equal 2, kept.size
-        end
-
-        def test_partition_for_strategy_exclude_uses_config_flag
-          reviewers = [
-            { provider: 'claude_code', model: 'claude-opus-4-7', role_label: 'r47' },
-            { provider: 'codex', role_label: 'codex' }
-          ]
-          kept, n = @tool.send(:partition_for_strategy, reviewers,
-                               'claude-opus-4-7', 'exclude',
-                               { 'exclude_orchestrator_model' => true })
-          assert_equal 1, n
-          assert_equal 1, kept.size
-        end
+        # The three partition_for_strategy tests that stood here went with the
+        # method. Their cases (delegate drops the match, subprocess keeps it,
+        # exclude drops it) are in test_observer_set.rb, where they are stated
+        # against the observer set rather than against a helper that only saw
+        # half of it.
 
         def test_delegate_response_writes_pending_state
           subprocess_results = [
@@ -920,6 +892,7 @@ module KairosMcp
             arguments: { 'review_type' => 'design', 'artifact_name' => 'test' },
             config: {},
             orchestrator_model: 'claude-opus-4-7',
+            observers: stub_observers,
             convergence_rule: '3/4 APPROVE',
             min_quorum: 2,
             review_round: 1,
@@ -932,10 +905,16 @@ module KairosMcp
           assert_equal 'claude-opus-4-7', payload['orchestrator_model']
 
           # Pending state contains orchestrator_model + convergence_rule
-          state = PendingState.load(payload['collect_token'])
+          state = PendingState.load_state(payload['collect_token'])
           assert_equal 'claude-opus-4-7', state['orchestrator_model']
           assert_equal '3/4 APPROVE', state['convergence_rule']
           assert_equal 1, state['subprocess_results'].size
+
+          # And it is written in the layout collect takes its lock in. This
+          # path used to write a single legacy file, so the flock guarding
+          # against two concurrent collects was skipped for every synchronous
+          # delegation — silently, because nothing else about the run differs.
+          assert File.exist?(PendingState.collect_lock_path(payload['collect_token']))
         end
 
         def test_delegate_response_requires_orchestrator_model
@@ -947,6 +926,7 @@ module KairosMcp
             arguments: { 'review_type' => 'design', 'artifact_name' => 'test' },
             config: {},
             orchestrator_model: nil,
+            observers: stub_observers(nil),
             convergence_rule: '3/4 APPROVE',
             min_quorum: 2,
             review_round: 1,
@@ -957,6 +937,8 @@ module KairosMcp
           assert_match(/orchestrator_model/, payload['error'])
         end
 
+        # The declaration that gets validated is the one that will stand in the
+        # persona position, which is what a caller can actually get wrong.
         def test_delegate_rejects_invalid_orchestrator_model
           result = @tool.send(:delegate_response,
             raw_results: [
@@ -966,6 +948,7 @@ module KairosMcp
             arguments: { 'review_type' => 'design', 'artifact_name' => 'test' },
             config: {},
             orchestrator_model: 'bad/model/name',
+            observers: stub_observers('bad/model/name'),
             convergence_rule: '3/4 APPROVE',
             min_quorum: 2,
             review_round: 1,
@@ -983,6 +966,7 @@ module KairosMcp
             arguments: { 'review_type' => 'design', 'artifact_name' => 'test' },
             config: {},
             orchestrator_model: 'claude-opus-4-7',
+            observers: stub_observers,
             convergence_rule: '3/4 APPROVE',
             min_quorum: 2,
             review_round: 1,
@@ -1004,6 +988,7 @@ module KairosMcp
             arguments: { 'review_type' => 'design', 'artifact_name' => 'test' },
             config: {},
             orchestrator_model: 'claude-opus-4-7',
+            observers: stub_observers,
             convergence_rule: '3/4 APPROVE',
             min_quorum: 2,
             review_round: 1,
@@ -1030,6 +1015,7 @@ module KairosMcp
             arguments: { 'review_type' => 'design', 'artifact_name' => 'x' },
             config: { 'delegation' => { 'collect_deadline_seconds' => 60 } },
             orchestrator_model: 'claude-opus-4-7',
+            observers: stub_observers,
             convergence_rule: '3/4 APPROVE',
             min_quorum: 2,
             review_round: 1,
@@ -1056,6 +1042,7 @@ module KairosMcp
             },
             config: { 'delegation' => { 'collect_deadline_seconds' => 60 } },
             orchestrator_model: 'claude-opus-4-7',
+            observers: stub_observers,
             convergence_rule: '3/4 APPROVE',
             min_quorum: 2,
             review_round: 1,
@@ -1078,6 +1065,7 @@ module KairosMcp
             arguments: { 'review_type' => 'design', 'artifact_name' => 'x' },
             config: {},
             orchestrator_model: 'claude-opus-4-7',
+            observers: stub_observers,
             convergence_rule: '3/4 APPROVE',
             min_quorum: 2,
             review_round: 1,
@@ -1120,6 +1108,7 @@ module KairosMcp
               arguments: arguments,
               config: config,
               orchestrator_model: 'claude-opus-4-7',
+            observers: stub_observers,
               convergence_rule: '3/4 APPROVE',
               min_quorum: 2,
               review_round: 1,
@@ -1167,6 +1156,7 @@ module KairosMcp
               arguments: arguments,
               config: config,
               orchestrator_model: 'claude-opus-4-7',
+            observers: stub_observers,
               convergence_rule: '3/4 APPROVE',
               min_quorum: 2,
               review_round: 1,
@@ -1211,10 +1201,14 @@ module KairosMcp
             'collected' => false,
             'subprocess_results' => [
               { 'role_label' => 'codex', 'provider' => 'codex', 'model' => 'codex-default',
-                'raw_text' => 'APPROVE - looks good', 'elapsed_seconds' => 10,
+                'raw_text' => "**Overall Verdict**: APPROVE\n\n" + ('Walked the dispatch ' \
+                  'path and the pending state contract; nothing to raise. ' * 4),
+                'elapsed_seconds' => 10,
                 'error' => nil, 'status' => 'success' },
               { 'role_label' => 'cursor', 'provider' => 'cursor', 'model' => 'cursor-default',
-                'raw_text' => 'APPROVE', 'elapsed_seconds' => 5,
+                'raw_text' => "**Overall Verdict**: APPROVE\n\n" + ('Checked the collect merge and the ' \
+                  'idempotent replay path; nothing to raise. ' * 4),
+                'elapsed_seconds' => 5,
                 'error' => nil, 'status' => 'success' }
             ]
           }.merge(overrides))

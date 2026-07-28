@@ -88,9 +88,25 @@ module KairosMcp
         def structured_output_contract
           <<~CONTRACT
             <structured_output_contract>
-            Output a review with this structure:
+            Output a review with this structure.
 
-            **Overall Verdict**: APPROVE / REJECT
+            The FIRST line of your reply must be exactly one of these three
+            lines, before any other text:
+
+            **Overall Verdict**: APPROVE
+            **Overall Verdict**: REVISE
+            **Overall Verdict**: REJECT
+
+            Nothing else on that line. A qualified verdict ("APPROVE, with
+            reservations"), a restatement of these options on one line, or a
+            verdict stated further down is NOT read as yours, and your review
+            leaves the count with "no verdict" recorded beside your name. This
+            is deliberate: your judgement is not guessed at from your prose,
+            because guessing has read negations as approvals and terse
+            approvals as rejections. Say which of the three, on line one.
+
+            Quoting verdict headers elsewhere in your review is safe — only
+            line one is read.
 
             For each finding, use this single-line format (one finding per line):
             P0: <issue description> [location: file:line]

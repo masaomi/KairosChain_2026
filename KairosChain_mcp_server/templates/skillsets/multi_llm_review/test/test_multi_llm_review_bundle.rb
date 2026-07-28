@@ -138,10 +138,7 @@ module KairosMcp
           out = @tool.call(
             'artifact_content' => 'sample',
             'artifact_name'    => 'doc1',
-            'review_type'      => 'design',
-            'reviewers_override' => [
-              { 'provider' => 'codex', 'model' => 'gpt-5.4', 'role_label' => 'r1' }
-            ]
+            'review_type'      => 'design'
           )
           parsed = JSON.parse(out.first[:text] || out.first['text'])
           assert_equal 'ok', parsed['status']
@@ -149,17 +146,30 @@ module KairosMcp
           assert_match(/sha256:/, parsed['bundle_hash'])
         end
 
+        # INV-E1 reaches this path too: the roster comes from config and the
+        # caller cannot substitute one, so the only remaining question is what
+        # happens when config itself is empty.
         def test_returns_error_when_no_reviewers
           out = @tool.call(
             'artifact_content' => 'x',
             'artifact_name'    => 'n',
-            'review_type'      => 'design',
-            'reviewers_override' => []
+            'review_type'      => 'design'
           )
           parsed = JSON.parse(out.first[:text] || out.first['text'])
-          # Empty override falls through to config; if config also empty, error
-          # In test env config has reviewers, so this returns ok. Sanity check shape.
           assert_includes %w[ok error], parsed['status']
+        end
+
+        def test_escalation_slots_join_only_when_asked
+          base = JSON.parse(@tool.call(
+            'artifact_content' => 'x', 'artifact_name' => 'n', 'review_type' => 'design'
+          ).first[:text])
+          escalated = JSON.parse(@tool.call(
+            'artifact_content' => 'x', 'artifact_name' => 'n', 'review_type' => 'design',
+            'escalate' => true
+          ).first[:text])
+
+          assert_operator escalated['bundle']['per_reviewer_prompts'].size, :>=,
+                          base['bundle']['per_reviewer_prompts'].size
         end
       end
     end
