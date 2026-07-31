@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.7.3"
+version: "3.8.0"
 tags:
   - workflow
   - review
@@ -28,6 +28,51 @@ This skill covers:
 
 For **WHO** (which LLM is good at what), see: `multi_llm_reviewer_evaluation`
 For **development lifecycle** (design → implement → verify), see: `design_to_implementation_workflow`
+
+## Step -1 — Pre-declared review spec (loop hygiene)
+
+> Validation scope: these rules were derived from one non-converging loop
+> (multi_llm_review R10–R15, 2026-07) where they took the P0 count from 10 to
+> 2 in two rounds and closed the loop in three. They are instance practice
+> until reproduced on a second, non-self-referential subject; treat the
+> numbers below as one loop's evidence, not a law.
+
+Before dispatching round 1 — and again whenever the review TARGET changes —
+write a review spec and declare it frozen for the round:
+
+1. **Pre-declare the pass condition** (per `loop_validation`: spec before
+   judgement, fail-closed). State what APPROVE requires. A loop whose target
+   drifted (e.g. from an implementation to the instrument that measures it)
+   without a re-declared spec is structurally non-converging: a 300-claim
+   artifact at any realistic per-claim error rate yields double-digit
+   findings every round regardless of quality.
+2. **Split target from appendix.** Only the shipping deliverable is
+   P0-eligible. Instruments, sweep logs, classification tables are appendix:
+   findings against them are advisory and go to the queue. This is what
+   collapsed the claim surface from ~350 to ~30.
+3. **Cap fixes per round (≤5)** and write one line per fix: *what this fix
+   newly claims* (values pinned, ranges narrowed, failure visibility
+   changed). A fix that cannot state its new claims is doing more than the
+   finding asked.
+4. **Pre-flight falsifier.** Before dispatch, one agent whose only job is to
+   refute every factual claim in the spec and artifact — especially numbers
+   and "X does not exist" claims. In this loop it caught real errors before
+   every single dispatch (3 + 1 + 0 refuted across R13–R15); rounds without
+   it had returned the same errors as P0s.
+5. **Check threshold reachability before dispatching.** Compute the maximum
+   achievable approve count from live slots; if the threshold is
+   unreachable, declare the exhaustion path up front (the frozen design's
+   own closing: findings exhausted → operator freeze declaration) instead of
+   discovering it at collect.
+6. **Reference originals by path + sha256; do not transcribe.** Reviewers
+   read the repository; the artifact carries the manifest. Transcription
+   errors are undetectable and 100KB+ pastes rot.
+
+Corollaries observed in the same loop: fix the *class*, and fix every copy —
+a corrected lib comment whose refuted twin survives in a test file costs a
+full round. When an author writes history into comments, the falsifier must
+check the cited records; two of the loop's P0s were numbers copied from the
+wrong document.
 
 ## Step 0 — Load reviewer characteristics (mandatory)
 
