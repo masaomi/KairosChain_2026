@@ -183,12 +183,40 @@ module KairosMcp
           result_text = data['result'] || ''
           tool_use = extract_tool_use(result_text)
           usage = data['usage'] || {}
+          model_usage = data['modelUsage'] || {}
+
+          # The answering model is the entry that produced the output tokens,
+          # not the first hash key. `keys.first` read whichever entry the CLI
+          # inserted first, so if the envelope ever carries a second model
+          # beside the main call, the reply could be attributed to the wrong
+          # one. Every envelope probed so far carries exactly one key, so the
+          # two readings have not yet disagreed — this is defence, not a
+          # reproduced defect.
+          observed = model_usage.max_by { |_m, u| (u || {})['outputTokens'].to_i }&.first
 
           {
             'content' => tool_use ? nil : result_text,
             'tool_use' => tool_use,
             'stop_reason' => tool_use ? 'tool_use' : map_stop_reason(data['stop_reason']),
-            'model' => requested_model || data.dig('modelUsage')&.keys&.first || 'claude_code',
+            'model' => requested_model || observed || 'claude_code',
+            # What the CLI reports as having answered, when it reports it.
+            # Kept separate from 'model' (which echoes the request) so callers
+            # can tell a request from an observation and notice when the two
+            # disagree — the CLI may serve a different model than the one
+            # asked for. That is not hypothetical: four times in the
+            # multi_llm_review loop (R6/R8/R10/R13, 2026-07) a slot requesting
+            # claude-opus-4-6 was answered by claude-haiku-4-5, and the R13
+            # reply's content confirmed the observation (it cited identifiers
+            # that exist nowhere in the reviewed code).
+            'model_observed' => observed,
+            # Diagnostic envelope, previously discarded. All four divergence
+            # incidents above were undiagnosable from the record because the
+            # fields that say what happened did not survive this method.
+            # Consumers that persist reviews should carry these through.
+            'model_usage' => model_usage.empty? ? nil : model_usage,
+            'api_error_status' => data['api_error_status'],
+            'fast_mode_state' => data['fast_mode_state'],
+            'terminal_reason' => data['terminal_reason'],
             'input_tokens' => usage['input_tokens'],
             'output_tokens' => usage['output_tokens']
           }

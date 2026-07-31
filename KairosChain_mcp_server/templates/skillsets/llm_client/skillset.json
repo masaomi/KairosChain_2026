@@ -1,6 +1,6 @@
 {
   "name": "llm_client",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Pure LLM provider abstraction. One API call, returns response. No loop, no retry, no fallback.",
   "author": "Masaomi Hatakeyama",
   "layer": "L1",

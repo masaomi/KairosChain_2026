@@ -4,6 +4,41 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.56.0] - 2026-07-31
+
+### Changed
+
+- **`multi_llm_review` SkillSet 0.7.0 — verdict reading hardened across both
+  observer paths** (review rounds R10–R15, frozen by operator declaration
+  2026-07-31 after three consecutive rounds with zero deployment-grounded
+  findings).
+  - The verdict vocabulary is one table (`VerdictVocabulary::WORDS`); the
+    prose-search and whole-value patterns are built from it, differing only
+    in anchoring and separator strictness. The rebuilt regexes are
+    source-identical to the previous literals.
+  - Verdict *reading* is `stated` (whole-value, anchored) on every path.
+    `VerdictVocabulary.classify`, `PersonaAssembly.normalize_verdict`, and
+    the dead constants `VERDICT_PATTERNS` / `ALLOWED_VERDICTS` /
+    `*_ALIASES` are deleted; their absence is pinned by tests.
+  - A persona verdict field that is not a verdict is **refused at
+    submission** (`PersonaAssembly.validate!` raises ArgumentError) instead
+    of being word-searched (≤ R12) or defaulted to REVISE (R13). The collect
+    tool validates before consuming, so a refused submission leaves the
+    pending token collectable and the corrected submission carries the vote.
+  - Declared verdicts are carried in canonical case (`extract_verdict`
+    merges the admitted form), so a lower-case declaration can no longer sit
+    in the denominator without counting.
+  - Test suite grew 401 → 478 runs / 1676 assertions, including a
+    mutation-survivor file distilled from three generative sweeps.
+- **`llm_client` SkillSet 0.2.0 — CLI envelope diagnostics preserved.**
+  `claude_code_adapter` now picks `model_observed` by output tokens rather
+  than hash order, and passes `model_usage`, `api_error_status`,
+  `fast_mode_state` and `terminal_reason` through to the response. Four
+  model-divergence incidents (a slot requesting opus-4-6 answered by
+  haiku-4-5) were undiagnosable because these fields were discarded; the
+  divergence itself was confirmed real (the divergent reply cited
+  identifiers that exist nowhere in the reviewed code).
+
 ## [3.55.0] - 2026-07-27
 
 ### Added

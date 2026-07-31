@@ -25,16 +25,6 @@ module KairosMcp
         # interpolated into raw_text headers / role_label / JSON identifiers.
         IDENT_RE = /\A[A-Za-z0-9_.\-]{1,64}\z/
 
-        # Canonical verdicts recognized by downstream Consensus.
-        ALLOWED_VERDICTS = %w[APPROVE REVISE REJECT].freeze
-        # The words themselves live in VerdictVocabulary, because a reviewer
-        # answering NO-GO means the same thing whether a persona or an external
-        # slot carried the answer here. These names remain so that callers and
-        # tests that reference them keep working.
-        APPROVE_ALIASES = VerdictVocabulary::APPROVE
-        REJECT_ALIASES  = VerdictVocabulary::REJECT
-        REVISE_ALIASES  = VerdictVocabulary::REVISE
-
         module_function
 
         # The name this system records a persona team under. Constructed here,
@@ -52,7 +42,9 @@ module KairosMcp
           validate_orchestrator_model!(orchestrator_model)
           validate!(orchestrator_reviews)
 
-          verdicts = orchestrator_reviews.map { |r| normalize_verdict(r['verdict'] || r[:verdict]) }
+          # Guaranteed readable by validate! above: every verdict field has
+          # already been admitted by `stated`, so this map cannot produce nil.
+          verdicts = orchestrator_reviews.map { |r| VerdictVocabulary.stated(r['verdict'] || r[:verdict]) }
           combined = if verdicts.include?('REJECT')
                        'REJECT'
                      elsif verdicts.include?('REVISE')
@@ -154,25 +146,52 @@ module KairosMcp
             if verdict.nil? || verdict.to_s.empty?
               raise ArgumentError, "review #{i} missing required field: verdict"
             end
+            # The verdict field must BE a verdict, whole-value, by the same
+            # `stated` that reads it later. This is the boundary form of the
+            # non-verdict landing: unlike an external reply, this submission
+            # is authored by the caller mid-conversation and can be restated,
+            # so a value that is not a verdict is refused here rather than
+            # excluded silently or defaulted to a vote nobody cast. Round 13
+            # measured what the previous REVISE fallback cost: a decorated
+            # rejection ("REJECT (2 blockers)") became a non-rejecting row in
+            # the denominator, a round the old word-search would have blocked
+            # converged APPROVE, and the fallback left no trace in the
+            # record. Refusing keeps INV-E2: nothing unread enters any
+            # denominator. INV-E4 it satisfies by not engaging it — and that
+            # holds by mechanism, not by the nature of refusals: this raise
+            # fires before anything is composed or written (collect validates
+            # before consuming), so no run record and no denominator arise,
+            # and no recordable cause with them. A landing that refused one
+            # persona and continued with the rest WOULD move the composition
+            # and would owe the record its cause; the clause asks that every
+            # cause that moved the denominator be readable from the record,
+            # not that every refusal reach one.
+            # (An earlier version of this paragraph claimed the error
+            # satisfies INV-E4 by reaching the caller; round 14's review
+            # refuted that — a transient tool reply is not the record.)
+            # The error is simply how the caller learns; collect
+            # validates before consuming, so the pending token survives a
+            # refusal and the corrected submission can collect. What no
+            # record shows — that a submission was refused and reshaped
+            # before the one recorded — is a known gap, queued for the
+            # record-schema revision alongside the other additions to what a
+            # run's record carries.
+            unless VerdictVocabulary.stated(verdict)
+              shown = verdict.to_s.length > 80 ? "#{verdict.to_s[0, 80]}…" : verdict.to_s
+              raise ArgumentError,
+                "review #{i} (persona #{persona}) verdict #{shown.inspect} is not a verdict; " \
+                'state APPROVE, REVISE or REJECT (or a vocabulary alias) as the whole value'
+            end
           end
         end
 
-        def normalize_verdict(raw, context: nil)
-          # Precedence (REJECT, then REVISE, then APPROVE) is decided in
-          # VerdictVocabulary and is the same precedence used to combine the
-          # personas below: a value carrying more than one judgement word has
-          # qualified one judgement, not stated two, and the qualification is
-          # what a reader needs to survive.
-          stated = VerdictVocabulary.classify(raw)
-          return stated if stated
-
-          # Conservative fallback: unknown verdicts are logged and treated as
-          # REVISE (do not let them silently pass as APPROVE or silently block
-          # as REJECT; REVISE requires orchestrator attention).
-          ctx = context ? " (#{context})" : ''
-          warn "[multi_llm_review::PersonaAssembly] unknown verdict#{ctx} #{raw.inspect} → REVISE"
-          'REVISE'
-        end
+        # There is no verdict fallback here any more. Until round 13 an
+        # unreadable verdict field was word-searched; in round 13 it fell to
+        # a logged REVISE; both manufactured a vote nobody cast, and the
+        # round-13 review measured the REVISE fallback moving votes in the
+        # direction that passes. Since round 14 the field is admitted by
+        # validate! (whole-value, `stated`) before anything is combined, so
+        # by the time a verdict is read here it is one.
 
         # Truncate a string to at most `max_chars` Unicode codepoints,
         # handling ASCII-8BIT-forced inputs safely so multibyte codepoints
@@ -212,8 +231,9 @@ module KairosMcp
             reasoning = safe_truncate(reasoning, MAX_REASONING_LENGTH)
             findings = findings[0, MAX_FINDINGS_PER_PERSONA]
 
-            # persona was validated by IDENT_RE, so safe for header interpolation.
-            parts << "## Persona: #{persona_raw} (verdict: #{normalize_verdict(verdict_raw)})"
+            # persona was validated by IDENT_RE, verdict by `stated`, so both
+            # are safe for header interpolation and the read cannot be nil.
+            parts << "## Persona: #{persona_raw} (verdict: #{VerdictVocabulary.stated(verdict_raw)})"
             parts << ''
             unless reasoning.empty?
               parts << neutralize_severity_patterns(reasoning)

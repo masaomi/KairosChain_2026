@@ -70,16 +70,6 @@ module KairosMcp
         # otherwise grow unbounded under adversarial reviewer behavior.
         MAX_AGGREGATED_FINDINGS = 200
 
-        # Which words state a judgement is a question about reviewers, not
-        # about this class, and it is answered in VerdictVocabulary so that a
-        # persona and an external slot answering the same word are recorded
-        # the same way.
-        VERDICT_PATTERNS = {
-          approve: VerdictVocabulary::APPROVE,
-          reject:  VerdictVocabulary::REJECT,
-          revise:  VerdictVocabulary::REVISE
-        }.freeze
-
         # The reviewer's own verdict is the header on the first non-empty line
         # of its reply, and nowhere else.
         #
@@ -99,9 +89,21 @@ module KairosMcp
         # the reviewer choosing to open with one. The prompt asks for the
         # header there, and every reviewer in the round that found this already
         # wrote it there. What this gives up is the reply that opens with a
-        # preamble; that reply falls to the word heuristic below, which is a
-        # guess and was always a guess, and which cannot read a rejection as an
-        # approval because it checks REJECT first.
+        # preamble: it states no verdict, and it leaves the denominator with
+        # `no_verdict` beside its name. Nothing catches it further down.
+        #
+        # This paragraph said the opposite until round 11's review read it
+        # against the code. It described the reply falling through to a word
+        # heuristic — the last-resort scan round 9 deleted, whose deletion
+        # `extract_verdict` records further down under "there is no fourth
+        # path" — and it defended that heuristic as unable to read a
+        # rejection as an approval because it checked REJECT first. Both halves
+        # were wrong: the path was gone, and while it existed the danger ran the
+        # other way, since checking REJECT first is exactly how it read the
+        # terse approval "no blocking issues" as a rejection. A comment
+        # describing a deleted mechanism is worse than no comment, because it is
+        # read as a description of the guarantee and there is no guarantee
+        # there.
         #
         # This pattern finds the header line and captures the whole of what
         # follows the colon on it. It does not decide anything: deciding is
@@ -215,13 +217,30 @@ module KairosMcp
           # that passes.
           declared = review[:verdict].to_s.upcase
           if PARSED_VERDICTS.include?(declared)
+            # The gate admits the declaration case-insensitively, so the row
+            # carries the canonical form the gate admitted, not the original
+            # spelling. Without the merge, a declared `approve` passes this
+            # gate unaltered and then misses every `== 'APPROVE'` count
+            # downstream — a row in the denominator that cannot contribute to
+            # consensus, the shape INV-E2 exists to remove — and a declared
+            # `skip` is worse: not 'SKIP', so it stays in the denominator its
+            # author asked to leave. Round 12 measured the approve shape on a
+            # hand-built row (successful_count 1, approve_count 0) and found
+            # it unreachable through shipping writers, since
+            # PersonaAssembly.assemble is the only writer of this field and
+            # always emits canonical case; the round-13 review re-verified
+            # that bound. The normalization is defensive: it keeps the gate
+            # and the row from drifting apart if a second writer ever
+            # appears.
+            #
             # A submission may declare SKIP for itself. Why it did is its own
             # business and this system does not know it, so the row says that
             # rather than defaulting — as it used to — to `transport`, which
             # asserts a call was attempted and failed.
-            return review if declared != 'SKIP'
+            return review.merge(verdict: declared) if declared != 'SKIP'
 
-            return review.merge(skip_reason: review[:skip_reason] || SKIP_REASON_DECLINED)
+            return review.merge(verdict: declared,
+                                skip_reason: review[:skip_reason] || SKIP_REASON_DECLINED)
           end
 
           text = review[:raw_text].to_s
@@ -495,9 +514,11 @@ module KairosMcp
         # this text mention", and both of its callers now ask "is this value a
         # verdict" instead. Leaving it in place would leave the inference one
         # call away from whoever next needs a verdict out of some text.
-        # PersonaAssembly keeps its own, for a field this system's own schema
-        # constrains to three values — tolerating our own wording is a
-        # different question from guessing at somebody else's.
+        # PersonaAssembly deleted its own in round 14: the persona verdict
+        # field is admitted by `stated` at validate!, whole-value, and a value
+        # that is not a verdict is refused back to the caller rather than
+        # tolerated — restating our own wording is cheap in a submission the
+        # caller authors, where guessing at somebody else's is not.
 
         # Ratio-based threshold applied to successful count.
         # "3/4 APPROVE" with 2 successful → ceil(2 * 0.75) = 2

@@ -760,41 +760,50 @@ module KairosMcp
           assert_equal PersonaAssembly::MAX_FINDINGS_PER_PERSONA, count
         end
 
-        def test_normalize_verdict_recognizes_no_go
-          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('NO-GO')
-          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('NO_GO')
-          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('NO GO')
-          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('NACK')
-          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('DENY')
-          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('VETO')
-          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('FAILED')
-          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('FAILURE')
-          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('BLOCKED')
-          # BLOCKER previously fell through to REVISE fallback — round 2 fix.
-          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('BLOCKER')
-          # BLOCKING added in round 3 polish.
-          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('BLOCKING')
+        # Alias verdicts drive the assembled team verdict end to end. These
+        # went through normalize_verdict until round 14 removed it: the field
+        # is admitted by validate! (whole-value, `stated`) and read by the
+        # same function, so the assertion that means anything is the one on
+        # the assembled entry.
+        def test_alias_verdicts_drive_the_team_verdict
+          { 'NO-GO' => 'REJECT', 'NO_GO' => 'REJECT', 'NACK' => 'REJECT',
+            'DENY' => 'REJECT', 'VETO' => 'REJECT', 'FAILURE' => 'REJECT',
+            'BLOCKING' => 'REJECT',
+            'NEEDS WORK' => 'REVISE', 'changes required' => 'REVISE',
+            'NEEDS_REVISION' => 'REVISE', 'REWORK' => 'REVISE' }.each do |word, expected|
+            entry = PersonaAssembly.assemble(
+              [{ 'persona' => 'a', 'verdict' => word, 'reasoning' => 'r' },
+               { 'persona' => 'b', 'verdict' => 'APPROVE', 'reasoning' => 'r' }],
+              'claude-opus-4-7'
+            )
+
+            assert_equal expected, entry[:verdict], word
+          end
+
+          entry = PersonaAssembly.assemble(
+            [{ 'persona' => 'a', 'verdict' => 'LGTM', 'reasoning' => 'r' },
+             { 'persona' => 'b', 'verdict' => 'ship it', 'reasoning' => 'r' }],
+            'claude-opus-4-7'
+          )
+
+          assert_equal 'APPROVE', entry[:verdict]
         end
 
-        def test_normalize_verdict_recognizes_revise_aliases
-          assert_equal 'REVISE', PersonaAssembly.normalize_verdict('NEEDS WORK')
-          assert_equal 'REVISE', PersonaAssembly.normalize_verdict('changes required')
-          # NEEDS_REVISION previously fell through — round 2 fix.
-          assert_equal 'REVISE', PersonaAssembly.normalize_verdict('NEEDS_REVISION')
-          assert_equal 'REVISE', PersonaAssembly.normalize_verdict('NEEDS CHANGES')
-          assert_equal 'REVISE', PersonaAssembly.normalize_verdict('REWORK')
-          assert_equal 'REVISE', PersonaAssembly.normalize_verdict('changes_required')
-        end
+        def test_a_prose_verdict_field_is_refused
+          # A declared verdict field carrying prose is not a verdict. The
+          # word-search used until round 13 read "approve but reject on
+          # security" as REJECT; round 13's REVISE fallback manufactured a
+          # vote nobody cast. Round 14 refuses the submission at validate!,
+          # so the caller restates the verdict and no vote is guessed at.
+          err = assert_raises(ArgumentError) do
+            PersonaAssembly.assemble(
+              [{ 'persona' => 'a', 'verdict' => 'approve but reject on security', 'reasoning' => 'r' },
+               { 'persona' => 'b', 'verdict' => 'APPROVE', 'reasoning' => 'r' }],
+              'claude-opus-4-7'
+            )
+          end
 
-        def test_normalize_verdict_approve_aliases
-          assert_equal 'APPROVE', PersonaAssembly.normalize_verdict('LGTM')
-          assert_equal 'APPROVE', PersonaAssembly.normalize_verdict('ship it')
-          assert_equal 'APPROVE', PersonaAssembly.normalize_verdict('APPROVED')
-        end
-
-        def test_normalize_verdict_reject_dominates_in_ambiguous
-          # "approve but reject on security" → REJECT wins (safe default)
-          assert_equal 'REJECT', PersonaAssembly.normalize_verdict('approve but reject on security')
+          assert_match(/not a verdict/, err.message)
         end
 
         def test_safe_truncate_handles_multibyte_utf8
@@ -1260,6 +1269,67 @@ module KairosMcp
           # llm_calls counts ONLY subprocess LLM invocations, not the synthetic
           # orchestrator entry (that was Agent-tool-driven, not a single LLM call).
           assert_equal 2, payload['llm_calls']
+        end
+
+        # The refusal landing's safety line: a submission the boundary refuses
+        # must not consume the token. Validation runs inside the collect lock
+        # but before anything is consumed or written, so the caller can
+        # restate the verdict and collect again. Round 11 lost three external
+        # results to a destroyed pending state; a validation error that ate
+        # the token would rebuild that failure inside the shipped path.
+        def test_a_refused_submission_leaves_the_token_collectable
+          token = PendingState.generate_token
+          write_state(token)
+          bad = [
+            { 'persona' => 'architect', 'verdict' => 'REJECT (2 blockers)',
+              'reasoning' => 'decorated', 'findings' => [] },
+            { 'persona' => 'security', 'verdict' => 'APPROVE',
+              'reasoning' => 'fine', 'findings' => [] }
+          ]
+          # This harness writes the legacy single-file layout; the v0.3 token
+          # dir is what shipped dispatch writes. Read whichever exists so the
+          # byte comparison follows the layout under test.
+          legacy_path = File.join(PendingState.root_dir, "#{token}.json")
+          state_file = File.exist?(legacy_path) ? legacy_path : PendingState.state_path(token)
+          state_before = File.read(state_file)
+          refused = JSON.parse(@collect.call({
+            'collect_token' => token, 'orchestrator_reviews' => bad
+          }).first[:text])
+
+          assert_equal 'error', refused['status']
+          assert_match(/not a verdict/, refused['error'])
+          # "Leaves the token collectable" is a claim about what the refusal
+          # did NOT do, so the assertions have to look at what it could have
+          # done: the cache it could have written and the state it could have
+          # consumed. Round 14's review measured both untouched and found only
+          # the replay flag asserted here — the name promised more than the
+          # test held.
+          # Defensive, not discriminating: this legacy fixture never writes
+          # collected.json on any path (round-15 review, measured), so this
+          # line cannot fail here — it guards the v0.3 layout where that file
+          # IS the cache. The byte-identity line below carries the
+          # discriminating power in this fixture: a successful collect
+          # rewrites the legacy state file, a refusal does not.
+          refute File.exist?(PendingState.collected_path(token)),
+                 'refusal must not write the collected cache'
+          assert_equal state_before, File.read(state_file),
+                       'refusal must leave the pending state byte-identical'
+
+          retried = JSON.parse(@collect.call({
+            'collect_token' => token, 'orchestrator_reviews' => good_reviews
+          }).first[:text])
+
+          assert_equal 'ok', retried['status']
+          refute retried['idempotent_replay'], 'refused call must not have written the cache'
+          # The restated submission composes the same run the happy path does:
+          # 2 subprocess rows + 1 assembled team, 2 LLM calls, 2 personas —
+          # and the same verdict, because counts alone would pass a regression
+          # that keeps the membership but moves the vote (the shape both
+          # round-13 and round-14 P0s took).
+          assert_equal 3, retried['reviews'].size
+          assert_equal 2, retried['persona_count']
+          assert_equal 2, retried['llm_calls']
+          assert_equal 'APPROVE', retried['verdict']
         end
 
         def test_idempotent_replay

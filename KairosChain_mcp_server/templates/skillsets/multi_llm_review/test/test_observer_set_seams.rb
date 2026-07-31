@@ -1197,8 +1197,14 @@ module KairosMcp
             )[:verdict]
 
             assert_equal expected, external, "external slot answering #{word}"
-            assert_equal expected, PersonaAssembly.normalize_verdict(word),
-                         "persona answering #{word}"
+
+            persona_entry = PersonaAssembly.assemble(
+              [{ 'persona' => 'a', 'verdict' => word, 'reasoning' => 'the reaper never runs' },
+               { 'persona' => 'b', 'verdict' => word, 'reasoning' => 'the reaper never runs' }],
+              'claude-opus-4-7'
+            )
+
+            assert_equal expected, persona_entry[:verdict], "persona answering #{word}"
           end
         end
 
