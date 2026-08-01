@@ -3,15 +3,16 @@
 # What parse_response reads from the CLI envelope, pinned after the
 # claude_cli_opus4.6 divergence investigation (2026-07-31).
 #
-# Four times in the multi_llm_review loop (R6/R8/R10/R13) a slot requesting
-# claude-opus-4-6 was answered by claude-haiku-4-5. The record could not say
-# why, because this method discarded every diagnostic field the envelope
-# carries (modelUsage breakdown, api_error_status, fast_mode_state,
-# terminal_reason). The R13 reply's own content settled the observation side
-# — it cited identifiers that exist nowhere in the reviewed code — but the
-# cause remains open precisely because nothing was kept. These tests hold the
-# two fixes: the answering model is chosen by output tokens rather than hash
-# order, and the diagnostic fields survive into the response.
+# Four times in the multi_llm_review loop (R6/R8/R10/R13) the record showed a
+# slot requesting claude-opus-4-6 answered by claude-haiku-4-5. The 2026-07-31
+# investigation reproduced the cause 2/2: the CLI places a small internal call
+# beside the main one, the envelope carries two keys, and the old `keys.first`
+# read attributed the reply to the internal call — the main call was
+# claude-opus-4-6 every time. The record could not say so, because this method
+# also discarded every diagnostic field the envelope carries (modelUsage
+# breakdown, api_error_status, fast_mode_state, terminal_reason). These tests
+# hold the two fixes: the answering model is chosen by output tokens rather
+# than hash order, and the diagnostic fields survive into the response.
 
 require 'minitest/autorun'
 require_relative '../lib/llm_client/adapter'
@@ -46,9 +47,10 @@ module KairosMcp
           assert_equal 'claude-opus-4-6', out['model_observed']
         end
 
-        # The regression the old `keys.first` invited: if the envelope ever
-        # carries a second model beside the main call, insertion order must
-        # not decide which one "answered". The output tokens do.
+        # The regression the old `keys.first` invited: when the envelope
+        # carries a second model beside the main call (reproduced 2/2 under
+        # the worker's environment), insertion order must not decide which
+        # one "answered". The output tokens do.
         def test_the_answering_model_is_the_one_that_wrote_the_output
           out = parse(envelope(model_usage: {
             'claude-haiku-4-5-20251001' => { 'outputTokens' => 12 },

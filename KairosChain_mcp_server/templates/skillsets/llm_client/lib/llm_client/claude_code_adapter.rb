@@ -186,12 +186,15 @@ module KairosMcp
           model_usage = data['modelUsage'] || {}
 
           # The answering model is the entry that produced the output tokens,
-          # not the first hash key. `keys.first` read whichever entry the CLI
-          # inserted first, so if the envelope ever carries a second model
-          # beside the main call, the reply could be attributed to the wrong
-          # one. Every envelope probed so far carries exactly one key, so the
-          # two readings have not yet disagreed — this is defence, not a
-          # reproduced defect.
+          # not the first hash key. The CLI places a small internal call
+          # (claude-haiku, ~18 output tokens) beside the main call unless
+          # CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC suppresses it, so under
+          # the worker's stripped environment the envelope carries two keys,
+          # and `keys.first` attributed the reply to whichever entry the CLI
+          # inserted first. Reproduced 2/2 with byte-identical prompts
+          # (2026-07-31); this misread was the root cause of every model
+          # divergence this transport had recorded. See L2
+          # mlr_v07_design_inputs_and_haiku_root_cause_20260731.
           observed = model_usage.max_by { |_m, u| (u || {})['outputTokens'].to_i }&.first
 
           {
@@ -202,12 +205,14 @@ module KairosMcp
             # What the CLI reports as having answered, when it reports it.
             # Kept separate from 'model' (which echoes the request) so callers
             # can tell a request from an observation and notice when the two
-            # disagree — the CLI may serve a different model than the one
-            # asked for. That is not hypothetical: four times in the
-            # multi_llm_review loop (R6/R8/R10/R13, 2026-07) a slot requesting
-            # claude-opus-4-6 was answered by claude-haiku-4-5, and the R13
-            # reply's content confirmed the observation (it cited identifiers
-            # that exist nowhere in the reviewed code).
+            # disagree. The four divergences recorded before the fix above
+            # (R6/R8/R10/R13, 2026-07) were all keys.first misreads — the main
+            # call was claude-opus-4-6 every time, and the R13 reply's odd
+            # content (identifiers that exist nowhere in the reviewed code) is
+            # explained by the sandboxed slot reading no repository, not by a
+            # different model answering. A divergence observed after the
+            # 2026-07-31 fix has no known benign explanation and is worth
+            # investigating.
             'model_observed' => observed,
             # Diagnostic envelope, previously discarded. All four divergence
             # incidents above were undiagnosable from the record because the
