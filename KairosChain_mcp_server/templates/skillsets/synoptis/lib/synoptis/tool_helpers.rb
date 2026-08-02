@@ -4,7 +4,14 @@ require 'yaml'
 require 'fileutils'
 
 module Synoptis
+  # Raised when this instance cannot name the agent performing a recorded action.
+  # A distinct class so callers can tell "we do not know who this is" apart from
+  # the MMP loading failures that produce it; see ToolHelpers#resolve_agent_id.
+  class UnattributableAgentError < StandardError; end
+
   module ToolHelpers
+    UNATTRIBUTABLE_MESSAGE =
+      'agent identity unavailable; refusing to record an action that could not be attributed'
     def synoptis_data_dir
       dir = File.join(KairosMcp.data_dir, 'synoptis_data')
       FileUtils.mkdir_p(dir)
@@ -77,10 +84,33 @@ module Synoptis
          .max_by { |c| File.mtime(File.join(root, c)) }
     end
 
+    # instance_id, not introduce: both yield the same identifier, but introduce
+    # also globs skills, scans skillsets and signs, so it raises for reasons
+    # unrelated to identity (a partially loaded MMP raises NameError on
+    # MMP::VERSION).
+    #
+    # Raises rather than returning a placeholder. Two placeholders were tried and
+    # both collapsed identity: 'unknown' is non-empty, so every attributability
+    # check passed and every anchor in that state shared one attester id; nil then
+    # became '' at the comparison sites, and '' matches more records than 'unknown'
+    # did — RevocationManager authorises on revoker_id == attester_id, and
+    # ChallengeManager compares against envelope&.attester_id.to_s, which is ''
+    # for a proof that was not found (measured, 2026-08-02).
+    #
+    # The comparison sites are five and growing; a guard at each is a guard that a
+    # sixth caller will not have. Raising makes a blank identity unrepresentable at
+    # the one place it is produced. Callers do not rescue this: an operation that
+    # cannot name its actor must not proceed, and Protocol#handle already turns the
+    # exception into an error response carrying this message.
     def resolve_agent_id
-      mmp_identity.introduce.dig(:identity, :instance_id)
-    rescue StandardError
-      'unknown'
+      id = mmp_identity.instance_id
+      raise UnattributableAgentError, UNATTRIBUTABLE_MESSAGE if id.nil? || id.to_s.strip.empty?
+
+      id
+    rescue UnattributableAgentError
+      raise
+    rescue StandardError => e
+      raise UnattributableAgentError, "#{UNATTRIBUTABLE_MESSAGE} (#{e.class}: #{e.message})"
     end
 
     def resolve_actor_user_id

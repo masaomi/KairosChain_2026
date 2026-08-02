@@ -32,7 +32,7 @@ module KairosMcp
               type: 'object',
               properties: {
                 proof_id: { type: 'string', description: 'The proof ID to verify' },
-                public_key: { type: 'string', description: 'Optional PEM public key for signature verification. If omitted, signature check is skipped.' }
+                public_key: { type: 'string', description: 'PEM public key of the attester, obtained out of band. Signature verification uses this key and only this key — a key recorded inside a proof is a self-report and is never trusted. Omitting it, or sending an empty string, yields no_public_key_for_verification and the proof is reported invalid.' }
               },
               required: %w[proof_id]
             }
