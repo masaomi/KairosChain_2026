@@ -59,11 +59,14 @@ module KairosMcp
         # reason of its own. Distinct from `transport`, which asserts a call
         # was attempted and failed.
         SKIP_REASON_NOT_DISPATCHED = 'not_dispatched'
-        # A submission that stated SKIP for itself and gave no reason.
-        SKIP_REASON_DECLINED = 'declined'
 
         # Verdicts a submission may state for itself, bypassing text parsing.
-        PARSED_VERDICTS = %w[APPROVE REVISE REJECT SKIP].freeze
+        # v0.7 INV-R1: SKIP is not in the vocabulary — no word is special. A
+        # row leaves the denominator through what happened to it (:status,
+        # substance, no verdict), never by declaring a verdict-shaped word.
+        # The declared-SKIP branch this list used to admit was unreachable
+        # through shipping writers (measured in round 12) and is gone.
+        PARSED_VERDICTS = %w[APPROVE REVISE REJECT].freeze
         # Phase 12 §3.7.2 / PR3 hardening: hard cap on aggregated_findings.
         # FeedbackFormatter also caps the *displayed* slice at 50, but the API
         # contract returns aggregated_findings as a separate array which would
@@ -125,7 +128,7 @@ module KairosMcp
         # @param reviews [Array<Hash>] from Dispatcher, each with :status, :raw_text, :role_label, etc.
         # @param rule_str [String] e.g., "3/4 APPROVE"
         # @param min_quorum [Integer] minimum successful reviews needed
-        # @return [Hash] with :verdict, :convergence, :reviews, :aggregated_findings
+        # @return [Hash] with :reference_verdict, :convergence, :reviews, :aggregated_findings
         def self.aggregate(reviews, rule_str = '3/4 APPROVE', min_quorum: 2,
                            excluded_slots: [], escalation: nil)
           # Parsing a verdict and deciding whether the reply belongs in the
@@ -141,6 +144,10 @@ module KairosMcp
 
           threshold = parse_threshold(rule_str, successful.size)
 
+          # v0.7 INV-R2: this value is a recorded reference, not the run's
+          # conclusion. The run is closed by the operator's declaration, which
+          # lives outside this record (L2 / handoff); the record presents the
+          # observation. The computation is unchanged — only its seat moved.
           overall = if successful.size < min_quorum
                       'INSUFFICIENT'
                     elsif reject_n > 0
@@ -151,9 +158,16 @@ module KairosMcp
                       'REVISE'
                     end
 
+          # INV-R5: a seat whose transport reported a different model than the
+          # slot asked for stays in the denominator — removing it would tangle
+          # the detection record with a vanished vote — and the tally without
+          # those seats is carried beside the main one. Both are reference
+          # values.
+          non_divergent = successful.reject { |p| p[:model_divergence] }
+
           findings = aggregate_findings(parsed)
           {
-            verdict: overall,
+            reference_verdict: overall,
             convergence: {
               approve_count: approve_n,
               reject_count: reject_n,
@@ -171,6 +185,12 @@ module KairosMcp
               threshold: threshold,
               min_quorum: min_quorum,
               rule: rule_str,
+              excluding_divergent: {
+                approve_count: non_divergent.count { |p| p[:verdict] == 'APPROVE' },
+                reject_count: non_divergent.count { |p| p[:verdict] == 'REJECT' },
+                successful_count: non_divergent.size,
+                threshold: parse_threshold(rule_str, non_divergent.size)
+              },
               # INV-E4: how this denominator came to be, readable from the
               # record alone. Without it a later reader cannot tell a 3/4 that
               # lost a slot to transport failure from one that lost it to an
@@ -222,25 +242,13 @@ module KairosMcp
             # spelling. Without the merge, a declared `approve` passes this
             # gate unaltered and then misses every `== 'APPROVE'` count
             # downstream — a row in the denominator that cannot contribute to
-            # consensus, the shape INV-E2 exists to remove — and a declared
-            # `skip` is worse: not 'SKIP', so it stays in the denominator its
-            # author asked to leave. Round 12 measured the approve shape on a
-            # hand-built row (successful_count 1, approve_count 0) and found
-            # it unreachable through shipping writers, since
-            # PersonaAssembly.assemble is the only writer of this field and
-            # always emits canonical case; the round-13 review re-verified
-            # that bound. The normalization is defensive: it keeps the gate
-            # and the row from drifting apart if a second writer ever
-            # appears.
-            #
-            # A submission may declare SKIP for itself. Why it did is its own
-            # business and this system does not know it, so the row says that
-            # rather than defaulting — as it used to — to `transport`, which
-            # asserts a call was attempted and failed.
-            return review.merge(verdict: declared) if declared != 'SKIP'
-
-            return review.merge(verdict: declared,
-                                skip_reason: review[:skip_reason] || SKIP_REASON_DECLINED)
+            # consensus, the shape INV-E2 exists to remove. Round 12 measured
+            # that shape on a hand-built row and found it unreachable through
+            # shipping writers, since PersonaAssembly.assemble is the only
+            # writer of this field and always emits canonical case. The
+            # normalization is defensive: it keeps the gate and the row from
+            # drifting apart if a second writer ever appears.
+            return review.merge(verdict: declared)
           end
 
           text = review[:raw_text].to_s
@@ -250,8 +258,17 @@ module KairosMcp
           # containing one. A header further down is not read at all: it may be
           # the reviewer's, or it may be a sample it is discussing, and nothing
           # in the text says which.
-          if (m = text.match(VERDICT_HEADER_RE)) && (stated = VerdictVocabulary.stated(m[1]))
-            return review.merge(verdict: stated)
+          #
+          # v0.7 INV-R1: when the header offered a value the vocabulary
+          # refuses, the written word itself goes into the record (stated_text)
+          # beside the closed no_verdict token. The reason column stays a
+          # token; the word form is its own column.
+          offered = nil
+          if (m = text.match(VERDICT_HEADER_RE))
+            offered = m[1]
+            if (stated = VerdictVocabulary.stated(offered))
+              return review.merge(verdict: stated)
+            end
           end
 
           # Same, for a reply that is a JSON document rather than markdown.
@@ -259,9 +276,11 @@ module KairosMcp
           # part of the prose, and only a reply that *is* the document states
           # a verdict through it.
           structured = parse_structured(text)
-          if structured && structured['overall_verdict'] &&
-             (stated = VerdictVocabulary.stated(structured['overall_verdict']))
-            return review.merge(verdict: stated)
+          if structured && structured['overall_verdict']
+            if (stated = VerdictVocabulary.stated(structured['overall_verdict']))
+              return review.merge(verdict: stated)
+            end
+            offered ||= structured['overall_verdict'].to_s
           end
 
           # There is no fourth path. A reply that did not state its verdict in
@@ -293,7 +312,9 @@ module KairosMcp
           # was worse than it looked: an opening sentence with no judgement in
           # it — the exact shape that retired one roster occupant — blocked
           # convergence on a verdict its author never gave.
-          review.merge(verdict: 'SKIP', skip_reason: SKIP_REASON_NO_VERDICT)
+          skip = { verdict: 'SKIP', skip_reason: SKIP_REASON_NO_VERDICT }
+          skip[:stated_text] = offered.to_s[0, 120] unless offered.to_s.strip.empty?
+          review.merge(skip)
         end
 
         # Why a slot that never produced a reply left the denominator. Two
@@ -326,16 +347,38 @@ module KairosMcp
         end
 
 
+        # A duplicated key makes a JSON document say two things under one name,
+        # and JSON.parse keeps whichever came last — silently. A reply whose
+        # `overall_verdict` appears twice would then state whichever verdict
+        # was written second, which is not a statement anyone can be held to.
+        # Raised at insertion so the whole document is refused, at any depth:
+        # fail-closed, like every other reading rule here (R12 P1).
+        class DuplicateKeyError < StandardError; end
+
+        class DuplicateRefusingHash < Hash
+          def []=(key, value)
+            raise DuplicateKeyError, "duplicate key: #{key}" if key?(key)
+
+            super
+          end
+        end
+
         # A reply that is itself a JSON document, or nil when it is not.
         # Deliberately strict: no scanning for an object embedded in prose,
-        # because prose quoting an object is prose.
+        # because prose quoting an object is prose — and no document with a
+        # repeated key, because such a document does not state one thing.
         def self.parse_structured(text)
           stripped = text.to_s.strip
           return nil unless stripped.start_with?('{')
 
-          parsed = JSON.parse(stripped)
-          parsed.is_a?(Hash) ? parsed : nil
-        rescue JSON::ParserError
+          parsed = JSON.parse(stripped, object_class: DuplicateRefusingHash)
+          # The TOP LEVEL is converted to a plain Hash; nested values keep the
+          # refusing subclass. That is enough for every current reader — only
+          # overall_verdict is read, and structural_substance reads without
+          # writing — but writing into a nested value would raise. A consumer
+          # that needs to mutate nested values must deep-convert first.
+          parsed.is_a?(Hash) ? {}.merge(parsed) : nil
+        rescue JSON::ParserError, DuplicateKeyError
           nil
         end
 
@@ -440,6 +483,9 @@ module KairosMcp
 
         # INV-E4. Every observer that could have counted appears here exactly
         # once, whether it counted or not, with the reason it did not.
+        # v0.7 INV-R3/R4: the unit of this list is the seat, and each row says
+        # so (`seat: true` — one boolean column, so that if row-level records
+        # are ever interleaved here, the seat column stays reconstructible).
         def self.denominator_composition(parsed, excluded_slots, escalation)
           counted = parsed.map do |p|
             {
@@ -457,12 +503,20 @@ module KairosMcp
               # separate them: an executed slot on a silent transport carries
               # exactly that value too.
               synthetic: p[:synthetic] || false,
+              seat: true,
               counted: p[:verdict] != 'SKIP',
               # Every route to SKIP now names its own reason, so there is
               # nothing left to default to. A row that somehow arrives without
               # one omits the field — silence, which a reader can see, rather
               # than `transport`, which a reader cannot tell from a fact.
               reason: (p[:skip_reason] if p[:verdict] == 'SKIP'),
+              # INV-R1: the word a final submission offered as its verdict and
+              # the vocabulary refused. The reason stays a closed token; the
+              # written form is its own column.
+              stated_text: p[:stated_text],
+              # INV-R7: how the artifact reached this seat, when distribution
+              # was an act the system performed for it.
+              artifact_delivery: p[:artifact_delivery],
               model_divergence: p[:model_divergence]
             }.compact
           end
@@ -471,8 +525,13 @@ module KairosMcp
             {
               role_label: slot[:role_label] || slot['role_label'],
               model: slot[:model] || slot['model'],
+              seat: true,
               counted: false,
               reason: slot[:reason] || slot['reason'],
+              # INV-R7: an undelivered seat's delivery form is a per-seat
+              # attribute of the record, not something to dig out of the
+              # reason string.
+              artifact_delivery: slot[:artifact_delivery] || slot['artifact_delivery'],
               replaced_by: slot[:replaced_by] || slot['replaced_by']
             }.compact
           end

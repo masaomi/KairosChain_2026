@@ -12,8 +12,25 @@ module KairosMcp
       # reasoning into raw_text so Consensus.aggregate_findings can re-extract
       # P0/P1/... lines uniformly.
       module PersonaAssembly
-        MIN_PERSONAS = 2
+        # v0.7 INV-R4: convening every declared persona is not a condition of
+        # acceptance. A submission smaller than what was convened — including
+        # empty — is accepted, and the seat's fate follows from what the
+        # accepted rows carry: an empty set carries no substantive verdict, so
+        # the seat leaves the denominator with its cause on the record, which
+        # is exactly what the old floor of 2 turned into a refusal instead.
+        MIN_PERSONAS = 0
         MAX_PERSONAS = 4
+        # What the delegation manifest asks the caller to convene. Guidance,
+        # not a gate: the acceptance floor above is what is enforced, and the
+        # two are different questions on purpose — asking for a team while
+        # accepting a shortfall is INV-R4's whole point.
+        RECOMMENDED_MIN_PERSONAS = 2
+
+        # INV-R3: how the seat's verdict is derived from its rows is readable
+        # from the record. This names the rule that ran; choosing a different
+        # rule is a mechanism decision (design §6 backlog), and the current
+        # precedence stays the default.
+        VERDICT_DERIVATION = 'precedence:REJECT>REVISE>APPROVE'
 
         # Size bounds to prevent pathological inputs (hallucinating LLMs,
         # adversarial callers) from exploding pending state file size.
@@ -41,6 +58,27 @@ module KairosMcp
         def assemble(orchestrator_reviews, orchestrator_model)
           validate_orchestrator_model!(orchestrator_model)
           validate!(orchestrator_reviews)
+
+          # An empty accepted set is a seat with no rows, not an APPROVE: the
+          # precedence rule below answers "what did the rows state", and with
+          # no rows its else-branch would manufacture a vote nobody cast, in
+          # the direction that passes. The seat is returned as its own skip
+          # row instead — the same shape a dispatched slot takes when this
+          # system declined to run it — with a token reason the record keeps
+          # (INV-R4). It leaves the denominator through the ordinary route.
+          if orchestrator_reviews.empty?
+            return {
+              role_label: role_label_for(orchestrator_model),
+              provider: 'claude_code',
+              model: orchestrator_model,
+              model_source: 'declared',
+              synthetic: true,
+              raw_text: '',
+              elapsed_seconds: 0,
+              error: { 'type' => 'skip', 'message' => 'empty_persona_submission' },
+              status: :skip
+            }
+          end
 
           # Guaranteed readable by validate! above: every verdict field has
           # already been admitted by `stated`, so this map cannot produce nil.
@@ -71,6 +109,20 @@ module KairosMcp
             # round 4 a persona quoted a JSON reply shape inside a finding and
             # three REVISE verdicts were recorded as an APPROVE.
             verdict: combined,
+            # INV-R3: which rule turned the rows into the seat's verdict.
+            verdict_derivation: VERDICT_DERIVATION,
+            # INV-R3: the rows themselves — one per accepted persona body, each
+            # an independent row in the record. Without them the seat's verdict
+            # names its derivation rule but not its inputs: a reader cannot see
+            # which body dissented, nor tell a 1-of-3 dissent from 3-of-3.
+            # Names and verdicts only. The bodies' prose reaches this entry's
+            # raw_text (below) but the final record keeps raw_text_length, not
+            # the text — the durable per-body trace is these rows plus the
+            # severity-tagged findings that survive aggregation.
+            persona_rows: orchestrator_reviews.map { |r|
+              { 'persona' => (r['persona'] || r[:persona]).to_s,
+                'verdict' => VerdictVocabulary.stated(r['verdict'] || r[:verdict]) }
+            },
             # INV-P1 / INV-E4. This row is a declaration standing in for an
             # observer, not an observer that ran, and without a field saying
             # so it is shaped exactly like a dispatched slot whose transport
@@ -124,9 +176,10 @@ module KairosMcp
           unless reviews.is_a?(Array)
             raise ArgumentError, 'orchestrator_reviews must be an array'
           end
-          if reviews.size < MIN_PERSONAS
-            raise ArgumentError, "need at least #{MIN_PERSONAS} persona reviews (got #{reviews.size})"
-          end
+          # No lower bound (v0.7 INV-R4): a submission of fewer rows than were
+          # convened — or none — is accepted, and the missing rows become the
+          # record's business, not the gate's. The upper bound stands: it
+          # bounds pathological input size, which is a different question.
           if reviews.size > MAX_PERSONAS
             raise ArgumentError, "no more than #{MAX_PERSONAS} persona reviews (got #{reviews.size})"
           end
@@ -157,30 +210,18 @@ module KairosMcp
             # the denominator, a round the old word-search would have blocked
             # converged APPROVE, and the fallback left no trace in the
             # record. Refusing keeps INV-E2: nothing unread enters any
-            # denominator. INV-E4 it satisfies by not engaging it — and that
-            # holds by mechanism, not by the nature of refusals: this raise
-            # fires before anything is composed or written (collect validates
-            # before consuming), so no run record and no denominator arise,
-            # and no recordable cause with them. A landing that refused one
-            # persona and continued with the rest WOULD move the composition
-            # and would owe the record its cause; the clause asks that every
-            # cause that moved the denominator be readable from the record,
-            # not that every refusal reach one.
-            # (An earlier version of this paragraph claimed the error
-            # satisfies INV-E4 by reaching the caller; round 14's review
-            # refuted that — a transient tool reply is not the record.)
-            # The error is simply how the caller learns; collect
-            # validates before consuming, so the pending token survives a
-            # refusal and the corrected submission can collect. What no
-            # record shows — that a submission was refused and reshaped
-            # before the one recorded — is a known gap, queued for the
-            # record-schema revision alongside the other additions to what a
-            # run's record carries.
+            # denominator. This raise fires before anything is composed
+            # (collect validates before consuming), so the pending token
+            # survives a refusal and the corrected submission can collect.
+            # Since v0.7 the refusal is also a recorded event: collect's
+            # rescue writes it to the refusals.json sidecar — facts and
+            # cause, never the refused body — and the run's final record
+            # carries it as refused_submissions (INV-R1/R4).
             unless VerdictVocabulary.stated(verdict)
               shown = verdict.to_s.length > 80 ? "#{verdict.to_s[0, 80]}…" : verdict.to_s
               raise ArgumentError,
                 "review #{i} (persona #{persona}) verdict #{shown.inspect} is not a verdict; " \
-                'state APPROVE, REVISE or REJECT (or a vocabulary alias) as the whole value'
+                'state APPROVE, REVISE or REJECT as the whole value'
             end
           end
         end

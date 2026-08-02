@@ -50,7 +50,7 @@ module KairosMcp
             { role_label: 'r3', raw_text: body('APPROVE'), status: :success }
           ]
           result = Consensus.aggregate(reviews, '3/4 APPROVE', min_quorum: 2)
-          assert_equal 'APPROVE', result[:verdict]
+          assert_equal 'APPROVE', result[:reference_verdict]
           assert_equal 3, result[:convergence][:approve_count]
           assert_equal 0, result[:convergence][:reject_count]
         end
@@ -62,7 +62,7 @@ module KairosMcp
             { role_label: 'r3', raw_text: body('APPROVE'), status: :success }
           ]
           result = Consensus.aggregate(reviews, '2/3 APPROVE', min_quorum: 2)
-          assert_equal 'REVISE', result[:verdict]
+          assert_equal 'REVISE', result[:reference_verdict]
           assert_equal 1, result[:convergence][:reject_count]
         end
 
@@ -74,7 +74,7 @@ module KairosMcp
             { role_label: 'r4', raw_text: '', status: :skip }
           ]
           result = Consensus.aggregate(reviews, '3/4 APPROVE', min_quorum: 2)
-          assert_equal 'APPROVE', result[:verdict]
+          assert_equal 'APPROVE', result[:reference_verdict]
           assert_equal 2, result[:convergence][:successful_count]
           assert_equal 2, result[:convergence][:skip_count]
           # threshold = ceil(2 * 0.75) = 2, approve = 2 >= 2
@@ -88,7 +88,7 @@ module KairosMcp
             { role_label: 'r3', raw_text: '', status: :skip }
           ]
           result = Consensus.aggregate(reviews, '3/4 APPROVE', min_quorum: 2)
-          assert_equal 'INSUFFICIENT', result[:verdict]
+          assert_equal 'INSUFFICIENT', result[:reference_verdict]
         end
 
         def test_structured_json_verdict
@@ -98,7 +98,7 @@ module KairosMcp
             { role_label: 'r3', raw_text: '{"overall_verdict": "REJECT", "findings": ["P0: bug"]}', status: :success }
           ]
           result = Consensus.aggregate(reviews, '2/3 APPROVE', min_quorum: 2)
-          assert_equal 'REVISE', result[:verdict]
+          assert_equal 'REVISE', result[:reference_verdict]
         end
 
         def test_ratio_threshold_with_degraded_quorum
@@ -110,17 +110,39 @@ module KairosMcp
             { role_label: 'r4', raw_text: '', status: :skip }
           ]
           result = Consensus.aggregate(reviews, '3/4 APPROVE', min_quorum: 2)
-          assert_equal 'APPROVE', result[:verdict]
+          assert_equal 'APPROVE', result[:reference_verdict]
         end
 
         def test_not_enough_approvals_means_revise
           reviews = [
             { role_label: 'r1', raw_text: body('APPROVE'), status: :success },
-            { role_label: 'r2', raw_text: body('NEEDS WORK'), status: :success },
+            { role_label: 'r2', raw_text: body('REVISED'), status: :success },
             { role_label: 'r3', raw_text: body('REVISE'), status: :success }
           ]
           result = Consensus.aggregate(reviews, '3/4 APPROVE', min_quorum: 2)
-          assert_equal 'REVISE', result[:verdict]
+          assert_equal 'REVISE', result[:reference_verdict]
+        end
+
+        # INV-R5: the divergence-excluded tally's threshold is computed over
+        # the NON-divergent seats — held with explicit numbers so the
+        # denominator argument cannot silently revert to the full count.
+        def test_excluding_divergent_threshold_uses_the_reduced_denominator
+          reviews = [
+            { role_label: 'r1', raw_text: body('APPROVE'), status: :success,
+              model: 'm', model_declared: 'm', model_observed: 'x', model_divergence: true },
+            { role_label: 'r2', raw_text: body('APPROVE'), status: :success,
+              model: 'm', model_declared: 'm', model_observed: 'y', model_divergence: true },
+            { role_label: 'r3', raw_text: body('APPROVE'), status: :success },
+            { role_label: 'r4', raw_text: body('APPROVE'), status: :success },
+            { role_label: 'r5', raw_text: body('APPROVE'), status: :success }
+          ]
+          result = Consensus.aggregate(reviews, '3/5 APPROVE', min_quorum: 2)
+          excl = result[:convergence][:excluding_divergent]
+          assert_equal 3, excl[:successful_count]
+          assert_equal 3, excl[:approve_count]
+          # ceil(3 * 0.6) = 2 — NOT ceil(5 * 0.6) = 3.
+          assert_equal 2, excl[:threshold]
+          assert_equal 3, result[:convergence][:threshold]
         end
 
         def test_aggregate_findings_dedup
@@ -157,16 +179,41 @@ module KairosMcp
           assert_equal 'APPROVE', result[:verdict], "APPROVE with concerns should not be REVISE"
         end
 
-        # FAIL is one of the words that names a rejection, and it is read when
-        # it is what the header states. "FAIL - critical bug found" is not: it
-        # is a sentence that begins with the word, and reading a verdict out of
-        # a sentence is what round 9 stopped doing.
-        def test_fail_is_a_rejection_when_the_header_states_it
+        # v0.7 INV-R1: the vocabulary is the three canonical words plus tense
+        # forms, nothing else. FAILED used to be read as a rejection; it is now
+        # outside the vocabulary, the reply states no verdict, and the word the
+        # reviewer wrote survives in the record beside the closed reason token.
+        def test_a_word_outside_the_vocabulary_is_refused_and_recorded
           stated = { role_label: 'r1', raw_text: "**Overall Verdict**: FAILED\n\nP0: critical bug", status: :success }
-          assert_equal 'REJECT', Consensus.extract_verdict(stated)[:verdict]
+          out = Consensus.extract_verdict(stated)
+          assert_equal 'SKIP', out[:verdict]
+          assert_equal Consensus::SKIP_REASON_NO_VERDICT, out[:skip_reason]
+          assert_equal 'FAILED', out[:stated_text]
 
           in_prose = { role_label: 'r1', raw_text: 'FAIL - critical bug found', status: :success }
           out = Consensus.extract_verdict(in_prose)
+          assert_equal 'SKIP', out[:verdict]
+          assert_equal Consensus::SKIP_REASON_NO_VERDICT, out[:skip_reason]
+          # No header, no offered word: the record shows silence, not a guess.
+          assert_nil out[:stated_text]
+        end
+
+        # Tense and inflection forms of the three words stay readable.
+        def test_tense_forms_of_the_canonical_words_are_read
+          { 'APPROVED' => 'APPROVE', 'REVISED' => 'REVISE',
+            'REJECTED' => 'REJECT', 'approves' => 'APPROVE' }.each do |form, canonical|
+            review = { role_label: 'r1', raw_text: body(form), status: :success }
+            assert_equal canonical, Consensus.extract_verdict(review)[:verdict], form
+          end
+        end
+
+        # R12 P1: a JSON reply whose overall_verdict key appears twice states
+        # two things under one name; JSON.parse would keep the second silently.
+        # The document is refused as a document, so the reply states no verdict.
+        def test_duplicate_overall_verdict_key_states_no_verdict
+          review = { role_label: 'r1', status: :success,
+                     raw_text: '{"overall_verdict": "REJECT", "overall_verdict": "APPROVE", "reasoning": "x"}' }
+          out = Consensus.extract_verdict(review)
           assert_equal 'SKIP', out[:verdict]
           assert_equal Consensus::SKIP_REASON_NO_VERDICT, out[:skip_reason]
         end
@@ -643,10 +690,55 @@ module KairosMcp
           assert_includes entry[:raw_text], 'Overall Verdict**: REVISE'
         end
 
-        def test_below_min_personas_raises
-          assert_raises(ArgumentError) do
-            PersonaAssembly.assemble([base_review('only', 'APPROVE')], 'claude-opus-4-7')
-          end
+        # v0.7 INV-R4: convening every persona is not a condition of
+        # acceptance. One row is a seat that counts through the ordinary
+        # rules; zero rows is a seat with no substantive verdict, returned as
+        # its own skip row with a token cause — never the else-branch APPROVE.
+        def test_single_persona_submission_is_accepted
+          entry = PersonaAssembly.assemble([base_review('only', 'APPROVE')], 'claude-opus-4-7')
+          assert_equal 'APPROVE', entry[:verdict]
+          assert_equal :success, entry[:status]
+        end
+
+        def test_empty_persona_submission_is_a_skip_seat_not_an_approve
+          entry = PersonaAssembly.assemble([], 'claude-opus-4-7')
+          assert_equal :skip, entry[:status]
+          assert_nil entry[:verdict]
+          assert_equal 'empty_persona_submission', entry[:error]['message']
+
+          parsed = Consensus.extract_verdict(entry)
+          assert_equal 'SKIP', parsed[:verdict]
+          assert_equal 'empty_persona_submission', parsed[:skip_reason]
+        end
+
+        # INV-R3: the record names the rule that derived the seat's verdict.
+        # Asserted as a LITERAL, not via the constant — comparing the constant
+        # to itself is a tautology that survives any drift of the rule name
+        # (measured in R3's review).
+        def test_verdict_derivation_is_recorded
+          entry = PersonaAssembly.assemble(
+            [base_review('a', 'APPROVE'), base_review('b', 'APPROVE')], 'claude-opus-4-7'
+          )
+          assert_equal 'precedence:REJECT>REVISE>APPROVE', entry[:verdict_derivation]
+        end
+
+        # And the empty-submission seat is marked synthetic like any persona
+        # seat — without it, the absent team is indistinguishable from a
+        # dispatched slot whose transport failed (INV-P1).
+        def test_empty_submission_seat_is_marked_synthetic
+          entry = PersonaAssembly.assemble([], 'claude-opus-4-7')
+          assert_equal true, entry[:synthetic]
+        end
+
+        # persona_rows carry the CANONICAL verdict, not the submitted spelling.
+        def test_persona_rows_are_canonicalized
+          entry = PersonaAssembly.assemble(
+            [{ 'persona' => 'a', 'verdict' => 'approved', 'reasoning' => 'r' },
+             { 'persona' => 'b', 'verdict' => '**REJECTED**', 'reasoning' => 'r' }],
+            'claude-opus-4-7'
+          )
+          assert_equal [{ 'persona' => 'a', 'verdict' => 'APPROVE' },
+                        { 'persona' => 'b', 'verdict' => 'REJECT' }], entry[:persona_rows]
         end
 
         def test_above_max_personas_raises
@@ -760,33 +852,33 @@ module KairosMcp
           assert_equal PersonaAssembly::MAX_FINDINGS_PER_PERSONA, count
         end
 
-        # Alias verdicts drive the assembled team verdict end to end. These
-        # went through normalize_verdict until round 14 removed it: the field
-        # is admitted by validate! (whole-value, `stated`) and read by the
-        # same function, so the assertion that means anything is the one on
-        # the assembled entry.
-        def test_alias_verdicts_drive_the_team_verdict
-          { 'NO-GO' => 'REJECT', 'NO_GO' => 'REJECT', 'NACK' => 'REJECT',
-            'DENY' => 'REJECT', 'VETO' => 'REJECT', 'FAILURE' => 'REJECT',
-            'BLOCKING' => 'REJECT',
-            'NEEDS WORK' => 'REVISE', 'changes required' => 'REVISE',
-            'NEEDS_REVISION' => 'REVISE', 'REWORK' => 'REVISE' }.each do |word, expected|
+        # v0.7 INV-R1: the alias vocabulary is gone. A persona verdict in a
+        # former alias is refused at validate! — the submission is authored by
+        # the caller and can be restated — while tense forms of the three
+        # canonical words remain admissible.
+        def test_alias_verdicts_are_refused_at_validation
+          %w[NO-GO NACK DENY VETO FAILURE LGTM REWORK].each do |word|
+            err = assert_raises(ArgumentError, word) do
+              PersonaAssembly.assemble(
+                [{ 'persona' => 'a', 'verdict' => word, 'reasoning' => 'r' },
+                 { 'persona' => 'b', 'verdict' => 'APPROVE', 'reasoning' => 'r' }],
+                'claude-opus-4-7'
+              )
+            end
+            assert_match(/not a verdict/, err.message, word)
+          end
+        end
+
+        def test_tense_forms_drive_the_team_verdict
+          { 'REJECTED' => 'REJECT', 'revised' => 'REVISE',
+            'APPROVED' => 'APPROVE' }.each do |word, expected|
             entry = PersonaAssembly.assemble(
               [{ 'persona' => 'a', 'verdict' => word, 'reasoning' => 'r' },
-               { 'persona' => 'b', 'verdict' => 'APPROVE', 'reasoning' => 'r' }],
+               { 'persona' => 'b', 'verdict' => 'APPROVED', 'reasoning' => 'r' }],
               'claude-opus-4-7'
             )
-
             assert_equal expected, entry[:verdict], word
           end
-
-          entry = PersonaAssembly.assemble(
-            [{ 'persona' => 'a', 'verdict' => 'LGTM', 'reasoning' => 'r' },
-             { 'persona' => 'b', 'verdict' => 'ship it', 'reasoning' => 'r' }],
-            'claude-opus-4-7'
-          )
-
-          assert_equal 'APPROVE', entry[:verdict]
         end
 
         def test_a_prose_verdict_field_is_refused
@@ -885,6 +977,13 @@ module KairosMcp
           end
         end
 
+        # v0.7 INV-R4: the token directory (with its marker) is created at
+        # dispatch time by call(); these tests enter the delegate helpers
+        # directly, so they create the run token the same way call() does.
+        def make_run_token
+          @tool.send(:create_token_dir!)
+        end
+
         # The three partition_for_strategy tests that stood here went with the
         # method. Their cases (delegate drops the match, subprocess keeps it,
         # exclude drops it) are in test_observer_set.rb, where they are stated
@@ -897,6 +996,7 @@ module KairosMcp
               raw_text: 'APPROVE', elapsed_seconds: 10, error: nil, status: :success }
           ]
           result = @tool.send(:delegate_response,
+            token: make_run_token, review_spec: nil,
             raw_results: subprocess_results,
             arguments: { 'review_type' => 'design', 'artifact_name' => 'test' },
             config: {},
@@ -928,6 +1028,7 @@ module KairosMcp
 
         def test_delegate_response_requires_orchestrator_model
           result = @tool.send(:delegate_response,
+            token: make_run_token, review_spec: nil,
             raw_results: [
               { role_label: 'codex', provider: 'codex', model: 'm',
                 raw_text: 'APPROVE', elapsed_seconds: 1, error: nil, status: :success }
@@ -950,6 +1051,7 @@ module KairosMcp
         # persona position, which is what a caller can actually get wrong.
         def test_delegate_rejects_invalid_orchestrator_model
           result = @tool.send(:delegate_response,
+            token: make_run_token, review_spec: nil,
             raw_results: [
               { role_label: 'codex', provider: 'codex', model: 'm',
                 raw_text: 'APPROVE', elapsed_seconds: 1, error: nil, status: :success }
@@ -971,6 +1073,7 @@ module KairosMcp
         def test_delegate_fails_when_no_subprocess_reviewers
           # If all reviewers matched the orchestrator_model, raw_results is [].
           result = @tool.send(:delegate_response,
+            token: make_run_token, review_spec: nil,
             raw_results: [],
             arguments: { 'review_type' => 'design', 'artifact_name' => 'test' },
             config: {},
@@ -993,6 +1096,7 @@ module KairosMcp
               elapsed_seconds: 2.5, status: :error }
           ]
           result = @tool.send(:delegate_response,
+            token: make_run_token, review_spec: nil,
             raw_results: failed,
             arguments: { 'review_type' => 'design', 'artifact_name' => 'test' },
             config: {},
@@ -1020,6 +1124,7 @@ module KairosMcp
               raw_text: 'APPROVE', elapsed_seconds: 1, error: nil, status: :success }
           ]
           result = @tool.send(:delegate_response,
+            token: make_run_token, review_spec: nil,
             raw_results: subprocess_results,
             arguments: { 'review_type' => 'design', 'artifact_name' => 'x' },
             config: { 'delegation' => { 'collect_deadline_seconds' => 60 } },
@@ -1044,6 +1149,7 @@ module KairosMcp
               raw_text: 'APPROVE', elapsed_seconds: 1, error: nil, status: :success }
           ]
           result = @tool.send(:delegate_response,
+            token: make_run_token, review_spec: nil,
             raw_results: subprocess_results,
             arguments: {
               'review_type' => 'design', 'artifact_name' => 'x',
@@ -1070,6 +1176,7 @@ module KairosMcp
               raw_text: 'APPROVE', elapsed_seconds: 1, error: nil, status: :success }
           ]
           result = @tool.send(:delegate_response,
+            token: make_run_token, review_spec: nil,
             raw_results: subprocess_results,
             arguments: { 'review_type' => 'design', 'artifact_name' => 'x' },
             config: {},
@@ -1111,6 +1218,7 @@ module KairosMcp
           result = nil
           with_stubbed_worker_spawner do
             result = @tool.send(:delegate_response_async,
+              token: make_run_token, review_spec: nil,
               reviewers: reviewers,
               messages: [{ 'role' => 'user', 'content' => 'x' }],
               system_prompt: 'sys',
@@ -1136,6 +1244,70 @@ module KairosMcp
           assert_operator deadline - Time.now, :>=, 2320 - 5
         end
 
+        # R2 P0: the async write leg, driven through the real helper — the
+        # state must carry the declared inputs (INV-R6/R3).
+        def test_async_state_carries_declared_inputs
+          result = nil
+          with_stubbed_worker_spawner do
+            result = @tool.send(:delegate_response_async,
+              token: make_run_token,
+              review_spec: { 'path' => 'docs/s.md', 'sha256' => 'abc' },
+              reviewers: [{ provider: 'codex', model: 'codex-default', role_label: 'codex' }],
+              messages: [{ 'role' => 'user', 'content' => 'x' }],
+              system_prompt: 'sys',
+              arguments: { 'review_type' => 'design', 'artifact_name' => 'x',
+                           'persona_count_declared' => 4 },
+              config: {},
+              orchestrator_model: 'claude-opus-4-7',
+              observers: stub_observers,
+              convergence_rule: '3/4 APPROVE', min_quorum: 2, review_round: 1,
+              complexity: 'high', review_context: 'independent',
+              max_concurrent: 2, timeout_secs: 300, parallel_cfg: {}
+            )
+          end
+          payload = JSON.parse(result.first[:text])
+          assert_equal 'delegation_pending', payload['status']
+          state = PendingState.load_state(payload['collect_token'])
+          assert_equal({ 'path' => 'docs/s.md', 'sha256' => 'abc' }, state['review_spec'])
+          assert_equal 4, state['persona_count_declared']
+        end
+
+        # R2 (fix 4): a spawn failure notes its cause AND reduces the dir, so
+        # request.json (full prompts) is not pinned forever by the note.
+        def test_spawn_failure_notes_and_reduces_to_trace
+          singleton = WorkerSpawner.singleton_class
+          original = WorkerSpawner.method(:spawn)
+          singleton.send(:define_method, :spawn) { |**_k| raise 'no spawn' }
+          result = nil
+          begin
+            result = @tool.send(:delegate_response_async,
+              token: make_run_token, review_spec: nil,
+              reviewers: [{ provider: 'codex', model: 'codex-default', role_label: 'codex' }],
+              messages: [{ 'role' => 'user', 'content' => 'x' }],
+              system_prompt: 'sys',
+              arguments: { 'review_type' => 'design', 'artifact_name' => 'x' },
+              config: {},
+              orchestrator_model: 'claude-opus-4-7',
+              observers: stub_observers,
+              convergence_rule: '3/4 APPROVE', min_quorum: 2, review_round: 1,
+              complexity: 'high', review_context: 'independent',
+              max_concurrent: 2, timeout_secs: 300, parallel_cfg: {}
+            )
+          ensure
+            singleton.send(:define_method, :spawn, original)
+          end
+          payload = JSON.parse(result.first[:text])
+          assert_equal 'error', payload['status']
+
+          dirs = Dir.glob(File.join(PendingState.root_dir, '*'))
+          assert_equal 1, dirs.size
+          files = Dir.glob(File.join(dirs.first, '*')).map { |f| File.basename(f) }.sort
+          assert_equal ['reaped.json'], files,
+                       'the trace must hold the note and nothing else (no marker was written by this direct-entry test)'
+          reaped = JSON.parse(File.read(File.join(dirs.first, 'reaped.json')))
+          assert_equal 'worker_spawn_failed:RuntimeError', reaped['reason']
+        end
+
         # Async: explicit collect_deadline_seconds_override above the auto-min wins.
         def test_delegate_async_respects_explicit_override
           reviewers = [{ provider: 'codex', model: 'codex-default', role_label: 'codex' }]
@@ -1159,6 +1331,7 @@ module KairosMcp
           result = nil
           with_stubbed_worker_spawner do
             result = @tool.send(:delegate_response_async,
+              token: make_run_token, review_spec: nil,
               reviewers: reviewers,
               messages: [{ 'role' => 'user', 'content' => 'x' }],
               system_prompt: 'sys',
@@ -1260,7 +1433,7 @@ module KairosMcp
           })
           payload = JSON.parse(result.first[:text])
           assert_equal 'ok', payload['status']
-          assert_equal 'APPROVE', payload['verdict']
+          assert_equal 'APPROVE', payload['reference_verdict']
           # 2 subprocess + 1 assembled orchestrator = 3 reviews
           assert_equal 3, payload['reviews'].size
           # Orchestrator entry has the synthesized role_label
@@ -1329,7 +1502,165 @@ module KairosMcp
           assert_equal 3, retried['reviews'].size
           assert_equal 2, retried['persona_count']
           assert_equal 2, retried['llm_calls']
-          assert_equal 'APPROVE', retried['verdict']
+          assert_equal 'APPROVE', retried['reference_verdict']
+        end
+
+        # v0.7 INV-R1/R4: the refusal is an event on the accepting side, and
+        # the run's final record carries it — facts and cause, never the
+        # refused body. The sidecar is written under the collect lock and read
+        # by the collect that succeeds.
+        def test_a_refusal_is_readable_from_the_final_record
+          token = PendingState.generate_token
+          write_state(token)
+          bad = [
+            { 'persona' => 'architect', 'verdict' => 'LGTM',
+              'reasoning' => 'this body must not be stored', 'findings' => [] }
+          ]
+          refused = JSON.parse(@collect.call({
+            'collect_token' => token, 'orchestrator_reviews' => bad
+          }).first[:text])
+          assert_equal 'error', refused['status']
+
+          retried = JSON.parse(@collect.call({
+            'collect_token' => token, 'orchestrator_reviews' => good_reviews
+          }).first[:text])
+
+          assert_equal 'ok', retried['status']
+          refusals = retried['refused_submissions']
+          assert_equal 1, refusals.size
+          entry = refusals.first
+          assert_equal 'persona_validation', entry['stage']
+          assert_equal 1, entry['submission_count']
+          assert_match(/not a verdict/, entry['reason'])
+          refute_match(/this body must not be stored/, JSON.generate(refusals),
+                       'the refused body must not be stored')
+
+          # A run with no refusal shows none — silence, not an empty column.
+          token2 = PendingState.generate_token
+          write_state(token2)
+          clean = JSON.parse(@collect.call({
+            'collect_token' => token2, 'orchestrator_reviews' => good_reviews
+          }).first[:text])
+          refute clean.key?('refused_submissions')
+        end
+
+        # v0.7 R2: the record-side columns, held where they land rather than
+        # where they are computed (R1 P0: mutation showed serialize/deserialize
+        # columns deletable with every suite green).
+        def test_new_columns_survive_the_pending_state_round_trip
+          review = {
+            role_label: 'r', provider: 'codex', model: 'm', model_declared: 'm',
+            model_observed: 'm2', model_source: 'observed', model_divergence: true,
+            api_error_status: 'retried_once', fast_mode_state: 'off',
+            artifact_delivery: 'by_reference',
+            raw_text: 'x', elapsed_seconds: 1, error: nil, status: :success,
+            usage: nil
+          }
+          round_tripped = ReviewSerializer.deserialize(ReviewSerializer.serialize(review))
+
+          assert_equal 'retried_once', round_tripped[:api_error_status]
+          assert_equal 'off', round_tripped[:fast_mode_state]
+          assert_equal 'by_reference', round_tripped[:artifact_delivery]
+
+          row = ReviewSerializer.payload_row(round_tripped.merge(verdict: 'APPROVE'))
+          assert_equal 'retried_once', row['api_error_status']
+          assert_equal 'off', row['fast_mode_state']
+          assert_equal 'by_reference', row['artifact_delivery']
+        end
+
+        def test_stated_text_reaches_row_and_composition
+          review = { role_label: 'r', status: :success,
+                     raw_text: "**Overall Verdict**: LGTM\n\nP0: real finding here" }
+          parsed = Consensus.extract_verdict(review)
+          row = ReviewSerializer.payload_row(parsed)
+          assert_equal 'LGTM', row['stated_text']
+
+          comp = Consensus.aggregate([review], '3/5 APPROVE', min_quorum: 1)
+          observer = comp[:convergence][:denominator_composition][:observers].first
+          assert_equal 'LGTM', observer[:stated_text]
+        end
+
+        # v0.7 R2 (INV-R3): the persona rows land in the record.
+        def test_persona_rows_reach_the_final_record
+          token = PendingState.generate_token
+          write_state(token)
+          mixed = [
+            { 'persona' => 'architect', 'verdict' => 'REJECT',
+              'reasoning' => 'broken', 'findings' => [] },
+            { 'persona' => 'security', 'verdict' => 'APPROVE',
+              'reasoning' => 'fine', 'findings' => [] }
+          ]
+          payload = JSON.parse(@collect.call({
+            'collect_token' => token, 'orchestrator_reviews' => mixed
+          }).first[:text])
+
+          team = payload['reviews'].find { |r| r['role_label'].start_with?('claude_team_') }
+          assert_equal [{ 'persona' => 'architect', 'verdict' => 'REJECT' },
+                        { 'persona' => 'security', 'verdict' => 'APPROVE' }],
+                       team['persona_rows']
+          # R3 P0: the derivation rule must reach the durable record too, and
+          # as a literal — the producer-side constant cannot vouch for it.
+          assert_equal 'precedence:REJECT>REVISE>APPROVE', team['verdict_derivation']
+        end
+
+        # v0.7 R2 (INV-R3/R4): declared vs submitted persona counts.
+        def test_declared_persona_count_reaches_the_final_record
+          token = PendingState.generate_token
+          write_state(token, 'persona_count_declared' => 3)
+          payload = JSON.parse(@collect.call({
+            'collect_token' => token, 'orchestrator_reviews' => good_reviews
+          }).first[:text])
+
+          assert_equal 3, payload['persona_count_declared']
+          assert_equal 2, payload['persona_count']
+        end
+
+        # v0.7 R2 (INV-R6): review_spec survives the state round trip into the
+        # final record (R1 P0: the read leg was deletable with every suite
+        # green).
+        def test_review_spec_reaches_the_final_record_from_state
+          token = PendingState.generate_token
+          spec = { 'path' => 'docs/spec.md', 'sha256' => 'abc' }
+          write_state(token, 'review_spec' => spec)
+          payload = JSON.parse(@collect.call({
+            'collect_token' => token, 'orchestrator_reviews' => good_reviews
+          }).first[:text])
+
+          assert_equal spec, payload['review_spec']
+        end
+
+        # v0.7 R2: a synchronous collect writes the collected.json sidecar, so
+        # the completed record is pinned by the same filename the parallel
+        # path uses (R1 P0: the sync final record lived only inline in state
+        # and was reaped with a false cause).
+        def test_sync_collect_writes_the_collected_sidecar
+          token = PendingState.generate_token
+          write_state(token)
+          payload = JSON.parse(@collect.call({
+            'collect_token' => token, 'orchestrator_reviews' => good_reviews
+          }).first[:text])
+          assert_equal 'ok', payload['status']
+
+          assert File.exist?(PendingState.collected_path(token))
+          cached = PendingState.load_collected(token)
+          assert_equal 'APPROVE', cached['final_payload']['reference_verdict']
+        end
+
+        # v0.7 R2: a token abandoned with a terminal note answers with the
+        # note's cause, not with expired_or_unknown (R1 P1: a terminal token
+        # still looked collectible).
+        def test_a_terminated_token_answers_with_its_recorded_cause
+          token = PendingState.generate_token
+          PendingState.create_token_dir!(token)
+          PendingState.atomic_write_json(PendingState.reaped_path(token), {
+            'reaped_at' => Time.now.iso8601, 'reason' => 'worker_spawn_failed:RuntimeError'
+          })
+          payload = JSON.parse(@collect.call({
+            'collect_token' => token, 'orchestrator_reviews' => good_reviews
+          }).first[:text])
+
+          assert_equal 'terminated_run', payload['status']
+          assert_equal 'worker_spawn_failed:RuntimeError', payload['reason']
         end
 
         def test_idempotent_replay
@@ -1355,7 +1686,10 @@ module KairosMcp
           assert_equal 'expired_or_unknown_token', payload['status']
         end
 
-        def test_too_few_personas_rejected
+        # v0.7 INV-R4: a submission smaller than what was convened is not
+        # refused. One persona is one accepted row; the seat counts through
+        # the ordinary rules and the shortfall is the record's business.
+        def test_a_single_persona_submission_collects
           token = PendingState.generate_token
           write_state(token)
           result = @collect.call({
@@ -1363,8 +1697,26 @@ module KairosMcp
             'orchestrator_reviews' => [good_reviews.first]
           })
           payload = JSON.parse(result.first[:text])
-          assert_equal 'error', payload['status']
-          assert_match(/at least #{PersonaAssembly::MIN_PERSONAS}/, payload['error'])
+          assert_equal 'ok', payload['status']
+          assert_equal 1, payload['persona_count']
+        end
+
+        # And an empty submission is a seat that leaves the denominator with
+        # its cause on the record — never a manufactured APPROVE.
+        def test_an_empty_persona_submission_is_a_recorded_absence
+          token = PendingState.generate_token
+          write_state(token)
+          result = @collect.call({
+            'collect_token' => token,
+            'orchestrator_reviews' => []
+          })
+          payload = JSON.parse(result.first[:text])
+          assert_equal 'ok', payload['status']
+          team = payload['reviews'].find { |r| r['role_label'].start_with?('claude_team_') }
+          assert_equal 'SKIP', team['verdict']
+          assert_equal 'empty_persona_submission', team['skip_reason']
+          # The two subprocess approvals still carry the reference tally.
+          assert_equal 'APPROVE', payload['reference_verdict']
         end
 
         def test_orchestrator_reject_propagates_to_consensus
@@ -1383,7 +1735,7 @@ module KairosMcp
           })
           payload = JSON.parse(result.first[:text])
           # subprocess approved, orchestrator team rejected → REVISE per any-REJECT rule
-          assert_equal 'REVISE', payload['verdict']
+          assert_equal 'REVISE', payload['reference_verdict']
         end
 
         def test_validation_error_tagged_with_error_class

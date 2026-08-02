@@ -179,7 +179,12 @@ module KairosMcp
         # asserted nothing about who used it, so it stayed green while the
         # parallel path — the default shape — never adopted it at all, and
         # kept the defect the helper was written for.
-        def test_neither_delegation_path_leaves_a_half_made_token
+        # v0.7 INV-R4: a run that fails while being created is not erased and
+        # not left half-made. What stays is exactly the minimal trace — the
+        # marker written at dispatch and the terminal note naming the failure
+        # — and no state.json; collect reads the note and answers
+        # terminated_run rather than pretending the run is pending.
+        def test_a_failed_creation_leaves_the_trace_and_nothing_else
           { 'sync' => false, 'parallel' => true }.each do |name, parallel|
             original = PendingState.method(:write_state)
             # What a full disk does, at the first write after the directory
@@ -198,7 +203,13 @@ module KairosMcp
             end
 
             leftovers = Dir.glob(File.join(PendingState.root_dir, '*'))
-            assert_empty leftovers, "the #{name} path left #{leftovers.inspect}"
+            assert_equal 1, leftovers.size, "the #{name} path left #{leftovers.inspect}"
+            files = Dir.glob(File.join(leftovers.first, '*')).map { |f| File.basename(f) }.sort
+            assert_equal %w[marker.json reaped.json], files,
+                         "the #{name} path's trace held #{files.inspect}"
+            reason = JSON.parse(File.read(File.join(leftovers.first, 'reaped.json')))['reason']
+            assert_equal 'creation_failed', reason
+            FileUtils.rm_rf(leftovers.first)
           end
         end
 
@@ -739,6 +750,269 @@ module KairosMcp
             assert mapped.first.key?(key), "worker dropped #{key}"
           end
           assert_equal 'gpt-5.4', mapped.first['model_observed']
+        end
+      end
+
+      # v0.7 record schema (design frozen 2026-08-01), driven through the
+      # tool's own call body: the reference tally, the run marker and
+      # completed record, the spec reference, per-seat delivery, and the
+      # divergence-excluded tally.
+      class TestV07RecordSchema < Minitest::Test
+        REVIEW_TEXT = "**Overall Verdict**: APPROVE\n\n" \
+                      'Checked the observer set, the denominator and the record.'
+
+        def setup
+          @tmp = Dir.mktmpdir('mlr-v07-')
+          @cwd = Dir.pwd
+          Dir.chdir(@tmp)
+        end
+
+        def teardown
+          Dir.chdir(@cwd)
+          FileUtils.remove_entry(@tmp)
+        end
+
+        # Roster is per-test here because delivery and divergence live on the
+        # slots. The stub records every llm_call so a test can read what each
+        # seat was actually handed.
+        def tool(roster, per_model: {})
+          t = Tools::MultiLlmReview.new
+          cfg = {
+            'reviewers' => roster,
+            'convergence_rule' => '3/5 APPROVE',
+            'min_quorum' => 1,
+            'delegation' => { 'parallel' => { 'default' => false } }
+          }
+          calls = @calls = []
+          t.define_singleton_method(:load_review_config) { cfg }
+          t.define_singleton_method(:invoke_tool) do |_name, args, **_kw|
+            calls << args
+            response = { 'content' => REVIEW_TEXT }
+            extra = per_model[args['model']] || {}
+            response.merge!(extra)
+            [{ text: JSON.generate(
+              'status' => 'ok', 'provider' => 'stub',
+              'response' => response, 'usage' => {}
+            ) }]
+          end
+          t
+        end
+
+        attr_reader :calls
+
+        def run_review(t, args = {})
+          JSON.parse(t.call({
+            'artifact_content' => 'artifact body', 'artifact_name' => 'n',
+            'review_type' => 'design', 'parallel' => false
+          }.merge(args)).first[:text])
+        end
+
+        def roster_one
+          [{ 'provider' => 'codex', 'model' => 'gpt-5.5', 'role_label' => 'c' }]
+        end
+
+        # INV-R2: the reference value is not the conclusion column, and the
+        # record says which schema it speaks.
+        def test_single_phase_payload_carries_reference_not_conclusion
+          out = run_review(tool(roster_one))
+
+          assert_equal 'ok', out['status']
+          assert_equal 'APPROVE', out['reference_verdict']
+          refute out.key?('verdict'), 'the conclusion column must be gone'
+          assert_equal 2, out['verdict_schema_version']
+        end
+
+        # INV-R4: the marker is written at dispatch, the completed record
+        # supersedes it, and the response names the token that finds both.
+        def test_single_phase_run_leaves_marker_and_completed_record
+          out = run_review(tool(roster_one))
+
+          token = out['run_token']
+          assert PendingState.valid_token?(token)
+          assert File.exist?(PendingState.marker_path(token))
+          completed = JSON.parse(File.read(PendingState.completed_path(token)))
+          assert_equal 'APPROVE', completed['final_payload']['reference_verdict']
+
+          # And cleanup does not touch a completed run at any age.
+          result = PendingState.cleanup_expired!(now: Time.now + 999_999)
+          assert_equal 0, result[:removed]
+          assert File.exist?(PendingState.completed_path(token))
+        end
+
+        # INV-R6: the spec reference is recorded verbatim, and the transport
+        # diagnostics ride the row as state tags.
+        def test_review_spec_and_diagnostics_reach_the_record
+          spec = { 'path' => 'docs/spec.md', 'sha256' => 'abc123' }
+          out = run_review(
+            tool(roster_one, per_model: {
+              'gpt-5.5' => { 'api_error_status' => 'retried_once',
+                             'fast_mode_state' => 'off' }
+            }),
+            'review_spec' => spec
+          )
+
+          assert_equal spec, out['review_spec']
+          row = out['reviews'].first
+          assert_equal 'retried_once', row['api_error_status']
+          assert_equal 'off', row['fast_mode_state']
+        end
+
+        # INV-R7: a by_reference seat is handed the manifest, not the body,
+        # and its row says which form it received.
+        def test_by_reference_seat_receives_the_manifest
+          roster = [
+            { 'provider' => 'codex', 'model' => 'gpt-5.5', 'role_label' => 'c',
+              'artifact_delivery' => 'by_reference' },
+            { 'provider' => 'cursor', 'model' => 'composer-2.5', 'role_label' => 'd' }
+          ]
+          out = run_review(tool(roster), 'artifact_path' => 'docs/x.md')
+
+          assert_equal 'ok', out['status']
+          by_model = calls.map { |a| [a['model'], a['messages'].first['content']] }.to_h
+          assert_includes by_model['gpt-5.5'], '<artifact_reference>'
+          assert_includes by_model['gpt-5.5'], 'docs/x.md'
+          assert_includes by_model['gpt-5.5'],
+                          Digest::SHA256.hexdigest('artifact body')
+          refute_includes by_model['gpt-5.5'], 'artifact body'
+          assert_includes by_model['composer-2.5'], 'artifact body'
+
+          deliveries = out['reviews'].map { |r| [r['role_label'], r['artifact_delivery']] }.to_h
+          assert_equal 'by_reference', deliveries['c']
+          assert_equal 'inline', deliveries['d']
+
+          # The same column on the composition's dispatched rows (INV-R7).
+          observers = out['convergence']['denominator_composition']['observers']
+          by_label = observers.map { |o| [o['role_label'], o] }.to_h
+          assert_equal 'by_reference', by_label['c']['artifact_delivery']
+          assert_equal 'inline', by_label['d']['artifact_delivery']
+        end
+
+        # INV-R7: a delivery the seat cannot reach is not dispatched. Not
+        # being delivered is the seat's only outcome, and the composition
+        # carries it with its reason.
+        def test_an_unreachable_delivery_is_refused_not_dispatched
+          roster = [
+            { 'provider' => 'claude_code', 'model' => 'claude-opus-4-6',
+              'role_label' => 'cli', 'artifact_delivery' => 'by_reference' },
+            { 'provider' => 'codex', 'model' => 'gpt-5.5', 'role_label' => 'c' }
+          ]
+          out = run_review(tool(roster), 'artifact_path' => 'docs/x.md',
+                                         'review_context' => 'independent')
+
+          assert_equal 'ok', out['status']
+          assert_equal ['c'], out['reviews'].map { |r| r['role_label'] }
+          observers = out['convergence']['denominator_composition']['observers']
+          refused = observers.find { |o| o['role_label'] == 'cli' }
+          assert_equal false, refused['counted']
+          assert_equal 'by_reference_unreachable_in_sandbox', refused['reason']
+          # v0.7 R2: the excluded branch carries the seat mark and the
+          # delivery form as columns (R1: both were deletable green).
+          assert_equal true, refused['seat']
+          assert_equal 'by_reference', refused['artifact_delivery']
+        end
+
+        def test_by_reference_without_a_path_is_refused
+          roster = [
+            { 'provider' => 'codex', 'model' => 'gpt-5.5', 'role_label' => 'c',
+              'artifact_delivery' => 'by_reference' },
+            { 'provider' => 'cursor', 'model' => 'composer-2.5', 'role_label' => 'd' }
+          ]
+          out = run_review(tool(roster))
+
+          observers = out['convergence']['denominator_composition']['observers']
+          refused = observers.find { |o| o['role_label'] == 'c' }
+          assert_equal 'by_reference_without_artifact_path', refused['reason']
+        end
+
+        def test_an_unknown_delivery_form_is_a_roster_fault
+          roster = [
+            { 'provider' => 'codex', 'model' => 'gpt-5.5', 'role_label' => 'c',
+              'artifact_delivery' => 'telepathy' }
+          ]
+          out = run_review(tool(roster))
+
+          assert_equal 'error', out['status']
+          assert_match(/unknown artifact_delivery/, out['error'])
+        end
+
+        # INV-R5: the divergent seat stays in the denominator, and the tally
+        # without it is carried beside the main one.
+        def test_divergence_excluded_tally_is_carried_beside_the_main_one
+          roster = [
+            { 'provider' => 'codex', 'model' => 'gpt-5.5', 'role_label' => 'c' },
+            { 'provider' => 'cursor', 'model' => 'composer-2.5', 'role_label' => 'd' }
+          ]
+          out = run_review(tool(roster, per_model: {
+            'gpt-5.5' => { 'model_observed' => 'gpt-5-mini' }
+          }))
+
+          assert_equal 2, out['convergence']['approve_count']
+          excl = out['convergence']['excluding_divergent']
+          assert_equal 1, excl['approve_count']
+          assert_equal 1, excl['successful_count']
+
+          divergent = out['reviews'].find { |r| r['role_label'] == 'c' }
+          assert_equal true, divergent['model_divergence']
+        end
+
+        # R2 P0: the write legs, driven through a real dispatch rather than
+        # fabricated state — deleting the marker/state writes must go red
+        # here, not only the collect read.
+        def test_declared_inputs_survive_sync_delegation_into_state
+          out = run_review(tool(roster_one),
+                           'orchestrator_model' => 'claude-opus-5',
+                           'review_spec' => { 'path' => 'docs/s.md', 'sha256' => 'abc' },
+                           'persona_count_declared' => 3)
+
+          assert_equal 'delegation_pending', out['status']
+          token = out['collect_token']
+          state = PendingState.load_state(token)
+          assert_equal({ 'path' => 'docs/s.md', 'sha256' => 'abc' }, state['review_spec'])
+          assert_equal 3, state['persona_count_declared']
+          marker = JSON.parse(File.read(PendingState.marker_path(token)))
+          assert_equal({ 'path' => 'docs/s.md', 'sha256' => 'abc' }, marker['review_spec'])
+          assert_equal 3, marker['persona_count_declared']
+        end
+
+        # R2 (fix 4): a run that crashes after dispatch writes its own cause;
+        # cleanup cannot later call it expired.
+        def test_single_phase_crash_writes_its_own_cause
+          t = tool(roster_one)
+          t.define_singleton_method(:escalation_record) { |*| raise 'post-dispatch boom' }
+          out = run_review(t)
+
+          assert_equal 'error', out['status']
+          dirs = Dir.glob(File.join(PendingState.root_dir, '*'))
+          assert_equal 1, dirs.size
+          reaped = JSON.parse(File.read(File.join(dirs.first, 'reaped.json')))
+          assert_equal 'internal:RuntimeError', reaped['reason']
+        end
+
+        # R2 (fix 4): a completed run whose durable record failed to land says
+        # so in the reply AND in the trace — never a later false 'expired'.
+        def test_completed_write_failure_is_named_in_reply_and_trace
+          original = PendingState.method(:write_completed)
+          PendingState.define_singleton_method(:write_completed) do |*|
+            raise Errno::ENOSPC, 'disk full'
+          end
+          begin
+            out = run_review(tool(roster_one))
+          ensure
+            PendingState.define_singleton_method(:write_completed, original)
+          end
+
+          assert_equal 'ok', out['status']
+          assert_equal 'write_failed:Errno::ENOSPC', out['completed_record']
+          reaped = JSON.parse(File.read(PendingState.reaped_path(out['run_token'])))
+          assert_equal 'completed_record_write_failed:Errno::ENOSPC', reaped['reason']
+        end
+
+        # INV-R3/R4: every composition row is a seat and says so.
+        def test_composition_rows_carry_the_seat_mark
+          out = run_review(tool(roster_one))
+
+          observers = out['convergence']['denominator_composition']['observers']
+          assert observers.all? { |o| o['seat'] == true }
         end
       end
     end

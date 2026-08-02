@@ -479,7 +479,7 @@ module KairosMcp
           )
 
           assert_equal 2, out[:convergence][:threshold]
-          assert_equal 'APPROVE', out[:verdict]
+          assert_equal 'APPROVE', out[:reference_verdict]
         end
 
         # INV-E4

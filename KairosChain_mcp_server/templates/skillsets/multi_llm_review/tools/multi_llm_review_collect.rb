@@ -33,8 +33,12 @@ module KairosMcp
           def description
             'Submit orchestrator-side persona team review to complete a delegated ' \
               'multi_llm_review. Use this only after multi_llm_review returned ' \
-              'status="delegation_pending" with a collect_token. The orchestrator ' \
-              'must provide 2-4 persona reviews (each: persona, verdict, findings, reasoning).'
+              'status="delegation_pending" with a collect_token. Provide the persona ' \
+              "reviews (recommended #{PersonaAssembly::RECOMMENDED_MIN_PERSONAS}-" \
+              "#{PersonaAssembly::MAX_PERSONAS}; each: persona, verdict, findings, " \
+              'reasoning). A submission smaller than what was convened — including ' \
+              'empty — is accepted; the shortfall moves the seat out of the ' \
+              'denominator with its cause on the record.'
           end
 
           def category
@@ -156,6 +160,25 @@ module KairosMcp
               end
             end
 
+            # A run already reduced to its trace, or abandoned with a terminal
+            # note, is not collectible — and saying "expired_or_unknown" about
+            # it would repeat the false-cause shape INV-R4 forbids. The note
+            # says what actually happened; this answer relays it.
+            reaped_path = PendingState.reaped_path(token) rescue nil
+            if reaped_path && File.exist?(reaped_path)
+              reaped = begin
+                JSON.parse(File.read(reaped_path))
+              rescue StandardError
+                {}
+              end
+              return text_content(JSON.generate({
+                'status' => 'terminated_run',
+                'collect_token' => token,
+                'reason' => reaped['reason'],
+                'reaped_at' => reaped['reaped_at']
+              }.compact))
+            end
+
             state = PendingState.load_state(token)
             if state.nil?
               # Distinguish corrupt legacy single-file from simply-missing so
@@ -202,6 +225,26 @@ module KairosMcp
                 reviews, state['persona_model'] || state['orchestrator_model']
               )
             rescue ArgumentError => e
+              # INV-R1/R4: the refusal is an event on the accepting side, and
+              # it is recorded by the system — facts and cause, never the
+              # refused body. Under the v0.3 directory layout this runs inside
+              # collect.lock's flock; a v0.2.x legacy single-file token has no
+              # directory to lock on its first refusal, so that append runs
+              # unlocked (atomic write, lost-update window only — declared
+              # residual). The token survives the refusal; the corrected
+              # submission collects, reads the sidecar, and the refusal
+              # appears in the run's final record.
+              begin
+                PendingState.append_refusal(token, {
+                  'refused_at' => Time.now.iso8601,
+                  'stage' => 'persona_validation',
+                  'reason' => e.message.to_s[0, 200],
+                  'submission_count' => (reviews.respond_to?(:size) ? reviews.size : nil)
+                }.compact)
+              rescue StandardError => sidecar_err
+                warn "[multi_llm_review_collect] refusal sidecar write failed: " \
+                     "#{sidecar_err.class}: #{sidecar_err.message}"
+              end
               return text_content(JSON.generate({
                 'status' => 'error',
                 'error' => "invalid orchestrator_reviews: #{e.message}"
@@ -287,7 +330,7 @@ module KairosMcp
               f.merge('issue' => Sanitizer.sanitize_finding_text(f['issue']))
             end
             feedback_text =
-              case consensus[:verdict]
+              case consensus[:reference_verdict]
               when 'APPROVE' then nil
               when 'INSUFFICIENT'
                 FeedbackFormatter.build_insufficient(consensus[:convergence][:reason] || 'quorum not met')
@@ -299,7 +342,9 @@ module KairosMcp
               'status' => 'ok',
               'verdict_schema_version' => BuildReviewBundle::VERDICT_SCHEMA_VERSION,
               'feedback_text_schema_version' => FeedbackFormatter::SCHEMA_VERSION,
-              'verdict' => consensus[:verdict],
+              # INV-R2: a reference value, not the run's conclusion. The run is
+              # closed by the operator's declaration, outside this record.
+              'reference_verdict' => consensus[:reference_verdict],
               'feedback_text' => feedback_text,
               'convergence' => hash_to_string_keys(consensus[:convergence]),
               'reviews' => consensus[:reviews].map { |r| ReviewSerializer.payload_row(r) },
@@ -315,8 +360,21 @@ module KairosMcp
               # strategy other than the default — which an explicit persona
               # declaration makes possible.
               'orchestrator_strategy' => state['orchestrator_strategy'] || 'delegate',
-              'persona_model' => state['persona_model']
+              'persona_model' => state['persona_model'],
+              'run_token' => token
             }
+            # INV-R6: what the run intended to pass, when it was declared.
+            payload['review_spec'] = state['review_spec'] if state['review_spec']
+            # INV-R3/R4: the declared convened count beside the submitted one
+            # (persona_count above), so a shortfall is readable as their
+            # difference. Omitted when nothing was declared.
+            if state['persona_count_declared']
+              payload['persona_count_declared'] = state['persona_count_declared']
+            end
+            # INV-R1/R4: submissions refused at the acceptance gate before this
+            # one, readable from the same run's record. Omitted when none.
+            refusals = PendingState.load_refusals(token)
+            payload['refused_submissions'] = refusals unless refusals.empty?
 
             # v0.3 path: cache via collected.json sidecar (never touches
             # state.json → preserves single-writer invariant §6.3).
@@ -352,7 +410,25 @@ module KairosMcp
                 end
               end
             else
-              # Non-parallel path: the cache lives inline in the state.
+              # Non-parallel path: the cache lives inline in the state, and —
+              # since v0.7 — in collected.json as well. The sidecar is what
+              # pins the directory against cleanup by filename and what the
+              # idempotent replay reads first; the inline copy is kept for
+              # pre-v0.7 readers of state.json. Written before the state so a
+              # crash between the two leaves the stronger record, and the
+              # cleanup pin also reads the completion fact from state.json
+              # itself, so neither copy alone is load-bearing.
+              begin
+                PendingState.write_collected(token, {
+                  'schema_version' => 1,
+                  'token' => token,
+                  'collected_at' => Time.now.iso8601,
+                  'final_payload' => payload
+                })
+              rescue StandardError => e
+                warn "[multi_llm_review_collect] collected write failed: #{e.class}: #{e.message}"
+              end
+
               state['collected'] = true
               state['collected_at'] = Time.now.iso8601
               state['final_payload'] = payload

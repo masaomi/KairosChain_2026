@@ -3,6 +3,7 @@
 require 'json'
 require 'yaml'
 require 'time'
+require 'digest'
 require_relative '../lib/multi_llm_review/prompt_builder'
 require_relative '../lib/multi_llm_review/consensus'
 require_relative '../lib/multi_llm_review/dispatcher'
@@ -85,6 +86,25 @@ module KairosMcp
                   type: 'string',
                   description: 'Identifier for the artifact (e.g., "design_v0.3")'
                 },
+                artifact_path: {
+                  type: 'string',
+                  description: 'Repository path of the artifact original (INV-R7). ' \
+                    'Required for any roster slot configured with ' \
+                    'artifact_delivery: by_reference — those slots receive this path ' \
+                    'plus a sha256 computed over artifact_content instead of the ' \
+                    'inlined body. Slots delivered inline ignore it.'
+                },
+                review_spec: {
+                  type: 'object',
+                  description: 'Reference to the pre-declared review spec this run ' \
+                    'intends to pass (INV-R6). Recorded verbatim in the run record; ' \
+                    'the system does not verify it — path + sha256 are how a reader ' \
+                    'checks identity.',
+                  properties: {
+                    path: { type: 'string' },
+                    sha256: { type: 'string' }
+                  }
+                },
                 review_type: {
                   type: 'string',
                   enum: %w[design implementation fix_plan document],
@@ -116,6 +136,14 @@ module KairosMcp
                     'raises the required agreement, since the rule is a ratio. ' \
                     'Default false.',
                   default: false
+                },
+                persona_count_declared: {
+                  type: 'integer',
+                  description: 'How many personas the caller intends to convene ' \
+                    '(INV-R3: the convened set is declared at dispatch and enters ' \
+                    'the record). Recorded verbatim; the submitted count is recorded ' \
+                    'separately at collect, so a shortfall is readable as the ' \
+                    'difference. Optional — omission is recorded as silence.'
                 },
                 persona_model: {
                   type: %w[string null],
@@ -192,6 +220,10 @@ module KairosMcp
           end
 
           def call(arguments)
+            # Defined before any work so the method-level rescue can tell a
+            # run that existed (marker on disk) from a request refused before
+            # one did.
+            run_token = nil
             config = load_review_config
 
             # INV-E1: the canonical set is not replaceable from the caller
@@ -323,6 +355,27 @@ module KairosMcp
             complexity = resolve_complexity(arguments, config)
             reviewers = apply_effort_map(reviewers, complexity, config)
 
+            # INV-R7: resolve each seat's delivery form and set aside the seats
+            # no form can reach — computed here, at dispatch build time, before
+            # anything is posted. A seat that is not delivered is not a no-show:
+            # not being delivered is its only outcome. It joins the excluded
+            # slots with its reason and never enters the denominator.
+            begin
+              reviewers, undelivered = resolve_artifact_delivery(
+                reviewers, arguments, review_context
+              )
+            rescue ObserverSet::RosterError => e
+              return text_content(JSON.generate({
+                'status' => 'error', 'error' => e.message
+              }))
+            end
+            unless undelivered.empty?
+              observers.excluded.concat(undelivered)
+              undelivered_labels = undelivered.map { |u| u[:role_label] }
+              observers.escalation_dispatched =
+                observers.escalation_dispatched - undelivered_labels
+            end
+
             # PR3 DRY: dispatch path uses BuildReviewBundle.build_canonical_prompts
             # (shared with multi_llm_review_bundle tool). Same sanitization, same
             # framing, same prompt wording for both paths. Contract: identical
@@ -338,6 +391,51 @@ module KairosMcp
             )
             system_prompt = canonical[:system_prompt]
             messages = canonical[:messages]
+
+            # A run with any by_reference seat carries one message set per
+            # delivery form; the dispatcher hands each seat the set its form
+            # names. Runs without one keep the pre-v0.7 array shape.
+            if reviewers.any? { |r| r[:artifact_delivery] == 'by_reference' }
+              reference = BuildReviewBundle.build_reference_prompts(
+                artifact_path: arguments['artifact_path'],
+                artifact_sha256: Digest::SHA256.hexdigest(arguments['artifact_content'].to_s),
+                artifact_name: arguments['artifact_name'],
+                review_type: arguments['review_type'],
+                review_context: review_context,
+                review_round: review_round,
+                prior_findings: prior_findings
+              )
+              messages = {
+                'inline' => canonical[:messages],
+                'by_reference' => reference[:messages]
+              }
+            end
+
+            review_spec = normalize_review_spec(arguments['review_spec'])
+
+            # INV-R4: the run's existence is marked at dispatch time, on every
+            # path — async, sync, single-phase — and the completed record
+            # supersedes the mark. A run that never completes leaves this mark
+            # and whatever causes are known as its minimal trace; cleanup
+            # reduces, it does not erase.
+            begin
+              run_token = create_token_dir!
+              PendingState.write_marker(run_token, {
+                'token' => run_token,
+                'marked_at' => Time.now.iso8601,
+                'artifact_name' => arguments['artifact_name'],
+                'review_type' => arguments['review_type'],
+                'review_round' => review_round,
+                'review_spec' => review_spec,
+                # INV-R3: the convened persona count is declared at dispatch.
+                'persona_count_declared' => arguments['persona_count_declared']
+              }.compact)
+            rescue StandardError => e
+              return text_content(JSON.generate({
+                'status' => 'error', 'error_class' => 'internal',
+                'error' => "could not create run record: #{e.class}: #{e.message}"
+              }))
+            end
 
             # Dispatch to all reviewers (argument overrides take precedence)
             max_concurrent = arguments['max_concurrent_override'] ||
@@ -358,6 +456,7 @@ module KairosMcp
             parallel_flag = arguments.key?('parallel') ? arguments['parallel'] : parallel_default
             if persona_convened && parallel_flag
               return delegate_response_async(
+                token: run_token, review_spec: review_spec,
                 reviewers: reviewers, messages: messages, system_prompt: system_prompt,
                 arguments: arguments, config: config,
                 orchestrator_model: orchestrator_model, observers: observers,
@@ -382,6 +481,7 @@ module KairosMcp
             # so the orchestrator can submit its persona team review via collect.
             if persona_convened
               return delegate_response(
+                token: run_token, review_spec: review_spec,
                 raw_results: raw_results,
                 arguments: arguments,
                 config: config,
@@ -407,7 +507,7 @@ module KairosMcp
               f.merge('issue' => Sanitizer.sanitize_finding_text(f['issue']))
             end
             feedback_text =
-              case consensus[:verdict]
+              case consensus[:reference_verdict]
               when 'APPROVE' then nil
               when 'INSUFFICIENT'
                 FeedbackFormatter.build_insufficient(consensus[:convergence][:reason] || 'quorum not met')
@@ -419,7 +519,9 @@ module KairosMcp
               'status' => 'ok',
               'verdict_schema_version' => BuildReviewBundle::VERDICT_SCHEMA_VERSION,
               'feedback_text_schema_version' => FeedbackFormatter::SCHEMA_VERSION,
-              'verdict' => consensus[:verdict],
+              # INV-R2: a reference value, not the run's conclusion. The run is
+              # closed by the operator's declaration, outside this record.
+              'reference_verdict' => consensus[:reference_verdict],
               'feedback_text' => feedback_text,
               'convergence' => hash_to_string_keys(consensus[:convergence]),
               'reviews' => consensus[:reviews].map { |r| ReviewSerializer.payload_row(r) },
@@ -431,8 +533,12 @@ module KairosMcp
               'llm_calls' => raw_results.count { |r| r[:status] == :success },
               'orchestrator_model' => orchestrator_model,
               'orchestrator_strategy' => strategy,
-              'excluded_reviewers' => observers.excluded.size
+              'excluded_reviewers' => observers.excluded.size,
+              'run_token' => run_token
             }
+            # Omitted when not declared, rather than nulled: an absent spec is
+            # a fact the record shows by silence.
+            payload['review_spec'] = review_spec if review_spec
 
             # Phase 1.5 — Acknowledgment invariant: articulate which fallback path
             # was actually taken during this invocation. Subprocess reviewers may
@@ -442,8 +548,38 @@ module KairosMcp
             # path. When subprocess-only ran, the path is harness_assisted.
             payload['harness_assistance_used'] = build_acknowledgment(persona_convened, raw_results)
 
+            # INV-R4: the single-phase run completes here, so here is where its
+            # record is constituted — the completed record supersedes the
+            # marker and pins the directory against cleanup. Best-effort: a
+            # failed write must not fail a finished review, but it is warned,
+            # because a run whose record did not land is the thing this
+            # invariant exists to notice.
+            begin
+              PendingState.write_completed(run_token, {
+                'schema_version' => 1,
+                'token' => run_token,
+                'completed_at' => Time.now.iso8601,
+                'final_payload' => payload
+              })
+            rescue StandardError => e
+              # The review finished, so the caller still gets its result — but
+              # a run whose durable record did not land must say so in the
+              # reply AND in the durable trace: the reply is not the record
+              # (INV-R4), and without the note cleanup would later assert this
+              # completed run expired before completion.
+              warn "[multi_llm_review] completed record write failed: #{e.class}: #{e.message}"
+              payload['completed_record'] = "write_failed:#{e.class}"
+              abandon_run(run_token, "completed_record_write_failed:#{e.class}")
+            end
+
             text_content(JSON.generate(payload))
           rescue StandardError => e
+            # INV-R4: a run that existed (its marker is on disk) and stopped on
+            # an exception writes its own cause now, while the exception class
+            # is in hand — otherwise cleanup would later invent "expired" for a
+            # run that crashed. A request refused before any token existed has
+            # nothing to note.
+            abandon_run(run_token, "internal:#{e.class}") if run_token
             text_content(JSON.generate({
               'status' => 'error',
               'error' => "#{e.class}: #{e.message}"
@@ -552,34 +688,127 @@ module KairosMcp
             raise 'could not generate unique token dir after 10 attempts'
           end
 
-          # The directory exists before the state is written, so a failed write
-          # leaves a token whose directory is there and whose state is not.
-          # load_state then returns nil and collect answers
-          # `expired_or_unknown_token` — telling the caller its token ran out
-          # when in fact this call never finished creating it. Removing the
-          # directory makes the failure be the failure it was.
+          # INV-R4 replaces the old rollback (rm_rf of the half-created token
+          # dir) with trace preservation: a run that failed while being created
+          # keeps its marker, gains a terminal note naming the failure, and
+          # loses only its partial working files. The note also pins the
+          # directory, so cleanup leaves the trace alone, and collect answers
+          # `terminated_run` with the note's cause — the fact that the run was
+          # posted, and why it stopped, both survive.
           # `ensure` rather than `rescue StandardError`: an Interrupt during a
           # long delegation is the realistic way this fails, and it is not a
-          # StandardError. The cleanup's own failure is swallowed so it cannot
-          # replace the exception that caused it — losing the real error to a
-          # read-only filesystem would be the second-worst outcome after
-          # losing the token.
-          def with_token_dir
-            token = create_token_dir!
+          # StandardError. The trace-keeping's own failure is swallowed so it
+          # cannot replace the exception that caused it.
+          def preserve_trace_on_failure(token)
             done = false
             begin
-              yield token
+              result = yield
               done = true
+              result
             ensure
               unless done
                 begin
-                  FileUtils.rm_rf(PendingState.token_dir(token))
+                  abandon_run(token, 'creation_failed')
+                  strip_to_trace(token)
                 rescue StandardError => e
-                  warn "[multi_llm_review] token dir cleanup failed: #{e.class}: #{e.message}"
+                  warn "[multi_llm_review] trace preservation failed: #{e.class}: #{e.message}"
                 end
               end
             end
-            token
+          end
+
+          # Delete a token dir's working files, keeping only the trace
+          # (marker, terminal note, recorded refusals). The same reduction
+          # cleanup performs on expiry, done eagerly where the terminal cause
+          # is already known.
+          def strip_to_trace(token)
+            Dir.glob(File.join(PendingState.token_dir(token), '*')).each do |f|
+              next if PendingState::TRACE_KEEP_FILES.include?(File.basename(f))
+
+              FileUtils.rm_rf(f)
+            end
+          rescue StandardError => e
+            warn "[multi_llm_review] trace reduction failed: #{e.class}: #{e.message}"
+          end
+
+          # INV-R4: a run that stops before completing keeps its marker and
+          # gains the cause known at the point it stopped, in the same terminal
+          # note cleanup writes when it reduces an expired run. The note makes
+          # the trace final: cleanup does not touch a noted directory again.
+          # The FIRST terminal note wins — the writer nearest the failure knows
+          # the most specific cause, and the method-level rescue that fires
+          # after it must not overwrite that with its generic wrapper (the same
+          # rule PendingState.transition_to_terminal! applies to worker
+          # statuses).
+          def abandon_run(token, reason)
+            return if File.exist?(PendingState.reaped_path(token))
+
+            PendingState.atomic_write_json(PendingState.reaped_path(token), {
+              'reaped_at' => Time.now.iso8601,
+              'reason' => reason
+            })
+          rescue StandardError => e
+            warn "[multi_llm_review] terminal note write failed: #{e.class}: #{e.message}"
+          end
+
+          # INV-R6: recorded verbatim — path plus sha256 is the reader's way of
+          # checking identity, and the system does not open the file.
+          def normalize_review_spec(spec)
+            return nil unless spec.is_a?(Hash)
+
+            normalized = {
+              'path' => spec['path'] || spec[:path],
+              'sha256' => spec['sha256'] || spec[:sha256]
+            }.compact
+            normalized.empty? ? nil : normalized
+          end
+
+          DELIVERY_FORMS = %w[inline by_reference].freeze
+
+          # INV-R7. Returns [deliverable_reviewers, undelivered_exclusions].
+          # Every returned reviewer carries an explicit :artifact_delivery so
+          # the record never has to infer the form later. Reachability is
+          # decided here, at dispatch build time:
+          #   - by_reference without an artifact_path has no original to point
+          #     at, so there is nothing to deliver;
+          #   - by_reference into the claude CLI sandbox is undeliverable by
+          #     measurement (2026-07-31: the sandbox cannot read the
+          #     repository), and delivering it anyway would manufacture a
+          #     non-answer, which the invariant forbids.
+          # An undelivered seat's only outcome is "not delivered, with its
+          # reason"; INV-R4's absence handling does not apply to it.
+          def resolve_artifact_delivery(reviewers, arguments, review_context)
+            artifact_path = arguments['artifact_path'].to_s.strip
+            deliverable = []
+            undelivered = []
+
+            reviewers.each do |r|
+              form = (r[:artifact_delivery] || 'inline').to_s
+              unless DELIVERY_FORMS.include?(form)
+                raise ObserverSet::RosterError,
+                      "reviewer slot #{r[:role_label]} names an unknown " \
+                      "artifact_delivery #{form.inspect}; the forms are: " \
+                      "#{DELIVERY_FORMS.join(', ')}"
+              end
+
+              if form == 'by_reference' && artifact_path.empty?
+                undelivered << { role_label: r[:role_label], model: r[:model],
+                                 artifact_delivery: form,
+                                 reason: 'by_reference_without_artifact_path' }
+                next
+              end
+              if form == 'by_reference' && r[:provider].to_s == 'claude_code' &&
+                 review_context == 'independent'
+                undelivered << { role_label: r[:role_label], model: r[:model],
+                                 artifact_delivery: form,
+                                 reason: 'by_reference_unreachable_in_sandbox' }
+                next
+              end
+
+              deliverable << r.merge(artifact_delivery: form)
+            end
+
+            [deliverable, undelivered]
           end
 
           # INV-E4: whether this run was escalated, and by whom, belongs in the
@@ -608,11 +837,12 @@ module KairosMcp
           # now built in one pass with explicit precedence.
 
           # Build the delegation manifest response. Persists subprocess results
-          # to pending state under a UUID v4 token; orchestrator then submits
-          # its persona team review via multi_llm_review_collect.
-          def delegate_response(raw_results:, arguments:, config:, orchestrator_model:,
-                                observers:, convergence_rule:, min_quorum:,
-                                review_round:, complexity:)
+          # into the run's token directory (created, with its marker, at
+          # dispatch time); orchestrator then submits its persona team review
+          # via multi_llm_review_collect.
+          def delegate_response(token:, review_spec:, raw_results:, arguments:, config:,
+                                orchestrator_model:, observers:, convergence_rule:,
+                                min_quorum:, review_round:, complexity:)
             # Validate the model that will actually stand in the persona
             # position — which is the persona declaration when there is one,
             # and the caller's own declaration otherwise. Validating the caller
@@ -621,6 +851,7 @@ module KairosMcp
             begin
               PersonaAssembly.validate_orchestrator_model!(observers.persona[:model])
             rescue ArgumentError => e
+              abandon_run(token, 'invalid_persona_model_declaration')
               return text_content(JSON.generate({
                 'status' => 'error',
                 'error' => e.message
@@ -632,6 +863,7 @@ module KairosMcp
             # degenerates to "just the orchestrator's persona team" which
             # defeats the multi-model purpose. Fail fast.
             if raw_results.empty?
+              abandon_run(token, 'no_subprocess_reviewers_after_exclusion')
               return text_content(JSON.generate({
                 'status' => 'error',
                 'error' => 'orchestrator_strategy=delegate requires at least one non-orchestrator reviewer; roster is empty after exclusion'
@@ -642,6 +874,7 @@ module KairosMcp
             # writing pending state — there's nothing useful for collect to merge.
             successful = raw_results.count { |r| r[:status] == :success }
             if successful == 0
+              abandon_run(token, 'all_subprocess_reviewers_failed')
               return text_content(JSON.generate({
                 'status' => 'error',
                 'error' => 'all subprocess reviewers failed',
@@ -665,42 +898,47 @@ module KairosMcp
             # delegation the lock was silently skipped and two collects on one
             # token could both run consensus and both write the cache. The
             # storage layout is not what decides whether a run is serialised.
-            token = with_token_dir do |t|
-            PendingState.write_state(t, {
-              'token' => t,
-              'created_at' => now.iso8601,
-              'collect_deadline' => (now + deadline_secs).iso8601,
-              'review_type' => arguments['review_type'],
-              'artifact_name' => arguments['artifact_name'],
-              'review_round' => review_round,
-              'complexity' => complexity,
-              'orchestrator_model' => orchestrator_model,
-              # INV-P1 / INV-E4: the persona model is a declaration, and the
-              # slots that never ran are part of how the denominator came out.
-              # Both have to survive into collect, which is where the record is
-              # finally written.
-              # The strategy that actually ran, so collect does not report a
-              # constant. `strategy` itself is call-local, so it is re-derived
-              # from the same two sources the call body used.
-              'orchestrator_strategy' => arguments['orchestrator_strategy'] ||
-                                         config['default_orchestrator_strategy'] || 'delegate',
-              'persona_model' => observers.persona[:model],
-              'persona_independent' => observers.persona[:independent],
-              'excluded_slots' => observers.excluded.map { |e| hash_to_string_keys(e) },
-              'escalation' => escalation_record(observers),
-              'convergence_rule' => convergence_rule,
-              'min_quorum' => min_quorum,
-              # Stated rather than left to collect's legacy default, now that
-              # this path looks like the parallel one from the outside.
-              'parallel' => false,
-              'subprocess_results' => raw_results.map { |r| serialize_review(r) },
-              'collected' => false
-            })
+            preserve_trace_on_failure(token) do
+              PendingState.write_state(token, {
+                'token' => token,
+                'created_at' => now.iso8601,
+                'collect_deadline' => (now + deadline_secs).iso8601,
+                'review_type' => arguments['review_type'],
+                'artifact_name' => arguments['artifact_name'],
+                'review_round' => review_round,
+                'complexity' => complexity,
+                'orchestrator_model' => orchestrator_model,
+                # INV-P1 / INV-E4: the persona model is a declaration, and the
+                # slots that never ran are part of how the denominator came out.
+                # Both have to survive into collect, which is where the record is
+                # finally written.
+                # The strategy that actually ran, so collect does not report a
+                # constant. `strategy` itself is call-local, so it is re-derived
+                # from the same two sources the call body used.
+                'orchestrator_strategy' => arguments['orchestrator_strategy'] ||
+                                           config['default_orchestrator_strategy'] || 'delegate',
+                'persona_model' => observers.persona[:model],
+                'persona_independent' => observers.persona[:independent],
+                'excluded_slots' => observers.excluded.map { |e| hash_to_string_keys(e) },
+                'escalation' => escalation_record(observers),
+                'convergence_rule' => convergence_rule,
+                'min_quorum' => min_quorum,
+                # INV-R6: what this run intends to pass, carried to where the
+                # record is finally written.
+                'review_spec' => review_spec,
+                # INV-R3: the declared convened count, beside which collect
+                # records the submitted count.
+                'persona_count_declared' => arguments['persona_count_declared'],
+                # Stated rather than left to collect's legacy default, now that
+                # this path looks like the parallel one from the outside.
+                'parallel' => false,
+                'subprocess_results' => raw_results.map { |r| serialize_review(r) },
+                'collected' => false
+              }.compact)
 
               # Phase 2 flocks this file; it exists here for the same reason it
-              # exists on the parallel path. Inside the block, so that a token
-              # directory without its lock is not left behind either.
-              FileUtils.touch(PendingState.collect_lock_path(t))
+              # exists on the parallel path.
+              FileUtils.touch(PendingState.collect_lock_path(token))
             end
 
             text_content(JSON.generate({
@@ -708,11 +946,13 @@ module KairosMcp
               'collect_token' => token,
               'delegation' => {
                 'instruction' => 'Run persona-based review using your Agent tool. ' \
-                  "Choose #{PersonaAssembly::MIN_PERSONAS}-#{PersonaAssembly::MAX_PERSONAS} " \
+                  "Convene #{PersonaAssembly::RECOMMENDED_MIN_PERSONAS}-#{PersonaAssembly::MAX_PERSONAS} " \
                   'personas appropriate to the artifact and review_type. ' \
-                  'Submit findings via multi_llm_review_collect with the collect_token below.',
+                  'Submit findings via multi_llm_review_collect with the collect_token below. ' \
+                  'A smaller submission than convened is accepted; the shortfall is recorded.',
                 'review_type' => arguments['review_type'],
                 'persona_count_min' => PersonaAssembly::MIN_PERSONAS,
+                'persona_count_recommended_min' => PersonaAssembly::RECOMMENDED_MIN_PERSONAS,
                 'persona_count_max' => PersonaAssembly::MAX_PERSONAS
               },
               'subprocess_done' => successful,
@@ -727,7 +967,8 @@ module KairosMcp
           # a detached worker that runs dispatcher.dispatch in parallel with
           # the orchestrator's persona Agent reviews. Returns a delegation
           # manifest immediately (~50ms).
-          def delegate_response_async(reviewers:, messages:, system_prompt:,
+          def delegate_response_async(token:, review_spec:, reviewers:, messages:,
+                                      system_prompt:,
                                       arguments:, config:, orchestrator_model:, observers:,
                                       convergence_rule:, min_quorum:, review_round:,
                                       complexity:, review_context:,
@@ -735,10 +976,12 @@ module KairosMcp
             begin
               PersonaAssembly.validate_orchestrator_model!(observers.persona[:model])
             rescue ArgumentError => e
+              abandon_run(token, 'invalid_persona_model_declaration')
               return text_content(JSON.generate({ 'status' => 'error', 'error' => e.message }))
             end
 
             if reviewers.empty?
+              abandon_run(token, 'no_subprocess_reviewers_after_exclusion')
               return text_content(JSON.generate({
                 'status' => 'error',
                 'error' => 'delegate+parallel requires at least one non-orchestrator reviewer; roster is empty after exclusion'
@@ -762,62 +1005,77 @@ module KairosMcp
             min_deadline_secs = (worker_lifespan_secs + (poll_interval * 20)).ceil
             deadline_secs = [deadline_secs.to_i, min_deadline_secs].max
 
-            # Same rollback as the synchronous path. Round 8 found this one
-            # still bare: the helper existed, the synchronous caller used it,
-            # and the default delegation shape — this one, which writes three
-            # files and spawns a process — did not. A fix applied to one of two
-            # callers is the shape that keeps recurring here.
-            token = with_token_dir do |t|
-            PendingState.write_request(t, {
-              'token' => t,
-              'reviewers' => reviewers.map { |r| r.transform_keys(&:to_s) },
-              'system_prompt' => system_prompt,
-              'messages' => messages,
-              'review_context' => review_context,
-              'timeout_seconds' => timeout_secs,
-              'max_concurrent' => max_concurrent,
-              'spawned_at' => now.iso8601
-            })
+            # Same trace preservation as the synchronous path. Round 8 found the
+            # rollback helper applied to one of two callers; this ships as one
+            # helper used by both, so the two paths cannot disagree about what a
+            # failed creation leaves behind.
+            preserve_trace_on_failure(token) do
+              PendingState.write_request(token, {
+                'token' => token,
+                'reviewers' => reviewers.map { |r| r.transform_keys(&:to_s) },
+                'system_prompt' => system_prompt,
+                # An Array (every seat inline) or a per-delivery-form Hash
+                # (INV-R7); the worker hands it to the same Dispatcher either
+                # way.
+                'messages' => messages,
+                'review_context' => review_context,
+                'timeout_seconds' => timeout_secs,
+                'max_concurrent' => max_concurrent,
+                'spawned_at' => now.iso8601
+              })
 
-            PendingState.write_state(t, {
-              'schema_version' => 4,
-              'token' => t,
-              'created_at' => now.iso8601,
-              'collect_deadline' => (now + deadline_secs).iso8601,
-              'review_type' => arguments['review_type'],
-              'artifact_name' => arguments['artifact_name'],
-              'review_round' => review_round,
-              'complexity' => complexity,
-              'orchestrator_model' => orchestrator_model,
-              # INV-P1 / INV-E4: the persona model is a declaration, and the
-              # slots that never ran are part of how the denominator came out.
-              # Both have to survive into collect, which is where the record is
-              # finally written.
-              # The strategy that actually ran, so collect does not report a
-              # constant. `strategy` itself is call-local, so it is re-derived
-              # from the same two sources the call body used.
-              'orchestrator_strategy' => arguments['orchestrator_strategy'] ||
-                                         config['default_orchestrator_strategy'] || 'delegate',
-              'persona_model' => observers.persona[:model],
-              'persona_independent' => observers.persona[:independent],
-              'excluded_slots' => observers.excluded.map { |e| hash_to_string_keys(e) },
-              'escalation' => escalation_record(observers),
-              'convergence_rule' => convergence_rule,
-              'min_quorum' => min_quorum,
-              'parallel' => true,
-              'subprocess_status' => 'pending',
-              'crash_reason' => nil,
-              'crashed_at' => nil,
-              'self_timeout_at' => self_timeout_at
-            })
+              async_state = {
+                'schema_version' => 4,
+                'token' => token,
+                'created_at' => now.iso8601,
+                'collect_deadline' => (now + deadline_secs).iso8601,
+                'review_type' => arguments['review_type'],
+                'artifact_name' => arguments['artifact_name'],
+                'review_round' => review_round,
+                'complexity' => complexity,
+                'orchestrator_model' => orchestrator_model,
+                # INV-P1 / INV-E4: the persona model is a declaration, and the
+                # slots that never ran are part of how the denominator came out.
+                # Both have to survive into collect, which is where the record is
+                # finally written.
+                # The strategy that actually ran, so collect does not report a
+                # constant. `strategy` itself is call-local, so it is re-derived
+                # from the same two sources the call body used.
+                'orchestrator_strategy' => arguments['orchestrator_strategy'] ||
+                                           config['default_orchestrator_strategy'] || 'delegate',
+                'persona_model' => observers.persona[:model],
+                'persona_independent' => observers.persona[:independent],
+                'excluded_slots' => observers.excluded.map { |e| hash_to_string_keys(e) },
+                'escalation' => escalation_record(observers),
+                'convergence_rule' => convergence_rule,
+                'min_quorum' => min_quorum,
+                'parallel' => true,
+                'subprocess_status' => 'pending',
+                'crash_reason' => nil,
+                'crashed_at' => nil,
+                'self_timeout_at' => self_timeout_at
+              }
+              # INV-R6/R3: carried to where the record is finally written.
+              # Omitted when not declared (matching the synchronous path), not
+              # nulled.
+              async_state['review_spec'] = review_spec if review_spec
+              if arguments['persona_count_declared']
+                async_state['persona_count_declared'] = arguments['persona_count_declared']
+              end
+              PendingState.write_state(token, async_state)
 
-            # Ensure collect.lock exists for Phase 2's flock.
-            FileUtils.touch(PendingState.collect_lock_path(t))
+              # Ensure collect.lock exists for Phase 2's flock.
+              FileUtils.touch(PendingState.collect_lock_path(token))
             end
 
             begin
               WorkerSpawner.spawn(token: token, dir: PendingState.token_dir(token))
             rescue StandardError => e
+              # Terminal: note the cause AND reduce to the trace, so the dir
+              # does not sit pinned forever holding request.json (which carries
+              # the full prompts) for a run that never started.
+              abandon_run(token, "worker_spawn_failed:#{e.class}")
+              strip_to_trace(token)
               return text_content(JSON.generate({
                 'status' => 'error',
                 'error_class' => 'internal',
@@ -831,11 +1089,13 @@ module KairosMcp
               'parallel' => true,
               'delegation' => {
                 'instruction' => 'Run persona-based review using your Agent tool. ' \
-                  "Choose #{PersonaAssembly::MIN_PERSONAS}-#{PersonaAssembly::MAX_PERSONAS} " \
+                  "Convene #{PersonaAssembly::RECOMMENDED_MIN_PERSONAS}-#{PersonaAssembly::MAX_PERSONAS} " \
                   'personas appropriate to the artifact and review_type. ' \
-                  'Then call multi_llm_review_wait, then multi_llm_review_collect.',
+                  'Then call multi_llm_review_wait, then multi_llm_review_collect. ' \
+                  'A smaller submission than convened is accepted; the shortfall is recorded.',
                 'review_type' => arguments['review_type'],
                 'persona_count_min' => PersonaAssembly::MIN_PERSONAS,
+                'persona_count_recommended_min' => PersonaAssembly::RECOMMENDED_MIN_PERSONAS,
                 'persona_count_max' => PersonaAssembly::MAX_PERSONAS
               },
               'subprocess_status' => 'pending',

@@ -26,6 +26,13 @@ module KairosMcp
             'model_observed' => review[:model_observed],
             'model_source' => review[:model_source],
             'model_divergence' => review[:model_divergence],
+            # INV-R6: transport diagnostics, as state tags — never bodies or
+            # credentials. The adapter has reported these since the 2026-07-31
+            # divergence diagnosis; dropping them here was the gap.
+            'api_error_status' => review[:api_error_status],
+            'fast_mode_state' => review[:fast_mode_state],
+            # INV-R7: the form in which this seat was handed the artifact.
+            'artifact_delivery' => review[:artifact_delivery],
             'raw_text' => review[:raw_text].to_s,
             'elapsed_seconds' => review[:elapsed_seconds],
             'error' => review[:error],
@@ -62,11 +69,24 @@ module KairosMcp
             # the row rather than a missing value.
             'synthetic' => review[:synthetic] || false,
             'verdict' => review[:verdict],
+            # INV-R3: for a persona seat, the rule that derived the seat's
+            # verdict from its rows — and the rows themselves, one per
+            # accepted persona body (name + stated verdict).
+            'verdict_derivation' => review[:verdict_derivation],
+            'persona_rows' => review[:persona_rows],
             # INV-E4: why the denominator moved belongs beside the row, not
             # only in the composition. Carried, never defaulted — the reason is
             # decided where the SKIP is decided, and a default here states a
             # cause this mapping does not know.
             'skip_reason' => (review[:skip_reason] if review[:verdict] == 'SKIP'),
+            # INV-R1: the word a final submission offered where a verdict was
+            # expected, kept as its own column beside the closed reason token.
+            'stated_text' => review[:stated_text],
+            # INV-R6 / INV-R7: transport diagnostics as state tags, and the
+            # delivery form this seat received the artifact in.
+            'api_error_status' => review[:api_error_status],
+            'fast_mode_state' => review[:fast_mode_state],
+            'artifact_delivery' => review[:artifact_delivery],
             'elapsed_seconds' => review[:elapsed_seconds],
             'error' => review[:error],
             'raw_text_length' => review[:raw_text].to_s.length
@@ -85,6 +105,9 @@ module KairosMcp
             # of that silence: it is what was asked for, not what was seen.
             model_source: hash['model_source'] || 'declared',
             model_divergence: hash['model_divergence'],
+            api_error_status: hash['api_error_status'],
+            fast_mode_state: hash['fast_mode_state'],
+            artifact_delivery: hash['artifact_delivery'],
             raw_text: hash['raw_text'].to_s,
             elapsed_seconds: hash['elapsed_seconds'] || 0,
             error: hash['error'],

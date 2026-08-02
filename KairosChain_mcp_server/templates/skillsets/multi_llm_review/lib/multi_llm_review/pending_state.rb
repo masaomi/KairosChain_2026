@@ -54,6 +54,21 @@ module KairosMcp
 
         def state_path(token);              File.join(token_dir(token), 'state.json'); end
         def collected_path(token);          File.join(token_dir(token), 'collected.json'); end
+        # v0.7 INV-R4 — the run's existence mark, written at dispatch time on
+        # every path (async, sync, single-phase), before any work that could
+        # fail. The completed record (collected.json / completed.json)
+        # supersedes it; for a run that never completes, the marker plus
+        # whatever causes are known IS the minimal trace, and cleanup reduces
+        # the directory to that trace instead of removing it.
+        def marker_path(token);             File.join(token_dir(token), 'marker.json'); end
+        # Single-phase runs have no collect; their final record lands here.
+        def completed_path(token);          File.join(token_dir(token), 'completed.json'); end
+        # INV-R1/R4 — refused persona submissions, appended by collect while
+        # it holds collect.lock. Facts and causes only, never the refused body.
+        def refusals_path(token);           File.join(token_dir(token), 'refusals.json'); end
+        # What cleanup writes when it reduces an expired, never-completed run
+        # to its minimal trace.
+        def reaped_path(token);             File.join(token_dir(token), 'reaped.json'); end
         def gc_eligible_path(token);        File.join(token_dir(token), 'gc.eligible'); end
         def request_path(token);            File.join(token_dir(token), 'request.json'); end
         def subprocess_results_path(token); File.join(token_dir(token), 'subprocess_results.json'); end
@@ -91,6 +106,35 @@ module KairosMcp
         def write_request(token, data);            atomic_write_json(request_path(token), data); end
         def write_subprocess_results(token, data); atomic_write_json(subprocess_results_path(token), data); end
         def write_worker_pid(token, data);         atomic_write_json(worker_pid_path(token), data); end
+        def write_marker(token, data);             atomic_write_json(marker_path(token), data); end
+        def write_completed(token, data);          atomic_write_json(completed_path(token), data); end
+
+        # Append one refusal entry. Read-modify-write with no lock of its own:
+        # the only caller is collect, which holds collect.lock (flock) for
+        # call_locked whenever the token DIRECTORY exists. For a v0.2.x
+        # legacy single-file token no directory exists on the first refusal,
+        # so that append runs unlocked (measured 2026-08-02) — the write
+        # itself is atomic (tmp+rename), so the exposure is a lost update
+        # between two simultaneous refusals on a legacy token, not
+        # corruption. Declared residual. A sidecar that fails to parse is
+        # replaced rather than obeyed — losing a prior refusal entry to
+        # corruption is recorded as its own entry.
+        def append_refusal(token, entry)
+          existing = load_json_transient(refusals_path(token))
+          entries = existing.is_a?(Array) ? existing : []
+          if existing && !existing.is_a?(Array)
+            entries << { 'refused_at' => Time.now.iso8601,
+                         'stage' => 'sidecar',
+                         'reason' => 'refusals.json was not a list; prior entries lost' }
+          end
+          entries << entry
+          atomic_write_json(refusals_path(token), entries)
+        end
+
+        def load_refusals(token)
+          data = load_json_transient(refusals_path(token))
+          data.is_a?(Array) ? data : []
+        end
 
         # ──────────────────────────────────────────────────────────────
         # Loaders (transient error handling: ENOENT/ParserError → nil)
@@ -273,12 +317,22 @@ module KairosMcp
         # Cleanup (walks both dir and legacy single-file layouts)
         # ──────────────────────────────────────────────────────────────
 
-        # A directory is reapable iff:
-        #   - past collect_deadline AND
-        #     (heartbeat stale > heartbeat_stale_threshold_seconds
-        #      OR gc.eligible exists
-        #      OR state.subprocess_status == 'self_timed_out')
-        # collected.json presence pins retention until collected_at + retain_collected_seconds.
+        # v0.7 INV-R4 — cleanup no longer erases the fact that a run happened.
+        #
+        # A directory holding a completed record (collected.json or
+        # completed.json) is never reaped: the completed record is the run's
+        # record, and R1–R4 of the very loop that froze this design lost their
+        # records to the 3600-second retention this replaces.
+        #
+        # A directory that is reapable (past collect_deadline AND heartbeat
+        # stale / gc.eligible / self_timed_out — unchanged criteria) is not
+        # removed but REDUCED to its minimal trace: marker.json (synthesized
+        # from state.json if the run predates markers) plus reaped.json naming
+        # when and why. A directory already reduced is left alone.
+        #
+        # The legacy v0.2.x single-file layout keeps its old removal rules:
+        # those are pre-v0.7 records, and the design does not reach back
+        # (design §4, no retroactivity).
         def cleanup_expired!(now: Time.now,
                              retain_collected_seconds: 3600,
                              heartbeat_stale_threshold_seconds: HEARTBEAT_STALE_DEFAULT,
@@ -307,7 +361,7 @@ module KairosMcp
                 if dir_reapable?(name, Time.now, retain_collected_seconds,
                                  heartbeat_stale_threshold_seconds,
                                  stale_no_deadline_seconds)
-                  FileUtils.rm_rf(path)
+                  reduce_to_trace!(name, now)
                   removed += 1
                 end
               end
@@ -383,24 +437,82 @@ module KairosMcp
           { removed: removed, skipped_errors: skipped_errors }
         end
 
+        # What survives a reduction to trace: the existence mark, the terminal
+        # note, and the refusal sidecar — a refusal is a cause the run already
+        # knew and wrote, and INV-R4 keeps known causes readable after the
+        # working files go.
+        TRACE_KEEP_FILES = %w[marker.json reaped.json refusals.json].freeze
+
+        # Reduce a reapable directory to its minimal trace (INV-R4). What
+        # stays: marker.json — synthesized from state.json when the run
+        # predates markers — reaped.json, naming when and what was known,
+        # and refusals.json when refusals were recorded. Everything else
+        # goes. Idempotent: a directory already reduced is detected in
+        # dir_reapable? and never arrives here twice.
+        def reduce_to_trace!(token, now)
+          state = load_state(token)
+
+          unless File.exist?(marker_path(token))
+            write_marker(token, {
+              'token' => token,
+              'marked_at' => (state && state['created_at']) || now.iso8601,
+              'marker_source' => 'synthesized_at_reap',
+              'artifact_name' => state && state['artifact_name'],
+              'review_type' => state && state['review_type'],
+              'review_round' => state && state['review_round']
+            }.compact)
+          end
+
+          refusal_count = load_refusals(token).size
+          write_json = {
+            'reaped_at' => now.iso8601,
+            'reason' => 'expired_before_completion',
+            'collect_deadline' => state && state['collect_deadline'],
+            'subprocess_status' => state && state['subprocess_status'],
+            'crash_reason' => state && state['crash_reason'],
+            'refusal_count' => (refusal_count if refusal_count.positive?)
+          }.compact
+          # First terminal note wins on THIS side too. dir_reapable? already
+          # refuses a noted directory, but a writer near the failure
+          # (abandon_run) can land its specific cause between that check and
+          # this write; the generic 'expired' must not overwrite it. A window
+          # narrower than one File.exist? remains — closing it fully needs a
+          # lock and is backlog, not a rule change.
+          atomic_write_json(reaped_path(token), write_json) unless File.exist?(reaped_path(token))
+
+          Dir.glob(File.join(token_dir(token), '*')).each do |f|
+            next if TRACE_KEEP_FILES.include?(File.basename(f))
+
+            FileUtils.rm_rf(f)
+          end
+        end
+
         # Decide whether a per-token dir is eligible for reap.
-        def dir_reapable?(token, now, retain_collected_seconds,
+        def dir_reapable?(token, now, _retain_collected_seconds,
                           heartbeat_stale_threshold_seconds,
                           stale_no_deadline_seconds)
+          # A completed record pins the directory outright (INV-R4): the
+          # record of a run is not garbage at any age. A directory already
+          # reduced to its trace is equally final.
+          return false if File.exist?(collected_path(token))
+          return false if File.exist?(completed_path(token))
+          return false if File.exist?(reaped_path(token))
+
           state = load_state(token)
+
+          # The pin is the FACT of completion, not a filename. A synchronous
+          # collect (and every pre-v0.7 collect) caches its final record
+          # inline in state.json; reaping such a directory would erase a
+          # completed record and then assert it expired — the exact loss and
+          # false cause this rule exists to prevent.
+          if state && (state['collected'] == true || state['final_payload'])
+            return false
+          end
 
           # No state.json at all — treat as orphan past stale_no_deadline_seconds.
           unless state
             mtime = (File.mtime(token_dir(token)) rescue nil)
             return mtime && now - mtime > stale_no_deadline_seconds
-          end
-
-          # collected.json presence pins to collected_at + retain.
-          if File.exist?(collected_path(token))
-            collected = load_collected(token)
-            collected_at = (Time.iso8601(collected['collected_at']) rescue nil) if collected
-            retain_until = collected_at ? collected_at + retain_collected_seconds : nil
-            return retain_until ? now > retain_until : false
           end
 
           deadline = Time.iso8601(state['collect_deadline']) rescue nil

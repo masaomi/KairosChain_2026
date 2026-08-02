@@ -23,7 +23,13 @@ module KairosMcp
         # Dispatch review prompts to all configured reviewers in parallel.
         #
         # @param reviewers [Array<Hash>] each with :provider, :model, :role_label
-        # @param messages [Array<Hash>] prompt messages for llm_call
+        #   and optionally :artifact_delivery ('inline' | 'by_reference')
+        # @param messages [Array<Hash>, Hash] prompt messages for llm_call.
+        #   An Array is one set of messages for every reviewer (every seat
+        #   inline — the pre-v0.7 shape, still valid). A Hash maps a delivery
+        #   form to its messages ({'inline' => [...], 'by_reference' => [...]})
+        #   and each reviewer receives the set its :artifact_delivery names
+        #   (INV-R7); a form absent from the map falls back to 'inline'.
         # @param system_prompt [String] system prompt for llm_call
         # @param context [InvocationContext] for invoke_tool
         # @param review_context [String] 'independent' or 'project_aware'
@@ -149,8 +155,16 @@ module KairosMcp
           provider = reviewer[:provider] || reviewer['provider']
           model = reviewer[:model] || reviewer['model']
 
+          delivery = reviewer[:artifact_delivery] || reviewer['artifact_delivery']
+          per_seat_messages =
+            if messages.is_a?(Hash)
+              messages[delivery || 'inline'] || messages['inline']
+            else
+              messages
+            end
+
           args = {
-            'messages' => messages,
+            'messages' => per_seat_messages,
             'system' => system_prompt,
             'provider_override' => provider
           }
@@ -192,6 +206,12 @@ module KairosMcp
             model_observed: observed,
             model_source: observed ? 'observed' : 'declared',
             model_divergence: observed && declared && observed != declared,
+            # INV-R6: the transport's own account of the call, as state tags.
+            # The adapter has returned these since the 2026-07-31 divergence
+            # diagnosis; this is where they used to be dropped.
+            api_error_status: llm_response.dig('response', 'api_error_status'),
+            fast_mode_state: llm_response.dig('response', 'fast_mode_state'),
+            artifact_delivery: delivery_of(reviewer),
             raw_text: llm_response.dig('response', 'content') || '',
             elapsed_seconds: elapsed.round(1),
             error: nil,
@@ -214,6 +234,7 @@ module KairosMcp
             model: reviewer[:model] || reviewer['model'],
             model_declared: reviewer[:model] || reviewer['model'],
             model_source: 'declared',
+            artifact_delivery: delivery_of(reviewer),
             elapsed_seconds: elapsed.round(1),
             error: err,
             status: :error
@@ -227,10 +248,18 @@ module KairosMcp
             model: reviewer[:model] || reviewer['model'],
             model_declared: reviewer[:model] || reviewer['model'],
             model_source: 'declared',
+            artifact_delivery: delivery_of(reviewer),
             elapsed_seconds: 0,
             error: { 'type' => 'skip', 'message' => reason },
             status: :skip
           }
+        end
+
+        # INV-R7: what a dispatched seat's record says about its delivery. A
+        # seat with no declaration was delivered inline — that has been the
+        # only form there was, and it is the default the roster inherits.
+        def delivery_of(reviewer)
+          reviewer[:artifact_delivery] || reviewer['artifact_delivery'] || 'inline'
         end
 
         def kill_dispatch_pids(dispatch_id)

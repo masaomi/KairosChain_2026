@@ -175,7 +175,11 @@ module KairosMcp
 
           result = PendingState.cleanup_expired!(heartbeat_stale_threshold_seconds: 15)
           assert_equal 1, result[:removed]
-          refute Dir.exist?(PendingState.token_dir(@token))
+          # v0.7 INV-R4: reaping reduces to a minimal trace, it does not erase.
+          assert Dir.exist?(PendingState.token_dir(@token))
+          refute File.exist?(PendingState.state_path(@token))
+          assert File.exist?(PendingState.marker_path(@token))
+          assert File.exist?(PendingState.reaped_path(@token))
         end
 
         def test_cleanup_respects_gc_eligible_even_with_fresh_heartbeat
@@ -217,7 +221,10 @@ module KairosMcp
           assert Dir.exist?(PendingState.token_dir(@token))
         end
 
-        def test_cleanup_removes_collected_dir_past_retain_window
+        # v0.7 INV-R4: a completed record pins its directory at any age. The
+        # 3600-second retention this replaces deleted the records of rounds
+        # R1-R4 of the loop that froze the design.
+        def test_cleanup_keeps_a_collected_dir_at_any_age
           PendingState.create_token_dir!(@token)
           PendingState.write_state(@token, {
             'collect_deadline' => (Time.now - 7200).iso8601
@@ -227,7 +234,120 @@ module KairosMcp
           })
 
           result = PendingState.cleanup_expired!(retain_collected_seconds: 3600)
+          assert_equal 0, result[:removed]
+          assert File.exist?(PendingState.collected_path(@token))
+        end
+
+        # v0.7 R2: the pin is the FACT of completion, not a filename. A
+        # synchronous collect (and every pre-v0.7 one) caches its final record
+        # inline in state.json; that directory is never reaped (R1 P0: it was,
+        # and the trace then asserted the completed run had expired).
+        def test_cleanup_keeps_a_dir_whose_state_carries_the_completed_record
+          PendingState.create_token_dir!(@token)
+          PendingState.write_state(@token, {
+            'collect_deadline' => (Time.now - 7200).iso8601,
+            'collected' => true,
+            'final_payload' => { 'reference_verdict' => 'APPROVE' }
+          })
+
+          result = PendingState.cleanup_expired!
+          assert_equal 0, result[:removed]
+          state = PendingState.load_state(@token)
+          assert_equal 'APPROVE', state['final_payload']['reference_verdict']
+        end
+
+        # v0.7 R2: recorded refusals survive the reduction, and the terminal
+        # note counts them (R1 P0: refusals.json was deleted at reap).
+        def test_reduction_keeps_recorded_refusals
+          PendingState.create_token_dir!(@token)
+          PendingState.write_state(@token, {
+            'collect_deadline' => (Time.now - 3600).iso8601
+          })
+          PendingState.append_refusal(@token, {
+            'refused_at' => Time.now.iso8601,
+            'stage' => 'persona_validation', 'reason' => 'not a verdict'
+          })
+
+          result = PendingState.cleanup_expired!
           assert_equal 1, result[:removed]
+          assert_equal 1, PendingState.load_refusals(@token).size
+          reaped = JSON.parse(File.read(PendingState.reaped_path(@token)))
+          assert_equal 1, reaped['refusal_count']
+        end
+
+        # R3 P0: the two filename pins, held one by one — deleting either
+        # `return false if File.exist?(...)` line must go red here.
+        def test_cleanup_keeps_a_dir_pinned_by_completed_json
+          PendingState.create_token_dir!(@token)
+          PendingState.write_marker(@token, { 'token' => @token })
+          PendingState.write_completed(@token, {
+            'token' => @token, 'final_payload' => { 'reference_verdict' => 'APPROVE' }
+          })
+          # No state.json at all — exactly what the single-phase path leaves —
+          # aged past the orphan threshold by real mtime.
+          old = Time.now - 200_000
+          Dir.glob(File.join(PendingState.token_dir(@token), '*')).each { |f| File.utime(old, old, f) }
+          File.utime(old, old, PendingState.token_dir(@token))
+
+          PendingState.cleanup_expired!
+          # Asserted on THIS directory's state, not on the sweep's total count:
+          # a stray thread from another test (or another process sharing the
+          # cwd) can add its own reapable dir and move the count (R4 flake,
+          # measured 2026-08-02).
+          assert File.exist?(PendingState.completed_path(@token)),
+                 'the single-phase run\'s only durable record was destroyed'
+          refute File.exist?(PendingState.reaped_path(@token))
+        end
+
+        def test_cleanup_never_overwrites_an_existing_terminal_note
+          PendingState.create_token_dir!(@token)
+          PendingState.atomic_write_json(PendingState.reaped_path(@token), {
+            'reaped_at' => '2020-01-01T00:00:00Z', 'reason' => 'internal:RuntimeError'
+          })
+          # A working file rides along: the reaped-file PIN in dir_reapable?
+          # stops the sweeper from entering at all, so this file surviving is
+          # what detects the pin — the note surviving alone would not, since
+          # reduce_to_trace!'s own write guard also protects it (measured:
+          # R4's codex reviewer predicted exactly this, and the pin-deleted
+          # mutant was green until this assertion was added).
+          PendingState.write_state(@token, { 'collect_deadline' => '2020-01-01T00:00:00Z' })
+          old = Time.now - 200_000
+          Dir.glob(File.join(PendingState.token_dir(@token), '*')).each { |f| File.utime(old, old, f) }
+          File.utime(old, old, PendingState.token_dir(@token))
+
+          PendingState.cleanup_expired!
+          # Asserted on THIS directory's state, not the sweep's total count.
+          reaped = JSON.parse(File.read(PendingState.reaped_path(@token)))
+          assert_equal 'internal:RuntimeError', reaped['reason'],
+                       'the first terminal note must win against the sweeper'
+          assert_equal '2020-01-01T00:00:00Z', reaped['reaped_at']
+          assert File.exist?(PendingState.state_path(@token)),
+                 'the pin must stop the sweeper before it reduces anything'
+        end
+
+        # R4: the sweeper's own write also yields to a note that lands between
+        # its decision and its write (first-note-wins on both writers).
+        def test_reduce_to_trace_yields_to_a_note_that_landed_first
+          PendingState.create_token_dir!(@token)
+          PendingState.write_state(@token, { 'collect_deadline' => (Time.now - 3600).iso8601 })
+          PendingState.atomic_write_json(PendingState.reaped_path(@token), {
+            'reaped_at' => '2020-01-01T00:00:00Z', 'reason' => 'internal:Boom'
+          })
+          PendingState.reduce_to_trace!(@token, Time.now)
+
+          reaped = JSON.parse(File.read(PendingState.reaped_path(@token)))
+          assert_equal 'internal:Boom', reaped['reason']
+          refute File.exist?(PendingState.state_path(@token)), 'working files still go'
+        end
+
+        # A reap-synthesized marker says so (record honesty).
+        def test_synthesized_marker_names_its_source
+          PendingState.create_token_dir!(@token)
+          PendingState.write_state(@token, { 'collect_deadline' => (Time.now - 3600).iso8601 })
+          PendingState.reduce_to_trace!(@token, Time.now)
+
+          marker = JSON.parse(File.read(PendingState.marker_path(@token)))
+          assert_equal 'synthesized_at_reap', marker['marker_source']
         end
 
         def test_cleanup_skip_token

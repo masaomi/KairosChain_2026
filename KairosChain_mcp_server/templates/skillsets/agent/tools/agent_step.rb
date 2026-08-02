@@ -1696,7 +1696,12 @@ module KairosMcp
                 aggregated_findings: [], feedback_text: nil }
             else
               {
-                verdict: parsed['verdict'],
+                # v0.7 record schema (verdict_schema_version 2) renamed the
+                # top-level conclusion column to reference_verdict (INV-R2: a
+                # recorded reference value, not the run's conclusion). v1
+                # records still carry 'verdict'; read whichever the record
+                # speaks.
+                verdict: parsed['reference_verdict'] || parsed['verdict'],
                 convergence: parsed['convergence'],
                 aggregated_findings: (parsed['aggregated_findings'] || []).map { |f|
                   f.transform_keys(&:to_sym)
@@ -1718,7 +1723,9 @@ module KairosMcp
 
           # Phase 12 §3.10 fail-closed schema versioning.
           # Returns nil if response schema is acceptable, else a string reason.
-          SUPPORTED_VERDICT_SCHEMA_VERSION = 1
+          # 2 = v0.7 record schema (2026-08-01): top-level verdict became
+          # reference_verdict; the read above handles both generations.
+          SUPPORTED_VERDICT_SCHEMA_VERSION = 2
           SUPPORTED_FEEDBACK_TEXT_SCHEMA_VERSION = 1
 
           def schema_version_check(parsed)

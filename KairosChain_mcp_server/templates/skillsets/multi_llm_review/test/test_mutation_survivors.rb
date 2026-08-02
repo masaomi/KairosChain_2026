@@ -130,7 +130,7 @@ module KairosMcp
             '***APPROVE***' => 'APPROVE', "\n\n  APPROVE  \n" => 'APPROVE',
             "APPROVE\r\n" => 'APPROVE',
             "\t*REJECT*\n" => 'REJECT', "\nREJECT\n" => 'REJECT',
-            "\n\t**REVISE**\t\n" => 'REVISE', "\nCHANGES REQUIRED\n" => 'REVISE',
+            "\n\t**REVISE**\t\n" => 'REVISE', "\nREVISED\n" => 'REVISE',
             ' REVISE ' => 'REVISE'
           }.each { |value, expected| assert_equal expected, VerdictVocabulary.stated(value), value.inspect }
         end
@@ -177,21 +177,21 @@ module KairosMcp
       # because deriving it means parsing the patterns under test.
       class TestEveryWordInTheVocabulary < Minitest::Test
         FORMS = {
-          'APPROVE' => ['APPROVE', 'APPROVED', 'APPROVES', 'PASS', 'PASSED',
-                        'ACCEPT', 'ACCEPTED', 'LGTM',
-                        'SHIP IT', 'SHIP  IT', 'SHIP_IT', 'SHIPIT', "SHIP\tIT"],
-          'REJECT' => ['REJECT', 'REJECTED', 'FAIL', 'FAILED', 'FAILURE',
-                       'BLOCK', 'BLOCKED', 'BLOCKER', 'BLOCKING',
-                       'NO-GO', 'NO - GO', 'NO GO', 'NO  GO', 'NO_GO', 'NOGO', 'NO--GO',
-                       "NO\tGO",
-                       'NACK', 'DENY', 'VETO'],
-          'REVISE' => ['REVISE', 'REVISED', 'REVISES', 'REWORK',
-                       'CHANGE REQUIRED', 'CHANGES REQUIRED', 'CHANGES  REQUIRED',
-                       'CHANGES_REQUIRED', "CHANGES\tREQUIRED",
-                       'NEED WORK', 'NEEDS WORK', 'NEEDS  WORK', 'NEEDS_WORK',
-                       'NEEDSWORK', "NEEDS\tWORK",
-                       'NEEDS REVISION', 'NEEDS CHANGE', 'NEEDS CHANGES', 'NEEDS  CHANGES']
+          'APPROVE' => %w[APPROVE APPROVED APPROVES APPROVING],
+          'REJECT' => %w[REJECT REJECTED REJECTS REJECTING],
+          'REVISE' => %w[REVISE REVISED REVISES REVISING]
         }.freeze
+
+        # v0.7 INV-R1: every form the pre-v0.7 vocabulary accepted beyond the
+        # three words and their tenses. Each must now be refused as a value
+        # AND left alone by strip — a former alias that still stripped from
+        # prose would hollow out the residue of a review that used it.
+        RETIRED_FORMS = ['PASS', 'PASSED', 'ACCEPT', 'ACCEPTED', 'LGTM',
+                         'SHIP IT', 'SHIP_IT', 'FAIL', 'FAILED', 'FAILURE',
+                         'BLOCK', 'BLOCKED', 'BLOCKER', 'BLOCKING',
+                         'NO-GO', 'NO GO', 'NO_GO', 'NACK', 'DENY', 'VETO',
+                         'CHANGES REQUIRED', 'NEEDS WORK', 'NEEDS REVISION',
+                         'REWORK'].freeze
 
         def test_every_word_states_its_verdict
           FORMS.each do |canonical, forms|
@@ -236,16 +236,14 @@ module KairosMcp
           end
         end
 
-        # The one difference that is meant: a value that spans lines is two
-        # statements, so it is not a verdict; prose that spans lines is prose,
-        # so the search side still finds the word there and `strip` still
-        # removes it. Losing the first half is how the padding rule would be
-        # undone from inside the vocabulary rather than from inside the
-        # padding.
-        def test_a_multi_word_verdict_broken_across_lines_is_not_a_verdict
-          ["SHIP\nIT", "NO\nGO", "NEEDS\nWORK", "CHANGES\nREQUIRED"].each do |form|
+        # v0.7 INV-R1: the retired aliases are outside the vocabulary on both
+        # grammars — refused as a value, and left standing in prose, where
+        # they are now words the reviewer said rather than judgement tokens.
+        def test_retired_forms_are_refused_and_survive_strip
+          RETIRED_FORMS.each do |form|
             assert_nil VerdictVocabulary.stated(form), form.inspect
-            assert_equal '', Consensus.residue(form), "#{form.inspect} should still strip from prose"
+            refute_equal '', Consensus.residue(form),
+                         "#{form.inspect} is prose now and must survive the residue"
           end
         end
       end
@@ -278,9 +276,9 @@ module KairosMcp
         # also the same absence of substance. Found unheld by the round-13
         # targeted sweep (`/i` dropped from two of the three search lines).
         def test_a_lower_case_word_still_strips_from_prose
-          assert_equal '', Consensus.residue('no-go')
-          assert_equal '', Consensus.residue('needs work')
-          assert_equal '', Consensus.residue('ship it')
+          assert_equal '', Consensus.residue('approved')
+          assert_equal '', Consensus.residue('revised')
+          assert_equal '', Consensus.residue('rejecting')
         end
       end
 
@@ -860,12 +858,24 @@ module KairosMcp
         end
 
         # The same refusal from the other side, so that "nothing is ever
-        # deleted" cannot pass the test above.
-        def test_a_token_past_its_deadline_with_no_worker_is_reaped
+        # reaped" cannot pass the test above. v0.7 INV-R4: reaping reduces the
+        # directory to its minimal trace instead of erasing it — the working
+        # files go, the marker (synthesized here, since this run predates its
+        # own) and the terminal note stay, and a second sweep leaves the trace
+        # alone.
+        def test_a_token_past_its_deadline_with_no_worker_is_reduced_to_a_trace
           PendingState.write_state(@token, 'collect_deadline' => (Time.now - 3600).iso8601)
 
           assert_equal 1, cleanup[:removed]
-          refute alive?
+          assert alive?, 'the trace directory must survive the reap'
+          refute File.exist?(PendingState.state_path(@token)), 'working files must go'
+          assert File.exist?(PendingState.marker_path(@token))
+          assert File.exist?(PendingState.reaped_path(@token))
+          assert_equal 'expired_before_completion',
+                       JSON.parse(File.read(PendingState.reaped_path(@token)))['reason']
+
+          # Idempotent: the reduced trace is final.
+          assert_equal 0, cleanup[:removed]
         end
 
         # collected.json pins retention, and the pin is read from collected_at.
@@ -897,9 +907,10 @@ module KairosMcp
           assert alive?, 'a token directory was deleted in the window between mkdir and the first write'
         end
 
-        def test_a_directory_with_no_state_is_reaped_once_it_is_old
+        def test_a_directory_with_no_state_is_reduced_once_it_is_old
           assert_equal 1, cleanup(stale_no_deadline_seconds: 0, now: Time.now + 1)[:removed]
-          refute alive?
+          assert alive?, 'the trace directory must survive the reap'
+          assert File.exist?(PendingState.reaped_path(@token))
         end
 
         # Same rule for a state.json that parses but whose deadline does not:
@@ -1050,14 +1061,19 @@ module KairosMcp
           refute Consensus.const_defined?(:VERDICT_PATTERNS, false)
         end
 
-        def test_a_padded_or_aliased_value_is_still_a_verdict
-          entry = PersonaAssembly.assemble(two('**NO-GO**', "\tship it\t"), 'claude-opus-5')
+        # v0.7 INV-R1: padding is still tolerated around a canonical word;
+        # the former aliases are refused like any other non-verdict.
+        def test_a_padded_canonical_value_is_still_a_verdict
+          entry = PersonaAssembly.assemble(two('**REJECTED**', "\tapproved\t"), 'claude-opus-5')
 
           assert_equal 'REJECT', entry[:verdict]
 
-          entry = PersonaAssembly.assemble(two('needs work'), 'claude-opus-5')
-
-          assert_equal 'REVISE', entry[:verdict]
+          %w[NO-GO LGTM].each do |word|
+            err = assert_raises(ArgumentError, word) do
+              PersonaAssembly.assemble(two(word), 'claude-opus-5')
+            end
+            assert_match(/not a verdict/, err.message, word)
+          end
         end
       end
 
@@ -1078,13 +1094,18 @@ module KairosMcp
           assert_equal 'APPROVE', out[:verdict]
         end
 
-        def test_a_lower_case_skip_still_leaves_the_denominator
+        # v0.7 INV-R1: SKIP left the declarable vocabulary — no word is
+        # special. A row declaring it is read like any row whose declaration
+        # is not a verdict: by its text, and this text states none, so the row
+        # leaves the denominator under no_verdict with the declaration beside
+        # it as prose would be.
+        def test_a_declared_skip_is_no_longer_a_special_word
           out = Consensus.extract_verdict(
             status: :success, role_label: 'x', verdict: 'skip', raw_text: 'not my area'
           )
 
           assert_equal 'SKIP', out[:verdict]
-          assert_equal Consensus::SKIP_REASON_DECLINED, out[:skip_reason]
+          assert_equal Consensus::SKIP_REASON_NO_VERDICT, out[:skip_reason]
         end
 
         def test_three_declared_lower_case_approvals_converge
@@ -1094,7 +1115,7 @@ module KairosMcp
           end
           out = Consensus.aggregate(reviews, '3/4 APPROVE', min_quorum: 2)
 
-          assert_equal 'APPROVE', out[:verdict]
+          assert_equal 'APPROVE', out[:reference_verdict]
           assert_equal 3, out[:convergence][:approve_count]
         end
       end

@@ -38,42 +38,43 @@ module KairosMcp
       # to the caller, so a value that is not a verdict is never counted, on
       # either path, as anything.
       module VerdictVocabulary
-        # One word list, two grammars. A compound word carries <SEP> where its
-        # parts join (<SEP-> where a hyphen is also conventional), and each
-        # pattern below substitutes the separator class it is prepared to
-        # defend: `[_\s]*` when searching prose, where a line break between
-        # SHIP and IT is prose being prose; `[ \t_]*` when judging a whole
-        # value, where a line break means two statements.
+        # v0.7 INV-R1: the vocabulary a reviewer is told it may write and the
+        # vocabulary this system reads are one and the same, and it consists of
+        # the three canonical words and their tense/inflection forms — nothing
+        # else. The alias list that used to live here (LGTM, PASS, FAIL,
+        # BLOCK, NO-GO, NACK, DENY, VETO, ACCEPT, SHIP IT, CHANGES REQUIRED,
+        # NEEDS WORK, REWORK) is gone, and with it the compound-word separator
+        # grammar: no remaining form spans more than one token. The prompt has
+        # always stated the three canonical lines verbatim; the acceptance side
+        # now promises nothing wider. This reduction ships in the same change
+        # as the reference-value demotion of the ratio (INV-R1×R2 are mutual
+        # conditions): under a gate, a word outside the vocabulary silently
+        # cost a vote; as a reference value, it lands in the record as
+        # "no_verdict" with the written word beside it (stated_text).
         #
         # These are strings, and the mutation sweep that measures this file
         # mutates regexp bodies and not strings — moving the words here took
         # them out of its reach. That cost is paid deliberately and where it
         # is cheapest: a word dropped or misspelt here is held by the
-        # per-alias assertions in the test suite, which state every word in
-        # every accepted separator. What the sweep must keep seeing — the
-        # anchors and the padding, where rounds 9 through 12 fought — stays
-        # inside the regexp literals below.
+        # per-form assertions in the test suite. What the sweep must keep
+        # seeing — the anchors and the padding, where rounds 9 through 12
+        # fought — stays inside the regexp literals below.
         WORDS = {
-          'REJECT' => ['REJECT(?:ED)?', 'FAIL(?:ED|URE)?', 'BLOCK(?:ED|ER|ING)?',
-                       'NO<SEP->GO', 'NACK', 'DENY', 'VETO'].freeze,
-          'REVISE' => ['REVISE[DS]?', 'CHANGES?<SEP>REQUIRED',
-                       'NEEDS?<SEP>(?:WORK|REVISION|CHANGES?)', 'REWORK'].freeze,
-          'APPROVE' => ['APPROVE[DS]?', 'PASS(?:ED)?', 'ACCEPT(?:ED)?', 'LGTM',
-                        'SHIP<SEP>IT'].freeze
+          'REJECT' => ['REJECT(?:ED|S|ING)?'].freeze,
+          'REVISE' => ['REVIS(?:E|ED|ES|ING)'].freeze,
+          'APPROVE' => ['APPROV(?:E|ED|ES|ING)'].freeze
         }.freeze
 
-        def self.alternation(canonical, sep:, hyphen_sep:)
-          WORDS.fetch(canonical)
-               .map { |w| w.gsub('<SEP->', hyphen_sep).gsub('<SEP>', sep) }
-               .join('|')
+        def self.alternation(canonical)
+          WORDS.fetch(canonical).join('|')
         end
         private_class_method :alternation
 
         # Does a piece of prose mention a judgement word. These serve `strip`
         # and through it the residue rule; they decide no verdict.
-        APPROVE = /\b(?:#{alternation('APPROVE', sep: '[_\s]*', hyphen_sep: '[_\s\-]*')})\b/i
-        REJECT  = /\b(?:#{alternation('REJECT',  sep: '[_\s]*', hyphen_sep: '[_\s\-]*')})\b/i
-        REVISE  = /\b(?:#{alternation('REVISE',  sep: '[_\s]*', hyphen_sep: '[_\s\-]*')})\b/i
+        APPROVE = /\b(?:#{alternation('APPROVE')})\b/i
+        REJECT  = /\b(?:#{alternation('REJECT')})\b/i
+        REVISE  = /\b(?:#{alternation('REVISE')})\b/i
 
         ALL = [REJECT, REVISE, APPROVE].freeze
 
@@ -137,15 +138,10 @@ module KairosMcp
         # two copies, which no sweep of one copy at a time can see, and which
         # explicit per-word assertions hold instead.)
         #
-        # `[ \t_]` and not `[_\s]` inside a compound word: the separator inside
-        # a verdict is subject to the same rule as the padding around it,
-        # because `SHIP\nIT` is two lines and two lines are two statements. The
-        # search side uses `\s` there — it is searching prose either way — and
-        # that is the one place the two grammars are allowed to disagree.
         EXACT = {
-          'REJECT' => /\A\s*\**[ \t]*(?:#{alternation('REJECT', sep: '[ \t_]*', hyphen_sep: '[ \t_\-]*')})[ \t]*\**\s*\z/i,
-          'REVISE' => /\A\s*\**[ \t]*(?:#{alternation('REVISE', sep: '[ \t_]*', hyphen_sep: '[ \t_\-]*')})[ \t]*\**\s*\z/i,
-          'APPROVE' => /\A\s*\**[ \t]*(?:#{alternation('APPROVE', sep: '[ \t_]*', hyphen_sep: '[ \t_\-]*')})[ \t]*\**\s*\z/i
+          'REJECT' => /\A\s*\**[ \t]*(?:#{alternation('REJECT')})[ \t]*\**\s*\z/i,
+          'REVISE' => /\A\s*\**[ \t]*(?:#{alternation('REVISE')})[ \t]*\**\s*\z/i,
+          'APPROVE' => /\A\s*\**[ \t]*(?:#{alternation('APPROVE')})[ \t]*\**\s*\z/i
         }.freeze
 
         module_function

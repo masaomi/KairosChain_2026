@@ -689,9 +689,75 @@ assert "missing feedback_text_schema_version → reject" do
   msg && msg.include?('feedback_text_schema_version missing')
 end
 
+# v0.7 record schema: the consumer reads reference_verdict from v2 records
+# and still reads verdict from v1 records. Held here because reverting the
+# read (parsed['verdict'] only) would leave every v2 review verdict-less
+# with the rest of the suite green.
+section "v0.7 reference_verdict consumption"
+
+def drive_review_with(step, record)
+  fake_session = Object.new
+  def fake_session.cycle_number = 1
+  def fake_session.session_id = 'testsess'
+  ctx = Object.new
+  def ctx.derive(**_k) = nil
+  fake_session.define_singleton_method(:invocation_context) { ctx }
+  step.define_singleton_method(:invoke_tool) do |*_a, **_k|
+    [{ text: JSON.generate(record) }]
+  end
+  step.send(:run_multi_llm_review, fake_session,
+            { 'summary' => 's', 'task_json' => { 'steps' => [] } },
+            { level: 'high', signals: [] }, {})
+end
+
+assert "v2 record (reference_verdict, no top-level verdict) → verdict read" do
+  out = drive_review_with(step.dup, {
+    'status' => 'ok', 'verdict_schema_version' => 2,
+    'feedback_text_schema_version' => 1,
+    'reference_verdict' => 'REVISE', 'convergence' => {},
+    'aggregated_findings' => [], 'llm_calls' => 3, 'reviews' => [],
+    'feedback_text' => 'x'
+  })
+  out[:verdict] == 'REVISE'
+end
+
+assert "v1 record (verdict) → still read" do
+  out = drive_review_with(step.dup, {
+    'status' => 'ok', 'verdict_schema_version' => 1,
+    'feedback_text_schema_version' => 1,
+    'verdict' => 'APPROVE', 'convergence' => {},
+    'aggregated_findings' => [], 'llm_calls' => 3, 'reviews' => [],
+    'feedback_text' => nil
+  })
+  out[:verdict] == 'APPROVE'
+end
+
+# v0.7 record schema (2026-08-01): the boundary is max and max+1, not max
+# and 99 — a probe of 99 cannot tell SUPPORTED=1 from SUPPORTED=2, which is
+# exactly the revert these tests exist to catch.
+assert "v0.7 schema (v=2) → accepted at the boundary" do
+  step.send(:schema_version_check, {
+    'verdict_schema_version' => 2, 'feedback_text_schema_version' => 1
+  }).nil?
+end
+
+assert "v=3 (max+1) → reject (fail-closed at the boundary)" do
+  msg = step.send(:schema_version_check, {
+    'verdict_schema_version' => 3, 'feedback_text_schema_version' => 1
+  })
+  msg && msg.include?('newer than supported')
+end
+
 assert "newer verdict_schema_version → reject (fail-closed)" do
   msg = step.send(:schema_version_check, {
     'verdict_schema_version' => 99, 'feedback_text_schema_version' => 1
+  })
+  msg && msg.include?('newer than supported')
+end
+
+assert "feedback_text v=2 (max+1) → reject (boundary, not v99)" do
+  msg = step.send(:schema_version_check, {
+    'verdict_schema_version' => 2, 'feedback_text_schema_version' => 2
   })
   msg && msg.include?('newer than supported')
 end

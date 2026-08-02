@@ -23,7 +23,14 @@ module KairosMcp
         # the verdict shape itself (separate from feedback_text_schema_version,
         # which lives in FeedbackFormatter). Bumped independently when verdict
         # JSON contract changes (e.g., new field, semantic redefinition).
-        VERDICT_SCHEMA_VERSION = 1
+        #
+        # 2 = v0.7 record schema (design frozen 2026-08-01): the top-level
+        # conclusion column is gone — `verdict` became `reference_verdict`
+        # (INV-R2), the composition rows carry seat marks, refusals and
+        # transport diagnostics travel with the record. Readers tell old
+        # records from new by this number; old records are not rewritten
+        # (design §4, no retroactivity).
+        VERDICT_SCHEMA_VERSION = 2
 
         # @param artifact_content [String] sanitized at boundary; raw passthrough is caller responsibility
         # @param artifact_name [String]
@@ -161,11 +168,32 @@ module KairosMcp
           }
         end
 
+        # INV-R7 by_reference delivery: the same canonical framing with a
+        # reference manifest where the artifact body would be. The system
+        # prompt is identical to the inline one — only the user message
+        # differs, and only in the artifact block. sha256 is computed by the
+        # caller over the raw submitted content, so a seat that reads the file
+        # can check it is reviewing what was submitted.
+        def self.build_reference_prompts(artifact_path:, artifact_sha256:,
+                                         artifact_name:, review_type:,
+                                         review_context: 'independent',
+                                         review_round: 1, prior_findings: nil)
+          system_prompt = PromptBuilder.build_system_prompt(review_type, review_context: review_context)
+          messages = PromptBuilder.build_messages(
+            artifact_name: artifact_name,
+            review_type: review_type,
+            review_round: review_round,
+            prior_findings: prior_findings,
+            artifact_reference: { path: artifact_path, sha256: artifact_sha256 }
+          )
+          { system_prompt: system_prompt, messages: messages }
+        end
+
         def self.aggregation_instructions(review_type, review_round)
           <<~INST.strip
             After collecting all reviewer responses, aggregate as follows:
             1. Parse each response for verdict {APPROVE, REVISE, REJECT}.
-            2. Apply convergence rule (e.g., 3/N APPROVE → APPROVE; otherwise REVISE).
+            2. Compute the reference tally (e.g., 3/N APPROVE → reference APPROVE; any REJECT → REVISE; below quorum → INSUFFICIENT). It is a recorded reference value, not the run's conclusion.
             3. Merge findings, sorted by severity (P0 first), de-dup by issue text.
             4. For round #{review_round} #{review_type} reviews, prior findings should be verified as CLOSED/NEEDS_MORE_WORK/REOPENED.
           INST

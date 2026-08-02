@@ -51,14 +51,19 @@ module KairosMcp
         end
 
         # Build the user message containing the artifact to review.
-        # @param artifact_content [String] the full artifact text
+        # @param artifact_content [String, nil] the full artifact text (inline
+        #   delivery). Ignored when artifact_reference is given.
         # @param artifact_name [String] artifact identifier
         # @param review_type [String] design, implementation, fix_plan, document
         # @param review_round [Integer] round number (1-based)
         # @param prior_findings [Array<Hash>, nil] findings from prior rounds
+        # @param artifact_reference [Hash, nil] {path:, sha256:} — by_reference
+        #   delivery (INV-R7): the seat reads the original where it lives, and
+        #   the manifest is what crosses instead of the body.
         # @return [Array<Hash>] messages array for llm_call
-        def build_messages(artifact_content:, artifact_name:, review_type:,
-                           review_round: 1, prior_findings: nil)
+        def build_messages(artifact_name:, review_type:, artifact_content: nil,
+                           review_round: 1, prior_findings: nil,
+                           artifact_reference: nil)
           parts = []
           parts << "<task>"
           parts << "Review the provided artifact for #{review_type} correctness."
@@ -76,9 +81,20 @@ module KairosMcp
           end
           parts << "</task>"
           parts << ""
-          parts << "<artifact>"
-          parts << artifact_content
-          parts << "</artifact>"
+          if artifact_reference
+            parts << "<artifact_reference>"
+            parts << "The artifact is not inlined. Read the original from the repository:"
+            parts << "path: #{artifact_reference[:path]}"
+            parts << "sha256: #{artifact_reference[:sha256]}"
+            parts << "Verify the file's sha256 matches before reviewing. If it does not " \
+                     "match, or you cannot read the file, state that as your reply " \
+                     "instead of reviewing."
+            parts << "</artifact_reference>"
+          else
+            parts << "<artifact>"
+            parts << artifact_content
+            parts << "</artifact>"
+          end
           parts << ""
           parts << grounding_rules
 

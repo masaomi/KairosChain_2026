@@ -452,10 +452,10 @@ module KairosMcp
           assert_equal 3, lenient['convergence']['successful_count']
           assert_equal 2, lenient['convergence']['approve_count']
 
-          assert_equal 'APPROVE', lenient['verdict']
+          assert_equal 'APPROVE', lenient['reference_verdict']
           assert_equal '2/3 APPROVE', lenient['convergence']['rule']
 
-          assert_equal 'REVISE', strict['verdict']
+          assert_equal 'REVISE', strict['reference_verdict']
           assert_equal '3/3 APPROVE', strict['convergence']['rule']
         end
 
@@ -466,10 +466,10 @@ module KairosMcp
           low  = collect(write_state('min_quorum' => 1))
           high = collect(write_state('min_quorum' => 9))
 
-          assert_equal 'APPROVE', low['verdict']
+          assert_equal 'APPROVE', low['reference_verdict']
           assert_equal 1, low['convergence']['min_quorum']
 
-          assert_equal 'INSUFFICIENT', high['verdict']
+          assert_equal 'INSUFFICIENT', high['reference_verdict']
           assert_equal 9, high['convergence']['min_quorum']
         end
 
@@ -835,23 +835,22 @@ module KairosMcp
           end
         end
 
-        # A submission that states SKIP *and* says why keeps its own reason.
-        # Overwriting it with the constant was invisible: the only test passed
-        # a nil reason, so it exercised the fallback and nothing else.
-        def test_a_declared_skip_keeps_the_reason_it_stated
+        # v0.7 INV-R1: SKIP left the declarable vocabulary — no word is
+        # special, so a declared SKIP is not a gate any more. The row is read
+        # by its text like any other, this text states no verdict, and the row
+        # leaves the denominator under the closed no_verdict token. The
+        # declared-SKIP branch and its SKIP_REASON_DECLINED constant are gone;
+        # these pin the absence.
+        def test_a_declared_skip_is_read_by_its_text_not_by_its_word
           out = decide(status: :success, verdict: 'SKIP',
                        skip_reason: 'out_of_scope', raw_text: 'not my area')
 
-          assert_equal 'out_of_scope', out[:skip_reason]
+          assert_equal 'SKIP', out[:verdict]
+          assert_equal Consensus::SKIP_REASON_NO_VERDICT, out[:skip_reason]
         end
 
-        # A submission may state SKIP for itself. Why it did is its own
-        # business; the record used to answer for it, and answered wrongly.
-        def test_a_submission_that_declares_skip_is_not_recorded_as_a_broken_call
-          out = decide(status: :success, verdict: 'SKIP', raw_text: 'not my area')
-
-          assert_equal 'SKIP', out[:verdict]
-          assert_equal Consensus::SKIP_REASON_DECLINED, out[:skip_reason]
+        def test_the_declined_reason_stays_deleted
+          refute Consensus.const_defined?(:SKIP_REASON_DECLINED, false)
         end
 
         # Every route to SKIP names its own reason, so the composition has
@@ -866,7 +865,7 @@ module KairosMcp
           )[:convergence][:denominator_composition]
 
           by_label = comp[:observers].map { |o| [o[:role_label], o] }.to_h
-          assert_equal Consensus::SKIP_REASON_DECLINED, by_label['b'][:reason]
+          assert_equal Consensus::SKIP_REASON_NO_VERDICT, by_label['b'][:reason]
           refute by_label['a'].key?(:reason)
         end
 
@@ -1032,11 +1031,26 @@ module KairosMcp
                        verdict_of("**Overall Verdict**: REJECT\r\n\r\nP0: the reaper never runs\r\n")
         end
 
-        # The header names a verdict, and the names can be more than one word.
-        def test_multi_word_verdict_names_are_read_from_the_header
-          { 'NO GO' => 'REJECT', 'SHIP IT' => 'APPROVE', 'NO-GO' => 'REJECT',
-            'NO_GO' => 'REJECT', 'SHIP_IT' => 'APPROVE',
-            'CHANGES REQUIRED' => 'REVISE' }.each do |word, expected|
+        # v0.7 INV-R1: the vocabulary is the three words and their tense
+        # forms. A former alias in the header states no verdict, and the word
+        # the reviewer wrote survives beside the closed reason token — the
+        # loss the gate made silent is now a report the record carries.
+        def test_a_former_alias_in_the_header_is_refused_and_recorded
+          ['NO GO', 'SHIP IT', 'CHANGES REQUIRED', 'LGTM'].each do |word|
+            out = Consensus.extract_verdict(
+              status: :success, role_label: 'a',
+              raw_text: "**Overall Verdict**: #{word}\n\nP0: concrete"
+            )
+
+            assert_equal 'SKIP', out[:verdict], word
+            assert_equal Consensus::SKIP_REASON_NO_VERDICT, out[:skip_reason], word
+            assert_equal word, out[:stated_text], word
+          end
+        end
+
+        def test_tense_forms_are_read_from_the_header
+          { 'APPROVED' => 'APPROVE', 'REVISED' => 'REVISE',
+            'REJECTED' => 'REJECT' }.each do |word, expected|
             assert_equal expected, verdict_of("**Overall Verdict**: #{word}\n\nP0: concrete"),
                          word
           end
@@ -1183,14 +1197,14 @@ module KairosMcp
           assert_equal Consensus::SKIP_REASON_NO_VERDICT, out[:skip_reason]
         end
 
-        # Two vocabularies meant the same answer counted differently depending
-        # on which observer carried it: a persona answering NO-GO was recorded
-        # as a REJECT, and an external slot answering NO-GO stated no judgement
-        # at all and left the denominator. Both halves lose a blocking vote.
+        # One vocabulary, both carriers (INV-R1): a canonical word counts the
+        # same wherever it was said, and a word outside the vocabulary is
+        # refused on both paths — refused back to the caller on the persona
+        # path, refused into no_verdict-with-stated_text on the external path.
+        # Neither path reads what the other would not.
         def test_the_same_word_is_the_same_judgement_whoever_carried_it
-          { 'NO-GO' => 'REJECT', 'NACK' => 'REJECT', 'VETO' => 'REJECT',
-            'LGTM' => 'APPROVE', 'REWORK' => 'REVISE',
-            'CHANGES REQUIRED' => 'REVISE' }.each do |word, expected|
+          { 'REJECTED' => 'REJECT', 'approved' => 'APPROVE',
+            'REVISES' => 'REVISE' }.each do |word, expected|
             external = Consensus.extract_verdict(
               status: :success,
               raw_text: "**Overall Verdict**: #{word}\n\nP0: the reaper never runs"
@@ -1205,6 +1219,25 @@ module KairosMcp
             )
 
             assert_equal expected, persona_entry[:verdict], "persona answering #{word}"
+          end
+
+          %w[NO-GO LGTM REWORK].each do |word|
+            external = Consensus.extract_verdict(
+              status: :success,
+              raw_text: "**Overall Verdict**: #{word}\n\nP0: the reaper never runs"
+            )
+
+            assert_equal 'SKIP', external[:verdict], "external slot answering #{word}"
+            assert_equal word, external[:stated_text], word
+
+            err = assert_raises(ArgumentError, "persona answering #{word}") do
+              PersonaAssembly.assemble(
+                [{ 'persona' => 'a', 'verdict' => word, 'reasoning' => 'r' },
+                 { 'persona' => 'b', 'verdict' => 'APPROVE', 'reasoning' => 'r' }],
+                'claude-opus-4-7'
+              )
+            end
+            assert_match(/not a verdict/, err.message, word)
           end
         end
 
@@ -1243,11 +1276,6 @@ module KairosMcp
                        "the contract shows #{shown.map(&:strip).inspect}, " \
                        'which the parser cannot tell apart'
         end
-
-        # Reading the whole header line would hand the rest of the sentence to
-        # a precedence rule meant for verdict names. A verdict name is made of
-        # letters, spaces, hyphens and underscores, and the header is read that
-        # far and no further.
       end
     end
   end
