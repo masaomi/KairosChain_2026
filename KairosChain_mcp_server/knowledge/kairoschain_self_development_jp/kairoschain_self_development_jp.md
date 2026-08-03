@@ -1,7 +1,7 @@
 ---
 name: kairoschain_self_development_jp
 description: 自己言及的開発ワークフロー：KairosChain自身をKairosChainで開発する
-version: "1.2"
+version: "1.3"
 layer: L1
 tags: [workflow, self-referentiality, development, dogfooding, meta, contributing]
 readme_order: 5.5
@@ -42,7 +42,7 @@ kairos-chain init
 │     - git commit                                │
 │                                                 │
 │  3. 再構成する                                   │
-│     - gem build + gem install                   │
+│     - rake install (build + install)            │
 │     - kairos-chain upgrade                      │
 │     - .kairos/ が新しいテンプレートで更新される  │
 │                                                 │
@@ -167,17 +167,27 @@ ruby scripts/build_readme.rb --check  # 最新状態の確認
 
 1. `lib/kairos_mcp/version.rb` のバージョンを更新
 2. `CHANGELOG.md` にエントリを追加（既存のフォーマットに従う）
-3. 全変更をコミット
-4. タグ付け：`git tag v{VERSION}`
+3. 全変更をコミット。次の手順に進む前に作業ツリーが clean であること。
+   タグは `rake release` が作るので、手で付けない。
 
 ### 4. Gem のビルドと公開
 
 ```bash
 cd KairosChain_mcp_server
-gem build kairos-chain.gemspec
-gem install kairos-chain-{VERSION}.gem   # ローカルテスト
-gem push kairos-chain-{VERSION}.gem      # 公開（テスト後）
+rake install    # pkg/ にビルドして手元に入れる（テスト用）
+rake release    # guard_clean → tag v{VERSION} → git push → rubygems push
 ```
+
+`rake release` は作業ツリーが汚れていると中断する。この検査こそが要点である。
+`gem build` は、その時ディスクにあるものを commit 状態に関係なく詰める。
+gemspec が `git ls-files` ではなくファイルシステムを走査するためである。
+したがって汚れたツリーからビルドすると、**どの commit にも対応しない gem が
+公開される**。3.57.0 で実際にこれが起き、公開された gem を展開してリポジトリと
+突き合わせるまで誰も気づかなかった。`gem build` と `gem push` で代用しないこと。
+どちらにもこの検査はない。
+
+ビルド結果の置き場所は `pkg/` に移る。`gem build` が使っていたディレクトリ直下
+ではない。
 
 このチェックリストは `self_developer` モードの AI アシスタントが
 SkillSet の実装とテスト完了時に自動的に提案すべきものです。

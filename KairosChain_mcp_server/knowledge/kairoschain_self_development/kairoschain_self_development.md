@@ -1,7 +1,7 @@
 ---
 name: kairoschain_self_development
 description: "Self-referential development workflow: using KairosChain to develop KairosChain itself"
-version: "1.2"
+version: "1.3"
 layer: L1
 tags: [workflow, self-referentiality, development, dogfooding, meta, contributing]
 readme_order: 5.5
@@ -42,7 +42,7 @@ while validated knowledge is promoted into the codebase via explicit commits.
 │     - git commit                                │
 │                                                 │
 │  3. Reconstitute                                │
-│     - gem build + gem install                   │
+│     - rake install (build + install)            │
 │     - kairos-chain upgrade                      │
 │     - .kairos/ is updated with new templates    │
 │                                                 │
@@ -168,17 +168,28 @@ at the project root.
 
 1. Bump version in `lib/kairos_mcp/version.rb`
 2. Add entry to `CHANGELOG.md` (follow existing format)
-3. Commit all changes
-4. Tag: `git tag v{VERSION}`
+3. Commit all changes — the working tree must be clean before the next step.
+   The tag is created by `rake release`; do not tag by hand.
 
 ### 4. Gem Build and Publish
 
 ```bash
 cd KairosChain_mcp_server
-gem build kairos-chain.gemspec
-gem install kairos-chain-{VERSION}.gem   # local test
-gem push kairos-chain-{VERSION}.gem      # publish (after testing)
+rake install    # build into pkg/ and install locally, for testing
+rake release    # guard_clean -> tag v{VERSION} -> git push -> rubygems push
 ```
+
+`rake release` aborts on a dirty working tree, and that check is the point.
+`gem build` packs whatever is on disk at that moment, regardless of what is
+committed, because the gemspec globs the filesystem rather than reading
+`git ls-files`. Building from a dirty tree therefore publishes a gem that
+corresponds to no commit — which is what happened to 3.57.0, and it stayed
+invisible until the published gem was unpacked and compared against the
+repository. Do not substitute `gem build` + `gem push`: neither carries the
+check.
+
+Note that `rake` writes the built gem to `pkg/`, not to the directory root
+where `gem build` put it.
 
 This checklist should be proposed automatically by the AI assistant in
 `self_developer` mode when a SkillSet implementation is complete and tested.
