@@ -1,7 +1,7 @@
 ---
 name: loop_validation
 description: Use when closing any agent loop with mechanical verification — declare an evidence spec before the run, compute a fail-closed verdict without the acting LLM's self-report, pin criteria by hash, record the outcome as an attestation. Body-agnostic; reference engine in scripts/.
-version: 0.4
+version: 0.4.1
 tags: [loops, validation, verification, evidence, fail-closed, attestation, autonomy]
 related: [loop_engineering_patterns, kairoschain_meta_philosophy, synoptis_attestation]
 ---
@@ -30,7 +30,18 @@ as a skill" — this entry is that skill).
 
 The acting LLM's self-report is never evidence. A verdict consumes only
 mechanically observable results, and absence of evidence never defaults to a
-pass. Five rules:
+pass.
+
+This covers verification the model performs on its own initiative. Models from
+Opus 5 onward check their own work unasked, and that output reads like a
+verification step — but the acting context produced it, so it is self-report
+under a different name. Two consequences. Prompts that tell the model to verify
+should be deleted: they buy extra tokens, not an extra track, and on these
+models they cause over-verification. The verification layers here stay, because
+what makes a check evidence is that the acting session cannot author it
+(rule 1) — separation of authority, not compensation for weak capability.
+
+Five rules:
 
 1. **Declare before the run.** An evidence spec (JSON object) is authored
    before the work starts: `task_ref`, optional `workdir`, and `checks[]` —
@@ -148,6 +159,13 @@ integration this entry feeds).
 
 ## Changelog
 
+- **v0.4.1 (2026-07-26)**: Core discipline states that a model's unprompted
+  self-verification is self-report, not evidence. Occasioned by Opus 5, which
+  verifies unasked; its output resembles a verification step and could be
+  mistaken for an independent track. Also records the asymmetry: "verify your
+  work" instructions come out (they add cost, not independence), while the
+  spec / layer-guard / approval layers stay in (they separate authority).
+  No rule text or engine behaviour changed.
 - **v0.4 (2026-07-03)**: R2 response (REVISE, 3/6). Constant-key contract
   made true on the attended path too (wrapper's `none_attended` literal
   gained `task_ref`). Engine regained a distinct `spec unreadable` reason
