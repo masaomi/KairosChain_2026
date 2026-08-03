@@ -5,6 +5,13 @@ source 'https://rubygems.org'
 # Load dependencies from gemspec
 gemspec
 
+# base64 moved from default to bundled gem in Ruby 3.4. It ships with Ruby, so
+# the released gem resolves it without declaring a runtime dependency — but a
+# Bundler-managed load path only exposes declared gems, so running from this
+# repo via bin/ needs it here. Declared in the Gemfile rather than the gemspec
+# to keep the published gem free of runtime dependencies.
+gem 'base64'
+
 # =============================================================================
 # Optional: RAG (Semantic Search) Support
 # =============================================================================
