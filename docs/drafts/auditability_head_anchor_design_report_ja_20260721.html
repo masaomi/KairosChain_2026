@@ -358,15 +358,23 @@ consistency 証明で検証できなければならない、と定めます。</
       実行環境の同一性の担保が実務上の急所。それでも L4 と比べ桁違いに現実的＝<b>当面の現実解</b>。</li>
 </ul>
 
-<h3>L4 — ゼロ知識証明（中長期フロンティア）</h3>
+<h3>L4 — 選択的開示（実装済）とゼロ知識証明（次段）</h3>
 <ul>
-  <li><b>塞ぐ穴</b>: L1〜L3 でも「どの記録か」（指紋・位置・存在のパターン）は見える。
-      競争環境ではこれ自体が漏らしたくない情報になり得る。</li>
-  <li><b>どう塞ぐか</b>: zk-SNARK/STARK で「封印 root の中の<b>ある葉</b>を知っている」（どの葉かは明かさない一員性証明）や、
-      「commitment C_in の入力に f を適用すると commitment C_out になる」（計算実行そのものの証明＝MPR-6 が除外した
-      「正しさ」の再実行なし公開検証）を、対象を明かさず誰でも検証できる形にする。</li>
-  <li><b>今やらない理由</b>: 証明生成コストが対象の計算より桁違いに重く、ゲノムのパイプライン級には非実用（現状）。
-      L1 の封印の作り方は L4 でもそのまま使えるため、待つことに設計上の損はない。</li>
+  <li><b>塞ぐ穴</b>: L1〜L3 は主張を検証させるのに対象を指し示して見せる前提だった。
+      競争環境や患者データでは、この「見せる」こと自体が漏らせない。</li>
+  <li><b>実装済（sdp-1・内容目隠し）</b>: 記録の<b>欄の値</b>を塩付き指紋で伏せたまま、
+      「この形式の記録が存在する」「この裏書き人がこの判定を主張した」「適合条件を満たした
+      再現裏書きが立っている」を検証させる。署名は記録の指紋だけで検証できる（map-1 §1.1）ので
+      内容を見せずに済む。ただし<b>伏せるのは値であって「どの記録か」ではない</b>
+      （指紋・欄名は公開）。設計 v0.3 FROZEN・gem 3.47.0。詳細は
+      <code>aud_l4_sdp1_implementation_report_ja_20260722.html</code>。</li>
+  <li><b>次段①（sdp-2・どの記録かも隠す）</b>: 証明系を選んで「封印 root の中の<b>ある葉</b>を
+      知っている（どの葉かは明かさない）」一員性証明。ここが本来の zero-knowledge の所属証明。
+      handoff 済（KF）。</li>
+  <li><b>次段②（本物のゼロ知識証明の spike・§9.4）</b>: sdp-1 の内容目隠しの上に、
+      <b>KairosChain 初の本物のゼロ知識証明</b>を再現性の秘匿集約という題材で入れる。
+      「公開 DOI リストを全部調べた・各点数は秘匿・平均だけ公開かつ正直」を、
+      個々の点数を明かさずに証明する。ゼロ知識証明は集約統計の<b>範囲証明（range proof）</b>に宿る。</li>
 </ul>
 
 <div class="box point">
@@ -382,16 +390,24 @@ consistency 証明で検証できなければならない、と定めます。</
 </div>
 
 <table>
-  <tr><th>段階</th><th>塞ぐ穴</th><th>手段</th><th>信じられるようになる主張</th><th>状態・方針</th></tr>
-  <tr><td><b>L1</b></td><td>一員性・不改竄・順序が証せない</td><td>累積封印＋包含/consistency 証明</td>
-      <td>「記録は鎖の第 N 番。anchor 間で書き換えなし」</td><td><b>FROZEN v0.3</b>・実装へ</td></tr>
-  <tr><td><b>L2</b></td><td>anchor log ごとの差し替え・見せ分け・選択的 anchor</td><td>head の外部刻み＋cadence＋読者間突合（ANC-4/6）</td>
-      <td>「その anchor log 自体が本物で、律動的に刻まれている」</td><td>設計未着手。<b>別運営者の HestiaChain インスタンスとの相互係留で信頼を積む方針</b></td></tr>
-  <tr><td><b>L3</b></td><td>正しさ・再現性が自己申告どまり</td><td>by-reference 記録＋独立監査人の再実行＋foreign 署名</td>
-      <td>「第三者が再実行して一致を確認した」</td><td>draft の種あり。<b>GenomicsChain 側で推進</b></td></tr>
-  <tr><td><b>L4</b></td><td>どの記録かを明かさないと証せない</td><td>ゼロ知識証明・検証可能計算</td>
-      <td>「対象を明かさず一員性/正しさを公開検証」</td><td>中長期・待って損なし</td></tr>
+  <tr><th>段階</th><th>塞ぐ穴</th><th>手段</th><th>信じられるようになる主張</th><th>状態（2026-07-22 現在）</th></tr>
+  <tr><td><b>L1</b></td><td>一員性・不改竄・順序が証せない</td><td>累積封印＋包含/consistency 証明（khab-1）</td>
+      <td>「記録は鎖の第 N 番。anchor 間で書き換えなし」</td><td><b>FROZEN v0.3＋実装済</b>（gem 3.44.0） </td></tr>
+  <tr><td><b>L2</b></td><td>anchor log ごとの差し替え・見せ分け・選択的 anchor</td><td>相互係留＋自己認証 identity＋型語彙＋結果非依存規律（map-1）</td>
+      <td>「その anchor log 自体が本物で、律動的に刻まれている」</td><td><b>FROZEN v0.5＋実装済</b>（gem 3.45.0）。相互係留は別運営者インスタンスとの federation で信頼を積む方針</td></tr>
+  <tr><td><b>L3</b></td><td>正しさ・再現性が自己申告どまり</td><td>by-reference target＋独立監査人の再実行＋foreign 署名（rpr-1）</td>
+      <td>「第三者が再実行して一致を確認した」</td><td><b>FROZEN v0.4＋実装済</b>（gem 3.46.0）。GenomicsChain 側で推進</td></tr>
+  <tr><td><b>L4</b></td><td>中身を明かさないと主張を示せない</td><td>選択的開示（sdp-1: 内容目隠し）＋将来のゼロ知識証明</td>
+      <td>「中身を伏せて所属/型/裏書きを示す」</td><td><b>FROZEN v0.3＋実装済</b>（gem 3.47.0・sdp-1）。<b>ゼロ知識証明は次段の spike で導入予定</b>（§7-補 L4・handoff 済）</td></tr>
 </table>
+
+<div class="box point">
+  <b>階段は一巡した（2026-07-22）</b>: L1〜L4 の四段すべてが設計凍結＋実装スライスまで到達した。
+  各段の中にはまだ拡張の余地が残る（L2 の inaugural 相互係留・L3 の TEE 接続・
+  L4 の「どの記録かも隠す sdp-2」と「本物のゼロ知識証明の spike」）。
+  とりわけ<b>本物のゼロ知識証明はまだ一つも入っておらず</b>、次の主眼はそれを
+  再現性の秘匿集約という題材で入れることにある（§9.4）。
+</div>
 
 <h2>8. review の経過（3ラウンド）</h2>
 
@@ -415,8 +431,153 @@ consistency 証明で検証できなければならない、と定めます。</
   ④ 証明の生成/検証（offline 検証器）→ ⑤ 本番の最初の head-binding anchor。
 </div>
 
+<h2>9. L4 の先へ — 「データを見せず再計算可能を証明」の現実解（2026-07-22 追記）</h2>
+
+<p>L4（ゼロ知識証明）の議論を深めた際に、「<b>入力データを誰にも見せず・第三者に再実行させずに、
+その計算が確かに行われたことを証明したい</b>」という理想が焦点になった。ここでは、その理想を
+今日の技術で近似する二つの道具（TEE と zkVM）と、GenomicsChain としての現実的な進め方を記録する。
+なお正本の凍結設計（AUD-L3 v0.4・RPR-1..5）は変更していない。以下は将来スライスの方針メモである。</p>
+
+<h3>9.1 TEE と zkVM — 同じゴールを正反対の信頼基盤から狙う</h3>
+
+<p>まず大前提として、<b>TEE も zkVM も「計算を最低一回は実際に走らせる」</b>。「走らせずに証明する」のではない。
+違いは<b>どこで走らせ・誰に中身が見え・何を信頼の根にするか</b>である。</p>
+
+<ul>
+  <li><b>TEE</b>（Trusted Execution Environment: Intel SGX / AWS Nitro Enclave / AMD SEV-SNP / Intel TDX）:
+      持ち主（root）にも中を見せない隔離領域（enclave）の中で計算を走らせ、CPU が
+      「測定値 M（＝ロードしたコードの hash）の enclave が本物の環境で動き、この出力を出した」を
+      <b>ハードウェア署名</b>する。この署名済み証言（attestation quote）を記録・anchor する。
+      信頼の根は<b>CPU ベンダー</b>。</li>
+  <li><b>zkVM</b>: prover が入力を見て計算し、<b>入力を一切漏らさない数学的証明</b>を作る。信頼の根は<b>数学のみ</b>。
+      ただし証明生成コストがネイティブの数万〜数十万倍で、ゲノム規模のパイプライン全体には現状非実用。</li>
+</ul>
+
+<div class="box point">
+  <b>「TEE ＝ ベンダー固有の zkVM」か？ — 惜しいが肝心の一点で違う</b>
+  「検証可能実行」という目的は同じで、そこは良い喩え。だが監査ではこの差が本質:
+  <b>TEE の保証はハード条件付き</b>（side-channel 脆弱性や鍵漏洩で崩れる）＝ベンダーとシリコンを信じる、
+  <b>zkVM の保証は無条件に近い</b>＝誰も信じない。よって別物として扱う:
+  「TEE ＝ ハードウェアが保証する実行／zkVM ＝ 暗号が保証する実行」。
+  TEE はシリコンを信じる代わりにほぼネイティブ速度を得て、zkVM は速度を犠牲に「誰も信じない」保証を得る。
+  （両者は排他でなく合成可能——zkVM prover を TEE 内で走らせて速度＋多層防御を狙う研究もある。）
+</div>
+
+<table>
+  <tr><th>観点</th><th>Docker / EC2 / Thoa（通常）</th><th>TEE</th><th>zkVM</th></tr>
+  <tr><td>データが見える相手</td><td>持ち主（root）・クラウド事業者</td><td>enclave 外は誰も見えない</td><td>prover のみ・証明は無漏洩</td></tr>
+  <tr><td>外部への実行証明</td><td>なし</td><td>ハード署名 attestation</td><td>暗号 proof</td></tr>
+  <tr><td>信頼の根</td><td>運営者＋事業者</td><td>CPU ベンダー（条件付き）</td><td>数学（無条件に近い）</td></tr>
+  <tr><td>速度</td><td>ネイティブ</td><td>ほぼネイティブ</td><td>数万〜数十万倍重い</td></tr>
+</table>
+
+<p><b>インフラとの関係</b>: TEE は Docker/EC2/Thoa の<b>代わりではなく下（中）に敷く機能</b>。
+Docker は「環境を固定して再現性を出す」土台として今のまま活き、その内側の enclave で
+「秘匿＋証明が要る仕事だけ」を走らせる。EC2 なら Nitro Enclaves が既に使える。
+Thoa が TEE を提供できるかは backend が confidential-computing 対応ハードか次第（Thoa 側に要確認）。</p>
+
+<h3>9.2 GenomicsChain としての進め方 — 主張ごとに道具を割り当てる</h3>
+
+<p>一つの機構に全部やらせない。証明したい主張を分け、それぞれに最適な道具を当てる。
+土台はいずれも<b>既に実装・検証済みの AUD-L1 累積 commitment（＝下記③のパターン）</b>である。</p>
+
+<table>
+  <tr><th>証明したい主張</th><th>道具</th><th>状態</th></tr>
+  <tr><td>入力/pipeline/出力が主張時点に存在し差し替えられていない</td><td>AUD-L1 累積 commitment</td><td><b>実装済</b></td></tr>
+  <tr><td>独立した誰かが決定論 pipeline を再実行し同じ出力を得た</td><td>AUD-L3 再現裏書き（裁定＝人 or TEE）</td><td><b>実装済</b>（TEE 接続は将来）</td></tr>
+  <tr><td>入力を見せず・再実行させず「output = f(input)」を証明</td><td>TEE（今実用・ベンダー信頼）／ zkVM（純暗号・重い）</td><td>将来スライス</td></tr>
+  <tr><td>中身（欄の値）を見せず「この裏書きが存在・この判定を主張」を証明</td><td>AUD-L4 選択的開示（sdp-1・内容目隠し）</td><td><b>実装済</b>（gem 3.47.0）</td></tr>
+  <tr><td>ゲノムを見せず「バリアント X の有無」だけ証明</td><td>関心領域切り出し＋小 zkVM 回路</td><td>AUD-L4 圏・将来</td></tr>
+  <tr><td>どの記録かすら明かさず一員性を証明</td><td>AUD-L4 sdp-2（本来の zero-knowledge 所属証明）</td><td>handoff 済（KF）</td></tr>
+  <tr><td>N 件を全部調べた・各点数は秘匿・集計だけ公開かつ正直</td><td>Pedersen commitment ＋ range proof（<b>初の本物ゼロ知識証明</b>・§9.4）</td><td>設計メモ済・spike handoff 済</td></tr>
+</table>
+
+<p><b>zkVM をビッグデータに使う3つの定石</b>（外部 AI 提案の評価）: いずれも本物で組み合わせ可能。
+①重い計算はネイティブ・<b>検査だけ</b>を zkVM（検査が計算より軽いときのみ有効）、
+②<b>関心領域だけ</b>切り出して zkVM（数KB の述語＝バリアント有無証明。今すぐ実用圏）、
+③<b>Merkle root ＋一部＋包含証明</b>で巨大データの一部を軽量・安全に処理。
+重要なのは<b>③は「未来の工事」でなく既に持っていること</b>——本レポート§4-6 の累積 commitment ＋包含証明が
+まさに③で、①②が差し込む土台が完成している。</p>
+
+<div class="box honest">
+  <b>混ざりやすい区別（誤ロードマップ防止）</b>
+  「データについての<b>小さな述語</b>」（②③・①の一部＝今でも実用）と、
+  「<b>重いパイプライン全体</b>が正しく走ったことの証明」（＝当面 TEE が現実橋・zkVM は将来）は
+  難易度クラスが違う。②③は「バリアント有無」等の切り出し証明を今すぐ可能にするが、
+  「FastQC／アライメント丸ごとを再実行なしに正しいと証明」は依然重い。ここを混ぜない。
+</div>
+
+<h3>9.3 二トラックと、当面の判断（masaomi 決定・2026-07-22）</h3>
+
+<div class="box point">
+  <b>方針</b>
+  <ul style="margin:.2rem 0;">
+    <li><b>トラック1（重いパイプラインの秘匿再現）＝ TEE を AUD-L3 の <code>procedure</code> 裁定手続きに据える。</b>
+        SUSHI FastQCApp の決定論性（入力・image・版・パラメータが実行前に確定）が
+        「事前 committed で結果非依存の裁定手続き」になり、RPR-3/RPR-4 の不変量とそのまま噛み合う。
+        <b>実際の再現環境（Thoa/EC2）が整ってから設計・実装・テストする。特に企業 pilot で提案する</b>のが最適。</li>
+    <li><b>トラック2（述語・適格性の秘匿証明）＝ 関心領域切り出し＋小 zkVM を AUD-L4 選択的開示と組む。</b></li>
+    <li><b>当面（TEE 不要）</b>: BioRxiv 論文の再現性チェックは<b>公開データ</b>ゆえ秘匿不要。
+        AUD-L1（anchor）＋ AUD-L3（再現裏書き）だけで、統計を genomicschain.ch で公開し論文化まで到達できる。
+        真の工数は attestation でなく<b>生命情報の再現作業そのもの</b>（各 pipeline を決定論的に走らせる）。
+        AUD-L4（選択的開示）は「個々の論文の合否を名指しせず集計だけ出す」著者保護に効く任意の上乗せ。</li>
+  </ul>
+</div>
+
+<p class="small">この追記の詳細な議論記録は L2 context <code>tee_zkvm_verifiable_computation_discussion_20260722</code>。
+AUD-L3 の <code>procedure</code> 裁定への TEE 差し込みは AUD-L4 handoff の backlog 注記
+（<code>handoff_aud_l4_zero_knowledge_design_20260722</code>）に「非目標候補のまま保持・pilot 時に目標へ格上げ」として記録。</p>
+
+<h3>9.4 次の主眼 — KairosChain 初の本物のゼロ知識証明（再現性の秘匿集約）</h3>
+
+<p>ここまでの L1〜L4 には、まだ<b>本物のゼロ知識証明が一つも入っていない</b>
+（sdp-1 は塩付き指紋による内容目隠しで、ゼロ知識証明ではない）。次の主眼は、
+上の 9.3「当面（TEE 不要）」で触れた著者保護の上乗せを、初のゼロ知識証明として実装する試作である。</p>
+
+<div class="box point"><b>示したいこと</b>:「この公開 DOI リスト（例: BioRxiv 1000 本）を
+全部再現チェックした。<b>個々の論文の点数は明かさない</b>（名指し批判を避ける）。
+だが<b>全体の平均再現性は M% で、この数字は正直だ</b>」——を、
+どの論文が何点かを一切見せずに証明する。</div>
+
+<p>これは sdp-1（内容目隠し）とも sdp-2（どの記録かを隠す）とも別の機構である。
+DOI は公開・伏せるのは点数・ゼロ知識証明は<b>集約統計</b>に宿る。
+主張は四つに分かれ、本物のゼロ知識証明が要るのは最後の一つだけ。</p>
+
+<table>
+  <tr><th>主張</th><th>道具</th><th>ゼロ知識か</th></tr>
+  <tr><td>C1 1000 本<b>全部</b>調べた（被覆）</td><td>公開 DOI ごとに署名付き rpr-1 裏書き（点数は sdp-1 で目隠し）</td><td>否</td></tr>
+  <tr><td>C2 個々の点数は<b>秘密</b></td><td>Pedersen commitment（鍵つきの箱＝中身が見えない）</td><td>否（箱に入れるだけ）</td></tr>
+  <tr><td>C3 公開平均は秘匿点数から<b>正直に</b>計算（<b>Phase 1</b>）</td><td>箱どうしを足せる性質で「合計の箱」を開ける</td><td>弱い（合計を開くだけ）</td></tr>
+  <tr><td>C4 各秘匿点数は<b>正当な範囲</b>の値だ（<b>Phase 2</b>）</td><td>range proof＝箱を開けずに「中身は 0〜100」を証明</td><td><b>はい（本物のゼロ知識証明）</b></td></tr>
+</table>
+
+<p><b>なぜ Phase 2（range proof）まで要るか</b>: Pedersen の箱にはどんな値も入る
+（範囲を縛らない）。Phase 1 の合計開示だけだと、真の平均 8 点を、999 本は本物＋1 本に
+32000 という範囲外の値を入れて平均 40 に偽装でき、しかも合計の検証は通ってしまう。
+Phase 2 は各箱に「中身は 0〜100」の証明を値非開示で課し、範囲外の 32000 は証明が作れず弾かれる。
+「隠した値の性質を、値を明かさずに証明する」——これがゼロ知識証明の定義そのものであり、
+KairosChain 初の本物のゼロ知識証明はここ（C4）に入る。両 Phase がそろって初めて、
+公開平均が<b>秘密でありながら信頼できる</b>数字になる。</p>
+
+<div class="box honest">
+  <b>正直な狭さ（試作を見せかけにしないために）</b>
+  <ul style="margin:.2rem 0;">
+    <li>集約が正直なのは「箱に入れた点数」に対してだけ。その点数が<b>本当の再実行結果か</b>は
+        証明しない（RPR-4/MPR-6 の残余・ゼロ知識証明でも消えない）。</li>
+    <li>「1000 本やった」は「1000 個の署名付き裏書きを commit した」であって「1000 回走らせた」ではない。</li>
+    <li>DOI リストは結果を出す前に AUD-L1 で係留しておく必要がある（差し替え防止）。</li>
+    <li>この試作で初めて anchoring に非自明な暗号部品（楕円曲線の群演算）が入る。
+        従来の「sha256＋Ed25519 だけ」からの意図的逸脱として明示する（trusted setup は不要）。</li>
+  </ul>
+</div>
+
+<p class="small">TEE 本格実装ではなく、commitment＋range proof で秘匿集約を実現する軽量路線。
+詳細は設計メモ <code>aud_l4_zk_aggregate_reproducibility_spike_design_v0.1.md</code> と
+handoff（L2 <code>handoff_aud_l4_zk_aggregate_reproducibility_spike_20260722</code>）。
+Phase 1／Phase 2 は別セッションで実装する。</p>
+
 <footer class="small" style="margin-top:3rem; border-top:1px solid var(--line); padding-top:1rem;">
-  作成: 2026-07-21 ／ 元設計: auditability_head_anchor_design_v0.3_draft.md（FROZEN）／
+  作成: 2026-07-21（§9 追記 2026-07-22）／ 元設計: auditability_head_anchor_design_v0.3_draft.md（FROZEN）／
   disposition: .auditability_head_anchor_r1/r2/r3_disposition.md ／
   この解説は人向けの副読資料であり、正本は凍結済み設計文書。
 </footer>
