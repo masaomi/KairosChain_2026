@@ -1,6 +1,6 @@
 default_service: meeting_place
 pg_unavailable_policy: deny_all
-grant_creation_cooldown: 0
+grant_creation_cooldown: 60
 
 services:
   meeting_place:
@@ -21,7 +21,7 @@ services:
           acquire_skill: 100
           browse: 1000
         trust_requirements:
-          deposit_skill: 0.0
+          deposit_skill: 0.1
           acquire_skill: 0.0
       pro:
         limits:
