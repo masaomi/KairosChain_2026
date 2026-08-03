@@ -68,6 +68,26 @@ CONFIG = {
         "docmeta_anchor": "The two figures are provisionally placed",
         "docmeta_add": "v1.8 (2026-07-20): §2 revised only (refusal most naturally absorbed as a proposal, so it does not leave the game; a content/act level difference; nesting separated from the strange loop; Nomic as a device that exposes the boundary; the human/LLM asymmetry softened to proximity). Multi-LLM review converged R1 REVISE → R2 6/6 APPROVE.",
     },
+    "ja19": {
+        "md": "constitutive_recording_by_construction_v1.9_hiraban_ja.md",
+        "html": "constitutive_recording_by_construction_v1.9_hiraban_ja.html",
+        "md_end": None,
+        "fig2_needle": "この区別そのものは、この論文の発明ではない",
+        "docmeta_date_old": "2026-07-24<br>",
+        "docmeta_date_new": "2026-08-03<br>",
+        "docmeta_anchor": "図2点は暫定配置",
+        "docmeta_add": "v1.9（2026-08-03）＝§5 を松野孝一郎の内部観測に接続（進行中の営みは指させる完了事実を持たず、完了形への確定が出来事を三人称に開く／Searle は社会の側・松野は記述の側／不可逆な記録が内側から時間を生む／§9 の残余は動力）。R1 4A/4R → R2 8/8 APPROVE で収束。R2 後に著者判断で 5 箇所を限定（確定の行為が真理を作るとまでは言わない）——この修正は R2 の保証外。正本は 2026-08-03 deposit（DOI 10.5281/zenodo.21766502）。",
+    },
+    "en19": {
+        "md": "constitutive_recording_by_construction_v1.9_hiraban_en.md",
+        "html": "constitutive_recording_by_construction_v1.9_hiraban_en.html",
+        "md_end": "\n**References",
+        "fig2_needle": "This distinction itself is not this note",
+        "docmeta_date_old": "2026-07-20<br>",
+        "docmeta_date_new": "2026-08-03<br>",
+        "docmeta_anchor": "The two figures are provisionally placed",
+        "docmeta_add": "v1.9 (2026-08-03): §5 connected to Koichiro Matsuno's internal measurement (an action in progress carries no completed fact to point at, and settling into the perfect is what opens the deed to the third person; Searle supplies the social side and Matsuno the descriptive one; irreversible records generate time from within; §9's residue is the engine). Multi-LLM review converged R1 4A/4R → R2 8/8 APPROVE. A post-R2 author-directed repair then narrowed five clauses (confirming does not go so far as to make the content true) — that repair is outside R2's warrant. The canonical was deposited 2026-08-03 (DOI 10.5281/zenodo.21766502).",
+    },
 }
 
 

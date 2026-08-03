@@ -1,8 +1,15 @@
 ---
 title: "もう一つのフレーム問題 ——「ルールは変えられる、でも外には出られない」から始める話（平易版コンパニオン v1.9）"
-date: 2026-07-19
+date: 2026-08-03
 type: accessibility_companion
-status: V1_9_DRAFT
+status: V1_9_FROZEN
+v1_9_post_r2_repair: >
+  R2 後の著者判断による修正（2026-08-02、正本と同期、追加のレビュー周回なし）: 時制の橋の
+  決定性の一文が「確定するその行為の中でしか決まらない」と、同段落の真理ガードおよび §5 冒頭の
+  未変更文より強く述べていた。実際に起きたことが真偽を縛り、確定の行為はその縛りの内側で
+  どの完了した事実になるかを決める、という形に限定。あわせて「語れるものになる」に三人称の
+  限定を補い、Kairos 段落の松野の言い換えを「記録へと」から「完了した事実へと」に戻した。
+  R2 の 8/8 は修正後の文言を保証しない。正本は 2026-08-03 deposit（DOI 10.5281/zenodo.21766502）。
 v1_9_changes: >
   v1.9（2026-07-24）: 正本 v1.9 と同期。単一主題＝§5 を松野孝一郎の内部観測（internal
   measurement）の系譜に接続。§5 に時制の橋を一段追加（進行形の営みは指させる完了事実を持たず、
@@ -136,7 +143,7 @@ r1_fixes: >
   (a2) §5: 「発効した統治変更は隠せない」に、誠実運用前提＋write-then-record 実装ギャップ（設計目標であって運用完了でない）の但し書きを追加。
   (c) §7 フロンティアモデル誤訳修正、§5 婚姻届「署名して提出」に微修正。
 author: Masaomi Hatakeyama
-canonical: docs/drafts/constitutive_recording_by_construction_v1.8_seihon_en.md
+canonical: docs/zenodo/constitutive_recording_by_construction_v1.9.md  # deposited 2026-08-03, DOI 10.5281/zenodo.21766502, SHA-256 527125be9d33942e77c68cbfddaae92721de1332db4f47b8a2cb92b202bfdad5
 related: [constitutive_by_construction_v1.4_reconstruction_loop_20260706, philosophy_transmission_by_partial_resonance]
 note: >
   これは正本 v1.6（英語・技術ノート、review 周待ち draft）の「平易版コンパニオン」である。正本を置き換えたり薄めたりしない。
