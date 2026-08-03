@@ -48,3 +48,9 @@ docker/.env
 # MCP server config (environment-specific)
 .mcp.json
 __pycache__/
+
+# Work-in-progress drafts. Already-tracked files under this path keep working
+# normally; only new files are hidden. Commit a deliverable explicitly with
+# `git add -f`, and check what is being hidden with
+# `git status --ignored --short docs/drafts/`.
+docs/drafts/*
