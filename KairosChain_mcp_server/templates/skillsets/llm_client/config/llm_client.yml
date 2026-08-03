@@ -10,7 +10,7 @@
 #   local        — Local model via OpenAI-compatible API (Ollama, vLLM)
 
 provider: claude_code
-model: claude-opus-4-6
+model: claude-opus-5
 # api_key_env not needed for claude_code provider — uses Claude Code subscription
 default_max_tokens: 4096
 default_temperature: 0.7
@@ -41,8 +41,11 @@ timeout_seconds: 600
 
 # Cost estimates (USD per 1M tokens, for llm_status display)
 cost_estimates:
+  claude-opus-5: { input: 5.0, output: 25.0 }
+  claude-fable-5: { input: 10.0, output: 50.0 }
+  claude-opus-4-6: { input: 5.0, output: 25.0 }
+  claude-sonnet-5: { input: 3.0, output: 15.0 }
   claude-sonnet-4-6: { input: 3.0, output: 15.0 }
-  claude-haiku-4-5: { input: 0.80, output: 4.0 }
-  claude-opus-4-6: { input: 15.0, output: 75.0 }
+  claude-haiku-4-5: { input: 1.0, output: 5.0 }
   gpt-4o: { input: 2.50, output: 10.0 }
   gpt-4o-mini: { input: 0.15, output: 0.60 }
