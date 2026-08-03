@@ -12,6 +12,7 @@ end
 desc 'Run all tests including Phase 4A/4B integration tests'
 task :test_all do
   %w[
+    test_upgrade_meta_baseline.rb
     test_local.rb
     test_skillset_manager.rb
     test_p2p_skillset_exchange.rb

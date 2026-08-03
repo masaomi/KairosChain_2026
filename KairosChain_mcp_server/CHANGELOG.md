@@ -4,6 +4,35 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.58.2] - 2026-08-03
+
+### Fixed
+
+- **`system_upgrade` no longer reverts user-modified L0 templates.**
+  `.kairos_meta.yml`'s `template_hashes` and `knowledge_hashes` are the common
+  ancestor of `UpgradeAnalyzer`'s three-way comparison: for each file they must
+  record the gem template the instance's copy descends from. `Initializer#write_meta`
+  has always hashed the template; `SystemUpgrade#update_meta` rebuilt the same
+  baseline from the *instance's own file* at the end of every `upgrade --apply`.
+  The ancestor therefore collapsed onto one side, `user_modified` was necessarily
+  false on the following upgrade, and a user-edited file whose template differed
+  was classified `auto_updatable` and overwritten without a chain record.
+  - Observed as `skills/config.yml` reverting `instructions_mode` from a
+    user-selected mode to the template default, five times between 2026-06-09
+    and 2026-08-03. The first occurrence went unnoticed for three weeks.
+  - The trigger is *the previous upgrade reported `[KEPT]`*, which is why it
+    looked intermittent: a protected run is what armed the next one.
+  - All eight `KairosMcp::TEMPLATE_FILES` entries took this path, `config/safety.yml`
+    included. The L1 `knowledge_hashes` writer carried the identical defect and is
+    fixed in the same change.
+  - An instance whose stored baseline already points at its own file takes at most
+    one more wrong overwrite after upgrading to this version, then stabilises. No
+    migration step is shipped.
+  - Regression covered by `test_upgrade_meta_baseline.rb` (6 tests), which drives
+    the real `Initializer`, `update_meta`, and `UpgradeAnalyzer` over repeated
+    upgrade cycles rather than re-implementing the classification. Added to
+    `rake test_all`.
+
 ## [3.56.0] - 2026-07-31
 
 ### Changed

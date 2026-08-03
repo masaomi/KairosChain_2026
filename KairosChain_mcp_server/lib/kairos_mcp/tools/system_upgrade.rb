@@ -738,20 +738,28 @@ module KairosMcp
         meta['template_hashes'] = {}
         meta['knowledge_hashes'] = {}
 
-        # Record current state of all L0 template files in data directory
-        KairosMcp::TEMPLATE_FILES.each do |template_name, accessor|
-          path = KairosMcp.send(accessor)
+        # Record the gem template each L0 file now descends from.
+        #
+        # These hashes are the common ancestor of UpgradeAnalyzer's three-way
+        # comparison, so they must come from the template side. Hashing the
+        # user's own file here collapses the ancestor onto one side: on the next
+        # upgrade `user_modified` is necessarily false, and a user-modified file
+        # is classified auto_updatable and overwritten. Mirrors
+        # Initializer#write_meta, which has always hashed the template.
+        KairosMcp::TEMPLATE_FILES.each do |template_name, _accessor|
+          path = File.join(KairosMcp.templates_dir, template_name)
           if File.exist?(path)
             meta['template_hashes'][template_name] =
               "sha256:#{Digest::SHA256.file(path).hexdigest}"
           end
         end
 
-        # Record current state of L1 knowledge (hash the main .md file)
+        # Record L1 knowledge templates (hash the main .md file). Same ancestor
+        # rule as above — the template side, not the user's copy.
         knowledge_templates_dir = File.join(KairosMcp.templates_dir, 'knowledge')
         if File.directory?(knowledge_templates_dir)
           Dir.children(knowledge_templates_dir).sort.each do |name|
-            md_path = File.join(KairosMcp.knowledge_dir, name, "#{name}.md")
+            md_path = File.join(knowledge_templates_dir, name, "#{name}.md")
             if File.exist?(md_path)
               meta['knowledge_hashes'][name] =
                 "sha256:#{Digest::SHA256.file(md_path).hexdigest}"
