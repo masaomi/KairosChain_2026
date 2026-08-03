@@ -228,6 +228,58 @@ CONFIG = {
             3: ("構成的な register の考え方そのものは、ここで何か新しいものとして主張しているわけではない。", "<p"),
         },
     },
+    # v1.9 build targets: single-theme revision connecting §5 to Matsuno's internal
+    # measurement (R1 4A/4R -> R2 8/8 APPROVE). Same figure set and anchors as v1.8.
+    "seihon_en_v19": {
+        "md": "constitutive_recording_by_construction_v1.9_seihon_en.md",
+        "diagrams": "constitutive_recording_by_construction_v1.6_diagrams_en.html",
+        "out_pdf": "constitutive_recording_by_construction_v1.9_seihon_en.pdf",
+        "title": "Another Frame Problem (v1.9)",
+        "lang": "en",
+        "anchors": {
+            1: ("Three clarifications guard against reading", "<p"),
+            2: ("Structural self-referentiality</h2>", "<h2"),
+            3: ("None of the constitutive register itself is claimed as new here", "<p"),
+        },
+    },
+    "seihon_ja_v19": {
+        "md": "constitutive_recording_by_construction_v1.9_seihon_ja.md",
+        "diagrams": "constitutive_recording_by_construction_v1.6_diagrams_ja.html",
+        "out_pdf": "constitutive_recording_by_construction_v1.9_seihon_ja.pdf",
+        "title": "もう一つのフレーム問題（日本語参照訳 v1.9）",
+        "lang": "ja",
+        "anchors": {
+            1: ("主張を実際より大きく、あるいは別物として読まないために、但し書きを三つ。", "<p"),
+            2: ("構造的自己言及性</h2>", "<h2"),
+            3: ("構成的な register の考え方そのものは、ここで何か新しいものとして主張しているわけではない。", "<p"),
+        },
+    },
+    "deposit_en_v19": {
+        "md": "constitutive_recording_by_construction_v1.9_seihon_en.md",
+        "diagrams": "constitutive_recording_by_construction_v1.6_diagrams_en.html",
+        "out_pdf": "constitutive_recording_by_construction_v1.9_deposit_en.pdf",
+        "title": "Another Frame Problem (v1.9)",
+        "lang": "en",
+        "strip_editorial": True,
+        "anchors": {
+            1: ("Three clarifications guard against reading", "<p"),
+            2: ("Structural self-referentiality</h2>", "<h2"),
+            3: ("None of the constitutive register itself is claimed as new here", "<p"),
+        },
+    },
+    "deposit_ja_v19": {
+        "md": "constitutive_recording_by_construction_v1.9_seihon_ja.md",
+        "diagrams": "constitutive_recording_by_construction_v1.6_diagrams_ja.html",
+        "out_pdf": "constitutive_recording_by_construction_v1.9_deposit_ja.pdf",
+        "title": "もう一つのフレーム問題（日本語参照訳 v1.9）",
+        "lang": "ja",
+        "strip_editorial": True,
+        "anchors": {
+            1: ("主張を実際より大きく、あるいは別物として読まないために、但し書きを三つ。", "<p"),
+            2: ("構造的自己言及性</h2>", "<h2"),
+            3: ("構成的な register の考え方そのものは、ここで何か新しいものとして主張しているわけではない。", "<p"),
+        },
+    },
 }
 
 
