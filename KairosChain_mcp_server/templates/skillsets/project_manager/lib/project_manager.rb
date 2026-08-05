@@ -8,6 +8,7 @@
 # - INV-PM-6: single authoritative store; migration carries markers (never restamps).
 # - INV-PM-7: minimal item schema; dormancy derived from last-meaningful-touch.
 
+require 'project_manager/parsed_time'
 require 'project_manager/store'
 require 'project_manager/digest'
 require 'project_manager/tool_helpers'

@@ -12,8 +12,8 @@ description: >
 A domain-neutral vessel for project and work-item management. Everything domain-specific enters as
 **content** — titles, notes, provenance — never as schema.
 
-Design: `docs/drafts/secretary_project_manager_design_v0.5_FROZEN.md`. Instance-local: the
-promotion criteria for distribution are not met.
+Design: `docs/drafts/secretary_project_manager_design_v0.5_FROZEN.md`. Distributed with the gem
+since 3.55.0; it is not in the auto-install set, so an instance installs it explicitly.
 
 ## Two ways to use this
 
@@ -41,9 +41,17 @@ Prefer the sub-agent for "what needs attention?", at session start, and for sche
   is stronger than "advances no marker": a `mechanical: true` write advances no marker and is still
   a write. Nothing enforces this mechanically.
 - **The projected artifacts are generated.** `.claude/skills/project_manager/SKILL.md` and
-  `.claude/agents/project_manager-secretary.md` are outputs. Edit the sources under
-  `.kairos/skillsets/project_manager/plugin/` and re-project; a hand-edit to a projected file is
-  overwritten without warning the next time any SkillSet changes.
+  `.claude/agents/project_manager-secretary.md` are outputs. So is most of the instance copy under
+  `.kairos/skillsets/project_manager/`, which `skillset upgrade` overwrites from the gem template
+  whenever the template's bytes differ. Edit the gem template under
+  `KairosChain_mcp_server/templates/skillsets/project_manager/plugin/` and re-project; a hand-edit
+  to a projected file or to the instance copy is overwritten without warning.
+- **`config/` is yours, and is the one exception.** `skillset upgrade` never overwrites a `config/`
+  file that already **exists**, so `config/pm.yml` is safe to edit and stays edited. Two consequences
+  follow from the word "exists". A change to the template's `config/pm.yml` does not reach any
+  instance that already has the file — not only new installs, but any instance, forever. And a
+  `config/` file the instance is *missing* is not exempt: it installs on the next upgrade, so
+  deleting `config/pm.yml` restores the template's copy rather than leaving it absent.
 - **Single authority.** `.kairos/pm/store.json` is the one authoritative record of project and task
   state. L2 contexts may be linked as provenance but never hold task state.
 - **Meaningful touch.** Operator-meaningful edits advance an item's recency marker. `add`, `update`

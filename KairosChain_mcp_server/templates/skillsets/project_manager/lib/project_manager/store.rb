@@ -5,6 +5,8 @@ require 'fileutils'
 require 'securerandom'
 require 'time'
 
+require 'project_manager/parsed_time'
+
 module ProjectManager
   # Single authoritative store for project/task state (INV-PM-6).
   #
@@ -138,16 +140,20 @@ module ProjectManager
     end
 
     def blocked?(item)
-      item['deps'].any? { |d| !d['resolved'] }
+      (item['deps'] || []).any? { |d| !d['resolved'] }
     end
 
     # Dormancy is derived, never stored (INV-PM-7). A markerless item (nil
     # touched_at, from a markerless migration source) is non-dormant until its
     # first meaningful touch.
+    # An unreadable marker is treated the same as a markerless item: non-dormant.
+    # The guard belongs here rather than at the call site, because a call site
+    # guard is re-acquired by the next caller — see ProjectManager.parse_time.
     def dormant?(item, dormancy_days:, now: Time.now)
-      return false if item['touched_at'].nil?
+      touched = ProjectManager.parse_time(item['touched_at'])
+      return false if touched.nil?
 
-      Time.parse(item['touched_at']) < now - (dormancy_days * 86_400)
+      touched < now - (dormancy_days * 86_400)
     end
 
     def query(project_id: nil, status: nil, salience: nil, assignee: nil,
@@ -159,8 +165,20 @@ module ProjectManager
       result = result.select { |i| i['assignee'] == assignee } if assignee
       result = result.select { |i| blocked?(i) == blocked } unless blocked.nil?
       if due_within_days
-        horizon = now + (due_within_days * 86_400)
-        result = result.select { |i| i['due'] && Time.parse(i['due']) <= horizon }
+        # The window is a caller value too, and it reaches arithmetic rather than
+        # Time.parse. A string or a boolean from an unvalidated tool surface would
+        # take the whole query down for the same reason a bad marker used to; an
+        # unusable window means no window, so the filter does not run.
+        days = ProjectManager.whole_number(due_within_days)
+        return result if days.nil?
+
+        horizon = now + (days * 86_400)
+        # An unreadable deadline is no deadline, so the item drops out of a
+        # deadline filter instead of taking the whole query down with it.
+        result = result.select do |i|
+          due = ProjectManager.parse_time(i['due'])
+          due && due <= horizon
+        end
       end
       result
     end

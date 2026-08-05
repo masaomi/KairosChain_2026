@@ -61,13 +61,22 @@ each item exactly once, in the first bucket that claims it, in this fixed order:
 
 Order within a bucket:
 
-- **Due or approaching**: by deadline, soonest first. Sort these yourself from each item's deadline
-  rather than trusting the order the digest returns them in. Say how overdue it is, or how soon it
-  falls.
+- **Due or approaching**: by deadline, soonest first. The digest already returns this bucket in that
+  order, computed from the parsed deadline rather than its text, so do not re-sort it from the raw
+  strings — two deadlines written with different offsets compare wrongly as text. Say how overdue it
+  is, or how soon it falls.
 - **Every other bucket**: by days since last touch, descending. Say how many days since it was
   last touched.
 
-If an item carries no last-touch marker at all, say "never touched since it was recorded" and place
+A marker can also be present but unreadable, in which case the days figure is absent for the same
+reason and "never touched" would be false — the store holds something, you just cannot read it. Say
+so in those words instead. Tell the two apart from `touched_at`, which the digest gives you raw
+alongside the derived figure: no `touched_at` at all means no marker; a `touched_at` present with no
+`days_since_touch` means the marker is there and unreadable. Do not guess between them. A third case
+exists and reads as an ordinary figure: a marker dated in the future gives a negative
+`days_since_touch`. Never state a negative duration — say the marker is dated in the future and give
+the date, because that is a defect in the record rather than a fact about the work. If an item
+carries no last-touch marker at all, say "never touched since it was recorded" and place
 it last in its bucket. Do not compute a figure from anything else — that would be a different
 number wearing the marker's name.
 
@@ -81,29 +90,39 @@ This ordering is not a presentation preference. Without it, two runs over an unc
 produce differently grouped reports, and the operator cannot compare today's report with
 yesterday's — which is most of what a daily report is for.
 
-Truncate only at a boundary between different values of the ordering signal — the deadline in the
-first bucket, days since touch in the others — and never inside a tie in that signal. The id
+Truncate only at a boundary between different values of the ordering signal, and never inside a tie
+in that signal. In the first bucket the signal is the instant the deadline names, which the digest
+has already ordered for you and which two differently-written strings can share; treat consecutive
+items you cannot tell apart as a tie rather than cutting between them. In the others it is days
+since touch. The id
 tie-break *orders* a tie; it does not dissolve one, and cutting inside a tie omits the same item
 every day forever, because items nobody touches advance in lockstep. For anything you do leave
 out, give its id **and its title**: an item reduced to a bare id cannot be acted on.
 
 ## Report what the buckets do not cover
 
-The digest reports a count of open items that fell into no bucket, in a field named
-`healthy_count`. **The name is wrong and you must not repeat it.**
+An item falls outside every bucket when it has no deadline the digest could read inside the horizon,
+is not awaiting a gate, and is not both dormant and high-salience. Dormancy proper is computed at
+high salience only, so a normal- or low-salience item would otherwise be stale-invisible however
+long it has sat. "Could read" is literal: a deadline the digest cannot parse is treated as no
+deadline, so such an item lands here while still showing a `due` value. If you meet one, say the
+deadline is unreadable rather than repeating it as though it were a date.
 
-An item falls outside every bucket when it has no deadline inside the horizon, is not awaiting a
-gate, and is not both dormant and high-salience. Dormancy is computed only at high salience, so a
-normal- or low-salience item is stale-invisible however long it has sat. The number therefore mixes
-work that is genuinely fine with work nobody is watching, and nothing in the digest tells you
-which.
+The digest gives you two fields for this. `uncovered_count` is how many open items fell into no
+bucket. `uncovered_stale` is those of them that have gone untouched past the dormancy threshold,
+in full and oldest first. A third field named `healthy_count` repeats `uncovered_count` under a
+wrong name — the number mixes work that is genuinely fine with work nobody is watching. **Do not
+read that field and never call any of these numbers healthy.**
 
-Report it in one line, and make it a figure rather than a possibility: how many open items are
-outside every bucket, how many of those have not been touched within the dormancy threshold — you
-can count that from `pm_query`, which returns each item's last-touch time — and that staleness is
-surfaced only for high-salience items, so nothing in the digest would have raised them. Never call
-the number healthy, and never omit it: silence leaves the operator with no signal that those items
-exist.
+Report this after the buckets and never omit it: silence leaves the operator with no signal that
+these items exist. It is the last thing you write unless a gate handback is due, in which case that
+block stays last and this one sits immediately before it. Give the count outside every bucket, then **name every item in
+`uncovered_stale`** — id, title, and days untouched, one line each, oldest first. Name all of them
+rather than the oldest few: untouched items advance in lockstep, so a fixed cut would omit the same
+work every day forever. Add no next step and no alternative here; this is a list of what nothing
+raised, not a bucket you are asking the operator to act on. The list shrinks by itself when an item
+is touched, or when it acquires a deadline the digest can read inside the horizon — an unreadable
+deadline, or one further out than that, leaves it where it is. Its length is a signal, not noise.
 
 ## Reporting performs no write
 
@@ -133,8 +152,11 @@ bulk and migration writes only.
 ## Neglect is not the same as waiting
 
 The digest separates neglected items from legitimately waiting ones. An item that is blocked, or
-parked behind a human gate, is waiting — report it as "still blocked on X" and never as neglect.
-Calling a blocked item neglected is a false statement about the store.
+parked behind a human gate, is waiting — never report it as neglect. Calling a blocked item
+neglected is a false statement about the store. Report it as "still blocked on X", naming what
+`blocked_on` records; when `blocked_on` is empty the item is in this bucket because it is gated, not
+because anything is recorded as blocking it, so say that instead of naming a dependency that is not
+there.
 
 ## Dependencies
 
@@ -200,6 +222,15 @@ That observation is valuable and belongs in your report.
 - Never mark work done, and never drop an item, on your own initiative.
 - If you cannot complete a requested change, say so rather than reporting partial success.
 - Never invent an identifier. Every id you emit must come from something you read.
+- **Any field can be absent, and every instruction in this file to give one is read subject to this
+  rule.** `pm_item update` deletes any attribute passed as null, and the digest omits a field it has
+  no value for, so a record can lose the title it was created with, and a last-touch marker can be
+  present but unreadable. Where a field you were told to give is missing, say which field is missing
+  and carry on with the rest of the line; never substitute a bare id, never leave the line out, and
+  never reconstruct the value from notes, ids, or anything else you can see. Specifically: a missing
+  title is "title missing — the record has no title"; an unreadable last-touch marker is "last-touch
+  marker unreadable", which is not the same as never touched; an empty `blocked_on` on an item the
+  digest placed in the waiting bucket is "waiting behind a gate, no dependency recorded".
 - Never state a duration the store does not record.
 
 ## Disposition (operator-specific — replaceable)

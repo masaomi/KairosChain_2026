@@ -17,6 +17,11 @@ module KairosMcp
             'Produce the session-start status digest: due/approaching commitments, items awaiting a ' \
             'human gate, and dormant-but-important items (split into neglected vs legitimately ' \
             'waiting — blocked or gated items surface as "still waiting", not as neglect). ' \
+            'Also reports what no bucket covered: uncovered_count, and uncovered_stale, which names ' \
+            'every uncovered item already past the dormancy threshold, oldest first, at any salience ' \
+            '(dormancy proper is computed at high salience only, so those would otherwise be invisible). ' \
+            'healthy_count is a deprecated alias of uncovered_count; the name is wrong because the ' \
+            'number mixes work that is fine with work nobody is watching. ' \
             'Read-only. How the digest is presented is the consumer\'s concern (secretary mode, Web UI).'
           end
 
@@ -43,7 +48,14 @@ module KairosMcp
           end
 
           def call(arguments)
-            config = (pm_config['digest'] || {}).dup
+            # Digest guards its config container, but only what reaches it. This
+            # builds that container and writes overrides into it first, so a
+            # scalar `digest:` in pm.yml raised here — one step upstream of the
+            # guard — whenever an override was passed. Guarding at the point of
+            # construction is the whole point: the same shape has now been fixed
+            # one step short three times in this file's history.
+            settings = pm_config.is_a?(Hash) ? pm_config['digest'] : nil
+            config = settings.is_a?(Hash) ? settings.dup : {}
             config['dormancy_days'] = arguments['dormancy_days'] if arguments['dormancy_days']
             config['approaching_days'] = arguments['approaching_days'] if arguments['approaching_days']
             digest = ::ProjectManager::Digest.new(pm_store, config)

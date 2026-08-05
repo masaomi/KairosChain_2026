@@ -2,7 +2,9 @@
 digest:
   # Deadline horizon: items due within N days appear in the digest's due bucket.
   approaching_days: 7
-  # Dormancy threshold: high-salience items untouched for N days surface as dormant.
+  # Dormancy threshold: N days without a meaningful touch. High-salience items past it
+  # surface in the dormant buckets; items at any salience past it are named in
+  # uncovered_stale if no bucket covered them.
   # Dormancy derives from the last-meaningful-touch marker (never a stored field).
   dormancy_days: 14
 
