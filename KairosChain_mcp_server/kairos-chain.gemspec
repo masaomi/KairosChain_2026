@@ -37,7 +37,11 @@ Gem::Specification.new do |spec|
     'LICENSE',
     'README.md',
     'CHANGELOG.md'
-  ]
+  ].reject { |p| p.include?('__pycache__') || p.end_with?('.pyc') }
+  # The globs above walk the filesystem rather than asking git, so anything a
+  # tool leaves behind under templates/ ships. Running a Python script in
+  # templates/knowledge/*/scripts/ writes bytecode next to it, which is both
+  # useless to a consumer and stale the moment the source changes.
 
   spec.bindir        = 'bin'
   spec.executables   = ['kairos-chain', 'kairos_mcp_server']

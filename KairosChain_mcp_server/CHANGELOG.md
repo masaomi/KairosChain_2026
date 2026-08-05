@@ -24,10 +24,31 @@ This project follows [Semantic Versioning](https://semver.org/).
   The design was not validated by a design review. It was validated by building
   four prototypes on the same subject and having a human read each one: invariants
   7, 8, 9, 10 and the SVG rules all came out of those judgments and none of them
-  came out of the design table. The checker is calibrated against both a passing
-  and a failing report, and the failing one predates the checker, so it is a real
-  negative control rather than a fixture written to be caught.
-  `references/worked_example.md` records which prototype failed how.
+  came out of the design table. `references/worked_example.md` records which
+  prototype failed how.
+
+  The checker itself went through two rounds of multi-LLM review, neither of which
+  approved it, and the shape of what they found is why it ships as it does. The
+  first version matched tags with regular expressions, so every content check was
+  defeated by moving content into a region the pattern did not scan — wrapping the
+  failing example in `<details open>` turned it into a pass. It now builds a
+  document tree and measures rendered text, so relocating content no longer helps.
+  The second round found a further class: a report could declare every section
+  exempt and pass as a blank page, a one-argument `translate` silently moved
+  nothing, and a relative font unit was read as a tiny absolute size. Those are
+  closed, and each is now a fixture.
+
+  What is deliberately not closed is stated in the script and in the skill: this
+  is a lint over the ways an author gets a wrong answer while writing normally,
+  not a boundary against someone determined to pass an unreadable report. Text
+  drawn by a stylesheet, an `<iframe srcdoc>`, or a full-width spelling of a
+  forbidden label all get through, and closing that class needs a renderer rather
+  than a parser. A pass means a handful of known ways of being unreadable are
+  absent; whether the report can actually be understood in one pass stays a human
+  judgement. `test/` ships 22 fixtures and a runner so the boundary is checkable
+  rather than asserted — 18 that must fail, each naming the check that must catch
+  it, and 4 that must pass, because closing an evasion is trivial if the gate is
+  allowed to reject everything.
 
 ## [3.58.2] - 2026-08-03
 
