@@ -8,6 +8,43 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`project_manager` names what no bucket covered (SkillSet 0.3.0).** `pm_digest`
+  sorted open items into four buckets and reported the remainder as a count called
+  `healthy_count`. Dormancy is computed at high salience only, so a normal- or
+  low-salience item with no deadline was counted but never named, however long it
+  sat. On the operator's own store that was 12 of 22 open items, the oldest
+  untouched for 98 days, and nothing in the digest would ever have raised them.
+
+  The digest now returns `uncovered_count` and `uncovered_stale`. The latter names
+  every uncovered item the store already calls dormant, in full and oldest first,
+  ties broken by id — in full rather than a top-N because untouched items advance
+  in lockstep, so a fixed cut omits the same work every day forever. The secretary
+  agent reads the list out after the buckets with no next step attached: it is a
+  list of what nothing raised, not a bucket to act on. `healthy_count` survives as
+  a deprecated alias, because the name is wrong — the number mixes work that is
+  fine with work nobody is watching. Bucket membership is otherwise unchanged.
+
+  Hardening found while reviewing it, all reachable through the tool surface.
+  `pm_item` writes `due` and `touched_at` through with no validation and every
+  reader assumed `Time.parse` would succeed, so one bad value replaced the whole
+  digest — or the whole deadline query — with an error object. Both now read
+  through `ProjectManager.parse_time`, which answers nil for a malformed string, a
+  non-string and an out-of-range field alike. The same discipline covers
+  caller-supplied numbers in `whole_number`, including the `pm.yml` thresholds and
+  the `digest:` mapping they sit in, so an operator typo in the one file
+  `skillset upgrade` never repairs falls back to defaults instead of disabling the
+  digest. `summarize` also carries the raw `touched_at` now, so a consumer can tell
+  a missing marker from an unreadable one — the secretary is required to word them
+  differently and previously had to guess.
+
+  Eight review rounds against a frozen target, closed by exhaustion rather than by
+  threshold: the last round's findings were pre-existing SkillSet defects outside
+  the target, not defects in this change. The recurring mistake worth recording is
+  that seven consecutive rounds each found the same shape — a guard placed one step
+  short of where the value enters — at the call site instead of the source, at two
+  of three exception classes, at a config hash's values instead of the hash, and at
+  the hash instead of the read that produces it.
+
 - **`project_orientation_report` L1 knowledge.** A fixed procedure for producing a
   one-page HTML report that explains where a single thread of work stands, written
   for a reader who has not followed it. Ten invariants, a fixed eight-section order,
