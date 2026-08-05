@@ -1,0 +1,33 @@
+{
+  "name": "account_manager",
+  "version": "0.1.0",
+  "description": "A jurisdiction-neutral double-entry ledger for a sole proprietorship that is also a household cash book. One ledger, two books, one currency; every stored posting is a balanced journal entry and each book balances on its own through a configured owner-draw pair. Ranges partition the ledger by transaction date, so a close freezes a month and an annual close posts the year's result into retained earnings before sealing the year. Nothing becomes a figure without the operator: CSV rows and transcriptions land as proposals that no report counts. The whole jurisdiction surface — chart of accounts, tax labels, fiscal year, import profiles — is configuration, and no tool's code holds an account name or a tax rate. Ships a bookkeeper-persona sub-agent that transcribes in and advises out but cannot post, confirm, discard, close or bind evidence.",
+  "author": "Masaomi Hatakeyama",
+  "layer": "L1",
+  "provides": [
+    "double_entry_ledger",
+    "household_cash_book",
+    "period_and_annual_close",
+    "bank_statement_import",
+    "evidence_binding",
+    "reconciliation"
+  ],
+  "tool_classes": [
+    "KairosMcp::SkillSets::AccountManagerSkillSet::Tools::AmEntry",
+    "KairosMcp::SkillSets::AccountManagerSkillSet::Tools::AmImport",
+    "KairosMcp::SkillSets::AccountManagerSkillSet::Tools::AmQuery",
+    "KairosMcp::SkillSets::AccountManagerSkillSet::Tools::AmReport",
+    "KairosMcp::SkillSets::AccountManagerSkillSet::Tools::AmReceipt",
+    "KairosMcp::SkillSets::AccountManagerSkillSet::Tools::AmClose"
+  ],
+  "config_files": [
+    "config/accounts.yml"
+  ],
+  "knowledge_dirs": [
+    "knowledge/account_manager_guide"
+  ],
+  "plugin": {
+    "skill_md": "plugin/SKILL.md",
+    "agents_dir": "plugin/agents"
+  }
+}

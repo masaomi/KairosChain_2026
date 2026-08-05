@@ -4,6 +4,46 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.60.0] - 2026-08-05
+
+### Added
+
+- **`account_manager` (SkillSet 0.1.0) — a jurisdiction-neutral double-entry ledger for a
+  one-person business that is also a household cash book.** One person, two purses: the books must
+  separate for tax, but the money does not — the owner draws from the business and pays business
+  costs from a private card. Six tools (`am_entry`, `am_import`, `am_query`, `am_report`,
+  `am_receipt`, `am_close`), one ledger with two books, one currency, and a bookkeeper-persona
+  sub-agent that transcribes on the way in and reads figures on the way out but cannot post,
+  confirm, discard, close or bind evidence.
+
+  No country's rules appear in any code path. The chart of accounts, tax labels, fiscal year and
+  import profiles are configuration; adding a country means writing one YAML file. The loader has
+  one refusal with a closed list of causes, and a missing ledger configuration is refused rather
+  than substituted by the shipped example.
+
+  Three things carry the design. A **range** is one calendar month derived from the transaction
+  date, so ranges cannot overlap or leave a gap and the rules that would have policed that do not
+  exist. A **proposal** is not a figure: imported rows and transcriptions are visible, counted by
+  no report, and become postings only by an explicit operator call. The **annual close posts, then
+  seals** — it credits each book's own retained earnings dated the fiscal year's last day, then
+  seals every month of that year, and that entry is the one posting permitted into a
+  period-closed (never sealed) range, because refusing it would make the annual close unreachable
+  in ordinary month-by-month use.
+
+  Design review did not converge over three rounds, so the design was implemented rather than
+  argued further; two implementation review rounds followed. Round 1 found a ledger that lost
+  records — an acknowledged posting absent from disk, because each tool cached its own store and
+  saved a stale snapshot over it — plus a refusal idiom that never executed
+  (`def m(id) = h[id] or raise X` parses as `(def …) or raise`), a closing entry that credited the
+  wrong book, and a year sealed as year zero from `'abc'.to_i`. Twenty-seven of its twenty-eight
+  blocking findings are fixed, and three independent reviewers verified the fixes in round 2.
+  Round 2's own findings are recorded and open: twelve are missing test coverage rather than
+  defects, and the remainder sit at configuration edges. Known and unfixed: there is no locking,
+  so the store is safe for one operator on one machine and not beyond it.
+
+  Not auto-installed — `account_manager` is not in `CORE_SKILLSETS`, so it ships in the gem and is
+  installed explicitly, like `project_manager`.
+
 ## [3.59.0] - 2026-08-05
 
 ### Added

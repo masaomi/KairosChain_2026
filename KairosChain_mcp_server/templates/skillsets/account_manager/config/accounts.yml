@@ -1,0 +1,115 @@
+# account_manager — the whole jurisdiction surface, and a worked example of it.
+#
+# This file is a TEMPLATE, not a chart to use. Copy it to
+# .kairos/accounts/<ledger>/config.yml and edit it; the copy is what the tools
+# read, and this one is the fallback so a fresh instance is not dead on
+# arrival. It is deliberately not any country's chart: shipping one would put
+# a jurisdiction in the package by the same route that putting one in the code
+# would (INV-AM-6).
+#
+# Every key below is read by the loader. Nothing else is.
+
+# ISO 4217. XTS is the code reserved for testing — change it before you post
+# anything, because a currency cannot change once postings exist.
+currency: XTS
+
+# One ledger, two books. A household-only ledger is this same file with one
+# book, crossing: none, and tax_labels empty.
+books:
+  - business
+  - private
+
+# How a posting that crosses books is completed so each book still balances
+# alone (INV-AM-2). One account per book, or `none` to refuse crossings.
+crossing:
+  business: owner_account
+  private: business_claim
+
+fiscal_year_start_month: 1
+
+# Both must exist below with type equity. The loader refuses otherwise.
+retained_earnings_account: retained_earnings
+prior_period_adjustment_account: prior_period_adjustment
+
+# `cash: true` marks an account money actually sits in — bank, cash, card.
+# Reconciliation needs it, and so does the refusal of a settlement date on a
+# posting where nothing moved (INV-AM-10).
+chart_of_accounts:
+  - id: cash
+    name: Cash on hand
+    type: asset
+    cash: true
+  - id: bank
+    name: Business bank account
+    type: asset
+    cash: true
+  - id: private_card
+    name: Private credit card
+    type: liability
+    cash: true
+  - id: business_claim
+    name: Claim on the business (private book's side of a crossing)
+    type: asset
+  - id: receivable
+    name: Money owed to the business
+    type: asset
+  - id: payable
+    name: Money the business owes
+    type: liability
+  - id: owner_account
+    name: Owner's account — draws and contributions
+    type: equity
+  - id: retained_earnings
+    name: Retained earnings
+    type: equity
+  - id: prior_period_adjustment
+    name: Prior-period adjustment
+    type: equity
+  - id: income_services
+    name: Services rendered
+    type: income
+    default_tax_label: standard
+  - id: expense_supplies
+    name: Supplies and materials
+    type: expense
+    default_tax_label: standard
+  - id: expense_household
+    name: Household spending
+    type: expense
+
+# Opaque labels. No tool derives a tax amount from one; reports group by them
+# and stop there (INV-AM-8).
+tax_labels:
+  - standard
+  - exempt
+
+# One profile per source. The name is part of every key the profile produces,
+# so two sources numbering their bookings from 1 do not collide (INV-AM-9).
+import_profiles:
+  - name: example_bank
+    account: bank
+    book: business
+    columns:
+      transaction_date: Date
+      settlement_date: Booked
+      description: Text
+      amount: Amount
+      reference: Ref
+    # Which CSV column carries the source's own booking reference. Set it to
+    # nothing (omit the key) for a source with no identifier: its rows are then
+    # keyed by batch and position, and every re-import is reported as one.
+    reference_field: Ref
+    # positive_is_debit: a positive amount is money arriving in `account`.
+    sign: positive_is_debit
+
+  # Dictated lines and transcribed receipts arrive under a profile with no
+  # identifier, so a line dictated twice is proposed twice and the operator
+  # sees both.
+  - name: dictated
+    account: cash
+    book: private
+    columns:
+      transaction_date: date
+      description: description
+      amount: amount
+    sign: positive_is_debit
