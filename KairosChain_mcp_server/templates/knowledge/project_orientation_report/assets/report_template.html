@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>作業名 — 現状レポート</title>
+<style>
+  :root {
+    --ink: #23262b;
+    --muted: #5f6672;
+    --line: #d5d9e0;
+    --panel: #f7f8fa;
+    --accent: #b3402f;
+  }
+  body {
+    font-family: "Hiragino Sans", "Noto Sans JP", "Yu Gothic", ui-sans-serif, sans-serif;
+    color: var(--ink);
+    background: #fff;
+    line-height: 1.9;
+    font-size: 16.5px;
+    max-width: 46rem;
+    margin: 0 auto;
+    padding: 2.5rem 1.2rem 5rem;
+  }
+  h1 { font-size: 1.5rem; line-height: 1.5; margin: 0 0 .4rem; }
+  h2 {
+    font-size: 1.13rem;
+    margin: 3rem 0 .9rem;
+    padding-bottom: .35rem;
+    border-bottom: 2px solid var(--line);
+  }
+  p { margin: .9rem 0; }
+  .stamp {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: .8rem 1rem;
+    font-size: .87rem;
+    color: var(--muted);
+    line-height: 1.8;
+  }
+  .stamp b { color: var(--ink); font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; margin: 1.2rem 0; font-size: .93rem; }
+  th, td { border: 1px solid var(--line); padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: var(--panel); font-weight: 600; }
+  figure { margin: 1.4rem 0; }
+  figcaption { font-size: .85rem; color: var(--muted); margin-top: .5rem; }
+  svg { display: block; margin: 0 auto; }
+  .mark { color: var(--accent); font-weight: 600; }
+  details {
+    margin-top: 3rem;
+    border-top: 1px solid var(--line);
+    padding-top: 1rem;
+  }
+  summary { cursor: pointer; font-weight: 600; }
+  @media print {
+    body { max-width: none; font-size: 11pt; }
+    details { page-break-before: always; }
+    details[open] summary { list-style: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- 節0 表紙。条件2 — 時点を名指しする。図表は不要、時点の枠がその代わり -->
+<h1>《作業名》 — 現状レポート</h1>
+<p>《この 1 枚は何の話か。1 文で》</p>
+<div class="stamp">
+  <b>生成</b> 《YYYY-MM-DD HH:MM》 ／
+  <b>git</b> 《short commit》 ／
+  <b>chain の高さ</b> 《length》<br>
+  <b>読んだ入力</b> 《n 件。一覧は付録 C》
+</div>
+
+<!-- 節1 登場人物。作業の内部ではなく、作業に入る前の前提だけ。SVG 必須 -->
+<h2>登場人物</h2>
+<p>《誰が誰に何を渡すのか。ここでは仕組みを書かない》</p>
+<figure>
+<svg viewBox="0 0 700 200" style="width:100%;max-width:700px;height:auto" role="img">
+  <title>《図の内容を 1 文で。読み上げ用》</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5f6672"/>
+    </marker>
+  </defs>
+  <!-- 箱: 幅は中の文字列が収まるよう計算する。日本語 1 文字 = font-size x 1.0 -->
+  <rect x="20" y="60" width="180" height="60" rx="6" fill="#f7f8fa" stroke="#5f6672"/>
+  <text x="110" y="95" text-anchor="middle" font-size="14"
+        font-family="Hiragino Sans, Noto Sans JP, sans-serif" fill="#23262b">《登場人物 1》</text>
+  <rect x="260" y="60" width="180" height="60" rx="6" fill="#f7f8fa" stroke="#5f6672"/>
+  <text x="350" y="95" text-anchor="middle" font-size="14"
+        font-family="Hiragino Sans, Noto Sans JP, sans-serif" fill="#23262b">《登場人物 2》</text>
+  <rect x="500" y="60" width="180" height="60" rx="6" fill="#f7f8fa" stroke="#5f6672"/>
+  <text x="590" y="95" text-anchor="middle" font-size="14"
+        font-family="Hiragino Sans, Noto Sans JP, sans-serif" fill="#23262b">《登場人物 3》</text>
+  <line x1="200" y1="90" x2="255" y2="90" stroke="#5f6672" marker-end="url(#arrow)"/>
+  <line x1="440" y1="90" x2="495" y2="90" stroke="#5f6672" marker-end="url(#arrow)"/>
+  <text x="228" y="78" text-anchor="middle" font-size="11"
+        font-family="Hiragino Sans, Noto Sans JP, sans-serif" fill="#5f6672">《渡すもの》</text>
+  <text x="468" y="78" text-anchor="middle" font-size="11"
+        font-family="Hiragino Sans, Noto Sans JP, sans-serif" fill="#5f6672">《渡すもの》</text>
+</svg>
+<figcaption>《図の説明。1 行》</figcaption>
+</figure>
+
+<!-- 節2 何が壊れていたか。条件8 — 実際の入力と出力の値を 1 組 -->
+<h2>何が壊れていたか</h2>
+<p>《具体的に何が起きたのか》</p>
+<table>
+  <tr><th>入力</th><th>出た結果</th></tr>
+  <tr><td>《実際に与えた値》</td><td>《実際に返った値》</td></tr>
+</table>
+
+<!-- 節3 直そうとして何が起きたか。条件10 — 追う例を決め、時点ごとの扱いを 1 枚の表に -->
+<h2>直そうとして何が起きたか</h2>
+<p>《経緯を 1 本の線で。以下は追いかける例》</p>
+<table>
+  <tr><th>時点</th><th>《追う例 その 1》</th><th>《追う例 その 2》</th></tr>
+  <tr><td>《最初》</td><td>《どうなったか》</td><td>《どうなったか》</td></tr>
+  <tr><td>《修正 1》</td><td>《どうなったか》</td><td><span class="mark">《ここで開いた穴》</span></td></tr>
+  <tr><td>《最終》</td><td>《どうなったか》</td><td>《どうなったか》</td></tr>
+</table>
+
+<!-- 節4 どう閉じたか。条件10 — 節3 と同じ例で、前と後を対比する -->
+<h2>どう閉じたか</h2>
+<p>《最後にとった手と、その一言の理由》</p>
+<figure>
+<svg viewBox="0 0 700 220" style="width:100%;max-width:700px;height:auto" role="img">
+  <title>《前と後で、追っている例の扱いがどう変わったか》</title>
+  <rect x="20" y="20" width="320" height="180" rx="6" fill="#f7f8fa" stroke="#5f6672"/>
+  <text x="40" y="50" font-size="13"
+        font-family="Hiragino Sans, Noto Sans JP, sans-serif" fill="#23262b">《修正前》</text>
+  <text x="40" y="100" font-size="12"
+        font-family="Hiragino Sans, Noto Sans JP, sans-serif" fill="#23262b">《追う例 その 1 の扱い》</text>
+  <text x="40" y="130" font-size="12"
+        font-family="Hiragino Sans, Noto Sans JP, sans-serif" fill="#b3402f">《追う例 その 2 の扱い》</text>
+  <rect x="360" y="20" width="320" height="180" rx="6" fill="#f7f8fa" stroke="#5f6672"/>
+  <text x="380" y="50" font-size="13"
+        font-family="Hiragino Sans, Noto Sans JP, sans-serif" fill="#23262b">《修正後》</text>
+  <text x="380" y="100" font-size="12"
+        font-family="Hiragino Sans, Noto Sans JP, sans-serif" fill="#23262b">《追う例 その 1 の扱い》</text>
+  <text x="380" y="130" font-size="12"
+        font-family="Hiragino Sans, Noto Sans JP, sans-serif" fill="#23262b">《追う例 その 2 の扱い》</text>
+</svg>
+<figcaption>《なぜこれで閉じるのか。1 行》</figcaption>
+</figure>
+
+<!-- 節5 今どこ。数字は必ず分母つき -->
+<h2>今どこ</h2>
+<table>
+  <tr><th>項目</th><th>状態</th></tr>
+  <tr><td>《進んだところ》</td><td>《数字は分母つきで》</td></tr>
+  <tr><td>《止まっているところ》</td><td>《何待ちか》</td></tr>
+</table>
+
+<!-- 節6 決まっていないこと。条件6 — 作業側が未決と書き残したものだけ。提案を書かない -->
+<h2>決まっていないこと</h2>
+<ul>
+  <li>《作業側が未決と書き残していること》</li>
+</ul>
+
+<!-- 節7 記録の食い違い。条件5 — どれかに寄せない。無ければ「食い違いなし」と明記 -->
+<h2>記録の食い違い</h2>
+<table>
+  <tr><th>記録が言っていること</th><th>実際</th></tr>
+  <tr><td>《どの記録が何と書いているか》</td><td>《確かめた結果》</td></tr>
+</table>
+
+<details>
+<summary>付録 A — 符牒の対応表</summary>
+<table>
+  <tr><th>元の記録の符牒</th><th>本体での呼び名</th></tr>
+  <tr><td>《符牒》</td><td>《日本語の呼び名》</td></tr>
+</table>
+</details>
+
+<details>
+<summary>付録 B — 網羅の記録</summary>
+<p>《変更ファイル一覧、テストの内訳、実測値の全部。引き継ぎ用》</p>
+</details>
+
+<details>
+<summary>付録 C — 読んだもの</summary>
+<ul>
+  <li><code>《パス》</code> — 《そこから取った内容を一言》</li>
+</ul>
+</details>
+
+</body>
+</html>

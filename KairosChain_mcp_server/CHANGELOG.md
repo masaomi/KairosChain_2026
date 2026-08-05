@@ -4,6 +4,31 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.59.0] - 2026-08-05
+
+### Added
+
+- **`project_orientation_report` L1 knowledge.** A fixed procedure for producing a
+  one-page HTML report that explains where a single thread of work stands, written
+  for a reader who has not followed it. Ten invariants, a fixed eight-section order,
+  three collapsed appendices, and SVG rules; the checkable part is enforced by
+  `scripts/check_report.py` (standard library only, exit 0 on pass).
+
+  The two invariants that carry the most weight are non-obvious. The writer must
+  not hold the session context that produced the work — a writer who knows
+  everything skips premises without noticing, so the report is written by a
+  context-blank process given only the artifacts. And a section that explains a
+  *change* must carry one worked example from start to finish, because a reader
+  forced to re-learn the setup at every section stops following at the first switch.
+
+  The design was not validated by a design review. It was validated by building
+  four prototypes on the same subject and having a human read each one: invariants
+  7, 8, 9, 10 and the SVG rules all came out of those judgments and none of them
+  came out of the design table. The checker is calibrated against both a passing
+  and a failing report, and the failing one predates the checker, so it is a real
+  negative control rather than a fixture written to be caught.
+  `references/worked_example.md` records which prototype failed how.
+
 ## [3.58.2] - 2026-08-03
 
 ### Fixed
