@@ -148,8 +148,8 @@ module KairosMcp
         def test_aggregate_findings_dedup
           # Simulate already-parsed verdicts (after extract_verdict)
           parsed = [
-            { role_label: 'r1', raw_text: "P0: Missing error handling in dispatcher\n\nP1: Thread safety concern", status: :success, verdict: 'REJECT' },
-            { role_label: 'r2', raw_text: "P0: Missing error handling in dispatcher timeout path", status: :success, verdict: 'REJECT' }
+            { role_label: 'r1', raw_text: "P0: Missing error handling in dispatcher [consequence: a timeout kills the round]\n\nP1: Thread safety concern", status: :success, verdict: 'REJECT' },
+            { role_label: 'r2', raw_text: "P0: Missing error handling in dispatcher timeout path [consequence: a timeout kills the round]", status: :success, verdict: 'REJECT' }
           ]
           findings = Consensus.aggregate_findings(parsed)
 
@@ -158,6 +158,138 @@ module KairosMcp
           assert p0_findings.size >= 1, "Expected at least one P0 finding, got: #{findings.inspect}"
           # r1's P0 and r2's P0 should dedup; P1 is separate
           assert findings.size <= 3, "Expected dedup to reduce findings, got #{findings.size}"
+        end
+
+        # The weight axis (2026-08-06). The severity axis says what kind of
+        # defect a finding is; the consequence clause says who is harmed if it
+        # is never fixed. Measured on project_orientation_report R5: 3 of 7
+        # P0s were factually correct and cost nobody anything, and both kinds
+        # landed at P0 because the record had no second axis.
+        def test_p0_without_consequence_is_recorded_at_p2
+          parsed = [{ role_label: 'r1', status: :success, verdict: 'REJECT',
+                      raw_text: "P0: declared cap justification is inconsistent" }]
+          f = Consensus.aggregate_findings(parsed).first
+          assert_equal 'P2', f[:severity]
+          assert_equal 'P0', f[:severity_stated]
+          assert_equal 'consequence_missing', f[:severity_demoted]
+        end
+
+        def test_p0_with_empty_consequence_is_recorded_at_p2
+          parsed = [{ role_label: 'r1', status: :success, verdict: 'REJECT',
+                      raw_text: "P0: declared cap justification is inconsistent [consequence:  ]" }]
+          f = Consensus.aggregate_findings(parsed).first
+          assert_equal 'P2', f[:severity]
+          assert_equal 'P0', f[:severity_stated]
+        end
+
+        def test_p0_with_consequence_stays_p0_and_carries_it
+          parsed = [{ role_label: 'r1', status: :success, verdict: 'REJECT',
+                      raw_text: "P0: rect frame disables overflow detection [consequence: broken figures ship undetected in published reports]" }]
+          f = Consensus.aggregate_findings(parsed).first
+          assert_equal 'P0', f[:severity]
+          assert_equal 'broken figures ship undetected in published reports', f[:consequence]
+          assert_nil f[:severity_stated]
+        end
+
+        # Only presence is checked, and only P0 is demoted: the rule is
+        # mechanical by construction, like the substance rule — whether a
+        # stated consequence is real or trivial is the orchestrator's call.
+        def test_p1_without_consequence_is_not_demoted
+          parsed = [{ role_label: 'r1', status: :success, verdict: 'REVISE',
+                      raw_text: "P1: thread safety concern in counter" }]
+          f = Consensus.aggregate_findings(parsed).first
+          assert_equal 'P1', f[:severity]
+        end
+
+        # One reviewer states the harm, one does not: still one finding — the
+        # dedup key strips the clause — and the stated consequence carries the
+        # merged row's severity for both.
+        def test_consequence_clause_does_not_split_the_dedup_group
+          parsed = [
+            { role_label: 'r1', status: :success, verdict: 'REJECT',
+              raw_text: "P0: the reaper can signal its own group [consequence: the orchestrator is killed with the worker]" },
+            { role_label: 'r2', status: :success, verdict: 'REVISE',
+              raw_text: "P0: the reaper can signal its own group" }
+          ]
+          findings = Consensus.aggregate_findings(parsed)
+          assert_equal 1, findings.size
+          f = findings.first
+          assert_equal 'P0', f[:severity]
+          assert_equal %w[r1 r2].sort, f[:cited_by].sort
+          assert_equal 'the orchestrator is killed with the worker', f[:consequence]
+        end
+
+        # The clause is read before the byte clamp cuts the tail — a P0 long
+        # enough to lose its closing bracket to the bound must not be demoted
+        # for complying (R1 finding, three seats).
+        def test_consequence_beyond_the_byte_clamp_still_counts
+          long_head = 'x' * (Sanitizer::FINDING_RECORD_MAX_LEN + 100)
+          parsed = [{ role_label: 'r1', status: :success, verdict: 'REJECT',
+                      raw_text: "P0: #{long_head} [consequence: users lose data]" }]
+          f = Consensus.aggregate_findings(parsed).first
+          assert_equal 'P0', f[:severity]
+          assert_equal 'users lose data', f[:consequence]
+        end
+
+        # First NON-empty clause counts: an empty clause followed by a stated
+        # one must not demote past the stated harm.
+        def test_first_empty_second_populated_clause_does_not_demote
+          parsed = [{ role_label: 'r1', status: :success, verdict: 'REJECT',
+                      raw_text: 'P0: cap check bypassed [consequence: ] twice [consequence: operators ship a corrupt report]' }]
+          f = Consensus.aggregate_findings(parsed).first
+          assert_equal 'P0', f[:severity]
+          assert_equal 'operators ship a corrupt report', f[:consequence]
+        end
+
+        # The demotion mark survives merging regardless of member order: a
+        # group holding a demoted P0 says so even when the representative is
+        # a member that was never demoted (R1 finding, three seats).
+        def test_demotion_mark_survives_merging_in_either_order
+          demoted = "P0: the reaper can signal its own group"
+          plain   = "P2: the reaper can signal its own group"
+          [[demoted, plain], [plain, demoted]].each do |first, second|
+            parsed = [
+              { role_label: 'r1', status: :success, verdict: 'REJECT', raw_text: first },
+              { role_label: 'r2', status: :success, verdict: 'REVISE', raw_text: second }
+            ]
+            findings = Consensus.aggregate_findings(parsed)
+            assert_equal 1, findings.size
+            f = findings.first
+            assert_equal 'P2', f[:severity]
+            assert_equal 'P0', f[:severity_stated],
+                         "mark lost for order #{[first, second].inspect}"
+            assert_equal 'consequence_missing', f[:severity_demoted]
+          end
+        end
+
+        # A row that merged to P0 carries no demotion mark: some member
+        # stated the harm and nothing was demoted away from what the record
+        # shows.
+        def test_no_demotion_mark_on_a_row_that_merged_to_p0
+          parsed = [
+            { role_label: 'r1', status: :success, verdict: 'REJECT',
+              raw_text: 'P0: the reaper can signal its own group [consequence: the orchestrator dies with the worker]' },
+            { role_label: 'r2', status: :success, verdict: 'REVISE',
+              raw_text: 'P0: the reaper can signal its own group' }
+          ]
+          f = Consensus.aggregate_findings(parsed).first
+          assert_equal 'P0', f[:severity]
+          assert_nil f[:severity_stated]
+        end
+
+        # The new fields reach the record: string-keyed rows through the same
+        # bound the tools apply, nothing dropped and reviewer text bounded.
+        def test_consequence_fields_survive_the_record_path
+          parsed = [{ role_label: 'r1', status: :success, verdict: 'REJECT',
+                      raw_text: "P0: cap check bypassed\n\nP0: rect frame hides overflow [consequence: broken figures ship in published reports]" }]
+          rows = Consensus.aggregate_findings(parsed)
+                          .map { |f| f.transform_keys(&:to_s) }
+          bound = Sanitizer.bound_findings_for_record(rows)
+          demoted = bound.find { |f| f['severity_stated'] }
+          assert_equal 'P0', demoted['severity_stated']
+          assert_equal 'consequence_missing', demoted['severity_demoted']
+          kept = bound.find { |f| f['consequence'] }
+          assert_equal 'broken figures ship in published reports', kept['consequence']
         end
 
         def test_parse_threshold_ratio
@@ -458,9 +590,22 @@ module KairosMcp
             prior_findings: prior
           )
           content = messages[0]['content']
-          assert_includes content, 'R2'
+          # The round number is orchestrator-side bookkeeping (2026-08-06):
+          # telling a reviewer which round it is in frames counts as compared,
+          # and selects for finding-production over finding-weight.
+          refute_includes content, 'R2'
+          refute_includes content, 'Round:'
           assert_includes content, 'Missing validation'
           assert_includes content, 'r1, r2'
+        end
+
+        # The weight axis (2026-08-06): the contract demands a consequence
+        # clause for P0 and says what happens without one, so the demotion in
+        # aggregation is a rule the reviewer was told, not a silent rewrite.
+        def test_contract_requires_consequence_for_p0
+          contract = PromptBuilder.structured_output_contract
+          assert_includes contract, '[consequence:'
+          assert_includes contract, 'recorded at P2'
         end
       end
 
@@ -1372,6 +1517,196 @@ module KairosMcp
           payload = JSON.parse(result.first[:text])
           deadline = Time.iso8601(payload['must_collect_by'])
           assert_in_delta 5000, deadline - Time.now, 5
+        end
+      end
+
+      # Worker-death recovery (2026-08-06, R3): a stale heartbeat on ONE stuck
+      # seat used to discard every completed seat's reply, because the only
+      # exit from the crash branch was total loss. The worker now persists
+      # each seat as it completes (partial_results.json), and collect reads
+      # that file back: finished seats count, unreached seats enter the
+      # denominator as skip rows naming the loss.
+      class TestCollectWorkerCrashRecovery < Minitest::Test
+        def setup
+          @tmp = Dir.mktmpdir('mlr-crash-')
+          @orig_cwd = Dir.pwd
+          Dir.chdir(@tmp)
+          @collect = Tools::MultiLlmReviewCollect.new
+          @token = PendingState.generate_token
+          PendingState.create_token_dir!(@token)
+          PendingState.write_state(@token, {
+            'token' => @token,
+            'created_at' => Time.now.iso8601,
+            'collect_deadline' => (Time.now + 600).iso8601,
+            'review_type' => 'design',
+            'artifact_name' => 'test',
+            'review_round' => 1,
+            'complexity' => 'high',
+            'orchestrator_model' => 'claude-opus-5',
+            'convergence_rule' => '3/4 APPROVE',
+            'min_quorum' => 2,
+            'parallel' => true,
+            'subprocess_status' => 'crashed',
+            'crash_reason' => 'heartbeat_stale'
+          })
+          PendingState.write_request(@token, {
+            'reviewers' => [
+              { 'provider' => 'codex', 'model' => 'gpt-5.5', 'role_label' => 'codex_gpt5.5' },
+              { 'provider' => 'cursor', 'model' => 'composer-2.5', 'role_label' => 'cursor' }
+            ]
+          })
+        end
+
+        def teardown
+          Dir.chdir(@orig_cwd)
+          FileUtils.rm_rf(@tmp)
+        end
+
+        def persona_reviews
+          [
+            { 'persona' => 'architect', 'verdict' => 'APPROVE',
+              'reasoning' => 'walked the layering; holds together', 'findings' => [] },
+            { 'persona' => 'security', 'verdict' => 'APPROVE',
+              'reasoning' => 'no exposure found on the seams', 'findings' => [] }
+          ]
+        end
+
+        # Recovery is gated on the reaper CONFIRMING the worker's death, and
+        # the reaper needs a worker.pid it can cross-check. A real, already
+        # exited process (own process group, so terminate! signals a group
+        # that is genuinely gone) makes the reaper answer :already_dead.
+        def write_dead_worker_pid
+          pid = Process.spawn('true', pgroup: true)
+          Process.wait(pid)
+          PendingState.write_worker_pid(@token, {
+            'pid' => pid, 'pgid' => pid,
+            'spawned_at' => Time.now.iso8601, 'ruby_version' => RUBY_VERSION
+          })
+          pid
+        end
+
+        def write_partial_for_seat_zero
+          PendingState.write_partial_results(@token, {
+            'schema_version' => 1,
+            'token' => @token,
+            'updated_at' => Time.now.iso8601,
+            'results_by_index' => {
+              '0' => {
+                'role_label' => 'codex_gpt5.5', 'provider' => 'codex',
+                'model' => 'gpt-5.5',
+                'raw_text' => "**Overall Verdict**: APPROVE\n\n" \
+                              'Checked the dispatch path and the pending-state ' \
+                              'contract; nothing to raise.',
+                'elapsed_seconds' => 12, 'error' => nil, 'status' => 'success'
+              }
+            }
+          })
+        end
+
+        def test_completed_seats_survive_a_worker_crash
+          write_dead_worker_pid
+          write_partial_for_seat_zero
+          payload = JSON.parse(@collect.call({
+            'collect_token' => @token,
+            'orchestrator_reviews' => persona_reviews
+          }).first[:text])
+
+          assert_equal 'ok', payload['status'], payload.inspect
+          failure = payload['worker_failure']
+          assert failure, 'the record must say the denominator survived a worker death'
+          assert_equal 'subprocess_worker_crashed', failure['outcome']
+          assert_equal 'heartbeat_stale', failure['reason']
+          assert_equal 'already_dead', failure['reaper_outcome']
+          assert_equal ['codex_gpt5.5'], failure['recovered_seats']
+          assert_equal ['cursor'], failure['lost_seats']
+
+          observers = payload.dig('convergence', 'denominator_composition', 'observers')
+          lost = observers.find { |o| o['role_label'] == 'cursor' }
+          refute lost['counted']
+          assert_equal 'worker_crashed_seat_lost', lost['reason']
+          counted = observers.find { |o| o['role_label'] == 'codex_gpt5.5' }
+          assert counted['counted'], 'the recovered seat counts'
+        end
+
+        def test_crash_with_no_partial_results_reports_the_death_as_before
+          payload = JSON.parse(@collect.call({
+            'collect_token' => @token,
+            'orchestrator_reviews' => persona_reviews
+          }).first[:text])
+          assert_equal 'subprocess_worker_crashed', payload['status']
+          assert_equal 'heartbeat_stale', payload['reason']
+          refute payload.key?('reaper_outcome'),
+                 'with nothing to save, the worker is reported, not reaped'
+        end
+
+        # A stale heartbeat is not a death certificate. With no worker.pid the
+        # reaper cannot confirm anything (:skipped), and a record sealed over
+        # a possibly-live worker would be permanently false — so the crash is
+        # reported as retryable instead, with the reaper's answer on it.
+        def test_recovery_refused_when_death_cannot_be_confirmed
+          write_partial_for_seat_zero
+          payload = JSON.parse(@collect.call({
+            'collect_token' => @token,
+            'orchestrator_reviews' => persona_reviews
+          }).first[:text])
+          assert_equal 'subprocess_worker_crashed', payload['status']
+          assert_equal 'skipped', payload['reaper_outcome']
+        end
+
+        # No roster, no recovery: a denominator that cannot name its missing
+        # seats would shrink silently, which is the loss shape INV-E4 exists
+        # to prevent.
+        def test_partial_results_without_a_readable_roster_fall_back_to_crash_report
+          write_dead_worker_pid
+          write_partial_for_seat_zero
+          File.delete(PendingState.request_path(@token))
+          payload = JSON.parse(@collect.call({
+            'collect_token' => @token,
+            'orchestrator_reviews' => persona_reviews
+          }).first[:text])
+          assert_equal 'subprocess_worker_crashed', payload['status']
+        end
+
+        # The partial file names its token; one naming another token is not
+        # this run's record and is not read.
+        def test_partial_results_for_a_different_token_are_not_read
+          write_dead_worker_pid
+          write_partial_for_seat_zero
+          partial = PendingState.load_partial_results(@token)
+          partial['token'] = PendingState.generate_token
+          PendingState.write_partial_results(@token, partial)
+          payload = JSON.parse(@collect.call({
+            'collect_token' => @token,
+            'orchestrator_reviews' => persona_reviews
+          }).first[:text])
+          assert_equal 'subprocess_worker_crashed', payload['status']
+        end
+
+        # The timeout branch takes the same gate: reaper confirms death (the
+        # dead pid answers :already_dead), then the partial file is final and
+        # the finished seat survives.
+        def test_completed_seats_survive_a_worker_timeout
+          PendingState.update_state(@token) do |s|
+            s.delete('subprocess_status')
+            s.delete('crash_reason')
+            s
+          end
+          write_dead_worker_pid
+          FileUtils.touch(PendingState.worker_heartbeat_path(@token))
+          write_partial_for_seat_zero
+          payload = JSON.parse(@collect.call({
+            'collect_token' => @token,
+            'orchestrator_reviews' => persona_reviews,
+            'collect_max_wait_seconds' => 1
+          }).first[:text])
+
+          assert_equal 'ok', payload['status'], payload.inspect
+          failure = payload['worker_failure']
+          assert failure
+          assert_equal 'worker_timeout', failure['outcome']
+          assert_equal 'already_dead', failure['reaper_outcome']
+          assert_equal ['codex_gpt5.5'], failure['recovered_seats']
+          assert_equal ['cursor'], failure['lost_seats']
         end
       end
 

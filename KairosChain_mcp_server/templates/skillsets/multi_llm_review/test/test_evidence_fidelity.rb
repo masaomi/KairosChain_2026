@@ -49,16 +49,18 @@ module KairosMcp
         # 1. D1. Aggregation used `issue.strip[0..200]` — an inclusive Range, so
         # 201 characters — and everything past that was gone before any
         # destination-aware bound could be applied.
+        # P1, not P0: a P0 with no consequence clause is demoted (the weight
+        # axis, 2026-08-06), and this test is about length, not weight.
         def test_finding_longer_than_201_chars_survives_aggregation
           issue = long_issue(700)
           reviews = [
-            { role_label: 'r1', raw_text: finding_body('REJECT', 'P0', issue), status: :success },
+            { role_label: 'r1', raw_text: finding_body('REJECT', 'P1', issue), status: :success },
             { role_label: 'r2', raw_text: prose_body('APPROVE'), status: :success }
           ]
           result = Consensus.aggregate(reviews, '2/3 APPROVE', min_quorum: 1)
 
-          row = result[:aggregated_findings].find { |f| f[:severity] == 'P0' }
-          refute_nil row, 'the P0 finding never reached aggregated_findings'
+          row = result[:aggregated_findings].find { |f| f[:severity] == 'P1' }
+          refute_nil row, 'the P1 finding never reached aggregated_findings'
           assert_equal 700, row[:issue].length
           assert_equal issue, row[:issue]
           refute row.key?(:issue_variants), 'a single-member group carries no issue_variants key'
@@ -91,7 +93,10 @@ module KairosMcp
         def test_colliding_findings_keep_every_variant_and_a_matching_severity
           shared = 'The dispatcher drops the reviewer model provenance before the record is written'
           issue_a = "#{shared}, and the collect path repeats that mapping a fourth time."
-          issue_b = "#{shared}, but only when the persona seat was convened by the caller."
+          # The P0 states its consequence — without one it would be demoted
+          # (the weight axis, 2026-08-06) and could not be the severer member.
+          issue_b = "#{shared}, but only when the persona seat was convened by the caller. " \
+                    '[consequence: the record misattributes a verdict to the wrong model]'
 
           reviews = [
             { role_label: 'r1', raw_text: finding_body('REJECT', 'P2', issue_a), status: :success },
@@ -369,16 +374,18 @@ module KairosMcp
         #
         # The ASCII prefix is load-bearing: a reply of nothing but U+3316 is
         # dropped by aggregation before it becomes a finding.
+        # P1, not P0: a P0 with no consequence clause is demoted (the weight
+        # axis, 2026-08-06), and this test is about bytes, not weight.
         def test_the_record_bound_holds_in_bytes_after_nfkc_expansion
           issue = 'the record bound must hold in bytes: ' + ('㌖' * 4000)
           reviews = [
-            { role_label: 'r1', raw_text: finding_body('REJECT', 'P0', issue), status: :success },
+            { role_label: 'r1', raw_text: finding_body('REJECT', 'P1', issue), status: :success },
             { role_label: 'r2', raw_text: prose_body('APPROVE'), status: :success }
           ]
           result = Consensus.aggregate(reviews, '2/3 APPROVE', min_quorum: 1)
 
-          row = result[:aggregated_findings].find { |f| f[:severity] == 'P0' }
-          refute_nil row, 'the P0 finding never reached aggregated_findings'
+          row = result[:aggregated_findings].find { |f| f[:severity] == 'P1' }
+          refute_nil row, 'the P1 finding never reached aggregated_findings'
           assert_operator row[:issue].bytesize, :<=, Sanitizer::FINDING_RECORD_MAX_LEN,
                           'extraction already clamps in bytes; the expansion comes later'
 

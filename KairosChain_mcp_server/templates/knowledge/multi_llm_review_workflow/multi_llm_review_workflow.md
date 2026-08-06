@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.8.0"
+version: "3.10.0"
 tags:
   - workflow
   - review
@@ -498,8 +498,57 @@ The user always has the final say.
     `open-question` or `defect` in the round's L2 record
     If no (a)/(b) blocking findings → proceed to next phase
     If any (a)/(b) finding          → repeat from [2] with revised artifact
+    (the revision obeys § Revision Discipline below)
     (c) findings are recorded as advisory; non-blocking
 ```
+
+## Revision Discipline (between rounds)
+
+> Evidence base: 35 recorded runs across 8 threads, 2026-08-03 → 08-06
+> (tokens in `.kairos/multi_llm_review/pending/`), two of which ran to
+> convergence. Same validation caveat as Step -1: a strong regularity in one
+> instance's logs, not yet reproduced elsewhere. Analysis record: L2
+> `mlr_p0_inflation_analysis_and_opus46_no_verdict_diagnosis_20260806`.
+
+The strongest predictor of round N+1's raw P0 count in those logs is whether
+the round-N revision **added mechanism** to the artifact — not the artifact's
+size, not reviewer strictness:
+
+- chain_history_erasure v0.5 added two invariants and a recount section
+  (draft 9.3k → 19.1k chars): raw P0 went 13 → 38, and 17 of the 38 targeted
+  the added or rewritten sections. v0.8, similar in size (18.6k) but authored
+  under an explicit "no new mechanism" rule, closed at 13 with one external
+  slot finding zero P0s.
+- mlr_evidence_fix R1's fix added four unrequested defensive mechanisms; R2
+  returned 41 findings, nearly all of them defects inside the additions. All
+  four mechanisms were later removed, each for a measured reason.
+- Deletions never generated findings: chain erasure v0.7 deleted three
+  mechanisms — zero new P0s against the deletions, confirmed in writing by
+  three slots.
+- Each thread converged within 1–2 rounds of switching to subtractive
+  revisions; neither converged while revisions were additive.
+
+Rules:
+
+1. **A revision closes findings by deletion, correction, or naming — never by
+   default-adding.** New mechanisms, invariants, sections, or defensive
+   layers do not enter a revision unprompted. If a finding appears to require
+   new mechanism, put the question to the operator ("finding X seems to need
+   mechanism Y — add, defer to backlog, or drop?") before drafting it in.
+   Explanatory prose is a lighter form of the same risk: a sentence added
+   only to justify a retreat became the sole blocking finding of the round
+   that followed it (mlr_evidence R6 — "adding an explanation creates a new
+   claim").
+2. **Prefer a revision author that is not the model whose additions are under
+   review.** This extends the existing separation principle — the deciding
+   context never authors what judges it — from verification to revision.
+   Opus 5 has a measured additive propensity (scope-broadening; the v0.5
+   explosion above), but the model is the pressure, not the cause: Fable 5
+   also added-and-broke (v0.6's fsync/realpath additions, v0.7's predicate 4
+   — a fatal genesis-rejecting defect) until the subtractive rule was
+   imposed, and Opus 5 converged mlr_evidence once its revisions became
+   subtractive (retreat + removal). Combine both levers: the subtractive
+   rule always, a different-model reviser when available.
 
 ## Review Types
 
@@ -547,6 +596,19 @@ and (b) findings, declared by the human**. A round where every deployment-ground
 and philosophy-aligned finding has been answered is converged whether or not the
 numerator moved. Do not treat a reached ratio as sufficient on its own either:
 check what the approving replies actually said before counting them.
+
+**Count carryover and new (a)/(b) P0s separately; the machine-side signal of
+convergence is "new P0 = 0", not the APPROVE ratio.** Require each persona to
+state a closure verdict on its own prior-round P0s — closed / open /
+half-closed, with grounds. This format is validated live (chain erasure
+R6–R8) and is what makes the carryover/new split computable. A round whose
+(a)+(b) findings are all carryover with closure verdicts, and whose revision
+drew zero new P0s (observed without exception when the revision was
+subtractive — see § Revision Discipline), is a freeze candidate for the
+operator regardless of the numerator. Neither of the two 2026-08 threads
+ever reached its APPROVE ratio; both closed by (a)+(b) exhaustion + operator
+freeze declaration — the intended close described above, now with a
+measurable trigger.
 
 **Escalating raises the bar.** The rule is a ratio over the observers that
 counted, so adding reserve observers with `escalate: true` raises the number of
@@ -1027,6 +1089,26 @@ exclude it would be to exclude every honest terse approval with it. When a round
 reaches its ratio, read what the approving replies actually said before treating
 the ratio as convergence. That judgement is the human's and no rule replaces it.
 
+#### A no_verdict streak is a seat-environment signal, not a dead reviewer
+
+Before treating a slot as dead, read its `raw_text_excerpt` / `stated_text`
+in the pending record. Diagnosed live (2026-08-06, `claude_cli_opus4.6`,
+four consecutive no_verdict exclusions across one implementation-review
+thread): the CLI itself was healthy throughout. The subprocess seat runs
+sandboxed — no tools, empty working directory — so on **implementation**
+artifacts that cite file paths, the model attempted to read code before
+judging: two rounds opened with pseudo-tool-call markup, one opened with
+"the repository is not accessible" and stated its verdict header only
+further down, where the positional rule correctly refuses it. The same
+seat, in the same period, complied on **design** artifacts (verdict on
+line 1, counted every round). Remedies, in order: state in the subprocess
+prompt that the seat has no file access and must review the artifact text
+alone, marking unverifiable claims `[INFERRED]` (the grounding_rules block
+already licenses this); keep prompt rule #6 (full artifact inline) honest
+for implementation reviews; only then consider `--add-dir` with read-only
+tools, accepting CLAUDE.md contamination. A streak that survives those
+remedies is a real outage.
+
 #### Async/Parallel Collect Timing — Iron Rule
 
 When `delegation.parallel.default: true` (the v3.x default), Call 1 returns
@@ -1107,12 +1189,34 @@ Every review prompt MUST include these 7 items:
 1. **Output filename table** — so each reviewer knows where to save
 2. **Auto-execution commands** — ready-to-run CLI per reviewer
 3. **Review instructions** — what to focus on, what NOT to re-review
-4. **Review history** (R2+) — table of previous rounds and findings
+4. **Prior findings to verify** (R2+) — the findings the revision addresses,
+   so the reviewer can judge each closed / open / half-closed. Findings only:
+   no per-reviewer verdict history, no finding counts, no round tallies
+   (see § Reviewer incentive rule)
 5. **Context** — architecture summary for reviewers unfamiliar with codebase
 6. **Full artifact content inline** — reviewers may not have file access
 7. **Severity ratings + output format** — structured template for review output
 
 All prompt content MUST be in **English** for consistent parsing across LLM tools.
+
+### Reviewer incentive rule
+
+**Never tell a reviewer — subprocess or persona — that its finding count is
+compared across rounds, which round this is, or what verdicts were given
+before.** A reviewer told its count is watched treats the count as the
+deliverable, and that selects for finding-*production* over finding-*weight*
+(observed 2026-08-06: an orchestrator wrote "your finding count is compared
+across rounds" into persona prompts during the project_orientation_report
+loop; of the round's 7 P0s, 3 were factually correct findings that cost
+nobody anything). Convergence — carryover vs new, (a)+(b) exhaustion, the
+ratio — is measured by the orchestrator from the record, after the replies
+are in. The reviewer receives the artifact, the review criteria, and the
+prior findings it must verify. Nothing else about the loop's state.
+
+What this rule does NOT forbid: passing prior findings for closure
+verification (rule #4 — that is content, not score-keeping), and the
+carryover/new split in § Convergence Rules (that is orchestrator-side
+bookkeeping the reviewer never sees).
 
 ### XML Block Structure for Review Prompts
 
@@ -1431,6 +1535,44 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   and killed 21 of 21; the review's mutation pass went after regex internals —
   fence markers, character classes, digit ranges, word boundaries — and 18 of
   27 survived. Mutate the inside of a pattern, not only the pattern.
+
+- Revision discipline, new-P0 convergence signal, and no_verdict seat
+  diagnosis (v3.9.0, 2026-08-06): cross-thread analysis of 35 recorded runs
+  (8 threads, 2026-08-03 → 08-06) established that raw P0 growth tracks
+  additive revisions, not reviewer severity — every mechanism a revision
+  added became the next round's battleground, deletions drew zero new P0s
+  in every measured case, and both threads that converged did so within
+  1–2 rounds of switching to subtractive revisions (one under a Fable 5
+  reviser, one under the same Opus 5 orchestrator that had produced the
+  additive explosion). New § Revision Discipline encodes the subtractive
+  rule and the reviser-separation preference. § Convergence Rules gains the
+  carryover/new P0 split, with "new (a)+(b) P0 = 0" as the machine-side
+  freeze-candidate signal — neither thread ever reached its APPROVE ratio;
+  both closed by (a)+(b) exhaustion + operator freeze. § Substance and the
+  denominator gains the seat-environment diagnosis: `claude_cli_opus4.6`'s
+  four-round no_verdict streak was the sandboxed seat colliding with
+  implementation artifacts (pseudo-tool-calls, "repository not accessible"
+  preamble), not a dead reviewer — the same seat counted every round on
+  design artifacts in the same period. Analysis record: L2
+  `mlr_p0_inflation_analysis_and_opus46_no_verdict_diagnosis_20260806`
+
+- Reviewer incentive rule and the finding weight axis (v3.10.0, 2026-08-06):
+  § Prompt Generation Rules gains the Reviewer incentive rule — reviewer
+  prompts never mention finding counts, round numbers, or prior verdicts;
+  convergence is measured orchestrator-side from the record, and prior
+  findings are passed for closure verification only (rule #4 reworded
+  accordingly, from "review history table" to "prior findings to verify").
+  Motivating observation: an orchestrator told personas their counts were
+  compared across rounds, and 3 of the round's 7 P0s were factually correct
+  findings that cost nobody anything. In the same change the SkillSet
+  (0.10.0) adds the weight axis mechanically: the prompt contract requires a
+  `[consequence: who is harmed, and how]` clause on every P0, and
+  aggregation records a P0 without one at P2, keeping the stated severity
+  and the demotion reason beside it (`severity_stated` /
+  `severity_demoted: consequence_missing`). Presence is checked
+  mechanically; whether a stated consequence is real or trivial stays the
+  orchestrator's call, per the (a)/(b)/(c) discipline. Handoff record: L2
+  `handoff_mlr_finding_weight_axis_and_reviewer_incentive_20260806`
 
 **Key insight**: Design reviews and implementation reviews find
 **categorically different bugs**. Both phases are necessary.

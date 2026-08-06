@@ -157,7 +157,8 @@ module KairosMcp
         # reaches the payload by the same path.
         #
         # @param findings [Array<Hash>] finding rows with String keys
-        # @return [Array<Hash>] the same rows, 'issue' and 'issue_variants' bound
+        # @return [Array<Hash>] the same rows, 'issue', 'consequence' and
+        #   'issue_variants' bound
         def self.bound_findings_for_record(findings)
           findings.map do |f|
             row = f.merge(
@@ -165,6 +166,15 @@ module KairosMcp
                 sanitize_finding_text(f['issue'], max_len: FINDING_RECORD_MAX_LEN)
               )
             )
+            if row['consequence']
+              # Reviewer text like the issue it was extracted from; it reaches
+              # the record by the same path.
+              row = row.merge(
+                'consequence' => clamp_finding_bytes(
+                  sanitize_finding_text(f['consequence'], max_len: FINDING_RECORD_MAX_LEN)
+                )
+              )
+            end
             if row['issue_variants']
               row = row.merge(
                 'issue_variants' => Array(row['issue_variants']).map do |v|

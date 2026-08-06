@@ -31,6 +31,72 @@ module KairosMcp
           assert_nil result[:usage]
         end
       end
+
+      # Per-seat persistence hook (2026-08-06). One stuck seat killed the
+      # worker via stale heartbeat and took three COMPLETED external seats
+      # with it, because nothing left the worker's memory until every seat
+      # was done. The hook fires as each reply arrives so the caller can
+      # persist it; a failing hook must not fail the dispatch it guards.
+      class TestDispatcherOnResultHook < Minitest::Test
+        class StubInvoker
+          def invoke_tool(_name, args, context: nil)
+            [{ text: JSON.generate({
+              'status' => 'ok',
+              'provider' => args['provider_override'],
+              'response' => { 'content' => "**Overall Verdict**: APPROVE\n\nfine" }
+            }) }]
+          end
+        end
+
+        def reviewers
+          [{ provider: 'a', model: 'm-a', role_label: 'seat_a' },
+           { provider: 'b', model: 'm-b', role_label: 'seat_b' }]
+        end
+
+        def test_on_result_fires_once_per_arrived_reply_with_its_index
+          seen = []
+          d = Dispatcher.new(StubInvoker.new, timeout_seconds: 30, max_concurrent: 2)
+          results = d.dispatch(reviewers, [], '', context: nil,
+                               on_result: ->(idx, r) { seen << [idx, r[:role_label]] })
+          assert_equal 2, results.size
+          assert_equal [[0, 'seat_a'], [1, 'seat_b']], seen.sort
+        end
+
+        def test_a_failing_hook_does_not_fail_the_dispatch
+          d = Dispatcher.new(StubInvoker.new, timeout_seconds: 30, max_concurrent: 2)
+          results = nil
+          capture_io do
+            results = d.dispatch(reviewers, [], '', context: nil,
+                                 on_result: ->(_i, _r) { raise 'disk full' })
+          end
+          assert_equal 2, results.size
+          assert(results.all? { |r| r[:status] == :success })
+        end
+
+        # The deadline skip is this dispatch's decision about the seat, and
+        # the hook carries it like an arrived reply — a persisted record that
+        # omitted it let crash recovery relabel a reached-and-timed-out seat
+        # as one the worker never got to (R1 finding).
+        def test_deadline_skips_are_notified_with_their_true_reason
+          slow = Class.new do
+            def invoke_tool(_name, _args, context: nil)
+              sleep 2
+              [{ text: JSON.generate({ 'status' => 'ok', 'response' => { 'content' => 'late' } }) }]
+            end
+          end
+          seen = []
+          d = Dispatcher.new(slow.new, timeout_seconds: 0, max_concurrent: 2)
+          results = d.dispatch(reviewers, [], '', context: nil,
+                               on_result: ->(idx, r) { seen << [idx, r] })
+          assert_equal 2, results.size
+          skipped = seen.select { |_i, r| r[:status] == :skip }
+          refute_empty skipped, 'the deadline skips must reach the hook'
+          skipped.each do |_i, r|
+            assert_includes %w[dispatch_timeout cancelled_before_start],
+                            r[:error]['message']
+          end
+        end
+      end
     end
   end
 end

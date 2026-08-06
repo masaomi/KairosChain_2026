@@ -287,6 +287,12 @@ module KairosMcp
             parallel = false if parallel.nil?      # legacy default (R1-K)
 
             subprocess_entries = nil
+            # Set when the worker died but finished seats were recovered from
+            # partial_results.json; carried into the final payload so the
+            # record says the denominator survived a worker death, not a
+            # clean round (R3 2026-08-06: one stale seat cost three completed
+            # external seats because the only exit here was total loss).
+            worker_failure = nil
             if parallel == false
               subprocess_entries = (state['subprocess_results'] || []).map do |r|
                 deserialize_review(r)
@@ -303,14 +309,44 @@ module KairosMcp
               when :ready
                 subprocess_entries = outcome[:results].map { |r| deserialize_review(r) }
               when :crashed
-                return text_content(JSON.generate({
-                  'status' => 'subprocess_worker_crashed',
-                  'collect_token' => token,
+                # A stale heartbeat is not a death certificate — R3's worker
+                # was ALIVE with one seat stuck, which is exactly this branch.
+                # Sealing a recovered record while the writer lives converts a
+                # retryable total loss into a permanent false record: the
+                # worker finishes later, writes subprocess_results.json, and
+                # idempotent replay pins the partial record beside it forever
+                # (R1 finding, two seats). So recovery is gated on the reaper
+                # CONFIRMING death, and the reaper is invoked only when there
+                # is something to save — a crash with no partial file keeps
+                # the old report-and-let-live behavior.
+                recovered = nil
+                reaper_outcome = nil
+                if PendingState.load_partial_results(token)
+                  reaper_outcome = WorkerReaper.terminate!(token, outcome[:pid], outcome[:pgid])
+                  if %i[terminated killed already_dead].include?(reaper_outcome)
+                    recovered = recover_partial_entries(token)
+                  end
+                end
+                unless recovered
+                  crash_report = {
+                    'status' => 'subprocess_worker_crashed',
+                    'collect_token' => token,
+                    'reason' => outcome[:reason],
+                    'pid' => outcome[:pid],
+                    'heartbeat_age' => outcome[:heartbeat_age],
+                    'log_tail' => outcome[:log_tail].to_s
+                  }
+                  crash_report['reaper_outcome'] = reaper_outcome.to_s if reaper_outcome
+                  return text_content(JSON.generate(crash_report))
+                end
+                subprocess_entries = recovered[:entries]
+                worker_failure = {
+                  'outcome' => 'subprocess_worker_crashed',
                   'reason' => outcome[:reason],
-                  'pid' => outcome[:pid],
-                  'heartbeat_age' => outcome[:heartbeat_age],
-                  'log_tail' => outcome[:log_tail].to_s
-                }))
+                  'reaper_outcome' => reaper_outcome.to_s,
+                  'recovered_seats' => recovered[:recovered_labels],
+                  'lost_seats' => recovered[:lost_labels]
+                }
               when :timeout
                 reaper_outcome = WorkerReaper.terminate!(token, outcome[:pid], outcome[:pgid])
                 if %i[terminated killed already_dead].include?(reaper_outcome)
@@ -323,14 +359,34 @@ module KairosMcp
                     warn "[multi_llm_review_collect] gc.eligible write: #{e.class}: #{e.message}"
                   end
                 end
-                return text_content(JSON.generate({
-                  'status' => 'worker_timeout',
-                  'collect_token' => token,
+                # Recovery only when the reaper CONFIRMED death — the same
+                # gate as the crash branch. A reaper_outcome of error or
+                # unreachable means nobody confirmed anything: the worker may
+                # finish later, and a record sealed now would name its seats
+                # lost while their completed replies land on disk beside it
+                # (R1 finding). Confirmed dead, the partial file is final.
+                recovered = nil
+                if %i[terminated killed already_dead].include?(reaper_outcome)
+                  recovered = recover_partial_entries(token)
+                end
+                unless recovered
+                  return text_content(JSON.generate({
+                    'status' => 'worker_timeout',
+                    'collect_token' => token,
+                    'waited_seconds' => outcome[:waited_seconds],
+                    'pid' => outcome[:pid],
+                    'reaper_outcome' => reaper_outcome.to_s,
+                    'log_tail' => outcome[:log_tail].to_s
+                  }))
+                end
+                subprocess_entries = recovered[:entries]
+                worker_failure = {
+                  'outcome' => 'worker_timeout',
                   'waited_seconds' => outcome[:waited_seconds],
-                  'pid' => outcome[:pid],
                   'reaper_outcome' => reaper_outcome.to_s,
-                  'log_tail' => outcome[:log_tail].to_s
-                }))
+                  'recovered_seats' => recovered[:recovered_labels],
+                  'lost_seats' => recovered[:lost_labels]
+                }
               end
             end
 
@@ -404,6 +460,10 @@ module KairosMcp
               'persona_model' => state['persona_model'],
               'run_token' => token
             }
+            # The worker died and finished seats were recovered; the lost
+            # seats are in the denominator composition as skip rows, and this
+            # names the death they were lost to.
+            payload['worker_failure'] = worker_failure if worker_failure
             # INV-R6: what the run intended to pass, when it was declared.
             payload['review_spec'] = state['review_spec'] if state['review_spec']
             # INV-R3/R4: the declared convened count beside the submitted one
@@ -505,6 +565,74 @@ module KairosMcp
 
           def deserialize_review(h)
             ReviewSerializer.deserialize(h)
+          end
+
+          # What can be saved from a worker that died: the seats whose replies
+          # it persisted before dying (partial_results.json, written per-seat
+          # by the worker as each reply arrived), with every seat it did not
+          # reach entered as a skip row so the denominator composition names
+          # the loss instead of shrinking silently. The roster comes from
+          # request.json — the same file the worker dispatched from.
+          #
+          # Returns nil — meaning "nothing to save, report the death as
+          # before" — when no partial file exists (pre-recovery worker, or
+          # death before the first reply), when the roster cannot be read
+          # (a denominator that cannot name its missing seats would shrink
+          # silently), or when the file holds no completed seat.
+          def recover_partial_entries(token)
+            partial = PendingState.load_partial_results(token)
+            by_index = partial.is_a?(Hash) ? partial['results_by_index'] : nil
+            return nil unless by_index.is_a?(Hash) && !by_index.empty?
+            # The file names the token it was written for; a file that names a
+            # different one is not this run's and is not read (R1 finding —
+            # the check costs one line and closes the stale-file question
+            # instead of arguing it unreachable).
+            return nil if partial['token'] && partial['token'] != token
+
+            request = PendingState.load_request(token)
+            reviewers = request.is_a?(Hash) ? request['reviewers'] : nil
+            return nil unless reviewers.is_a?(Array) && !reviewers.empty?
+
+            entries = []
+            recovered_labels = []
+            lost_labels = []
+            reviewers.each_with_index do |reviewer, idx|
+              row = by_index[idx.to_s]
+              label = (reviewer.is_a?(Hash) &&
+                       (reviewer['role_label'] || reviewer['provider'])) || "seat_#{idx}"
+              if row.is_a?(Hash)
+                entries << deserialize_review(row)
+                recovered_labels << label
+              else
+                entries << lost_seat_entry(reviewer, label)
+                lost_labels << label
+              end
+            end
+            return nil if recovered_labels.empty?
+
+            { entries: entries,
+              recovered_labels: recovered_labels,
+              lost_labels: lost_labels }
+          end
+
+          # The row a seat leaves behind when the worker died before its reply
+          # was persisted. Shaped like Dispatcher#build_skip so Consensus reads
+          # it on the path every skip takes: status :skip with a declared
+          # reason token, which lands in the denominator composition as
+          # `worker_crashed_seat_lost` beside the seat's name.
+          def lost_seat_entry(reviewer, label)
+            reviewer = {} unless reviewer.is_a?(Hash)
+            {
+              role_label: label,
+              provider: reviewer['provider'],
+              model: reviewer['model'],
+              model_declared: reviewer['model'],
+              model_source: 'declared',
+              artifact_delivery: reviewer['artifact_delivery'] || 'inline',
+              elapsed_seconds: 0,
+              error: { 'type' => 'skip', 'message' => 'worker_crashed_seat_lost' },
+              status: :skip
+            }
           end
 
           # Pending state is JSON, so the slots that never ran come back with

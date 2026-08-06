@@ -453,8 +453,11 @@ module KairosMcp
         end
 
         def test_a_finding_two_reviewers_cite_keeps_the_severer_tag
+          # The P0 carries a consequence clause because a P0 without one is
+          # recorded at P2 (the weight axis, 2026-08-06) — this test is about
+          # the merge keeping the severer tag, not about the demotion rule.
           out = aggregated(
-            "**Overall Verdict**: REJECT\n\nP0: the reaper can signal its own group",
+            "**Overall Verdict**: REJECT\n\nP0: the reaper can signal its own group [consequence: the orchestrator dies with the worker]",
             "**Overall Verdict**: REVISE\n\nP2: the reaper can signal its own group"
           )
 
@@ -484,7 +487,7 @@ module KairosMcp
         end
 
         def test_a_lower_case_severity_marker_names_a_finding
-          out = aggregated("**Overall Verdict**: REJECT\n\np0: the reaper can signal its own group")
+          out = aggregated("**Overall Verdict**: REJECT\n\np0: the reaper can signal its own group [consequence: the orchestrator dies with the worker]")
 
           assert_equal 1, out.size
           assert_equal 'P0', out.first[:severity]

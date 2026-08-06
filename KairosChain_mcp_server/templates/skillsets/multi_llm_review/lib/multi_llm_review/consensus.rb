@@ -601,6 +601,15 @@ module KairosMcp
           end
         end
 
+        # The consequence clause a finding carries, when it carries one. The
+        # severity axis says what KIND of defect this is; the consequence
+        # clause is the WEIGHT axis — who is harmed, and how, if it is never
+        # fixed. Measured 2026-08-06 (project_orientation_report checker,
+        # R5): of 7 P0s, 3 were factually correct findings that cost nobody
+        # anything, and the two kinds landed at the same severity because the
+        # record had nowhere to say the difference.
+        CONSEQUENCE_RE = /\[\s*consequence:\s*([^\]]*)\]/i
+
         # Collect severity-tagged findings from all successful reviews.
         # Deduplicates by first 80 chars (case-insensitive).
         def self.aggregate_findings(parsed_verdicts)
@@ -611,23 +620,7 @@ module KairosMcp
 
             # Extract "P0: ...", "P1-1: ...", "**P0**:", etc.
             text.scan(/\*{0,2}(P[0-3])\*{0,2}[-\s]*\d*[.:]\s*(.+?)(?=\n\s*\n|\n\s*\*{0,2}P[0-3]|\z)/mi) do |sev, issue|
-              all_findings << {
-                severity: sev.upcase,
-                # This used to be `[0..200]`, an inclusive Range, so every
-                # finding longer than 201 characters lost its tail — the quoted
-                # line, the file:line, the failure condition — before anything
-                # downstream could bound it on purpose.
-                #
-                # It is bounded here rather than nowhere, and here rather than
-                # further upstream, because this is the point where both costs
-                # are decided at once: what gets stored, and what the sanitizer
-                # is about to normalise character by character. A bound placed
-                # on the reply instead was measured not to work, since NFKC runs
-                # between the two and expands by up to 11x. The bound is in
-                # bytes for the same reason — bytes are what is spent.
-                issue: Sanitizer.clamp_finding_bytes(issue.strip),
-                cited_by: [r[:role_label]]
-              }
+              all_findings << build_finding(sev, issue, r[:role_label])
             end
           end
 
@@ -659,7 +652,7 @@ module KairosMcp
           # (`issue_variants_omitted`), because a silently shortened list
           # reads as "this is all there was" — the failure this whole change
           # exists to remove.
-          grouped = all_findings.group_by { |f| f[:issue][0..79].downcase }
+          grouped = all_findings.group_by { |f| dedup_key(f[:issue]) }
           grouped.map do |_key, findings|
             merged_severity = findings.map { |f| f[:severity] }.min # P0 < P1 < P2
             # `.min` over a non-empty group returns one of its own members, so
@@ -672,6 +665,25 @@ module KairosMcp
               issue: representative[:issue],
               cited_by: findings.flat_map { |f| f[:cited_by] }.uniq
             }
+            # The representative's wording and its weight travel together, like
+            # its severity does. When the representative states no consequence,
+            # another member's is carried rather than none: a group where ONE
+            # reviewer said who is harmed is a finding whose harm is known.
+            consequence = representative[:consequence] ||
+                          findings.map { |f| f[:consequence] }.compact.first
+            row[:consequence] = consequence if consequence
+            # The demotion mark is carried from ANY member, not only the
+            # representative — copied from the representative alone it
+            # vanished order-dependently whenever a non-demoted member of the
+            # same severity happened to sort first (R1 finding, three seats
+            # independently). A row that merged to P0 carries no mark: some
+            # member stated the harm, the row holds its full severity, and
+            # nothing was demoted AWAY from what the record shows.
+            if row[:severity] != 'P0' &&
+               (demoted = findings.find { |f| f[:severity_stated] })
+              row[:severity_stated] = demoted[:severity_stated]
+              row[:severity_demoted] = demoted[:severity_demoted]
+            end
             if variants.size > 1
               row[:issue_variants] = variants.first(MAX_ISSUE_VARIANTS)
               omitted = variants.size - MAX_ISSUE_VARIANTS
@@ -679,6 +691,68 @@ module KairosMcp
             end
             row
           end.sort_by { |f| f[:severity] }
+        end
+
+        # The dedup key is the issue WITHOUT its consequence clause. The clause
+        # stays in the issue text (display, replay), but two reviewers naming
+        # one defect — one saying who is harmed, one not — are still one
+        # finding, and the merge is what lets the stated consequence carry the
+        # row's severity for both. Keyed on the raw text instead, the clause
+        # lands inside the first 80 characters of any short issue and splits
+        # the group, moving the finding count and the convergence denominator.
+        # Whitespace is normalised for the same reason: removing the clause
+        # must not leave a gap that fails the comparison it was removed for.
+        def self.dedup_key(issue)
+          issue.gsub(CONSEQUENCE_RE, ' ').gsub(/\s+/, ' ').strip[0..79].downcase
+        end
+
+        # One extracted finding, weight axis applied at the point of entry.
+        #
+        # A P0 that does not say who is harmed is recorded at P2, with the
+        # stated severity and the demotion reason kept beside it — the record
+        # says what the reviewer wrote AND what the rule did with it. Only
+        # PRESENCE is checked, mechanically, by construction: whether a stated
+        # consequence is real or trivial is a judgment call, and it belongs to
+        # the orchestrator reading the record, not to a heuristic here — the
+        # same division of labour as the substance rule above, which asks
+        # "said anything?" and never "said anything good?".
+        #
+        # The clause is copied into its own field but NOT stripped from the
+        # issue text: the display shows the issue line, a later round's prompt
+        # replays it, and the consequence should survive in both. (The dedup
+        # key, above, strips the clause before comparing — the one place the
+        # issue is read WITHOUT it.)
+        def self.build_finding(sev, issue, role_label)
+          raw = issue.strip
+          # The clause is read from the UNCLAMPED text, before the byte bound
+          # cuts the tail — a finding long enough to lose its closing bracket
+          # to the clamp would otherwise read as having stated nothing, and
+          # the demotion would bury exactly the P0 whose author complied (R1
+          # finding, three seats). Scan rather than match, first NON-empty
+          # clause: "[consequence: ] ... [consequence: real harm]" states a
+          # harm, and reading only the first bracket pair would demote past it.
+          consequence = raw.scan(CONSEQUENCE_RE)
+                           .map { |c| c[0].strip }
+                           .find { |c| !c.empty? }
+          # Bounded in BYTES at the point of extraction — this is the clamp
+          # that bounds the sanitizer's input, and the reasoning for bytes
+          # (NFKC expands up to 11x downstream) is at clamp_finding_bytes.
+          # This used to be `[0..200]`, an inclusive Range, so every finding
+          # longer than 201 characters lost its tail before anything
+          # downstream could bound it on purpose.
+          finding = {
+            severity: sev.upcase,
+            issue: Sanitizer.clamp_finding_bytes(raw),
+            cited_by: [role_label]
+          }
+          if consequence
+            finding[:consequence] = Sanitizer.clamp_finding_bytes(consequence)
+          elsif finding[:severity] == 'P0'
+            finding[:severity] = 'P2'
+            finding[:severity_stated] = 'P0'
+            finding[:severity_demoted] = 'consequence_missing'
+          end
+          finding
         end
       end
     end

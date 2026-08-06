@@ -259,12 +259,29 @@ begin
   # and on between-reviewer progress (counter advances when result arrives).
   # v0.3.0 PR3 pushes MainState ticks via a per-result hook below.
 
+  # Per-seat persistence: each reply is written the moment it arrives, so a
+  # worker death with one seat stuck leaves the finished seats recoverable
+  # (collect's crash/timeout recovery reads partial_results.json). Runs on
+  # the dispatch collecting thread — the worker stays this file's single
+  # writer (§6.3). subprocess_results.json still supersedes it on clean exit.
+  partial_by_index = {}
+  on_result = lambda do |idx, result|
+    partial_by_index[idx.to_s] = MLR::ReviewSerializer.serialize(result)
+    PS.write_partial_results(token, {
+      'schema_version' => 1,
+      'token' => token,
+      'updated_at' => Time.now.iso8601,
+      'results_by_index' => partial_by_index
+    })
+  end
+
   results = dispatcher.dispatch(
     (request['reviewers'] || []).map { |r| r.transform_keys(&:to_sym) },
     request['messages'] || [],
     request['system_prompt'] || '',
     context: nil,
-    review_context: request['review_context'] || 'independent'
+    review_context: request['review_context'] || 'independent',
+    on_result: on_result
   )
 
   # v3.24.3: counter-only signal (no enter_call!/exit_call! pair). bump_counter!
@@ -287,6 +304,15 @@ begin
     }
   }
   PS.write_subprocess_results(token, payload)
+  # The partial file is superseded the moment the full results land; left
+  # behind, it is a stale copy of reviewer replies sitting beside the record
+  # forever (completed token dirs are never reaped). Removed on the clean
+  # path only — on a crash it IS the record collect recovers from.
+  begin
+    File.unlink(PS.partial_results_path(token))
+  rescue Errno::ENOENT
+    nil
+  end
   PS.transition_to_terminal!(token, 'done')
   exit 0
 rescue StandardError => e

@@ -72,6 +72,12 @@ module KairosMcp
         def gc_eligible_path(token);        File.join(token_dir(token), 'gc.eligible'); end
         def request_path(token);            File.join(token_dir(token), 'request.json'); end
         def subprocess_results_path(token); File.join(token_dir(token), 'subprocess_results.json'); end
+        # Per-seat results written as each seat completes, so a worker that
+        # dies with one seat stuck does not take the finished seats' replies
+        # with it (R3 2026-08-06 lost three completed external seats to one
+        # stale heartbeat). Superseded by subprocess_results.json on a clean
+        # exit; read by collect's crash/timeout recovery path only.
+        def partial_results_path(token);    File.join(token_dir(token), 'partial_results.json'); end
         def worker_pid_path(token);         File.join(token_dir(token), 'worker.pid'); end
         def worker_heartbeat_path(token);   File.join(token_dir(token), 'worker.heartbeat'); end
         def worker_tick_path(token);        File.join(token_dir(token), 'worker.tick'); end
@@ -105,6 +111,7 @@ module KairosMcp
         def write_collected(token, data);          atomic_write_json(collected_path(token), data); end
         def write_request(token, data);            atomic_write_json(request_path(token), data); end
         def write_subprocess_results(token, data); atomic_write_json(subprocess_results_path(token), data); end
+        def write_partial_results(token, data);    atomic_write_json(partial_results_path(token), data); end
         def write_worker_pid(token, data);         atomic_write_json(worker_pid_path(token), data); end
         def write_marker(token, data);             atomic_write_json(marker_path(token), data); end
         def write_completed(token, data);          atomic_write_json(completed_path(token), data); end
@@ -172,6 +179,7 @@ module KairosMcp
         def load_collected(token);          load_json_transient(collected_path(token)); end
         def load_request(token);            load_json_transient(request_path(token)); end
         def load_subprocess_results(token); load_json_transient(subprocess_results_path(token)); end
+        def load_partial_results(token);    load_json_transient(partial_results_path(token)); end
         def load_worker_pid(token);         load_json_transient(worker_pid_path(token)); end
 
         # Mutate state.json under a read-modify-write block, serialized

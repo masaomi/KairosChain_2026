@@ -77,7 +77,13 @@ module KairosMcp
           parts << "<task>"
           parts << "Review the provided artifact for #{review_type} correctness."
           parts << "Target: #{artifact_name}"
-          parts << "Round: R#{review_round}"
+          # The round number is deliberately NOT given to the reviewer
+          # (2026-08-06). Telling a reviewer which round it is in — like
+          # telling it its finding count is compared across rounds — turns the
+          # count into something the reviewer performs, and selects for
+          # finding-production over finding-weight. Convergence is measured by
+          # the orchestrator from the record; the reviewer needs the artifact,
+          # the criteria, and the prior findings to verify, nothing else.
           if review_round > 1 && prior_findings && !prior_findings.empty?
             parts << "Scope: Review the revisions addressing prior findings."
             parts << ""
@@ -161,14 +167,22 @@ module KairosMcp
             line one is read.
 
             For each finding, use this single-line format (one finding per line):
-            P0: <issue description> [location: file:line]
-            P1: <issue description> [location: file:line]
+            P0: <issue description> [consequence: <who is harmed, and how, if this is never fixed>] [location: file:line]
+            P1: <issue description> [consequence: ...] [location: file:line]
             P2: <issue description> [location: file:line]
             P3: <issue description> [location: file:line]
 
+            The consequence clause is REQUIRED for P0 and recommended for
+            P1; P1 findings are never demoted for lacking one. A finding can be
+            factually correct and still cost nobody anything; the consequence
+            clause is where you say who hits the defect and what happens to
+            them. A P0 with no consequence clause, or an empty one, is
+            recorded at P2. Do not restate the issue as its own consequence —
+            name the person or process that is harmed.
+
             Example:
-            P0: Missing input validation in dispatcher timeout path [location: dispatcher.rb:120]
-            P1: Thread safety issue with shared counter [location: consensus.rb:45]
+            P0: Missing input validation in dispatcher timeout path [consequence: a caller passing a negative timeout crashes the worker and the whole round's reviews are lost] [location: dispatcher.rb:120]
+            P1: Thread safety issue with shared counter [consequence: concurrent collects double-count usage] [location: consensus.rb:45]
 
             If no issues found, state "No findings" and verdict APPROVE.
             </structured_output_contract>

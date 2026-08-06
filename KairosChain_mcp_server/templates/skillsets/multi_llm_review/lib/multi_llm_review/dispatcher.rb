@@ -33,9 +33,17 @@ module KairosMcp
         # @param system_prompt [String] system prompt for llm_call
         # @param context [InvocationContext] for invoke_tool
         # @param review_context [String] 'independent' or 'project_aware'
+        # @param on_result [#call, nil] called with (index, result) for every
+        #   seat outcome this dispatch decides — arrived replies as they
+        #   arrive, and the dispatch_timeout skips synthesized at the
+        #   deadline. The caller uses this to persist each seat's TRUE
+        #   outcome, so a later crash recovery reads "this seat timed out"
+        #   rather than relabelling a reached seat as lost (R1 finding). Runs
+        #   on the collecting thread; a hook failure is logged and never
+        #   fails the dispatch.
         # @return [Array<Hash>] results indexed by reviewer position
         def dispatch(reviewers, messages, system_prompt, context:,
-                     review_context: 'independent')
+                     review_context: 'independent', on_result: nil)
           dispatch_id = SecureRandom.hex(8)
           deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + @timeout
           results = Array.new(reviewers.size)
@@ -94,11 +102,17 @@ module KairosMcp
                 i, result = entry
                 results[i] = result
                 collected += 1
+                notify_result(on_result, i, result)
               end
-              # Mark uncollected as timed out
+              # Mark uncollected as timed out. Notified like an arrived
+              # reply: the skip IS this dispatch's decision about the seat,
+              # and a persisted record that omits it lets a crash recovery
+              # relabel a reached-and-timed-out seat as one the worker never
+              # got to.
               reviewers.each_with_index do |r, i|
                 next if results[i]
                 results[i] = build_skip(r, 'dispatch_timeout')
+                notify_result(on_result, i, results[i])
               end
               break
             end
@@ -111,6 +125,7 @@ module KairosMcp
             i, result = entry
             results[i] = result
             collected += 1
+            notify_result(on_result, i, result)
           end
 
           # Kill in-flight subprocesses from this dispatch
@@ -135,6 +150,15 @@ module KairosMcp
         end
 
         private
+
+        # A hook failure must not fail the dispatch: the hook exists to save
+        # replies from a dying worker, and a hook that could kill the dispatch
+        # would create the loss it guards against.
+        def notify_result(on_result, idx, result)
+          on_result&.call(idx, result)
+        rescue StandardError => e
+          warn "[multi_llm_review::Dispatcher] on_result hook failed: #{e.class}: #{e.message}"
+        end
 
         def bump_main_state_counter
           return unless defined?(KairosMcp::SkillSets::MultiLlmReview::MainState)
