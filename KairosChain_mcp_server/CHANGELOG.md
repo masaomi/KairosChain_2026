@@ -4,6 +4,45 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.62.0] - 2026-08-06
+
+### Changed
+
+- **`project_orientation_report`'s checker stops rejecting reports that are fine.**
+  Three review rounds on a fixed panel, counting findings rather than approvals:
+  16, then 6, then 7. Nearly all of the first round's findings were reports a
+  reader would accept that the tool rejected, which is the failure mode that
+  matters for a lint — a missed defect costs an ugly figure, a false rejection
+  costs the author the report.
+
+  Adjacent text nodes were concatenated with nothing between them, so two table
+  cells holding `Ruby` and `3.4.10` produced a work-internal token `Ruby3` that
+  appeared nowhere in the document. Markup indentation counted toward the length
+  budget, so a report a browser renders as 3,556 characters was rejected at
+  6,226. `text-anchor` was not inherited from an enclosing group, so centred
+  labels were reported as overflowing by an amount that did not exist. A label
+  with no `x` inside a translated group was called unmeasurable although `x`
+  defaults to zero. Ambiguous-width characters had lost their width, so arrow and
+  box-drawing labels measured 45% short in the CJK font the template mandates.
+  Two-character Japanese labels did not count as a figure at all.
+
+  Reports now declare a worked prose example with `data-example="values"`,
+  satisfying invariant 8 the way the skill always promised. Body text is
+  NFKC-normalised before the token scan, so a full-width spelling — what a
+  Japanese input method emits by default — no longer slips past. Stylesheets are
+  parsed once, with comments stripped, for hiding, preformatting and absolute
+  font sizes alike.
+
+  Left open and stated as such: a rect is treated as a label's box when it
+  contains the label's whole width, which promotes a figure border to "the box"
+  and so disables overflow detection inside it. The opposite rule rejects
+  decorative highlight bands. Both are wrong in opposite directions; this ships
+  the one that errs toward passing. Choosing between them is a design question,
+  not a patch.
+
+  46 fixtures, 24 of which had never been added to git — a clone ran the suite
+  with them missing and no way to notice.
+
 ## [3.61.1] - 2026-08-06
 
 ### Fixed
