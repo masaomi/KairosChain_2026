@@ -4,6 +4,44 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.64.0] - 2026-08-06
+
+### Fixed
+
+- **An append can no longer erase the chain history on disk.** Two paths
+  erased history before this release, both measured, neither raising an
+  exception: two holders of the chain at the same length both saved and the
+  second save replaced the disk sequence with its own; and a ledger that
+  existed but could not be read collapsed to nil, read as a fresh install,
+  and the next save rebuilt from genesis over it — 687 blocks became 2. An
+  append now takes a key file beside the ledger, re-reads and classifies the
+  disk under that key (absent / unreadable / empty / corrupt / readable),
+  refuses every state but `:readable` and `:absent`, and always builds on
+  the tail that is on disk at that moment. Failures on the read and write
+  side raise `Storage::Error` instead of flattening into nil or false, and
+  every reader consults `Chain#load_state` before trusting the sequence.
+  Includes the 3.62.1 locale fix, and one more of the same family: while
+  the ledger does not yet exist, a symlinked name resolves to its target
+  before the lock key is derived, so a fresh install reached through two
+  names is written under one key (measured pre-fix: 51 blocks shrank to
+  35–49 under concurrent two-name appends). Verified by 149 assertions and
+  a 34-row falsification harness in which each protective mechanism is
+  removed in isolation and its named check confirmed to go red.
+
+## [3.62.1] - 2026-08-06
+
+### Fixed
+
+- **A non-UTF-8 locale no longer erases the ledger on the next append.**
+  Emergency hotfix cut from the shipped 3.62.0 (branch
+  `hotfix/utf8-ledger-read`): `FileBackend#load_blocks` read
+  `blockchain.json` with the locale-derived default encoding, so a
+  LANG-unset start (launchd, cron, plain containers) made a non-ASCII
+  ledger unparseable, the failure was flattened into "no ledger", and one
+  ordinary append overwrote 705 blocks with 2 (measured on a copy of a
+  production ledger). The ledger is now read as UTF-8 explicitly. This is
+  the only change over 3.62.0; 3.64.0 contains the full erasure fix.
+
 ## [3.63.0] - 2026-08-06
 
 ### Changed
