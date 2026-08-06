@@ -426,6 +426,26 @@ module KairosMcp
           assert_includes messages[0]['content'], 'Initial review'
         end
 
+        def test_seat_access_note_inline_only
+          inline = PromptBuilder.build_messages(
+            artifact_content: 'test code here',
+            artifact_name: 'test_artifact',
+            review_type: 'implementation',
+            review_round: 1
+          )
+          assert_includes inline[0]['content'], '<seat_access>'
+          assert_includes inline[0]['content'], 'verdict line first'
+
+          by_ref = PromptBuilder.build_messages(
+            artifact_name: 'test_artifact',
+            review_type: 'implementation',
+            review_round: 1,
+            artifact_reference: { path: 'log/x.md', sha256: 'a' * 64 }
+          )
+          refute_includes by_ref[0]['content'], '<seat_access>',
+            'by_reference delivery keeps its own cannot-read instruction; the note must not contradict it'
+        end
+
         def test_build_messages_with_prior_findings
           prior = [
             { severity: 'P0', issue: 'Missing validation', cited_by: ['r1', 'r2'] }

@@ -4,6 +4,29 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.61.1] - 2026-08-06
+
+### Fixed
+
+- **`multi_llm_review` (SkillSet 0.9.1) — a sandboxed reviewer seat is told it has no file
+  access.** The `claude_cli_opus4.6` subprocess seat left four consecutive implementation-review
+  rounds as `no_verdict`: launched with all tools disabled in an empty working directory
+  (deliberate — it keeps CLAUDE.md out of the reviewer's context), it tried to read the file
+  paths the artifact cited, opening two rounds with pseudo-tool-call markup and one with "the
+  repository is not accessible" before its verdict line — which the positional verdict reader
+  correctly refuses. The same seat counted every round on design artifacts in the same period,
+  so the seat was healthy and the prompt was the gap.
+
+  `PromptBuilder` now emits a `<seat_access>` block beside the inline artifact: a seat that
+  cannot read the repository must not attempt tool calls and must not open by saying it will
+  read files; it reviews the artifact text alone, marks unverifiable claims `[INFERRED]`, and
+  still opens with its verdict line. The wording is conditional because seats differ (codex
+  runs `--sandbox read-only` and can read the repository), and the block is not emitted for
+  by_reference delivery, whose existing cannot-read instruction it would contradict. One test
+  pins both directions. `<seat_access>` is not in `Sanitizer::WRAPPER_TAGS`; it sits in the
+  documented unescaped prompt-frame gap alongside `<task>` and `<grounding_rules>` — widening
+  that set is a recorded backlog question, not part of this fix.
+
 ## [3.61.0] - 2026-08-06
 
 ### Fixed

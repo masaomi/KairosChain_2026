@@ -128,6 +128,8 @@ module KairosMcp
             parts << "<artifact>"
             parts << artifact_content
             parts << "</artifact>"
+            parts << ""
+            parts << seat_access_note
           end
           parts << ""
           parts << grounding_rules
@@ -171,6 +173,30 @@ module KairosMcp
             If no issues found, state "No findings" and verdict APPROVE.
             </structured_output_contract>
           CONTRACT
+        end
+
+        # Why this note exists (2026-08-06): the claude_code subprocess seat
+        # runs with tools disabled in an empty working directory, and on
+        # implementation artifacts that cite file paths it tried to read the
+        # code before judging — two rounds opened with pseudo-tool-call markup
+        # and one with "the repository is not accessible", so the verdict
+        # header never came first and the seat left the denominator as
+        # no_verdict four rounds in a row (the same seat counted every round
+        # on design artifacts in the same period). The wording is conditional
+        # because seats differ — codex runs `--sandbox read-only` and can
+        # verify against the repository — and the note is emitted only with an
+        # inline artifact: by_reference delivery already instructs a seat that
+        # cannot read the file to say so instead of reviewing.
+        def seat_access_note
+          <<~NOTE
+            <seat_access>
+            Your seat may have no file-system or tool access. If you cannot
+            read the repository, do not attempt tool calls and do not open by
+            saying you will read files: review the artifact text above on its
+            own, mark claims you cannot verify as [INFERRED], and still put
+            your verdict line first.
+            </seat_access>
+          NOTE
         end
 
         def grounding_rules
