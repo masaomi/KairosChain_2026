@@ -22,7 +22,10 @@ require 'kairos_mcp/skills_config'
 require 'kairos_mcp/tools/base_tool'
 
 # Load introspection SkillSet from templates
-introspection_path = File.join(__dir__, '..', 'templates', 'skillsets', 'introspection')
+# The shipped copy lives under this gem's templates/. The repo root also holds a
+# stale templates/ tree that this path used to resolve to, which meant the suite
+# was exercising a copy that is not distributed.
+introspection_path = File.join(__dir__, 'templates', 'skillsets', 'introspection')
 require File.join(introspection_path, 'lib', 'introspection')
 require File.join(introspection_path, 'tools', 'introspection_check')
 require File.join(introspection_path, 'tools', 'introspection_health')
@@ -228,8 +231,15 @@ test_section('M8: recommendations from blockchain failure') do
   text = result.first[:text]
   parsed = JSON.parse(text)
 
-  assert('fresh blockchain is valid') { parsed['blockchain']['valid'] == true }
-  assert('no critical rec for valid chain') do
+  # A ledger that does not exist yet is :absent, not valid — the third display.
+  # It must not be reported as an integrity failure.
+  assert('fresh blockchain reports its state') do
+    %w[readable absent].include?(parsed['blockchain']['state'])
+  end
+  assert('fresh blockchain is not called an integrity failure') do
+    parsed['blockchain']['status'] != 'INTEGRITY_FAILURE'
+  end
+  assert('no critical rec for a fresh chain') do
     parsed['recommendations'].none? { |r| r['priority'] == 'critical' }
   end
 

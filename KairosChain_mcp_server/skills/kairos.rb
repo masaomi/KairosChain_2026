@@ -668,9 +668,12 @@ skill :chain_awareness do
   
   behavior do
     # Returns blockchain status
-    chain = KairosChain::Chain.new
-    blocks = chain.blocks
+    # NEW CLAIM: the ledger's state is carried in the result; block_count, latest_hash,
+    # genesis_timestamp and is_valid only carry meaning when state is :readable.
+    chain = ::KairosMcp::KairosChain::Chain.new
+    blocks = chain.chain
     {
+      state: chain.load_state,
       block_count: blocks.size,
       is_valid: chain.valid?,
       latest_hash: blocks.last&.hash,
@@ -684,8 +687,9 @@ skill :chain_awareness do
     The ability to understand blockchain state.
     
     ### What Can Be Observed
+    - **state**: The ledger's load state (:absent, :unreadable, :empty, :corrupt, :readable); the fields below only carry meaning when it is :readable
     - **block_count**: Number of blocks in chain
-    - **is_valid**: Whether chain passes integrity check
+    - **is_valid**: Whether the ledger loaded as :readable (alias of state == :readable, not a separate integrity pass)
     - **latest_hash**: Hash of most recent block
     - **genesis_timestamp**: When chain was created
     

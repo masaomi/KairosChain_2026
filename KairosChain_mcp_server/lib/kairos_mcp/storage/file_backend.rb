@@ -32,16 +32,50 @@ module KairosMcp
       # Block Operations
       # ===========================================================================
 
+      # Read contract (see Backend#load_blocks): nil means the ledger does not
+      # exist, and nothing else. A ledger that exists but cannot be opened or
+      # parsed — a zero-byte file included — raises Storage::Error. Returning nil
+      # there would make a damaged ledger indistinguishable from a fresh install,
+      # and the next append would rebuild from genesis over it.
       def load_blocks
-        return nil unless File.exist?(@blockchain_file)
+        # Absence is decided by stat, not by File.exist?. File.exist? answers
+        # false for EVERY stat(2) failure, not only ENOENT — an unsearchable
+        # parent directory, a symlink loop, EIO on a network mount, or a macOS
+        # ACL denying readattr all read as "no ledger here". Measured on darwin
+        # 23.6: with `chmod +a "user deny readattr"` on the ledger, File.exist?
+        # is false while File.read and File.write both still succeed, so the
+        # ledger classified :absent and the next append rebuilt from genesis
+        # over it — 6 blocks became 2. Only ENOENT and ENOTDIR mean the ledger
+        # is not there; every other stat failure means we cannot tell.
+        begin
+          File.stat(@blockchain_file)
+        rescue Errno::ENOENT, Errno::ENOTDIR
+          return nil
+        rescue SystemCallError => e
+          raise Storage::Error,
+                "cannot determine whether ledger #{@blockchain_file} exists: #{e.message}"
+        end
 
-        json_data = JSON.parse(File.read(@blockchain_file), symbolize_names: true)
+        # FIX E — NEW CLAIM: the bytes on disk alone decide the classification;
+        # the process locale never does. The ledger is always written as UTF-8,
+        # but File.read without an encoding tags the bytes with the locale-derived
+        # default. Started with LANG unset (launchd, cron, plain containers), a
+        # ledger holding non-ASCII text then fails the parse and a healthy 705-block
+        # ledger reads :corrupt (measured on a copy of a production ledger; the
+        # shipped pre-fix code went further and erased it to 2 blocks on the next
+        # append). The bytes were never wrong — only the read was.
+        json_data = JSON.parse(File.read(@blockchain_file, encoding: Encoding::UTF_8), symbolize_names: true)
+        unless json_data.is_a?(Array)
+          raise Storage::Error, "ledger #{@blockchain_file} is not a JSON array (got #{json_data.class})"
+        end
+
         json_data.map do |block_data|
           normalize_block_data(block_data)
         end
-      rescue JSON::ParserError, ArgumentError => e
-        warn "[FileBackend] Failed to load blocks: #{e.message}"
-        nil
+      rescue Storage::Error
+        raise
+      rescue JSON::ParserError, ArgumentError, SystemCallError, IOError, NoMethodError, TypeError => e
+        raise Storage::Error, "failed to load blocks from #{@blockchain_file}: #{e.message}"
       end
 
       def save_block(block)
@@ -50,13 +84,15 @@ module KairosMcp
         save_all_blocks(blocks)
       end
 
+      # Write contract (see Backend#save_all_blocks): failure raises
+      # Storage::Error. The previous `false` return collapsed every failure into
+      # a value that reads as benign at the call site.
       def save_all_blocks(blocks)
         FileUtils.mkdir_p(File.dirname(@blockchain_file))
         File.write(@blockchain_file, JSON.pretty_generate(blocks.map { |b| block_to_hash(b) }))
         true
       rescue StandardError => e
-        warn "[FileBackend] Failed to save blocks: #{e.message}"
-        false
+        raise Storage::Error, "failed to save blocks to #{@blockchain_file}: #{e.message}"
       end
 
       def all_blocks

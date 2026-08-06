@@ -71,13 +71,17 @@ module KairosMcp
         def inspect_blockchain_health
           chain = ::KairosMcp::KairosChain::Chain.new
           blocks = chain.chain
+
+          # block_count and last_recorded only carry meaning when the ledger's
+          # state is :readable; the state itself is the load-bearing field.
           {
+            state: chain.load_state,
             block_count: blocks.size,
             last_recorded: blocks.last&.timestamp&.iso8601,
             integrity: chain.valid?
           }
         rescue StandardError => e
-          { block_count: 0, integrity: false, error: e.message }
+          { state: :error, block_count: 0, integrity: false, error: e.message }
         end
       end
     end

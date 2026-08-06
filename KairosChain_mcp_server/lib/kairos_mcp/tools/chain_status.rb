@@ -54,11 +54,15 @@ module KairosMcp
           storage_info[:wal_mode] = sqlite_config['wal_mode']
         end
         
+        # The ledger's state comes first; `length` and `latest_block` only carry
+        # meaning when the state is :readable. `latest_block` is nil otherwise
+        # (breaking change for consumers that assumed a hash).
         status = {
           valid: chain.valid?,
+          state: chain.load_state,
           length: chain.chain.length,
           storage: storage_info,
-          latest_block: chain.latest_block.to_h
+          latest_block: chain.latest_block&.to_h
         }
         
         text_content(JSON.pretty_generate(status))

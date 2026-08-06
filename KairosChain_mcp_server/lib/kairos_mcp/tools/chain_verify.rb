@@ -42,12 +42,16 @@ module KairosMcp
 
       def call(arguments)
         chain = KairosChain::Chain.new
-        is_valid = chain.valid?
-        
-        if is_valid
+
+        # Three outcomes, not two: a ledger that does not exist yet is a fresh
+        # install, not a corrupted one.
+        case chain.load_state
+        when :readable
           text_content("Blockchain Integrity Verified: OK (Length: #{chain.chain.length})")
+        when :absent
+          text_content('Blockchain not created yet (state: absent). Nothing to verify.')
         else
-          text_content("Blockchain Integrity Check FAILED! Chain may be corrupted.")
+          text_content("Blockchain Integrity Check FAILED! (state: #{chain.load_state})")
         end
       end
     end

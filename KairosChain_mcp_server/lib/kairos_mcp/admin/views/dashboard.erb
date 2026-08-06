@@ -9,13 +9,18 @@
   <article>
     <header>Blockchain</header>
     <p>
+      <%# Three displays, not two: an absent ledger is a fresh install. %>
       <% if chain[:valid] %>
         <span class="badge badge-success">Valid</span>
+      <% elsif chain[:state] == :absent %>
+        <span class="badge">Not created yet</span>
       <% else %>
-        <span class="badge badge-error">Invalid</span>
+        <span class="badge badge-error">Invalid (<%= h(chain[:state].to_s) %>)</span>
       <% end %>
     </p>
-    <p><strong><%= chain[:length] %></strong> blocks</p>
+    <% if chain[:valid] %>
+      <p><strong><%= chain[:length] %></strong> blocks</p>
+    <% end %>
     <p><small>Backend: <%= h(chain.dig(:storage, :backend) || 'unknown') %></small></p>
     <footer><a href="/admin/chain">View Chain &rarr;</a></footer>
   </article>

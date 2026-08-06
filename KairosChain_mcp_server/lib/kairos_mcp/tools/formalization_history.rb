@@ -68,6 +68,20 @@ module KairosMcp
         limit = (arguments['limit'] || 20).to_i
 
         chain = KairosChain::Chain.new
+
+        # Three outcomes, not two: an absent ledger is a fresh install with
+        # nothing recorded yet, and the failed states must be named rather than
+        # reported as "no decisions found".
+        case chain.load_state
+        when :readable # fall through to the scan
+        when :absent
+          return text_content('No formalization decisions: blockchain not created yet.')
+        else
+          return text_content(
+            "Cannot scan formalization decisions: ledger state is #{chain.load_state}."
+          )
+        end
+
         decisions = []
 
         # Scan all blocks for formalization decisions

@@ -2,6 +2,13 @@
 
 module KairosMcp
   module Storage
+    # Raised when a read or a write against the ledger fails, and when the key or
+    # the ledger path cannot be used. It wraps the underlying exception as #cause.
+    #
+    # For a write, this means **it is unknown whether the write landed**. It must
+    # not be read as "nothing was written" — re-read the ledger to find out.
+    class Error < StandardError; end
+
     # Abstract base class for storage backends
     #
     # KairosChain supports two storage backends:
@@ -34,7 +41,15 @@ module KairosMcp
       # ===========================================================================
 
       # Load all blocks from storage
-      # @return [Array<Hash>, nil] Array of block data or nil if not found
+      #
+      # Read contract (a backend that declares #blockchain_file must honour it):
+      # nil is returned **only when the ledger does not exist**. A ledger that
+      # cannot be opened or cannot be parsed (including a zero-byte file) raises
+      # Storage::Error. Collapsing those into nil would let a damaged ledger pass
+      # as "absent" and be rebuilt from genesis.
+      #
+      # @return [Array<Hash>, nil] Array of block data, or nil when absent
+      # @raise [Storage::Error] the ledger exists but could not be read
       def load_blocks
         raise NotImplementedError, "#{self.class}#load_blocks must be implemented"
       end
@@ -47,8 +62,14 @@ module KairosMcp
       end
 
       # Save all blocks to storage (for file backend bulk write)
+      #
+      # Write contract: failure raises Storage::Error. Returning false for a
+      # failed write is forbidden — the caller cannot distinguish "refused" from
+      # "wrote and then failed", and a false return reads as a benign result.
+      #
       # @param blocks [Array<Hash>] Array of block data
-      # @return [Boolean] Success status
+      # @return [Boolean] true
+      # @raise [Storage::Error] the write failed or its outcome is unknown
       def save_all_blocks(blocks)
         raise NotImplementedError, "#{self.class}#save_all_blocks must be implemented"
       end
@@ -141,6 +162,14 @@ module KairosMcp
       def backend_type
         raise NotImplementedError, "#{self.class}#backend_type must be implemented"
       end
+
+      # INV-G — the contract question is a single one: "state the absolute path of
+      # your ledger". A backend answers it by defining #blockchain_file. This base
+      # class deliberately does not, so a backend that has not been written
+      # against the append procedure of INV-D (sqlite's INSERT OR REPLACE never
+      # truncates the sequence; postgresql is registered by a SkillSet) is refused
+      # rather than silently driven by a file-shaped procedure. Under such a
+      # backend, Chain refuses to append and reads the ledger as unreadable.
 
       # ===========================================================================
       # Factory Method

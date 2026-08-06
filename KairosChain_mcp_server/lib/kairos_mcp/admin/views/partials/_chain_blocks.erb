@@ -1,5 +1,13 @@
 <% if blocks.empty? %>
-  <p>No blocks found.</p>
+  <%# Three displays, not two: an absent ledger is a fresh install, and an
+      unreadable one must not be reported as an empty history. %>
+  <% if load_state == :readable %>
+    <p>No blocks found.</p>
+  <% elsif load_state == :absent %>
+    <p>Chain not created yet.</p>
+  <% else %>
+    <p>History unavailable: ledger is <%= h(load_state.to_s) %>.</p>
+  <% end %>
 <% else %>
   <div class="overflow-auto">
     <table>

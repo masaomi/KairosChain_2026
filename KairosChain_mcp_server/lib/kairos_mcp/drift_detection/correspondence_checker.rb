@@ -64,7 +64,23 @@ module KairosMcp
           end
 
           active = Digest::SHA256.hexdigest(File.read(md_file_path))
-          recorded = recorded_digest_for(name, storage_backend)
+
+          chain = KairosChain::Chain.new(storage_backend: storage_backend)
+          # :absent completes normally: a fresh install has no ledger, the scan
+          # over zero blocks finds nothing, and :missing_record is the honest
+          # verdict. The other failed states mean provenance is UNAVAILABLE,
+          # which is not the same claim as "never recorded" — reporting
+          # :missing_record there would accuse every artifact whenever the
+          # ledger cannot be read.
+          unless chain.valid? || chain.load_state == :absent
+            return Result.new(
+              status: :error, name: name,
+              active_digest: active, recorded_digest: nil,
+              message: "L1 '#{name}': provenance unavailable — ledger state is #{chain.load_state}"
+            )
+          end
+
+          recorded = recorded_digest_for(name, chain)
 
           if recorded.nil?
             return Result.new(
@@ -101,8 +117,7 @@ module KairosMcp
         # the most recent knowledge_update record, scanning the chain from head
         # backward. Returns nil when the most recent relevant record removed the
         # artifact (next_hash nil — delete/archive) or when none exists.
-        def recorded_digest_for(name, storage_backend)
-          chain = KairosChain::Chain.new(storage_backend: storage_backend)
+        def recorded_digest_for(name, chain)
           chain.chain.reverse_each do |block|
             Array(block.data).each do |entry|
               record = parse_entry(entry)

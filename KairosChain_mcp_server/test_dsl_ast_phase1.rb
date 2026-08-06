@@ -327,7 +327,14 @@ test_section("FormalizationDecision Blockchain Recording") do
     )
     chain = KairosMcp::KairosChain::Chain.new(storage_backend: backend)
 
-    initial_count = chain.chain.size
+    # A ledger that does not exist yet reports :absent and an empty sequence.
+    # The first append lays down genesis and puts the block on top of it, so the
+    # sequence goes 0 -> 2 and the new block's index is 1.
+    result = assert("Fresh ledger reports :absent", chain.load_state == :absent)
+    passed += 1 if result; failed += 1 unless result
+
+    result = assert("Fresh ledger reports an empty sequence", chain.chain.size == 0)
+    passed += 1 if result; failed += 1 unless result
 
     decision = KairosMcp::KairosChain::FormalizationDecision.new(
       skill_id: "evolution_rules",
@@ -341,10 +348,10 @@ test_section("FormalizationDecision Blockchain Recording") do
 
     new_block = chain.add_block([decision.to_json])
 
-    result = assert("Block was added", chain.chain.size == initial_count + 1)
+    result = assert("Block was added on top of genesis", chain.chain.size == 2)
     passed += 1 if result; failed += 1 unless result
 
-    result = assert("Block has correct index", new_block.index == initial_count)
+    result = assert("Block has correct index", new_block.index == 1)
     passed += 1 if result; failed += 1 unless result
 
     # Verify the data can be parsed back

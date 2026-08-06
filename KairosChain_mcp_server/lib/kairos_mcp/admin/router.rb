@@ -346,6 +346,7 @@ module KairosMcp
 
         html_response(200, render_partial('_chain_blocks',
                                           blocks: paged_blocks,
+                                          load_state: chain.load_state,
                                           total: total,
                                           limit: limit,
                                           offset: offset))
@@ -353,6 +354,10 @@ module KairosMcp
 
       def handle_chain_block_detail_partial(index)
         chain = KairosChain::Chain.new
+        unless chain.valid?
+          return html_response(200, "<p>Block ##{index} unavailable: ledger is #{chain.load_state}.</p>")
+        end
+
         block = chain.chain.find { |b| b.respond_to?(:index) ? b.index == index : b['index'] == index }
 
         if block
@@ -364,13 +369,17 @@ module KairosMcp
 
       def handle_chain_verify_partial
         chain = KairosChain::Chain.new
-        valid = chain.valid?
-        length = chain.chain.length
 
-        result = if valid
-                   "<div class='flash flash-success'>Chain is valid. #{length} blocks verified.</div>"
+        # Three outcomes: a ledger that does not exist yet is not a failure.
+        result = case chain.load_state
+                 when :readable
+                   "<div class='flash flash-success'>Chain is valid. " \
+                     "#{chain.chain.length} blocks verified.</div>"
+                 when :absent
+                   "<div class='flash'>Chain not created yet. Nothing to verify.</div>"
                  else
-                   "<div class='flash flash-error'>Chain integrity check FAILED!</div>"
+                   "<div class='flash flash-error'>Chain integrity check FAILED! " \
+                     "(state: #{chain.load_state})</div>"
                  end
         html_response(200, result)
       end
@@ -475,17 +484,20 @@ module KairosMcp
         backend = SkillsConfig.storage_backend
 
         latest = chain.latest_block
-        latest_h = latest.respond_to?(:to_h) ? latest.to_h : latest
+        latest_h = latest.respond_to?(:to_h) ? latest&.to_h : latest
 
         {
           valid: chain.valid?,
+          state: chain.load_state,
           length: chain.chain.length,
           storage: { backend: backend },
           latest_block: latest_h
         }
       rescue StandardError => e
-        { valid: false, length: 0, storage: { backend: 'unknown' },
-          latest_block: {}, error: e.message }
+        # Chain.new does not raise; this branch is reachable only for failures
+        # outside the ledger (config, rendering). It must not fabricate a state.
+        { valid: false, state: :error, length: 0, storage: { backend: 'unknown' },
+          latest_block: nil, error: e.message }
       end
 
       def fetch_knowledge_list(search: nil)

@@ -91,16 +91,27 @@ module KairosMcp
 
           def check_blockchain
             chain = ::KairosMcp::KairosChain::Chain.new
-            valid = chain.valid?
+            state = chain.load_state
             blocks = chain.chain
+
+            # Three outcomes, not two: a ledger that does not exist yet is a
+            # fresh install, not an integrity failure. block_count and
+            # latest_timestamp only carry meaning when the state is :readable.
+            status = case state
+                     when :readable then 'healthy'
+                     when :absent then 'not_created_yet'
+                     else 'INTEGRITY_FAILURE'
+                     end
+
             {
-              valid: valid,
+              valid: chain.valid?,
+              state: state,
               block_count: blocks.size,
               latest_timestamp: blocks.last&.timestamp&.iso8601,
-              status: valid ? 'healthy' : 'INTEGRITY_FAILURE'
+              status: status
             }
           rescue StandardError => e
-            { valid: false, error: e.message, status: 'error' }
+            { valid: false, state: :error, error: e.message, status: 'error' }
           end
 
           def build_recommendations(report)
@@ -119,9 +130,19 @@ module KairosMcp
               end
             end
 
-            # Blockchain issues
-            if report[:blockchain] && !report[:blockchain][:valid]
-              recs << { priority: 'critical', target: 'blockchain', message: 'Blockchain integrity check failed.' }
+            # Blockchain issues. A ledger that does not exist yet is a fresh
+            # install, not an integrity failure — keying off :valid alone would
+            # raise a critical alarm on every new installation.
+            blockchain = report[:blockchain]
+            if blockchain && !blockchain[:valid]
+              case blockchain[:state]&.to_sym
+              when :absent
+                recs << { priority: 'low', target: 'blockchain',
+                          message: 'Blockchain not created yet. It is written on the first recorded change.' }
+              else
+                recs << { priority: 'critical', target: 'blockchain',
+                          message: "Blockchain integrity check failed (state: #{blockchain[:state] || 'unknown'})." }
+              end
             end
 
             # Safety gaps

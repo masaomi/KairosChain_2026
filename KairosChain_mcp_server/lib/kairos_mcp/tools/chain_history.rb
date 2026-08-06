@@ -80,9 +80,13 @@ module KairosMcp
         blocks = blocks.first(limit)
         
         if format == 'json'
-          text_content(JSON.pretty_generate(blocks.map(&:to_h)))
+          # Breaking change: the JSON payload is an object, not a bare array. An
+          # array cannot carry the ledger state, and an empty array from an
+          # unreadable ledger is indistinguishable from an empty history.
+          text_content(JSON.pretty_generate(state: chain.load_state,
+                                            blocks: blocks.map(&:to_h)))
         else
-          format_blocks(blocks)
+          format_blocks(blocks, chain.load_state)
         end
       end
 
@@ -107,12 +111,17 @@ module KairosMcp
         end
       end
 
-      def format_blocks(blocks)
+      def format_blocks(blocks, load_state)
         output = "Blockchain History\n"
         output += "=" * 50 + "\n\n"
+        output += "Ledger state: #{load_state}\n\n"
 
         if blocks.empty?
-          output += "(No blocks found)\n"
+          output += case load_state
+                    when :readable then "(No blocks found)\n"
+                    when :absent then "(Blockchain not created yet)\n"
+                    else "(History unavailable: ledger is #{load_state})\n"
+                    end
           return text_content(output)
         end
 
