@@ -55,9 +55,17 @@
 
 ## fixture — 破られた形がそのまま検査になっている
 
-`test/fixtures/` の 14 件。`test/test_check_report.py` が走らせる。
+`test/fixtures/` の 46 件。`test/test_check_report.py` が走らせる。
+内訳は四世代ある。初版で破られた形（下の 2 表）、レビュー 2 周目で入った
+「書き手が普通に書いていて踏む事故の形」8 件、3 周目のレビュー指摘の
+修正に付けた後退防止の検査、そして 4 周目（普通に書いたレポートに誤った答えを
+返す形の修正）で加わった検査。どの fixture をどの検査が捕まえるべきかの宣言は
+`test_check_report.py` にある。
 
-**通ってはいけない 10 件**（すべて評価者が実行して示した抜け道）
+**落ちる側の fixture のうち、初版由来の 10 件。うち抜け道は 8 件**（評価者が実行して
+示したのは 8 件。※印の 2 件——`bad_missing_section.html` と `bad_comment_details.html`——は
+初版（9c3eb0a）でもどちらも「節」の検査で落ちており、抜け道ではなく最初からある検査の
+確認である。それ以降に追加された落ちる側の fixture も評価者由来ではない）
 
 | fixture | 何を再現しているか | 捕まえる検査 |
 |---|---|---|
@@ -68,11 +76,12 @@
 | `bad_svg_overflow_rect.html` | 図の枠には収まるが箱から溢れる label | 図の収まり |
 | `bad_svg_transform.html` | `translate` で画面外へ出る label | 図の収まり |
 | `bad_token_forms.html` | `f1` `c-1` `step-3` `#12` のような形 | 符牒 |
-| `bad_comment_details.html` | コメントの中の `<details` で本文を切る | 整形済みの塊 |
+| `bad_comment_details.html` ※抜け道ではない | コメントの中の `<details` で本文を切る | 整形済みの塊 |
 | `bad_whitespace_pre.html` | `<pre>` を使わずに ASCII 図を出す | 整形済みの塊 |
-| `bad_missing_section.html` | 節が 1 つ足りない | 節 |
+| `bad_missing_section.html` ※抜け道ではない | 節が 1 つ足りない | 節 |
 
-**落としてはいけない 4 件**
+**落としてはいけない fixture のうち、初版からの 4 件**（その後、レビュー指摘で判明した
+「正しく書いたのに落とされる形」を通す fixture が 17 件加わり、通る側は計 21 件）
 
 | fixture | なぜ通らねばならないか |
 |---|---|

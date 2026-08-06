@@ -25,9 +25,13 @@ CHECKER = HERE.parent / "scripts" / "check_report.py"
 FIXTURES = HERE / "fixtures"
 
 # fixture name -> substring of the check that must be the one to fail.
-# Every entry corresponds to an evasion that was demonstrated against the first
-# version of this checker by an independent reviewer, with the evidence recorded
-# in references/worked_example.md.
+# Eight of the first ten entries are evasions demonstrated against the first
+# version of this checker (commit 9c3eb0a) by an independent reviewer, with
+# the evidence recorded in references/worked_example.md. The other two —
+# bad_missing_section.html and bad_comment_details.html — already failed at
+# that commit (both on "all sections present"), so they are regression
+# guards, not escapes. Later entries are accident shapes and regression
+# guards from subsequent review rounds.
 MUST_FAIL = {
     "bad_details_open.html": "preformatted",
     "bad_svg_smuggle.html": "work-internal tokens",
@@ -49,6 +53,15 @@ MUST_FAIL = {
     "bad_stylesheet_pre.html": "preformatted",
     "bad_too_long.html": "length budget",
     "bad_dot_svg.html": "filled visual",
+    # Round 3 (review-finding regression guards).
+    "bad_wide_punctuation_overflow.html": "fit their boxes",
+    "bad_transform_order.html": "fit their boxes",
+    "bad_class_hidden_headings.html": "filled visual",
+    "bad_declared_flood.html": "work-internal tokens",
+    "bad_svg_title_placeholder.html": "placeholders",
+    # Round 4 (wrong answers on normal authoring, closed in this round).
+    "bad_comment_hidden_headings.html": "filled visual",
+    "bad_fullwidth_tokens.html": "work-internal tokens",
 }
 
 # These must pass. Each one is a report a reader would accept and that an
@@ -58,6 +71,25 @@ MUST_PASS = {
     "good_tspan.html": "manual line breaking, which the skill itself mandates",
     "good_nine_sections.html": "a ninth section the work genuinely needed",
     "good_declared_tokens.html": "innocent look-alikes declared in the head",
+    # Round 3 (false rejections closed by review findings).
+    "good_adjacent_cells.html": "adjacent table cells must not fuse into a phantom token",
+    "good_indented_source.html": "markup indentation is not rendered text",
+    "good_group_anchor.html": "text-anchor inherited from a group, like font-size",
+    "good_translated_no_x.html": "a missing x defaults to 0; the translate positions it",
+    "good_three_exempt.html": "cover, undecided, and 食い違いなし need three exemptions",
+    "good_dotted_tokens.html": "declaring v0.9/TLS-1.3 as written covers their sub-tokens",
+    "good_wide_punctuation.html": "ambiguous-width punctuation measured full width, fitting",
+    "good_style_font_size.html": "an absolute px size in the style attribute is measurable",
+    "good_short_labels.html": "two-character Japanese labels are a figure",
+    "good_worked_example.html": "a declared worked example satisfies invariant 8",
+    "good_scoped_stylesheet.html": "appendix- and print-scoped rules do not preformat the body",
+    "good_nested_summary.html": "a summary inside a nested collapsed details never renders",
+    # Round 4 (false rejections closed in this round).
+    "good_highlight_rect.html": "a one-colour highlight rect behind a phrase is not the label's box",
+    "good_css_font_size.html": "a font-size set by the report's own stylesheet is measurable",
+    "good_media_query_hidden.html": "a width-conditional media query does not hide the desktop rendering",
+    "good_style_over_attr.html": "the style attribute beats the font-size presentation attribute",
+    "good_thirteen_declared.html": "13 legitimate public-vocabulary declarations fit under the cap",
 }
 
 
