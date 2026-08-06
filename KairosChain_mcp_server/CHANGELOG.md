@@ -4,6 +4,46 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.63.0] - 2026-08-06
+
+### Changed
+
+- **`multi_llm_review` findings gain a weight axis, and a worker death no
+  longer discards completed seats** (SkillSet 0.9.1 → 0.10.0, frozen after one
+  review round; every deployment-grounded finding fixed in-round).
+
+  The severity of a finding said what kind of defect it was, never what it
+  costs: measured on a three-persona panel, 3 of one round's 7 P0s were
+  factually correct findings that cost nobody anything, landing at the same
+  severity as a defect that silently corrupts published output. The reviewer
+  prompt contract now requires a `[consequence: who is harmed, and how]`
+  clause on every P0, and aggregation records an unclaused P0 at P2 with the
+  stated severity and the demotion reason kept beside it. Only presence is
+  checked, mechanically; whether a stated consequence is real or trivial
+  stays the orchestrator's call. The clause is read before the byte bound
+  cuts the tail, the first non-empty clause counts, deduplication compares
+  issues without their clauses, and the demotion mark survives merging in
+  any member order. Reviewer prompts also stop naming the round number, and
+  the L1 workflow knowledge (v3.10.0) adds the matching orchestrator-side
+  rule: never tell a reviewer its finding count, the round number, or prior
+  verdicts — counts a reviewer performs select for finding-production over
+  finding-weight.
+
+  Separately, one stuck seat used to cost a whole round: a stale heartbeat
+  killed the detached worker and every completed seat's reply died with it,
+  because nothing left the worker's memory until all seats were done. The
+  worker now persists each seat's outcome the moment it is decided
+  (`partial_results.json`, atomic, single writer — including the
+  dispatcher's own deadline skips, so recovery cannot relabel a reached
+  seat as lost). The collect tool's crash and timeout branches recover the
+  completed seats, but only after the reaper CONFIRMS the worker's death: a
+  stale heartbeat is not a death certificate, and a record sealed over a
+  live worker would be permanently false once idempotent replay pins it.
+  Unconfirmed death falls back to the previous retryable total-loss report.
+  Seats the worker never reached enter the denominator as skip rows named
+  `worker_crashed_seat_lost`, and the payload carries `worker_failure`
+  naming the death and the recovered and lost seat labels.
+
 ## [3.62.0] - 2026-08-06
 
 ### Changed
