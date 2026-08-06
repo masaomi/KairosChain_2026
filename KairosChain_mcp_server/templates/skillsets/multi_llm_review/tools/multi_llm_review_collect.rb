@@ -97,6 +97,31 @@ module KairosMcp
                     'subprocess worker to finish before reporting a timeout ' \
                     '(default from config: delegation.parallel.' \
                     'collect_max_wait_seconds). Only used on the parallel path.'
+                },
+                include_raw_text: {
+                  type: 'boolean',
+                  description: 'Carry each reviewer reply in reviews[].raw_text, ' \
+                    'up to 65536 bytes. Default false. A bounded 4096-byte ' \
+                    'excerpt of the same form is returned either way as ' \
+                    'reviews[].raw_text_excerpt, so the evidence a finding came ' \
+                    'from is reachable without this flag; set it when the ' \
+                    'excerpt is not enough to check what a verdict was drawn ' \
+                    'from. Both fields are sanitised transcriptions — not ' \
+                    'verbatim, not guaranteed prefixes: the text is ' \
+                    'byte-clamped, NFKC-normalised, stripped of invisible ' \
+                    'characters, tag-escaped, then byte-clamped again. No field ' \
+                    'states whether they hold the whole reply, and ' \
+                    'raw_text_length cannot tell you: for subprocess seats it ' \
+                    'counts the bytes that ARRIVED, before normalisation ' \
+                    'expanded them; for the persona seat it measures a locally ' \
+                    'assembled summary. On delegated runs the pending-state ' \
+                    'record on disk keeps each subprocess reply as it arrived; ' \
+                    'on single-phase runs (orchestrator_strategy exclude or ' \
+                    'subprocess) nothing beyond this payload is written, so ' \
+                    'the returned fields are the only form there is. The ' \
+                    'persona seat\'s row is assembled at collect from the ' \
+                    'submitted persona reviews, bounded and rewritten in ' \
+                    'assembly, and no other copy exists anywhere.'
                 }
               },
               required: %w[collect_token orchestrator_reviews]
@@ -154,9 +179,9 @@ module KairosMcp
             if collected_path && File.exist?(collected_path)
               cached = PendingState.load_collected(token)
               if cached && cached['final_payload']
-                payload = cached['final_payload'].dup
-                payload['idempotent_replay'] = true
-                return text_content(JSON.generate(payload))
+                return text_content(JSON.generate(
+                                      annotate_replay(cached['final_payload'], arguments)
+                                    ))
               end
             end
 
@@ -198,11 +223,16 @@ module KairosMcp
               }))
             end
 
-            # v0.2.x legacy idempotent replay (inline cache in state).
+            # v0.2.x legacy idempotent replay (inline cache in state). Reachable
+            # today, not only historically: write_collected is wrapped in a
+            # rescue that only warns, so a failed sidecar write leaves this as
+            # the only copy. It goes through the same annotation as the sidecar
+            # path — a replay that explains itself on one of two routes is a
+            # record whose shape depends on which route ran.
             if state['collected'] && state['final_payload']
-              cached = state['final_payload'].dup
-              cached['idempotent_replay'] = true
-              return text_content(JSON.generate(cached))
+              return text_content(JSON.generate(
+                                    annotate_replay(state['final_payload'], arguments)
+                                  ))
             end
 
             # Deadline check
@@ -326,9 +356,18 @@ module KairosMcp
             actual_llm_calls = subprocess_entries.count { |r| r[:status] == :success }
 
             findings_string_keys = consensus[:aggregated_findings].map { |f| hash_to_string_keys(f) }
-            sanitized_findings = findings_string_keys.map do |f|
-              f.merge('issue' => Sanitizer.sanitize_finding_text(f['issue']))
-            end
+            # One array, bound at the record bound rather than the display one.
+            # Why the two differ, and why the clamp follows the sanitize, is at
+            # Sanitizer.bound_findings_for_record.
+            sanitized_findings = Sanitizer.bound_findings_for_record(findings_string_keys)
+            # The excerpt is unconditional; the full reply is opt-in, and the
+            # opt-in can be made at either end of the two-call protocol. The
+            # dispatch call is where a caller naturally asks, and on the
+            # delegate path that call returns before this record exists, so an
+            # ask made there has to be carried in the pending state to arrive
+            # here. Either side asking is enough; neither overrides the other.
+            include_raw_text = (arguments['include_raw_text'] == true) ||
+                               (state['include_raw_text'] == true)
             feedback_text =
               case consensus[:reference_verdict]
               when 'APPROVE' then nil
@@ -347,7 +386,9 @@ module KairosMcp
               'reference_verdict' => consensus[:reference_verdict],
               'feedback_text' => feedback_text,
               'convergence' => hash_to_string_keys(consensus[:convergence]),
-              'reviews' => consensus[:reviews].map { |r| ReviewSerializer.payload_row(r) },
+              'reviews' => consensus[:reviews].map { |r|
+                ReviewSerializer.payload_row(r, include_raw_text: include_raw_text)
+              },
               'aggregated_findings' => sanitized_findings,
               'review_round' => state['review_round'],
               'review_type' => state['review_type'],
@@ -472,6 +513,35 @@ module KairosMcp
             (entries || []).map do |e|
               e.is_a?(Hash) ? e.transform_keys(&:to_sym) : e
             end
+          end
+
+          # A replay answers the question the FIRST call asked. That is what
+          # idempotence means and it is not weakened here — but it made the
+          # full-reply request unreachable for every run after its first
+          # collect, on the very path the wait tool directs an already-collected
+          # token onto. So a replay now says what it is replaying: whether the
+          # cached record carries the full replies, and a refusal reason when
+          # the caller asked for something the cache does not hold. A caller
+          # that reads it can re-dispatch; a caller that does not is no worse
+          # off than before.
+          #
+          # One method for both replay routes. The sidecar path and the legacy
+          # inline path are two doors to the same answer, and annotating only
+          # one gave the record a shape that depended on which door it came
+          # through — which is the drift ReviewSerializer exists to prevent,
+          # reproduced one layer up.
+          def annotate_replay(final_payload, arguments)
+            payload = final_payload.dup
+            payload['idempotent_replay'] = true
+            payload['include_raw_text_effective'] =
+              payload['reviews'].is_a?(Array) &&
+              payload['reviews'].any? { |r| r.is_a?(Hash) && r.key?('raw_text') }
+            if (arguments['include_raw_text'] == true) && !payload['include_raw_text_effective']
+              payload['include_raw_text_refused'] =
+                'this token was already collected without the full replies; the cached record ' \
+                'is replayed unchanged. Dispatch a new review with include_raw_text to obtain them.'
+            end
+            payload
           end
 
           def hash_to_string_keys(hash)

@@ -2,6 +2,7 @@
 
 require 'json'
 require_relative 'verdict_vocabulary'
+require_relative 'sanitizer'
 
 module KairosMcp
   module SkillSets
@@ -72,6 +73,14 @@ module KairosMcp
         # contract returns aggregated_findings as a separate array which would
         # otherwise grow unbounded under adversarial reviewer behavior.
         MAX_AGGREGATED_FINDINGS = 200
+
+        # Distinct texts kept on one merged finding row. This is the second
+        # half of the size bound: MAX_AGGREGATED_FINDINGS caps rows, and this
+        # caps how heavy a single row can get when a dedup collision merges
+        # many differently-worded findings into it. Set where a genuine
+        # collision plausibly lands — a handful of reviewers disagreeing on
+        # wording — rather than where an adversarial reviewer would.
+        MAX_ISSUE_VARIANTS = 8
 
         # The reviewer's own verdict is the header on the first non-empty line
         # of its reply, and nowhere else.
@@ -604,20 +613,71 @@ module KairosMcp
             text.scan(/\*{0,2}(P[0-3])\*{0,2}[-\s]*\d*[.:]\s*(.+?)(?=\n\s*\n|\n\s*\*{0,2}P[0-3]|\z)/mi) do |sev, issue|
               all_findings << {
                 severity: sev.upcase,
-                issue: issue.strip[0..200],
+                # This used to be `[0..200]`, an inclusive Range, so every
+                # finding longer than 201 characters lost its tail — the quoted
+                # line, the file:line, the failure condition — before anything
+                # downstream could bound it on purpose.
+                #
+                # It is bounded here rather than nowhere, and here rather than
+                # further upstream, because this is the point where both costs
+                # are decided at once: what gets stored, and what the sanitizer
+                # is about to normalise character by character. A bound placed
+                # on the reply instead was measured not to work, since NFKC runs
+                # between the two and expands by up to 11x. The bound is in
+                # bytes for the same reason — bytes are what is spent.
+                issue: Sanitizer.clamp_finding_bytes(issue.strip),
                 cited_by: [r[:role_label]]
               }
             end
           end
 
-          # Deduplicate by first 80 chars
+          # Deduplicate on the first 80 characters of the issue text,
+          # lowercased. The key is deliberately narrower than the full text:
+          # two reviewers describing one defect in slightly different words
+          # have to merge, or the finding count and the convergence
+          # denominator move. The price of that width is collision — two
+          # genuinely different findings can share a prefix.
+          #
+          # A collision no longer discards the loser. The row keeps one
+          # member's text as `issue` and lists every distinct member text in
+          # `issue_variants`; a group whose members all say the same thing,
+          # and a group of one, carry no `issue_variants` key. `issue` is
+          # taken from a member whose severity equals the merged severity, so
+          # a row's wording and its severity always come from the same
+          # finding — the old code took the most severe severity together
+          # with the FIRST text, which could seat a P0 severity beside a P2's
+          # wording.
+          #
+          # The variant list is capped, and the cap is load-bearing rather
+          # than tidy. MAX_AGGREGATED_FINDINGS bounds the number of ROWS, and
+          # merging moves text off the row count and onto a row, so the row
+          # cap gets *less* likely to fire exactly as the rows get heavier —
+          # findings that all share one prefix collapse into a single row the
+          # cap never sees. Uncapped, one reviewer emitting many
+          # prefix-sharing findings turns into a multi-megabyte row in the
+          # response. When the cap bites it says so in the row
+          # (`issue_variants_omitted`), because a silently shortened list
+          # reads as "this is all there was" — the failure this whole change
+          # exists to remove.
           grouped = all_findings.group_by { |f| f[:issue][0..79].downcase }
           grouped.map do |_key, findings|
-            {
-              severity: findings.map { |f| f[:severity] }.min, # P0 < P1 < P2
-              issue: findings.first[:issue],
+            merged_severity = findings.map { |f| f[:severity] }.min # P0 < P1 < P2
+            # `.min` over a non-empty group returns one of its own members, so
+            # this find always succeeds; the fallback is kept for a severity
+            # vocabulary that outgrows the one the extraction regex emits.
+            representative = findings.find { |f| f[:severity] == merged_severity } || findings.first
+            variants = findings.map { |f| f[:issue] }.uniq
+            row = {
+              severity: merged_severity,
+              issue: representative[:issue],
               cited_by: findings.flat_map { |f| f[:cited_by] }.uniq
             }
+            if variants.size > 1
+              row[:issue_variants] = variants.first(MAX_ISSUE_VARIANTS)
+              omitted = variants.size - MAX_ISSUE_VARIANTS
+              row[:issue_variants_omitted] = omitted if omitted.positive?
+            end
+            row
           end.sort_by { |f| f[:severity] }
         end
       end

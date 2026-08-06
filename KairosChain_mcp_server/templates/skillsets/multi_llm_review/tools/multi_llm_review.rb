@@ -213,6 +213,31 @@ module KairosMcp
                     'in a DETACHED WORKER process so orchestrator persona reviewers can ' \
                     'run in parallel (wall-clock ~30% faster). Default true (from config). ' \
                     'Set false for v0.2.x synchronous behavior.'
+                },
+                include_raw_text: {
+                  type: 'boolean',
+                  description: 'Carry each reviewer reply in reviews[].raw_text, ' \
+                    'up to 65536 bytes. Default false. A bounded 4096-byte ' \
+                    'excerpt of the same form is returned either way as ' \
+                    'reviews[].raw_text_excerpt, so the evidence a finding came ' \
+                    'from is reachable without this flag; set it when the ' \
+                    'excerpt is not enough to check what a verdict was drawn ' \
+                    'from. Both fields are sanitised transcriptions — not ' \
+                    'verbatim, not guaranteed prefixes: the text is ' \
+                    'byte-clamped, NFKC-normalised, stripped of invisible ' \
+                    'characters, tag-escaped, then byte-clamped again. No field ' \
+                    'states whether they hold the whole reply, and ' \
+                    'raw_text_length cannot tell you: for subprocess seats it ' \
+                    'counts the bytes that ARRIVED, before normalisation ' \
+                    'expanded them; for the persona seat it measures a locally ' \
+                    'assembled summary. On delegated runs the pending-state ' \
+                    'record on disk keeps each subprocess reply as it arrived; ' \
+                    'on single-phase runs (orchestrator_strategy exclude or ' \
+                    'subprocess) nothing beyond this payload is written, so ' \
+                    'the returned fields are the only form there is. The ' \
+                    'persona seat\'s row is assembled at collect from the ' \
+                    'submitted persona reviews, bounded and rewritten in ' \
+                    'assembly, and no other copy exists anywhere.'
                 }
               },
               required: %w[artifact_content artifact_name review_type]
@@ -428,7 +453,14 @@ module KairosMcp
                 'review_round' => review_round,
                 'review_spec' => review_spec,
                 # INV-R3: the convened persona count is declared at dispatch.
-                'persona_count_declared' => arguments['persona_count_declared']
+                'persona_count_declared' => arguments['persona_count_declared'],
+                # The request is recorded where it was made. On the delegate
+                # path this call returns before the record is written, so an
+                # argument read only at record-writing time is an argument this
+                # path silently drops — which is what happened: a caller could
+                # ask for the full replies here and receive a record without
+                # them, with no error saying the ask went nowhere.
+                'include_raw_text' => (arguments['include_raw_text'] == true)
               }.compact)
             rescue StandardError => e
               return text_content(JSON.generate({
@@ -503,9 +535,12 @@ module KairosMcp
             )
 
             findings_string_keys = consensus[:aggregated_findings].map { |f| hash_to_string_keys(f) }
-            sanitized_findings = findings_string_keys.map do |f|
-              f.merge('issue' => Sanitizer.sanitize_finding_text(f['issue']))
-            end
+            # One array, bound at the record bound rather than the display one.
+            # Why the two differ, and why the clamp follows the sanitize, is at
+            # Sanitizer.bound_findings_for_record.
+            sanitized_findings = Sanitizer.bound_findings_for_record(findings_string_keys)
+            # The excerpt is unconditional; the full reply is opt-in.
+            include_raw_text = arguments['include_raw_text'] == true
             feedback_text =
               case consensus[:reference_verdict]
               when 'APPROVE' then nil
@@ -524,7 +559,9 @@ module KairosMcp
               'reference_verdict' => consensus[:reference_verdict],
               'feedback_text' => feedback_text,
               'convergence' => hash_to_string_keys(consensus[:convergence]),
-              'reviews' => consensus[:reviews].map { |r| ReviewSerializer.payload_row(r) },
+              'reviews' => consensus[:reviews].map { |r|
+                ReviewSerializer.payload_row(r, include_raw_text: include_raw_text)
+              },
               'aggregated_findings' => sanitized_findings,
               'review_round' => review_round,
               'review_type' => arguments['review_type'],
@@ -929,6 +966,7 @@ module KairosMcp
                 # INV-R3: the declared convened count, beside which collect
                 # records the submitted count.
                 'persona_count_declared' => arguments['persona_count_declared'],
+                'include_raw_text' => (arguments['include_raw_text'] == true),
                 # Stated rather than left to collect's legacy default, now that
                 # this path looks like the parallel one from the outside.
                 'parallel' => false,
@@ -1062,6 +1100,15 @@ module KairosMcp
               if arguments['persona_count_declared']
                 async_state['persona_count_declared'] = arguments['persona_count_declared']
               end
+              # This is the DEFAULT dispatch path, and it was the one the flag
+              # did not survive. The synchronous sibling recorded it and this
+              # one did not, so a caller asking here for the full replies got a
+              # record without them and no error — the exact failure the flag
+              # was added to remove, reintroduced by fixing only the path that
+              # was easier to see. The marker file records it too, but collect
+              # reads state.json and never the marker, so recording it there
+              # was not recording it at all.
+              async_state['include_raw_text'] = true if arguments['include_raw_text'] == true
               PendingState.write_state(token, async_state)
 
               # Ensure collect.lock exists for Phase 2's flock.

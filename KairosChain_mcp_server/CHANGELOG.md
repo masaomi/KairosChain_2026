@@ -4,6 +4,54 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.61.0] - 2026-08-06
+
+### Fixed
+
+- **`multi_llm_review` (SkillSet 0.9.0) — a finding reaches the record whole, and the record
+  stops claiming what it cannot know.** A downstream instance measured, across four real rounds,
+  that 18 of 21 aggregated findings came back at exactly 201 bytes while `reviews[].raw_text` was
+  empty on every row and `raw_text_length` reported the real size. Three bounds were doing it: an
+  inclusive Range (`issue.strip[0..200]`, hence 201) in aggregation, the 500-character display
+  limit applied to the record as well as the prompt, and a serializer row that carried a reply's
+  length but never the reply. A fourth defect discarded a distinct finding on dedup collision
+  without saying so.
+
+  Findings are now bounded in **bytes** at `FINDING_RECORD_MAX_LEN = 8000` for the record, with
+  `DEFAULT_MAX_LEN = 500` still applied by every path taking a finding into a prompt. The dedup key
+  is unchanged at 80 characters — widening it would stop two reviewers describing one defect from
+  merging, which moves the finding count and the convergence denominator — but the surviving text
+  is no longer arbitrary: `issue` comes from a member whose severity equals the merged severity,
+  and distinct texts survive in `issue_variants` (capped at `MAX_ISSUE_VARIANTS = 8`, with
+  `issue_variants_omitted` naming what the cap dropped). Every row now carries `raw_text_excerpt`
+  unconditionally at 4096 bytes, and the reply itself in `raw_text` on request
+  (`include_raw_text`, 65536 bytes). Findings carried into a later round's prompt are sanitised and
+  folded to one line — a path that previously took reviewer text into a prompt with no sanitisation
+  at all.
+
+  **The two evidence fields are sanitised transcriptions, not verbatim records, and the tool
+  schemas now say so** rather than implying otherwise. The text is byte-clamped, NFKC-normalised,
+  stripped of invisible characters, tag-escaped, then byte-clamped again; normalisation rewrites
+  compatibility forms, the strip removes five of Unicode's eight mandatory line breaks, and the tag
+  escape collapses unbounded whitespace. No field states whether a stored text is the whole reply.
+  A completeness flag was implemented for exactly that purpose and then removed: three reviewers
+  measured it wrong in **both** directions — a 4,010-byte reply stored as 18 bytes reported
+  complete, and a reply whose every readable byte survived reported truncated. "Was anything
+  dropped" cannot be answered by byte counts taken around a pass that also rewrites, strips and
+  escapes. On delegated runs the pending-state record keeps each subprocess reply as it arrived; on
+  single-phase runs the returned payload is the only form there is, and the schema distinguishes
+  the two.
+
+  Six review rounds, four pre-flight falsifier passes and forty-plus mutations. Every defect in
+  this change was found by adversarial reading or by mutating the code in a copy outside the
+  repository; **none** by the test suite passing. Known and disclosed rather than closed: the
+  excerpt can store a word the reviewer did not write (normalisation cannot simply be dropped —
+  the delimiter pattern matches ASCII angle brackets, so a fullwidth `＜artifact＞` would pass
+  straight through an escape that no longer normalises, and the escape-without-normalise entry
+  point `stated_text` has been waiting on since R2 does not exist yet); the measured response
+  ceiling of 28.9 MB against a declared 14.4 MB; and thirteen sites that survive deletion with the
+  suite green.
+
 ## [3.60.0] - 2026-08-05
 
 ### Added

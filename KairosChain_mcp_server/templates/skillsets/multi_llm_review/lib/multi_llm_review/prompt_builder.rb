@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative 'sanitizer'
+
 module KairosMcp
   module SkillSets
     module MultiLlmReview
@@ -31,6 +33,13 @@ module KairosMcp
         }.freeze
 
         module_function
+
+        # Collapse every line break — and the runs of whitespace a fold
+        # produces — into single spaces, so a value interpolated into a
+        # one-line prompt entry stays on that line.
+        def one_line(s)
+          s.to_s.gsub(/[\r\n  ]+/, ' ').gsub(/\s{2,}/, ' ').strip
+        end
 
         # Build the system prompt for a review call.
         # @param review_type [String] one of: design, implementation, fix_plan, document
@@ -73,8 +82,33 @@ module KairosMcp
             parts << "Scope: Review the revisions addressing prior findings."
             parts << ""
             parts << "Prior findings to verify as resolved:"
+            # Bounded and sanitized here, at the point where the text enters a
+            # prompt. A carried-forward finding is round N-1's
+            # aggregated_findings, which the record now keeps at
+            # FINDING_RECORD_MAX_LEN rather than at the display bound — so
+            # without this the record's widening would silently lengthen the
+            # next round's prompt by the same factor. This is also the one
+            # path that took reviewer-authored text into a prompt without
+            # sanitizing it: the text is untrusted wherever it is replayed,
+            # not only where it was first received.
             prior_findings.each_with_index do |f, i|
-              parts << "  #{i + 1}. [#{f[:severity]}] #{f[:issue]} (cited by: #{Array(f[:cited_by]).join(', ')})"
+              # Newlines are folded, not stripped, and the fold happens here
+              # rather than in the sanitizer. A newline is legitimate inside a
+              # finding and the sanitizer keeps it for that reason; it is this
+              # format that cannot survive one, because one finding is one line
+              # and a reply that emits a newline otherwise writes as many lines
+              # as it likes. Severity and the citation list are interpolated
+              # too, so they are bounded the same way — the value is a token
+              # this system chose, but nothing here re-checks that, and an
+              # unchecked interpolation is the same hole whichever field it is.
+              issue = one_line(Sanitizer.sanitize_finding_text(f[:issue] || f['issue']))
+              severity = one_line(Sanitizer.sanitize_finding_text(
+                                    f[:severity] || f['severity'], max_len: 16
+                                  ))
+              cited = one_line(Sanitizer.sanitize_finding_text(
+                                 Array(f[:cited_by] || f['cited_by']).join(', '), max_len: 200
+                               ))
+              parts << "  #{i + 1}. [#{severity}] #{issue} (cited by: #{cited})"
             end
           else
             parts << "Scope: Initial review"
