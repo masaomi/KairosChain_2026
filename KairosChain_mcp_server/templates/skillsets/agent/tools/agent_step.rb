@@ -560,8 +560,17 @@ module KairosMcp
             # verdict caps both the returned success flag and the recorded
             # mandate evaluation, regardless of REFLECT confidence.
             guard_failed = guard_verdict && guard_verdict['verdict'] != verdict_const::PASS
+            # A human-cognition halt records as 'partial': real steps ran and the
+            # plan stopped where it declared a person is needed. 'partial' still
+            # consumes a mandate cycle (so a halting session terminates on
+            # max_cycles rather than re-planning forever) but does not increment
+            # consecutive_errors — that increment is what turned two halts into
+            # an 'error_threshold' termination.
+            forced = if guard_failed then 'failed'
+                     elsif act_result['human_halt'] then 'partial'
+                     end
             record_agent_cycle(session, decision_payload, act_result, reflect_result,
-                               force_evaluation: (guard_failed ? 'failed' : nil))
+                               force_evaluation: forced)
 
             act_summary = act_result['summary'] || act_result['error'] || 'completed'
             decision_summary = decision_payload['summary'] || ''
@@ -571,7 +580,11 @@ module KairosMcp
             session.increment_cycle
             session.save
 
-            act_succeeded = !act_result['error'] && act_result['summary'] != 'failed'
+            # 'halted' joins 'failed' here: a halt is not a success either, so it
+            # must not satisfy the confidence early-exit gate or the post-act
+            # review gate, both of which read act_succeeded.
+            act_succeeded = !act_result['error'] &&
+                            !%w[failed halted].include?(act_result['summary'])
             act_succeeded = false if guard_failed
 
             result = { act: act_result, reflect: reflect_result, cycle: session.cycle_number,
@@ -1025,6 +1038,19 @@ module KairosMcp
                   return finalize_autonomous(session, results, checkpoint: true,
                                              warning: 'guard_halt: human review required')
                 end
+                # A human-cognition halt stops the loop for the person the step
+                # asked for. Continuing here would silently re-plan around the
+                # step instead of letting anyone act on it.
+                if ar_result.dig(:act, 'human_halt')
+                  halt_at = ar_result.dig(:act, 'halted_at')
+                  session.update_state('checkpoint')
+                  session.save
+                  return finalize_autonomous(
+                    session, results, checkpoint: true,
+                    warning: "human_cognition_halt at step #{halt_at}: " \
+                             "#{ar_result.dig(:act, 'resume_hint')}"
+                  )
+                end
                 if ar_result[:act_error]
                   session.update_state('paused_error')
                   session.save
@@ -1292,12 +1318,32 @@ module KairosMcp
             }, context: act_ctx)
 
             run_parsed = JSON.parse(run_result.map { |b| b[:text] || b['text'] }.compact.join)
-            {
+
+            # A human-cognition halt is neither success nor failure: autoexec ran
+            # the steps it could and stopped where the plan itself declared a
+            # person is needed. Discriminate on halted_at rather than the outcome
+            # suffix — compute_outcome returns a bare 'halted' for dry_run and
+            # delegated modes, so a suffix test only happens to work for the
+            # internal_execute mode hard-coded above.
+            halted_at = run_parsed['halted_at']
+            summary = if halted_at then 'halted'
+                      elsif run_parsed['outcome']&.end_with?('_complete') then 'completed'
+                      else 'failed'
+                      end
+
+            result = {
               'task_id' => task_id,
               'plan_hash' => plan_hash,
               'execution' => run_parsed,
-              'summary' => run_parsed['outcome']&.end_with?('_complete') ? 'completed' : 'failed'
+              'summary' => summary
             }
+            if halted_at
+              result['human_halt'] = true
+              result['halted_at'] = halted_at
+              result['halt_reason'] = run_parsed['halt_reason']
+              result['resume_hint'] = run_parsed['resume_hint']
+            end
+            result
           end
 
           def run_act_via_agent_execute(session, decision_payload)
@@ -2068,6 +2114,17 @@ module KairosMcp
             "  - task_json (object with task_id, meta, steps array). Each step needs: " \
             "step_id, action, tool_name, tool_arguments, risk (low/medium/high), " \
             "depends_on, requires_human_cognition.\n" \
+            "    requires_human_cognition — default FALSE. Set true ONLY when the step " \
+            "cannot be carried out without a judgment or an input that only the operator " \
+            "can supply: choosing between alternatives the goal does not settle, " \
+            "interpreting a result whose meaning is contested, or committing to something " \
+            "irreversible outside the workspace. Do NOT set it because a step is risky, " \
+            "writes a file, or matters a lot — risk is already carried by the `risk` field " \
+            "and by separate approval gates. A step whose content the plan itself already " \
+            "determines (writing a file, reading, searching, computing, recording) is FALSE " \
+            "even when the file is important. Execution HALTS at the first true step and " \
+            "every later step is left unexecuted, so each true costs the operator a round " \
+            "trip: mark the fewest steps that genuinely need one.\n" \
             "  - review_hint (object) — REQUIRED. Shape: { needed: <bool>, " \
             "reason: <string|null>, urgency: \"low\"|\"medium\"|\"high\"|null }. " \
             "Set needed:true to REQUEST multi-LLM review for subtle high-impact " \

@@ -74,6 +74,36 @@ module KairosMcp
                        'DECIDE prompt should forbid paraphrasing/re-scoping the task')
         end
 
+        # Over-marking fix: requires_human_cognition was listed as a required field
+        # with no criterion at all, and the planner marked 10 of 13 steps (including
+        # plain file writes). The field now carries a default, a criterion, a
+        # counter-criterion, and the cost of a true.
+        def test_prompt_gives_a_criterion_for_requires_human_cognition
+          prompt = @step.send(:decide_system_prompt)
+          assert_match(/requires_human_cognition — default FALSE/, prompt,
+                       'DECIDE prompt must state the default for requires_human_cognition')
+          assert_match(/only the operator can supply/i, prompt,
+                       'DECIDE prompt must say what a true actually requires')
+        end
+
+        def test_prompt_separates_human_cognition_from_risk
+          prompt = @step.send(:decide_system_prompt)
+          # The observed over-marking came from treating "important" as "needs a human".
+          assert_match(/Do NOT set it because a step is risky/i, prompt,
+                       'DECIDE prompt must stop risk from being read as needing a human')
+          assert_match(/writing a file, reading, searching, computing, recording/, prompt,
+                       'DECIDE prompt must name the routine step kinds that stay FALSE')
+        end
+
+        def test_prompt_states_the_cost_of_a_true
+          prompt = @step.send(:decide_system_prompt)
+          # Without the cost, the planner has no reason to prefer fewer trues.
+          assert_match(/HALTS at the first true step/, prompt,
+                       'DECIDE prompt must state that execution halts at the first true')
+          assert_match(/fewest steps/, prompt,
+                       'DECIDE prompt must ask for the fewest trues')
+        end
+
         # Simulate well-formed LLM output and verify it parses through ReviewHint
         def test_well_formed_llm_output_parses
           llm_output = {
