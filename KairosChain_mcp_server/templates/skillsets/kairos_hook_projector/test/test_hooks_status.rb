@@ -61,7 +61,19 @@ class TestHooksStatus < Minitest::Test
 
     # Shape invariants
     assert_equal 'kairos_hook_projector', body['skillset']
-    assert_match(/stage 0/, body['stage'])
+    assert_match(/^stage \d/, body['stage'])
+
+    # The reported stage must not lag the shipped capability. A SkillSet that
+    # can write to the harness config while still calling itself stage 0 is the
+    # drift this whole SkillSet exists to catch, one level up.
+    tool_classes = JSON.parse(
+      File.read(File.join(File.expand_path('..', __dir__), 'skillset.json'))
+    )['tool_classes']
+    if tool_classes.any? { |c| c.end_with?('ModeHooksProject') }
+      assert_match(/stage [2-9]/, body['stage'],
+                   'projection tool is registered, so the reported stage must be 2 or later')
+    end
+
     assert_equal @tmpdir, body['project_root']
     assert body['schema']['present'],
            'stage 0 schema (_schema.json) must be present after commit 2'

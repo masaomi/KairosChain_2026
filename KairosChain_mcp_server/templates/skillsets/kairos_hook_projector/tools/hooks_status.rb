@@ -23,7 +23,7 @@ module KairosMcp
         class HooksStatus < ::KairosMcp::Tools::BaseTool
           SKILLSET_ROOT = File.expand_path('..', __dir__)
           SKILLSET_NAME = 'kairos_hook_projector'
-          STAGE_MARKER = 'stage 0 (skeleton + schema + status)'
+          STAGE_MARKER = 'stage 2 (compile + validate + gated projection)'
 
           def name
             'hooks_status'

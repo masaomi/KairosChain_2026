@@ -2,7 +2,7 @@
 
 require 'minitest/autorun'
 require 'json'
-require 'json-schema'
+require_relative '../lib/mode_hooks_schema'
 
 # Stage 0 commit 2: mode_hooks/_schema.json self-validation tests.
 #
@@ -24,7 +24,7 @@ class TestModeHooksSchema < Minitest::Test
   # required fields validates clean.
   def test_minimal_valid_document_accepted
     doc = { 'mode_name' => 'masa', 'version' => '0.1' }
-    errors = JSON::Validator.fully_validate(@schema, doc)
+    errors = KairosMcp::SkillSets::KairosHookProjector::ModeHooksSchema.validate(doc, @schema).errors
     assert_empty errors,
                  "Minimal valid document {mode_name, version} must validate clean. Got: #{errors.inspect}"
   end
@@ -35,7 +35,7 @@ class TestModeHooksSchema < Minitest::Test
   # fields are real validation targets, not silently passed through.
   def test_syntactically_invalid_document_rejected
     missing_version = { 'mode_name' => 'masa' }
-    errors_a = JSON::Validator.fully_validate(@schema, missing_version)
+    errors_a = KairosMcp::SkillSets::KairosHookProjector::ModeHooksSchema.validate(missing_version, @schema).errors
     refute_empty errors_a, "Document missing 'version' must be rejected"
     assert errors_a.any? { |e| e.include?('version') },
            "Rejection error must mention the missing 'version' field. Got: #{errors_a.inspect}"
@@ -44,7 +44,7 @@ class TestModeHooksSchema < Minitest::Test
       'mode_name' => 'masa', 'version' => '0.1',
       'extends' => ['conservative', 42] # 42 is not a string
     }
-    errors_b = JSON::Validator.fully_validate(@schema, bad_extends)
+    errors_b = KairosMcp::SkillSets::KairosHookProjector::ModeHooksSchema.validate(bad_extends, @schema).errors
     refute_empty errors_b,
                  "Document with non-string entry in 'extends' must be rejected (composition field is a real validation target, not warn-but-accept)"
   end
@@ -61,7 +61,7 @@ class TestModeHooksSchema < Minitest::Test
       'extends' => %w[conservative agent_aggressive],
       'conflict_policy' => 'error'
     }
-    errors = JSON::Validator.fully_validate(@schema, doc)
+    errors = KairosMcp::SkillSets::KairosHookProjector::ModeHooksSchema.validate(doc, @schema).errors
     assert_empty errors,
                  "Composition fields (extends, conflict_policy) must be accepted when syntactically valid. Got: #{errors.inspect}"
   end

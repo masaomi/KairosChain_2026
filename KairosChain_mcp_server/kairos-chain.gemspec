@@ -44,7 +44,18 @@ Gem::Specification.new do |spec|
   # useless to a consumer and stale the moment the source changes.
 
   spec.bindir        = 'bin'
-  spec.executables   = ['kairos-chain', 'kairos_mcp_server']
+  # Every file under bin/ that a hook or an operator invokes by name must be
+  # listed here, or the `bin/*` glob above ships it without putting it on PATH.
+  # kairos-plugin-project was missing until 2026-08-12, and was committed
+  # non-executable besides: the two PostToolUse hooks calling it had been
+  # failing with "command not found" on every fire, silently, because a hook
+  # that cannot start reports nothing.
+  spec.executables   = %w[
+    kairos-chain
+    kairos_mcp_server
+    kairos-plugin-project
+    kairos-readable-gate
+  ]
   spec.require_paths = ['lib']
 
   # =========================================================================
