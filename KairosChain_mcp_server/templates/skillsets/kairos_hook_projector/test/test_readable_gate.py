@@ -287,6 +287,52 @@ def test_malformed_transcript_records_do_not_raise():
               "block" not in proc.stdout, proc.stdout[:200])
 
 
+def test_a_record_that_is_not_an_object_fails_open():
+    """A JSON line that parses to a scalar or list is still a malformed record.
+
+    Placement is load-bearing. last_assistant_text scans reversed(rows), so a
+    malformed row BEFORE the newest assistant record is never examined and the
+    case passes for the wrong reason. It must be at or after it.
+    """
+    good = json.dumps(
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "ok"}]}})
+    for row in ['"a string"', "42", "[1,2]", "null", "true"]:
+        for label, lines in [("last", [good, row]), ("only", [row])]:
+            proc = _run_raw("\n".join(lines) + "\n", {"mode_name": "t", "max_headings": 1})
+            check("row=%s (%s) exits 0" % (row, label),
+                  proc.returncode == 0, proc.stderr[-200:])
+            check("row=%s (%s) emits no block" % (row, label),
+                  "block" not in proc.stdout, proc.stdout[:200])
+
+
+def test_the_report_path_also_survives_a_record_that_is_not_an_object():
+    """--report reads through a second reader, which had the same defect.
+
+    _tail_records was guarded and _all_records was not. Calibration over a
+    transcript holding one bare scalar crashed where the hot path no longer
+    does. Fixing one reader and leaving its twin is the failure this asserts
+    against.
+    """
+    good = json.dumps(
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "ok"}]}})
+    tmp = tempfile.mkdtemp()
+    cfg_path = os.path.join(tmp, "cfg.json")
+    tx_path = os.path.join(tmp, "t.jsonl")
+    with open(cfg_path, "w", encoding="utf-8") as fh:
+        json.dump({"mode_name": "t", "max_headings": 1}, fh)
+    with open(tx_path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join([good, "42", '"a string"', "null", good]) + "\n")
+
+    script = os.path.join(os.path.dirname(HERE), "hooks", "readable_gate.py")
+    proc = subprocess.run(
+        [sys.executable, script, "--config", cfg_path, "--report", tx_path],
+        capture_output=True, text=True, timeout=30)
+
+    check("report exits 0", proc.returncode == 0, proc.stderr[-200:])
+    check("report still measured the good records",
+          proc.stdout.count("lines=") == 2, repr(proc.stdout))
+
+
 def test_a_broken_transcript_fails_open():
     for raw in ["", "{ not json\n"]:
         proc = _run_raw(raw, {"mode_name": "t", "max_headings": 1})

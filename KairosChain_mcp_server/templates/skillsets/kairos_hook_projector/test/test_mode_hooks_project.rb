@@ -74,6 +74,14 @@ class TestModeHooksProject < Minitest::Test
     JSON.parse(p.call(args))
   end
 
+  def compiled_artifact(document)
+    JSON.generate(
+      KairosMcp::SkillSets::KairosHookProjector::ModeHooksCompiler.new.compile(
+        mode_name: 'testmode', document: document, mode_body: BODY
+      ).record['output']
+    )
+  end
+
   def apply_once(p)
     hash = run_tool(p, {})['plan_sha256']
     run_tool(p, 'apply' => true, 'confirm_sha256' => hash)
@@ -139,17 +147,86 @@ class TestModeHooksProject < Minitest::Test
   end
 
   # The plan hash must cover the declaration, not just the compiled artifact.
-  # Editing only `binding` or `version` leaves the artifact identical.
+  #
+  # The field has to be one the artifact genuinely does not carry, and it has to
+  # be checked rather than assumed. This test used `binding.mode_version`, which
+  # DOES change the artifact — so the plan hash differed via the artifact and the
+  # test passed while the document half of the hash was never exercised at all.
+  # Removing 'document' from plan_hash left it green. These three were measured
+  # artifact-identical and document-changed.
   def test_confirmation_covers_the_declaration_not_only_the_artifact
-    with_projector do |p, _dir|
-      stale = run_tool(p, {})['plan_sha256']
-      p.document = doc.merge('binding' => { 'mode_version' => '9.9.9' })
-      fresh = run_tool(p, {})['plan_sha256']
-      refute_equal stale, fresh,
-                   'a declaration edit that leaves the artifact identical must still ' \
-                   'invalidate the confirmation'
-      out = run_tool(p, 'apply' => true, 'confirm_sha256' => stale)
-      assert_equal 'refused_confirmation', out['action']
+    [['version', '2'],
+     ['not_gated', [{ 'section' => '§ X', 'reason' => 'prose only' }]],
+     ['_comment', 'an author note']].each do |field, value|
+      with_projector do |p, _dir|
+        stale = run_tool(p, {})['plan_sha256']
+
+        p.document = doc.merge(field => value)
+        after = run_tool(p, {})
+
+        # The premise is asserted, not assumed. `proposal` exposes no artifact
+        # hash, and comparing a key that does not exist compares nil to nil and
+        # passes for any field at all — which is how the original version of
+        # this test came to rest on a field that does change the artifact.
+        assert_equal compiled_artifact(doc), compiled_artifact(doc.merge(field => value)),
+                     "#{field}: this test is only meaningful while the artifact is " \
+                     'unchanged; pick another field'
+        refute_equal stale, after['plan_sha256'],
+                     "#{field}: a declaration edit that leaves the artifact identical " \
+                     'must still invalidate the confirmation'
+
+        out = run_tool(p, 'apply' => true, 'confirm_sha256' => stale)
+        assert_equal 'refused_confirmation', out['action'], field
+      end
+    end
+  end
+
+  # Every part of a config filename is constrained upstream today: the mode name
+  # by safe_segment?, the event by GATE_EVENTS, the gate by KNOWN_GATES, the
+  # position by being an integer. So no declaration can currently drive this
+  # branch, and the traversing-mode-name test does not reach it — the compiler
+  # refuses first, with a different category. The guard still has to hold on its
+  # own terms, for a symlinked root and for a future compiler that generates one
+  # more name part. Drive resolve directly rather than leave it unfalsifiable.
+  def test_a_config_filename_that_escapes_the_root_is_refused
+    with_projector do |p, dir|
+      artifact = { 'files' => { '../../pwned.json' => '{}' }, 'hooks' => {} }
+      out = p.send(:resolve, 'testmode', artifact)
+
+      assert_equal 'refused', out[:action]
+      assert_equal 'unsafe_path', out[:refusal]['category']
+      assert out[:nothing_written]
+      refute File.exist?(File.join(dir, 'pwned.json')), 'nothing may be created outside the root'
+      refute File.exist?(File.join(dir, '.kairos', 'pwned.json'))
+    end
+  end
+
+  # A refusal from resolve carries symbol keys and no :error. Testing only for
+  # :error let it fall through into planning, where it surfaced as a TypeError
+  # instead of the refusal it was. Same reachability note as above: injected,
+  # because no declaration can produce it.
+  def test_a_refusal_from_resolution_is_returned_not_planned
+    refusing = Class.new(Projector) do
+      private
+
+      def resolve(_mode, _artifact)
+        { mode: 'testmode', action: 'refused', nothing_written: true,
+          refusal: { 'category' => 'unsafe_path', 'detail' => 'injected' } }
+      end
+    end
+
+    Dir.mktmpdir do |dir|
+      p = refusing.new
+      p.root = dir
+      p.document = doc
+      File.write(File.join(dir, 'body.md'), BODY)
+
+      out = run_tool(p, 'apply' => true, 'confirm_sha256' => 'anything')
+
+      assert_equal 'refused', out['action']
+      assert_equal 'unsafe_path', out['refusal']['category']
+      assert_nil hooks_file(dir), 'a refusal must not write the hooks file'
+      assert_empty config_files(dir)
     end
   end
 

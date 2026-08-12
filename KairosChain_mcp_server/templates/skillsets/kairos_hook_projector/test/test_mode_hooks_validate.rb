@@ -2,6 +2,8 @@
 
 require 'minitest/autorun'
 require 'json'
+require 'tmpdir'
+require 'fileutils'
 require_relative '../lib/mode_hooks_schema'
 
 # BaseTool stub: these tests exercise the validator's pure judgement, which is
@@ -142,6 +144,86 @@ class TestModeHooksValidate < Minitest::Test
              .new.compile(mode_name: 'example', document: doc)
     assert result.compiled?, "shipped example must compile. Got: #{result.record['refusal'].inspect}"
     assert_equal 1, result.record.dig('output', 'hook_count')
+  end
+
+  # --- installed-state check ------------------------------------------------
+  #
+  # This check had no test at all, and it had silently inverted: it extracted a
+  # `*.py` basename from the wanted command, but once the interpreter was
+  # unpinned the command named no .py file, so the extraction returned nil and
+  # the comparison became `include?("")` — true for every string. It reported
+  # `ok` for any hook on the event, including one it had never seen.
+  #
+  # The two cases below are the ones that distinguish a real check from that
+  # one. A test that only asserts the happy path passes under both.
+
+  def compiled_for_installed_test
+    doc = { 'mode_name' => 'testmode', 'version' => '1',
+            'hooks' => { 'Stop' => [{ 'gate' => 'readable_gate',
+                                      'section' => '§ S',
+                                      'params' => { 'max_lines' => 60 } }] } }
+    KairosMcp::SkillSets::KairosHookProjector::ModeHooksCompiler
+      .new.compile(mode_name: 'testmode', document: doc)
+  end
+
+  def with_settings(hooks)
+    Dir.mktmpdir do |root|
+      FileUtils.mkdir_p(File.join(root, '.claude'))
+      File.write(File.join(root, '.claude', 'settings.json'),
+                 JSON.generate('hooks' => hooks))
+      yield root
+    end
+  end
+
+  def test_an_unrelated_hook_is_not_read_as_the_declared_one
+    compiled = compiled_for_installed_test
+    with_settings('Stop' => [{ 'hooks' => [{ 'command' => 'totally-unrelated-hook.sh' }] }]) do |root|
+      out = @t.send(:check_installed, compiled, root)
+      assert_equal 'not_installed', out[:status],
+                   'a foreign hook on the same event must not satisfy the check'
+    end
+  end
+
+  def test_the_declared_hook_is_recognised_once_its_path_token_is_resolved
+    compiled = compiled_for_installed_test
+    wanted = compiled.artifact['hooks']['Stop'].first['command']
+    installed = wanted.sub(
+      KairosMcp::SkillSets::KairosHookProjector::ModeHooksCompiler::CONFIG_ROOT,
+      '/somewhere/else/.kairos/hook_configs'
+    )
+    refute_equal wanted, installed, 'the fixture must differ from the compiled form'
+
+    with_settings('Stop' => [{ 'hooks' => [{ 'command' => installed }] }]) do |root|
+      out = @t.send(:check_installed, compiled, root)
+      assert_equal 'ok', out[:status], 'the same gate under a resolved path is installed'
+    end
+  end
+
+  def test_no_settings_file_is_unknown_not_installed
+    Dir.mktmpdir do |root|
+      out = @t.send(:check_installed, compiled_for_installed_test, root)
+      assert_equal 'unknown', out[:status],
+                   'an absent settings file is not evidence that the hook is installed'
+    end
+  end
+
+  # The guard that makes a failed extraction refuse rather than match. No
+  # shipped gate produces such a command today — every one carries a --config
+  # path — so this drives it with a double. The alternative is to leave the
+  # fail-closed half of the fix unfalsified, which is how the original defect
+  # survived: the failing branch was the one nothing exercised.
+  def test_a_command_naming_no_config_is_refused_not_matched
+    fake = Class.new do
+      def compiled? = true
+
+      def artifact = { 'hooks' => { 'Stop' => [{ 'command' => 'some-future-gate --inline' }] } }
+    end.new
+
+    with_settings('Stop' => [{ 'hooks' => [{ 'command' => 'anything at all' }] }]) do |root|
+      out = @t.send(:check_installed, fake, root)
+      assert_equal 'not_installed', out[:status],
+                   'a command the check cannot identify must not be reported as present'
+    end
   end
 
   # The shipped example lives in the same directory the compiler scans. The

@@ -218,9 +218,20 @@ module KairosMcp
             missing = []
             wanted.each do |event, entries|
               entries.each do |entry|
-                script = entry['command'].to_s[%r{[^/\s]+\.py}]
-                present = Array(installed[event]).any? do |group|
-                  Array(group['hooks']).any? { |h| h['command'].to_s.include?(script.to_s) }
+                # Match on the config filename, which is unique per (mode, event,
+                # gate, position) and survives the token substitution that turns
+                # a compiled command into an installed one.
+                #
+                # This used to extract a `*.py` basename. When the interpreter
+                # was unpinned the command stopped naming a .py file at all, so
+                # the regex returned nil, the comparison became
+                # `include?("")`, and every hook on the event matched. The check
+                # reported `ok` for a hook it had never seen. A failed
+                # extraction must therefore refuse to match rather than match
+                # everything.
+                marker = entry['command'].to_s[%r{[^/\s]+\.json}]
+                present = !marker.nil? && Array(installed[event]).any? do |group|
+                  Array(group['hooks']).any? { |h| h['command'].to_s.include?(marker) }
                 end
                 missing << { event: event, command: entry['command'] } unless present
               end

@@ -167,9 +167,17 @@ def _tail_records(transcript_path):
         if not line:
             continue
         try:
-            rows.append(json.loads(line))
+            row = json.loads(line)
         except Exception:
             continue
+        # A line that parses to a non-object is as unusable as one that does not
+        # parse, and dropping it here is what makes it impossible for a consumer
+        # to call .get on it. Guarding each consumer instead left the caller of
+        # _text_of unguarded, and a bare scalar on the newest line raised
+        # AttributeError straight out of the fail-open path.
+        if not isinstance(row, dict):
+            continue
+        rows.append(row)
     return rows
 
 
@@ -381,9 +389,16 @@ def _all_records(path):
                 if not line:
                     continue
                 try:
-                    rows.append(json.loads(line))
+                    row = json.loads(line)
                 except Exception:
                     continue
+                # Same rule as _tail_records. This is the second reader; the
+                # first was guarded and this one was not, so calibration over a
+                # transcript holding one bare scalar crashed where the hot path
+                # no longer does.
+                if not isinstance(row, dict):
+                    continue
+                rows.append(row)
     except Exception:
         return []
     return rows
