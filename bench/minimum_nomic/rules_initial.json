@@ -1,0 +1,73 @@
+{
+  "source": "KairosChain_mcp_server/templates/knowledge/llm_cross_evaluation/scripts/run_cross_eval.rb NOMIC_OPEN_RULES (lines 226-236)",
+  "copied_at": "2026-08-09",
+  "variant": "open frame — the 2009 Minimum Nomic initial set, rules 101-109, every rule mutable, no victory condition, no termination condition",
+  "harness_contract": {
+    "reads": "The harness reads only rules[].decision. rules[].body is never parsed and never interpreted.",
+    "status_of_decision": "decision is a machine-readable copy of the INITIAL state. It is not the canonical rule, and it does NOT follow amendments.",
+    "on_amendment_of_the_voting_rule": "The harness never rewrites decision and never derives a voting condition from an amended body. Deriving would require interpreting rule text, which would make an LLM a game master intervening in the game; intervention is forbidden. Therefore: record a breakdown event carrying the cause (which rule was amended, and its before/after text) and an identifier, do not repair, and continue. If continuation is impossible, record that it is impossible and stop.",
+    "why_not_a_constant": "Encoding 'unanimous' as a constant in the harness is what the current llm_cross_evaluation implementation does, and it is the defect the design's replay invariant exists to remove: a game that amends rule 105 keeps being tallied under the old rule with nothing recorded. Here the condition lives in data, and an amendment that the harness cannot follow becomes a recorded breakdown rather than a silent wrong tally."
+  },
+  "decision_vocabulary": {
+    "kind": ["unanimous", "majority", "threshold", "none"],
+    "threshold": "integer; present only when kind == threshold",
+    "eligible": ["all_players", "proposer_excluded"]
+  },
+  "voting_rule_id": 105,
+  "rules": [
+    {
+      "id": 101,
+      "mutable": true,
+      "body": "All players must always abide by all the rules then in effect, in the form in which they are then in effect. The rules in the Initial Set are in effect whenever a game begins. The Initial Set consists of Rules 101-109.",
+      "decision": { "kind": "none", "threshold": null, "eligible": "all_players" }
+    },
+    {
+      "id": 102,
+      "mutable": true,
+      "body": "A rule-change is the following: the enactment, repeal, or amendment of a rule.",
+      "decision": { "kind": "none", "threshold": null, "eligible": "all_players" }
+    },
+    {
+      "id": 103,
+      "mutable": true,
+      "body": "Players shall alternate in clockwise order, taking one whole turn apiece.",
+      "decision": { "kind": "none", "threshold": null, "eligible": "all_players" }
+    },
+    {
+      "id": 104,
+      "mutable": true,
+      "body": "A player proposes one rule-change and has it voted on in her/his turn.",
+      "decision": { "kind": "none", "threshold": null, "eligible": "all_players" }
+    },
+    {
+      "id": 105,
+      "mutable": true,
+      "body": "A rule-change is adopted if and only if the vote is unanimous among the players.",
+      "decision": { "kind": "unanimous", "threshold": null, "eligible": "all_players" }
+    },
+    {
+      "id": 106,
+      "mutable": true,
+      "body": "An adopted rule-change takes full effect at the moment of the completion of the vote that adopted it. Each new rule adopted shall be given a number. The numbers shall begin with 201. If a rule is repealed, the number is never used again.",
+      "decision": { "kind": "none", "threshold": null, "eligible": "all_players" }
+    },
+    {
+      "id": 107,
+      "mutable": true,
+      "body": "Each player always has exactly one vote.",
+      "decision": { "kind": "none", "threshold": null, "eligible": "all_players" }
+    },
+    {
+      "id": 108,
+      "mutable": true,
+      "body": "If two or more rules conflict with one another, then the rule with the lowest ordinal number takes precedence.",
+      "decision": { "kind": "none", "threshold": null, "eligible": "all_players" }
+    },
+    {
+      "id": 109,
+      "mutable": true,
+      "body": "If players disagree about the legality of a move or the interpretation or application of a rule, then the player preceding the one moving is to be the Judge and decide the question.",
+      "decision": { "kind": "none", "threshold": null, "eligible": "all_players" }
+    }
+  ]
+}

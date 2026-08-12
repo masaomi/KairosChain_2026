@@ -54,3 +54,9 @@ __pycache__/
 # `git add -f`, and check what is being hidden with
 # `git status --ignored --short docs/drafts/`.
 docs/drafts/*
+
+# Minimum Nomic games. The harness under bench/minimum_nomic/ is tracked; the
+# games it produces never are. The corpus lives under log/ (already ignored);
+# these two lines catch output written next to the harness by mistake.
+bench/minimum_nomic/**/records/
+bench/minimum_nomic/out/
