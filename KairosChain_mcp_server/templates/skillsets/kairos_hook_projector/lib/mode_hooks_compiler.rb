@@ -33,10 +33,9 @@ module KairosMcp
         # Gate implementations the core ships, named by the executable the
         # harness invokes. The executable — not an interpreter plus a script
         # path — is what goes in the artifact: PluginProjector projects a
-        # `kairos-`-prefixed command without warning, the shim discovers its own
-        # interpreter so no instance is pinned to /usr/bin/python3, and the
-        # gate's location stays out of the artifact, which must remain a pure
-        # function of (mode identity, declaration).
+        # `kairos-`-prefixed command without warning, and the gate's location
+        # stays out of the artifact, which must remain a pure function of
+        # (mode identity, declaration).
         KNOWN_GATES = {
           'readable_gate' => { command: 'kairos-readable-gate', timeout: 10 }
         }.freeze

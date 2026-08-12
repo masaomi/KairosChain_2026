@@ -6,25 +6,25 @@
 # Usage (as a Claude Code Stop hook, produced by mode_hooks_project):
 #   kairos-readable-gate --config <path/to/gate_config.json>
 #
-# Why this shim exists rather than the hook naming the interpreter directly:
+# Why this entry point exists rather than the hook naming the gate directly:
 #
 #   1. PluginProjector only projects hook commands matching /\Akairos-/ without
-#      warning. A raw `python3 ...` command warns on every projection, and a
-#      warning nobody can act on trains operators to ignore warnings.
-#   2. The interpreter is discovered here instead of being frozen into the
-#      compiled artifact, so an instance without /usr/bin/python3 still runs.
-#   3. The gate script's location differs between an installed SkillSet and the
-#      gem's own templates. Resolving it here keeps that off the artifact, which
-#      must stay a pure function of (mode identity, declaration).
+#      warning. A raw path command warns on every projection, and a warning
+#      nobody can act on trains operators to ignore warnings.
+#   2. The gate's location differs between an installed SkillSet and the gem's
+#      own templates. Resolving it here keeps that off the compiled artifact,
+#      which must stay a pure function of (mode identity, declaration).
 #
-# stdin, stdout and the exit status are passed through untouched: this shim
-# must never turn a gate verdict into something else. If the gate cannot be
-# found or cannot be run, the shim exits 0 and emits nothing — a broken gate
-# must not wedge a session.
+# It used to carry a third job — finding a python3 — which went away with the
+# port to Ruby on 2026-08-12. The gate now runs in this process rather than a
+# spawned one, so a turn pays one interpreter start instead of two.
+#
+# stdin, stdout and the exit status are passed through untouched: this entry
+# point must never turn a gate verdict into something else. If the gate cannot
+# be found or cannot be run, it exits 0 and emits nothing — a broken gate must
+# not wedge a session.
 
-require 'json'
-
-SCRIPT_REL = File.join('skillsets', 'kairos_hook_projector', 'hooks', 'readable_gate.py')
+SCRIPT_REL = File.join('skillsets', 'kairos_hook_projector', 'hooks', 'readable_gate.rb')
 
 def candidate_scripts
   paths = []
@@ -42,33 +42,19 @@ def candidate_scripts
   paths
 end
 
-def resolve_script
-  candidate_scripts.find { |p| p && File.file?(p) }
-end
+script = candidate_scripts.find { |p| p && File.file?(p) }
 
-def resolve_python
-  # PATH first so a pyenv / conda / homebrew interpreter is honoured; the
-  # macOS system interpreter is the fallback, not the assumption.
-  from_env = ENV['KAIROS_PYTHON']
-  return from_env if from_env && File.executable?(from_env)
-
-  ENV.fetch('PATH', '').split(File::PATH_SEPARATOR).each do |dir|
-    %w[python3 python].each do |name|
-      candidate = File.join(dir, name)
-      return candidate if File.executable?(candidate) && !File.directory?(candidate)
-    end
-  end
-  '/usr/bin/python3' if File.executable?('/usr/bin/python3')
-end
-
-script = resolve_script
-python = resolve_python
-
-# Fail open, loudly enough to diagnose but never blocking.
-if script.nil? || python.nil?
-  warn "[kairos-readable-gate] not run: " \
-       "#{script.nil? ? 'gate script not found' : 'no python interpreter found'}"
+if script.nil?
+  warn '[kairos-readable-gate] not run: gate script not found'
   exit 0
 end
 
-exec([python, python], script, *ARGV)
+code = begin
+  require script
+  KairosHookProjector::ReadableGate.main
+rescue StandardError, SystemStackError, LoadError => e
+  warn "[kairos-readable-gate] not run: #{e.class}: #{e.message}"
+  0
+end
+
+exit code
