@@ -21,7 +21,15 @@ Gem::Specification.new do |spec|
   spec.homepage      = 'https://github.com/masaomi/KairosChain_2026'
   spec.license       = 'MIT'
 
-  spec.required_ruby_version = '>= 3.0'
+  # 3.2, not 3.0: the readable_gate Stop hook bounds its scan with
+  # Regexp.timeout, which arrived in 3.2. On 3.0 or 3.1 that call raises,
+  # the gate's outermost rescue turns it into exit 0, and the operator gets a
+  # hook that enforces nothing and says nothing about it. Failing at install
+  # is the louder of the two failures. Guarding the call instead was the
+  # alternative, and it is worse: without Regexp.timeout there is no
+  # per-match bound either, so a declaration carrying many patterns can eat
+  # the hook's whole budget and stall the turn.
+  spec.required_ruby_version = '>= 3.2'
 
   spec.metadata['homepage_uri']    = spec.homepage
   spec.metadata['source_code_uri'] = spec.homepage
