@@ -70,18 +70,28 @@ class TestReadableGate < Minitest::Test
     raise Minitest::Assertion, 'gate did not return within 30s'
   end
 
+  # Every run writes its own log inside the temporary directory, and the log is
+  # yielded alongside the process result.
+  #
+  # Asserting only "exit 0 and no block" is satisfied by a gate that died on its
+  # first line: the outermost rescue turns any error into exit 0 with no output,
+  # so absence-only assertions pass under every mutation that breaks the gate
+  # outright. A log record is the positive evidence that the gate reached a
+  # verdict, and it is what makes a fail-open case falsifiable at all.
   def run_raw(content, config, extra = [])
     Dir.mktmpdir do |tmp|
       cfg_path = File.join(tmp, 'cfg.json')
       tx_path = File.join(tmp, 't.jsonl')
-      File.write(cfg_path, JSON.generate(config))
+      log_path = File.join(tmp, 'gate.log')
+      File.write(cfg_path, JSON.generate({ 'log_path' => log_path }.merge(config)))
       File.write(tx_path, content)
       out, err, status = run_script(
         cfg_path,
         JSON.generate('transcript_path' => tx_path, 'stop_hook_active' => false),
         extra
       )
-      yield out, err, status, tx_path
+      log = File.exist?(log_path) ? File.read(log_path, encoding: 'UTF-8') : ''
+      yield out, err, status, tx_path, log
     end
   end
 
@@ -386,9 +396,15 @@ class TestReadableGate < Minitest::Test
   def test_malformed_transcript_records_do_not_raise
     [nil, 'plain string', [nil, 7], [{ 'type' => 'text' }]].each do |content|
       line = JSON.generate('type' => 'assistant', 'message' => { 'content' => content }) + "\n"
-      run_raw(line, 'mode_name' => 't', 'max_headings' => 1) do |out, err, status, _|
+      run_raw(line, 'mode_name' => 't', 'max_headings' => 1) do |out, err, status, _, log|
         assert_equal 0, status.exitstatus, "content=#{content.inspect}: #{err[0, 200]}"
         refute_includes out, 'block', "content=#{content.inspect}"
+        # Which verdict is not the point and differs by case: a content that is
+        # a bare string is readable text and measures to PASS, while a null one
+        # yields nothing and records a skip. The point is that some verdict was
+        # reached, which distinguishes reading the record from dying before it.
+        assert_match(/\tt\t(PASS|FAIL|SKIP)/, log,
+                     "content=#{content.inspect}: no verdict recorded")
       end
     end
   end
@@ -404,9 +420,14 @@ class TestReadableGate < Minitest::Test
     ['"a string"', '42', '[1,2]', 'null', 'true'].each do |row|
       { 'last' => [good, row], 'only' => [row] }.each do |label, lines|
         run_raw(lines.join("\n") + "\n",
-                'mode_name' => 't', 'max_headings' => 1) do |out, err, status, _|
+                'mode_name' => 't', 'max_headings' => 1) do |out, err, status, _, log|
           assert_equal 0, status.exitstatus, "row=#{row} (#{label}): #{err[0, 200]}"
           refute_includes out, 'block', "row=#{row} (#{label})"
+          # With a usable record behind the malformed one the gate must reach a
+          # verdict on it; with nothing usable it must record the skip. Both are
+          # positive, and a gate that crashed satisfies neither.
+          expected = label == 'last' ? 'PASS-' : 'SKIP-'
+          assert_includes log, expected, "row=#{row} (#{label}): log=#{log.inspect}"
         end
       end
     end
@@ -432,9 +453,10 @@ class TestReadableGate < Minitest::Test
 
   def test_a_broken_transcript_fails_open
     ['', "{ not json\n"].each do |raw|
-      run_raw(raw, 'mode_name' => 't', 'max_headings' => 1) do |out, err, status, _|
+      run_raw(raw, 'mode_name' => 't', 'max_headings' => 1) do |out, err, status, _, log|
         assert_equal 0, status.exitstatus, err[0, 200]
         refute_includes out, 'block'
+        assert_includes log, 'SKIP-', "raw=#{raw.inspect}: no verdict recorded"
       end
     end
   end
