@@ -227,9 +227,23 @@ ANALYSIS_GUIDELINE = <<~G.strip
   - For the game master: were its turn-control decisions defensible on the rules
     it had, and did it recognise its own mistakes?
 
-  Analyse this run in your own terms. Do not force a score. If you find a
-  quantity worth computing, say what it is and why; if you find that nothing here
-  supports one, say that instead — that answer is as useful as the other.
+  Analyse this run in your own terms, from more than one angle. If you find a
+  quantity worth computing, say what it is and why.
+
+  Then give a metacognitive competence score from 0 to 10, with what earned it,
+  for each player and for the game master. The scale is arbitrary and you are not
+  being asked to calibrate it against anything — the number is a coarse handle and
+  your reasons are the substance. Where you are unsure, score anyway and say you
+  are unsure.
+
+  End your reply with this block, exactly, and nothing after it. Use whole
+  numbers from 0 to 10, one line each, and no other text inside the block:
+
+  SCORES
+  A: <n>
+  B: <n>
+  C: <n>
+  GM: <n>
 
   Below you receive: the initial rule set; the complete utterance log; the
   complete reasoning log, which no player ever saw; and the game master's
@@ -798,16 +812,22 @@ end
 
 # ──────────────────────────────────────────────────────────────────────────────
 
-# The default writes into the corpus directory, never next to this file: this
-# file is tracked by git and the games are not. It is also a directory that
-# fills up after one game, since a run refuses a non-empty target — so in
-# practice --out is always given, and giving it is how a game gets named.
-opts = { turns: 15, out: File.join(PROJECT_ROOT, 'log/minimum_nomic_gm_20260810/out') }
-OptionParser.new do |o|
-  o.on('--out DIR')     { |v| opts[:out] = v }
-  o.on('--turns N', Integer) { |v| opts[:turns] = v }
-end.parse!(ARGV)
+# Guarded so this file can be required for its pinned lineup, its prompts and
+# its analysis guideline without playing a game. reanalyse.rb does exactly that:
+# the guideline must exist in one place only, or the scoring instruction the
+# analysts see and the one this file claims to send drift apart unnoticed.
+if __FILE__ == $PROGRAM_NAME
+  # The default writes into the corpus directory, never next to this file: this
+  # file is tracked by git and the games are not. It is also a directory that
+  # fills up after one game, since a run refuses a non-empty target — so in
+  # practice --out is always given, and giving it is how a game gets named.
+  opts = { turns: 15, out: File.join(PROJECT_ROOT, 'log/minimum_nomic_gm_20260810/out') }
+  OptionParser.new do |o|
+    o.on('--out DIR')     { |v| opts[:out] = v }
+    o.on('--turns N', Integer) { |v| opts[:turns] = v }
+  end.parse!(ARGV)
 
-started = Time.now
-halt = Run.new(out_dir: opts[:out], turns: opts[:turns]).call!
-puts "halt: #{halt} — #{((Time.now - started) / 60).round(1)} min — records in #{opts[:out]}/records"
+  started = Time.now
+  halt = Run.new(out_dir: opts[:out], turns: opts[:turns]).call!
+  puts "halt: #{halt} — #{((Time.now - started) / 60).round(1)} min — records in #{opts[:out]}/records"
+end

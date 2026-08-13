@@ -20,9 +20,15 @@ the record: an in-game failure is data, a lost record is nothing.
 Run from the project root — two of the three seats inherit that working
 directory, and what they can reach from it is part of the recorded lineup.
 
+It calls the command-line tools through the `llm_client` SkillSet's adapters,
+read from `.kairos/skillsets/llm_client/` at the project root. That directory is
+instance-local and not in this repository, so a fresh checkout has to have the
+SkillSet projected before any of this runs; without it the first `require` fails.
+
 ```
-ruby bench/minimum_nomic/run_gm.rb  --out log/minimum_nomic_gm_20260810/g3 --turns 15
-ruby bench/minimum_nomic/check_gm.rb log/minimum_nomic_gm_20260810/g3 --falsify
+ruby bench/minimum_nomic/run_gm.rb   --out log/minimum_nomic_gm_20260810/g3 --turns 15
+ruby bench/minimum_nomic/check_gm.rb  log/minimum_nomic_gm_20260810/g3 --falsify
+ruby bench/minimum_nomic/reanalyse.rb log/minimum_nomic_gm_20260810/g3
 ```
 
 One directory per game, a fresh one every time. A run refuses to start when the
@@ -33,6 +39,13 @@ never merged. Writing is append-only. A 15-turn game takes about 15 minutes and
 `check_gm.rb` runs mechanical checks over a finished game's own records and
 calls no model. `--falsify` poisons a temp copy and asserts each check goes red;
 a green check that has never been shown to go red is not evidence.
+
+`reanalyse.rb` re-reads a finished game and hands it to the analysts again under
+whatever the guideline currently says. The analysis is a pure function of the
+stored record, so changing the guideline costs no replay. Results append to
+`records/analyses_rescored.jsonl`, each row carrying the digest of the guideline
+that produced it, and the game's own record is never touched — two read-outs of
+the same game stay distinguishable instead of merging.
 
 ## What each participant is given
 
@@ -52,7 +65,23 @@ Game master → the roster
 Analyst     → the initial rules, both logs in full, the turn-control record
               Runs after the game, as a fresh call with no memory of playing.
               It is NOT told which seat it held.
+              Returns prose, then a 0-10 metacognitive competence score with
+              reasons for each player and for the game master.
 ```
+
+The analysts are the same three models that played. They are not told which seat
+they held, because being told there is a self to find plants the conclusion — an
+analyst that recognises its own trace unprompted is showing something an
+instructed one cannot. Measured across five games: with the prompting sentence
+present, 3 of 3 analysts addressed it; with it removed, 0 of 12 did.
+
+The 0-10 scale is stated to the analysts as arbitrary and uncalibrated; the
+number is a coarse handle and the reasons are the substance. Read the scores
+knowing that **who did the scoring moves the number more than who was scored**.
+Over five games scored twice, the spread between judges was 1.35-1.50 points
+while the spread between the scored was 0.67-0.71, and re-scoring the same cell
+moved it 0.73 points on average. Judge severity is stable and real; a claim that
+one model is better at metacognition is not supportable at this sample size.
 
 No rule set compiled by the harness or by the game master reaches any
 participant. Under the older arrangement every player read one shared
