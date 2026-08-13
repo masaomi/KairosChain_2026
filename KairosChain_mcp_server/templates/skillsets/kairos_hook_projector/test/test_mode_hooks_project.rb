@@ -136,7 +136,12 @@ class TestModeHooksProject < Minitest::Test
             { 'hooks' => [{ 'command' => 'projector.sh' }],
               '_projected_by' => 'kairos-chain' },
             { 'hooks' => [{ 'command' => 'other-mode.sh' }],
-              '_projected_by' => 'kairos_hook_projector', '_mode' => 'other' }
+              '_projected_by' => 'kairos_hook_projector', '_mode' => 'other' },
+            # Same mode name, someone else's marker. Ownership is an AND, so
+            # this is not ours. Without this case the marker half of the AND is
+            # untested: a falsifier that deletes it leaves the suite green.
+            { 'hooks' => [{ 'command' => 'other-tool.sh' }],
+              '_projected_by' => 'some-other-tool', '_mode' => 'testmode' }
           ],
           'SessionEnd' => [{ 'hooks' => [{ 'command' => 'untouched.sh' }] }]
         },

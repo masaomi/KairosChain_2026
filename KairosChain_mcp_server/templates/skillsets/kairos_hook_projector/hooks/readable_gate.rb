@@ -43,6 +43,10 @@ module KairosHookProjector
       'max_lines' => nil,
       'max_headings' => nil,
       'max_tables' => nil,
+      # The first floor rather than a cap: a long explanation carrying no
+      # diagram is what the rule is about. Off unless the mode names a number,
+      # like every other threshold here.
+      'diagram_required_over_lines' => nil,
       'announce_patterns' => [],
       'shorthand_patterns' => [],
       'gloss_patterns' => [],
@@ -61,8 +65,8 @@ module KairosHookProjector
       'log_path' => nil
     }.freeze
 
-    INT_KEYS = %w[max_lines max_headings max_tables vocab_min_lines
-                  measure_timeout_seconds log_max_bytes].freeze
+    INT_KEYS = %w[max_lines max_headings max_tables diagram_required_over_lines
+                  vocab_min_lines measure_timeout_seconds log_max_bytes].freeze
     LIST_KEYS = %w[announce_patterns shorthand_patterns gloss_patterns
                    specimen_patterns].freeze
     STR_KEYS = %w[banner_prefix rewrite_instruction section mode_name].freeze
@@ -78,7 +82,8 @@ module KairosHookProjector
     # collected, not raised: the caller reports them and lets the turn through.
     class Config
       attr_reader :problems, :path, :mode_name, :mode_version, :section,
-                  :max_lines, :max_headings, :max_tables, :vocab_min_lines,
+                  :max_lines, :max_headings, :max_tables, :diagram_over_lines,
+                  :vocab_min_lines,
                   :blocking, :banner_prefix, :rewrite_instruction, :log_path,
                   :announce, :shorthand, :gloss, :specimen, :measure_timeout,
                   :log_max_bytes
@@ -99,6 +104,7 @@ module KairosHookProjector
         @max_lines = merged['max_lines']
         @max_headings = merged['max_headings']
         @max_tables = merged['max_tables']
+        @diagram_over_lines = merged['diagram_required_over_lines']
         @vocab_min_lines = merged['vocab_min_lines']
         # Declared by the mode, written into this config by the compiler, and
         # honoured here. A mode that declares blocking:false gets the verdict
@@ -332,9 +338,13 @@ module KairosHookProjector
       raw = text.split("\n", -1)
 
       prose = []
+      diagrams = 0
       in_fence = false
       raw.each do |line|
         if FENCE.match(line)
+          # Openings only. A fenced block is what a diagram is made of here, and
+          # counting both ends would report every diagram twice.
+          diagrams += 1 unless in_fence
           in_fence = !in_fence
           next
         end
@@ -356,6 +366,13 @@ module KairosHookProjector
           nxt = i + 1 < prose.length ? prose[i + 1] : ''
           spans = specimen_spans(line, cfg)
           cfg.shorthand.each do |pattern|
+            # Per pattern, not only per line. Regexp.timeout bounds one match,
+            # so a line carrying n patterns could overshoot the deadline by
+            # n times that bound while the clock was read only once, between
+            # lines. The check above still stands: it catches a line whose
+            # specimen scan alone is what runs long.
+            raise MeasureTimeout if deadline && monotonic > deadline
+
             each_match(pattern, line) do |m|
               tok = m.size > 1 ? m[1] : m[0]
               next if tok.nil? || seen.key?(tok)
@@ -376,6 +393,7 @@ module KairosHookProjector
         'lines' => prose.length,
         'headings' => headings,
         'tables' => tables,
+        'diagrams' => diagrams,
         'announced' => announced,
         'unglossed' => unglossed
       }
@@ -393,6 +411,15 @@ module KairosHookProjector
       if cfg.max_tables && tables > cfg.max_tables
         failures << format('TABLES: %d (cap %d).', tables, cfg.max_tables)
       end
+      # A floor, and the announcement does not clear it: announcing that a
+      # message is long says nothing about whether prose was the right carrier
+      # for what is in it.
+      if cfg.diagram_over_lines && metrics['lines'] > cfg.diagram_over_lines && diagrams.zero?
+        failures << format(
+          'DIAGRAM: %d lines of prose and no diagram (floor applies over %d).',
+          metrics['lines'], cfg.diagram_over_lines
+        )
+      end
       unless unglossed.empty?
         failures << "VOCABULARY: first use without an inline gloss: #{unglossed.join(', ')}."
       end
@@ -409,8 +436,8 @@ module KairosHookProjector
       detail = ''
       if metrics
         detail = format(
-          "\tlines=%d\theadings=%d\ttables=%d\tunglossed=%s",
-          metrics['lines'], metrics['headings'], metrics['tables'],
+          "\tlines=%d\theadings=%d\ttables=%d\tdiagrams=%d\tunglossed=%s",
+          metrics['lines'], metrics['headings'], metrics['tables'], metrics['diagrams'],
           metrics['unglossed'].empty? ? '-' : metrics['unglossed'].join(',')
         )
       end
@@ -422,7 +449,16 @@ module KairosHookProjector
       # One line per turn with no bound grows without limit. Rotate rather than
       # truncate so the run that crossed the bound is still readable.
       if cfg.log_max_bytes && File.exist?(path) && File.size(path) > cfg.log_max_bytes
-        File.rename(path, "#{path}.1")
+        # Check-then-act: two gates crossing the bound together both decide to
+        # rotate, and the loser's rename fails. Rescued here rather than by the
+        # method-level rescue below, which would swallow the append along with
+        # it — the record is the point of this method, the rotation is
+        # housekeeping. Whichever process rotated first, the append still lands.
+        begin
+          File.rename(path, "#{path}.1")
+        rescue SystemCallError
+          nil
+        end
       end
       File.open(path, 'a', encoding: 'UTF-8') do |fh|
         fh.write("#{stamp}\t#{cfg.mode_name}\t#{verdict}#{detail}\n")
@@ -432,8 +468,9 @@ module KairosHookProjector
     end
 
     def banner(cfg, verdict, metrics, failures, rechecked)
-      shape = format('%d lines / %d headings / %d tables',
-                     metrics['lines'], metrics['headings'], metrics['tables'])
+      shape = format('%d lines / %d headings / %d tables / %d diagrams',
+                     metrics['lines'], metrics['headings'], metrics['tables'],
+                     metrics['diagrams'])
       tail = ''
       tail = " — #{failures.map { |f| f.split(':').first }.join(' / ')}" unless failures.empty?
       scope = if rechecked

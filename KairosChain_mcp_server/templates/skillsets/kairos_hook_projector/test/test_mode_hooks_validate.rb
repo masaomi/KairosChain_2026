@@ -192,6 +192,20 @@ class TestModeHooksValidate < Minitest::Test
     end
   end
 
+  # The foreign hook above shares nothing with the declared one, so a check that
+  # matched on the executable name alone would still pass it. This one is the
+  # same gate under a different mode's config — which is what a second mode, or
+  # a config left behind by a renamed one, actually looks like on the event.
+  def test_another_modes_gate_on_the_same_event_is_not_the_declared_one
+    compiled = compiled_for_installed_test
+    other = 'kairos-readable-gate --config /somewhere/othermode.Stop.readable_gate.0.json'
+    with_settings('Stop' => [{ 'hooks' => [{ 'command' => other }] }]) do |root|
+      out = @t.send(:check_installed, compiled, root)
+      assert_equal 'not_installed', out[:status],
+                   'the same executable pointed at a different config is a different hook'
+    end
+  end
+
   def test_the_declared_hook_is_recognised_once_its_path_token_is_resolved
     compiled = compiled_for_installed_test
     argv = compiled.artifact['hooks']['Stop'].first['argv']
