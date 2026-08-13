@@ -376,12 +376,16 @@ class TestReadableGate < Minitest::Test
     begin
       # Three specimen patterns and no shorthand pattern at all: nothing after
       # the specimen scan can raise, so only a check inside it can.
-      # The shorthand pattern matches nothing in the text, so its match loop
-      # never iterates and cannot raise. One line, no trailing newline.
+      # Every pattern here matches nothing, specimen and shorthand alike, so no
+      # match loop ever iterates and the only clock read available is the one
+      # between specimen patterns. The first draft used specimen patterns that
+      # matched, and then the check inside the match loop fired instead — the
+      # test passed under its own mutation, which a reviewer found by running
+      # it. One line, no trailing newline, so there is no second line either.
       c = cfg('shorthand_patterns' => ['(zz9)'],
-              'specimen_patterns' => ['\(a1\)', '\(b2\)', '\(c3\)'],
+              'specimen_patterns' => ['\(q1\)', '\(q2\)', '\(q3\)'],
               'gloss_patterns' => ['[(（]'], 'vocab_min_lines' => 1)
-      assert_raises(G::MeasureTimeout) { G.measure('(a1) (b2) (c3)', c, 1) }
+      assert_raises(G::MeasureTimeout) { G.measure('nothing matches here', c, 1) }
     ensure
       G.define_singleton_method(:monotonic, original)
     end
@@ -631,7 +635,15 @@ class TestReadableGate < Minitest::Test
   def test_shipped_example_params_drive_the_gate
     path = File.join(File.dirname(HERE), 'mode_hooks', '_EXAMPLE.json')
     doc = strip_comments(JSON.parse(File.read(path, encoding: 'UTF-8')))
-    params = doc['hooks']['Stop'][0]['params']
+    entry = doc['hooks']['Stop'][0]
+    params = entry['params']
+
+    # The example ships report-only on purpose: its vocabulary rule is the one
+    # thing here that cannot be got right by reading, so a copier should see
+    # reports before they see a blocked turn. Nothing asserted this — both
+    # example tests read only params — so flipping it left the suite green.
+    assert_equal false, entry['blocking'],
+                 'the shipped example must not block until its owner has measured'
 
     # The two shapes the example still claims: a lowercase letter welded to
     # digits, and a numbered label whose referent is not in the message.

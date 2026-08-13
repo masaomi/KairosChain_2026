@@ -4,6 +4,7 @@ require 'fileutils'
 require 'yaml'
 require_relative 'anthropic_skill_parser'
 require_relative 'context_graph'
+require_relative 'path_containment'
 require_relative '../kairos_mcp'
 
 module KairosMcp
@@ -43,7 +44,10 @@ module KairosMcp
     # @param session_id [String] Session ID
     # @return [Array<Hash>] List of context summaries
     def list_contexts_in_session(session_id)
+      return [] unless segments?(session_id)
+
       session_dir = File.join(@context_dir, session_id)
+      return [] unless contained?(session_dir)
       return [] unless File.directory?(session_dir)
 
       context_dirs(session_dir).map do |dir|
@@ -66,7 +70,10 @@ module KairosMcp
     # @param name [String] Context name
     # @return [AnthropicSkillParser::SkillEntry, nil] The context entry or nil
     def get_context(session_id, name)
+      return nil unless segments?(session_id, name)
+
       context_dir = File.join(@context_dir, session_id, name)
+      return nil unless contained?(context_dir)
       return nil unless File.directory?(context_dir)
 
       AnthropicSkillParser.parse(context_dir)
@@ -83,9 +90,17 @@ module KairosMcp
       validate_relations_in_content!(content)
 
       session_dir = File.join(@context_dir, session_id)
-      FileUtils.mkdir_p(session_dir)
-
       context_dir = File.join(session_dir, name)
+
+      # Checked before mkdir_p, so neither value can create a directory outside
+      # the store. Both guards are needed: containment bounds the composed leaf,
+      # and the segment check bounds session_dir and the second join the parser
+      # performs on `name` — paths this method never composes itself.
+      unless segments?(session_id, name) && contained?(context_dir)
+        return { success: false, error: "Invalid session_id/name: '#{session_id}/#{name}' resolves outside the context directory" }
+      end
+
+      FileUtils.mkdir_p(session_dir)
 
       if File.directory?(context_dir)
         # Update existing
@@ -140,8 +155,10 @@ module KairosMcp
     # @return [Hash] Result with success status
     def delete_context(session_id, name)
       context_dir = File.join(@context_dir, session_id, name)
-      
-      unless File.directory?(context_dir)
+
+      # rm_rf below: containment is checked first so a traversing name cannot
+      # delete a tree outside the context store.
+      unless segments?(session_id, name) && contained?(context_dir) && File.directory?(context_dir)
         return { success: false, error: "Context '#{name}' not found in session '#{session_id}'" }
       end
 
@@ -155,8 +172,8 @@ module KairosMcp
     # @return [Hash] Result with success status
     def delete_session(session_id)
       session_dir = File.join(@context_dir, session_id)
-      
-      unless File.directory?(session_dir)
+
+      unless segments?(session_id) && contained?(session_dir) && File.directory?(session_dir)
         return { success: false, error: "Session '#{session_id}' not found" }
       end
 
@@ -178,13 +195,21 @@ module KairosMcp
       end
 
       context_dir = File.join(@context_dir, session_id, name)
-      unless File.directory?(context_dir)
+      unless segments?(session_id, name) && contained?(context_dir) && File.directory?(context_dir)
         return { success: false, error: "Context '#{name}' not found in session '#{session_id}'" }
       end
 
       subdir_path = File.join(context_dir, subdir)
+      unless contained?(subdir_path)
+        return { success: false, error: "Invalid subdir '#{subdir}': resolves outside the context directory" }
+      end
+
+      # mkdir_p raises Errno::EEXIST when the name is taken by a dangling
+      # symlink, and this method's contract is a result hash, not an exception.
       FileUtils.mkdir_p(subdir_path)
       { success: true, path: subdir_path }
+    rescue SystemCallError => e
+      { success: false, error: "Could not create subdir '#{subdir}': #{e.message}" }
     end
 
     # Generate a unique session ID
@@ -223,12 +248,29 @@ module KairosMcp
 
     private
 
+    # True if a path built from a caller-supplied session_id / name still
+    # resolves inside the context store.
+    def contained?(path)
+      PathContainment.contained?(@context_dir, path)
+    end
+
+    # True if every caller-supplied value names one directory.
+    #
+    # Containment alone is not enough here: "." and ".." resolve back onto the
+    # store root, which is inside it, so a delete addressed that way would take
+    # the whole store. A session id and a context name are always one level.
+    def segments?(*values)
+      values.all? { |v| PathContainment.safe_segment?(v) }
+    end
+
     def session_dirs
       Dir[File.join(@context_dir, '*')].select { |f| File.directory?(f) }
     end
 
+    # Listing follows Dir entries, so a child that is a symlink out of the store
+    # would otherwise be enumerated and parsed as if it were a context.
     def context_dirs(session_dir)
-      Dir[File.join(session_dir, '*')].select { |f| File.directory?(f) }
+      Dir[File.join(session_dir, '*')].select { |f| File.directory?(f) && contained?(f) }
     end
   end
 end

@@ -17,7 +17,12 @@ module KairosMcp
             'Manage work items: add, update (status/salience/due/assignee/notes), add_dep, resolve_dep, ' \
             'link provenance. Routine writes advance the last-meaningful-touch marker; pass ' \
             'mechanical:true for bulk/migration writes (which never advance it) and touched_at to ' \
-            'carry a migration source\'s own recency (INV-PM-6: carry, not restamp).'
+            'carry a migration source\'s own recency (INV-PM-6: carry, not restamp). ' \
+            'Also holds the attention record: `attention` appends one entry per closed judgment ' \
+            '(what was asked, how long the shown text was, and the OPERATOR\'S OWN answer to whether ' \
+            'it was understood in one pass — never the agent\'s estimate of its own legibility), and ' \
+            '`capacity` stores the operator\'s declaration of how many judgments the day has room for. ' \
+            'Neither advances the marker: they observe the reader, not the work.'
           end
 
           def category
@@ -36,7 +41,7 @@ module KairosMcp
             {
               type: 'object',
               properties: {
-                command: { type: 'string', enum: %w[add update add_dep resolve_dep add_provenance get],
+                command: { type: 'string', enum: %w[add update add_dep resolve_dep add_provenance get attention capacity],
                            description: 'Operation to perform' },
                 id: { type: 'string', description: 'Item id (all commands except add)' },
                 project_id: { type: 'string', description: 'Owning project id (add)' },
@@ -56,7 +61,16 @@ module KairosMcp
                 prov_kind: { type: 'string', description: 'Provenance kind, e.g. l2/attestation/external (add_provenance)' },
                 prov_ref: { type: 'string', description: 'Provenance reference (add_provenance)' },
                 mechanical: { type: 'boolean', description: 'Bulk/migration write: do not advance the marker (add/update/add_dep)' },
-                touched_at: { type: 'string', description: 'Carried marker from a migration source, ISO8601 (add with mechanical:true)' }
+                touched_at: { type: 'string', description: 'Carried marker from a migration source, ISO8601 (add with mechanical:true)' },
+                att_kind: { type: 'string', enum: %w[decide read review],
+                            description: 'What the operator was asked to spend attention on (attention)' },
+                lines: { type: 'integer', description: 'Length of the text the operator was shown, in lines (attention)' },
+                grasp: { type: 'string', enum: %w[once reread unclear no_answer],
+                         description: 'The OPERATOR\'S answer to "was this understood in one pass?". ' \
+                                      'no_answer when asked and not answered — record it, do not omit it. ' \
+                                      'Never fill this from the agent\'s own view of its output (attention)' },
+                declared: { type: 'integer', description: 'How many judgments the operator says the day has room for; omit when asked and unanswered (capacity)' },
+                date: { type: 'string', description: 'Day the declaration is for, YYYY-MM-DD; defaults to today UTC (capacity)' }
               },
               required: %w[command]
             }
@@ -103,6 +117,19 @@ module KairosMcp
               raise ArgumentError, 'prov_kind and prov_ref are required' unless args['prov_kind'] && args['prov_ref']
 
               pm_store.add_item_provenance(args['id'], { 'kind' => args['prov_kind'], 'ref' => args['prov_ref'] })
+            when 'attention'
+              require_id!(args)
+              raise ArgumentError, 'att_kind is required' unless args['att_kind']
+
+              pm_store.add_attention(args['id'], kind: args['att_kind'],
+                                                 lines: args['lines'], grasp: args['grasp'])
+            when 'capacity'
+              # Not item-scoped: the declaration belongs to the operator's day, not
+              # to any one piece of work. It lives on this tool rather than in a
+              # sixth tool because the write is one line and a new tool would cost
+              # a manifest entry, a registry class, and a projection — none of which
+              # the single field earns.
+              pm_store.declare_capacity(declared: args['declared'], date: args['date'])
             when 'get'
               require_id!(args)
               pm_store.fetch_item(args['id'])

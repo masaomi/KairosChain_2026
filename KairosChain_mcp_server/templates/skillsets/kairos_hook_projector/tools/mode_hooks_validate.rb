@@ -97,7 +97,17 @@ module KairosMcp
             body = validate(arguments['mode'], project_root)
             assertion.verify_post!
 
-            text_content(JSON.pretty_generate(body))
+            # Reported, not merely performed. Without this the assertion was
+            # unfalsifiable from outside: deleting either call left the tool
+            # returning the same body, and the only test of it passed because
+            # this tool does not write — not because anything had verified.
+            # Derived from the post snapshot, so a deleted verify_post! shows.
+            text_content(JSON.pretty_generate(
+                           body.merge(boot_time_assertion: {
+                                        status: assertion.snapshots[:post] ? 'passed' : 'not_verified',
+                                        watched_paths: watch
+                                      })
+                         ))
           rescue BootTimeAssertion::StructuralAssertionFailure => e
             text_content(JSON.pretty_generate(
                            error: 'StructuralAssertionFailure', detail: e.message,

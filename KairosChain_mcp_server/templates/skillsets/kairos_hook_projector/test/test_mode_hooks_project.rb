@@ -283,6 +283,104 @@ class TestModeHooksProject < Minitest::Test
     end
   end
 
+  # Round 4. The recorder guarded on `::KairosChain::Chain`, a top-level name
+  # nothing defines — the class is nested under KairosMcp, and every other
+  # SkillSet in the tree spells it that way. The guard was therefore always
+  # false, apply! always returned refused_unrecorded, and stage 2 activation had
+  # never once succeeded for anyone. No test could see it: the double below
+  # replaces record_to_chain wholesale, so the real method was never executed.
+  def test_the_recorder_names_a_chain_constant_that_can_exist
+    src = File.read(File.join(File.dirname(__dir__), 'tools', 'mode_hooks_project.rb'))
+    body = src[/def record_to_chain.*?\n          end/m]
+    refute_nil body, 'record_to_chain must exist'
+
+    guarded = body.scan(/defined\?\(::([A-Za-z0-9_:]+)\)/).flatten.uniq
+    called = body.scan(/::([A-Za-z0-9_:]+)\.new/).flatten.uniq
+    assert_equal guarded, called,
+                 'the recorder must guard on the same constant it calls'
+    guarded.each do |name|
+      refute_match(/\AKairosChain::/, name,
+                   "#{name} is the top-level spelling; the class is nested under " \
+                   'KairosMcp, so this guard can never be true and every apply ' \
+                   'returns refused_unrecorded')
+    end
+  end
+
+  # Drives the real record_to_chain rather than the double. A fake ledger stands
+  # in for the chain, and the test refuses to run at all when the real one is
+  # loaded — appending to a live ledger from a test is the worse of the two.
+  def test_the_real_recorder_records_and_reports_the_block
+    if defined?(::KairosMcp::KairosChain::Chain)
+      skip 'the real chain is loaded; this test must not append to it'
+    end
+
+    block = Struct.new(:index, :hash).new(42, 'deadbeef')
+    appended = []
+    fake = Class.new do
+      define_method(:add_block) do |data|
+        appended << data
+        block
+      end
+    end
+
+    namespace_existed = defined?(::KairosMcp::KairosChain) ? true : false
+    ::KairosMcp.const_set(:KairosChain, Module.new) unless namespace_existed
+    ::KairosMcp::KairosChain.const_set(:Chain, fake)
+    begin
+      real = Projector.superclass.new
+      compiled = KairosMcp::SkillSets::KairosHookProjector::ModeHooksCompiler
+                 .new.compile(mode_name: 'testmode', document: doc)
+      out = real.send(:record_to_chain, 'testmode', compiled)
+      assert out[:recorded], out.inspect
+      assert_equal 42, out[:block_index]
+      assert_equal 'deadbeef', out[:hash]
+      assert_equal 1, appended.length, 'exactly one block is appended'
+      assert_includes appended.first.first, 'mode_hooks_project mode=testmode'
+    ensure
+      ::KairosMcp::KairosChain.send(:remove_const, :Chain)
+      ::KairosMcp.send(:remove_const, :KairosChain) unless namespace_existed
+    end
+  end
+
+  # The confirmation binds five things. The earlier test moved a threshold,
+  # which changes the document, the artifact and the file contents all at once
+  # while the target path never varies — so three of the five could be deleted
+  # from the hash and the suite stayed green. Each component is varied alone
+  # here, against the real plan_hash.
+  #
+  # Artifact and document cannot be separated and that is by construction: the
+  # artifact is a pure function of the document, so nothing can move one without
+  # the other. They are covered together and this says so rather than implying
+  # five independent axes.
+  def test_each_component_of_the_confirmation_hash_moves_it_alone
+    with_projector do |p, _dir|
+      compiler = KairosMcp::SkillSets::KairosHookProjector::ModeHooksCompiler
+      compiled = compiler.new.compile(mode_name: 'testmode', document: doc)
+      other = compiler.new.compile(mode_name: 'testmode', document: doc('max_lines' => 40))
+
+      resolved = { 'settings_path' => '/root/.claude/settings.json',
+                   'files' => { '/root/.kairos/hook_configs/a.json' => '{"max_lines":60}' } }
+      desired = { 'hooks' => { 'Stop' => [{ 'hooks' => [] }] } }
+      base = p.send(:plan_hash, resolved, desired, compiled)
+
+      {
+        'the target path' =>
+          [resolved.merge('settings_path' => '/elsewhere/.claude/settings.json'),
+           desired, compiled],
+        'the file contents' =>
+          [resolved.merge('files' => { '/root/.kairos/hook_configs/a.json' => '{"max_lines":1}' }),
+           desired, compiled],
+        'the merged settings' =>
+          [resolved, { 'hooks' => { 'Stop' => [{ 'hooks' => [{ 'command' => 'x' }] }] } }, compiled],
+        'the artifact and declaration together' =>
+          [resolved, desired, other]
+      }.each do |what, args|
+        refute_equal base, p.send(:plan_hash, *args),
+                     "#{what} must move the confirmation hash"
+      end
+    end
+  end
+
   def test_a_config_filename_that_escapes_the_root_is_refused
     with_projector do |p, dir|
       artifact = { 'files' => { '../../pwned.json' => '{}' }, 'hooks' => {} }

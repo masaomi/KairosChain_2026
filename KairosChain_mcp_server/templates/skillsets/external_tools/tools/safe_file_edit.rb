@@ -57,12 +57,24 @@ module KairosMcp
 
             pre_hash = ::KairosMcp::SkillSets::ExternalTools::WorkspaceConfinement.file_hash(abs)
             content = File.binread(abs)
-            occurrences = content.scan(old_s).size
+
+            # The file is read as bytes so that a non-UTF-8 or mixed-encoding
+            # file survives the edit unchanged outside the replaced span. The
+            # arguments arrive from JSON as UTF-8, and matching a UTF-8 pattern
+            # against a binary subject raises Encoding::CompatibilityError the
+            # moment either side holds a non-ASCII byte — which is every source
+            # file carrying a non-ASCII comment, so the failure was not an edge
+            # case but the common one. Comparing both sides as bytes is the
+            # operation this tool actually performs: an exact substring
+            # replacement, with no encoding interpretation of either operand.
+            old_b = old_s.b
+            new_b = new_s.b
+            occurrences = content.scan(old_b).size
 
             return json_err('old_string not found', occurrences: 0) if occurrences.zero?
             return json_err('old_string not unique (pass replace_all=true to replace all)', occurrences: occurrences) if occurrences > 1 && !replace_all
 
-            new_content = replace_all ? content.gsub(old_s, new_s) : content.sub(old_s, new_s)
+            new_content = replace_all ? content.gsub(old_b, new_b) : content.sub(old_b, new_b)
 
             # Atomic write
             parent = File.dirname(abs)

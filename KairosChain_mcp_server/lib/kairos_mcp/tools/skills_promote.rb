@@ -607,7 +607,16 @@ module KairosMcp
         provider = KnowledgeProvider.new(nil, user_context: @safety&.current_user)
         existing = provider.get(target_name)
 
-        result = if existing
+        # Whether to update or create is a question about WRITE authority, and
+        # `get` answers a question about READ resolution: it also finds knowledge
+        # shipped by an enabled SkillSet, which this store may read but not
+        # modify. Deciding by `get` alone sends an update at an entry the
+        # provider will refuse, and the promotion dead-ends with no remedy the
+        # operator can act on. An entry that exists but is not ours is exactly
+        # the case where creating a local one is the right move.
+        writable = existing && provider.owned?(existing)
+
+        result = if writable
                    provider.update(target_name, content, reason: "Promotion: #{reason}")
                  else
                    provider.create(target_name, content, reason: "Promotion: #{reason}")
@@ -620,7 +629,7 @@ module KairosMcp
           # Issue attestation AFTER L1 exists
           issue_promotion_attestation(target_name, reason)
 
-          action = existing ? 'updated' : 'created'
+          action = writable ? 'updated' : 'created'
           output = "## Promotion Successful\n\n"
           output += "**Target**: #{target_name} (L1)\n"
           output += "**Action**: #{action}\n"

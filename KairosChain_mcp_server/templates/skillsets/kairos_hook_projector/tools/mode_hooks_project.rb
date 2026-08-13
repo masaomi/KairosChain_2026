@@ -387,11 +387,19 @@ module KairosMcp
             File.rename(tmp, path)
           end
 
+          # The constant is nested under KairosMcp, and every other SkillSet in
+          # the tree spells it that way. These two lines were the only top-level
+          # ::KairosChain:: references anywhere, so the guard was always false,
+          # apply! always returned refused_unrecorded, and stage 2 activation had
+          # never once succeeded — not for a consumer and not here. The write
+          # path is five lines; the defect was one word, and it survived because
+          # the test double replaces this whole method, so the real one had never
+          # run. test_the_real_recorder_records_and_reports_the_block drives it.
           def record_to_chain(mode, compiled)
-            return { recorded: false, reason: 'KairosChain::Chain unavailable' } unless
-              defined?(::KairosChain::Chain)
+            return { recorded: false, reason: 'KairosMcp::KairosChain::Chain unavailable' } unless
+              defined?(::KairosMcp::KairosChain::Chain)
 
-            block = ::KairosChain::Chain.new.add_block(
+            block = ::KairosMcp::KairosChain::Chain.new.add_block(
               ["mode_hooks_project mode=#{mode}", JSON.generate(compiled.record)]
             )
             { recorded: true, block_index: block.index, hash: block.hash }

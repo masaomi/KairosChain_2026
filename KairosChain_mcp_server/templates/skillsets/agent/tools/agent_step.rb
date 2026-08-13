@@ -2114,17 +2114,21 @@ module KairosMcp
             "  - task_json (object with task_id, meta, steps array). Each step needs: " \
             "step_id, action, tool_name, tool_arguments, risk (low/medium/high), " \
             "depends_on, requires_human_cognition.\n" \
-            "    requires_human_cognition — default FALSE. Set true ONLY when the step " \
-            "cannot be carried out without a judgment or an input that only the operator " \
-            "can supply: choosing between alternatives the goal does not settle, " \
-            "interpreting a result whose meaning is contested, or committing to something " \
-            "irreversible outside the workspace. Do NOT set it because a step is risky, " \
-            "writes a file, or matters a lot — risk is already carried by the `risk` field " \
-            "and by separate approval gates. A step whose content the plan itself already " \
-            "determines (writing a file, reading, searching, computing, recording) is FALSE " \
-            "even when the file is important. Execution HALTS at the first true step and " \
-            "every later step is left unexecuted, so each true costs the operator a round " \
-            "trip: mark the fewest steps that genuinely need one.\n" \
+            "    requires_human_cognition — default FALSE, with one standing exception. " \
+            "Set true when the step cannot be carried out without a judgment or an input " \
+            "only the operator can supply: choosing between alternatives the goal does not " \
+            "settle, interpreting a result whose meaning is contested, or committing to " \
+            "something irreversible outside the workspace. ALWAYS set true when no listed " \
+            "tool can perform the step — running a command, or anything that must happen " \
+            "outside this tool set. That handoff is what the flag exists for; never drop " \
+            "such a step and never pretend a listed tool covers it. Do NOT set it merely " \
+            "because a step is risky, writes a file, or matters a lot — risk is already " \
+            "carried by the `risk` field and by separate approval gates. A step whose " \
+            "content the plan itself already determines (writing a file, reading, " \
+            "searching, computing, recording) is FALSE even when the file is important. " \
+            "Execution HALTS at the first true step and every later step is left " \
+            "unexecuted, so a true costs the operator a round trip — but an omitted true " \
+            "is worse, because the plan then claims it can do something it cannot.\n" \
             "  - review_hint (object) — REQUIRED. Shape: { needed: <bool>, " \
             "reason: <string|null>, urgency: \"low\"|\"medium\"|\"high\"|null }. " \
             "Set needed:true to REQUEST multi-LLM review for subtle high-impact " \

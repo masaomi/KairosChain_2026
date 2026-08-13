@@ -182,8 +182,14 @@ class TestModeHooksValidate < Minitest::Test
       end
       refute_equal 'StructuralAssertionFailure', body['error'],
                    "the tool wrote to a watched path: #{body.inspect}"
-      assert body.key?('error') || body.key?('mode'),
-             "the tool must return a body, got #{body.inspect}"
+      # The positive half. Asserting only that nothing broke passed with the
+      # whole assertion deleted, because this tool does not write anyway — four
+      # separate deletions all left the suite green. The reported status is
+      # derived from the post snapshot, so a missing verify_post! shows here.
+      assert_equal 'passed', body.dig('boot_time_assertion', 'status'),
+                   "the tool must report a verification it performed: #{body.inspect}"
+      assert_equal [settings], body.dig('boot_time_assertion', 'watched_paths'),
+                   'and the watched path is the settings file under the reported root'
       assert_equal before, File.read(settings), 'and the file is unchanged'
     end
   end

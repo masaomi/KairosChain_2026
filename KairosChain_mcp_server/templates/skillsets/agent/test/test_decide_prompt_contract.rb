@@ -89,7 +89,7 @@ module KairosMcp
         def test_prompt_separates_human_cognition_from_risk
           prompt = @step.send(:decide_system_prompt)
           # The observed over-marking came from treating "important" as "needs a human".
-          assert_match(/Do NOT set it because a step is risky/i, prompt,
+          assert_match(/Do NOT set it merely because a step is risky/i, prompt,
                        'DECIDE prompt must stop risk from being read as needing a human')
           assert_match(/writing a file, reading, searching, computing, recording/, prompt,
                        'DECIDE prompt must name the routine step kinds that stay FALSE')
@@ -97,11 +97,27 @@ module KairosMcp
 
         def test_prompt_states_the_cost_of_a_true
           prompt = @step.send(:decide_system_prompt)
-          # Without the cost, the planner has no reason to prefer fewer trues.
           assert_match(/HALTS at the first true step/, prompt,
                        'DECIDE prompt must state that execution halts at the first true')
-          assert_match(/fewest steps/, prompt,
-                       'DECIDE prompt must ask for the fewest trues')
+          # The cost must not read as "minimise". A replay of the real recorded
+          # session showed a "mark the fewest steps" instruction suppressing the
+          # genuine human gate in 4 of 5 plans — one plan lost every mark.
+          assert_match(/omitted true\s+is worse/, prompt,
+                       'DECIDE prompt must state that omitting a true is worse than paying one')
+          refute_match(/fewest/, prompt,
+                       'DECIDE prompt must not push the planner toward minimising trues')
+        end
+
+        # The handoff case is why the flag exists: the recorded run marked four
+        # steps that no tool could perform (running ruby). A criterion that does
+        # not protect those turns a halt-too-often defect into a lie-about-
+        # capability defect.
+        def test_prompt_protects_the_no_tool_handoff
+          prompt = @step.send(:decide_system_prompt)
+          assert_match(/ALWAYS set true when no listed tool can perform the step/, prompt,
+                       'DECIDE prompt must force a true when no tool can do the step')
+          assert_match(/never drop such a step/, prompt,
+                       'DECIDE prompt must forbid dropping the handoff step')
         end
 
         # Simulate well-formed LLM output and verify it parses through ReviewHint

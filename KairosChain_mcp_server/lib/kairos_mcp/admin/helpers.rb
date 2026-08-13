@@ -3,6 +3,7 @@
 require 'erb'
 require 'securerandom'
 require 'digest'
+require_relative '../path_containment'
 
 module KairosMcp
   module Admin
@@ -88,8 +89,13 @@ module KairosMcp
       # @param filename [String] File name in static/ directory
       # @return [Array] Rack response triple
       def serve_static(filename)
+        # filename comes straight from PATH_INFO on the one admin route that
+        # requires no authentication, so containment is what stands between an
+        # anonymous request and any file this process can read.
         filepath = File.join(STATIC_DIR, filename)
-        return [404, {}, ['Not found']] unless File.exist?(filepath)
+        unless PathContainment.contained?(STATIC_DIR, filepath) && File.file?(filepath)
+          return [404, {}, ['Not found']]
+        end
 
         content_type = case File.extname(filename)
                        when '.css' then 'text/css'

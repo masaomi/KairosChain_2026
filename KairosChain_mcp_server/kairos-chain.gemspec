@@ -33,7 +33,11 @@ Gem::Specification.new do |spec|
 
   spec.metadata['homepage_uri']    = spec.homepage
   spec.metadata['source_code_uri'] = spec.homepage
-  spec.metadata['changelog_uri']   = "#{spec.homepage}/blob/main/CHANGELOG.md"
+  # The tracked changelog is under KairosChain_mcp_server/, not at the
+  # repository root. The old value pointed at a path that does not exist, so
+  # the "Changelog" link on the gem's page was dead.
+  spec.metadata['changelog_uri'] =
+    "#{spec.homepage}/blob/main/KairosChain_mcp_server/CHANGELOG.md"
 
   # Include library code, executable, templates, and config
   spec.files = Dir[
@@ -60,11 +64,19 @@ Gem::Specification.new do |spec|
   # that cannot start reports nothing.
   spec.executables   = %w[
     kairos-chain
+    kairos-chain-daemon
     kairos_mcp_server
     kairos-plugin-project
     kairos-readable-gate
   ]
   spec.require_paths = ['lib']
+
+  # base64 stopped being a default gem in Ruby 3.4, and skillset_manager
+  # requires it unconditionally. Without this line an install into an isolated
+  # GEM_HOME — a container, `gem install -i`, or any Bundler-managed app —
+  # dies at boot with "cannot load such file -- base64", and only works on a
+  # machine where some other gem happened to bring it in.
+  spec.add_dependency 'base64', '~> 0.2'
 
   # =========================================================================
   # No runtime dependencies (Ruby standard library only for core features)

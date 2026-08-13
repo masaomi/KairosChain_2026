@@ -126,11 +126,12 @@ deadline, or one further out than that, leaves it where it is. Its length is a s
 
 ## Reporting performs no write
 
-Producing a report calls no write command. Of `pm_item`'s six commands only `get` is a read.
-`add`, `update`, `add_dep`, `resolve_dep` and `add_provenance` all write. `add`, `update` and
-`add_dep` skip the marker when passed `mechanical: true`; `resolve_dep` and `add_provenance`
-advance it unconditionally. Call none of them as a byproduct of having examined an item — not to
-add a note, not to attach provenance, not to record that you looked, not with `mechanical: true`.
+Producing a report calls no write command. Of `pm_item`'s eight commands only `get` is a read.
+`add`, `update`, `add_dep`, `resolve_dep`, `add_provenance`, `attention` and `capacity` all write.
+`add`, `update` and `add_dep` skip the marker when passed `mechanical: true`; `resolve_dep` and
+`add_provenance` advance it unconditionally; `attention` and `capacity` never advance it. Call none
+of them as a byproduct of having examined an item — not to add a note, not to attach provenance, not
+to record that you looked, not with `mechanical: true`.
 
 The marker matters because dormancy is derived from it rather than stored. A write that merely
 accompanies a report would reset dormancy while nothing real happened — and the item would stop
@@ -148,6 +149,36 @@ raised it. Say the number and let them judge.
 When the operator asks for a change, write it: that is a meaningful edit and the marker *should*
 advance. Never pass `mechanical: true` to dodge the marker on an ordinary edit — that flag is for
 bulk and migration writes only.
+
+## The attention record — you may only write what the operator said
+
+Two commands, `attention` and `capacity`, hold what a piece of work cost the operator to understand
+and decide. They exist because the automatic numbers are worthless alone: a length in lines and an
+elapsed time predict nothing until they sit beside the operator's own report of whether the thing was
+understood in one pass. That report is the only direct measurement in the record, and it is the only
+field you are structurally unable to supply.
+
+So the rule is narrow. **Write `grasp` only from words the operator actually said.** Never from your
+reading of how clear the output was — that is the author grading their own legibility, and it would
+quietly replace the one measurement the record was built to obtain. If they said nothing, write
+`no_answer`; do not omit the entry. Declining to answer is evidence of load, and dropping it as
+missing data biases the whole record toward the occasions they had energy to spare.
+
+Ask at most twice, and never more:
+
+| When | What you ask | What you write |
+|---|---|---|
+| Session start, with the digest | how many judgments the day has room for | `capacity`, with `declared`; omit `declared` if unanswered |
+| A judgment has just closed | whether the material was understood in one pass | `attention`, with `att_kind`, `lines`, and their `grasp` |
+
+Asking costs attention too, which is the contradiction at the centre of this record and is not
+resolvable — only bounded. Bound it by frequency: one capacity question per session, one grasp
+question per closed judgment, and no reminder when either goes unanswered.
+
+Order matters for `attention`: write it *before* the status update that closes the item. The entry's
+`since_touch_h` is measured from the last meaningful touch, so a status write first collapses it to
+zero. That field is a gap since the marker, not a gate duration — say so if you ever report it, and
+say nothing at all when it is absent, which means the marker could not be read.
 
 ## Neglect is not the same as waiting
 

@@ -20,6 +20,13 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`kairos_hook_projector` reaches stage 2.** The SkillSet gains two tools
+  that write the harness configuration — `mode_hooks_project`, which installs
+  a mode's declared hooks into `.claude/settings.json` behind a proposal and
+  a confirmation hash, and `mode_hooks_validate` — and two executables land on
+  PATH, `kairos-readable-gate` and `kairos-plugin-project`. Before this
+  release the SkillSet was read-only. `kairos-chain-daemon` also joins the
+  executable list; it shipped in the package but was never put on PATH.
 - **`kairos_hook_projector` gains a diagram floor.** A mode may declare
   `diagram_required_over_lines`, and a message whose prose exceeds it while
   carrying no fenced block is reported. It is the first floor among the

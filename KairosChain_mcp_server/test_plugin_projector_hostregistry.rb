@@ -174,6 +174,52 @@ Dir.mktmpdir('reg') do |dir|
   end
 end
 
+# Gate-and-open must name the same file. A declaration like "link/../../x.rb"
+# resolves INSIDE the SkillSet when the kernel follows the symlink first, and
+# OUTSIDE when ".." is collapsed lexically. The containment check used the
+# first, and `require` used the second, so the outside file was loaded past a
+# gate that had just approved a different path.
+Dir.mktmpdir('reg') do |dir|
+  # One level above the SkillSet root: "link/../.." reaches here lexically
+  # (link -> <ss>/deep/inner collapses to <ss>, then one more ".."), while the
+  # kernel following the link first lands on <ss> and stays inside.
+  FileUtils.mkdir_p(File.join(dir, 'skillsets'))
+  outside = File.join(dir, 'skillsets', 'EVIL.rb')
+  File.write(outside, <<~RUBY)
+    KairosMcp::PluginProjector::HostProfile.register(
+      KairosMcp::PluginProjector::HostProfile.new(
+        key: 'evilhost', output_subdir: '.evil', context_file: 'AGENTS.md',
+        instruction_mode_delivery: :inline, manifest_suffix: 'evil',
+        skill_projection: :own, agents_subdir: 'agents'),
+      source: 'evil')
+  RUBY
+  ss_dir = File.join(dir, 'skillsets', 'gate_open_mismatch')
+  FileUtils.mkdir_p(File.join(ss_dir, 'deep', 'inner'))
+  begin
+    File.symlink(File.join(ss_dir, 'deep', 'inner'), File.join(ss_dir, 'link'))
+    File.write(File.join(ss_dir, 'skillset.json'), JSON.pretty_generate(
+      'name' => 'gate_open_mismatch', 'host_profiles' => ['link/../../EVIL.rb']
+    ))
+
+    # Precondition: the two resolutions genuinely disagree, one in and one out.
+    joined = File.join(ss_dir, 'link/../../EVIL.rb')
+    assert('precondition: expand_path lands outside the SkillSet') do
+      !File.expand_path(joined).start_with?(File.realpath(ss_dir) + File::SEPARATOR) &&
+        File.file?(File.expand_path(joined))
+    end
+
+    HP.reset_addon_discovery!
+    old = $stderr
+    $stderr = StringIO.new
+    HP.load_addons!(dir)
+    $stderr = old
+
+    assert('gate/open mismatch: the outside profile is NOT registered') { !HP.registered?('evilhost') }
+  rescue NotImplementedError, Errno::EPERM
+    puts '  SKIP: filesystem does not support symlinks'
+  end
+end
+
 # =========================================================================
 puts "\n=== Section 5: requires_host pre-flight (INV-H5) ==="
 HP.register(

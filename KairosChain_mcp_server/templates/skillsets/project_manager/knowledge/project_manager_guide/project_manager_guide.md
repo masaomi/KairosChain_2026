@@ -1,8 +1,8 @@
 ---
 name: project_manager_guide
 description: Orientation note for the project_manager SkillSet — what it is, where its tools and invariants are defined, and which artifact is authoritative for what. Use when you need to know where a project_manager rule lives, not to learn the rule itself.
-version: 0.2.1
-tags: [project_management, digest, attestation, orientation]
+version: 0.3.0
+tags: [project_management, digest, attestation, attention, orientation]
 ---
 
 # project_manager SkillSet — orientation
@@ -19,7 +19,8 @@ here is how they drift.
 |---|---|
 | Invariants INV-PM-1..7 (two-tier recording, human gate, meaningful touch, derived dormancy, single authority, layer discipline, data-model minimality) | `docs/drafts/secretary_project_manager_design_v0.5_FROZEN.md` |
 | Tool names, arguments, and marker effects | the tool schemas themselves, surfaced in the projected Skill at `.claude/skills/project_manager/SKILL.md` (generated from introspection at projection time) |
-| Item and project schema | `lib/project_manager/store.rb` |
+| Item, project, and attention schema | `lib/project_manager/store.rb` |
+| When the operator may be asked about attention, and what may be written into that record (the operator's own report only — never the agent's view of its own legibility) | `plugin/agents/secretary.md` § The attention record |
 | Dormancy threshold and digest horizon | `config/pm.yml` |
 | The secretarial disposition (how a report reads, what it proposes) | `plugin/agents/secretary.md`, projected to `.claude/agents/project_manager-secretary.md`. Carried by the sub-agent, not by this SkillSet |
 | Why the disposition is a sub-agent rather than an instruction mode | `docs/drafts/project_manager_plugin_projection_draft_v0.7_FROZEN.md` (frozen 2026-07-26; the earlier numbered drafts are superseded) |
