@@ -35,11 +35,14 @@ class TestKairosHookProjectorSkillsetJson < Minitest::Test
     assert File.exist?(skill_md), "plugin/SKILL.md must exist"
   end
 
-  def test_plugin_hooks_json_is_empty_object
-    hooks_json = File.join(SKILLSET_ROOT, 'plugin', 'hooks.json')
-    assert File.exist?(hooks_json), "plugin/hooks.json must exist"
-    parsed = JSON.parse(File.read(hooks_json))
-    assert_equal({ 'hooks' => {} }, parsed,
-                 'stage 0: hooks.json must be {"hooks":{}} — no projections yet')
+  # plugin/hooks.json is gone. It was the round 2 write target and round 2
+  # review found it was never read: this SkillSet's skillset.json declares no
+  # `plugin` key, so PluginProjector's `has_plugin?` is false and it skipped the
+  # SkillSet entirely. Nothing wrote it, nothing read it, and `system_upgrade`
+  # restored it from the template — so an applied configuration placed there was
+  # silently discarded on the next upgrade.
+  def test_no_hooks_json_is_shipped
+    refute File.exist?(File.join(SKILLSET_ROOT, 'plugin', 'hooks.json')),
+           'the activation target is .claude/settings.json; nothing is projected via plugin/'
   end
 end

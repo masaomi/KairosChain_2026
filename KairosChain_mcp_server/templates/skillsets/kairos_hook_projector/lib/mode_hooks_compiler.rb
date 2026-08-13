@@ -243,13 +243,22 @@ module KairosMcp
             files[config_name] = canonical_json(
               gate_config(mode_name, document, e)
             )
+            # A structured argument array, not a shell string. Inv-C9 forbids
+            # interpolating into something the shell will re-parse, and the
+            # earlier `.join(' ')` did exactly that: a data directory containing
+            # a space truncated the --config argument and the gate silently
+            # enforced nothing on every turn. The single interpolation token is
+            # CONFIG_ROOT, and it occupies a whole element rather than being
+            # spliced into one. The harness's own format requires a string, so
+            # the resolver escapes each element and joins them once — escaping,
+            # not interpolation, and it happens after this pure step.
             hooks[e[:event]] << {
               'type' => 'command',
-              'command' => [
+              'argv' => [
                 spec[:command],
                 '--config',
                 "#{CONFIG_ROOT}/#{config_name}"
-              ].join(' '),
+              ],
               'timeout' => spec[:timeout],
               'statusMessage' => "#{e[:gate]} (#{mode_name})"
             }

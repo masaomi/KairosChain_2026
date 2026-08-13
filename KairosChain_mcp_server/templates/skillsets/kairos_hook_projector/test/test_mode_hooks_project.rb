@@ -5,20 +5,28 @@ require 'json'
 require 'tmpdir'
 require 'fileutils'
 
+# Guarded, and it has to be. Three test files defined this stub unconditionally
+# and reopened the class, so whichever loaded last decided the return shape for
+# everybody. Loading all nine files together made test_hooks_status fail — a
+# failure invisible to a per-file run, which is how "107 tests pass" was true
+# nine times over and false once.
 module KairosMcp
   module Tools
     class BaseTool
-      def text_content(str)
-        str
+      def initialize(safety = nil, registry: nil); end
+
+      def text_content(text)
+        [{ type: 'text', text: text }]
       end
     end
   end
-end
+end unless defined?(::KairosMcp::Tools::BaseTool)
 
 require_relative '../tools/mode_hooks_project'
 
 # Stage 2 activation, after round 1 review moved the write off the harness
-# configuration and onto this SkillSet's own plugin/hooks.json.
+# configuration and back again: round 2 tried plugin/hooks.json and round 2
+# review rejected it, so this drives the one-step write into settings.json.
 class TestModeHooksProject < Minitest::Test
   BODY = "**Version:** 0.1.0\n## Shape\nKeep it under 60 lines.\n"
 
@@ -30,6 +38,7 @@ class TestModeHooksProject < Minitest::Test
     private
 
     def data_dir = File.join(@root, '.kairos')
+    def project_root = @root
     def active_mode = 'testmode'
     def mode_body_path(_mode) = File.join(@root, 'body.md')
     def load_document(_mode, _body_path = nil) = @document
@@ -58,20 +67,35 @@ class TestModeHooksProject < Minitest::Test
     end
   end
 
-  def hooks_path(dir)
-    File.join(dir, '.kairos', 'skillsets', 'kairos_hook_projector', 'plugin', 'hooks.json')
+  def settings_path(dir)
+    File.join(dir, '.claude', 'settings.json')
   end
 
-  def hooks_file(dir)
-    File.exist?(hooks_path(dir)) ? JSON.parse(File.read(hooks_path(dir))) : nil
+  def settings_file(dir)
+    File.exist?(settings_path(dir)) ? JSON.parse(File.read(settings_path(dir))) : nil
+  end
+
+  # A group this tool owns carries BOTH markers. Anything else is somebody
+  # else's and must survive untouched.
+  def ours(dir, mode = 'testmode')
+    (settings_file(dir)&.dig('hooks', 'Stop') || []).select do |g|
+      g['_projected_by'] == 'kairos_hook_projector' && g['_mode'] == mode
+    end
   end
 
   def config_files(dir)
     Dir.glob(File.join(dir, '.kairos', 'hook_configs', '*.json'))
   end
 
+
+  # The stub's return shape depends on which test file loaded first, so read the
+  # text out of either shape rather than depending on the winner.
+  def tool_text(response)
+    response.is_a?(Array) ? response.first[:text] : response.to_s
+  end
+
   def run_tool(p, args)
-    JSON.parse(p.call(args))
+    JSON.parse(tool_text(p.call(args)))
   end
 
   def compiled_artifact(document)
@@ -94,17 +118,57 @@ class TestModeHooksProject < Minitest::Test
   end
 
   # --- THE property round 1 was about ---------------------------------------
+  #
+  # Round 1 asked for one writer on settings.json. Round 2 got there by not
+  # writing it at all, and round 2 review showed that cost more than it bought.
+  # The property that actually matters is narrower and is asserted here: this
+  # tool changes only what it placed, for this mode. Everything else in the
+  # file — PluginProjector's entries, another mode's, a hand-written hook with
+  # no marker at all, and every key that is not `hooks` — comes back byte for
+  # byte.
 
-  def test_the_harness_configuration_is_never_written
+  def test_everything_this_tool_did_not_place_survives_byte_for_byte
     with_projector do |p, dir|
-      settings = File.join(dir, '.claude', 'settings.json')
-      File.write(settings, JSON.pretty_generate('hooks' => { 'Stop' => [] },
-                                                'permissions' => { 'allow' => ['Bash(*)'] }))
-      before = File.read(settings)
+      foreign = {
+        'hooks' => {
+          'Stop' => [
+            { 'hooks' => [{ 'command' => 'hand-written.sh' }] },
+            { 'hooks' => [{ 'command' => 'projector.sh' }],
+              '_projected_by' => 'kairos-chain' },
+            { 'hooks' => [{ 'command' => 'other-mode.sh' }],
+              '_projected_by' => 'kairos_hook_projector', '_mode' => 'other' }
+          ],
+          'SessionEnd' => [{ 'hooks' => [{ 'command' => 'untouched.sh' }] }]
+        },
+        'permissions' => { 'allow' => ['Bash(*)'] },
+        'model' => 'opus'
+      }
+      File.write(settings_path(dir), JSON.pretty_generate(foreign))
       apply_once(p)
-      assert_equal before, File.read(settings),
-                   'PluginProjector is the single writer to the harness config; ' \
-                   'this tool must reach only its own SkillSet'
+
+      after = settings_file(dir)
+      assert_equal foreign['permissions'], after['permissions'], 'non-hook keys survive'
+      assert_equal 'opus', after['model'], 'non-hook keys survive'
+      assert_equal foreign['hooks']['SessionEnd'], after['hooks']['SessionEnd'],
+                   'an untouched event survives'
+
+      survivors = after['hooks']['Stop'].reject do |g|
+        g['_projected_by'] == 'kairos_hook_projector' && g['_mode'] == 'testmode'
+      end
+      assert_equal foreign['hooks']['Stop'], survivors,
+                   'a hand-written hook, PluginProjector\'s, and another mode\'s all survive'
+      assert_equal 1, ours(dir).length, 'and exactly one group of ours is added'
+    end
+  end
+
+  def test_reapplying_replaces_only_this_modes_group
+    with_projector do |p, dir|
+      apply_once(p)
+      assert_equal 1, ours(dir).length
+
+      p.document = doc('max_lines' => 40)
+      apply_once(p)
+      assert_equal 1, ours(dir).length, 'the old group is replaced, not appended to'
     end
   end
 
@@ -112,11 +176,11 @@ class TestModeHooksProject < Minitest::Test
     with_projector do |p, dir|
       out = apply_once(p)
       assert_equal 'applied', out['action']
-      assert_equal hooks_path(dir), out['hooks_file']
-      assert File.exist?(hooks_path(dir)), 'plugin/hooks.json is what the projector reads'
-      assert_match(/plugin_project/, out['next_step'])
+      assert_equal settings_path(dir), out['settings_file']
+      assert File.exist?(settings_path(dir)), 'the harness configuration is the target'
+      refute_match(/plugin_project/, out['next_step'], 'there is no second step now')
 
-      entry = hooks_file(dir)['hooks']['Stop'][0]['hooks'][0]
+      entry = ours(dir).first['hooks'][0]
       assert_includes entry['command'], 'kairos-readable-gate'
       refute_includes entry['command'], '${', 'every substitution token must be resolved'
 
@@ -225,7 +289,7 @@ class TestModeHooksProject < Minitest::Test
 
       assert_equal 'refused', out['action']
       assert_equal 'unsafe_path', out['refusal']['category']
-      assert_nil hooks_file(dir), 'a refusal must not write the hooks file'
+      assert_nil settings_file(dir), 'a refusal must not write the settings file'
       assert_empty config_files(dir)
     end
   end
@@ -257,9 +321,9 @@ class TestModeHooksProject < Minitest::Test
   def test_applying_twice_is_idempotent
     with_projector do |p, dir|
       apply_once(p)
-      first = File.read(hooks_path(dir))
+      first = File.read(settings_path(dir))
       apply_once(p)
-      assert_equal first, File.read(hooks_path(dir))
+      assert_equal first, File.read(settings_path(dir))
     end
   end
 
@@ -267,8 +331,8 @@ class TestModeHooksProject < Minitest::Test
 
   def test_entries_this_mode_does_not_own_survive
     with_projector do |p, dir|
-      FileUtils.mkdir_p(File.dirname(hooks_path(dir)))
-      File.write(hooks_path(dir), JSON.pretty_generate(
+      FileUtils.mkdir_p(File.dirname(settings_path(dir)))
+      File.write(settings_path(dir), JSON.pretty_generate(
                                     'hooks' => {
                                       'Stop' => [{ 'hooks' => [{ 'command' => 'static.sh' }] },
                                                  { '_mode' => 'other',
@@ -276,7 +340,7 @@ class TestModeHooksProject < Minitest::Test
                                     }
                                   ))
       out = apply_once(p)
-      commands = hooks_file(dir)['hooks']['Stop']
+      commands = settings_file(dir)['hooks']['Stop']
                  .flat_map { |g| Array(g['hooks']).map { |h| h['command'] } }
       assert_includes commands, 'static.sh', 'a shipped static hook must survive'
       assert_includes commands, 'other.sh', "another mode's entry must survive"
@@ -286,15 +350,15 @@ class TestModeHooksProject < Minitest::Test
 
   def test_withdrawing_a_declaration_removes_only_this_modes_entries
     with_projector do |p, dir|
-      FileUtils.mkdir_p(File.dirname(hooks_path(dir)))
-      File.write(hooks_path(dir), JSON.pretty_generate(
+      FileUtils.mkdir_p(File.dirname(settings_path(dir)))
+      File.write(settings_path(dir), JSON.pretty_generate(
                                     'hooks' => { 'Stop' => [{ 'hooks' => [{ 'command' => 'static.sh' }] }] }
                                   ))
       apply_once(p)
       p.document = doc.merge('hooks' => {})
       apply_once(p)
 
-      commands = hooks_file(dir)['hooks']['Stop']
+      commands = settings_file(dir)['hooks']['Stop']
                  .flat_map { |g| Array(g['hooks']).map { |h| h['command'] } }
       assert_equal ['static.sh'], commands
     end
@@ -340,14 +404,14 @@ class TestModeHooksProject < Minitest::Test
     end
   end
 
-  def test_unparseable_hooks_file_is_never_rewritten
+  def test_unparseable_settings_file_is_never_rewritten
     with_projector do |p, dir|
-      FileUtils.mkdir_p(File.dirname(hooks_path(dir)))
-      File.write(hooks_path(dir), '{ this is not json')
+      FileUtils.mkdir_p(File.dirname(settings_path(dir)))
+      File.write(settings_path(dir), '{ this is not json')
       out = run_tool(p, {})
       assert_equal 'RuntimeError', out['error']
       assert_match(/not valid JSON/, out['detail'])
-      assert_equal '{ this is not json', File.read(hooks_path(dir))
+      assert_equal '{ this is not json', File.read(settings_path(dir))
     end
   end
 

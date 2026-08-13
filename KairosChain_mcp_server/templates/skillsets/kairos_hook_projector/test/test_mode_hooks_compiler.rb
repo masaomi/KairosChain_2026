@@ -268,7 +268,17 @@ class TestModeHooksCompiler < Minitest::Test
 
   def test_artifact_carries_mode_params_and_unresolved_path_tokens
     r = @c.compile(mode_name: 'masa', document: doc)
-    cmd = r.artifact['hooks']['Stop'][0]['command']
+    entry = r.artifact['hooks']['Stop'][0]
+    # Inv-C9: a structured argument array, never a shell string. The resolver
+    # escapes and joins; nothing is spliced into something a shell reparses.
+    assert_nil entry['command'], 'the artifact must not carry a shell string'
+    argv = entry['argv']
+    assert_kind_of Array, argv
+    assert_equal 'kairos-readable-gate', argv[0]
+    assert_equal '--config', argv[1]
+    assert_equal '${KAIROS_HOOK_CONFIG_ROOT}/masa.Stop.readable_gate.0.json', argv[2],
+                 'the single interpolation token occupies a whole element'
+    cmd = argv.join(' ')
     assert_includes cmd, 'kairos-readable-gate',
                     'the harness must invoke the shipped executable, not an interpreter'
     refute_includes cmd, 'python', 'no interpreter may be frozen into the artifact'

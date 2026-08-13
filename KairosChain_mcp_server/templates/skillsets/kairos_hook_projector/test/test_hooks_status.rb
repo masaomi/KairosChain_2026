@@ -85,9 +85,13 @@ class TestHooksStatus < Minitest::Test
     watched = body['boot_time_assertion']['watched_paths']
     assert_kind_of Array, watched
     refute_empty watched
-    assert(watched.any? { |p| p.end_with?('settings.json') },
-           'must watch .claude/settings.json projection target')
-    assert(watched.any? { |p| p.end_with?('hooks.json') },
-           "must watch the skillset's own plugin/hooks.json")
+    # The exact path, not a suffix. `end_with?('settings.json')` passes for a
+    # watch set pointing anywhere at all, which is how the round 2 defect —
+    # a target built from the tool file's own location rather than the project
+    # root — survived a test written to catch it.
+    assert_equal [File.join(body['project_root'], '.claude', 'settings.json')],
+                 watched,
+                 'the watched path must be the settings file under the reported ' \
+                 'project root, and nothing else'
   end
 end

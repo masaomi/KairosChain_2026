@@ -3,6 +3,7 @@
 require 'json'
 require 'digest'
 require 'fileutils'
+require 'shellwords'
 require_relative '../lib/mode_hooks_compiler'
 require_relative '../lib/mode_hooks_locator'
 
@@ -10,25 +11,34 @@ module KairosMcp
   module SkillSets
     module KairosHookProjector
       module Tools
-        # Stage 2 activation: hand a mode's compiled hooks to the projection
-        # pipeline that already exists.
+        # Stage 2 activation: compile a mode's declared hooks and install them.
         #
-        # This tool does NOT write the harness configuration. Round 1 review
-        # found that an earlier version did, making it a second independent
-        # writer to `.claude/settings.json` alongside PluginProjector's — two
-        # uncoordinated read-modify-write cycles on one file, which loses an
-        # update whenever they overlap, and which v0.2 Inv-2 exists to forbid.
+        #   declaration -> compile -> artifact -> .claude/settings.json
+        #                                      -> hook_configs/*.json
         #
-        # What it writes instead is this SkillSet's own `plugin/hooks.json`,
-        # which PluginProjector already reads and merges. One writer reaches
-        # settings.json; this tool reaches only its own SkillSet, which is what
-        # Inv-1 asked for all along.
+        # One step. Round 2 tried two — writing this SkillSet's own
+        # plugin/hooks.json and letting PluginProjector carry it the rest of the
+        # way — and round 2 review rejected that on three counts, each verified:
+        # PluginProjector never visited this SkillSet at all (skillset.json has
+        # no `plugin` key, so `has_plugin?` is false); `system_upgrade` restored
+        # the file from its shipped template, silently discarding an applied and
+        # chain-recorded configuration; and `check_installed` reported
+        # NOT_INSTALLED for a correct apply, because nothing had reached the
+        # harness yet.
         #
-        #   declaration -> compile -> plugin/hooks.json + hook_configs/
-        #                                   |
-        #                            PluginProjector (the one writer)
-        #                                   |
-        #                            .claude/settings.json
+        # Writing settings.json directly is what round 1 objected to, so the
+        # objection is answered rather than avoided. It was never a contest over
+        # the same entries. PluginProjector's `remove_projected_hooks!` rejects
+        # only entries whose `_projected_by` equals its own marker
+        # ('kairos-chain'); this tool's carry '_projected_by' =>
+        # 'kairos_hook_projector'. Neither writer can remove the other's work,
+        # and neither can remove a hand-written hook, which carries no marker at
+        # all. What remains is a lost-update window between two concurrent
+        # applies — real, since the HTTP server runs Puma with five threads, and
+        # deliberately left open: the loss is bounded to one mode's entries and
+        # the next projection restores them. Compare the round 2 location, where
+        # the competing writer was `upgrade`, which knows nothing about
+        # ownership and restores an empty file.
         #
         # Three properties make the write safe to hand to a machine:
         #
@@ -43,6 +53,11 @@ module KairosMcp
         class ModeHooksProject < ::KairosMcp::Tools::BaseTool
           SKILLSET_ROOT = File.expand_path('..', __dir__)
           SKILLSET_NAME = 'kairos_hook_projector'
+          # Both keys are required to match before an entry is ours. The first
+          # separates this tool from PluginProjector and from hand-written
+          # hooks; the second separates one mode from another.
+          MARKER_KEY = '_projected_by'
+          MARKER = 'kairos_hook_projector'
           OWNER_KEY = '_mode'
 
           def name
@@ -50,11 +65,10 @@ module KairosMcp
           end
 
           def description
-            "Compile an instruction mode's declared hooks and hand them to the " \
-              'existing projection pipeline by writing this SkillSet\'s own ' \
-              'plugin/hooks.json. Never writes the harness configuration — ' \
-              'PluginProjector remains the single writer there. Proposes by ' \
-              'default; applying requires echoing back the plan hash.'
+            "Compile an instruction mode's declared hooks and install them into " \
+              '.claude/settings.json, touching only entries this tool placed for ' \
+              'this mode. Proposes by default; applying requires echoing back the ' \
+              'plan hash.'
           end
 
           def category
@@ -135,9 +149,8 @@ module KairosMcp
           # --- resolution, contained ----------------------------------------
 
           def resolve(mode, artifact)
-            skillset_dir = installed_skillset_dir
             config_root = File.join(data_dir, 'hook_configs')
-            hooks_path = File.join(skillset_dir, 'plugin', 'hooks.json')
+            settings_path = File.join(project_root, '.claude', 'settings.json')
 
             files = {}
             artifact['files'].each do |name, content|
@@ -151,14 +164,21 @@ module KairosMcp
               files[path] = content
             end
 
+            # Substitute into the argument array, then escape and join once. The
+            # harness format is a string; Shellwords.join is what makes that
+            # string mean the array, whatever the path contains.
             hooks = artifact['hooks'].transform_values do |entries|
               entries.map do |e|
-                e.merge('command' => e['command'].gsub(ModeHooksCompiler::CONFIG_ROOT, config_root))
+                argv = Array(e['argv']).map do |arg|
+                  arg.gsub(ModeHooksCompiler::CONFIG_ROOT, config_root)
+                end
+                e.reject { |k, _| k == 'argv' }
+                 .merge('command' => Shellwords.join(argv))
               end
             end
 
             { 'hooks' => hooks, 'files' => files,
-              'hooks_path' => hooks_path, 'config_root' => config_root }
+              'settings_path' => settings_path, 'config_root' => config_root }
           end
 
           # The mode identity already passed PathContainment.safe_segment? in the
@@ -199,22 +219,20 @@ module KairosMcp
           # --- planning ------------------------------------------------------
 
           def plan_for(mode, resolved, compiled)
-            current = read_hooks_file(resolved['hooks_path'])
-            desired = merge_into_hooks_file(current, mode, resolved['hooks'])
+            current = read_settings(resolved['settings_path'])
+            desired = merge_into_settings(current, mode, resolved['hooks'])
 
-            hooks_changed = canonical(current) != canonical(desired)
+            settings_changed = canonical(current) != canonical(desired)
             config_changed = resolved['files'].reject do |path, content|
               File.exist?(path) && File.read(path) == content
             end.keys.map { |p| File.basename(p) }
 
-            foreign = count_foreign_entries(current, mode)
-
             {
               desired: desired,
-              hooks_changed: hooks_changed,
+              settings_changed: settings_changed,
               config_changed: config_changed,
-              foreign_entries: foreign,
-              hooks_path: resolved['hooks_path'],
+              left_alone: count_entries_left_alone(current, mode),
+              settings_path: resolved['settings_path'],
               plan_sha256: plan_hash(resolved, desired, compiled)
             }
           end
@@ -228,52 +246,78 @@ module KairosMcp
             Digest::SHA256.hexdigest(canonical(
                                        'artifact' => compiled.record['output'],
                                        'document' => compiled.record['input'],
-                                       'hooks_path' => resolved['hooks_path'],
-                                       'hooks' => desired,
+                                       'settings_path' => resolved['settings_path'],
+                                       'settings' => desired,
                                        'files' => resolved['files']
                                      ))
           end
 
-          # We own this file, but a future version of this SkillSet may ship
-          # static hooks in it. Entries carrying no owner key are left alone.
-          def merge_into_hooks_file(current, mode, hooks)
-            out = { 'hooks' => {} }
-            (current['hooks'] || {}).each do |event, entries|
-              kept = Array(entries).reject { |e| e[OWNER_KEY] == mode }
-              out['hooks'][event] = kept unless kept.empty?
+          # An entry is ours only when BOTH markers match. Everything else
+          # survives byte for byte: PluginProjector's own entries, another
+          # mode's entries, and a hand-written hook, which carries no marker at
+          # all and is therefore never ours by construction.
+          #
+          # Every non-hook key of settings.json survives too. An earlier version
+          # rebuilt the file as `{'hooks' => ...}` and dropped `permissions` and
+          # everything else with it — the harness configuration is the
+          # operator's file, and this tool is a guest in one key of it.
+          def ours?(group, mode)
+            group.is_a?(Hash) && group[MARKER_KEY] == MARKER && group[OWNER_KEY] == mode
+          end
+
+          def merge_into_settings(current, mode, hooks)
+            out = deep_dup(current)
+            out['hooks'] = (out['hooks'] || {}).each_with_object({}) do |(event, groups), acc|
+              kept = Array(groups).reject { |g| ours?(g, mode) }
+              acc[event] = kept unless kept.empty?
             end
-            # PluginProjector reads hooks.json as event -> array of GROUPS, each
-            # group carrying its own `hooks` array. Emitting the commands
-            # directly at group level produced a file the projector would merge
-            # into settings.json in a shape the harness does not understand.
+
             hooks.each do |event, entries|
               next if entries.empty?
 
               out['hooks'][event] ||= []
-              out['hooks'][event] << { 'hooks' => entries, OWNER_KEY => mode }
+              out['hooks'][event] << {
+                'hooks' => entries, MARKER_KEY => MARKER, OWNER_KEY => mode
+              }
             end
+
             out['hooks'].reject! { |_, v| v.empty? }
+            out.delete('hooks') if out['hooks'].empty?
             out
           end
 
-          def count_foreign_entries(current, mode)
-            (current['hooks'] || {}).values.flatten.count { |e| e[OWNER_KEY] != mode }
+          def count_entries_left_alone(current, mode)
+            (current['hooks'] || {}).values.flatten.count { |g| !ours?(g, mode) }
+          end
+
+          def deep_dup(value)
+            case value
+            when Hash then value.each_with_object({}) { |(k, v), h| h[k] = deep_dup(v) }
+            when Array then value.map { |v| deep_dup(v) }
+            else value
+            end
           end
 
           def proposal(mode, plan, compiled)
-            idle = !plan[:hooks_changed] && plan[:config_changed].empty?
+            idle = !plan[:settings_changed] && plan[:config_changed].empty?
+            # The write set is stated in full, including the config files. An
+            # earlier version listed the settings file alone and listed nothing
+            # at all for an idle plan, while apply still rewrote every config and
+            # chain-recorded — an operator confirming an understated write set.
+            writes = []
+            writes << plan[:settings_path] if plan[:settings_changed]
+            writes.concat(plan[:config_changed].map { |n| File.join(config_dir, n) })
             {
               mode: mode,
               action: 'proposal',
               plan_sha256: plan[:plan_sha256],
               up_to_date: idle,
-              hooks_file_changes: plan[:hooks_changed] ? plan[:hooks_path] : nil,
+              settings_changes: plan[:settings_changed] ? plan[:settings_path] : nil,
               config_changes: plan[:config_changed],
-              entries_left_alone: plan[:foreign_entries],
+              entries_left_alone: plan[:left_alone],
               declared_hooks: compiled.record.dig('output', 'events'),
-              writes_if_applied: idle ? [] : [plan[:hooks_path]],
-              projection_still_required: 'PluginProjector publishes this to the harness; ' \
-                                         'run plugin_project after applying',
+              writes_if_applied: writes,
+              also_records_to_chain: !idle,
               to_apply: idle ? 'nothing to apply' :
                         "call again with apply=true and confirm_sha256=#{plan[:plan_sha256]}",
               nothing_written: true
@@ -301,18 +345,21 @@ module KairosMcp
             end
 
             FileUtils.mkdir_p(resolved['config_root'])
-            FileUtils.mkdir_p(File.dirname(plan[:hooks_path]))
+            FileUtils.mkdir_p(File.dirname(plan[:settings_path]))
+            # Referents before the referrer: an interrupted apply leaves an
+            # unreferenced config file, never a hook pointing at a config that
+            # is not there.
             resolved['files'].each { |path, content| atomic_write(path, content) }
-            atomic_write(plan[:hooks_path], JSON.pretty_generate(plan[:desired]) + "\n")
+            atomic_write(plan[:settings_path], JSON.pretty_generate(plan[:desired]) + "\n")
 
             {
               mode: mode,
               action: 'applied',
-              hooks_file: plan[:hooks_path],
+              settings_file: plan[:settings_path],
               config_files: resolved['files'].keys,
-              entries_left_alone: plan[:foreign_entries],
+              entries_left_alone: plan[:left_alone],
               chain: chain,
-              next_step: 'run plugin_project to publish this to the harness configuration'
+              next_step: 'the hook is live on the next turn; no further step'
             }
           end
 
@@ -341,11 +388,25 @@ module KairosMcp
             ModeHooksCompiler.new.canonical_json(value)
           end
 
-          def read_hooks_file(path)
-            return { 'hooks' => {} } unless File.exist?(path)
+          # Every shape this can return is one merge_into_settings can consume.
+          # Type-checking the top level alone let `{"hooks": []}` and
+          # `{"hooks":{"Stop":[null]}}` raise out of the tool as an error rather
+          # than as the refusal Inv-C1 requires, and once raised the tool could
+          # never repair the file it had refused.
+          def read_settings(path)
+            return {} unless File.exist?(path)
 
             parsed = JSON.parse(File.read(path))
-            parsed.is_a?(Hash) ? parsed : { 'hooks' => {} }
+            return {} unless parsed.is_a?(Hash)
+
+            hooks = parsed['hooks']
+            return parsed.reject { |k, _| k == 'hooks' } unless hooks.is_a?(Hash)
+
+            parsed.merge(
+              'hooks' => hooks.each_with_object({}) do |(event, groups), acc|
+                acc[event] = Array(groups).select { |g| g.is_a?(Hash) } if groups.is_a?(Array)
+              end
+            )
           rescue JSON::ParserError
             raise "#{path} is not valid JSON; refusing to rewrite it"
           end
@@ -356,8 +417,21 @@ module KairosMcp
             )
           end
 
-          def installed_skillset_dir
-            File.join(data_dir, 'skillsets', SKILLSET_NAME)
+          def config_dir
+            File.join(data_dir, 'hook_configs')
+          end
+
+          # Same resolution as hooks_status and mode_hooks_validate, so the
+          # settings file this writes is the one the boot-time assertion
+          # watches. Round 2's target was built from the tool file's own
+          # location instead, and the two paths only coincided when the tool ran
+          # from an installed SkillSet.
+          def project_root
+            if defined?(::KairosMcp) && ::KairosMcp.respond_to?(:project_root)
+              ::KairosMcp.project_root.to_s
+            else
+              Dir.pwd
+            end
           end
 
           def data_dir

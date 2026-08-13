@@ -218,18 +218,16 @@ module KairosMcp
             missing = []
             wanted.each do |event, entries|
               entries.each do |entry|
-                # Match on the config filename, which is unique per (mode, event,
-                # gate, position) and survives the token substitution that turns
-                # a compiled command into an installed one.
-                #
-                # This used to extract a `*.py` basename. When the interpreter
-                # was unpinned the command stopped naming a .py file at all, so
-                # the regex returned nil, the comparison became
-                # `include?("")`, and every hook on the event matched. The check
-                # reported `ok` for a hook it had never seen. A failed
-                # extraction must therefore refuse to match rather than match
-                # everything.
-                marker = entry['command'].to_s[%r{[^/\s]+\.json}]
+                # The artifact carries a structured argument array, so the
+                # config filename is an element rather than something to parse
+                # out of a sentence. Two earlier versions extracted it with a
+                # regex over the joined string: the first matched `*.py` and
+                # broke silently when the interpreter was unpinned, leaving
+                # `include?("")` true for every hook on the event. Reading the
+                # element cannot fail that way. A missing element still refuses
+                # rather than matching everything.
+                marker = Array(entry['argv']).map { |a| File.basename(a.to_s) }
+                                             .find { |a| a.end_with?('.json') }
                 present = !marker.nil? && Array(installed[event]).any? do |group|
                   Array(group['hooks']).any? { |h| h['command'].to_s.include?(marker) }
                 end
@@ -343,8 +341,14 @@ module KairosMcp
 
           def watch_paths(project_root)
             [
-              File.join(project_root.to_s, '.claude', 'settings.json'),
-              File.join(SKILLSET_ROOT, 'plugin', 'hooks.json')
+              # The one file a read-only tool must be shown not to have touched.
+              # `plugin/hooks.json` was the round 2 write target and is watched
+              # no longer — it was also built from this file's own location
+              # rather than the instance data directory, so it only named the
+              # real target when the tool ran from an installed SkillSet.
+              # `hook_configs/` is still unwatched: the assertion takes explicit
+              # paths and the per-gate filenames are not known before a compile.
+              File.join(project_root.to_s, '.claude', 'settings.json')
             ]
           end
         end

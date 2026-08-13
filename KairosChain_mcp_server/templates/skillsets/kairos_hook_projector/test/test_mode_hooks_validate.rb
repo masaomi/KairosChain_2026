@@ -4,20 +4,28 @@ require 'minitest/autorun'
 require 'json'
 require 'tmpdir'
 require 'fileutils'
+require 'shellwords'
 require_relative '../lib/mode_hooks_schema'
 
 # BaseTool stub: these tests exercise the validator's pure judgement, which is
 # where the calibration lives. The MCP call path is covered by the tool's own
 # BootTimeAssertion, not here.
+# Guarded, and it has to be. Three test files defined this stub unconditionally
+# and reopened the class, so whichever loaded last decided the return shape for
+# everybody. Loading all nine files together made test_hooks_status fail — a
+# failure invisible to a per-file run, which is how "107 tests pass" was true
+# nine times over and false once.
 module KairosMcp
   module Tools
     class BaseTool
-      def text_content(str)
-        str
+      def initialize(safety = nil, registry: nil); end
+
+      def text_content(text)
+        [{ type: 'text', text: text }]
       end
     end
   end
-end
+end unless defined?(::KairosMcp::Tools::BaseTool)
 
 require_relative '../tools/mode_hooks_validate'
 require_relative '../lib/mode_hooks_compiler'
@@ -186,12 +194,22 @@ class TestModeHooksValidate < Minitest::Test
 
   def test_the_declared_hook_is_recognised_once_its_path_token_is_resolved
     compiled = compiled_for_installed_test
-    wanted = compiled.artifact['hooks']['Stop'].first['command']
-    installed = wanted.sub(
-      KairosMcp::SkillSets::KairosHookProjector::ModeHooksCompiler::CONFIG_ROOT,
-      '/somewhere/else/.kairos/hook_configs'
+    argv = compiled.artifact['hooks']['Stop'].first['argv']
+    installed = Shellwords.join(
+      argv.map do |a|
+        a.gsub(KairosMcp::SkillSets::KairosHookProjector::ModeHooksCompiler::CONFIG_ROOT,
+               '/somewhere else/.kairos/hook_configs')
+      end
     )
-    refute_equal wanted, installed, 'the fixture must differ from the compiled form'
+    # The property is not which escaping style is used; it is that the string
+    # still means the array. A path with a space is what broke the old
+    # `.join(' ')`: --config received only the first word.
+    resolved = argv.map do |a|
+      a.gsub(KairosMcp::SkillSets::KairosHookProjector::ModeHooksCompiler::CONFIG_ROOT,
+             '/somewhere else/.kairos/hook_configs')
+    end
+    assert_equal resolved, Shellwords.split(installed),
+                 'the joined command must split back into the same arguments'
 
     with_settings('Stop' => [{ 'hooks' => [{ 'command' => installed }] }]) do |root|
       out = @t.send(:check_installed, compiled, root)

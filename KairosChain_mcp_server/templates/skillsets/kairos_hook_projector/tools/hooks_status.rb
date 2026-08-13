@@ -102,8 +102,14 @@ module KairosMcp
 
           def compute_watch_paths(project_root)
             [
-              File.join(project_root.to_s, '.claude', 'settings.json'),
-              File.join(SKILLSET_ROOT, 'plugin', 'hooks.json')
+              # The one file a read-only tool must be shown not to have touched.
+              # `plugin/hooks.json` was the round 2 write target and is watched
+              # no longer — it was also built from this file's own location
+              # rather than the instance data directory, so it only named the
+              # real target when the tool ran from an installed SkillSet.
+              # `hook_configs/` is still unwatched: the assertion takes explicit
+              # paths and the per-gate filenames are not known before a compile.
+              File.join(project_root.to_s, '.claude', 'settings.json')
             ]
           end
 
