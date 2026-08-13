@@ -61,7 +61,9 @@ module KairosHookProjector
       'measure_timeout_seconds' => 5,
       'log_max_bytes' => 1024 * 1024,
       'banner_prefix' => 'gate',
-      'rewrite_instruction' => 'Rewrite the message to satisfy the rule above.',
+      # No default. The block reason is addressed to the agent under the mode's
+      # name, so core-authored prose here arrives as something the mode said and
+      # did not. A mode that declares no instruction gets no instruction line.
       'log_path' => nil
     }.freeze
 
@@ -111,7 +113,9 @@ module KairosHookProjector
         # reported and the turn left alone.
         @blocking = merged['blocking'] ? true : false
         @banner_prefix = merged['banner_prefix']
-        @rewrite_instruction = merged['rewrite_instruction']
+        # From raw, not merged: nil means the mode declared none, and nil is
+        # what suppresses the instruction line.
+        @rewrite_instruction = raw['rewrite_instruction']
         @log_path = merged['log_path']
         @announce = compile_any(merged['announce_patterns'])
         @shorthand = merged['shorthand_patterns'].map { |p| Regexp.new(p) }
@@ -293,18 +297,27 @@ module KairosHookProjector
 
     # --- measurement ---------------------------------------------------------
 
-    def each_match(regexp, string)
+    # The deadline reaches here because one pattern can produce many matches on
+    # one line, and the specimen scan runs its own patterns before the shorthand
+    # loop is entered at all. Bounding only the shorthand loop, which is what the
+    # first fix did, left both of those unbounded — the same invariant-as-an-AND
+    # with one half done that this work keeps producing.
+    def each_match(regexp, string, deadline = nil)
       pos = 0
       while pos <= string.length && (m = regexp.match(string, pos))
+        raise MeasureTimeout if deadline && monotonic > deadline
+
         yield m
         pos = m.end(0) > m.begin(0) ? m.end(0) : m.begin(0) + 1
       end
     end
 
-    def specimen_spans(line, cfg)
+    def specimen_spans(line, cfg, deadline = nil)
       spans = []
       cfg.specimen.each do |pattern|
-        each_match(pattern, line) { |m| spans << [m.begin(0), m.end(0)] }
+        raise MeasureTimeout if deadline && monotonic > deadline
+
+        each_match(pattern, line, deadline) { |m| spans << [m.begin(0), m.end(0)] }
       end
       spans
     end
@@ -364,7 +377,7 @@ module KairosHookProjector
           raise MeasureTimeout if deadline && monotonic > deadline
 
           nxt = i + 1 < prose.length ? prose[i + 1] : ''
-          spans = specimen_spans(line, cfg)
+          spans = specimen_spans(line, cfg, deadline)
           cfg.shorthand.each do |pattern|
             # Per pattern, not only per line. Regexp.timeout bounds one match,
             # so a line carrying n patterns could overshoot the deadline by
@@ -373,7 +386,7 @@ module KairosHookProjector
             # specimen scan alone is what runs long.
             raise MeasureTimeout if deadline && monotonic > deadline
 
-            each_match(pattern, line) do |m|
+            each_match(pattern, line, deadline) do |m|
               tok = m.size > 1 ? m[1] : m[0]
               next if tok.nil? || seen.key?(tok)
               # exhibited, not used — and not "first use"
@@ -589,10 +602,12 @@ module KairosHookProjector
       out = { 'systemMessage' => banner(cfg, verdict, metrics, failures, rechecked) }
       if !failures.empty? && !rechecked && cfg.blocking
         out['decision'] = 'block'
+        instruction = cfg.rewrite_instruction.to_s
         out['reason'] =
           "Your last message violates #{cfg.mode_name}" \
           "#{cfg.section.to_s.empty? ? '' : " #{cfg.section}"}:\n- " +
-          failures.join("\n- ") + "\n\n" + cfg.rewrite_instruction
+          failures.join("\n- ") +
+          (instruction.empty? ? '' : "\n\n#{instruction}")
       end
       puts JSON.generate(out)
       0

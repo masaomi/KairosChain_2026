@@ -409,6 +409,29 @@ class TestModeHooksProject < Minitest::Test
     end
   end
 
+  # Four shapes the merge cannot preserve. Each used to be silently dropped, and
+  # the proposal reported only that settings.json would change — so an operator
+  # with a forward-compatible or hand-edited entry lost it without being told.
+  # Refusing is what the tool already does for JSON it cannot parse.
+  def test_a_settings_shape_that_cannot_be_merged_is_refused_not_discarded
+    {
+      'a non-object top level' => '["not", "an", "object"]',
+      'a non-object hooks key' => '{"hooks": "off"}',
+      'an event that is not an array' => '{"hooks": {"Stop": {"a": 1}}}',
+      'a group that is not an object' => '{"hooks": {"Stop": [null]}}'
+    }.each do |label, raw|
+      with_projector do |p, dir|
+        File.write(settings_path(dir), raw)
+        before = File.read(settings_path(dir))
+        out = apply_once(p)
+        assert_equal before, File.read(settings_path(dir)),
+                     "#{label}: the operator's file must be left alone"
+        assert out.to_s.match?(/refus/i) || out['error'].to_s.match?(/refus/i),
+               "#{label}: expected a refusal, got #{out.inspect[0, 200]}"
+      end
+    end
+  end
+
   def test_unparseable_settings_file_is_never_rewritten
     with_projector do |p, dir|
       FileUtils.mkdir_p(File.dirname(settings_path(dir)))

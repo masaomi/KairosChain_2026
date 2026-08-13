@@ -261,6 +261,23 @@ module KairosMcp
           # rebuilt the file as `{'hooks' => ...}` and dropped `permissions` and
           # everything else with it — the harness configuration is the
           # operator's file, and this tool is a guest in one key of it.
+          #
+          # That survival is a property of the merge, NOT of the write, and the
+          # difference is load-bearing. `apply!` writes the document this merge
+          # produced from a read taken earlier, and `record_to_chain` sits
+          # between the two taking a lock on the ledger, which can block for as
+          # long as another process holds it. Anything written to settings.json
+          # inside that window is overwritten by the earlier snapshot. Claude
+          # Code writes this file itself — clicking "always allow" on a
+          # permission prompt is enough — so the loss is not hypothetical, and
+          # it is not bounded to one mode's entries: a `permissions` grant and
+          # PluginProjector's groups go the same way, and no later apply
+          # restores them, because this tool only rebuilds its own.
+          #
+          # Left open, 2026-08-13, by the operator, who declined to add a lock
+          # or a re-read on the ground that neither is worth the surface area.
+          # Recorded here rather than fixed, because a defect the code claims
+          # not to have is worse than one it names.
           def ours?(group, mode)
             group.is_a?(Hash) && group[MARKER_KEY] == MARKER && group[OWNER_KEY] == mode
           end
@@ -393,20 +410,34 @@ module KairosMcp
           # `{"hooks":{"Stop":[null]}}` raise out of the tool as an error rather
           # than as the refusal Inv-C1 requires, and once raised the tool could
           # never repair the file it had refused.
+          # A shape this tool cannot merge is a refusal, the same as JSON it
+          # cannot parse. The earlier version dropped what it could not use — a
+          # non-object top level, a non-object `hooks`, an event whose value is
+          # not an array, a non-object group — and the proposal said nothing
+          # about the loss. That is operator content, and this tool does not own
+          # it; content it cannot preserve it must decline to rewrite.
           def read_settings(path)
             return {} unless File.exist?(path)
 
             parsed = JSON.parse(File.read(path))
-            return {} unless parsed.is_a?(Hash)
+            raise "#{path}: the top level is not an object; refusing to rewrite it" unless
+              parsed.is_a?(Hash)
 
             hooks = parsed['hooks']
-            return parsed.reject { |k, _| k == 'hooks' } unless hooks.is_a?(Hash)
+            return parsed if hooks.nil?
+            raise "#{path}: `hooks` is not an object; refusing to rewrite it" unless
+              hooks.is_a?(Hash)
 
-            parsed.merge(
-              'hooks' => hooks.each_with_object({}) do |(event, groups), acc|
-                acc[event] = Array(groups).select { |g| g.is_a?(Hash) } if groups.is_a?(Array)
-              end
-            )
+            hooks.each do |event, groups|
+              raise "#{path}: hooks.#{event} is not an array; refusing to rewrite it" unless
+                groups.is_a?(Array)
+
+              bad = groups.each_index.reject { |i| groups[i].is_a?(Hash) }
+              raise "#{path}: hooks.#{event}[#{bad.first}] is not an object; " \
+                    'refusing to rewrite it' unless bad.empty?
+            end
+
+            parsed
           rescue JSON::ParserError
             raise "#{path} is not valid JSON; refusing to rewrite it"
           end

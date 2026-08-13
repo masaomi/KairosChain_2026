@@ -333,12 +333,76 @@ class TestReadableGate < Minitest::Test
     original = G.method(:monotonic)
     G.define_singleton_method(:monotonic) { ticks.shift || 99 }
     begin
-      c = cfg('shorthand_patterns' => ['(a1)', '(b2)', '(c3)'],
+      # Patterns that match nothing. The match loop inside each one never
+      # iterates, so the clock read between patterns is the only one available —
+      # with matching patterns this case is masked by the bound inside the match
+      # loop, and the first draft of this test was masked exactly that way.
+      c = cfg('shorthand_patterns' => ['(zz1)', '(zz2)', '(zz3)'],
               'gloss_patterns' => ['[(（]'], 'vocab_min_lines' => 1)
-      assert_raises(G::MeasureTimeout) { G.measure("a1 b2 c3\n", c, 1) }
+      assert_raises(G::MeasureTimeout) { G.measure('a1 b2 c3', c, 1) }
     ensure
       G.define_singleton_method(:monotonic, original)
     end
+  end
+
+  # The other two places the deadline has to reach. Round 3 found both: the fix
+  # that closed "checked once per line" bounded the shorthand loop and left the
+  # specimen scan, which runs first, and the match loop inside a single pattern,
+  # which can yield many times on one line. Same clock this test controls.
+  def test_the_bound_reaches_inside_one_patterns_matches
+    ticks = (0..99).to_a
+    original = G.method(:monotonic)
+    G.define_singleton_method(:monotonic) { ticks.shift || 99 }
+    begin
+      # One pattern, four matches on one line: the shorthand loop is entered once
+      # and never re-entered, so only a check inside the match loop can fire.
+      c = cfg('shorthand_patterns' => ['([a-z][0-9])'],
+              'gloss_patterns' => ['[(（]'], 'vocab_min_lines' => 1)
+      # No trailing newline, so there is exactly one line and no second
+      # per-line check to raise instead. With the bound only outside the match
+      # loop, the first draft of this test passed under its own mutation
+      # because the empty line after the newline raised one tick later.
+      assert_raises(G::MeasureTimeout) { G.measure('a1 b2 c3 d4', c, 1) }
+    ensure
+      G.define_singleton_method(:monotonic, original)
+    end
+  end
+
+  def test_the_bound_reaches_the_specimen_scan
+    ticks = (0..99).to_a
+    original = G.method(:monotonic)
+    G.define_singleton_method(:monotonic) { ticks.shift || 99 }
+    begin
+      # Three specimen patterns and no shorthand pattern at all: nothing after
+      # the specimen scan can raise, so only a check inside it can.
+      # The shorthand pattern matches nothing in the text, so its match loop
+      # never iterates and cannot raise. One line, no trailing newline.
+      c = cfg('shorthand_patterns' => ['(zz9)'],
+              'specimen_patterns' => ['\(a1\)', '\(b2\)', '\(c3\)'],
+              'gloss_patterns' => ['[(（]'], 'vocab_min_lines' => 1)
+      assert_raises(G::MeasureTimeout) { G.measure('(a1) (b2) (c3)', c, 1) }
+    ensure
+      G.define_singleton_method(:monotonic, original)
+    end
+  end
+
+  # The block reason is addressed to the agent under the mode's name. A mode
+  # that declared no instruction must not have one invented for it: core prose
+  # arriving under the mode's heading is indistinguishable, to the reader, from
+  # something the mode said.
+  def test_no_rewrite_instruction_is_invented_for_a_mode_that_declared_none
+    text = "# a\n## b\n### c\n#### d\n"
+    with_instruction = decide(text, max_headings: 3, section: '§ S',
+                                    rewrite_instruction: 'Keep every number.')
+    assert_includes with_instruction.fetch('reason', ''), 'Keep every number.',
+                    'a declared instruction reaches the agent verbatim'
+
+    without = decide(text, max_headings: 3, section: '§ S')
+    assert_equal 'block', without['decision'], 'still blocks'
+    reason = without.fetch('reason', '')
+    assert_includes reason, 'HEADINGS', 'the failure is still reported'
+    assert_equal reason.rstrip, reason, 'and nothing is appended after it'
+    refute_match(/Rewrite/i, reason, 'no instruction is invented')
   end
 
   # Rotation is housekeeping; the record is the point. When two gates cross the
@@ -477,8 +541,12 @@ class TestReadableGate < Minitest::Test
     doc = strip_comments(JSON.parse(File.read(path, encoding: 'UTF-8')))
     params = doc['hooks']['Stop'][0]['params']
 
-    _, f = measure("INV-5 が壊れます。\n" * 10, params)
-    assert f.any? { |x| x.include?('VOCABULARY') }, f.inspect
+    # The two shapes the example still claims: a lowercase letter welded to
+    # digits, and a numbered label whose referent is not in the message.
+    ['a9 が壊れます。', '#7 が壊れます。'].each do |line|
+      _, f = measure("#{line}\n" * 10, params)
+      assert f.any? { |x| x.include?('VOCABULARY') }, "#{line}: #{f.inspect}"
+    end
 
     _, f = measure("commit c341361 を参照。\n" * 10, params)
     assert_empty f, f.inspect
@@ -488,12 +556,21 @@ class TestReadableGate < Minitest::Test
     # does not match them: every such token passed, silently, on every turn.
     # Nothing asserted this until the falsification harness mutated the example
     # back and found the suite still green.
-    # Both branches, because a fix applied to one of them is not a fix: the
-    # uppercase branch and the lowercase branch carry their own digit class.
-    ['INV-５', 'a９'].each do |token|
-      _, f = measure("#{token} が壊れます。\n" * 10, params)
-      assert f.any? { |x| x.include?('VOCABULARY') },
-             "full-width digits must be measured too, in #{token}: #{f.inspect}"
+    _, f = measure("a９ が壊れます。\n" * 10, params)
+    assert f.any? { |x| x.include?('VOCABULARY') },
+           "full-width digits must be measured too: #{f.inspect}"
+
+    # The shipped example must not be a trap. A reviewer copied it, ran ordinary
+    # technical prose through it, and was blocked on the word for a character
+    # encoding — because an uppercase-plus-digits branch cannot tell a coined
+    # label from a protocol name. The example ships without that branch.
+    # x86 is deliberately absent from this list: it matches the lowercase branch
+    # the example does keep, and no shape separates it from a9. That residual is
+    # why the example ships report-only rather than blocking.
+    %w[UTF-8 SHA-256 MD5 S3 EC2 TLS1 CO2 HTTP2].each do |word|
+      _, f = measure("#{word} を使います。\n" * 10, params)
+      assert_empty f.select { |x| x.include?('VOCABULARY') },
+                   "#{word} is an ordinary technical word, not coined vocabulary"
     end
 
     # And a diagram clears the floor while bare prose of the same length does not.
