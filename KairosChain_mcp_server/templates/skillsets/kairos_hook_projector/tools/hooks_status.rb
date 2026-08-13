@@ -70,7 +70,12 @@ module KairosMcp
 
             text_content(JSON.pretty_generate(
                            body.merge(boot_time_assertion: {
-                                        status: 'passed',
+                                        # Derived, not asserted. This was the
+                                        # literal 'passed', so deleting the
+                                        # verify_post! call above left the tool
+                                        # reporting a verification it had not
+                                        # performed, and no test could see it.
+                                        status: assertion.snapshots[:post] ? 'passed' : 'not_verified',
                                         watched_paths: watch_paths,
                                         snapshots: assertion.snapshots
                                       })

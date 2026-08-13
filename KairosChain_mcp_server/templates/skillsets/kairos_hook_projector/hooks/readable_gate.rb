@@ -374,8 +374,11 @@ module KairosHookProjector
       unglossed = []
       if !cfg.shorthand.empty? && prose.length >= cfg.vocab_min_lines
         prose.each_with_index do |line, i|
-          raise MeasureTimeout if deadline && monotonic > deadline
-
+          # No per-line check. There was one here, and round 3 showed nothing
+          # could falsify it: the specimen scan and the loop between patterns
+          # both read the clock, and one of them runs before anything on a line
+          # can be slow. An unfalsifiable guard is not defence, it is a claim,
+          # so it is deleted rather than given a test that cannot fail.
           nxt = i + 1 < prose.length ? prose[i + 1] : ''
           spans = specimen_spans(line, cfg, deadline)
           cfg.shorthand.each do |pattern|

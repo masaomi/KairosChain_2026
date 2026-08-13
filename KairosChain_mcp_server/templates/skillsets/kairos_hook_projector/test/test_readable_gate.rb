@@ -7,6 +7,7 @@ require 'fileutils'
 require 'open3'
 require 'timeout'
 require 'rbconfig'
+require 'stringio'
 
 HERE = __dir__
 require_relative '../hooks/readable_gate'
@@ -403,6 +404,90 @@ class TestReadableGate < Minitest::Test
     assert_includes reason, 'HEADINGS', 'the failure is still reported'
     assert_equal reason.rstrip, reason, 'and nothing is appended after it'
     refute_match(/Rewrite/i, reason, 'no instruction is invented')
+  end
+
+  # --- round 3 test debt: properties the suite could not see the loss of ----
+  #
+  # A reviewer ran 60 mutations through this suite; 38 survived. The cases below
+  # are the survivors that named a property section 4 of the review spec claims.
+  # Each is written against the deletion that used to leave the suite green.
+
+  # The bound the Ruby 3.2 floor was raised for. Nothing asserted it was ever
+  # installed: the timeout test stubbed measure to raise, so it drove only the
+  # rescue, and its restore assertion passed because the previous value was nil
+  # either way. Delete the assignment and the whole distribution-wide floor
+  # becomes unnecessary with nothing to notice.
+  def test_the_per_match_bound_is_installed_for_the_scan_and_restored_after
+    seen = :never_called
+    original = G.method(:measure)
+    G.define_singleton_method(:measure) { |*| seen = Regexp.timeout; [{}, []] }
+    begin
+      G.measure_bounded("x\n", cfg('measure_timeout_seconds' => 7))
+    ensure
+      G.define_singleton_method(:measure, original)
+    end
+    assert_equal 7, seen, 'the per-match bound is installed while measuring'
+    assert_nil Regexp.timeout, 'and restored afterwards'
+  end
+
+  def test_a_transcript_that_cannot_be_read_is_recorded_as_a_skip
+    Dir.mktmpdir do |tmp|
+      log = File.join(tmp, 'gate.log')
+      cfg_path = File.join(tmp, 'cfg.json')
+      File.write(cfg_path, JSON.generate('mode_name' => 't', 'max_headings' => 1,
+                                         'log_path' => log))
+      # A directory, not a file: File.open succeeds and the read raises, which
+      # is the branch no fixture reached because every other test writes a file.
+      out, _, status = run_script(
+        cfg_path, JSON.generate('transcript_path' => tmp, 'stop_hook_active' => false)
+      )
+      assert_equal 0, status.exitstatus
+      refute_includes out, 'block'
+      assert_includes File.read(log), 'SKIP-unreadable',
+                      'the reason the turn was let through is recorded'
+    end
+  end
+
+  # Driven through main directly, not as a subprocess: the script's outermost
+  # rescue would convert the missing guard into the same exit 0 and hide it.
+  def test_a_config_that_is_not_json_returns_zero_rather_than_raising
+    Dir.mktmpdir do |tmp|
+      broken = File.join(tmp, 'cfg.json')
+      File.write(broken, '{ not json')
+      assert_equal 0, G.main(['--config', broken], StringIO.new('{}'))
+    end
+  end
+
+  def test_stdin_that_is_not_an_object_is_treated_as_an_empty_payload
+    Dir.mktmpdir do |tmp|
+      log = File.join(tmp, 'gate.log')
+      cfg_path = File.join(tmp, 'cfg.json')
+      File.write(cfg_path, JSON.generate('mode_name' => 't', 'max_headings' => 1,
+                                         'log_path' => log))
+      assert_equal 0, G.main(['--config', cfg_path], StringIO.new('[1,2]'))
+      assert_includes File.read(log), 'SKIP-',
+                      'a list payload yields no transcript path and is recorded as a skip'
+    end
+  end
+
+  # A mode pattern that can match the empty string. The scan advances past a
+  # zero-width match by one character; without that it never terminates, and
+  # nothing supplied such a pattern.
+  def test_a_pattern_that_matches_the_empty_string_terminates
+    c = cfg('shorthand_patterns' => ['(x?)'], 'gloss_patterns' => ['[(（]'],
+            'vocab_min_lines' => 1)
+    Timeout.timeout(5) { G.measure('abc def', c, nil) }
+  end
+
+  # Both were asserted only through substrings the hard-coded defaults also
+  # produce, so replacing either with a literal left the suite green.
+  def test_the_banner_prefix_and_section_are_the_modes_own
+    out = decide("# a\n## b\n", max_headings: 1,
+                                banner_prefix: 'zztop', section: '§ Quite Specific')
+    assert_match(/\Azztop:/, out.fetch('systemMessage', ''),
+                 'the banner opens with the prefix the mode declared')
+    assert_includes out.fetch('reason', ''), '§ Quite Specific',
+                    'and the reason names the section the mode declared'
   end
 
   # Rotation is housekeeping; the record is the point. When two gates cross the

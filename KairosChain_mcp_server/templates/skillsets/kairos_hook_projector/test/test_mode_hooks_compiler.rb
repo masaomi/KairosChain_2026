@@ -299,17 +299,95 @@ class TestModeHooksCompiler < Minitest::Test
 
   # --- DoD-S1-8: no filesystem side effects --------------------------------
 
+  # Two directories, not one. This watched only the directory it had chdir'd
+  # into, so a compile writing any absolute path was invisible to it — and the
+  # temporary directory is where an accidental absolute write actually lands.
   def test_compile_writes_nothing
-    Dir.mktmpdir do |dir|
-      Dir.chdir(dir) do
-        before = Dir.glob('**/*', File::FNM_DOTMATCH).sort
-        @c.compile(mode_name: 'masa', document: three_hook_doc)
-        @c.compile(mode_name: 'masa')
-        @c.compile(mode_name: 'x', document: doc)
-        after = Dir.glob('**/*', File::FNM_DOTMATCH).sort
-        assert_equal before, after, 'compile must not touch the filesystem'
+    Dir.mktmpdir do |sandbox|
+      # The temporary directory is redirected for the duration, so the snapshot
+      # is private to this test. Watching the real one made the result depend on
+      # which test ran first: another compile in this file would have created
+      # the same stray, and then the before-snapshot already contained it.
+      previous = ENV.fetch('TMPDIR', nil)
+      ENV['TMPDIR'] = sandbox
+      begin
+        Dir.mktmpdir do |dir|
+          Dir.chdir(dir) do
+            tmp_before = Dir.glob(File.join(Dir.tmpdir, '*'), File::FNM_DOTMATCH).sort
+            before = Dir.glob('**/*', File::FNM_DOTMATCH).sort
+            @c.compile(mode_name: 'masa', document: three_hook_doc)
+            @c.compile(mode_name: 'masa')
+            @c.compile(mode_name: 'x', document: doc)
+            assert_equal before, Dir.glob('**/*', File::FNM_DOTMATCH).sort,
+                         'compile must not touch the working directory'
+            assert_equal tmp_before,
+                         Dir.glob(File.join(Dir.tmpdir, '*'), File::FNM_DOTMATCH).sort,
+                         'nor anywhere reachable by an absolute path'
+          end
+        end
+      ensure
+        previous.nil? ? ENV.delete('TMPDIR') : ENV['TMPDIR'] = previous
       end
     end
+  end
+
+  # --- round 3 test debt ----------------------------------------------------
+
+  # Purity was asserted by compiling the same object twice, which cannot
+  # exercise canonicalisation at all: two equal documents whose keys were
+  # inserted in different orders would have produced different artifacts, and
+  # therefore different confirmation hashes, for the same declaration.
+  def test_two_equal_documents_with_different_key_order_compile_identically
+    a = { 'mode_name' => 'masa', 'version' => '1',
+          'hooks' => { 'Stop' => [{ 'gate' => 'readable_gate', 'section' => '§ S',
+                                    'params' => { 'max_lines' => 60, 'max_tables' => 2 } }] } }
+    b = { 'hooks' => { 'Stop' => [{ 'params' => { 'max_tables' => 2, 'max_lines' => 60 },
+                                    'section' => '§ S', 'gate' => 'readable_gate' }] },
+          'version' => '1', 'mode_name' => 'masa' }
+    refute_equal a.keys, b.keys, 'the fixture must actually differ in order'
+
+    ra = @c.compile(mode_name: 'masa', document: a)
+    rb = @c.compile(mode_name: 'masa', document: b)
+    assert ra.compiled? && rb.compiled?, 'both must compile'
+    assert_equal @c.canonical_json(ra.artifact), @c.canonical_json(rb.artifact)
+    assert_equal ra.record['output']['artifact_sha256'], rb.record['output']['artifact_sha256']
+    assert_equal ra.record['input']['document_sha256'], rb.record['input']['document_sha256'],
+                 'and the document hash the confirmation binds to is the same too'
+  end
+
+  # The mode declares whether a failure stops the turn. It reaches the gate
+  # through the compiled config file and nowhere else, and no test read it from
+  # there: every blocking test injected the flag straight into a gate config.
+  def test_the_declared_blocking_flag_reaches_the_gate_config
+    [true, false].each do |flag|
+      d = doc
+      d['hooks']['Stop'][0]['blocking'] = flag
+      result = @c.compile(mode_name: 'masa', document: d)
+      config = result.artifact['files'].values.first
+      assert_equal flag, JSON.parse(config)['blocking'],
+                   "a declared blocking:#{flag} must arrive as #{flag}"
+      assert_equal flag, result.record['output']['events']['Stop'][0]['blocking'],
+                   'and the record must say the same'
+    end
+  end
+
+  # The producer validates its own record against the schema and raises when it
+  # does not fit — a programmer fault, not a domain outcome. The comment claimed
+  # every other test in this file would surface a break in that guard; nothing
+  # did, because no test ever made a record that fails.
+  def test_a_record_that_does_not_fit_its_own_schema_raises
+    broken = @c.dup
+    def broken.build_record(*)
+      { 'record_version' => '1' } # missing every other required field
+    end
+    assert_raises(
+      KairosMcp::SkillSets::KairosHookProjector::ModeHooksCompiler::RecordSchemaDrift
+    ) { broken.compile(mode_name: 'masa', document: doc_for_drift) }
+  end
+
+  def doc_for_drift
+    { 'mode_name' => 'masa', 'version' => '1',
+      'hooks' => { 'Stop' => [{ 'gate' => 'readable_gate', 'section' => '§ S' }] } }
   end
 
   # --- Schema agreement between producer and consumer (DoD-S1-7) -----------

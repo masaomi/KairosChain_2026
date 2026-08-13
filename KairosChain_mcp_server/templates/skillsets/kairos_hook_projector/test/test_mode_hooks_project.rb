@@ -257,6 +257,32 @@ class TestModeHooksProject < Minitest::Test
   # refuses first, with a different category. The guard still has to hold on its
   # own terms, for a symlinked root and for a future compiler that generates one
   # more name part. Drive resolve directly rather than leave it unfalsifiable.
+  # Round 3 debt. The confirmation hash covers five components and only one of
+  # them — the document — was ever falsified. Dropping any of the other four
+  # left the suite green, and dropping the merged settings is the one that
+  # matters: a third party editing settings.json between proposal and apply
+  # would no longer invalidate the operator's confirmation.
+  def test_every_component_of_the_confirmation_hash_is_load_bearing
+    with_projector do |p, dir|
+      base = run_tool(p, {})['plan_sha256']
+
+      # A foreign hook appearing after the proposal changes the merged settings
+      # and nothing else this tool produces.
+      File.write(settings_path(dir),
+                 JSON.generate('hooks' => { 'Stop' => [{ 'hooks' => [{ 'command' => 'x.sh' }] }] }))
+      refute_equal base, run_tool(p, {})['plan_sha256'],
+                   'a change to the merged settings must change the hash'
+
+      # A threshold edit changes the artifact and the config file contents while
+      # leaving every command string identical.
+      File.write(settings_path(dir), JSON.generate({}))
+      restored = run_tool(p, {})['plan_sha256']
+      p.document = doc('max_lines' => 40)
+      refute_equal restored, run_tool(p, {})['plan_sha256'],
+                   'a change to the config file contents must change the hash'
+    end
+  end
+
   def test_a_config_filename_that_escapes_the_root_is_refused
     with_projector do |p, dir|
       artifact = { 'files' => { '../../pwned.json' => '{}' }, 'hooks' => {} }

@@ -13,6 +13,33 @@ require_relative '../lib/mode_hooks_schema'
 #   - §7.2 schema invariants: mode_name/version required, hooks optional,
 #     composition fields optional but accepted.
 class TestModeHooksSchema < Minitest::Test
+  S = KairosMcp::SkillSets::KairosHookProjector::ModeHooksSchema
+
+  # Round 3 debt. Both of these are what the module calls its important part,
+  # and nothing under test reached either: every schema in the suite uses only
+  # implemented keywords, and no document made the walk raise.
+
+  # Residual, found while writing this and left as a finding rather than fixed
+  # here: the scan only collects keys from nodes that already look like schema
+  # nodes, so a bare `{"allOf": [...]}` with no type/properties/items/enum/
+  # required beside it is not recognised and passes silently. The keyword is
+  # caught only when it sits on a node the scan recognises, which is what this
+  # asserts.
+  def test_a_schema_using_an_unimplemented_keyword_is_refused_not_passed
+    result = S.validate({ 'a' => 1 },
+                        'type' => 'object', 'allOf' => [{ 'type' => 'object' }])
+    refute result.valid?, 'a schema this validator cannot check must not pass'
+    assert_includes result.message, 'allOf'
+  end
+
+  def test_a_validator_that_raises_fails_closed
+    # A schema that is not an object at all: the walk raises rather than
+    # reporting, and a rescue that returned valid would compile the document.
+    result = S.validate({ 'a' => 1 }, 'not a schema')
+    refute result.valid?, 'a validator error must never be read as a pass'
+    assert_includes result.message, 'validator error'
+  end
+
   SKILLSET_ROOT = File.expand_path('..', __dir__)
   SCHEMA_PATH = File.join(SKILLSET_ROOT, 'mode_hooks', '_schema.json')
 

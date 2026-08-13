@@ -27,6 +27,16 @@ module KairosMcp
   end
 end unless defined?(::KairosMcp::Tools::BaseTool)
 
+# The tool resolves its project root through this accessor. Declared here as
+# well as in test_hooks_status, and guarded for the same reason as the stub
+# above: relying on another file to define it makes this file pass only when
+# that one loaded first.
+module KairosMcp
+  class << self
+    attr_accessor :project_root unless method_defined?(:project_root)
+  end
+end
+
 require_relative '../tools/mode_hooks_validate'
 require_relative '../lib/mode_hooks_compiler'
 
@@ -152,6 +162,30 @@ class TestModeHooksValidate < Minitest::Test
              .new.compile(mode_name: 'example', document: doc)
     assert result.compiled?, "shipped example must compile. Got: #{result.record['refusal'].inspect}"
     assert_equal 1, result.record.dig('output', 'hook_count')
+  end
+
+  # Round 3 debt. No test called this tool's entry point at all, so its
+  # boot-time assertion — the thing that makes "every tool but the projector
+  # writes nothing" checkable — was never armed. Inserting a write to the
+  # watched settings file into the tool body left the whole suite green.
+  def test_the_validate_tool_arms_its_assertion_and_touches_no_watched_file
+    Dir.mktmpdir do |root|
+      FileUtils.mkdir_p(File.join(root, '.claude'))
+      settings = File.join(root, '.claude', 'settings.json')
+      File.write(settings, JSON.generate('hooks' => {}, 'permissions' => { 'allow' => [] }))
+      before = File.read(settings)
+      ::KairosMcp.project_root = root
+      begin
+        body = JSON.parse(@t.call('mode' => 'a_mode_that_does_not_exist').first[:text])
+      ensure
+        ::KairosMcp.project_root = nil
+      end
+      refute_equal 'StructuralAssertionFailure', body['error'],
+                   "the tool wrote to a watched path: #{body.inspect}"
+      assert body.key?('error') || body.key?('mode'),
+             "the tool must return a body, got #{body.inspect}"
+      assert_equal before, File.read(settings), 'and the file is unchanged'
+    end
   end
 
   # --- installed-state check ------------------------------------------------
