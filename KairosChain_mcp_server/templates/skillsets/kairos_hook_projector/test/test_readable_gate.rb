@@ -458,6 +458,13 @@ class TestReadableGate < Minitest::Test
     end
   end
 
+  # The header states the exit status is always zero. This path said two, and
+  # two is what Claude Code reads as a blocking stop — reached by anyone who
+  # adds the executable to a hook by hand and forgets the argument.
+  def test_a_missing_config_argument_still_exits_zero
+    assert_equal 0, G.main([], StringIO.new('{}'))
+  end
+
   def test_stdin_that_is_not_an_object_is_treated_as_an_empty_payload
     Dir.mktmpdir do |tmp|
       log = File.join(tmp, 'gate.log')

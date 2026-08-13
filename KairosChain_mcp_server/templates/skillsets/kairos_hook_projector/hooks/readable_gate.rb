@@ -543,8 +543,14 @@ module KairosHookProjector
     def main(argv = ARGV, stdin = $stdin)
       config_path, report_paths = parse_args(argv)
       if config_path.nil?
-        warn 'readable_gate: --config is required'
-        return 2
+        # Zero, not two. The header two hundred lines up says the exit status is
+        # always zero because a gate fault must never wedge a session, and this
+        # was the one path that said otherwise — reached by anyone who adds the
+        # executable to a Stop hook by hand and forgets the argument, and
+        # reached before stdin is read, so the once-per-turn brake never applies
+        # either. The complaint goes to stderr, where the operator can see it.
+        warn 'readable_gate: --config is required; not run'
+        return 0
       end
 
       cfg = begin
