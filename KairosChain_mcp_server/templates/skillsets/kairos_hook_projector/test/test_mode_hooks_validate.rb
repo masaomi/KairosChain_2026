@@ -151,6 +151,27 @@ class TestModeHooksValidate < Minitest::Test
     end
   end
 
+  # A copier following the example's own instructions must reach a projection.
+  # Before this, they were refused twice: the mode_name field stayed "example"
+  # and the note did not say to change it, and then a placeholder body hash
+  # reported a drift that had not happened. Both refusals were reproduced by a
+  # reviewer walking the consumer's path.
+  def test_a_copy_of_the_shipped_example_compiles_after_the_documented_edits
+    raw = JSON.parse(File.read(File.join(SKILLSET_ROOT, 'mode_hooks', '_EXAMPLE.json')))
+    refute raw.key?('binding'),
+           'a shipped placeholder digest refuses every projection of a copy'
+
+    doc = strip_comments(raw)
+    doc['mode_name'] = 'mymode' # the one documented edit
+    result = KairosMcp::SkillSets::KairosHookProjector::ModeHooksCompiler
+             .new.compile(mode_name: 'mymode', document: doc,
+                          mode_body: "# My Mode\n\n## § Readable output\n60 lines.\n")
+    assert result.compiled?,
+           "a copy edited as the example instructs must compile. " \
+           "Got: #{result.record['refusal'].inspect}"
+    assert_equal 1, result.record.dig('output', 'hook_count')
+  end
+
   def test_shipped_example_validates_and_compiles
     schema = JSON.parse(File.read(File.join(SKILLSET_ROOT, 'mode_hooks', '_schema.json')))
     doc = strip_comments(JSON.parse(File.read(File.join(SKILLSET_ROOT, 'mode_hooks', '_EXAMPLE.json'))))
@@ -226,7 +247,7 @@ class TestModeHooksValidate < Minitest::Test
   def test_an_unrelated_hook_is_not_read_as_the_declared_one
     compiled = compiled_for_installed_test
     with_settings('Stop' => [{ 'hooks' => [{ 'command' => 'totally-unrelated-hook.sh' }] }]) do |root|
-      out = @t.send(:check_installed, compiled, root)
+      out = @t.send(:check_installed, compiled, root, 'testmode')
       assert_equal 'not_installed', out[:status],
                    'a foreign hook on the same event must not satisfy the check'
     end
@@ -236,13 +257,86 @@ class TestModeHooksValidate < Minitest::Test
   # matched on the executable name alone would still pass it. This one is the
   # same gate under a different mode's config — which is what a second mode, or
   # a config left behind by a renamed one, actually looks like on the event.
-  def test_another_modes_gate_on_the_same_event_is_not_the_declared_one
+  # The group carries both ownership markers on purpose. Once ownership is
+  # required, an unowned fixture is refused by the ownership check and the
+  # basename check behind it is never reached — which masked two mutations that
+  # had been red before ownership was added. This mode owning a group that runs
+  # a config it did not declare is exactly what a renamed section leaves behind.
+  def test_an_owned_group_running_a_different_config_is_not_the_declared_one
     compiled = compiled_for_installed_test
     other = 'kairos-readable-gate --config /somewhere/othermode.Stop.readable_gate.0.json'
-    with_settings('Stop' => [{ 'hooks' => [{ 'command' => other }] }]) do |root|
-      out = @t.send(:check_installed, compiled, root)
+    owned = { 'hooks' => [{ 'command' => other }],
+              '_projected_by' => 'kairos_hook_projector', '_mode' => 'testmode' }
+    with_settings('Stop' => [owned]) do |root|
+      out = @t.send(:check_installed, compiled, root, 'testmode')
+      # Both directions at once: the declared gate is absent, and the one that
+      # is there is no longer declared.
       assert_equal 'not_installed', out[:status],
                    'the same executable pointed at a different config is a different hook'
+      assert_equal 1, out[:stale].length, "and the extra one is reported: #{out.inspect}"
+    end
+  end
+
+  # The marker the reader extracts must be specific. When extraction fails it
+  # used to become the empty string, which every command contains — the round 1
+  # defect. The fixture is owned so the ownership check cannot refuse first.
+  def test_an_owned_group_whose_command_names_no_config_is_not_a_match
+    compiled = compiled_for_installed_test
+    owned = { 'hooks' => [{ 'command' => 'kairos-readable-gate' }],
+              '_projected_by' => 'kairos_hook_projector', '_mode' => 'testmode' }
+    with_settings('Stop' => [owned]) do |root|
+      out = @t.send(:check_installed, compiled, root, 'testmode')
+      assert_equal 'not_installed', out[:status],
+                   'a command naming no config must not satisfy the declared one'
+    end
+  end
+
+  # Ownership is an AND of two markers, and the reader has to apply both. A
+  # config basename on its own is evidence that SOMETHING runs that file, not
+  # that this tool installed it for this mode.
+  def test_an_unowned_group_running_the_right_config_is_not_evidence_of_installation
+    compiled = compiled_for_installed_test
+    argv = compiled.artifact['hooks']['Stop'].first['argv']
+    resolved = Shellwords.join(
+      argv.map { |a| a.gsub(KairosMcp::SkillSets::KairosHookProjector::ModeHooksCompiler::CONFIG_ROOT, '/somewhere/.kairos/hook_configs') }
+    )
+    [{ 'hooks' => [{ 'command' => resolved }] }, # no markers at all
+     { 'hooks' => [{ 'command' => resolved }], '_projected_by' => 'someone-else',
+       '_mode' => 'testmode' },                  # wrong tool
+     { 'hooks' => [{ 'command' => resolved }], '_projected_by' => 'kairos_hook_projector',
+       '_mode' => 'other' }].each do |group|     # wrong mode
+      with_settings('Stop' => [group]) do |root|
+        out = @t.send(:check_installed, compiled, root, 'testmode')
+        assert_equal 'not_installed', out[:status],
+                     "#{group.inspect} must not count as this mode's projection"
+      end
+    end
+  end
+
+  # The reverse direction. A withdrawn declaration used to report
+  # nothing_declared while the gate it had installed went on blocking every
+  # turn, which is the more dangerous of the two divergences.
+  def test_a_gate_the_declaration_no_longer_asks_for_is_reported_as_stale
+    empty = KairosMcp::SkillSets::KairosHookProjector::ModeHooksCompiler
+            .new.compile(mode_name: 'testmode',
+                         document: { 'mode_name' => 'testmode', 'version' => '1',
+                                     'hooks' => {} })
+    left_behind = { 'hooks' => [{ 'command' => 'kairos-readable-gate --config ' \
+                                               '/x/testmode.Stop.readable_gate.0.json' }],
+                    '_projected_by' => 'kairos_hook_projector', '_mode' => 'testmode' }
+    with_settings('Stop' => [left_behind]) do |root|
+      out = @t.send(:check_installed, empty, root, 'testmode')
+      assert_equal 'stale_installed', out[:status], out.inspect
+      assert_equal 1, out[:stale].length, out.inspect
+      assert_equal 'STALE_INSTALLED',
+                   @t.send(:verdict, checks(installed: out)), 'and it reaches the verdict'
+    end
+
+    # Another mode's leftovers are not this mode's business.
+    theirs = left_behind.merge('_mode' => 'other')
+    with_settings('Stop' => [theirs]) do |root|
+      out = @t.send(:check_installed, empty, root, 'testmode')
+      assert_equal 'nothing_declared', out[:status], out.inspect
     end
   end
 
@@ -265,15 +359,20 @@ class TestModeHooksValidate < Minitest::Test
     assert_equal resolved, Shellwords.split(installed),
                  'the joined command must split back into the same arguments'
 
-    with_settings('Stop' => [{ 'hooks' => [{ 'command' => installed }] }]) do |root|
-      out = @t.send(:check_installed, compiled, root)
+    # Both ownership markers, because the reader now requires both. Without
+    # them the group is somebody else's and reports not_installed, which is the
+    # point of the check above.
+    with_settings('Stop' => [{ 'hooks' => [{ 'command' => installed }],
+                               '_projected_by' => 'kairos_hook_projector',
+                               '_mode' => 'testmode' }]) do |root|
+      out = @t.send(:check_installed, compiled, root, 'testmode')
       assert_equal 'ok', out[:status], 'the same gate under a resolved path is installed'
     end
   end
 
   def test_no_settings_file_is_unknown_not_installed
     Dir.mktmpdir do |root|
-      out = @t.send(:check_installed, compiled_for_installed_test, root)
+      out = @t.send(:check_installed, compiled_for_installed_test, root, 'testmode')
       assert_equal 'unknown', out[:status],
                    'an absent settings file is not evidence that the hook is installed'
     end
@@ -292,7 +391,7 @@ class TestModeHooksValidate < Minitest::Test
     end.new
 
     with_settings('Stop' => [{ 'hooks' => [{ 'command' => 'anything at all' }] }]) do |root|
-      out = @t.send(:check_installed, fake, root)
+      out = @t.send(:check_installed, fake, root, 'testmode')
       assert_equal 'not_installed', out[:status],
                    'a command the check cannot identify must not be reported as present'
     end

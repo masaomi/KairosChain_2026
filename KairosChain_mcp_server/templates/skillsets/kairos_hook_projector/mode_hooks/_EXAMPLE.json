@@ -2,7 +2,20 @@
   "_comment": [
     "Worked example of a mode_hooks declaration. Not loaded: the compiler looks",
     "for <mode_name>.json / .yml, and this file is named EXAMPLE so it never",
-    "matches a mode. Copy it, rename it to your mode, and replace the numbers.",
+    "matches a mode.",
+    "",
+    "TO USE IT, two edits, and both are required:",
+    "  1. Copy it beside your mode body as <your mode>.mode_hooks.json.",
+    "  2. Change mode_name below to <your mode>. The file name and this field",
+    "     must agree; the compiler refuses a document that names a different",
+    "     mode than the one it is compiled as.",
+    "Then replace the numbers. It is worth running mode_hooks_validate before",
+    "mode_hooks_project: it reports what a copy still needs.",
+    "",
+    "The earlier version of this note said only 'rename it to your mode', and a",
+    "reader who did exactly that got a refusal naming a mismatch they had not",
+    "been told to fix, and then a second refusal about a drift that had not",
+    "happened, from the placeholder hash this file used to carry.",
     "",
     "The core ships the gate implementation and supplies no thresholds of its",
     "own. Every number, pattern, and message below belongs to the mode. That is",
@@ -13,11 +26,17 @@
   "mode_name": "example",
   "version": "1",
 
-  "binding": {
-    "_comment": "Pins this declaration to a revision of the mode body. When the body moves on, mode_hooks_validate reports DRIFT instead of silently enforcing yesterday's numbers. Omit the whole object to opt out of drift detection.",
-    "mode_version": "0.1.0",
-    "mode_body_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
-  },
+  "_binding_note": [
+    "Deliberately absent. `binding` pins a declaration to a revision of the mode",
+    "body: when the body moves on, mode_hooks_validate reports DRIFT instead of",
+    "silently enforcing yesterday's numbers. It is worth turning on, and it",
+    "cannot be shipped filled in — a placeholder hash matches no body, so every",
+    "projection of a copied file was refused for a drift that never happened.",
+    "",
+    "To turn it on, add this object and put your mode body's real digest in it:",
+    "  \"binding\": { \"mode_version\": \"0.1.0\", \"mode_body_sha256\": \"<digest>\" }",
+    "mode_hooks_validate prints the digest it computed, under mode_body.sha256."
+  ],
 
   "hooks": {
     "Stop": [

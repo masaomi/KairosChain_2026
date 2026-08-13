@@ -140,7 +140,7 @@ module KairosMcp
             checks[:drift] = check_drift(document, body, body_path)
             compiled = compile(mode, document, body)
             checks[:resolvable] = check_resolvable(compiled)
-            checks[:installed] = check_installed(compiled, project_root)
+            checks[:installed] = check_installed(compiled, project_root, mode)
 
             {
               mode: mode,
@@ -215,8 +215,25 @@ module KairosMcp
             end
           end
 
-          # What the declaration compiles to vs what the harness actually runs.
-          def check_installed(compiled, project_root)
+          # Ownership is an AND of two markers and this is the reader's half of
+          # it. Matching a config basename alone accepted a group placed by
+          # anything at all — another tool, a hand-written hook — as evidence
+          # that this mode's projection was installed.
+          MARKER_KEY = '_projected_by'
+          MARKER = 'kairos_hook_projector'
+          OWNER_KEY = '_mode'
+
+          def ours?(group, mode)
+            group.is_a?(Hash) && group[MARKER_KEY] == MARKER && group[OWNER_KEY] == mode
+          end
+
+          # What the declaration compiles to vs what the harness actually runs,
+          # in both directions. The forward direction — every declared hook is
+          # installed — was already checked. The reverse was not: emptying a
+          # declaration reported `nothing_declared` while the gate it used to
+          # declare stayed in settings.json and went on blocking turns, and the
+          # operator was told nothing was wrong.
+          def check_installed(compiled, project_root, mode)
             settings_path = File.join(project_root.to_s, '.claude', 'settings.json')
             unless File.exist?(settings_path)
               return { status: 'unknown', detail: 'no .claude/settings.json' }
@@ -239,20 +256,44 @@ module KairosMcp
                 marker = Array(entry['argv']).map { |a| File.basename(a.to_s) }
                                              .find { |a| a.end_with?('.json') }
                 present = !marker.nil? && Array(installed[event]).any? do |group|
-                  Array(group['hooks']).any? { |h| h['command'].to_s.include?(marker) }
+                  ours?(group, mode) &&
+                    Array(group['hooks']).any? { |h| h['command'].to_s.include?(marker) }
                 end
                 missing << { event: event, command: entry['command'] } unless present
               end
             end
 
-            if missing.empty?
-              { status: wanted.empty? ? 'nothing_declared' : 'ok',
-                detail: wanted.empty? ? 'declaration installs no hooks' :
-                        'every declared hook is present in the harness config' }
-            else
-              { status: 'not_installed', missing: missing,
+            # The other direction: entries this mode owns that the declaration
+            # no longer asks for. A withdrawn gate is still live until a
+            # projection removes it, and the operator has to be told.
+            declared_markers = wanted.values.flatten.filter_map do |entry|
+              Array(entry['argv']).map { |a| File.basename(a.to_s) }
+                                  .find { |a| a.end_with?('.json') }
+            end
+            stale = installed.flat_map do |event, groups|
+              Array(groups).select { |g| ours?(g, mode) }.flat_map do |group|
+                Array(group['hooks']).filter_map do |h|
+                  cmd = h['command'].to_s
+                  next if declared_markers.any? { |m| cmd.include?(m) }
+
+                  { event: event, command: cmd }
+                end
+              end
+            end
+
+            if !missing.empty?
+              { status: 'not_installed', missing: missing, stale: stale,
                 remedy: 'run `kairos-chain mode project` to install; it reports the ' \
                         'diff and asks before writing' }
+            elsif !stale.empty?
+              { status: 'stale_installed', stale: stale,
+                detail: 'the harness still runs hooks this mode no longer declares',
+                remedy: 'run `kairos-chain mode project` to remove them; it reports the ' \
+                        'diff and asks before writing' }
+            else
+              { status: wanted.empty? ? 'nothing_declared' : 'ok',
+                detail: wanted.empty? ? 'declaration installs no hooks, and none is installed' :
+                        'every declared hook is present in the harness config' }
             end
           end
 
@@ -262,6 +303,10 @@ module KairosMcp
             return 'DRIFT' if checks[:drift][:status] == 'drift'
             return 'REFUSED' if checks[:resolvable][:status] == 'refused'
             return 'NOT_INSTALLED' if checks[:installed][:status] == 'not_installed'
+            # A live gate the declaration has withdrawn is a divergence between
+            # the mode and the harness, the same as a missing one, and it is the
+            # more dangerous direction: the withdrawn gate is still blocking.
+            return 'STALE_INSTALLED' if checks[:installed][:status] == 'stale_installed'
             return 'OPEN_QUESTIONS' if checks[:declared][:status] == 'open'
 
             'OK'
