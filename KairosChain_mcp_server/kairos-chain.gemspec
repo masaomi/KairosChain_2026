@@ -39,17 +39,22 @@ Gem::Specification.new do |spec|
   spec.metadata['changelog_uri'] =
     "#{spec.homepage}/blob/main/KairosChain_mcp_server/CHANGELOG.md"
 
-  # Include library code, executable, templates, and config
-  spec.files = Dir[
-    'lib/**/*.rb',
-    'lib/**/*.erb',     # Admin UI ERB templates
-    'bin/*',
-    'templates/**/*',
-    'templates/**/.*',  # Include .gitkeep files
-    'LICENSE',
-    'README.md',
-    'CHANGELOG.md'
-  ].reject { |p| p.include?('__pycache__') || p.end_with?('.pyc') }
+  # Include library code, executable, templates, and config.
+  # Anchored to this file's own directory: a bare Dir[] globs relative to the
+  # CWD, so `gem build` from anywhere but here silently packaged a different
+  # tree under the same version number.
+  spec.files = Dir.chdir(__dir__) do
+    Dir[
+      'lib/**/*.rb',
+      'lib/**/*.erb',     # Admin UI ERB templates
+      'bin/*',
+      'templates/**/*',
+      'templates/**/.*',  # Include .gitkeep files
+      'LICENSE',
+      'README.md',
+      'CHANGELOG.md'
+    ].reject { |p| p.include?('__pycache__') || p.end_with?('.pyc') }
+  end
   # The globs above walk the filesystem rather than asking git, so anything a
   # tool leaves behind under templates/ ships. Running a Python script in
   # templates/knowledge/*/scripts/ writes bytecode next to it, which is both

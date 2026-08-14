@@ -249,9 +249,10 @@ module KairosHookProjector
 
     def text_of(row)
       # Every level is guarded. The readers deliberately tolerate malformed
-      # lines, so a record with a null message or a content list holding
-      # non-objects reaches here, and assuming shape after tolerating its
-      # absence raised out of the fail-open path.
+      # lines, so a record with a null message, a content list holding
+      # non-objects, or a text value that is not a string reaches here, and
+      # assuming shape after tolerating its absence raised out of the
+      # fail-open path.
       return nil unless row.is_a?(Hash)
 
       message = row['message']
@@ -262,8 +263,8 @@ module KairosHookProjector
       return nil unless content.is_a?(Array)
 
       parts = content.select { |c| c.is_a?(Hash) && c['type'] == 'text' }
-                     .map { |c| c.fetch('text', '') }
-      joined = parts.reject { |p| p.nil? || p.empty? }.join("\n")
+                     .map { |c| c['text'] }
+      joined = parts.grep(String).reject(&:empty?).join("\n")
       joined.empty? ? nil : joined
     end
 

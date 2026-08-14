@@ -135,9 +135,11 @@ File.write(transcript, JSON.generate(
 ) + "\n")
 exe = File.join(GEMS, 'bin', 'kairos-readable-gate')
 ok(checks, 'the executable is on the installed bin path', File.executable?(exe), exe)
+# No rescue here: a gate that cannot even be invoked must crash this script,
+# not degrade into an ordinary FAIL indistinguishable from a gate that ran.
 out = `GEM_HOME=#{GEMS} GEM_PATH=#{GEMS} #{Shellwords.escape(exe)} --config #{Shellwords.escape(cfg_path.to_s)} <<'IN'
 #{JSON.generate('transcript_path' => transcript, 'stop_hook_active' => false)}
-IN` rescue ''
+IN`
 ok(checks, 'the gate measured and reported', out.include?('readable') || out.include?('LENGTH'),
    out[0, 200])
 ok(checks, 'the gate wrote its log', File.file?(File.join(PROJECT, 'gate.log')))
@@ -146,4 +148,6 @@ puts
 puts format('%-46s %s', 'CHECK', 'RESULT')
 checks.each { |n, r| puts format('%-46s %s', n, r) }
 puts
-puts checks.all? { |_, r| r == 'PASS' } ? 'ALL CHECKS PASS' : 'SOME CHECKS FAILED'
+all_pass = checks.all? { |_, r| r == 'PASS' }
+puts all_pass ? 'ALL CHECKS PASS' : 'SOME CHECKS FAILED'
+exit 1 unless all_pass

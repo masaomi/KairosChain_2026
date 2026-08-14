@@ -20,7 +20,15 @@
     "The core ships the gate implementation and supplies no thresholds of its",
     "own. Every number, pattern, and message below belongs to the mode. That is",
     "the whole split: the core guarantees a declared norm is checkable, never",
-    "what the norm says."
+    "what the norm says.",
+    "",
+    "The gate appends one line to log_path on every turn it measures — a",
+    "write made when the gate runs, not when mode_hooks_project applies, so",
+    "it is not in the applied write set. The gate resolves log_path with",
+    "File.expand_path against its own working directory, so a bare relative",
+    "path scatters logs across whatever directory the gate happens to start",
+    "in. The ~ form below expands to the home directory and lands in the same",
+    "place no matter where the gate starts."
   ],
 
   "mode_name": "example",

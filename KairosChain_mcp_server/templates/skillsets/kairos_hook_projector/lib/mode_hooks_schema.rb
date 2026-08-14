@@ -58,7 +58,7 @@ module KairosMcp
         end
 
         def load_schema(path)
-          JSON.parse(File.read(path))
+          JSON.parse(File.read(path, encoding: 'UTF-8'))
         end
 
         # Walks the whole schema so an unimplemented construct is caught before

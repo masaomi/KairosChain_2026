@@ -2,6 +2,7 @@
 
 require 'json'
 require 'digest'
+require 'shellwords'
 require_relative '../lib/boot_time_assertion'
 require_relative '../lib/mode_hooks_compiler'
 require_relative '../lib/mode_hooks_locator'
@@ -131,7 +132,7 @@ module KairosMcp
               return { mode: mode, error: 'mode_body_not_found', looked_at: body_path }
             end
 
-            body = File.read(body_path)
+            body = File.read(body_path, encoding: 'UTF-8')
             doc_path = document_path(mode, body_path)
             document = doc_path ? load_document(doc_path) : nil
 
@@ -227,6 +228,97 @@ module KairosMcp
             group.is_a?(Hash) && group[MARKER_KEY] == MARKER && group[OWNER_KEY] == mode
           end
 
+          # An installed command is the Shellwords join of an argv, so the
+          # config argument is recovered by splitting it back and compared
+          # whole. Substring inclusion matched in both directions a basename
+          # that merely contains the declared one — `readable_gate.0.json.bak`
+          # passed for `readable_gate.0.json`. The full path is returned, not
+          # its basename: an earlier version threw the path away, so a config
+          # that had been moved or deleted still validated as `installed: ok`
+          # while the gate it configured found nothing and enforced nothing.
+          # A command that names no config, or cannot be split, yields nil and
+          # matches nothing.
+          def config_path(command)
+            Shellwords.split(command.to_s)
+                      .find { |a| File.basename(a).end_with?('.json') }
+          rescue ArgumentError
+            nil
+          end
+
+          # The full command the projector would install for a declared argv:
+          # the Shellwords join of the whole substituted array, executable and
+          # every flag included — the same string resolve() hands the harness.
+          # The artifact's argv carries CONFIG_ROOT as a token, not a resolved
+          # path, so the substitution root here is the one fact validate has
+          # always trusted: the config root the installed command itself
+          # carries. Round 8 compared ownership, the config BASENAME, and the
+          # config BYTES, and never the command around them, so an owned
+          # `/bin/true --config <the correct config>` read `installed: ok`
+          # while the gate never ran. Comparing the whole command tightens the
+          # existing equality — plan_for already compares full command strings
+          # inside its settings comparison, so this closes the
+          # executable-element route on which the two tools could disagree.
+          def expected_command(argv, installed_config_path)
+            root = File.dirname(installed_config_path)
+            Shellwords.join(Array(argv).map do |a|
+              a.to_s.gsub(ModeHooksCompiler::CONFIG_ROOT, root)
+            end)
+          end
+
+          # The bytes of a config file, or nil for anything the gate itself
+          # could not read there: a missing file, a directory, an unreadable
+          # one. Round 8 read with a bare File.read, and one chmod-000 config
+          # collapsed the whole answer into `{"error":"Errno::EACCES"}` — no
+          # verdict, no drift check, no resolvability check, and no
+          # boot_time_assertion marker, since call's rescue sits outside
+          # verify_post!. Unreadable degrades the one check that looked, the
+          # same way absent always has.
+          def config_bytes(path)
+            return nil unless File.file?(path)
+
+            File.read(path, encoding: 'UTF-8')
+          rescue SystemCallError
+            nil
+          end
+
+          # The hooks table of the settings file, or nil plus the reason.
+          # What reaches this rescue through the tool surface is the
+          # parse-and-shape family: unparseable JSON (a trailing comma, zero
+          # bytes, a truncation), a top level that is not an object, or a
+          # `hooks` value that is not an object. A file the read itself
+          # refuses — chmod 000, a directory at the path — never arrives
+          # here through call: BootTimeAssertion#snapshot hashes this same
+          # watched file inside snapshot_pre!, before validate is entered,
+          # so the SystemCallError surfaces from there as an error body — no
+          # verdict, no checks, no boot_time_assertion marker. Measured in
+          # round 10 through the real call, both states; the same states
+          # driven at the check level, below the assertion, degrade cleanly,
+          # which is what the SystemCallError arm below is for. Whether the
+          # surface should answer with a verdict when the watched path
+          # itself is unhashable is an operator question about what the
+          # structural assertion means, not something this rescue decides.
+          # config_bytes above is the round 8 repair of this exact shape for
+          # CONFIG files; the settings file — this tool's actual subject,
+          # and the one Claude Code writes itself — kept the bare
+          # JSON.parse(File.read(...)), so one trailing comma collapsed the
+          # whole answer into an error body of the same kind, because call's
+          # rescue sits outside verify_post!. What cannot be read as a
+          # settings object degrades to the `unknown` an absent settings
+          # file has always produced — in both states what is installed
+          # cannot be determined, and the UNKNOWN_INSTALLED verdict already
+          # says unanswered is not OK.
+          def settings_hooks(path)
+            parsed = JSON.parse(File.read(path, encoding: 'UTF-8'))
+            return [nil, "top level is #{parsed.class}, not an object"] unless parsed.is_a?(Hash)
+
+            hooks = parsed['hooks'] || {}
+            return [nil, "`hooks` is #{hooks.class}, not an object"] unless hooks.is_a?(Hash)
+
+            [hooks, nil]
+          rescue JSON::ParserError, SystemCallError => e
+            [nil, e.message]
+          end
+
           # What the declaration compiles to vs what the harness actually runs,
           # in both directions. The forward direction — every declared hook is
           # installed — was already checked. The reverse was not: emptying a
@@ -239,10 +331,36 @@ module KairosMcp
               return { status: 'unknown', detail: 'no .claude/settings.json' }
             end
 
-            installed = JSON.parse(File.read(settings_path))['hooks'] || {}
+            installed, unreadable = settings_hooks(settings_path)
+            if installed.nil?
+              # DD-16 (round 10): this was the only non-ok installed status
+              # shipping no remedy — the operator got UNKNOWN_INSTALLED, a
+              # reason, and no instruction. The remedy cannot be the three
+              # siblings' "run the mode_hooks_project tool": the projector's
+              # read_settings raises "refusing to rewrite it" on exactly
+              # these inputs. The honest instruction is hand repair, guided
+              # by the reason the detail carries.
+              return { status: 'unknown',
+                       detail: "#{settings_path} cannot be read as a settings object " \
+                               "(#{unreadable}); what is installed cannot be determined",
+                       remedy: 'repair the settings file by hand — the detail names ' \
+                               'the file and, for a parse error, the position of the ' \
+                               'typo; the mode_hooks_project tool refuses to rewrite ' \
+                               'what it cannot read as settings. A file this process ' \
+                               'cannot read at all needs its access restored first, ' \
+                               'and that repair may not be yours to make' }
+            end
+
             wanted = compiled&.compiled? ? compiled.artifact['hooks'] : {}
+            # The expected bytes come with the artifact: `files` maps each
+            # config basename to the canonical JSON the projector writes
+            # verbatim, so equality against a file on disk here is the same
+            # equality plan_for applies when it decides config_changed. The
+            # `|| {}` covers artifact-shaped doubles that carry no files key.
+            wanted_files = compiled&.compiled? ? compiled.artifact['files'] || {} : {}
 
             missing = []
+            wanted_argv = {}
             wanted.each do |event, entries|
               entries.each do |entry|
                 # The artifact carries a structured argument array, so the
@@ -255,26 +373,86 @@ module KairosMcp
                 # rather than matching everything.
                 marker = Array(entry['argv']).map { |a| File.basename(a.to_s) }
                                              .find { |a| a.end_with?('.json') }
-                present = !marker.nil? && Array(installed[event]).any? do |group|
-                  ours?(group, mode) &&
-                    Array(group['hooks']).any? { |h| h['command'].to_s.include?(marker) }
-                end
-                missing << { event: event, command: entry['command'] } unless present
+                wanted_argv[marker] = entry['argv'] if marker
+                # Present means enforcing: the installed command must BE the
+                # declared one — the full expected command, not merely one
+                # naming the declared config — over a file still readable at
+                # the path the command carries, with the bytes the declaration
+                # compiles to. Byte equality alone left the executable and
+                # every other argument uncompared, so an owned
+                # `/bin/true --config <the correct config>` reported
+                # `installed: ok` while nothing enforced (round 9, N1). The
+                # filename encodes mode, event, gate, and position and nothing
+                # else, so name-plus-existence reported `installed: ok` across
+                # every parameter change — while the projector, comparing the
+                # same bytes, correctly reported a pending write. A marker the
+                # artifact carries no bytes for can never be present.
+                present = !marker.nil? && !wanted_files[marker].nil? &&
+                          Array(installed[event]).any? do |group|
+                            ours?(group, mode) &&
+                              Array(group['hooks']).any? do |h|
+                                path = config_path(h['command'])
+                                !path.nil? &&
+                                  h['command'].to_s == expected_command(entry['argv'], path) &&
+                                  config_bytes(path) == wanted_files[marker]
+                              end
+                          end
+                missing << { event: event, config: marker } unless present
               end
             end
 
-            # The other direction: entries this mode owns that the declaration
-            # no longer asks for. A withdrawn gate is still live until a
-            # projection removes it, and the operator has to be told.
-            declared_markers = wanted.values.flatten.filter_map do |entry|
-              Array(entry['argv']).map { |a| File.basename(a.to_s) }
-                                  .find { |a| a.end_with?('.json') }
+            # Byte equality is strict on purpose — plan_for decides
+            # config_changed with the same comparison, and relaxing one side
+            # alone re-opens the validate-versus-projector disagreement that
+            # round 8 closed. But the strictness is about the equality, not
+            # the label: a missing entry whose declared basename is carried by
+            # a live owned command over a still-readable file is not absent.
+            # That gate is installed and firing — after a trailing newline
+            # from an editor's save, an operator's hand edit, or an upgrade
+            # past a compiler that emits different bytes — and answering
+            # `not_installed` with a remedy saying to install was the round 8
+            # defect this partition removes. Since round 9 tightened `present`
+            # to the whole command, a declared config run by the wrong command
+            # arrives here too: live and readable, so it reports as diverged,
+            # and re-applying restores the declared command the same way it
+            # restores declared bytes.
+            diverged, missing = missing.partition do |m|
+              Array(installed[m[:event]]).any? do |group|
+                ours?(group, mode) && Array(group['hooks']).any? do |h|
+                  path = config_path(h['command'])
+                  !path.nil? && File.basename(path) == m[:config] && !config_bytes(path).nil?
+                end
+              end
             end
+
+            # The other direction: entries this mode owns that realize no
+            # declared hook. Exclusive with `missing` and `diverged`, by
+            # operator ruling 甲 (2026-08-14) — reversing round 8, whose
+            # filter admitted every byte-unequal owned entry, so a live,
+            # currently-declared gate appeared under `stale` while the same
+            # config was reported `diverged`, and a vanished declared config
+            # was reported twice, once as its missing declaration and once as
+            # its dead command. The stale_installed branch's own detail —
+            # "hooks this mode no longer declares" — was false of both. Each
+            # defect now reports exactly once: a declared config that fails
+            # its equality is `missing` or `diverged`, and `stale` keeps only
+            # what nothing else reports — an undeclared basename (a withdrawn
+            # gate), a command naming no config, or a surplus owned copy
+            # beside a valid realization of the same config, which is a hook
+            # the declaration does not ask for. Verdict order is unaffected:
+            # not_installed and diverged both outrank stale_installed.
+            reported = (missing + diverged).map { |m| m[:config] }
             stale = installed.flat_map do |event, groups|
               Array(groups).select { |g| ours?(g, mode) }.flat_map do |group|
                 Array(group['hooks']).filter_map do |h|
                   cmd = h['command'].to_s
-                  next if declared_markers.any? { |m| cmd.include?(m) }
+                  path = config_path(cmd)
+                  base = path && File.basename(path)
+                  next if base && reported.include?(base)
+
+                  declared = base && wanted_files[base]
+                  next if !declared.nil? && cmd == expected_command(wanted_argv[base], path) &&
+                          config_bytes(path) == declared
 
                   { event: event, command: cmd }
                 end
@@ -282,13 +460,20 @@ module KairosMcp
             end
 
             if !missing.empty?
-              { status: 'not_installed', missing: missing, stale: stale,
-                remedy: 'run `kairos-chain mode project` to install; it reports the ' \
+              { status: 'not_installed', missing: missing, diverged: diverged, stale: stale,
+                remedy: 'run the mode_hooks_project tool to install; it reports the ' \
                         'diff and asks before writing' }
+            elsif !diverged.empty?
+              { status: 'diverged', diverged: diverged, stale: stale,
+                detail: 'a declared gate is installed and live, and what runs no longer ' \
+                        'matches what the declaration compiles to — its config bytes ' \
+                        'or its command',
+                remedy: 'run the mode_hooks_project tool to re-apply; it restores the ' \
+                        'declared bytes, reports the diff and asks before writing' }
             elsif !stale.empty?
               { status: 'stale_installed', stale: stale,
                 detail: 'the harness still runs hooks this mode no longer declares',
-                remedy: 'run `kairos-chain mode project` to remove them; it reports the ' \
+                remedy: 'run the mode_hooks_project tool to remove them; it reports the ' \
                         'diff and asks before writing' }
             else
               { status: wanted.empty? ? 'nothing_declared' : 'ok',
@@ -303,10 +488,22 @@ module KairosMcp
             return 'DRIFT' if checks[:drift][:status] == 'drift'
             return 'REFUSED' if checks[:resolvable][:status] == 'refused'
             return 'NOT_INSTALLED' if checks[:installed][:status] == 'not_installed'
+            # A declared gate that is installed and live but whose config no
+            # longer carries the compiled bytes is not absence. Round 8
+            # labeled it `not_installed` and told the operator to install —
+            # about a blocking gate that was already firing on every turn.
+            return 'DIVERGED' if checks[:installed][:status] == 'diverged'
             # A live gate the declaration has withdrawn is a divergence between
             # the mode and the harness, the same as a missing one, and it is the
             # more dangerous direction: the withdrawn gate is still blocking.
             return 'STALE_INSTALLED' if checks[:installed][:status] == 'stale_installed'
+            # Unanswered is not OK. The installed check answers 'unknown' when
+            # there is no .claude/settings.json to read — which is what a fresh
+            # project looks like, since Claude Code writes settings.local.json
+            # for permissions — and the fall-through here told exactly that
+            # consumer, on their first validate, that everything was fine
+            # before anything had been installed.
+            return 'UNKNOWN_INSTALLED' if checks[:installed][:status] == 'unknown'
             return 'OPEN_QUESTIONS' if checks[:declared][:status] == 'open'
 
             'OK'

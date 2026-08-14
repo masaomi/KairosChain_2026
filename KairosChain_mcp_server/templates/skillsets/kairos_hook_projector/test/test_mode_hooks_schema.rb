@@ -44,7 +44,12 @@ class TestModeHooksSchema < Minitest::Test
   SCHEMA_PATH = File.join(SKILLSET_ROOT, 'mode_hooks', '_schema.json')
 
   def setup
-    @schema = JSON.parse(File.read(SCHEMA_PATH))
+    # Through the shipped reader, not a duplicated test-side File.read. The
+    # shipped _schema.json carries non-ASCII (§ and — in its descriptions),
+    # so this load is the one that raises when load_schema loses its encoding
+    # argument under a US-ASCII locale — a test-side read with its own
+    # encoding could not see that loss.
+    @schema = S.load_schema(SCHEMA_PATH)
   end
 
   # Test 1 (happy path, DoD-0-2): a minimal valid document with only the

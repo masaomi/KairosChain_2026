@@ -117,7 +117,7 @@ module KairosMcp
 
             document = load_document(mode, body_path)
             compiled = ModeHooksCompiler.new.compile(
-              mode_name: mode, document: document, mode_body: File.read(body_path)
+              mode_name: mode, document: document, mode_body: File.read(body_path, encoding: 'UTF-8')
             )
 
             if compiled.refused?
@@ -224,17 +224,38 @@ module KairosMcp
 
             settings_changed = canonical(current) != canonical(desired)
             config_changed = resolved['files'].reject do |path, content|
-              File.exist?(path) && File.read(path) == content
+              config_bytes(path) == content
             end.keys.map { |p| File.basename(p) }
 
             {
               desired: desired,
               settings_changed: settings_changed,
               config_changed: config_changed,
+              # The one definition of idleness. proposal reports it and apply!
+              # honours it; computing it twice is how the two disagreed.
+              idle: !settings_changed && config_changed.empty?,
               left_alone: count_entries_left_alone(current, mode),
               settings_path: resolved['settings_path'],
               plan_sha256: plan_hash(resolved, desired, compiled)
             }
+          end
+
+          # The bytes of a config file, or nil for anything that cannot be
+          # read there: a missing file, a directory, an unreadable one. The
+          # validator closed this class twice — its config_bytes in round 8,
+          # its settings_hooks in round 9 — while this side's read kept the
+          # bare File.read, so one chmod-000 config turned the whole proposal
+          # into a raw Errno::EACCES body (round 10, DD-5; reachable, since
+          # no BootTimeAssertion runs ahead of the read here). Unreadable
+          # degrades to "not known to carry the desired bytes": the config
+          # joins the write set and the apply restores the declared bytes
+          # over it.
+          def config_bytes(path)
+            return nil unless File.file?(path)
+
+            File.read(path, encoding: 'UTF-8')
+          rescue SystemCallError
+            nil
           end
 
           # Binds everything an operator is agreeing to: the compiled artifact,
@@ -263,9 +284,10 @@ module KairosMcp
           # operator's file, and this tool is a guest in one key of it.
           #
           # That survival is a property of the merge, NOT of the write, and the
-          # difference is load-bearing. `apply!` writes the document this merge
-          # produced from a read taken earlier, and `record_to_chain` sits
-          # between the two taking a lock on the ledger, which can block for as
+          # difference is load-bearing. When the plan names settings.json in
+          # its write set, `apply!` writes the document this merge produced
+          # from a read taken earlier, and `record_to_chain` sits between the
+          # two taking a lock on the ledger, which can block for as
           # long as another process holds it. Anything written to settings.json
           # inside that window is overwritten by the earlier snapshot. Claude
           # Code writes this file itself — clicking "always allow" on a
@@ -316,11 +338,12 @@ module KairosMcp
           end
 
           def proposal(mode, plan, compiled)
-            idle = !plan[:settings_changed] && plan[:config_changed].empty?
+            idle = plan[:idle]
             # The write set is stated in full, including the config files. An
             # earlier version listed the settings file alone and listed nothing
-            # at all for an idle plan, while apply still rewrote every config and
-            # chain-recorded — an operator confirming an understated write set.
+            # at all for an idle plan — and apply! rewrote every config and
+            # chain-recorded regardless, until it was made to return on the
+            # same plan[:idle] this reports. An empty write set is binding.
             writes = []
             writes << plan[:settings_path] if plan[:settings_changed]
             writes.concat(plan[:config_changed].map { |n| File.join(config_dir, n) })
@@ -344,6 +367,10 @@ module KairosMcp
           # --- application ---------------------------------------------------
 
           def apply!(mode, resolved, plan, compiled)
+            # An idle plan promised no write and no chain record; keep the
+            # promise before the recorder, the first mutation below.
+            return { mode: mode, action: 'up_to_date', nothing_written: true } if plan[:idle]
+
             # Record before anything is created, not merely before the file
             # contents are written: making the directories first left them
             # behind on a refusal, which is a change to disk on a path that
@@ -363,27 +390,81 @@ module KairosMcp
 
             FileUtils.mkdir_p(resolved['config_root'])
             FileUtils.mkdir_p(File.dirname(plan[:settings_path]))
-            # Referents before the referrer: an interrupted apply leaves an
-            # unreferenced config file, never a hook pointing at a config that
-            # is not there.
-            resolved['files'].each { |path, content| atomic_write(path, content) }
-            atomic_write(plan[:settings_path], JSON.pretty_generate(plan[:desired]) + "\n")
+            # Referents before the referrer: an interrupted apply can leave an
+            # unreferenced config file, never a newly written hook pointing at
+            # a config that is not there.
+            #
+            # Only the configs the plan named. writes_if_applied lists
+            # config_changed and the confirmed hash binds that plan; writing
+            # every resolved file performed writes the operator never
+            # confirmed — identical bytes on a fresh inode, on a mixed apply
+            # whose proposal named one config (round 10, DD-4). plan_for ran
+            # fresh in this same call, so a skipped config already carries
+            # the desired bytes as read moments ago, and the referent
+            # ordering above holds for it the same way it holds for the
+            # skipped settings write below.
+            written = resolved['files'].select do |path, _|
+              plan[:config_changed].include?(File.basename(path))
+            end
+            written.each { |path, content| atomic_write(path, content) }
+            # Only when the plan named it. The proposal puts settings.json in
+            # writes_if_applied only when plan[:settings_changed], and the
+            # confirmed hash binds that plan; writing the file regardless
+            # replayed a snapshot taken before record_to_chain's ledger wait
+            # over anything a concurrent writer — Claude Code recording an
+            # "always allow", ordinarily — put there in between, on applies
+            # whose plan never named the file. plan_for runs fresh inside this
+            # call, so the flag reflects the file as read in this same call,
+            # not at proposal time; and a skipped write means the file already
+            # carries the desired state, including its references to the
+            # configs written just above — the ordering claim holds either way.
+            if plan[:settings_changed]
+              atomic_write(plan[:settings_path], JSON.pretty_generate(plan[:desired]) + "\n")
+            end
 
-            {
+            # The result names only what this call wrote. Round 8 taught the
+            # proposal to name only what it will write; the result kept naming
+            # settings.json — and claiming the hook live — on applies whose
+            # plan never opened it. Under the window documented at ours? (a
+            # writer landing while record_to_chain waits on the ledger), that
+            # read as "applied, hook live" over a settings.json the concurrent
+            # writer had just emptied. The window stays open per the
+            # 2026-08-13 ruling — no lock, no re-read; what closes here is the
+            # report overstating its write set. Liveness is a fresh read's
+            # question, and mode_hooks_validate's installed check is what
+            # does that read — NOT hooks_status, which never opens
+            # settings.json's hooks table and reports which declarations
+            # exist, not what is installed (its own note and plugin/SKILL.md
+            # both say so; round 10, DD-1). And on the settings-changed
+            # branch the write may as easily be a removal — emptying a
+            # declaration's hooks is the documented uninstall — so the
+            # result states what was written and asserts no liveness in
+            # either direction.
+            result = {
               mode: mode,
               action: 'applied',
-              settings_file: plan[:settings_path],
-              config_files: resolved['files'].keys,
+              config_files: written.keys,
               entries_left_alone: plan[:left_alone],
-              chain: chain,
-              next_step: 'the hook is live on the next turn; no further step'
+              chain: chain
             }
+            if plan[:settings_changed]
+              result[:settings_file] = plan[:settings_path]
+              result[:next_step] = 'settings.json was rewritten to the confirmed plan. ' \
+                                   "Liveness is a fresh read's question: " \
+                                   "mode_hooks_validate's installed check does that read."
+            else
+              result[:next_step] = 'config updated; settings.json was already in the ' \
+                                   'desired state when this plan read it and was not ' \
+                                   "written. mode_hooks_validate's installed check " \
+                                   'reports what is installed.'
+            end
+            result
           end
 
           def atomic_write(path, content)
             FileUtils.mkdir_p(File.dirname(path))
             tmp = "#{path}.tmp.#{Process.pid}.#{object_id}"
-            File.write(tmp, content)
+            File.write(tmp, content, encoding: 'UTF-8')
             File.rename(tmp, path)
           end
 
@@ -427,7 +508,7 @@ module KairosMcp
           def read_settings(path)
             return {} unless File.exist?(path)
 
-            parsed = JSON.parse(File.read(path))
+            parsed = JSON.parse(File.read(path, encoding: 'UTF-8'))
             raise "#{path}: the top level is not an object; refusing to rewrite it" unless
               parsed.is_a?(Hash)
 

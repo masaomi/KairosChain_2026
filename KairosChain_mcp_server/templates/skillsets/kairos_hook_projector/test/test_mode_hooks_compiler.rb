@@ -11,11 +11,15 @@ require_relative '../lib/mode_hooks_compiler'
 # Design: docs/drafts/kairos_hook_projector_stage1_design_v0.2_draft.md
 class TestModeHooksCompiler < Minitest::Test
   SKILLSET_ROOT = File.expand_path('..', __dir__)
-  RECORD_SCHEMA = JSON.parse(
-    File.read(File.join(SKILLSET_ROOT, 'mode_hooks', '_record_schema.json'))
+  # Through the shipped reader, not a duplicated test-side File.read. Both
+  # shipped schemas carry non-ASCII (§ and — in their descriptions), so these
+  # loads raise when load_schema loses its encoding argument under a US-ASCII
+  # locale; a test-side read with its own encoding could not see that loss.
+  RECORD_SCHEMA = KairosMcp::SkillSets::KairosHookProjector::ModeHooksSchema.load_schema(
+    File.join(SKILLSET_ROOT, 'mode_hooks', '_record_schema.json')
   )
-  DOC_SCHEMA = JSON.parse(
-    File.read(File.join(SKILLSET_ROOT, 'mode_hooks', '_schema.json'))
+  DOC_SCHEMA = KairosMcp::SkillSets::KairosHookProjector::ModeHooksSchema.load_schema(
+    File.join(SKILLSET_ROOT, 'mode_hooks', '_schema.json')
   )
 
   def setup

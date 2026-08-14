@@ -48,10 +48,9 @@ class TestGemspecPackaging < Minitest::Test
     end
   end
 
-  def test_every_declared_file_exists
-    missing = spec.files.reject { |f| File.exist?(File.join(ROOT, f)) }
-    assert_empty missing, "declared in spec.files and absent: #{missing.take(5).join(', ')}"
-  end
+  # There is deliberately no "every declared file exists" test: spec.files is a
+  # Dir[] glob, which only ever yields paths that exist. Such a test cannot
+  # fail for any input, and its green presence is what hid that gap.
 
   def test_the_license_text_ships_and_matches_the_repository
     here = File.join(ROOT, 'LICENSE')
@@ -79,7 +78,7 @@ class TestGemspecPackaging < Minitest::Test
     declared = spec.dependencies.map(&:name)
     %w[base64].each do |name|
       used = Dir.glob(File.join(ROOT, 'lib', '**', '*.rb'))
-                .any? { |f| File.read(f).match?(/^\s*require ['"]#{name}['"]/) }
+                .any? { |f| File.read(f, encoding: 'UTF-8').match?(/^\s*require ['"]#{name}['"]/) }
       next unless used
 
       assert_includes declared, name,

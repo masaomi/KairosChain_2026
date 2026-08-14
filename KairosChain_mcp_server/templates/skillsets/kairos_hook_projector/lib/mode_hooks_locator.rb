@@ -44,10 +44,10 @@ module KairosMcp
 
         def load(path)
           return nil if path.nil?
-          return JSON.parse(File.read(path)) if path.end_with?('.json')
+          return JSON.parse(File.read(path, encoding: 'UTF-8')) if path.end_with?('.json')
 
           require 'yaml'
-          YAML.safe_load(File.read(path))
+          YAML.safe_load(File.read(path, encoding: 'UTF-8'))
         end
       end
     end

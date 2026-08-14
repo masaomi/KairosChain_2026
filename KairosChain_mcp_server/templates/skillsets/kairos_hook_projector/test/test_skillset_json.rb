@@ -8,7 +8,7 @@ class TestKairosHookProjectorSkillsetJson < Minitest::Test
 
   def setup
     @path = File.join(SKILLSET_ROOT, 'skillset.json')
-    @json = JSON.parse(File.read(@path))
+    @json = JSON.parse(File.read(@path, encoding: 'UTF-8'))
   end
 
   def test_skillset_json_parses

@@ -44,7 +44,7 @@ class TestBootTimeAssertion < Minitest::Test
   # This is the success path for the read-only tool wrapping its body.
   def test_unchanged_existing_file_passes
     path = File.join(@tmpdir, 'untouched.json')
-    File.write(path, '{"hooks":{}}')
+    File.write(path, '{"hooks":{}}', encoding: 'UTF-8')
     assertion = AssertionClass.new(watch_paths: [path])
     assertion.snapshot_pre!
     # body does nothing
@@ -61,13 +61,13 @@ class TestBootTimeAssertion < Minitest::Test
   # catches stage 0 side-effect-zero violations.
   def test_modified_existing_file_raises
     path = File.join(@tmpdir, 'mutated.json')
-    File.write(path, '{"hooks":{}}')
+    File.write(path, '{"hooks":{}}', encoding: 'UTF-8')
     # Ensure mtime resolution does not mask the change on fast filesystems.
     File.utime(Time.now - 60, Time.now - 60, path)
 
     assertion = AssertionClass.new(watch_paths: [path])
     assertion.snapshot_pre!
-    File.write(path, '{"hooks":{"PostToolUse":[]}}')
+    File.write(path, '{"hooks":{"PostToolUse":[]}}', encoding: 'UTF-8')
 
     error = assert_raises(FailureClass) { assertion.verify_post! }
     assert_includes error.message, 'stage 0 side-effect-zero violation'
@@ -85,7 +85,7 @@ class TestBootTimeAssertion < Minitest::Test
     assertion.snapshot_pre!
     assert_equal :absent, assertion.snapshots[:pre][path]
 
-    File.write(path, '{"created":"by violation"}')
+    File.write(path, '{"created":"by violation"}', encoding: 'UTF-8')
 
     error = assert_raises(FailureClass) { assertion.verify_post! }
     assert_includes error.message, path

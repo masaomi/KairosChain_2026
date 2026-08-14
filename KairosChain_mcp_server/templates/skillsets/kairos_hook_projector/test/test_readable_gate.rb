@@ -43,11 +43,11 @@ class TestReadableGate < Minitest::Test
     Dir.mktmpdir do |tmp|
       cfg_path = File.join(tmp, 'cfg.json')
       tx_path = File.join(tmp, 't.jsonl')
-      File.write(cfg_path, JSON.generate(raw))
+      File.write(cfg_path, JSON.generate(raw), encoding: 'UTF-8')
       File.write(tx_path, JSON.generate(
         'type' => 'assistant',
         'message' => { 'content' => [{ 'type' => 'text', 'text' => text }] }
-      ) + "\n")
+      ) + "\n", encoding: 'UTF-8')
 
       out, err, status = run_script(
         cfg_path,
@@ -66,7 +66,9 @@ class TestReadableGate < Minitest::Test
         RbConfig.ruby, SCRIPT, '--config', cfg_path, *extra, stdin_data: stdin_json
       )
     end
-    [out, err, status]
+    # The gate emits UTF-8 bytes; under a US-ASCII default external encoding
+    # (LANG=C) Ruby tags the captured pipes US-ASCII and the first string op raises.
+    [out.force_encoding('UTF-8'), err.force_encoding('UTF-8'), status]
   rescue Timeout::Error
     raise Minitest::Assertion, 'gate did not return within 30s'
   end
@@ -84,8 +86,8 @@ class TestReadableGate < Minitest::Test
       cfg_path = File.join(tmp, 'cfg.json')
       tx_path = File.join(tmp, 't.jsonl')
       log_path = File.join(tmp, 'gate.log')
-      File.write(cfg_path, JSON.generate({ 'log_path' => log_path }.merge(config)))
-      File.write(tx_path, content)
+      File.write(cfg_path, JSON.generate({ 'log_path' => log_path }.merge(config)), encoding: 'UTF-8')
+      File.write(tx_path, content, encoding: 'UTF-8')
       out, err, status = run_script(
         cfg_path,
         JSON.generate('transcript_path' => tx_path, 'stop_hook_active' => false),
@@ -439,7 +441,7 @@ class TestReadableGate < Minitest::Test
       log = File.join(tmp, 'gate.log')
       cfg_path = File.join(tmp, 'cfg.json')
       File.write(cfg_path, JSON.generate('mode_name' => 't', 'max_headings' => 1,
-                                         'log_path' => log))
+                                         'log_path' => log), encoding: 'UTF-8')
       # A directory, not a file: File.open succeeds and the read raises, which
       # is the branch no fixture reached because every other test writes a file.
       out, _, status = run_script(
@@ -447,7 +449,7 @@ class TestReadableGate < Minitest::Test
       )
       assert_equal 0, status.exitstatus
       refute_includes out, 'block'
-      assert_includes File.read(log), 'SKIP-unreadable',
+      assert_includes File.read(log, encoding: 'UTF-8'), 'SKIP-unreadable',
                       'the reason the turn was let through is recorded'
     end
   end
@@ -457,7 +459,7 @@ class TestReadableGate < Minitest::Test
   def test_a_config_that_is_not_json_returns_zero_rather_than_raising
     Dir.mktmpdir do |tmp|
       broken = File.join(tmp, 'cfg.json')
-      File.write(broken, '{ not json')
+      File.write(broken, '{ not json', encoding: 'UTF-8')
       assert_equal 0, G.main(['--config', broken], StringIO.new('{}'))
     end
   end
@@ -474,9 +476,9 @@ class TestReadableGate < Minitest::Test
       log = File.join(tmp, 'gate.log')
       cfg_path = File.join(tmp, 'cfg.json')
       File.write(cfg_path, JSON.generate('mode_name' => 't', 'max_headings' => 1,
-                                         'log_path' => log))
+                                         'log_path' => log), encoding: 'UTF-8')
       assert_equal 0, G.main(['--config', cfg_path], StringIO.new('[1,2]'))
-      assert_includes File.read(log), 'SKIP-',
+      assert_includes File.read(log, encoding: 'UTF-8'), 'SKIP-',
                       'a list payload yields no transcript path and is recorded as a skip'
     end
   end
@@ -508,11 +510,11 @@ class TestReadableGate < Minitest::Test
   def test_a_rotation_that_cannot_happen_does_not_cost_the_record
     Dir.mktmpdir do |dir|
       log = File.join(dir, 'gate.log')
-      File.write(log, 'x' * 100)
+      File.write(log, 'x' * 100, encoding: 'UTF-8')
       FileUtils.mkdir_p("#{log}.1")
-      File.write(File.join("#{log}.1", 'occupied'), 'y')
+      File.write(File.join("#{log}.1", 'occupied'), 'y', encoding: 'UTF-8')
       G.note(cfg('log_path' => log, 'log_max_bytes' => 10), 'PASS')
-      assert_includes File.read(log), 'PASS',
+      assert_includes File.read(log, encoding: 'UTF-8'), 'PASS',
                       'the record survives a rotation that could not be performed'
     end
   end
@@ -554,7 +556,20 @@ class TestReadableGate < Minitest::Test
   # --- transcripts the gate must survive -------------------------------------
 
   def test_malformed_transcript_records_do_not_raise
-    [nil, 'plain string', [nil, 7], [{ 'type' => 'text' }]].each do |content|
+    # Guard-level, driven direct so that deleting a guard raises here: a
+    # non-object message and a non-string text value fall through as "no
+    # text", never raise, never coerce into measurable text.
+    [nil, 'a string', 42, [1]].each do |message|
+      assert_nil G.text_of({ 'type' => 'assistant', 'message' => message }),
+                 "message=#{message.inspect}"
+    end
+    [42, { 'a' => 1 }, ['x']].each do |text|
+      row = { 'message' => { 'content' => [{ 'type' => 'text', 'text' => text }] } }
+      assert_nil G.text_of(row), "text=#{text.inspect}"
+    end
+
+    [nil, 'plain string', [nil, 7], [{ 'type' => 'text' }],
+     [{ 'type' => 'text', 'text' => 42 }]].each do |content|
       line = JSON.generate('type' => 'assistant', 'message' => { 'content' => content }) + "\n"
       run_raw(line, 'mode_name' => 't', 'max_headings' => 1) do |out, err, status, _, log|
         assert_equal 0, status.exitstatus, "content=#{content.inspect}: #{err[0, 200]}"
@@ -566,6 +581,25 @@ class TestReadableGate < Minitest::Test
         assert_match(/\tt\t(PASS|FAIL|SKIP)/, log,
                      "content=#{content.inspect}: no verdict recorded")
       end
+    end
+
+    # A text value carrying a byte that is not valid UTF-8 — a record caught
+    # mid-write, or tool output pasted into a message. The tail reader tags
+    # the raw bytes UTF-8 and scrubs them before anything measures. Without
+    # that tagging, JSON tolerates the binary line, the mis-tagged text
+    # reaches its first String operation, and the gate dies before the log
+    # line — so the PASS asserted here is what a lost scrub cannot produce.
+    # The invalid pair is spliced in bytewise: JSON.generate refuses to emit
+    # invalid UTF-8, and the file must carry it anyway.
+    torn = JSON.generate(
+      'type' => 'assistant',
+      'message' => { 'content' => [{ 'type' => 'text', 'text' => '計測前に切れたXX の記録' }] }
+    ).b.sub('XX'.b, "\xE3\x81".dup.force_encoding(Encoding::BINARY))
+                 .force_encoding(Encoding::UTF_8) + "\n"
+    run_raw(torn, 'mode_name' => 't', 'max_headings' => 1) do |out, err, status, _, log|
+      assert_equal 0, status.exitstatus, err[0, 200]
+      refute_includes out, 'block'
+      assert_match(/\tt\tPASS/, log, 'the scrubbed record still reaches a verdict')
     end
   end
 
@@ -599,15 +633,28 @@ class TestReadableGate < Minitest::Test
     # leaving its twin is the failure this asserts against.
     good = JSON.generate('type' => 'assistant',
                          'message' => { 'content' => [{ 'type' => 'text', 'text' => 'ok' }] })
-    content = [good, '42', '"a string"', 'null', good].join("\n") + "\n"
+    # The second measurable record is Japanese, and its coined token 甲 is
+    # what the vocabulary rule must see. Read mis-tagged under a US-ASCII
+    # locale, 甲 scrubs to '?', the pattern stops matching, and the FAIL
+    # silently vanishes — the VOCABULARY assertion below is what a
+    # whole-file reader without its encoding argument cannot produce.
+    judged = JSON.generate('type' => 'assistant',
+                           'message' => { 'content' => [{ 'type' => 'text',
+                                                          'text' => '甲 の裁定を待ちます。' }] })
+    content = [good, '42', '"a string"', 'null', judged].join("\n") + "\n"
     Dir.mktmpdir do |tmp|
       cfg_path = File.join(tmp, 'cfg.json')
       tx_path = File.join(tmp, 't.jsonl')
-      File.write(cfg_path, JSON.generate('mode_name' => 't', 'max_headings' => 1))
-      File.write(tx_path, content)
+      File.write(cfg_path, JSON.generate('mode_name' => 't', 'max_headings' => 1,
+                                         'shorthand_patterns' => ['(甲)'],
+                                         'gloss_patterns' => ['[（(＝=]'],
+                                         'vocab_min_lines' => 1), encoding: 'UTF-8')
+      File.write(tx_path, content, encoding: 'UTF-8')
       out, err, status = run_script(cfg_path, '', ['--report', tx_path])
       assert_equal 0, status.exitstatus, err[0, 200]
       assert_equal 2, out.scan('lines=').length, out.inspect
+      assert_includes out, 'FAIL=VOCABULARY',
+                      'the unglossed 甲, read off disk, must be measured'
     end
   end
 
@@ -618,6 +665,35 @@ class TestReadableGate < Minitest::Test
         refute_includes out, 'block'
         assert_includes log, 'SKIP-', "raw=#{raw.inspect}: no verdict recorded"
       end
+    end
+  end
+
+  # The flush race the retry exists for (round 3 condition 9): the harness can
+  # invoke the Stop hook before the turn's text record has been flushed, so the
+  # newest assistant record is thinking-only at first read. Driven with a real
+  # late write, not a seam — a thread appends the text record after the first
+  # read has already come back empty. Delete the retry and this returns nil.
+  def test_the_retry_waits_out_a_slow_flush
+    Dir.mktmpdir do |tmp|
+      tx = File.join(tmp, 't.jsonl')
+      File.write(tx, JSON.generate(
+        'type' => 'assistant',
+        'message' => { 'content' => [{ 'type' => 'thinking', 'thinking' => 'x' }] }
+      ) + "\n", encoding: 'UTF-8')
+      writer = Thread.new do
+        sleep(G::POLL_DELAY * 3)
+        File.write(tx, JSON.generate(
+          'type' => 'assistant',
+          'message' => { 'content' => [{ 'type' => 'text', 'text' => 'landed late' }] }
+        ) + "\n", mode: 'a', encoding: 'UTF-8')
+      end
+      begin
+        text, why = G.last_assistant_text(tx)
+      ensure
+        writer.join
+      end
+      assert_equal 'landed late', text, 'the text that landed late is the one measured'
+      assert_equal 'ok-after-wait', why, 'and the outcome names the wait'
     end
   end
 
