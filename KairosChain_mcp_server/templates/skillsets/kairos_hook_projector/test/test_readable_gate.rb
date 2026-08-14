@@ -17,6 +17,10 @@ G = KairosHookProjector::ReadableGate
 class TestReadableGate < Minitest::Test
   SCRIPT = File.join(File.dirname(HERE), 'hooks', 'readable_gate.rb')
 
+  # One heading over a cap of three: the shortest text that makes a blocking
+  # gate actually block, so that "enforcement still runs" is falsifiable.
+  FOUR_HEADINGS = "# a\n# b\n# c\n# d\n"
+
   def cfg(overrides = {})
     raw = { 'mode_name' => 'test', 'section' => '§ Test' }.merge(overrides)
     G::Config.new(raw, '<inline>')
@@ -761,24 +765,106 @@ class TestReadableGate < Minitest::Test
     assert_empty f.select { |x| x.start_with?('DIAGRAM') }, f.inspect
   end
 
-  # --- round 11 fix: log_path joins the string-typed keys ---------------------
+  # --- round 13 fix: the log_path family -------------------------------------
   #
-  # STR_KEYS omitted log_path. A mode declaring `"log_path": 123` produced no
-  # config problem at all, and note()'s method-level rescue swallowed the
-  # TypeError from File.expand_path(123) on every turn: the gate blocked and
-  # passed normally while its append-only log was silently never written. The
-  # identical typo on any sibling key is reported; this pins log_path to the
-  # same shape.
+  # Round 11 put log_path into STR_KEYS so a mistyped `"log_path": 123` would be
+  # reported like any other mistyped key. That closed the non-string half and
+  # left two holes, both measured in round 12 with one probe:
+  #
+  #   null           the key's own shipped default, and now a fatal config
+  #                  error — a blocking gate answered NOT RUN every turn and
+  #                  enforced nothing at all.
+  #   "" or an       a string, so no config problem is raised;
+  #   existing       File.expand_path("") is the working directory,
+  #   directory      File.open(<a directory>, 'a') raises EISDIR, and note()'s
+  #                  method-level rescue swallowed it. The gate blocked and
+  #                  passed exactly as normal while nothing was ever recorded —
+  #                  the example's own onboarding week produced no data.
+  #
+  # log_path leaves STR_KEYS again. nil alone means "no log declared"; every
+  # other value is attempted, and a write that fails is named in the banner
+  # without touching enforcement. One test per boundary the two rounds crossed.
 
-  def test_a_non_string_log_path_reports_like_its_siblings
-    c = cfg('log_path' => 123)
-    assert_includes c.problems, 'log_path is number, expected a string'
+  def test_the_shipped_default_for_log_path_is_nil
+    assert_nil G::DEFAULTS['log_path'],
+               'nil is what note() reads as "no log declared"; any other ' \
+               'default makes every mode that omits the key attempt a write'
+  end
 
-    out = decide("short\n", log_path: 123)
-    refute out.key?('decision'), out.inspect
-    assert_includes out.fetch('systemMessage', ''), 'NOT RUN'
-    assert_includes out.fetch('systemMessage', ''),
-                    'log_path is number, expected a string'
+  def test_declaring_the_default_leaves_the_gate_enforcing
+    out = decide(FOUR_HEADINGS, log_path: nil, max_headings: 3)
+    assert_equal 'block', out['decision'],
+                 'null is this key\'s own default and must not disable the gate'
+    refute_includes out.fetch('systemMessage', ''), 'NOT RUN'
+    refute_includes out.fetch('systemMessage', ''), 'log not written',
+                    'declaring no log is not a failure to write one'
+  end
+
+  def test_a_mistyped_log_path_is_named_and_costs_no_enforcement
+    out = decide(FOUR_HEADINGS, log_path: 123, max_headings: 3)
+    assert_equal 'block', out['decision'],
+                 'a log the gate cannot write is not a reason to stop enforcing'
+    refute_includes out.fetch('systemMessage', ''), 'NOT RUN'
+    assert_includes out.fetch('systemMessage', ''), 'log not written'
+    assert_includes out.fetch('systemMessage', ''), 'TypeError'
+  end
+
+  # `false` is the other way a mode author says "off", and Ruby's falsiness
+  # would let it take nil's exit silently. Only nil is a declaration of no log;
+  # everything else is attempted, so a mode that meant to switch logging off
+  # this way is told the gate did not understand it rather than left guessing.
+  def test_only_nil_means_no_log_was_declared
+    out = decide("short\n", log_path: false)
+    assert_includes out.fetch('systemMessage', ''), 'log not written'
+  end
+
+  def test_an_empty_log_path_is_named_rather_than_swallowed
+    out = decide("short\n", log_path: '')
+    assert_includes out.fetch('systemMessage', ''), 'PASS',
+                    'measurement is untouched'
+    assert_includes out.fetch('systemMessage', ''), 'log not written',
+                    'expand_path("") is the working directory, and appending ' \
+                    'to a directory raises where nobody could see it'
+  end
+
+  def test_a_directory_as_the_log_path_is_named_rather_than_swallowed
+    Dir.mktmpdir do |dir|
+      out = decide("short\n", log_path: dir)
+      assert_includes out.fetch('systemMessage', ''), 'PASS'
+      assert_includes out.fetch('systemMessage', ''), 'log not written'
+      assert_includes out.fetch('systemMessage', ''), 'Is a directory',
+                      'and the banner names the cause, not just the fact'
+    end
+  end
+
+  # ~/.kairos/logs is the parent of the path the example suggests, so an
+  # operator who writes the directory instead of the file inside it lands on
+  # the case above. This is the other half: the file inside a parent that does
+  # not exist yet has to be created, and nothing witnessed the mkdir_p.
+  def test_a_log_under_a_parent_that_does_not_exist_yet_is_still_written
+    Dir.mktmpdir do |dir|
+      log = File.join(dir, 'nested', 'deep', 'gate.log')
+      out = decide("short\n", log_path: log)
+      assert_path_exists log, 'the gate creates the parent it was pointed at'
+      assert_includes File.read(log, encoding: 'UTF-8'), 'PASS'
+      refute_includes out.fetch('systemMessage', ''), 'log not written',
+                      'and a write that succeeded says nothing at all'
+    end
+  end
+
+  # The reason rides in the banner on every turn for as long as the mode stays
+  # misconfigured, and a rescued message carries a path of any length. Driven
+  # with a filename past the 255-byte component limit, which is the case where
+  # the whole declared path lands in the message — a parent that cannot be
+  # created reports only the component it stopped at, and is far too short to
+  # tell a bounded reason from an unbounded one.
+  def test_the_named_reason_is_bounded
+    Dir.mktmpdir do |dir|
+      out = decide("short\n", log_path: File.join(dir, "#{'y' * 300}.log"))
+      msg = out.fetch('systemMessage', '')
+      assert_includes msg, 'log not written'
+      assert_operator msg.length, :<, 250, msg[0, 160]
+    end
   end
 
   # --- round 11: boundary witnesses ------------------------------------------

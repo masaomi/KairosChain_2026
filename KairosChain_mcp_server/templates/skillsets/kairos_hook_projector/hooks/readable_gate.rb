@@ -61,9 +61,10 @@ module KairosHookProjector
       'measure_timeout_seconds' => 5,
       'log_max_bytes' => 1024 * 1024,
       'banner_prefix' => 'gate',
-      # No default. The block reason is addressed to the agent under the mode's
-      # name, so core-authored prose here arrives as something the mode said and
-      # did not. A mode that declares no instruction gets no instruction line.
+      # nil, and pinned here, because nil is what note() reads as "this mode
+      # declared no log". Every other value — including the empty string — is a
+      # declaration the gate is obliged to attempt and to complain about when it
+      # cannot honour it.
       'log_path' => nil
     }.freeze
 
@@ -71,7 +72,13 @@ module KairosHookProjector
                   vocab_min_lines measure_timeout_seconds log_max_bytes].freeze
     LIST_KEYS = %w[announce_patterns shorthand_patterns gloss_patterns
                    specimen_patterns].freeze
-    STR_KEYS = %w[banner_prefix rewrite_instruction section mode_name log_path].freeze
+    # log_path is deliberately absent. It was added here once, and the cost was
+    # that `"log_path": null` — the key's own shipped default — became a fatal
+    # config error that turned a blocking gate into NOT RUN on every turn. A
+    # log the gate cannot write is a fault in the log, not in the mode's ability
+    # to state thresholds, so it is diagnosed where the write happens and
+    # reported in the banner without disabling enforcement.
+    STR_KEYS = %w[banner_prefix rewrite_instruction section mode_name].freeze
 
     class MeasureTimeout < StandardError; end
 
@@ -446,8 +453,17 @@ module KairosHookProjector
     # --- reporting -----------------------------------------------------------
 
     # Append-only record of every invocation. Diagnosis depends on this.
+    #
+    # Returns nil when the record landed or when no log was declared, and a
+    # short reason when the write failed. The caller puts that reason in the
+    # banner: a swallowed write failure is the whole defect this method used to
+    # have — an empty-string or directory log_path left the gate blocking and
+    # passing exactly as normal while nothing was ever recorded, so the
+    # operator's onboarding week produced no data and no complaint.
     def note(cfg, verdict, metrics = nil)
-      return unless cfg.log_path
+      # nil alone means "no log declared". false, 0 and "" are declarations the
+      # gate cannot honour, and each has to reach the rescue below to be named.
+      return if cfg.log_path.nil?
 
       stamp = Time.now.strftime('%Y-%m-%dT%H:%M:%S')
       detail = ''
@@ -480,16 +496,28 @@ module KairosHookProjector
       File.open(path, 'a', encoding: 'UTF-8') do |fh|
         fh.write("#{stamp}\t#{cfg.mode_name}\t#{verdict}#{detail}\n")
       end
-    rescue StandardError
       nil
+    rescue StandardError => e
+      # Bounded because it travels into the banner every turn, and a rescued
+      # message can carry a path of any length.
+      reason = "#{e.class}: #{e.message}".tr("\n", ' ')
+      reason.length > 120 ? "#{reason[0, 117]}..." : reason
     end
 
-    def banner(cfg, verdict, metrics, failures, rechecked)
+    # One phrasing wherever a write failure surfaces, so the normal banner and
+    # the two NOT RUN lines cannot drift into saying it differently.
+    def log_note(log_failure)
+      "log not written: #{log_failure}"
+    end
+
+    def banner(cfg, verdict, metrics, failures, rechecked, log_failure = nil)
       shape = format('%d lines / %d headings / %d tables / %d diagrams',
                      metrics['lines'], metrics['headings'], metrics['tables'],
                      metrics['diagrams'])
-      tail = ''
-      tail = " — #{failures.map { |f| f.split(':').first }.join(' / ')}" unless failures.empty?
+      notes = []
+      notes << failures.map { |f| f.split(':').first }.join(' / ') unless failures.empty?
+      notes << log_note(log_failure) if log_failure
+      tail = notes.empty? ? '' : " — #{notes.join('; ')}"
       scope = if rechecked
                 ' (recheck, not blocking)'
               elsif !cfg.blocking
@@ -569,9 +597,10 @@ module KairosHookProjector
         # A mode whose declaration the gate cannot use is told so, and the turn
         # goes through. Enforcing half a config would be worse than enforcing
         # none, and crashing tells the operator nothing.
-        note(cfg, "SKIP-bad-config: #{cfg.problems.join('; ')}")
+        lost = note(cfg, "SKIP-bad-config: #{cfg.problems.join('; ')}")
         puts JSON.generate(
-          'systemMessage' => "#{cfg.banner_prefix}: NOT RUN — #{cfg.problems.join('; ')}"
+          'systemMessage' => "#{cfg.banner_prefix}: NOT RUN — #{cfg.problems.join('; ')}" +
+                             (lost ? "; #{log_note(lost)}" : '')
         )
         return 0
       end
@@ -597,19 +626,20 @@ module KairosHookProjector
       begin
         metrics, failures = measure_bounded(text, cfg)
       rescue MeasureTimeout
-        note(cfg, 'SKIP-measure-timeout')
+        lost = note(cfg, 'SKIP-measure-timeout')
         puts JSON.generate(
           'systemMessage' =>
             "#{cfg.banner_prefix}: NOT RUN — measurement exceeded #{cfg.measure_timeout}s; " \
-            "check the mode's patterns for unbounded backtracking"
+            "check the mode's patterns for unbounded backtracking" +
+            (lost ? "; #{log_note(lost)}" : '')
         )
         return 0
       end
 
       verdict = failures.empty? ? 'PASS' : 'FAIL'
-      note(cfg, "#{rechecked ? 'RECHECK-' : ''}#{verdict}-#{why}", metrics)
+      lost = note(cfg, "#{rechecked ? 'RECHECK-' : ''}#{verdict}-#{why}", metrics)
 
-      out = { 'systemMessage' => banner(cfg, verdict, metrics, failures, rechecked) }
+      out = { 'systemMessage' => banner(cfg, verdict, metrics, failures, rechecked, lost) }
       if !failures.empty? && !rechecked && cfg.blocking
         out['decision'] = 'block'
         instruction = cfg.rewrite_instruction.to_s
