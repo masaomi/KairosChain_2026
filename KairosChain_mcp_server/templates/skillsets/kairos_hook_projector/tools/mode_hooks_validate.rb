@@ -339,13 +339,17 @@ module KairosMcp
               # siblings' "run the mode_hooks_project tool": the projector's
               # read_settings raises "refusing to rewrite it" on exactly
               # these inputs. The honest instruction is hand repair, guided
-              # by the reason the detail carries.
+              # by the reason the detail carries. Round 11 deleted the
+              # round-10 clause promising "the position of the typo": json
+              # 2.9.1 emits an excerpt (`unexpected token at '...'`), never
+              # a position — measured on truncated, zero-byte, and
+              # trailing-comma inputs. The remedy promises only what the
+              # detail actually carries.
               return { status: 'unknown',
                        detail: "#{settings_path} cannot be read as a settings object " \
                                "(#{unreadable}); what is installed cannot be determined",
                        remedy: 'repair the settings file by hand — the detail names ' \
-                               'the file and, for a parse error, the position of the ' \
-                               'typo; the mode_hooks_project tool refuses to rewrite ' \
+                               'the file; the mode_hooks_project tool refuses to rewrite ' \
                                'what it cannot read as settings. A file this process ' \
                                'cannot read at all needs its access restored first, ' \
                                'and that repair may not be yours to make' }
@@ -373,7 +377,7 @@ module KairosMcp
                 # rather than matching everything.
                 marker = Array(entry['argv']).map { |a| File.basename(a.to_s) }
                                              .find { |a| a.end_with?('.json') }
-                wanted_argv[marker] = entry['argv'] if marker
+                wanted_argv[[event, marker]] = entry['argv'] if marker
                 # Present means enforcing: the installed command must BE the
                 # declared one — the full expected command, not merely one
                 # naming the declared config — over a file still readable at
@@ -441,17 +445,28 @@ module KairosMcp
             # beside a valid realization of the same config, which is a hook
             # the declaration does not ask for. Verdict order is unaffected:
             # not_installed and diverged both outrank stale_installed.
-            reported = (missing + diverged).map { |m| m[:config] }
+            # Round 11 makes both filters key on (event, basename), not
+            # basename alone: a valid realization on the WRONG lifecycle
+            # event realizes nothing the declaration asks for. The basename
+            # key hid exactly that entry, so a duplicate of the declared
+            # command on an undeclared event read `installed: ok` while an
+            # undeclared hook was live, and a solely-moved one — first
+            # reported missing — was reinstalled on the declared event by
+            # that verdict's own remedy and then hidden. The ruling-甲
+            # partition is unchanged; only its key is finer, and the
+            # wrong-event copy is its own defect, reported once, under stale.
+            reported = (missing + diverged).map { |m| [m[:event], m[:config]] }
             stale = installed.flat_map do |event, groups|
               Array(groups).select { |g| ours?(g, mode) }.flat_map do |group|
                 Array(group['hooks']).filter_map do |h|
                   cmd = h['command'].to_s
                   path = config_path(cmd)
                   base = path && File.basename(path)
-                  next if base && reported.include?(base)
+                  next if base && reported.include?([event, base])
 
-                  declared = base && wanted_files[base]
-                  next if !declared.nil? && cmd == expected_command(wanted_argv[base], path) &&
+                  declared_argv = base && wanted_argv[[event, base]]
+                  declared = declared_argv && wanted_files[base]
+                  next if !declared.nil? && cmd == expected_command(declared_argv, path) &&
                           config_bytes(path) == declared
 
                   { event: event, command: cmd }

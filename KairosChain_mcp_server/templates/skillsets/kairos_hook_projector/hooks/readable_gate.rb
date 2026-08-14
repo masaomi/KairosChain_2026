@@ -71,7 +71,7 @@ module KairosHookProjector
                   vocab_min_lines measure_timeout_seconds log_max_bytes].freeze
     LIST_KEYS = %w[announce_patterns shorthand_patterns gloss_patterns
                    specimen_patterns].freeze
-    STR_KEYS = %w[banner_prefix rewrite_instruction section mode_name].freeze
+    STR_KEYS = %w[banner_prefix rewrite_instruction section mode_name log_path].freeze
 
     class MeasureTimeout < StandardError; end
 

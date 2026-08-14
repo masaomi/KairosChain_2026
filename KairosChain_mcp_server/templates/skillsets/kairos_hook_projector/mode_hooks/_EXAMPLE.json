@@ -84,6 +84,15 @@
     ]
   },
 
+  "_removal_note": [
+    "Taking it back out: empty the hooks object above to {} — or delete the",
+    "copied file — then run mode_hooks_project again with apply=true. Removal",
+    "is an apply like any other. mode_hooks_validate then answers",
+    "nothing_declared; until the apply it reports the still-running gate as",
+    "stale. The compiled configs stay behind under .kairos/hook_configs/,",
+    "unmentioned by either tool — delete them by hand if you want them gone."
+  ],
+
   "not_gated": [
     {
       "section": "§ Values",

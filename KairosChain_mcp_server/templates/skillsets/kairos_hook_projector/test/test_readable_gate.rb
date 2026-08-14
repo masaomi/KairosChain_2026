@@ -760,4 +760,195 @@ class TestReadableGate < Minitest::Test
     _, f = measure("#{long}```\nA -> B\n```\n", params)
     assert_empty f.select { |x| x.start_with?('DIAGRAM') }, f.inspect
   end
+
+  # --- round 11 fix: log_path joins the string-typed keys ---------------------
+  #
+  # STR_KEYS omitted log_path. A mode declaring `"log_path": 123` produced no
+  # config problem at all, and note()'s method-level rescue swallowed the
+  # TypeError from File.expand_path(123) on every turn: the gate blocked and
+  # passed normally while its append-only log was silently never written. The
+  # identical typo on any sibling key is reported; this pins log_path to the
+  # same shape.
+
+  def test_a_non_string_log_path_reports_like_its_siblings
+    c = cfg('log_path' => 123)
+    assert_includes c.problems, 'log_path is number, expected a string'
+
+    out = decide("short\n", log_path: 123)
+    refute out.key?('decision'), out.inspect
+    assert_includes out.fetch('systemMessage', ''), 'NOT RUN'
+    assert_includes out.fetch('systemMessage', ''),
+                    'log_path is number, expected a string'
+  end
+
+  # --- round 11: boundary witnesses ------------------------------------------
+  #
+  # 45 mutations, 19 survivors, one cause: no fixture ever sat on a boundary.
+  # Length was measured at 70 against a cap of 60, headings at 4 against 3, the
+  # diagram floor at 40 against 30, the vocabulary floor at 1 line against 8 —
+  # so `>` and `>=` were indistinguishable everywhere it mattered. Each case
+  # below holds one comparison on its boundary from both sides.
+
+  def test_the_length_cap_boundary
+    at_cap = (0...60).map { |i| "line #{i}" }.join("\n")
+    _, f = measure(at_cap, 'max_lines' => 60)
+    assert_empty f.select { |x| x.start_with?('LENGTH') },
+                 '60 lines at cap 60 is within the cap'
+    over = (0...61).map { |i| "line #{i}" }.join("\n")
+    _, f = measure(over, 'max_lines' => 60)
+    assert f.any? { |x| x.start_with?('LENGTH') }, f.inspect
+  end
+
+  def test_the_headings_cap_boundary
+    at_cap = "# a\n## b\n### c"
+    _, f = measure(at_cap, 'max_headings' => 3)
+    assert_empty f.select { |x| x.start_with?('HEADINGS') },
+                 '3 headings at cap 3 is within the cap'
+    _, f = measure(at_cap + "\n#### d", 'max_headings' => 3)
+    assert f.any? { |x| x.start_with?('HEADINGS') }, f.inspect
+  end
+
+  def test_the_tables_cap_boundary
+    table = "| a | b |\n|---|---|\n| 1 | 2 |"
+    _, f = measure(([table] * 2).join("\n"), 'max_tables' => 2)
+    assert_empty f.select { |x| x.start_with?('TABLES') },
+                 '2 tables at cap 2 is within the cap'
+    _, f = measure(([table] * 3).join("\n"), 'max_tables' => 2)
+    assert f.any? { |x| x.start_with?('TABLES') }, f.inspect
+  end
+
+  def test_the_diagram_floor_boundary
+    at_floor = (0...30).map { |i| "散文の行 #{i}" }.join("\n")
+    _, f = measure(at_floor, 'diagram_required_over_lines' => 30)
+    assert_empty f.select { |x| x.start_with?('DIAGRAM') },
+                 '30 lines at floor 30 does not trip the floor'
+    over = (0...31).map { |i| "散文の行 #{i}" }.join("\n")
+    _, f = measure(over, 'diagram_required_over_lines' => 30)
+    assert f.any? { |x| x.start_with?('DIAGRAM') }, f.inspect
+  end
+
+  # The floor under its own name. Until now its loss reddened only tests about
+  # the timeout machinery, so a maintainer who broke it was shown the wrong
+  # defect entirely.
+  def test_the_vocabulary_floor_boundary
+    overrides = { 'shorthand_patterns' => [MASA_SHORTHAND],
+                  'gloss_patterns' => GLOSS, 'vocab_min_lines' => 8 }
+    filler = (0...7).map { |i| "説明の行 #{i}" }
+    _, f = measure((['t0 が壊れます。'] + filler).join("\n"), overrides)
+    assert f.any? { |x| x.include?('VOCABULARY') },
+           "8 lines at floor 8 enters the scan: #{f.inspect}"
+    _, f = measure((['t0 が壊れます。'] + filler[0, 6]).join("\n"), overrides)
+    assert_empty f.select { |x| x.include?('VOCABULARY') },
+                 '7 lines stays below the floor'
+  end
+
+  # The specimen containment, made to actually execute. The three fixtures in
+  # test_a_specimen_exemption_does_not_leak_to_real_use are single tokens in
+  # parentheses — not lists — so specimen_spans returns [] there and the
+  # end-bound of the containment expression is never evaluated. Here one line
+  # carries a real specimen LIST and, past its closing parenthesis, a real use
+  # of a governed token: the exemption must end at the span.
+  def test_a_specimen_span_does_not_extend_past_its_closing_parenthesis
+    f = spec("本物の略号は短く（`t0`、`a9`）、そのうえで t0 を裸で使う。\n")
+    assert f.any? { |x| x.include?('VOCABULARY') && x.include?('t0') },
+           "the t0 after the list is a use, not an exhibit: #{f.inspect}"
+  end
+
+  # The defaults that carry behaviour when a mode omits the key. Each drives
+  # main() with the key absent and asserts the behaviour the default value
+  # produces — a changed default has to redden one of these, not survive.
+
+  def test_omitting_the_vocab_floor_admits_a_single_line
+    out = decide('t0 が壊れます。', shorthand_patterns: ['([a-z]\d{1,2})'],
+                                    gloss_patterns: ['[（(]'])
+    assert_equal 'block', out['decision'], out.inspect
+    assert_includes out.fetch('reason', ''), 'VOCABULARY'
+  end
+
+  def test_omitting_the_measure_timeout_bounds_the_scan_at_five_seconds
+    seen = :never_measured
+    original = G.method(:measure)
+    G.define_singleton_method(:measure) do |*|
+      seen = Regexp.timeout
+      [{ 'lines' => 1, 'headings' => 0, 'tables' => 0, 'diagrams' => 0,
+         'announced' => false, 'unglossed' => [] }, []]
+    end
+    begin
+      Dir.mktmpdir do |tmp|
+        cfg_path = File.join(tmp, 'cfg.json')
+        tx = File.join(tmp, 't.jsonl')
+        File.write(cfg_path, JSON.generate('mode_name' => 't'), encoding: 'UTF-8')
+        File.write(tx, JSON.generate(
+          'type' => 'assistant',
+          'message' => { 'content' => [{ 'type' => 'text', 'text' => 'x' }] }
+        ) + "\n", encoding: 'UTF-8')
+        capture_io do
+          assert_equal 0, G.main(['--config', cfg_path],
+                                 StringIO.new(JSON.generate('transcript_path' => tx)))
+        end
+      end
+    ensure
+      G.define_singleton_method(:measure, original)
+    end
+    assert_equal 5, seen, 'the scan runs under the default five-second bound'
+    assert_nil Regexp.timeout, 'and the bound is restored afterwards'
+  end
+
+  def test_omitting_the_log_bound_rotates_at_exactly_one_megabyte
+    { 1024 * 1024 => false, 1024 * 1024 + 1 => true }.each do |size, rotated|
+      Dir.mktmpdir do |tmp|
+        cfg_path = File.join(tmp, 'cfg.json')
+        tx = File.join(tmp, 't.jsonl')
+        log = File.join(tmp, 'gate.log')
+        File.write(cfg_path, JSON.generate('mode_name' => 't', 'log_path' => log),
+                   encoding: 'UTF-8')
+        File.write(tx, JSON.generate(
+          'type' => 'assistant',
+          'message' => { 'content' => [{ 'type' => 'text', 'text' => 'x' }] }
+        ) + "\n", encoding: 'UTF-8')
+        File.write(log, 'x' * size, encoding: 'UTF-8')
+        capture_io do
+          assert_equal 0, G.main(['--config', cfg_path],
+                                 StringIO.new(JSON.generate('transcript_path' => tx)))
+        end
+        assert_equal rotated, File.exist?("#{log}.1"),
+                     "a #{size}-byte log must#{rotated ? '' : ' not'} rotate " \
+                     'under the default one-megabyte bound'
+        assert_includes File.read(log, encoding: 'UTF-8'), 'PASS',
+                        'the record lands either way'
+      end
+    end
+  end
+
+  def test_the_log_is_append_only_across_turns
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx = File.join(tmp, 't.jsonl')
+      log = File.join(tmp, 'gate.log')
+      File.write(cfg_path, JSON.generate('mode_name' => 't', 'log_path' => log),
+                 encoding: 'UTF-8')
+      File.write(tx, JSON.generate(
+        'type' => 'assistant',
+        'message' => { 'content' => [{ 'type' => 'text', 'text' => 'x' }] }
+      ) + "\n", encoding: 'UTF-8')
+      2.times do
+        capture_io do
+          assert_equal 0, G.main(['--config', cfg_path],
+                                 StringIO.new(JSON.generate('transcript_path' => tx)))
+        end
+      end
+      lines = File.read(log, encoding: 'UTF-8').lines
+      assert_equal 2, lines.length, "two turns, two records: #{lines.inspect}"
+      assert(lines.all? { |l| l.include?("\tPASS") }, lines.inspect)
+    end
+  end
+
+  def test_the_announcement_exemption_reads_only_the_first_line
+    lines = (0...70).map { |i| "line #{i}" }
+    lines[39] = 'This answer is long.'
+    _, f = measure(lines.join("\n"), 'max_lines' => 60,
+                                     'announce_patterns' => ['(?i:\blong\b)'])
+    assert f.any? { |x| x.start_with?('LENGTH') },
+           "an announcement buried on line 40 clears nothing: #{f.inspect}"
+  end
 end

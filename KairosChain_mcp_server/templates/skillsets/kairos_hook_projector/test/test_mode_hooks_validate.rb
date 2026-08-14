@@ -649,6 +649,62 @@ class TestModeHooksValidate < Minitest::Test
     end
   end
 
+  # Round 11. The round-9 stale filter keyed on config BASENAME alone, so an
+  # owned entry running the declared command over the declared bytes on the
+  # WRONG lifecycle event was filtered out as a valid realization, and the
+  # tool answered `installed: ok` while an undeclared hook was live on an
+  # event the declaration never names. The solely-moved shape reaches the
+  # same end state through the tool's own remedy: it first reads
+  # `not_installed`, re-applying reinstalls on the declared event and leaves
+  # the moved copy, which the basename key then hid. The key is now
+  # (event, basename). The ruling-甲 partition (exclusive missing/diverged/
+  # stale) is unchanged: the wrong-event copy is a defect of its own — not
+  # the declared config's finding — and reports exactly once, under stale.
+  def test_a_declared_command_on_the_wrong_lifecycle_event_is_never_ok
+    compiled = compiled_for_installed_test
+    name = 'testmode.Stop.readable_gate.0.json'
+    Dir.mktmpdir do |cfg_root|
+      cfg = File.join(cfg_root, name)
+      File.write(cfg, compiled.artifact['files'].fetch(name), encoding: 'UTF-8')
+      cmd = Shellwords.join(['kairos-readable-gate', '--config', cfg])
+      owned = lambda do
+        { 'hooks' => [{ 'command' => cmd }],
+          '_projected_by' => 'kairos_hook_projector', '_mode' => 'testmode' }
+      end
+
+      # The duplicate shape: the declared event is correctly served, and a
+      # byte-identical copy runs on an event the declaration never names.
+      # Command, ownership, and bytes are all right on purpose — the event
+      # is the only thing left to refuse, so a basename-keyed filter reads ok.
+      with_settings('Stop' => [owned.call], 'PreToolUse' => [owned.call]) do |root|
+        out = @t.send(:check_installed, compiled, root, 'testmode')
+        assert_equal 'stale_installed', out[:status],
+                     'a declared command on an undeclared event is a hook the ' \
+                     "declaration does not ask for: #{out.inspect}"
+        assert_equal [['PreToolUse', cmd]],
+                     out[:stale].map { |s| [s[:event], s[:command]] },
+                     'the wrong-event copy is the finding, named by its event'
+        assert_empty Array(out[:missing]), out.inspect
+        assert_empty Array(out[:diverged]), out.inspect
+      end
+
+      # The solely-moved shape. `not_installed` is true — nothing serves the
+      # declared event — but the moved copy must be surfaced beside the
+      # missing entry: hiding it sent the operator through re-apply to the
+      # duplicate shape above, which then read ok, so the undeclared hook
+      # stayed live at the end of the tool's own instructions.
+      with_settings('PreToolUse' => [owned.call]) do |root|
+        out = @t.send(:check_installed, compiled, root, 'testmode')
+        assert_equal 'not_installed', out[:status], out.inspect
+        assert_equal [name], out[:missing].map { |m| m[:config] }, out.inspect
+        assert_equal [['PreToolUse', cmd]],
+                     out[:stale].map { |s| [s[:event], s[:command]] },
+                     'the moved copy is live on an undeclared event and is ' \
+                     "reported, not hidden behind the missing entry: #{out.inspect}"
+      end
+    end
+  end
+
   # Round 8 also replaced the presence File.exist? with an unguarded
   # File.read, so a config that exists but cannot be read — a directory here —
   # collapsed the whole answer into `{"error":"Errno::EISDIR"}`: no verdict,
@@ -758,10 +814,15 @@ class TestModeHooksValidate < Minitest::Test
   # operator got UNKNOWN_INSTALLED, a reason, and no instruction, while its
   # three siblings each carry one. And the detail was decoration: replacing
   # the whole string with 'unavailable' left the suite green, although the
-  # reason inside it — the parser's own message, position included — is
+  # reason inside it — the parser's own message — is
   # what points the operator at their own typo. Both are pinned here, per
   # shape: the detail must carry the settings path and the real reason
   # verbatim, and the remedy must say what the operator can actually do.
+  # Round 11 deleted a round-10 clause from the remedy: it promised "the
+  # position of the typo", but json 2.9.1 emits an excerpt (`unexpected
+  # token at '...'`), never a position, on truncated, zero-byte, and
+  # trailing-comma inputs alike. The remedy may promise only what the
+  # detail actually carries, and the refutation below pins that.
   # Hand repair, honestly: the projector's read_settings raises "refusing
   # to rewrite it" on exactly these inputs, so the siblings' "run the
   # mode_hooks_project tool" would be a false instruction here.
@@ -793,6 +854,11 @@ class TestModeHooksValidate < Minitest::Test
                      "unknown must ship an instruction, as its three siblings do: #{out.inspect}")
         assert_match(/refuses to rewrite/, out[:remedy],
                      'and be honest that the projector refuses this same input')
+        refute_match(/position/, out[:remedy],
+                     'the remedy must not promise a parse position: the shipped ' \
+                     'parser reports an excerpt (unexpected token at ...), never ' \
+                     'a position, so the promise was false of every input that ' \
+                     "reaches this branch: #{out.inspect}")
       end
     end
   end

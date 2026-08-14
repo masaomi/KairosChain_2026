@@ -30,6 +30,28 @@ Not auto-installed (not a core SkillSet): install it by name first —
 5. `mode_hooks_validate`, run again, answers whether the gate is installed:
    its `installed` check compares declaration and `.claude/settings.json`.
 
+## Removing a mode's hooks
+
+Two routes, and either works: empty the declaration's `hooks` object
+(`"hooks": {}`), or delete `<mode>.mode_hooks.json` entirely. Removal is an
+apply like any other — run `mode_hooks_project`, then again with `apply=true`
+and the new `confirm_sha256` — and it removes this mode's entries from
+`.claude/settings.json`, leaving every other entry and key alone. The result
+reports that settings.json was rewritten to the confirmed plan and asserts no
+liveness in either direction; whether the gate is actually gone is
+`mode_hooks_validate`'s question, the same as after an install.
+
+`mode_hooks_validate` confirms it: a removed mode's `installed` check answers
+`nothing_declared` — declaration installs no hooks, and none is installed.
+Between the edit and the apply the same check reports the still-installed gate
+under `stale` (verdict `STALE_INSTALLED`): the gate keeps running until the
+apply.
+
+Both routes leave the compiled configs behind under `.kairos/hook_configs/`.
+Removal rewrites settings.json only, and neither the apply result nor
+`mode_hooks_validate` mentions the leftover files. Nothing runs them once no
+installed command names them; delete them by hand if you want them gone.
+
 ## Tools
 
 - `mode_hooks_validate` (read-only) — mode body vs declaration drift, compile
