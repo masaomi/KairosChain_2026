@@ -70,19 +70,58 @@ LC = KairosMcp::SkillSets::LlmClient
 # ──────────────────────────────────────────────────────────────────────────────
 # Lineup — pinned before the run, published with it (INV-20, INV-22).
 #
-# The game master's model is deliberately absent from the player pool. Whether
-# that is a requirement or a precaution is v0.8 §10 question 3; for this run it
-# is a precaution, so that a turn-control decision and a move can never come
-# from the same model in the same run.
+# The game master's model used to be deliberately absent from the player pool,
+# so that a turn-control decision and a move could never come from the same
+# model in the same run. Whether that is a requirement or a precaution is v0.8
+# §10 question 3, and it was held as a precaution through 2026-08-12.
+#
+# 2026-08-13 — the precaution is dropped, knowingly, and the collision is made
+# exact on purpose. The roster for the planned eight-lineup series fixes the
+# game master at claude-opus-5 while the claude seat alternates between
+# claude-opus-5 and claude-opus-4-6, so half the lineups seat the game master's
+# model as a player and no arrangement of the roster avoids it. The game master
+# was first set to xhigh; it is high because the claude seat is high, so that in
+# those four lineups turn control and one player's moves come from an
+# identically configured model rather than from a near neighbour. Whether that
+# identity shows up in play is a question for the analyses, not for this file.
+# Consequence, stated rather than solved: a shared model prior is then common to
+# turn control and to one seat, and any reading that treats the game master's
+# invitations as independent of that seat must account for it. Recorded in the
+# lineup of every run through game_master and players.
 # ──────────────────────────────────────────────────────────────────────────────
 
-PLAYER_SPECS = [
-  { id: 'A', adapter: 'cursor',      model: 'composer-2.5',    effort: nil      },
-  { id: 'B', adapter: 'codex',       model: 'gpt-5.6-sol',     effort: nil      },
-  { id: 'C', adapter: 'claude_code', model: 'claude-opus-4-6', effort: 'medium' }
-].freeze
+# Who sits at A, B and C is a run parameter, because rule 103 of the initial set
+# names A first and every game through 2026-08-13 seated cursor at A. "Spoke
+# first" and "was cursor" were therefore the same fact in all of them, and no
+# reading of those games can separate a first-mover effect from a model effect.
+# --seats takes a permutation of these keys; the default reproduces the old
+# arrangement so an unflagged run stays comparable with what came before.
+#
+# Read from ARGV here rather than in the option parser at the foot of the file,
+# because PLAYER_SPECS is a constant that the prompts and the lineup are built
+# from and it has to exist before either.
+SEAT_POOL = {
+  'cursor'      => { adapter: 'cursor',      model: 'composer-2.5',  effort: nil    },
+  'codex'       => { adapter: 'codex',       model: 'gpt-5.6-sol',   effort: nil    },
+  'claude_code' => { adapter: 'claude_code', model: 'claude-opus-5', effort: 'high' }
+}.freeze
 
-GM_SPEC = { id: 'GM', adapter: 'claude_code', model: 'claude-opus-5', effort: 'medium' }.freeze
+DEFAULT_SEAT_ORDER = %w[cursor codex claude_code].freeze
+
+SEAT_ORDER = begin
+  i = ARGV.index('--seats')
+  order = i && ARGV[i + 1] ? ARGV[i + 1].split(',').map(&:strip) : DEFAULT_SEAT_ORDER
+  unless order.sort == SEAT_POOL.keys.sort
+    abort "--seats must be a permutation of #{SEAT_POOL.keys.join(',')} — got #{order.join(',')}"
+  end
+  order.freeze
+end
+
+PLAYER_SPECS = SEAT_ORDER.each_with_index.map do |key, i|
+  { id: %w[A B C].fetch(i) }.merge(SEAT_POOL.fetch(key))
+end.freeze
+
+GM_SPEC = { id: 'GM', adapter: 'claude_code', model: 'claude-opus-5', effort: 'high' }.freeze
 
 # The analyst roster equals the player roster (v0.8 §6), so self-analysis is
 # part of the output and is recorded as such.
@@ -111,7 +150,29 @@ ANALYST_SPECS = PLAYER_SPECS
 # 1063.6 s is 600 s awake plus 463 s asleep. Raising the ceilings therefore
 # bought nothing and cost 183 minutes of the series' 282 waiting on calls that
 # were never going to return. The slowest call that ever succeeded took 151.5 s.
-TIMEOUTS = { 'claude_code' => 300, 'codex' => 300, 'cursor' => 300 }.freeze
+# Raised for the 100-turn measurement of 2026-08-13 and split by phase. The
+# 300 s ceiling was sized for 15-turn games. In the five games of 2026-08-12 the
+# slowest player call that succeeded took 265.4 s and 2 of 75 died at the
+# ceiling, while the per-call mean grew from 15.0 s (turns 1-3) to 35.5 s
+# (turns 13-15) inside a single game; the analysis prompt averaged 40,195
+# characters and opus-4-6 spent 157 s on it. A 100-turn game multiplies the
+# record by about 6.7, so a 300 s ceiling would have become the dominant cause
+# of failure and the run would have measured the deadline instead of the models.
+#
+# The two phases are separated because they scale differently: a game call reads
+# the log so far, an analysis call reads the whole finished record at once
+# (roughly 268,000 characters at 100 turns).
+#
+# These ceilings are deliberately generous because THIS RUN IS THE MEASUREMENT
+# of where the real ceiling sits; they come down once the 100-turn distribution
+# is known. The cost is that a hung call now spends its whole ceiling. The
+# 2026-08-11 lesson above does not apply here: that raise was chasing host-sleep
+# time, and the deadline runs on the monotonic clock, which stops while the host
+# sleeps, so a generous ceiling no longer absorbs sleep.
+TIMEOUTS = {
+  'game'     => { 'claude_code' => 1800, 'codex' => 1800, 'cursor' => 1800 },
+  'analysis' => { 'claude_code' => 3600, 'codex' => 3600, 'cursor' => 3600 }
+}.freeze
 
 # A call whose wall-clock duration exceeds its awake duration by more than this
 # straddled a host suspend. Recorded per call so that "the model did not answer"
@@ -236,8 +297,31 @@ ANALYSIS_GUIDELINE = <<~G.strip
   your reasons are the substance. Where you are unsure, score anyway and say you
   are unsure.
 
-  End your reply with this block, exactly, and nothing after it. Use whole
-  numbers from 0 to 10, one line each, and no other text inside the block:
+  For each of them, name as well what would have raised that score: a specific act,
+  at a specific point in this record, that the participant did not perform. Not a
+  quality it lacked but a move it could have made and did not — with enough detail
+  that someone reading the record could check whether the opening for it was really
+  there.
+
+  End your reply with these two blocks, in this order, exactly, and nothing
+  after them.
+
+  The first is the word LENS on its own line, followed by three to six sentences
+  of plain prose — no headings, no lists, no placeholders. Write them after you
+  have finished analysing and scoring, as an account of the standard you have
+  just applied rather than as a rule you are adopting: what you took
+  metacognitive competence to mean for this record, what you weighted most
+  heavily, and — this part matters most — what you declined to count as evidence
+  of it. Write the account itself; do not restate this instruction.
+
+  Then the word TEN on its own line, followed by two to four sentences describing
+  what a 10 would have looked like in this record — not in general, but here: what
+  a participant would have had to do for you to have given it full marks. Write it
+  after you have scored, as a description of the top of the scale you were in fact
+  using rather than one you are now choosing.
+
+  Then the word SCORES on its own line, followed by the scores. Use whole numbers
+  from 0 to 10, one line each, and no other text inside that block:
 
   SCORES
   A: <n>
@@ -332,9 +416,11 @@ class Run
   # MEMORY.md — about 12,200 words the other seats never see. The 2026-08-09
   # pilot was played with that asymmetry in place and one seat's results
   # inverted when it was removed.
-  def adapter_for(spec)
-    @adapters[spec[:id]] ||= begin
-      t = TIMEOUTS.fetch(spec[:adapter])
+  # Keyed by seat AND phase, because a seat's game deadline and its analysis
+  # deadline differ and the adapter carries the deadline it was built with.
+  def adapter_for(spec, phase)
+    @adapters[[spec[:id], phase]] ||= begin
+      t = TIMEOUTS.fetch(phase).fetch(spec[:adapter])
       case spec[:adapter]
       when 'claude_code'
         cfg = { 'sandbox_mode' => true, 'timeout_seconds' => t }
@@ -366,9 +452,12 @@ class Run
       'messages' => messages
     }.merge(extra)
 
+    phase = kind == 'analysis' ? 'analysis' : 'game'
+    row['timeout_seconds'] = TIMEOUTS.fetch(phase).fetch(spec[:adapter])
+
     content = nil
     begin
-      res = adapter_for(spec).call(messages: messages, model: spec[:model])
+      res = adapter_for(spec, phase).call(messages: messages, model: spec[:model])
       content = res['content']
       row['ok'] = true
       row['reply'] = content
@@ -454,6 +543,11 @@ class Run
                       'rule set and are not comparable to this one',
       'started_at' => now_stamp,
       'max_turns' => @max_turns,
+      # The deadline in force is part of the instrument: a run with no failed
+      # calls means one thing under 300 s and another under 1800 s, and without
+      # this field a later reading cannot tell the two apart. Each call also
+      # carries its own timeout_seconds, so a mid-run edit stays visible.
+      'timeouts_seconds' => TIMEOUTS,
       'game_master' => GM_SPEC.transform_keys(&:to_s),
       'players' => PLAYER_SPECS.map { |s| s.transform_keys(&:to_s) },
       'analysts' => ANALYST_SPECS.map { |s| s.transform_keys(&:to_s) },
@@ -472,9 +566,15 @@ class Run
         # this run's 33 calls and its rows carry party GM, so leaving it out of
         # both lists would read as if the lists were exhaustive when they were
         # not.
-        'contained_seats' => %w[C GM],
-        'uncontained_seats' => %w[A B],
-        'statement' => 'containment is by seat capability, not by file location; seats A and B ' \
+        # Derived from the seat assignment, not written out: --seats moves the
+        # contained adapter off C, and a hardcoded "C is contained" would then
+        # be a false statement in the record about which seats could read it.
+        'contained_seats' => PLAYER_SPECS.select { |s| s[:adapter] == 'claude_code' }
+                                         .map { |s| s[:id] } + ['GM'],
+        'uncontained_seats' => PLAYER_SPECS.reject { |s| s[:adapter] == 'claude_code' }
+                                           .map { |s| s[:id] },
+        'statement' => 'containment is by seat capability, not by file location; seats ' \
+                       "#{PLAYER_SPECS.reject { |s| s[:adapter] == 'claude_code' }.map { |s| s[:id] }.join(' and ')} " \
                        'could read this directory if they looked. Not fixed, recorded.',
         'write_mode' => 'append-only, one game per directory; the run refuses to start when the ' \
                         'directory already holds records, so a game is never destroyed and two ' \
@@ -647,6 +747,28 @@ class Run
   # retried: the whole reply is recorded as the utterance and the reasoning is
   # recorded as absent with its cause (INV-16 — a conditional quantity yields a
   # recorded value, never an absence).
+  #
+  # 2026-08-13, ruled and not to be reversed without the operator. When a reply
+  # carries <reasoning> but no <utterance>, the branch below puts the reasoning
+  # into the PUBLIC log, where the other players read it. Measured in
+  # t100_lineup1: seat C (claude-opus-5, high) produced that form on 3 of its 11
+  # calls, 16,698 to 21,675 characters each, 59,087 characters in all — 49% of
+  # that game's entire public log was text meant for no one. The five games of
+  # 2026-08-12, whose claude seat was claude-opus-4-6 at medium, produced it on
+  # 0 of 73 calls, so the frequency is a property of the seat's model.
+  #
+  # This is not repaired and no re-ask is added. Breaking the required form is
+  # itself a lapse of the competence this bench measures, a player saying aloud
+  # what it meant to keep to itself is a thing people do, and the interesting
+  # continuation is in the game rather than in the harness: another player may
+  # notice the exposure, name it, and propose a rule against it. A re-ask would
+  # delete all three observations at once.
+  #
+  # Known blind spot, recorded rather than fixed: check_gm.rb's first check
+  # excuses a reasoning match when the same text appears in an earlier
+  # utterance, so once reasoning reaches the public log the check reads the leak
+  # as ordinary quotation and stays green. It counted 5,156 excused matches on
+  # this game.
   def split_player_reply(reply)
     return { utterance: nil, reasoning: nil, form: 'call_failed' } if reply.nil?
 
@@ -825,6 +947,9 @@ if __FILE__ == $PROGRAM_NAME
   OptionParser.new do |o|
     o.on('--out DIR')     { |v| opts[:out] = v }
     o.on('--turns N', Integer) { |v| opts[:turns] = v }
+    # Consumed at the head of this file, where PLAYER_SPECS is built. Declared
+    # here only so that parse! accepts it instead of dying on an unknown flag.
+    o.on('--seats LIST') { |_| }
   end.parse!(ARGV)
 
   started = Time.now

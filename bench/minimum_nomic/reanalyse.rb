@@ -18,7 +18,7 @@
 # with no memory of playing and no statement of which seat it held.
 #
 # Usage, from the project root:
-#   ruby bench/minimum_nomic/reanalyse.rb log/minimum_nomic_gm_20260810/g3
+#   ruby log/minimum_nomic_gm_20260810/reanalyse.rb log/minimum_nomic_gm_20260810/inv29_g1
 
 require_relative 'run_gm'
 
@@ -73,8 +73,23 @@ def build_body(dir)
   A
 end
 
+# The analysts are the models that played THAT game, read back from its own
+# line-up — not the roster currently pinned in run_gm.rb. Two ways this file
+# would otherwise be wrong now that the roster moves: the claude seat was
+# claude-opus-4-6 in the games of 2026-08-12 and is claude-opus-5 since, so the
+# current roster would re-analyse an old game with a different panel; and --seats
+# rotates which model holds A, B and C, so the seat label written into each row
+# would name the wrong seat for a rotated game. Both would be silent.
+def analysts_for(dir)
+  lineup = load_kind(dir, 'lineup').first or abort "#{dir}: no lineup"
+  src = lineup['analysts'] || lineup['players'] or abort "#{dir}: no analyst roster in lineup"
+  src.map { |a| { id: a['id'], adapter: a['adapter'], model: a['model'], effort: a['effort'] } }
+end
+
 def adapter_for(spec)
-  t = TIMEOUTS.fetch(spec[:adapter])
+  # The analysis deadline, not the game one: an analysis call reads the whole
+  # finished record at once and scales with the game's length.
+  t = TIMEOUTS.fetch('analysis').fetch(spec[:adapter])
   case spec[:adapter]
   when 'claude_code'
     cfg = { 'sandbox_mode' => true, 'timeout_seconds' => t }
@@ -93,9 +108,11 @@ body = build_body(dir)
 guideline_sha = Digest::SHA256.hexdigest(ANALYSIS_GUIDELINE)
 out = File.join(dir, 'records', 'analyses_rescored.jsonl')
 
-puts "#{dir}: #{body.length} chars, guideline #{guideline_sha[0, 12]}"
+analysts = analysts_for(dir)
+puts "#{dir}: #{body.length} chars, guideline #{guideline_sha[0, 12]}, " \
+     "panel #{analysts.map { |a| "#{a[:id]}=#{a[:model]}" }.join(' ')}"
 
-ANALYST_SPECS.each do |spec|
+analysts.each do |spec|
   started = Time.now
   reply = nil
   error = nil
