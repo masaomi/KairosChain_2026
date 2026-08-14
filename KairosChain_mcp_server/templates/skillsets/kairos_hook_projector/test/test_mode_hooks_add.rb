@@ -130,8 +130,16 @@ class TestModeHooksAdd < Minitest::Test
       assert_nil out['error'], "gate omitted must list, not error: #{out.inspect[0, 200]}"
       assert_equal 'catalogue', out['action']
       assert out['nothing_written']
-      assert_includes out['gates'], { 'gate' => 'readable_gate', 'event' => 'Stop' },
-                      'the shipped catalogue carries readable_gate on Stop'
+      shipped = out['gates'].find { |g| g['gate'] == 'readable_gate' }
+      refute_nil shipped, 'the shipped catalogue carries readable_gate'
+      assert_equal 'Stop', shipped['event']
+      # The stripped annotations took 1,746 characters of reasons with them
+      # and _description was empty, so the listing carried numbers with no
+      # meaning. The shipped entry must describe itself, in one line.
+      desc = shipped['description']
+      assert desc.is_a?(String) && !desc.strip.empty?,
+             "the shipped entry describes itself in the listing: #{shipped.inspect}"
+      refute_includes desc, "\n", 'the description is one line'
       out['gates'].each do |g|
         assert g['gate'] && g['event'], "every listed kind names its event: #{g.inspect}"
       end
@@ -170,10 +178,11 @@ class TestModeHooksAdd < Minitest::Test
 
       doc = read_decl(dir)
       assert_equal 'testmode', doc['mode_name']
-      assert_equal Digest::SHA256.hexdigest(BODY), doc.dig('binding', 'mode_body_sha256'),
-                   'the binding pins the body the tool just read'
-      assert_equal '0.1.0', doc.dig('binding', 'mode_version'),
-                   "the body's declared version is recorded beside the digest"
+      refute doc.key?('binding'),
+             "create writes no binding: it is the author's opt-in (the " \
+             "catalogue's _binding_note), and one written unasked made the " \
+             'first ordinary body edit condemn the live gate, with no tool ' \
+             'route back'
       entry = doc.dig('hooks', 'Stop', 0)
       assert_equal 'readable_gate', entry['gate']
       assert_equal 60, entry.dig('params', 'max_lines'),
@@ -194,6 +203,55 @@ class TestModeHooksAdd < Minitest::Test
       assert_equal 'readable_gate', out.dig('added', 'gate')
       assert_equal 'mode_hooks_project mode="testmode"', out['next_command'],
                    'the caller is handed the exact next command, not a description of one'
+      refute out.key?('binding'),
+             'the result echoes no binding, because none is written'
+    end
+  end
+
+  # The two catalogue fields a consumer must not leave as shipped, said where
+  # the consumer is — in the result of the call that wrote them. section is a
+  # claim about the mode's own text the tool cannot get right (G8), and
+  # blocking's shipped false carries a reason that was stripped with the
+  # annotations (G7).
+  def test_the_result_note_says_edit_section_and_why_blocking_starts_false
+    with_adder do |a, _dir|
+      out = run_tool(a, 'gate' => 'readable_gate')
+      assert_match(/section is copied from the catalogue/, out['note'],
+                   'the note must name section as needing editing')
+      assert_match(/heading the mode body actually contains/, out['note'],
+                   'the note must say what to edit it to')
+      assert_match(/blocking starts false on purpose/, out['note'],
+                   "the note must carry _blocking_note's load-bearing sentence")
+      assert_match(/read the log for a week/, out['note'],
+                   'the note must say what to do before flipping blocking')
+    end
+  end
+
+  # The chain this witnesses the absence of: create wrote a binding unasked,
+  # one ordinary edit to the gated body made compile refuse binding_mismatch,
+  # check_installed collapsed to wanted = {}, and the operator's live,
+  # still-declared gate was relabelled stale with a remove-remedy. With no
+  # binding written, the declaration keeps compiling after the body moves on,
+  # and a second add refuses for the honest reason — the gate is already
+  # declared — not for a drift that never happened.
+  def test_a_body_edit_after_create_does_not_condemn_the_declaration
+    with_adder do |a, dir|
+      run_tool(a, 'gate' => 'readable_gate')
+      doc = read_decl(dir)
+
+      edited = BODY + "追記: 例は一つで足りる。\n" # an ordinary edit
+      File.write(File.join(dir, 'skills', 'testmode.md'), edited, encoding: 'UTF-8')
+
+      compiled = COMPILER.new.compile(mode_name: 'testmode', document: doc,
+                                      mode_body: edited)
+      assert compiled.compiled?,
+             'a declaration this tool created must keep compiling after the ' \
+             "body is edited: #{compiled.record['refusal'].inspect}"
+
+      out = run_tool(a, 'gate' => 'readable_gate')
+      assert_equal 'gate_already_declared', out['error'],
+                   'after a body edit the second add refuses as a duplicate, ' \
+                   "not binding_mismatch: #{out.inspect[0, 200]}"
     end
   end
 
@@ -260,8 +318,9 @@ class TestModeHooksAdd < Minitest::Test
     end
   end
 
-  # The binding is the author's record of which body they read. Two witnesses:
-  # a binding that compiles clean comes through exactly as written, and a
+  # A binding is the author's own opt-in record of which body they read; this
+  # tool never writes one. Where the author wrote one, two witnesses: a
+  # binding that compiles clean comes through exactly as written, and a
   # drifted one refuses the append rather than being silently refreshed —
   # refreshing it would erase the drift signal mode_hooks_validate raises.
 
@@ -333,6 +392,7 @@ class TestModeHooksAdd < Minitest::Test
       assert_equal 'mode_body_not_found', out['error'],
                    "the shape matches mode_hooks_validate's: #{out.inspect[0, 200]}"
       assert_equal File.join(dir, 'skills', 'testmode.md'), out['looked_at']
+      assert out['nothing_written'], 'every refusal says nothing was written'
       refute File.exist?(decl_path(dir))
     end
   end
@@ -430,6 +490,7 @@ class TestModeHooksAdd < Minitest::Test
       a.root = dir
       out = run_tool(a, 'gate' => 'readable_gate')
       assert_equal 'no_active_mode', out['error']
+      assert out['nothing_written'], 'every refusal says nothing was written'
     end
   end
 

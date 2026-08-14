@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'json'
-require 'digest'
 require_relative '../lib/boot_time_assertion'
 require_relative '../lib/mode_hooks_compiler'
 require_relative '../lib/mode_hooks_locator'
@@ -38,13 +37,20 @@ module KairosMcp
         # incidental formatting normalizes while every key and entry the
         # author wrote — underscore-prefixed notes included — survives.
         #
-        # The catalogue of gate kinds is mode_hooks/_EXAMPLE.json and nothing
-        # else. That file already carries, per kind: the event it binds to
-        # (the key the entry sits under), section, blocking, and the full
-        # params. A second file carrying the same numbers would drift — this
-        # project has been bitten by exactly that — so adding a future kind
-        # is "add an entry to _EXAMPLE.json under its event" plus shipping
-        # the gate itself, and no edit here.
+        # The catalogue of gate kinds is mode_hooks/_EXAMPLE.json. It carries,
+        # per kind: the event it binds to (the key the entry sits under),
+        # section, blocking, and the full params — one copy, because a second
+        # file carrying the same numbers would drift, and this project has
+        # been bitten by exactly that. But the catalogue is not an instance
+        # extension point: the file is gem-shipped, and system_upgrade
+        # overwrites it on any reinstall — at the same version, with no
+        # warning, without naming the file — so an edit to the installed copy
+        # does not survive. That is the same volatility this tool refuses to
+        # write declarations into mode_hooks/<mode>.json over, and it applies
+        # to the catalogue too. Adding a future kind is a core release act:
+        # the catalogue entry under its event, the kind in the compiler's
+        # KNOWN_GATES (until then every call refuses it as unknown_gate), and
+        # the gate implementation itself. This tool's own code needs no edit.
         class ModeHooksAdd < ::KairosMcp::Tools::BaseTool
           SKILLSET_ROOT = File.expand_path('..', __dir__)
           SKILLSET_NAME = 'kairos_hook_projector'
@@ -134,7 +140,9 @@ module KairosMcp
             return catalogue_listing if args['gate'].nil?
 
             mode = args['mode'] || active_mode
-            return { error: 'no_active_mode' } if mode.nil? || mode == 'none'
+            if mode.nil? || mode == 'none'
+              return { error: 'no_active_mode', nothing_written: true }
+            end
 
             # The locator never resolves a leading-underscore name — that
             # marks the shipped schemas and the example, not a mode — so a
@@ -148,7 +156,8 @@ module KairosMcp
 
             body_path = mode_body_path(mode)
             unless body_path && File.exist?(body_path)
-              return { mode: mode, error: 'mode_body_not_found', looked_at: body_path }
+              return { mode: mode, error: 'mode_body_not_found', looked_at: body_path,
+                       nothing_written: true }
             end
 
             body = File.read(body_path, encoding: 'UTF-8')
@@ -243,14 +252,16 @@ module KairosMcp
             # The locator's own first candidate: <mode>.mode_hooks.json beside
             # the mode body — the preferred location its comment names.
             target = ModeHooksLocator.candidates(mode, skillset_root, body_path).first
-            binding = {}
-            version = declared_version(body)
-            binding['mode_version'] = version if version
-            binding['mode_body_sha256'] = Digest::SHA256.hexdigest(body)
+            # No binding is written. The catalogue's _binding_note is the
+            # documented position: a binding is the author's opt-in record of
+            # which body they read. When this tool wrote one unasked, the
+            # first ordinary edit to the mode body made every compile refuse
+            # with binding_mismatch, and no tool route could repair it — a
+            # second add refuses, the projector refuses — leaving only the
+            # hand-pasted sha256 this tool exists to remove.
             document = {
               'mode_name' => mode,
               'version' => '1',
-              'binding' => binding,
               'hooks' => { found[:event] => [found[:entry]] }
             }
             deliver(mode, 'created', target, document, body, found)
@@ -352,7 +363,7 @@ module KairosMcp
             end
 
             write_declaration(target, document)
-            result = {
+            {
               mode: mode,
               action: action,
               declaration: target,
@@ -364,11 +375,14 @@ module KairosMcp
                     'mode_hooks_project proposes the install and writes nothing ' \
                     'until its confirm_sha256 is echoed back. The thresholds are ' \
                     "the catalogue's starting numbers and are the mode's own — " \
-                    'tune them in the written file. .claude/settings.json was ' \
-                    'not touched.'
+                    'tune them in the written file. Two fields need more than ' \
+                    'tuning: section is copied from the catalogue and is a claim ' \
+                    "about the mode's own text — edit it to a heading the mode " \
+                    'body actually contains, because the gate quotes it verbatim ' \
+                    'in every block reason. And blocking starts false on ' \
+                    'purpose: read the log for a week before flipping it to ' \
+                    'true. .claude/settings.json was not touched.'
             }.merge(extra)
-            result[:binding] = document['binding'] if action == 'created'
-            result
           end
 
           def write_declaration(path, document)
@@ -383,10 +397,6 @@ module KairosMcp
 
           def skillset_root
             SKILLSET_ROOT
-          end
-
-          def declared_version(body)
-            body[/^\*\*Version:\*\*\s*(\S+)/i, 1]
           end
 
           def active_mode

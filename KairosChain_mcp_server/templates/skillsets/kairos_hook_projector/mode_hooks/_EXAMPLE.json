@@ -50,6 +50,7 @@
     "Stop": [
       {
         "gate": "readable_gate",
+        "_description": "Measures the turn's last message against declared readability limits — length, headings, tables, undefined shorthand, a missing diagram — and reports to its log, or blocks the turn once blocking is true.",
         "section": "§ Readable output",
 
         "_blocking_note": "false on purpose in the example. The vocabulary rule below is the one thing here that cannot be got right by reading: whether a shape is coined shorthand or an ordinary technical word depends on what you write about. Start in report-only mode, read your log for a week, then set this to true. Shipping the example with true meant a consumer who copied it as instructed was blocked on the first message mentioning a character encoding.",

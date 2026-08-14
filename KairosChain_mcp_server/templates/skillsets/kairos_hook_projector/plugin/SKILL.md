@@ -23,21 +23,38 @@ Not auto-installed (not a core SkillSet): install it by name first —
 1. `mode_hooks_add mode="<mode>" gate="readable_gate"` writes
    `<mode>.mode_hooks.json` beside the mode body — creating it, or appending
    to it; an entry with the same gate already on the event is refused, never
-   overwritten. The entry comes from the catalogue (`mode_hooks/_EXAMPLE.json`):
-   event, section, blocking, and starting params — tune the numbers in the
-   written file afterwards, they are the mode's own. Called without `gate` it
-   lists the catalogue and writes nothing. It stops at the declaration and
-   never touches `.claude/settings.json`.
+   overwritten. Omitting `mode` targets the active mode, and on a stock init
+   that is `tutorial` — a gem-shipped template body carrying no
+   readable-output norm — so name your mode. The entry comes from the
+   catalogue (`mode_hooks/_EXAMPLE.json`): event, section, blocking, and
+   starting params. Tune the numbers in the written file afterwards, they are
+   the mode's own — and edit `section` to a heading your mode body actually
+   contains: it is copied from the catalogue, it is a claim about your own
+   text, and the gate quotes it verbatim in every block reason. Called
+   without `gate` it lists the catalogue and writes nothing. It stops at the
+   declaration and never touches `.claude/settings.json`.
 2. Or by hand, for someone who wants to write the numbers themselves: copy
    `mode_hooks/_EXAMPLE.json` beside your mode body as
    `<mode>.mode_hooks.json` (e.g. `.kairos/skills/masa.mode_hooks.json`),
    then edit `mode_name` inside it to `<mode>` — filename and field must
-   agree — and replace the example numbers with your own.
+   agree — edit `section` to a heading your mode body actually contains (the
+   gate quotes it verbatim in every block reason), and replace the example
+   numbers with your own.
 3. `mode_hooks_validate` reports what the declaration still needs.
 4. `mode_hooks_project` proposes by default and writes nothing; to install,
    call again with `apply=true` and the `confirm_sha256` from the proposal.
 5. `mode_hooks_validate`, run again, answers whether the gate is installed:
    its `installed` check compares declaration and `.claude/settings.json`.
+
+The catalogue is gem-shipped and is not an extension point on the instance:
+`system_upgrade` overwrites `mode_hooks/_EXAMPLE.json` on any reinstall — at
+the same version, with no warning, without naming the file — so an edit to
+the installed copy does not survive. Adding a gate kind is a core release
+act: the catalogue entry, the kind in the compiler's known-gate table (until
+then every call refuses it as `unknown_gate`), and the gate implementation
+itself. Your declaration lives beside the mode body, outside the SkillSet,
+for the same reason — the tool refuses to write declarations inside the
+SkillSet directory because an upgrade would undo them.
 
 ## Removing a mode's hooks
 
