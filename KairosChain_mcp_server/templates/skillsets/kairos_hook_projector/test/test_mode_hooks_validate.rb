@@ -705,6 +705,51 @@ class TestModeHooksValidate < Minitest::Test
     end
   end
 
+  # Round 13, F3. Two byte-identical owned copies of the declared hook on the
+  # DECLARED event each independently satisfied the stale filter's
+  # valid-realization equality, so neither was reported and the answer read
+  # `installed: ok` while a surplus live hook remained in the harness config —
+  # the exact entry the filter's own contract ("a surplus owned copy beside a
+  # valid realization of the same config") already promised under stale. The
+  # declaration asks for exactly one command per (event, config): one
+  # realization is consumed, the copy is surplus. No shipped path writes the
+  # duplicate — apply is convergent — so the fixtures are what a hand edit or
+  # an external settings merge leaves behind, in both shapes it can take: the
+  # entry duplicated inside the owned group, and the whole owned group
+  # duplicated. The projector reports settings_changed for both, so `ok` here
+  # was also the round-8 validate-versus-projector disagreement reopening on
+  # multiplicity; re-apply removes the copy, which is stale's remedy.
+  def test_a_surplus_byte_identical_copy_of_a_declared_hook_is_stale_not_ok
+    compiled = compiled_for_installed_test
+    name = 'testmode.Stop.readable_gate.0.json'
+    Dir.mktmpdir do |cfg_root|
+      cfg = File.join(cfg_root, name)
+      File.write(cfg, compiled.artifact['files'].fetch(name), encoding: 'UTF-8')
+      cmd = Shellwords.join(['kairos-readable-gate', '--config', cfg])
+      group = lambda do |*cmds|
+        { 'hooks' => cmds.map { |c| { 'command' => c } },
+          '_projected_by' => 'kairos_hook_projector', '_mode' => 'testmode' }
+      end
+
+      { 'entry duplicated inside the owned group' => [group.call(cmd, cmd)],
+        'owned group duplicated whole' => [group.call(cmd), group.call(cmd)] }
+        .each do |shape, groups|
+        with_settings('Stop' => groups) do |root|
+          out = @t.send(:check_installed, compiled, root, 'testmode')
+          assert_equal 'stale_installed', out[:status],
+                       "#{shape}: the second copy is a hook the declaration " \
+                       "does not ask for: #{out.inspect}"
+          assert_equal [['Stop', cmd]],
+                       out[:stale].map { |s| [s[:event], s[:command]] },
+                       "#{shape}: one realization is consumed, exactly the " \
+                       "surplus is reported: #{out.inspect}"
+          assert_empty Array(out[:missing]), out.inspect
+          assert_empty Array(out[:diverged]), out.inspect
+        end
+      end
+    end
+  end
+
   # Round 8 also replaced the presence File.exist? with an unguarded
   # File.read, so a config that exists but cannot be read — a directory here —
   # collapsed the whole answer into `{"error":"Errno::EISDIR"}`: no verdict,

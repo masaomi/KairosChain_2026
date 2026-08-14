@@ -456,6 +456,20 @@ module KairosMcp
             # partition is unchanged; only its key is finer, and the
             # wrong-event copy is its own defect, reported once, under stale.
             reported = (missing + diverged).map { |m| [m[:event], m[:config]] }
+            # Round 13, F3: the declaration asks for exactly ONE command per
+            # (event, basename), so skipping a valid realization CONSUMES it,
+            # and only one may be consumed. The equality below used to be a
+            # pure predicate, so two byte-identical owned copies on the
+            # declared event each satisfied it independently, neither reached
+            # stale, and the answer read `installed: ok` while a surplus live
+            # hook remained — the exact entry the contract above already
+            # promises under stale. No shipped path writes the duplicate
+            # (apply is convergent); a hand edit or an external settings merge
+            # does. The projector already counts either shape as
+            # settings_changed, so `ok` was also the round-8 validate-versus-
+            # projector disagreement reopening on multiplicity; stale, whose
+            # remedy is the same re-apply, is the agreeing answer.
+            consumed = {}
             stale = installed.flat_map do |event, groups|
               Array(groups).select { |g| ours?(g, mode) }.flat_map do |group|
                 Array(group['hooks']).filter_map do |h|
@@ -466,8 +480,12 @@ module KairosMcp
 
                   declared_argv = base && wanted_argv[[event, base]]
                   declared = declared_argv && wanted_files[base]
-                  next if !declared.nil? && cmd == expected_command(declared_argv, path) &&
-                          config_bytes(path) == declared
+                  if !declared.nil? && cmd == expected_command(declared_argv, path) &&
+                     config_bytes(path) == declared
+                    first = !consumed[[event, base]]
+                    consumed[[event, base]] = true
+                    next if first
+                  end
 
                   { event: event, command: cmd }
                 end

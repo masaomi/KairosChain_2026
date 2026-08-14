@@ -481,7 +481,12 @@ module KairosHookProjector
       FileUtils.mkdir_p(parent) unless parent.empty? || File.directory?(parent)
       # One line per turn with no bound grows without limit. Rotate rather than
       # truncate so the run that crossed the bound is still readable.
-      if cfg.log_max_bytes && File.exist?(path) && File.size(path) > cfg.log_max_bytes
+      # file?, not exist?: a directory has an on-disk size too, and with the
+      # bound at or below it the rename moved the operator's directory to
+      # <path>.1 and let a regular file take its name — silently, because the
+      # append then succeeded. A directory now skips rotation and falls through
+      # to the append, where EISDIR is rescued and named in the banner.
+      if cfg.log_max_bytes && File.file?(path) && File.size(path) > cfg.log_max_bytes
         # Check-then-act: two gates crossing the bound together both decide to
         # rotate, and the loser's rename fails. Rescued here rather than by the
         # method-level rescue below, which would swallow the append along with
@@ -499,8 +504,14 @@ module KairosHookProjector
       nil
     rescue StandardError => e
       # Bounded because it travels into the banner every turn, and a rescued
-      # message can carry a path of any length.
-      reason = "#{e.class}: #{e.message}".tr("\n", ' ')
+      # message can carry a path of any length. Scrubbed first because it can
+      # carry the declared path's own bytes: a log_path holding a byte invalid
+      # as UTF-8 lands here as an EILSEQ whose message embeds it verbatim,
+      # String#tr raised on that inside this very rescue, and the gate died out
+      # of main with exit 0 and nothing on either stream — no banner, no
+      # verdict, no block. The output-boundary scrub in emit() cannot reach
+      # this: the raise happened before any output was assembled.
+      reason = "#{e.class}: #{e.message}".scrub.tr("\n", ' ')
       reason.length > 120 ? "#{reason[0, 117]}..." : reason
     end
 
@@ -526,6 +537,21 @@ module KairosHookProjector
                 ''
               end
       "#{cfg.banner_prefix}#{scope}: #{verdict} (#{shape})#{tail}"
+    end
+
+    # The gate's one output seam: all three emitted objects pass through here,
+    # and their values are strings. Scrubbed at this boundary because every
+    # config-sourced string funnels into it — mode_name and section through the
+    # block reason, banner_prefix and the problem list through every banner, a
+    # rescued write failure through log_note — and a byte invalid as UTF-8 in
+    # any of them made JSON.generate raise, which the top-level rescue turned
+    # into exit 0 with empty stdout: no banner, no verdict, no block. Round 13
+    # measured that silence from a bad log_path on this tree and from a bad
+    # mode_name on the pre-repair tree too, so the scrub sits where the routes
+    # converge rather than at whichever source the last repair happened to
+    # touch. Invalid sequences become U+FFFD; nothing else changes.
+    def emit(payload)
+      puts JSON.generate(payload.transform_values { |v| v.is_a?(String) ? v.scrub : v })
     end
 
     def report(cfg, paths)
@@ -598,7 +624,7 @@ module KairosHookProjector
         # goes through. Enforcing half a config would be worse than enforcing
         # none, and crashing tells the operator nothing.
         lost = note(cfg, "SKIP-bad-config: #{cfg.problems.join('; ')}")
-        puts JSON.generate(
+        emit(
           'systemMessage' => "#{cfg.banner_prefix}: NOT RUN — #{cfg.problems.join('; ')}" +
                              (lost ? "; #{log_note(lost)}" : '')
         )
@@ -627,7 +653,7 @@ module KairosHookProjector
         metrics, failures = measure_bounded(text, cfg)
       rescue MeasureTimeout
         lost = note(cfg, 'SKIP-measure-timeout')
-        puts JSON.generate(
+        emit(
           'systemMessage' =>
             "#{cfg.banner_prefix}: NOT RUN — measurement exceeded #{cfg.measure_timeout}s; " \
             "check the mode's patterns for unbounded backtracking" +
@@ -649,7 +675,7 @@ module KairosHookProjector
           failures.join("\n- ") +
           (instruction.empty? ? '' : "\n\n#{instruction}")
       end
-      puts JSON.generate(out)
+      emit(out)
       0
     end
   end

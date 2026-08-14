@@ -375,6 +375,25 @@ class TestModeHooksCompiler < Minitest::Test
     end
   end
 
+  # Round 13, F4. The blocking-when-omitted default was guarded only by
+  # accident: flipping the `true` in flatten_hooks left this whole suite green
+  # and died exactly once, two files away, on a validator fixture's
+  # byte-equality — a guard that vanishes the day that fixture declares
+  # `blocking` explicitly. This is the named witness, in the suite that owns
+  # the default. The fixture guard keeps the omission real.
+  def test_a_declaration_that_omits_blocking_compiles_to_a_blocking_true_config
+    d = doc
+    refute d['hooks']['Stop'][0].key?('blocking'),
+           'the fixture must actually omit blocking, or this witnesses nothing'
+    result = @c.compile(mode_name: 'masa', document: d)
+    assert result.compiled?, 'the omitting declaration must compile'
+    config = JSON.parse(result.artifact['files'].fetch('masa.Stop.readable_gate.0.json'))
+    assert_equal true, config['blocking'],
+                 'a declaration that omits blocking must compile to a blocking gate'
+    assert_equal true, result.record['output']['events']['Stop'][0]['blocking'],
+                 'and the record must say the same'
+  end
+
   # The producer validates its own record against the schema and raises when it
   # does not fit — a programmer fault, not a domain outcome. The comment claimed
   # every other test in this file would surface a break in that guard; nothing

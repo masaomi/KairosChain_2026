@@ -29,7 +29,7 @@ Gem::Specification.new do |spec|
   # alternative, and it is worse: without Regexp.timeout there is no
   # per-match bound either, so a declaration carrying many patterns can eat
   # the hook's whole budget and stall the turn.
-  spec.required_ruby_version = '>= 3.2'
+  spec.required_ruby_version = '>= 3.3'
 
   spec.metadata['homepage_uri']    = spec.homepage
   spec.metadata['source_code_uri'] = spec.homepage

@@ -1,6 +1,6 @@
 {
   "name": "kairos_hook_projector",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Projects an instruction mode's declared hooks into the harness configuration. Stage 1 compiles a mode_hooks declaration to a hook artifact plus a compile record. Stage 2 installs it: mode_hooks_project proposes by default and writes nothing, applying only when the caller echoes back the artifact hash from the proposal, and rewriting only hook groups carrying this SkillSet's marker for that mode — hand-added hooks and other modes' hooks are counted and left alone. Ships the generic readable_gate implementation; a mode supplies its own thresholds, the core supplies none.",
   "author": "Masaomi Hatakeyama",
   "layer": "L1",

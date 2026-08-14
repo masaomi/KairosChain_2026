@@ -867,6 +867,140 @@ class TestReadableGate < Minitest::Test
     end
   end
 
+  # --- round 13, second repair: bytes the gate cannot encode -----------------
+  #
+  # A config string carrying a byte invalid as UTF-8 killed the entire output:
+  # exit 0, empty stdout, empty stderr — no banner, no verdict, no block.
+  # Measured on this tree through log_path (the EILSEQ message embeds the
+  # declared path, and String#tr raised on it inside note()'s rescue) and on
+  # the pre-repair tree through mode_name (the block reason reaches
+  # JSON.generate un-scrubbed, never passing note() at all). Two placements,
+  # one witness each, so losing either scrub reddens the test that names it.
+  #
+  # JSON.generate refuses to emit invalid UTF-8, so the byte is spliced into
+  # the config bytewise, the way the torn transcript fixture above splices its.
+
+  def decide_with_bad_byte(config_with_marker, text)
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx_path = File.join(tmp, 't.jsonl')
+      raw = JSON.generate(config_with_marker)
+                .b.sub("BADBYTE".b, "\xE3\x81".b).force_encoding(Encoding::UTF_8)
+      File.binwrite(cfg_path, raw)
+      File.write(tx_path, JSON.generate(
+        'type' => 'assistant',
+        'message' => { 'content' => [{ 'type' => 'text', 'text' => text }] }
+      ) + "\n", encoding: 'UTF-8')
+      out, err, status = run_script(
+        cfg_path, JSON.generate('transcript_path' => tx_path, 'stop_hook_active' => false)
+      )
+      assert_equal 0, status.exitstatus, err[0, 300]
+      refute_empty out.strip, 'silence is the defect this witnesses: the gate must answer'
+      JSON.parse(out)
+    end
+  end
+
+  def test_a_byte_invalid_as_utf8_in_log_path_still_banners_and_still_blocks
+    # The parent directory carries the byte, so mkdir_p refuses with EILSEQ —
+    # measured on this project's darwin/APFS machines, where such a path cannot
+    # exist on disk at all — and the refusal's message carries the byte into
+    # the rescued reason.
+    Dir.mktmpdir do |tmp|
+      out = decide_with_bad_byte(
+        { 'mode_name' => 'test', 'section' => '§ Test', 'max_headings' => 3,
+          'log_path' => File.join(tmp, 'BADBYTEdir', 'gate.log') }, FOUR_HEADINGS
+      )
+      msg = out.fetch('systemMessage', '')
+      assert_includes msg, 'FAIL', 'the banner arrives'
+      assert_includes msg, 'log not written', 'and names the write it lost'
+      assert_equal 'block', out['decision'], 'and the block arrives with it'
+    end
+  end
+
+  def test_a_byte_invalid_as_utf8_in_mode_name_still_banners_and_still_blocks
+    # The pre-existing sibling route: no log is declared, note() is never the
+    # carrier, and the byte reaches the output only through the block reason —
+    # which is exactly the route the scrub in note() cannot cover.
+    out = decide_with_bad_byte(
+      { 'mode_name' => 'mBADBYTEe', 'section' => '§ Test', 'max_headings' => 3 },
+      FOUR_HEADINGS
+    )
+    assert_includes out.fetch('systemMessage', ''), 'FAIL', 'the banner arrives'
+    assert_equal 'block', out['decision'], 'the block arrives'
+    assert_includes out.fetch('reason', ''), 'HEADINGS',
+                    'and the reason survives, its bad byte replaced'
+  end
+
+  # Rotation checked existence and size but never that the path is a regular
+  # file. With the bound at or below a directory's on-disk size (96-160 bytes
+  # on APFS), the operator's directory was renamed to <path>.1 and a regular
+  # file took its name — and the banner said nothing, because the append then
+  # succeeded. A directory must skip rotation and land where EISDIR is named.
+  def test_rotation_never_renames_a_directory_out_of_its_place
+    Dir.mktmpdir do |dir|
+      target = File.join(dir, 'logs')
+      Dir.mkdir(target)
+      File.write(File.join(target, 'precious'), 'operator data', encoding: 'UTF-8')
+      out = decide("short\n", log_path: target, log_max_bytes: 1)
+      assert File.directory?(target), 'the operator directory keeps its name'
+      assert_path_exists File.join(target, 'precious'), 'and keeps its contents'
+      refute File.exist?("#{target}.1"), 'nothing was renamed aside'
+      msg = out.fetch('systemMessage', '')
+      assert_includes msg, 'PASS', 'measurement untouched'
+      assert_includes msg, 'log not written', 'the failed write is named'
+      assert_includes msg, 'Is a directory', 'as the EISDIR the append raises'
+    end
+  end
+
+  # --- round 13, gap 25: the NOT RUN banners' write-failure clause -----------
+  #
+  # Both NOT RUN branches append "; log not written: ..." when the skip record
+  # itself could not be written. Suppressing the clause on either branch left
+  # all 63 tests green — four seats measured it — so each branch gets one
+  # witness driving it with an unwritable log_path.
+
+  def test_the_bad_config_banner_names_the_log_it_could_not_write
+    Dir.mktmpdir do |dir|
+      out = decide("short\n", max_lines: '60', log_path: dir)
+      msg = out.fetch('systemMessage', '')
+      assert_includes msg, 'NOT RUN', 'the config problem still suppresses the run'
+      assert_includes msg, 'max_lines', 'and is named'
+      assert_includes msg, 'log not written', 'and the lost record is named beside it'
+    end
+  end
+
+  def test_the_measure_timeout_banner_names_the_log_it_could_not_write
+    # The branch is entered through its real seam — main's rescue of
+    # MeasureTimeout around measure_bounded — with the measurement stubbed to
+    # raise, the same seam test_a_regexp_timeout... drives. A genuine timeout
+    # costs a second of wall clock per run and is already witnessed end to end
+    # by the accumulating-scan test; this witness is about the clause, and the
+    # note() failure it asserts is real: the log_path is a directory.
+    Dir.mktmpdir do |dir|
+      cfg_path = File.join(dir, 'cfg.json')
+      tx = File.join(dir, 't.jsonl')
+      unwritable = File.join(dir, 'logdir')
+      Dir.mkdir(unwritable)
+      File.write(cfg_path, JSON.generate('mode_name' => 't', 'log_path' => unwritable),
+                 encoding: 'UTF-8')
+      File.write(tx, JSON.generate(
+        'type' => 'assistant',
+        'message' => { 'content' => [{ 'type' => 'text', 'text' => 'x' }] }
+      ) + "\n", encoding: 'UTF-8')
+      out = nil
+      G.stub(:measure_bounded, ->(*) { raise G::MeasureTimeout }) do
+        out, _err = capture_io do
+          assert_equal 0, G.main(['--config', cfg_path],
+                                 StringIO.new(JSON.generate('transcript_path' => tx)))
+        end
+      end
+      msg = JSON.parse(out).fetch('systemMessage', '')
+      assert_includes msg, 'NOT RUN'
+      assert_includes msg, 'exceeded', 'the timeout is what the banner explains'
+      assert_includes msg, 'log not written', 'and the lost record is named beside it'
+    end
+  end
+
   # --- round 11: boundary witnesses ------------------------------------------
   #
   # 45 mutations, 19 survivors, one cause: no fixture ever sat on a boundary.
