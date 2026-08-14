@@ -20,11 +20,20 @@ under `.kairos/hook_configs/`.
 Not auto-installed (not a core SkillSet): install it by name first —
 `system_upgrade command="apply" approved=true names=["kairos_hook_projector"]`.
 
-1. Copy `mode_hooks/_EXAMPLE.json` beside your mode body as
-   `<mode>.mode_hooks.json` (e.g. `.kairos/skills/masa.mode_hooks.json`).
-2. Edit `mode_name` inside it to `<mode>` — filename and field must agree —
-   and replace the example numbers with your own.
-3. `mode_hooks_validate` reports what the copy still needs.
+1. `mode_hooks_add mode="<mode>" gate="readable_gate"` writes
+   `<mode>.mode_hooks.json` beside the mode body — creating it, or appending
+   to it; an entry with the same gate already on the event is refused, never
+   overwritten. The entry comes from the catalogue (`mode_hooks/_EXAMPLE.json`):
+   event, section, blocking, and starting params — tune the numbers in the
+   written file afterwards, they are the mode's own. Called without `gate` it
+   lists the catalogue and writes nothing. It stops at the declaration and
+   never touches `.claude/settings.json`.
+2. Or by hand, for someone who wants to write the numbers themselves: copy
+   `mode_hooks/_EXAMPLE.json` beside your mode body as
+   `<mode>.mode_hooks.json` (e.g. `.kairos/skills/masa.mode_hooks.json`),
+   then edit `mode_name` inside it to `<mode>` — filename and field must
+   agree — and replace the example numbers with your own.
+3. `mode_hooks_validate` reports what the declaration still needs.
 4. `mode_hooks_project` proposes by default and writes nothing; to install,
    call again with `apply=true` and the `confirm_sha256` from the proposal.
 5. `mode_hooks_validate`, run again, answers whether the gate is installed:
@@ -54,6 +63,9 @@ installed command names them; delete them by hand if you want them gone.
 
 ## Tools
 
+- `mode_hooks_add` — write or extend a mode's declaration from the catalogue
+  (`mode_hooks/_EXAMPLE.json`); append-only, stops at the declaration, never
+  touches `.claude/settings.json`. Without `gate`, lists the catalogue.
 - `mode_hooks_validate` (read-only) — mode body vs declaration drift, compile
   resolvability, and declared-vs-installed divergence in both directions.
 - `mode_hooks_project` — compile and install; touches only entries it placed
