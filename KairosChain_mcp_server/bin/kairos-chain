@@ -406,6 +406,122 @@ when 'upgrade'
   end
   exit
 
+when 'gate'
+  # Readable-gate enablement in one call. The judgement lives in the
+  # kairos_hook_projector SkillSet, which is not a core SkillSet: this loads it
+  # from the instance and refuses when it is absent, the shape `attestation
+  # scan` already uses for synoptis. Loading it from the gem's templates instead
+  # would run a different copy than the one installed here.
+  ARGV.shift
+
+  action = ARGV.shift
+  if action.nil? || %w[-h --help help].include?(action)
+    puts <<~HELP
+      Usage: kairos-chain gate enable <mode> [--section "§ Heading"] [--apply]
+
+      Add the readable gate to an instruction mode: write the declaration
+      from the catalogue, then install it into .claude/settings.json.
+
+      Without --apply it proposes and writes nothing.
+
+      It does not read the mode body and decides nothing about it. The
+      section and the thresholds come from the catalogue and are the mode's
+      own to edit afterwards, in the declaration this prints. `blocking`
+      starts false, which is what the catalogue ships: run report-only,
+      read the log, then set it true and re-run with --apply.
+
+      A verdict of OPEN_QUESTIONS after a successful install is not a
+      failure — it means some other section of the mode states a limit with
+      no recorded decision. Record it under not_gated in the declaration.
+
+      Options:
+        --section "§ Heading"  Write this section instead of the catalogue's.
+        --apply                Write. Default is propose-only.
+        --data-dir DIR         Override the .kairos/ data directory.
+
+      Requires: kairos-chain skillset install kairos_hook_projector
+    HELP
+    exit 0
+  end
+
+  $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
+  require 'json'
+  require 'kairos_mcp'
+
+  if (idx = ARGV.index('--data-dir'))
+    KairosMcp.data_dir = File.expand_path(ARGV[idx + 1])
+    ARGV.delete_at(idx + 1)
+    ARGV.delete_at(idx)
+  end
+
+  unless action == 'enable'
+    warn "ERROR: unknown action #{action.inspect}. See: kairos-chain gate --help"
+    exit 1
+  end
+
+  gate_apply = !ARGV.delete('--apply').nil?
+  gate_section = nil
+  if (idx = ARGV.index('--section'))
+    gate_section = ARGV[idx + 1]
+    if gate_section.nil? || gate_section.start_with?('--')
+      warn 'ERROR: --section requires a heading, e.g. --section "§ Readable output"'
+      exit 1
+    end
+    ARGV.delete_at(idx + 1)
+    ARGV.delete_at(idx)
+  end
+
+  gate_mode = ARGV.find { |a| !a.start_with?('--') }
+  if gate_mode.nil?
+    warn 'ERROR: name the mode. Omitting it would target the active mode, which'
+    warn '       on a stock init is tutorial — a shipped body with nothing to gate.'
+    warn '       Usage: kairos-chain gate enable <mode> [--apply]'
+    exit 1
+  end
+
+  ss_root = File.join(KairosMcp.skillsets_dir, 'kairos_hook_projector')
+  unless File.directory?(File.join(ss_root, 'tools'))
+    warn 'ERROR: kairos_hook_projector is not installed on this instance.'
+    warn '       kairos-chain skillset install kairos_hook_projector'
+    exit 1
+  end
+
+  require 'kairos_mcp/tools/base_tool'
+  require 'kairos_mcp/kairos_chain/chain'
+  require File.join(ss_root, 'lib', 'readable_gate_setup')
+
+  result = KairosMcp::SkillSets::KairosHookProjector::ReadableGateSetup
+           .new(skillset_root: ss_root).run(mode: gate_mode, section: gate_section,
+                                            apply: gate_apply)
+
+  case result.status
+  when :refused
+    warn "REFUSED: #{result.detail}"
+    exit 1
+  when :proposed
+    puts JSON.pretty_generate(result.data['plan'])
+    puts
+    puts "declaration: #{result.data['declaration']}"
+    puts 'Nothing written. Re-run with --apply to install.'
+    exit 0
+  else
+    installed = result.data.dig('checks', 'installed') || {}
+    declared = result.data.dig('checks', 'declared') || {}
+    puts "verdict    : #{result.data['verdict']}"
+    puts "installed  : #{installed['status']} — #{installed['detail']}"
+    puts "declaration: #{result.data['declaration']}"
+    puts
+    puts 'Installed, and reporting only — blocking is false, as the catalogue ships it.'
+    # Reported, not treated as failure: the gate is on either way.
+    if result.data['verdict'] == 'OPEN_QUESTIONS'
+      puts
+      puts "Also: #{declared['detail']}"
+      puts "Sections: #{Array(declared['candidate_sections']).join(', ')}"
+      puts 'Record a decision for each under not_gated in the declaration, or gate them.'
+    end
+    exit 0
+  end
+
 when 'attestation'
   # Constitutive L2 attestation CLI (Slice 3c). Currently one action: `scan`, the
   # ACT-5 trigger point invokable from a session-end Stop hook so that firing +
