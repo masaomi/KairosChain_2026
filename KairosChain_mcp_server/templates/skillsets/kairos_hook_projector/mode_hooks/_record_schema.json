@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "$id": "https://kairoschain.dev/schemas/kairos_hook_projector/compile_record/v1.json",
+  "title": "mode_hooks compile record (kairos_hook_projector stage 1)",
+  "description": "Stage 1 DoD-S1-6. Every compilation — success or refusal — produces one record of this shape. Success and refusal are distinguished by the `outcome` field, never by the record's absence (Inv-C4). The record is returned to the caller and is not persisted by the compiler (Inv-8); Stage 2 is what chain-records it (Inv-7).",
+  "type": "object",
+  "required": ["record_version", "mode_name", "outcome", "resolution_path", "input", "compiled_at"],
+  "additionalProperties": false,
+  "properties": {
+    "record_version": { "type": "string", "enum": ["1"] },
+    "mode_name": { "type": "string", "minLength": 1 },
+    "outcome": { "type": "string", "enum": ["compiled", "refused"] },
+    "resolution_path": {
+      "type": "string",
+      "enum": ["document", "empty-document", "absent"],
+      "description": "Which case produced this record. `absent` and `empty-document` both yield the well-formed empty artifact and are indistinguishable at the artifact layer; they are told apart here and only here (Inv-D3)."
+    },
+    "input": {
+      "type": "object",
+      "required": ["document_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "document_sha256": {
+          "type": ["string", "null"],
+          "description": "SHA-256 of the canonicalized input document, or null when the resolution path is `absent`."
+        },
+        "binding": {
+          "type": ["object", "null"],
+          "additionalProperties": true,
+          "description": "The document's declared binding to a mode-body revision, copied verbatim. Null when the document declares none."
+        }
+      }
+    },
+    "output": {
+      "type": ["object", "null"],
+      "required": ["artifact_sha256", "hook_count", "events"],
+      "additionalProperties": false,
+      "description": "Present when outcome is `compiled`; null on refusal.",
+      "properties": {
+        "artifact_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "hook_count": { "type": "integer", "minimum": 0 },
+        "events": {
+          "type": "object",
+          "description": "Realized ordering, auditable from the record alone without re-reading the source document (Inv-O3).",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["position", "gate", "section"],
+              "additionalProperties": false,
+              "properties": {
+                "position": { "type": "integer", "minimum": 0 },
+                "gate": { "type": "string", "minLength": 1 },
+                "section": { "type": "string", "minLength": 1 },
+                "blocking": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "refusal": {
+      "type": ["object", "null"],
+      "required": ["category", "detail"],
+      "additionalProperties": false,
+      "description": "Present when outcome is `refused`; null otherwise. The category set partitions the non-compilable input space exhaustively (Inv-C3).",
+      "properties": {
+        "category": {
+          "type": "string",
+          "enum": [
+            "schema_invalid",
+            "composition_content_present",
+            "binding_mismatch",
+            "unknown_gate",
+            "unsafe_mode_name",
+            "unsupported_event"
+          ]
+        },
+        "detail": { "type": "string", "minLength": 1 }
+      }
+    },
+    "compiled_at": {
+      "type": "string",
+      "description": "Wall-clock time of compilation. Metadata, explicitly outside the purity projection of Inv-2."
+    }
+  }
+}

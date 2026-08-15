@@ -6,6 +6,7 @@ require 'fileutils'
 require 'tempfile'
 require 'time'
 require 'pathname'
+require_relative 'path_containment'
 
 module KairosMcp
   # Projects SkillSet plugin artifacts to Claude Code plugin/project structure.
@@ -192,11 +193,25 @@ module KairosMcp
             # profile's self-declared string, so provenance is trustworthy (INV-H13).
             load_source = "skillset:#{File.basename(ss_root)}"
             Array(meta['host_profiles']).each do |rel|
-              unless contained_realpath?(ss_root, File.join(ss_root, rel.to_s))
+              joined = File.join(ss_root, rel.to_s)
+              unless contained_realpath?(ss_root, joined)
                 warn "[HostProfile] WARNING: rejecting host_profiles entry #{rel.inspect} in #{json_path} (escapes the SkillSet directory)"
                 next
               end
-              path = File.expand_path(File.join(ss_root, rel.to_s))
+
+              # The gate and the require must name the SAME file. Resolving once
+              # here is what makes that true: File.expand_path collapses ".."
+              # lexically, so for an entry like "link/../../x.rb" it cancels the
+              # symlink and lands somewhere the kernel would never go — outside
+              # the SkillSet, past a gate that had just approved the resolved
+              # path. Gate one path and require another and the gate is decoration.
+              path = begin
+                File.realpath(joined)
+              rescue SystemCallError => e
+                warn "[HostProfile] WARNING: skipping host_profiles entry #{rel.inspect} in #{json_path} (#{e.class}: #{e.message})"
+                next
+              end
+
               begin
                 @active_load_source = load_source
                 require path
@@ -216,15 +231,7 @@ module KairosMcp
         # check would miss (INV-H11). Non-existent paths fall back to lexical
         # containment so an entry naming a not-yet-created file is still bounded.
         def contained_realpath?(root, path)
-          root_real = File.realpath(root)
-          begin
-            target_real = File.realpath(path)
-          rescue Errno::ENOENT
-            target_real = File.expand_path(path)
-          end
-          target_real == root_real || target_real.start_with?(root_real + File::SEPARATOR)
-        rescue Errno::ENOENT
-          false
+          PathContainment.contained?(root, path)
         end
 
         # Test seam: forget add-on discovery memoization (profiles stay registered).

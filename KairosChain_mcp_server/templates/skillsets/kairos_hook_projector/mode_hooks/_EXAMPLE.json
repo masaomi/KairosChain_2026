@@ -1,0 +1,103 @@
+{
+  "_comment": [
+    "Worked example of a mode_hooks declaration. Not loaded: the compiler looks",
+    "for <mode_name>.json / .yml, and this file is named EXAMPLE so it never",
+    "matches a mode.",
+    "",
+    "TO USE IT, two edits, and both are required:",
+    "  1. Copy it beside your mode body as <your mode>.mode_hooks.json.",
+    "  2. Change mode_name below to <your mode>. The file name and this field",
+    "     must agree; the compiler refuses a document that names a different",
+    "     mode than the one it is compiled as.",
+    "Then replace the numbers. It is worth running mode_hooks_validate before",
+    "mode_hooks_project: it reports what a copy still needs.",
+    "",
+    "The earlier version of this note said only 'rename it to your mode', and a",
+    "reader who did exactly that got a refusal naming a mismatch they had not",
+    "been told to fix, and then a second refusal about a drift that had not",
+    "happened, from the placeholder hash this file used to carry.",
+    "",
+    "The core ships the gate implementation and supplies no thresholds of its",
+    "own. Every number, pattern, and message below belongs to the mode. That is",
+    "the whole split: the core guarantees a declared norm is checkable, never",
+    "what the norm says.",
+    "",
+    "The gate appends one line to log_path on every turn it measures — a",
+    "write made when the gate runs, not when mode_hooks_project applies, so",
+    "it is not in the applied write set. The gate resolves log_path with",
+    "File.expand_path against its own working directory, so a bare relative",
+    "path scatters logs across whatever directory the gate happens to start",
+    "in. The ~ form below expands to the home directory and lands in the same",
+    "place no matter where the gate starts."
+  ],
+
+  "mode_name": "example",
+  "version": "1",
+
+  "_binding_note": [
+    "Deliberately absent. `binding` pins a declaration to a revision of the mode",
+    "body: when the body moves on, mode_hooks_validate reports DRIFT instead of",
+    "silently enforcing yesterday's numbers. It is worth turning on, and it",
+    "cannot be shipped filled in — a placeholder hash matches no body, so every",
+    "projection of a copied file was refused for a drift that never happened.",
+    "",
+    "To turn it on, add this object and put your mode body's real digest in it:",
+    "  \"binding\": { \"mode_version\": \"0.1.0\", \"mode_body_sha256\": \"<digest>\" }",
+    "mode_hooks_validate prints the digest it computed, under mode_body.sha256."
+  ],
+
+  "hooks": {
+    "Stop": [
+      {
+        "gate": "readable_gate",
+        "_description": "Measures the turn's last message against declared readability limits — length, headings, tables, undefined shorthand, a missing diagram — and reports to its log, or blocks the turn once blocking is true.",
+        "section": "§ Readable output",
+
+        "_blocking_note": "false on purpose in the example. The vocabulary rule below is the one thing here that cannot be got right by reading: whether a shape is coined shorthand or an ordinary technical word depends on what you write about. Start in report-only mode, read your log for a week, then set this to true. Shipping the example with true meant a consumer who copied it as instructed was blocked on the first message mentioning a character encoding.",
+        "blocking": false,
+        "params": {
+          "max_lines": 60,
+          "max_headings": 3,
+          "max_tables": 2,
+
+          "_diagram_note": "A floor rather than a cap: over this many lines of prose, a message carrying no fenced block is reported. Omit the key to leave the floor off. Announcing the length does not clear it — an announcement says the message is long, not that prose was the right carrier.",
+          "diagram_required_over_lines": 30,
+
+          "vocab_min_lines": 8,
+          "banner_prefix": "readable gate",
+          "announce_patterns": [
+            "\\blong\\b",
+            "\\bsplit\\b"
+          ],
+          "_shorthand_note": "Two rules this example exists to carry. Bound the digit count on any lowercase branch: coined shorthand is short (t0, a9), while a git commit id or a content hash is long, and an unbounded quantifier reports those as undefined vocabulary on every message that cites one. And write character classes in POSIX form, never as the ASCII-only shorthand: the ASCII form does not match full-width digits, so a mode enforcing this rule on Japanese text silently passed every token written with them.",
+
+          "_uppercase_branch_note": "Deliberately absent. A branch matching uppercase letters welded to digits catches coined labels, and it also catches UTF-8, SHA-256, MD5, S3, EC2 and TLS1 — 12 of 17 ordinary technical words in one measurement. There is no shape that separates the two, so this example ships without the branch rather than shipping a trap. Add it only after measuring against your own writing. The lowercase branch below has the same problem in miniature and is kept anyway: it matches a9 and t0, and it also matches x86. That residual is the reason blocking is false above.",
+
+          "shorthand_patterns": [
+            "(?<![A-Za-z0-9_])([a-z][[:digit:]]{1,2})(?![A-Za-z0-9_.][[:digit:]]*)",
+            "(?<![A-Za-z0-9_])#[[:digit:]]{1,3}(?![[:digit:]])"
+          ],
+          "gloss_patterns": ["[(（]", "—", "\\bmeans\\b"],
+          "rewrite_instruction": "Rewrite it. Cut preamble and restatement; never cut facts, numbers with their denominator, uncertainty, or worked examples.",
+          "log_path": "~/.kairos/logs/readable_gate.log"
+        }
+      }
+    ]
+  },
+
+  "_removal_note": [
+    "Taking it back out: empty the hooks object above to {} — or delete the",
+    "copied file — then run mode_hooks_project again with apply=true. Removal",
+    "is an apply like any other. mode_hooks_validate then answers",
+    "nothing_declared; until the apply it reports the still-running gate as",
+    "stale. The compiled configs stay behind under .kairos/hook_configs/,",
+    "unmentioned by either tool — delete them by hand if you want them gone."
+  ],
+
+  "not_gated": [
+    {
+      "section": "§ Values",
+      "reason": "states an orientation, not a limit. Violating it leaves no trace in any artifact, so there is nothing a gate could measure."
+    }
+  ]
+}

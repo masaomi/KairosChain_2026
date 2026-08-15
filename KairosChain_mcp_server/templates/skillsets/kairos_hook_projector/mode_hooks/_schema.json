@@ -1,11 +1,12 @@
 {
   "$schema": "http://json-schema.org/draft-04/schema#",
-  "$id": "https://kairoschain.dev/schemas/kairos_hook_projector/mode_hooks/v0.json",
-  "title": "mode_hooks definition (kairos_hook_projector stage 0)",
-  "description": "Schema for mode_hooks YAML/JSON definitions. Stage 0 validates the outer envelope (mode_name, version) and reserves composition fields (extends, conflict_policy) per design v0.2 §7.2. The internal shape of `hooks` is permissive at this stage; the stage 1 compiler will become the source of truth for hook entry structure.",
+  "$id": "https://kairoschain.dev/schemas/kairos_hook_projector/mode_hooks/v1.json",
+  "title": "mode_hooks definition (kairos_hook_projector stage 1)",
+  "description": "Schema for mode_hooks YAML/JSON definitions. Stage 0 validated the outer envelope (mode_name, version) and reserved composition fields (extends, conflict_policy) per design v0.2 §7.2. Stage 1 locks down the internal shape of `hooks` as the schema description anticipated, and adds two fields the compiler needs: `binding`, which pins this document to a specific revision of the mode body so drift is detectable, and `not_gated`, which records sections the author examined and deliberately declined to gate. Whether a section SHOULD be gated is never decided here; it is an authorial act that this schema only makes recordable.",
   "type": "object",
   "required": ["mode_name", "version"],
   "additionalProperties": false,
+  "patternProperties": { "^_": { "description": "Keys beginning with an underscore are author notes. Permitted so a declaration can carry its own reasoning where the author will see it; every other unknown key is still a typo and still refused." } },
   "properties": {
     "mode_name": {
       "type": "string",
@@ -17,10 +18,73 @@
       "minLength": 1,
       "description": "Schema version of this mode_hooks document. Used by the compiler to dispatch to the correct parser."
     },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": { "^_": { "description": "Keys beginning with an underscore are author notes. Permitted so a declaration can carry its own reasoning where the author will see it; every other unknown key is still a typo and still refused." } },
+      "description": "Stage 1. Pins this document to the revision of the mode body it was authored against. A mode body that has moved on without this document being revisited is the drift failure recorded in masa.md changelog v0.4.4, where two documents shared version 0.4.3 and a re-projection silently dropped one line of edits. Absence of this object is permitted; its absence simply means drift cannot be detected for this document.",
+      "properties": {
+        "mode_version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The mode body version this document was authored against (e.g. '0.4.6')."
+        },
+        "mode_body_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 of the mode body file as authored against. Catches an edit that did not bump the version."
+        }
+      }
+    },
     "hooks": {
       "type": "object",
-      "description": "Optional (composite-only variants may omit). Map of event name to hook entries. Inner shape is intentionally unvalidated in stage 0; locked down in stage 1.",
-      "additionalProperties": true
+      "description": "Map of harness event name (e.g. 'Stop', 'UserPromptSubmit') to the gate entries attached to it. Optional: a mode may declare none.",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["gate", "section"],
+          "additionalProperties": false,
+          "patternProperties": { "^_": { "description": "Keys beginning with an underscore are author notes. Permitted so a declaration can carry its own reasoning where the author will see it; every other unknown key is still a typo and still refused." } },
+          "properties": {
+            "gate": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Logical name of a gate implementation shipped by the core (e.g. 'readable_gate'). A name the core does not know is a resolution refusal, not a silent skip."
+            },
+            "section": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The section of the mode body this gate enforces. Recorded so a reader of the compiled artifact can trace a block back to the norm that caused it."
+            },
+            "params": {
+              "type": "object",
+              "description": "The mode's own numbers, word lists, and messages. The core reads these; it never supplies defaults for them beyond inert ones.",
+              "additionalProperties": true
+            },
+            "blocking": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether a failure stops the turn (true) or is reported only (false)."
+            }
+          }
+        }
+      }
+    },
+    "not_gated": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "Sections the author examined and deliberately chose not to gate. Recorded so the validator stops proposing them. An empty or absent list means no such decision has been recorded, which the validator surfaces as an open question rather than an error.",
+      "items": {
+        "type": "object",
+        "required": ["section", "reason"],
+        "additionalProperties": false,
+        "patternProperties": { "^_": { "description": "Keys beginning with an underscore are author notes. Permitted so a declaration can carry its own reasoning where the author will see it; every other unknown key is still a typo and still refused." } },
+        "properties": {
+          "section": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
     },
     "extends": {
       "type": "array",

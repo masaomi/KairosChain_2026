@@ -21,31 +21,67 @@ Gem::Specification.new do |spec|
   spec.homepage      = 'https://github.com/masaomi/KairosChain_2026'
   spec.license       = 'MIT'
 
-  spec.required_ruby_version = '>= 3.0'
+  # 3.2, not 3.0: the readable_gate Stop hook bounds its scan with
+  # Regexp.timeout, which arrived in 3.2. On 3.0 or 3.1 that call raises,
+  # the gate's outermost rescue turns it into exit 0, and the operator gets a
+  # hook that enforces nothing and says nothing about it. Failing at install
+  # is the louder of the two failures. Guarding the call instead was the
+  # alternative, and it is worse: without Regexp.timeout there is no
+  # per-match bound either, so a declaration carrying many patterns can eat
+  # the hook's whole budget and stall the turn.
+  spec.required_ruby_version = '>= 3.3'
 
   spec.metadata['homepage_uri']    = spec.homepage
   spec.metadata['source_code_uri'] = spec.homepage
-  spec.metadata['changelog_uri']   = "#{spec.homepage}/blob/main/CHANGELOG.md"
+  # The tracked changelog is under KairosChain_mcp_server/, not at the
+  # repository root. The old value pointed at a path that does not exist, so
+  # the "Changelog" link on the gem's page was dead.
+  spec.metadata['changelog_uri'] =
+    "#{spec.homepage}/blob/main/KairosChain_mcp_server/CHANGELOG.md"
 
-  # Include library code, executable, templates, and config
-  spec.files = Dir[
-    'lib/**/*.rb',
-    'lib/**/*.erb',     # Admin UI ERB templates
-    'bin/*',
-    'templates/**/*',
-    'templates/**/.*',  # Include .gitkeep files
-    'LICENSE',
-    'README.md',
-    'CHANGELOG.md'
-  ].reject { |p| p.include?('__pycache__') || p.end_with?('.pyc') }
+  # Include library code, executable, templates, and config.
+  # Anchored to this file's own directory: a bare Dir[] globs relative to the
+  # CWD, so `gem build` from anywhere but here silently packaged a different
+  # tree under the same version number.
+  spec.files = Dir.chdir(__dir__) do
+    Dir[
+      'lib/**/*.rb',
+      'lib/**/*.erb',     # Admin UI ERB templates
+      'bin/*',
+      'templates/**/*',
+      'templates/**/.*',  # Include .gitkeep files
+      'LICENSE',
+      'README.md',
+      'CHANGELOG.md'
+    ].reject { |p| p.include?('__pycache__') || p.end_with?('.pyc') }
+  end
   # The globs above walk the filesystem rather than asking git, so anything a
   # tool leaves behind under templates/ ships. Running a Python script in
   # templates/knowledge/*/scripts/ writes bytecode next to it, which is both
   # useless to a consumer and stale the moment the source changes.
 
   spec.bindir        = 'bin'
-  spec.executables   = ['kairos-chain', 'kairos_mcp_server']
+  # Every file under bin/ that a hook or an operator invokes by name must be
+  # listed here, or the `bin/*` glob above ships it without putting it on PATH.
+  # kairos-plugin-project was missing until 2026-08-12, and was committed
+  # non-executable besides: the two PostToolUse hooks calling it had been
+  # failing with "command not found" on every fire, silently, because a hook
+  # that cannot start reports nothing.
+  spec.executables   = %w[
+    kairos-chain
+    kairos-chain-daemon
+    kairos_mcp_server
+    kairos-plugin-project
+    kairos-readable-gate
+  ]
   spec.require_paths = ['lib']
+
+  # base64 stopped being a default gem in Ruby 3.4, and skillset_manager
+  # requires it unconditionally. Without this line an install into an isolated
+  # GEM_HOME — a container, `gem install -i`, or any Bundler-managed app —
+  # dies at boot with "cannot load such file -- base64", and only works on a
+  # machine where some other gem happened to bring it in.
+  spec.add_dependency 'base64', '~> 0.2'
 
   # =========================================================================
   # No runtime dependencies (Ruby standard library only for core features)

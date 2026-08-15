@@ -4,6 +4,7 @@ require 'digest'
 require 'fileutils'
 require 'yaml'
 require_relative 'anthropic_skill_parser'
+require_relative 'path_containment'
 require_relative 'skillset_manager'
 require_relative 'kairos_chain/chain'
 require_relative 'vector_search/provider'
@@ -139,14 +140,21 @@ module KairosMcp
     # @param name [String] Skill name
     # @return [AnthropicSkillParser::SkillEntry, nil] The skill entry or nil
     def get(name)
+      return nil unless PathContainment.safe_segment?(name)
+      return nil if reserved_name?(name)
+
       skill_dir = File.join(@knowledge_dir, name)
-      return AnthropicSkillParser.parse(skill_dir) if File.directory?(skill_dir)
+      if PathContainment.contained?(@knowledge_dir, skill_dir) && File.directory?(skill_dir)
+        return AnthropicSkillParser.parse(skill_dir)
+      end
 
       # Search external directories
       @external_dirs.each do |ext|
         next if ext[:only] && !ext[:only].include?(name)
 
         ext_skill_dir = File.join(ext[:dir], name)
+        next unless PathContainment.contained?(ext[:dir], ext_skill_dir)
+
         return AnthropicSkillParser.parse(ext_skill_dir) if File.directory?(ext_skill_dir)
       end
 
@@ -161,8 +169,22 @@ module KairosMcp
     # @param create_subdirs [Boolean] Whether to create scripts/assets/references
     # @return [Hash] Result with success status and skill info
     def create(name, content, reason: nil, create_subdirs: false)
+      # Checked BEFORE the join: File.join raises TypeError on a non-String, so
+      # a malformed argument would escape as an exception instead of the
+      # structured refusal every other caller of this method expects.
+      unless PathContainment.safe_segment?(name)
+        return { success: false, error: "Invalid knowledge name #{name.inspect}: not a single path segment" }
+      end
+
+      if reserved_name?(name)
+        return { success: false, error: "Invalid knowledge name '#{name}': reserved by the knowledge store" }
+      end
+
       skill_dir = File.join(@knowledge_dir, name)
-      
+      unless PathContainment.contained?(@knowledge_dir, skill_dir)
+        return { success: false, error: "Invalid knowledge name '#{name}': resolves outside the knowledge directory" }
+      end
+
       if File.exist?(skill_dir)
         return { success: false, error: "Knowledge '#{name}' already exists" }
       end
@@ -199,6 +221,7 @@ module KairosMcp
       unless skill
         return { success: false, error: "Knowledge '#{name}' not found" }
       end
+      return not_owned(name) unless owned?(skill)
 
       # Calculate hashes
       prev_content = File.read(skill.md_file_path)
@@ -240,6 +263,7 @@ module KairosMcp
       unless skill
         return { success: false, error: "Knowledge '#{name}' not found" }
       end
+      return not_owned(name) unless owned?(skill)
 
       # Calculate hash before deletion
       prev_content = File.read(skill.md_file_path)
@@ -387,6 +411,7 @@ module KairosMcp
       unless skill
         return { success: false, error: "Knowledge '#{name}' not found" }
       end
+      return not_owned(name) unless owned?(skill)
 
       # Check if already archived
       if archived?(name)
@@ -397,13 +422,38 @@ module KairosMcp
       archived_dir = File.join(@knowledge_dir, ARCHIVED_DIR)
       FileUtils.mkdir_p(archived_dir)
 
+      # The archive root is itself a path this method did not choose. If
+      # `.archived` is a symlink out of the store, asking containment against it
+      # asks about the wrong root — the predicate answers truthfully about a
+      # directory nobody meant, and the move carries L1 knowledge outside.
+      # Every path below is therefore bounded by @knowledge_dir.
+      return archive_root_escaped unless PathContainment.contained?(@knowledge_dir, archived_dir)
+
       # Calculate hash before moving
       content = File.read(skill.md_file_path)
       content_hash = Digest::SHA256.hexdigest(content)
 
-      # Move to archive
       dest_path = File.join(archived_dir, name)
+      meta_path = File.join(dest_path, ARCHIVE_META_FILE)
+
+      # Both the move destination AND the metadata file are checked. The
+      # metadata write is a separate target from base_path, so ownership of the
+      # entry says nothing about it: a symlink named .archive_meta.yml inside an
+      # entry this provider legitimately owns would otherwise carry an
+      # attacker-supplied reason to any file this process can write.
+      unless PathContainment.contained?(@knowledge_dir, dest_path) &&
+             PathContainment.contained?(@knowledge_dir, meta_path)
+        return { success: false, error: "Invalid knowledge name '#{name}': archive destination resolves outside the knowledge directory" }
+      end
+
       FileUtils.mv(skill.base_path, dest_path)
+
+      # Re-checked after the move: the entry that just arrived may itself carry
+      # a .archive_meta.yml symlink, which only becomes a path under dest_path
+      # once it is there.
+      unless PathContainment.contained?(dest_path, meta_path)
+        FileUtils.rm_f(meta_path)
+      end
 
       # Create archive metadata file
       meta = {
@@ -413,7 +463,7 @@ module KairosMcp
         'original_path' => skill.base_path,
         'content_hash' => content_hash
       }
-      File.write(File.join(dest_path, ARCHIVE_META_FILE), meta.to_yaml)
+      File.write(meta_path, meta.to_yaml)
 
       # Record to blockchain
       record_hash_reference(
@@ -441,27 +491,54 @@ module KairosMcp
     # @param reason [String] Reason for unarchiving
     # @return [Hash] Result with success status
     def unarchive(name, reason:)
-      archived_path = File.join(@knowledge_dir, ARCHIVED_DIR, name)
+      unless PathContainment.safe_segment?(name)
+        return { success: false, error: "Invalid knowledge name '#{name}': not a single path segment" }
+      end
 
-      unless File.directory?(archived_path)
+      if reserved_name?(name)
+        return { success: false, error: "Invalid knowledge name '#{name}': reserved by the knowledge store" }
+      end
+
+      archived_root = File.join(@knowledge_dir, ARCHIVED_DIR)
+      archived_path = File.join(archived_root, name)
+      active_path = File.join(@knowledge_dir, name)
+      archived_meta = File.join(archived_path, ARCHIVE_META_FILE)
+      active_meta = File.join(active_path, ARCHIVE_META_FILE)
+
+      # The archive root is a path this method did not choose. If `.archived` is
+      # a symlink out of the store, containment asked against it would answer
+      # about the wrong root and this move would bring an arbitrary outside
+      # directory in as L1 knowledge. Every path below is bounded by
+      # @knowledge_dir, not by the archive root.
+      return archive_root_escaped unless PathContainment.contained?(@knowledge_dir, archived_root)
+
+      unless File.directory?(archived_path) && PathContainment.contained?(@knowledge_dir, archived_path)
         return { success: false, error: "Archived knowledge '#{name}' not found" }
       end
 
+      # Every path this method reads, moves or deletes — not just the two ends.
+      unless PathContainment.contained?(@knowledge_dir, active_path) &&
+             PathContainment.contained?(archived_path, archived_meta) &&
+             PathContainment.contained?(@knowledge_dir, active_meta)
+        return { success: false, error: "Invalid knowledge name '#{name}': resolves outside the knowledge directory" }
+      end
+
       # Check if active knowledge with same name exists
-      active_path = File.join(@knowledge_dir, name)
       if File.directory?(active_path)
         return { success: false, error: "Active knowledge '#{name}' already exists. Rename or delete it first." }
       end
 
       # Read archive metadata
-      meta_file = File.join(archived_path, ARCHIVE_META_FILE)
+      meta_file = archived_meta
       meta = File.exist?(meta_file) ? YAML.safe_load(File.read(meta_file)) : {}
 
       # Move back to active
       FileUtils.mv(archived_path, active_path)
 
-      # Remove archive metadata file
-      FileUtils.rm_f(File.join(active_path, ARCHIVE_META_FILE))
+      # Remove archive metadata file. Re-checked after the move for the same
+      # reason as in #archive: the entry may carry a symlink by that name, and
+      # rm_f would follow it.
+      FileUtils.rm_f(active_meta) if PathContainment.contained?(active_path, active_meta)
 
       # Parse the restored skill
       skill = AnthropicSkillParser.parse(active_path)
@@ -494,8 +571,11 @@ module KairosMcp
     def list_archived
       archived_dir = File.join(@knowledge_dir, ARCHIVED_DIR)
       return [] unless File.directory?(archived_dir)
+      return [] unless PathContainment.contained?(@knowledge_dir, archived_dir)
 
-      Dir[File.join(archived_dir, '*')].select { |f| File.directory?(f) }.map do |dir|
+      Dir[File.join(archived_dir, '*')].select do |f|
+        File.directory?(f) && PathContainment.contained?(@knowledge_dir, f)
+      end.map do |dir|
         skill = AnthropicSkillParser.parse(dir)
         meta_file = File.join(dir, ARCHIVE_META_FILE)
         meta = File.exist?(meta_file) ? YAML.safe_load(File.read(meta_file)) : {}
@@ -516,8 +596,11 @@ module KairosMcp
     # @param name [String] Skill name
     # @return [Hash, nil] Archived skill info or nil
     def get_archived(name)
-      archived_path = File.join(@knowledge_dir, ARCHIVED_DIR, name)
-      return nil unless File.directory?(archived_path)
+      return nil unless PathContainment.safe_segment?(name)
+
+      archived_root = File.join(@knowledge_dir, ARCHIVED_DIR)
+      archived_path = File.join(archived_root, name)
+      return nil unless File.directory?(archived_path) && PathContainment.contained?(archived_root, archived_path)
 
       skill = AnthropicSkillParser.parse(archived_path)
       return nil unless skill
@@ -539,8 +622,67 @@ module KairosMcp
     # @param name [String] Skill name
     # @return [Boolean] True if archived
     def archived?(name)
-      archived_path = File.join(@knowledge_dir, ARCHIVED_DIR, name)
-      File.directory?(archived_path)
+      return false unless PathContainment.safe_segment?(name)
+
+      archived_root = File.join(@knowledge_dir, ARCHIVED_DIR)
+      archived_path = File.join(archived_root, name)
+      File.directory?(archived_path) && PathContainment.contained?(archived_root, archived_path)
+    end
+
+    # Names the store keeps for itself.
+    #
+    # `.archived` is where archived entries live; accepted as an ordinary entry
+    # name it can be claimed on a fresh store before the archive directory first
+    # exists, and a later delete of that "entry" removes the whole archive while
+    # being recorded as the deletion of one entry.
+    #
+    # BACKUP_DIR_PATTERN is the store's other self-reservation: `skill_dirs`
+    # and `external_skill_dirs` filter those names out of every enumeration, so
+    # an entry created under one is recorded on the chain and retrievable by
+    # name while being invisible to `knowledge_list` and to audit.
+    #
+    # Any directory name this store manages for itself belongs here. If another
+    # is introduced, add it — the filters that hide it and this predicate have
+    # to name the same set.
+    def reserved_name?(name)
+      return false unless name.is_a?(String)
+
+      name == ARCHIVED_DIR || backup_dir?(name)
+    end
+
+    # True if this provider owns the entry, i.e. it lives inside the store this
+    # provider writes to.
+    #
+    # Public because a caller that has to choose between updating and creating
+    # needs the answer: resolvability is not write authority, and deciding by
+    # `get` alone sends an update at an entry this provider will refuse.
+    #
+    # `get` deliberately searches external SkillSet directories after the main
+    # store — that is how shipped knowledge is read (see the note on
+    # add_external_dir: external knowledge is read-only). The mutators used to
+    # inherit that reach and acted on whatever `get` had resolved, so an
+    # ordinary name with no ".." and no symlink in it rewrote, moved or removed
+    # files belonging to an installed SkillSet. Read authority and write
+    # authority are different scopes; this is where they part.
+    def owned?(skill)
+      base = skill.respond_to?(:base_path) ? skill.base_path : nil
+      return false unless base
+
+      PathContainment.contained?(@knowledge_dir, base)
+    end
+
+    # The refusal names the diagnosis and the remedy. `owned?` is source-
+    # agnostic — add_external_dir accepts any directory and any source label —
+    # so the message says where the entry is, not what kind of thing owns it.
+    def not_owned(name)
+      { success: false,
+        error: "Knowledge '#{name}' lives outside this store and is read-only here. " \
+               "To keep a local version, create it under this instance's knowledge directory instead of updating it in place." }
+    end
+
+    def archive_root_escaped
+      { success: false,
+        error: "The archive directory (#{ARCHIVED_DIR}) resolves outside the knowledge directory; refusing to move anything through it" }
     end
 
     private
@@ -659,11 +801,17 @@ module KairosMcp
       warn "[KnowledgeProvider] Failed to remove from vector index: #{e.message}"
     end
 
+    # Enumeration is filtered by containment for the same reason the reads are.
+    # Without it `list`, `search` and `rebuild_index` parse and read entries that
+    # `get` refuses, so out-of-store content reaches tool output and the vector
+    # index while the read path reports it as absent. ContextManager#context_dirs
+    # was given this filter; L1 was left without it.
     def skill_dirs
       Dir[File.join(@knowledge_dir, '*')].select do |f|
         File.directory?(f) &&
           File.basename(f) != ARCHIVED_DIR &&
-          !backup_dir?(f)
+          !backup_dir?(f) &&
+          PathContainment.contained?(@knowledge_dir, f)
       end
     end
 
@@ -671,7 +819,9 @@ module KairosMcp
     def external_skill_dirs(dir, only: nil)
       return [] unless File.directory?(dir)
 
-      dirs = Dir[File.join(dir, '*')].select { |f| File.directory?(f) && !backup_dir?(f) }
+      dirs = Dir[File.join(dir, '*')].select do |f|
+        File.directory?(f) && !backup_dir?(f) && PathContainment.contained?(dir, f)
+      end
       return dirs unless only
 
       dirs.select { |f| only.include?(File.basename(f)) }

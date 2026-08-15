@@ -3,6 +3,7 @@
 require 'yaml'
 require 'fileutils'
 require 'securerandom'
+require_relative 'path_containment'
 
 module KairosMcp
   # AnthropicSkillParser: Parses Anthropic skills format (YAML frontmatter + Markdown)
@@ -150,7 +151,7 @@ module KairosMcp
       def list_scripts(skill)
         return [] unless skill.has_scripts?
 
-        Dir[File.join(skill.scripts_path, '*')].map do |f|
+        Dir[File.join(skill.scripts_path, '*')].select { |f| inside_entry?(skill.base_path, f) }.map do |f|
           {
             name: File.basename(f),
             path: f,
@@ -167,7 +168,7 @@ module KairosMcp
       def list_assets(skill)
         return [] unless skill.has_assets?
 
-        Dir[File.join(skill.assets_path, '**/*')].select { |f| File.file?(f) }.map do |f|
+        Dir[File.join(skill.assets_path, '**/*')].select { |f| File.file?(f) && inside_entry?(skill.base_path, f) }.map do |f|
           {
             name: File.basename(f),
             path: f,
@@ -185,7 +186,7 @@ module KairosMcp
       def list_references(skill)
         return [] unless skill.has_references?
 
-        Dir[File.join(skill.references_path, '**/*')].select { |f| File.file?(f) }.map do |f|
+        Dir[File.join(skill.references_path, '**/*')].select { |f| File.file?(f) && inside_entry?(skill.base_path, f) }.map do |f|
           {
             name: File.basename(f),
             path: f,
@@ -230,14 +231,27 @@ module KairosMcp
         end
       end
 
+      # An entry's markdown file lives inside that entry's directory. That is
+      # true by the definition of the format, so it is enforced here rather
+      # than left to each of the callers to remember.
+      #
+      # Both branches need it. The named branch can be a symlink pointing out
+      # of the entry, and the glob branch returns whatever the glob happened to
+      # find, which can be the same. Without this, reading an entry returned
+      # content from wherever the link led — ResourceRegistry defends its own
+      # read against exactly this, and the parser did not.
       def find_md_file(skill_dir)
         # First try to find a file with the same name as the directory
         skill_name = File.basename(skill_dir)
         expected_file = File.join(skill_dir, "#{skill_name}.md")
-        return expected_file if File.exist?(expected_file)
+        return expected_file if File.exist?(expected_file) && inside_entry?(skill_dir, expected_file)
 
         # Fall back to any .md file in the directory
-        Dir[File.join(skill_dir, '*.md')].first
+        Dir[File.join(skill_dir, '*.md')].find { |f| inside_entry?(skill_dir, f) }
+      end
+
+      def inside_entry?(skill_dir, path)
+        PathContainment.contained?(skill_dir, path)
       end
     end
   end

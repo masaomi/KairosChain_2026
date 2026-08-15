@@ -666,3 +666,132 @@ class TestPmDigestToolConfigPath < Minitest::Test
     assert_equal 1, out['dormant_neglected'].size, 'and an override still wins'
   end
 end
+
+load File.expand_path('../tools/pm_item.rb', __dir__)
+
+# Attention record (2026-08-07). The record exists to calibrate the cheap
+# automatic numbers — length, elapsed — against the one direct measurement, the
+# operator's own report. Every test here defends that pairing or the honesty of
+# a number that would otherwise be averaged later.
+class TestProjectManagerAttention < Minitest::Test
+  def setup
+    @dir = Dir.mktmpdir
+    @path = File.join(@dir, 'store.json')
+    @store = ProjectManager::Store.new(path: @path)
+    @now = Time.utc(2026, 8, 7, 12, 0, 0)
+    @prj = @store.register_project(name: 'p', now: @now)
+    @item = @store.add_item(project_id: @prj['id'], title: 'a', now: @now)
+  end
+
+  def teardown
+    FileUtils.remove_entry(@dir)
+  end
+
+  def test_entry_appends_and_keeps_the_operator_report_verbatim
+    @store.add_attention(@item['id'], kind: 'review', lines: 148, grasp: 'unclear', now: @now)
+    @store.add_attention(@item['id'], kind: 'decide', lines: 62, grasp: 'once', now: @now)
+    entries = @store.fetch_item(@item['id'])['attention']
+    assert_equal 2, entries.size
+    assert_equal %w[unclear once], entries.map { |e| e['grasp'] }
+    assert_equal [148, 62], entries.map { |e| e['lines'] }
+  end
+
+  def test_invalid_kind_and_grasp_are_refused
+    assert_raises(ArgumentError) { @store.add_attention(@item['id'], kind: 'skim', now: @now) }
+    assert_raises(ArgumentError) { @store.add_attention(@item['id'], kind: 'read', grasp: 'tired', now: @now) }
+  end
+
+  # Declining to answer is evidence of load. Dropping it as missing data would
+  # bias the record toward the occasions the operator had energy to spare.
+  def test_no_answer_is_stored_as_a_value
+    @store.add_attention(@item['id'], kind: 'read', grasp: 'no_answer', now: @now)
+    assert_equal 'no_answer', @store.fetch_item(@item['id'])['attention'].first['grasp']
+  end
+
+  # The marker means the work moved. Measuring the audience is not the work moving.
+  def test_attention_write_does_not_advance_the_marker
+    before = @store.fetch_item(@item['id'])['touched_at']
+    @store.add_attention(@item['id'], kind: 'decide', grasp: 'once', now: @now + 86_400)
+    assert_equal before, @store.fetch_item(@item['id'])['touched_at']
+  end
+
+  def test_since_touch_measures_from_the_marker
+    entry = @store.add_attention(@item['id'], kind: 'decide', grasp: 'once', now: @now + (26 * 3600))
+    assert_in_delta 26.0, entry['since_touch_h'], 0.05
+  end
+
+  # A duration nobody can trust is worse than an admitted gap: it gets averaged.
+  def test_unreadable_marker_yields_no_duration_rather_than_a_fabricated_one
+    @store.update_item(@item['id'], { 'notes' => 'x' }, now: @now)
+    @store.fetch_item(@item['id'])['touched_at'] = 'not a time'
+    entry = @store.add_attention(@item['id'], kind: 'read', grasp: 'once', now: @now)
+    refute entry.key?('since_touch_h')
+  end
+
+  # Append-only: the array is not reachable through the ordinary attribute path.
+  def test_attention_cannot_be_overwritten_through_update
+    @store.add_attention(@item['id'], kind: 'read', grasp: 'once', now: @now)
+    assert_raises(ArgumentError) { @store.update_item(@item['id'], { 'attention' => [] }) }
+    assert_equal 1, @store.fetch_item(@item['id'])['attention'].size
+  end
+
+  def test_entries_carry_their_item_and_honour_a_window
+    other = @store.add_item(project_id: @prj['id'], title: 'b', now: @now)
+    @store.add_attention(@item['id'], kind: 'read', grasp: 'once', now: @now)
+    @store.add_attention(other['id'], kind: 'decide', grasp: 'reread', now: @now + 7200)
+    all = @store.attention_entries
+    assert_equal [@item['id'], other['id']], all.map { |e| e['item_id'] }
+    assert_equal 1, @store.attention_entries(since: @now + 3600).size
+  end
+
+  # An unreadable timestamp excludes the entry from a windowed call instead of
+  # taking the call down, the discipline parse_time exists for.
+  def test_unreadable_entry_timestamp_does_not_break_a_windowed_read
+    @store.add_attention(@item['id'], kind: 'read', grasp: 'once', now: @now)
+    @store.fetch_item(@item['id'])['attention'].first['at'] = 'not a time'
+    assert_empty @store.attention_entries(since: @now - 3600)
+    assert_equal 1, @store.attention_entries.size
+  end
+
+  # Asked-and-unanswered must stay distinguishable from never-asked.
+  def test_unanswered_capacity_is_a_record_with_no_number
+    assert_empty @store.attention_days
+    @store.declare_capacity(declared: nil, now: @now)
+    day = @store.attention_days.first
+    assert_equal '2026-08-07', day['date']
+    assert_nil day['declared']
+    @store.declare_capacity(declared: 3, now: @now)
+    assert_equal 3, @store.attention_days.first['declared']
+  end
+
+  def test_malformed_capacity_date_is_refused_rather_than_becoming_a_key
+    assert_raises(ArgumentError) { @store.declare_capacity(declared: 3, date: 'yesterday') }
+    assert_empty @store.attention_days
+  end
+
+  # A store written before attention existed has no such key.
+  def test_a_store_from_before_attention_still_loads_and_accepts_a_declaration
+    legacy = File.join(@dir, 'legacy.json')
+    File.write(legacy, JSON.generate({ 'version' => 1, 'projects' => {}, 'items' => {} }))
+    store = ProjectManager::Store.new(path: legacy)
+    assert_empty store.attention_days
+    store.declare_capacity(declared: 2, now: @now)
+    assert_equal 2, ProjectManager::Store.new(path: legacy).attention_days.first['declared']
+  end
+
+  def test_tool_records_both_shapes
+    tool = KairosMcp::SkillSets::ProjectManagerSkillSet::Tools::PmItem.new
+    tool.define_singleton_method(:pm_store) { @injected }
+    tool.instance_variable_set(:@injected, @store)
+
+    out = JSON.parse(tool.call({ 'command' => 'attention', 'id' => @item['id'],
+                                 'att_kind' => 'review', 'lines' => 148, 'grasp' => 'unclear' }))
+    assert_equal 'unclear', out['grasp']
+
+    out = JSON.parse(tool.call({ 'command' => 'capacity', 'declared' => 3, 'date' => '2026-08-07' }))
+    assert_equal 3, out['declared']
+
+    out = JSON.parse(tool.call({ 'command' => 'attention', 'id' => @item['id'], 'att_kind' => 'skim' }))
+    assert_match(/invalid attention kind/, out['error'])
+  end
+end

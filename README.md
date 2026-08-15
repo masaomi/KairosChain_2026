@@ -410,7 +410,7 @@ Every skill change is recorded as a `SkillStateTransition`:
 
 ### Prerequisites
 
-- Ruby 3.0+ (uses standard library only, no gems required for basic functionality)
+- Ruby 3.2+ (uses standard library only, no gems required for basic functionality)
 - Claude Code CLI (`claude`) or Cursor IDE
 
 ### Installation
@@ -1355,7 +1355,7 @@ KairosChain is available as a Claude Code plugin. This method provides both MCP 
 
 > **Claude Code only**: The `/plugin` command is a Claude Code CLI-specific feature. For Cursor, Antigravity, and other MCP-compatible editors, use [Option B: Register MCP Server Directly](#option-b-register-mcp-server-directly) or the [Cursor IDE Configuration](#cursor-ide-configuration-detailed) section below.
 
-**Prerequisites:** Ruby 3.0+ and `gem install kairos-chain`
+**Prerequisites:** Ruby 3.2+ and `gem install kairos-chain`
 
 ```bash
 # Step 1: Add the KairosChain marketplace
@@ -1876,7 +1876,7 @@ claude
 
 ```bash
 # Check Ruby version
-ruby --version  # Requires 3.0+
+ruby --version  # Requires 3.2+
 
 # Check for syntax errors
 ruby -c bin/kairos-chain

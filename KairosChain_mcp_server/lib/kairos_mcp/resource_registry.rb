@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'fileutils'
+require_relative 'path_containment'
 require_relative 'knowledge_provider'
 require_relative 'context_manager'
 require_relative 'dsl_skills_provider'
@@ -212,22 +213,36 @@ module KairosMcp
       name = parsed[:name]
       return nil unless name
 
+      # A knowledge name is one directory under the store, never a route. The
+      # archive directory is the store's own, not an entry: KnowledgeProvider#get
+      # refuses it, and the read path has to agree or the two disagree about
+      # what exists.
+      return nil unless segment!(name, "knowledge://#{name}")
+      return nil if name == KnowledgeProvider::ARCHIVED_DIR
+
       knowledge_dir = File.join(@knowledge_dir, name)
+      return nil unless contained!(@knowledge_dir, knowledge_dir, "knowledge://#{name}")
       return nil unless File.directory?(knowledge_dir)
 
       if parsed[:subdir] && parsed[:file]
-        # Subdir file (scripts/assets/references)
+        # Subdir file (scripts/assets/references). The file part is
+        # legitimately multi-segment, so containment is what bounds it.
+        uri = "knowledge://#{name}/#{parsed[:subdir]}/#{parsed[:file]}"
+        return nil unless segment!(parsed[:subdir], uri)
+
         path = File.join(knowledge_dir, parsed[:subdir], parsed[:file])
+        return nil unless contained!(knowledge_dir, path, uri)
         return nil unless File.exist?(path) && File.file?(path)
 
-        uri = "knowledge://#{name}/#{parsed[:subdir]}/#{parsed[:file]}"
         build_resource_content(path, 'l1', uri)
       else
-        # Main MD file
+        # Main MD file. Checked too: the entry directory is inside the store,
+        # but the md file inside it can still be a symlink pointing out.
+        uri = "knowledge://#{name}"
         md_file = File.join(knowledge_dir, "#{name}.md")
+        return nil unless contained!(knowledge_dir, md_file, uri)
         return nil unless File.exist?(md_file)
 
-        uri = "knowledge://#{name}"
         build_resource_content(md_file, 'l1', uri)
       end
     end
@@ -313,25 +328,35 @@ module KairosMcp
       name = parsed[:name]
       return nil unless name
 
+      # Checked before the session lookup, which joins the name onto every
+      # session directory in turn.
+      return nil unless segment!(name, "context://#{parsed[:session]}/#{name}")
+
       session_id = parsed[:session] || find_session_for_context(name)
       return nil unless session_id
+      return nil unless segment!(session_id, "context://#{session_id}/#{name}")
 
       context_dir = File.join(@context_dir, session_id, name)
+      return nil unless contained!(@context_dir, context_dir, "context://#{session_id}/#{name}")
       return nil unless File.directory?(context_dir)
 
       if parsed[:subdir] && parsed[:file]
-        # Subdir file
+        # Subdir file. The file part is legitimately multi-segment.
+        uri = "context://#{session_id}/#{name}/#{parsed[:subdir]}/#{parsed[:file]}"
+        return nil unless segment!(parsed[:subdir], uri)
+
         path = File.join(context_dir, parsed[:subdir], parsed[:file])
+        return nil unless contained!(context_dir, path, uri)
         return nil unless File.exist?(path) && File.file?(path)
 
-        uri = "context://#{session_id}/#{name}/#{parsed[:subdir]}/#{parsed[:file]}"
         build_resource_content(path, 'l2', uri)
       else
-        # Main MD file
+        # Main MD file — checked for the same reason as the L1 one.
+        uri = "context://#{session_id}/#{name}"
         md_file = File.join(context_dir, "#{name}.md")
+        return nil unless contained!(context_dir, md_file, uri)
         return nil unless File.exist?(md_file)
 
-        uri = "context://#{session_id}/#{name}"
         build_resource_content(md_file, 'l2', uri)
       end
     end
@@ -362,6 +387,27 @@ module KairosMcp
 
     # === Helper Methods ===
 
+    # Containment gate for a path built from URI segments.
+    #
+    # The caller returns nil on false, so a rejected URI is indistinguishable
+    # from a missing one: the reader gets no oracle telling it which paths
+    # exist outside the store. The attempt is still visible — it goes to stderr,
+    # which is where this process's other rejection warnings go.
+    def contained!(base, path, uri)
+      return true if PathContainment.contained?(base, path)
+
+      warn "[ResourceRegistry] WARNING: rejecting #{uri.inspect} (resolves outside #{base})"
+      false
+    end
+
+    # Same gate for a value that must name one directory rather than a route.
+    def segment!(value, uri)
+      return true if PathContainment.safe_segment?(value)
+
+      warn "[ResourceRegistry] WARNING: rejecting #{uri.inspect} (#{value.inspect} is not a single path segment)"
+      false
+    end
+
     def list_subdir_resources(base_dir, name, subdir, layer, scheme)
       resources = []
       subdir_path = File.join(base_dir, subdir)
@@ -370,6 +416,10 @@ module KairosMcp
 
       Dir[File.join(subdir_path, '**/*')].each do |file|
         next unless File.file?(file)
+        # build_resource_info reports File.size and File.mtime, which follow a
+        # symlink to its target. Listing an entry the read path refuses would
+        # disclose the size and timestamp of a file outside the store.
+        next unless PathContainment.contained?(base_dir, file)
 
         relative = file.sub("#{subdir_path}/", '')
         resources << build_resource_info(
@@ -392,6 +442,7 @@ module KairosMcp
 
       Dir[File.join(subdir_path, '**/*')].each do |file|
         next unless File.file?(file)
+        next unless PathContainment.contained?(context_dir, file)
 
         relative = file.sub("#{subdir_path}/", '')
         resources << build_resource_info(
@@ -475,9 +526,12 @@ module KairosMcp
     def knowledge_name?(filter)
       return false if filter.nil?
       return false if %w[l0 knowledge context].include?(filter)
+      return false unless PathContainment.safe_segment?(filter)
+      return false if filter == KnowledgeProvider::ARCHIVED_DIR
 
       # Check if it's a knowledge name
-      File.directory?(File.join(@knowledge_dir, filter))
+      dir = File.join(@knowledge_dir, filter)
+      File.directory?(dir) && PathContainment.contained?(@knowledge_dir, dir)
     end
 
     def context_filter?(filter)
@@ -502,18 +556,32 @@ module KairosMcp
       nil
     end
 
+    # Listing is filtered by containment for the same reason reading is. A
+    # listing that advertises what the read path refuses reports the size and
+    # modification time of whatever the symlink led to, which tells a caller
+    # about files outside the store even though it cannot fetch them.
+    #
+    # No exclusion for the archive directory: Dir's "*" does not match a leading
+    # dot, so `.archived` never reaches this filter. An exclusion here would be
+    # a line that cannot fire, which reads like protection and is not.
     def knowledge_dirs
       Dir[File.join(@knowledge_dir, '*')].select do |f|
-        File.directory?(f) && !File.basename(f).match?(KnowledgeProvider::BACKUP_DIR_PATTERN)
+        File.directory?(f) &&
+          !File.basename(f).match?(KnowledgeProvider::BACKUP_DIR_PATTERN) &&
+          PathContainment.contained?(@knowledge_dir, f)
       end
     end
 
     def session_dirs
-      Dir[File.join(@context_dir, '*')].select { |f| File.directory?(f) }
+      Dir[File.join(@context_dir, '*')].select do |f|
+        File.directory?(f) && PathContainment.contained?(@context_dir, f)
+      end
     end
 
     def context_dirs(session_dir)
-      Dir[File.join(session_dir, '*')].select { |f| File.directory?(f) }
+      Dir[File.join(session_dir, '*')].select do |f|
+        File.directory?(f) && PathContainment.contained?(@context_dir, f)
+      end
     end
   end
 end

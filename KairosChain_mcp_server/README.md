@@ -1,7 +1,7 @@
 # KairosChain MCP Server
 
 [![Gem Version](https://img.shields.io/gem/v/kairos-chain)](https://rubygems.org/gems/kairos-chain)
-[![Ruby](https://img.shields.io/badge/ruby-%3E%3D%203.0-red)](https://www.ruby-lang.org/)
+[![Ruby](https://img.shields.io/badge/ruby-%3E%3D%203.2-red)](https://www.ruby-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A self-referential [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for auditable skill self-management. KairosChain enables AI agents to define, evolve, and audit their own capabilities through a three-layer knowledge system backed by a private blockchain.
@@ -108,7 +108,32 @@ kairos-chain -v                    # Show version
 
 KairosChain's architecture flows from one principle: **meta-level operations are expressed in the same structure as base-level operations.** This structural self-referentiality enables agents to reason about, modify, and evolve their own capabilities using the same tools they use for base-level tasks.
 
-See [CLAUDE.md](../CLAUDE.md) for the full philosophical framework including the Nine Propositions.
+### Why "Pure" Skills
+
+The name is borrowed from *pure functions* — functions whose output depends only on their declared
+arguments, and which change nothing outside their return value. A capability written in prose is
+impure in two ways. Its behaviour depends on things the definition does not declare: the rest of the
+context window, the model version, whatever else happens to be loaded. And what it actually did
+cannot be checked from the definition, either before the run or after it.
+
+Purity here does not mean the absence of effects. Agents do write files and reach out to the world.
+It means that **where the impurity lives is declared in the definition itself.** Inside a
+`definition` block, `constraint` and `check` carry the machine-decidable part, while the fifth
+constructor, `node`, marks the part a machine cannot decide. The evaluation engine returns those
+nodes as non-evaluable and leaves satisfaction as `:unknown` rather than true or false:
+
+```ruby
+# SemanticReasoning — explicitly non-evaluable (requires human judgment)
+satisfied: :unknown,
+evaluable: false
+```
+
+Like a type system that surfaces effects instead of removing them, the undecidable part is recorded
+as undecidable rather than hidden. How much of a capability has been formalised therefore becomes
+machine-readable — which is what `dsl_ast/drift_detector.rb` measures.
+
+See [CLAUDE.md](../CLAUDE.md) for the full philosophical framework including the Nine Propositions,
+and the `kairoschain_design` L1 knowledge entry for the Pure Skills directory structure.
 
 ## Author
 

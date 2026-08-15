@@ -22,6 +22,14 @@ module ProjectManager
     SALIENCE_LEVELS  = %w[low normal high].freeze
     DEP_KINDS        = %w[item world_event].freeze
 
+    # What the operator was asked to spend attention on, for one closed judgment.
+    ATTENTION_KINDS = %w[decide read review].freeze
+    # The operator's own report of what that judgment cost to understand.
+    # no_answer is a value, not a gap: declining to answer is itself evidence of
+    # load, and dropping it as missing data would bias the record toward the
+    # occasions the operator had energy to spare.
+    GRASP_LEVELS    = %w[once reread unclear no_answer].freeze
+
     attr_reader :path
 
     def initialize(path: nil)
@@ -131,6 +139,82 @@ module ProjectManager
       item
     end
 
+    # --- Attention ---
+    #
+    # One entry per closed judgment: the operator was shown something, and
+    # decided. The proxies (lines, elapsed) are worth nothing on their own — they
+    # acquire meaning only paired with `grasp`, which is the operator's own
+    # report. That pairing is the whole design: it calibrates the cheap automatic
+    # numbers against the one direct measurement, and it keeps the agent that
+    # produced the output from grading its own legibility.
+    #
+    # This write does NOT advance the marker. The marker means the work moved;
+    # an observation about the reader is not the work moving, and letting it
+    # advance would make an item look tended when only its audience was measured.
+    #
+    # since_touch_h is the gap from the last meaningful touch, not a gate
+    # duration. The two coincide only when nothing touched the item between the
+    # gate opening and this write — so record the entry BEFORE the status update
+    # that closes the item, or the number collapses to zero.
+    def add_attention(id, kind:, lines: nil, grasp: nil, now: Time.now)
+      raise ArgumentError, "invalid attention kind: #{kind} (#{ATTENTION_KINDS.join('/')})" unless ATTENTION_KINDS.include?(kind)
+      unless grasp.nil? || GRASP_LEVELS.include?(grasp)
+        raise ArgumentError, "invalid grasp: #{grasp} (#{GRASP_LEVELS.join('/')})"
+      end
+
+      item = fetch_item(id)
+      entry = {
+        'at' => now.utc.iso8601, 'kind' => kind,
+        'lines' => ProjectManager.whole_number(lines),
+        'grasp' => grasp,
+        'since_touch_h' => hours_since_touch(item, now)
+      }.compact
+      (item['attention'] ||= []) << entry
+      save
+      entry
+    end
+
+    # The operator's declaration of how many judgments the day has room for.
+    # Only the declaration is stored; how many actually closed is derived, the
+    # same discipline dormancy follows — a stored count would drift the moment
+    # an entry was added or an item removed.
+    #
+    # A record with declared = nil means the question was asked and not answered,
+    # which is distinguishable from never having been asked (no record at all).
+    def declare_capacity(declared:, date: nil, now: Time.now)
+      key = date || now.utc.strftime('%Y-%m-%d')
+      raise ArgumentError, "invalid date: #{key} (expected YYYY-MM-DD)" unless key.to_s.match?(/\A\d{4}-\d{2}-\d{2}\z/)
+
+      record = {
+        'date' => key,
+        'declared' => declared.nil? ? nil : ProjectManager.whole_number(declared),
+        'recorded_at' => now.utc.iso8601
+      }
+      @data['attention_days'][key] = record
+      save
+      record
+    end
+
+    def attention_days
+      @data['attention_days'].values
+    end
+
+    # Every attention entry across all items, each carrying the item it came
+    # from, newest last. `since` accepts a Time; an unreadable stored timestamp
+    # excludes the entry from a windowed call rather than taking the call down.
+    def attention_entries(since: nil)
+      items.flat_map do |item|
+        (item['attention'] || []).map do |e|
+          e.merge('item_id' => item['id'], 'project_id' => item['project_id'])
+        end
+      end.select do |e|
+        next true if since.nil?
+
+        at = ProjectManager.parse_time(e['at'])
+        at && at >= since
+      end.sort_by { |e| e['at'].to_s }
+    end
+
     def items
       @data['items'].values
     end
@@ -202,14 +286,33 @@ module ProjectManager
       attrs.each { |k, v| v.nil? ? item.delete(k) : item[k] = v }
     end
 
+    # An unreadable or absent marker yields nil rather than a fabricated
+    # duration, for the reason parsed_time exists: a number nobody can trust is
+    # worse than an admitted gap, and this one would be averaged later.
+    def hours_since_touch(item, now)
+      touched = ProjectManager.parse_time(item['touched_at'])
+      return nil if touched.nil?
+
+      ((now - touched) / 3600.0).round(1)
+    end
+
     def generate_id(prefix)
       "#{prefix}_#{SecureRandom.hex(4)}"
     end
 
     def load_data
-      return { 'version' => 1, 'projects' => {}, 'items' => {} } unless File.exist?(@path)
+      return empty_data unless File.exist?(@path)
 
-      JSON.parse(File.read(@path))
+      # A store written before attention existed has no such key, and every
+      # reader here would meet nil. Filling it on load rather than at each use
+      # keeps the guard in one place, the same reason parse_time is not a call-site
+      # guard.
+      parsed = JSON.parse(File.read(@path))
+      parsed.is_a?(Hash) ? empty_data.merge(parsed) : empty_data
+    end
+
+    def empty_data
+      { 'version' => 1, 'projects' => {}, 'items' => {}, 'attention_days' => {} }
     end
 
     def save

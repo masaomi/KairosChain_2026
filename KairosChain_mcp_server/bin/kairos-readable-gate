@@ -1,0 +1,60 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Harness-side entry point for the readable-output gate.
+#
+# Usage (as a Claude Code Stop hook, produced by mode_hooks_project):
+#   kairos-readable-gate --config <path/to/gate_config.json>
+#
+# Why this entry point exists rather than the hook naming the gate directly:
+#
+#   1. PluginProjector only projects hook commands matching /\Akairos-/ without
+#      warning. A raw path command warns on every projection, and a warning
+#      nobody can act on trains operators to ignore warnings.
+#   2. The gate's location differs between an installed SkillSet and the gem's
+#      own templates. Resolving it here keeps that off the compiled artifact,
+#      which must stay a pure function of (mode identity, declaration).
+#
+# It used to carry a third job — finding a python3 — which went away with the
+# port to Ruby on 2026-08-12. The gate now runs in this process rather than a
+# spawned one, so a turn pays one interpreter start instead of two.
+#
+# stdin, stdout and the exit status are passed through untouched: this entry
+# point must never turn a gate verdict into something else. If the gate cannot
+# be found or cannot be run, it exits 0 and emits nothing — a broken gate must
+# not wedge a session.
+
+SCRIPT_REL = File.join('skillsets', 'kairos_hook_projector', 'hooks', 'readable_gate.rb')
+
+def candidate_scripts
+  paths = []
+  paths << ENV['KAIROS_READABLE_GATE_SCRIPT'] if ENV['KAIROS_READABLE_GATE_SCRIPT']
+
+  # Installed SkillSet, under the instance data dir.
+  data_dir = ENV['KAIROS_DATA_DIR']
+  data_dir ||= File.join(Dir.pwd, '.kairos')
+  paths << File.join(data_dir, SCRIPT_REL)
+
+  # The gem's own templates, for an instance that has not acquired the SkillSet.
+  gem_root = File.expand_path('..', __dir__)
+  paths << File.join(gem_root, 'templates', SCRIPT_REL)
+
+  paths
+end
+
+script = candidate_scripts.find { |p| p && File.file?(p) }
+
+if script.nil?
+  warn '[kairos-readable-gate] not run: gate script not found'
+  exit 0
+end
+
+code = begin
+  require script
+  KairosHookProjector::ReadableGate.main
+rescue StandardError, SystemStackError, LoadError => e
+  warn "[kairos-readable-gate] not run: #{e.class}: #{e.message}"
+  0
+end
+
+exit code

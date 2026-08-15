@@ -4,6 +4,52 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.65.0] - 2026-08-13
+
+### Changed
+
+- **Ruby 3.2 is now the minimum.** The `readable_gate` Stop hook bounds its
+  scan with `Regexp.timeout`, which arrived in Ruby 3.2. Under the previous
+  floor of 3.0 that call raised, the gate's outermost rescue converted it to
+  exit 0, and the hook enforced nothing while reporting nothing. Guarding the
+  call was the alternative and is worse: without `Regexp.timeout` there is no
+  per-match bound either, so a declaration carrying many patterns could
+  consume the hook's whole budget and stall a turn. An install that fails is
+  louder than a gate that does not measure. Ruby 3.0 left security support in
+  April 2024 and 3.1 in March 2025.
+
+### Added
+
+- **`kairos_hook_projector` reaches stage 2.** The SkillSet gains two tools
+  that write the harness configuration — `mode_hooks_project`, which installs
+  a mode's declared hooks into `.claude/settings.json` behind a proposal and
+  a confirmation hash, and `mode_hooks_validate` — and two executables land on
+  PATH, `kairos-readable-gate` and `kairos-plugin-project`. Before this
+  release the SkillSet was read-only. `kairos-chain-daemon` also joins the
+  executable list; it shipped in the package but was never put on PATH.
+- **`kairos_hook_projector` gains a diagram floor.** A mode may declare
+  `diagram_required_over_lines`, and a message whose prose exceeds it while
+  carrying no fenced block is reported. It is the first floor among the
+  gate's thresholds, which are otherwise all caps, and the length
+  announcement deliberately does not clear it. Off unless a mode names a
+  number; the core supplies no threshold of its own.
+
+### Fixed
+
+- The gate no longer supplies a rewrite instruction of its own. The block
+  reason is addressed under the mode's name, so core-authored prose arrived
+  as something the mode had said. A mode that declares none now gets none.
+- A `.claude/settings.json` shape the projector cannot merge is refused rather
+  than silently discarded.
+- The measurement deadline reaches inside a single pattern's matches and into
+  the specimen scan, not only the loop between patterns.
+- A log rotation that cannot be performed no longer costs the record it was
+  making room for.
+- The gate exits 0 when `--config` is absent, as its documented invariant
+  always claimed; it exited 2, which a Stop hook reads as blocking.
+- `LICENSE` now exists under the gem build root. It was listed in
+  `spec.files` and absent from the published package.
+
 ## [3.64.0] - 2026-08-06
 
 ### Fixed
