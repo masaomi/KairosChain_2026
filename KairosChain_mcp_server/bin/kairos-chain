@@ -511,7 +511,16 @@ when 'gate'
     puts "installed  : #{installed['status']} — #{installed['detail']}"
     puts "declaration: #{result.data['declaration']}"
     puts
-    puts 'Installed, and reporting only — blocking is false, as the catalogue ships it.'
+    if result.data['already_declared']
+      # Says what happened, not what did not. An earlier line here read
+      # "Nothing was written" — false of a run that had just re-applied an
+      # edited threshold into the harness config.
+      puts "#{gate_mode} already declared the readable gate. Its declaration was left"
+      puts 'as it is and re-applied, so any thresholds edited in it are now live.'
+      puts 'The lines above are a fresh read of the result.'
+    else
+      puts 'Installed, and reporting only — blocking is false, as the catalogue ships it.'
+    end
     # Reported, not treated as failure: the gate is on either way.
     if result.data['verdict'] == 'OPEN_QUESTIONS'
       puts

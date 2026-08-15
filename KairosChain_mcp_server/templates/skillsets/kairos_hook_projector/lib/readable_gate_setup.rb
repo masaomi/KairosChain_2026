@@ -41,7 +41,22 @@ module KairosMcp
 
           added = call(tool(:add), 'mode' => mode, 'gate' => GATE)
           declaration = added['declaration']
-          unless declaration && %w[created appended].include?(added['action'])
+
+          # Already declared is the goal already met, not a failure. The add
+          # tool is append-only and refuses a second entry for the same gate on
+          # the same event — and it returns the declaration's path while doing
+          # so, which the first version of this reported as "wrote no
+          # declaration", a sentence its own argument disproved.
+          #
+          # It falls through rather than returning, so running this twice
+          # converges instead of refusing: the declaration keeps whatever
+          # thresholds it was tuned to, and the projector re-reads them. That
+          # is also what makes "edit the numbers, then run it again" true. An
+          # apply with nothing changed writes nothing — the projector reports
+          # up_to_date — so this is safe against a live blocking gate.
+          already = added['error'] == 'gate_already_declared' && !declaration.nil?
+
+          unless already || (declaration && %w[created appended].include?(added['action']))
             return refuse('mode_hooks_add wrote no declaration: ' \
                           "#{added['refusal'] || added['error'] || added['action'] || added.inspect}")
           end
@@ -52,7 +67,8 @@ module KairosMcp
             return refuse("mode_hooks_project refused: #{plan['detail'] || plan.inspect}")
           end
 
-          data = { 'declaration' => declaration, 'plan' => plan }
+          data = { 'declaration' => declaration, 'plan' => plan,
+                   'already_declared' => already }
           return Result.new(status: :proposed, detail: 'nothing written', data: data) unless apply
 
           applied = call(tool(:project), 'mode' => mode, 'apply' => true,
@@ -64,7 +80,7 @@ module KairosMcp
           # The apply result asserts no liveness in either direction, by design.
           # A fresh read is the only thing that answers whether the gate is on.
           after = call(tool(:validate), 'mode' => mode)
-          Result.new(status: :ok, detail: 'installed',
+          Result.new(status: :ok, detail: already ? 'already declared' : 'installed',
                      data: data.merge('verdict' => after['verdict'],
                                       'checks' => after['checks']))
         end
