@@ -355,6 +355,51 @@ module KairosMcp
                                'and that repair may not be yours to make' }
             end
 
+            # A refusal is the absence of an answer about what this mode
+            # declares, and the ternary below read it as the answer "nothing".
+            # Every live owned hook then fell into `stale` and the operator was
+            # told "the harness still runs hooks this mode no longer declares"
+            # and "run the mode_hooks_project tool to remove them" — both false
+            # of a gate the declaration still asks for and which is still
+            # blocking turns. A reviewer drove one with a real Stop payload
+            # while it was being reported as withdrawn and got
+            # `"decision":"block"`. The refusal is the whole trigger: a typo
+            # anywhere in the document — a quoted `"true"`, a deleted
+            # `section`, a body edited past its binding — reaches here.
+            #
+            # Keyed on `refused?` alone, and it has to be. The other two feeder
+            # states are the documented withdrawal routes and keep answering
+            # `stale`: `compiled.nil?` is a deleted declaration, and a compiled
+            # empty artifact is an emptied `hooks`. Both genuinely declare
+            # nothing, so a live owned hook under them IS undeclared. Widening
+            # this to `!compiled?` would collapse the nil case too.
+            #
+            # One consequence, so nobody reads the verdict table wrongly: after
+            # this branch, `resolvable: refused` and `installed: not_installed`
+            # can no longer co-occur, because everything that can answer
+            # `not_installed` sits below this return. The `REFUSED` line in
+            # `verdict` therefore earns its place solely by outranking
+            # `UNKNOWN_INSTALLED`, which is what this branch now produces — and
+            # that is the ordering the refusal witness pins.
+            #
+            # Two sentences, both short of what an earlier draft said. That
+            # draft also reassured the reader that a live gate here "has not
+            # been shown to be withdrawn" and instructed them not to remove
+            # one — and a mutation deleting either clause left all 215 tests
+            # green, because nothing can witness a reassurance. The guarantee
+            # is carried by the status and by what these sentences do NOT say,
+            # both of which a test does hold: the operator is never sent to the
+            # projector from here.
+            if compiled&.refused?
+              return { status: 'unknown',
+                       detail: 'the declaration does not compile ' \
+                               "(#{compiled.record.dig('refusal', 'category')}), so what " \
+                               'this mode declares is undetermined and nothing installed ' \
+                               'can be compared against it',
+                       remedy: 'repair the declaration — the resolvable check above ' \
+                               'carries the reason' }
+            end
+
             wanted = compiled&.compiled? ? compiled.artifact['hooks'] : {}
             # The expected bytes come with the artifact: `files` maps each
             # config basename to the canonical JSON the projector writes

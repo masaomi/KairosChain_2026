@@ -441,6 +441,132 @@ class TestModeHooksValidate < Minitest::Test
     end
   end
 
+  # One live, owned, blocking gate. Shared by the pair below because the pair
+  # is a single seam: the same installed hook, told apart only by the state of
+  # the declaration that should account for it.
+  def live_owned_gate
+    { 'hooks' => [{ 'command' => 'kairos-readable-gate --config ' \
+                                 '/x/testmode.Stop.readable_gate.0.json' }],
+      '_projected_by' => 'kairos_hook_projector', '_mode' => 'testmode' }
+  end
+
+  def emptied_declaration
+    KairosMcp::SkillSets::KairosHookProjector::ModeHooksCompiler
+      .new.compile(mode_name: 'testmode',
+                   document: { 'mode_name' => 'testmode', 'version' => '1', 'hooks' => {} })
+  end
+
+  # Round 15's remaining BLOCKING, and it is the reverse of the test above. A
+  # refusal carries no artifact, and the declared set collapsed to the same
+  # empty value an emptied declaration produces — so a gate this mode still
+  # declares, still installed and still blocking every turn, was reported
+  # under `stale` as one "this mode no longer declares", with a remedy saying
+  # to run the projector and remove it. Both sentences are false. The routes
+  # are ordinary typos, each of them an operation the tool's own notes
+  # instruct: quoting the boolean the note says to flip, deleting the field
+  # the note says to edit, adding the binding the catalogue recommends and
+  # then editing the body. Each document below is the correct one with one
+  # field spoiled.
+  def test_a_refused_compile_answers_unknown_and_never_calls_a_live_gate_stale
+    body = "**Version:** 1\n## S\n本文は 60 行以内。\n"
+    good = { 'mode_name' => 'testmode', 'version' => '1',
+             'hooks' => { 'Stop' => [{ 'gate' => 'readable_gate', 'section' => '§ S',
+                                       'params' => { 'max_lines' => 60 } }] } }
+    routes = {
+      'schema_invalid' => ->(d) { d['hooks']['Stop'][0]['blocking'] = 'true' },
+      'unknown_gate' => ->(d) { d['hooks']['Stop'][0]['gate'] = 'nonesuch' },
+      'unsupported_event' => ->(d) { d['hooks']['PreToolUse'] = d['hooks'].delete('Stop') },
+      'binding_mismatch' => lambda { |d|
+        d['binding'] = { 'mode_body_sha256' => sha('some other body') }
+      }
+    }
+    # The second schema route: the field the result note tells the operator to
+    # edit, removed rather than edited.
+    routes['schema_invalid (no section)'] = ->(d) { d['hooks']['Stop'][0].delete('section') }
+    # Round 16, Codex: the four above left two of the compiler's six refusal
+    # categories undriven, and a mutation narrowing the branch to exclude them
+    # stayed green. The branch is keyed on `refused?` and not on the category,
+    # so this is coverage of that claim rather than of six separate behaviours —
+    # but an untested category is how a narrowing would land unnoticed.
+    routes['composition_content_present'] = ->(d) { d['extends'] = ['other'] }
+
+    routes.each do |name, spoil|
+      doc = JSON.parse(JSON.generate(good))
+      spoil.call(doc)
+      compiled = KairosMcp::SkillSets::KairosHookProjector::ModeHooksCompiler
+                 .new.compile(mode_name: 'testmode', document: doc, mode_body: body)
+      category = name.split(' ').first
+      assert compiled.refused?, "fixture drift: #{name} no longer refuses"
+      assert_equal category, compiled.record.dig('refusal', 'category'),
+                   "fixture drift: #{name} now refuses under another category"
+
+      with_settings('Stop' => [live_owned_gate]) do |root|
+        out = @t.send(:check_installed, compiled, root, 'testmode')
+        assert_equal 'unknown', out[:status],
+                     "#{name}: a refusal is the absence of an answer about what is " \
+                     "declared, not the answer \"nothing\" — #{out.inspect}"
+        assert_nil out[:stale],
+                   "#{name}: nothing may be listed as withdrawn on this status"
+        said = out.values.join(' ')
+        refute_match(/no longer declares/, said,
+                     "#{name}: the declaration still asks for that gate")
+        refute_match(/mode_hooks_project/, said,
+                     "#{name}: the remedy must not send the operator to remove a live gate")
+        # DD-16: a non-ok status that ships no instruction is the shape this
+        # check has been caught in before. The assertion is on presence, not
+        # on wording — asserting wording is how prose becomes load-bearing.
+        refute_empty out[:remedy].to_s, "#{name}: a non-ok status carries a remedy"
+        # The detail is derived from the refusal, not a constant: replacing it
+        # wholesale used to leave every assertion in this file green.
+        assert_match(/#{Regexp.escape(category)}/, out[:detail],
+                     "#{name}: the detail must name why the declaration did not compile")
+        assert_equal 'REFUSED',
+                     @t.send(:verdict, checks(resolvable: { status: 'refused' },
+                                              installed: out)),
+                     'and the verdict names the refusal, which is the answerable finding'
+      end
+    end
+
+    # The sixth category, driven on its own because it is the one refusal whose
+    # identity is the mode itself: the tool passes the same name to `compile`
+    # and to `check_installed`, so the fixture has to carry it in all three
+    # places — the compile, the owned group, and the mode argument — to be the
+    # shape the tool actually produces. Whether `validate` can reach an unsafe
+    # name at all is a separate question, and not settled here: it would need a
+    # mode body to exist at a traversing path. The branch is driven anyway,
+    # because a category left undriven is where a narrowing lands unnoticed.
+    unsafe = '../evil'
+    compiled = KairosMcp::SkillSets::KairosHookProjector::ModeHooksCompiler
+               .new.compile(mode_name: unsafe, document: good, mode_body: body)
+    assert_equal 'unsafe_mode_name', compiled.record.dig('refusal', 'category')
+    with_settings('Stop' => [live_owned_gate.merge('_mode' => unsafe)]) do |root|
+      out = @t.send(:check_installed, compiled, root, unsafe)
+      assert_equal 'unknown', out[:status], out.inspect
+      assert_nil out[:stale], 'nothing may be listed as withdrawn on this status'
+    end
+  end
+
+  # The boundary the fix above must not cross, and the reason it keys on
+  # `refused?` alone. These two feeder states declare nothing for real — a
+  # deleted declaration and an emptied `hooks` — so a live owned hook under
+  # either IS undeclared, and `stale` is the true answer with the true remedy.
+  # Widening the refusal branch to `!compiled?` collapses the nil case into it
+  # and loses the withdrawal route entirely, while every assertion about
+  # refusals above stays green.
+  def test_a_deleted_or_emptied_declaration_still_reports_a_live_gate_as_stale
+    { 'deleted declaration' => nil, 'emptied hooks' => emptied_declaration }
+      .each do |name, compiled|
+      with_settings('Stop' => [live_owned_gate]) do |root|
+        out = @t.send(:check_installed, compiled, root, 'testmode')
+        assert_equal 'stale_installed', out[:status],
+                     "#{name}: this really is a withdrawn gate — #{out.inspect}"
+        assert_equal 1, out[:stale].length, out.inspect
+        assert_equal 'STALE_INSTALLED', @t.send(:verdict, checks(installed: out)),
+                     "#{name}: and it must still reach the verdict"
+      end
+    end
+  end
+
   def test_the_declared_hook_is_recognised_once_its_path_token_is_resolved
     compiled = compiled_for_installed_test
     argv = compiled.artifact['hooks']['Stop'].first['argv']
@@ -999,8 +1125,14 @@ class TestModeHooksValidate < Minitest::Test
   # not `ours?`, is what decides — an unowned group is refused before the
   # guard this test names ever runs.
   def test_a_command_naming_no_config_is_refused_not_matched
+    # The double answers the whole Result contract check_installed reads, not
+    # the half this test needs. Carrying only `compiled?` made it a fixture
+    # that decides what the subject may ask: adding the refusal branch turned
+    # this test red with a NoMethodError from production code that was correct.
     fake = Class.new do
       def compiled? = true
+
+      def refused? = false
 
       def artifact = { 'hooks' => { 'Stop' => [{ 'command' => 'some-future-gate --inline' }] } }
     end.new
