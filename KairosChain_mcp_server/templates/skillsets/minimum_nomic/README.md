@@ -20,15 +20,22 @@ the record: an in-game failure is data, a lost record is nothing.
 Run from the project root — two of the three seats inherit that working
 directory, and what they can reach from it is part of the recorded lineup.
 
-It calls the command-line tools through the `llm_client` SkillSet's adapters,
-read from `.kairos/skillsets/llm_client/` at the project root. That directory is
-instance-local and not in this repository, so a fresh checkout has to have the
-SkillSet projected before any of this runs; without it the first `require` fails.
+It calls the command-line tools through the `llm_client` SkillSet's adapters.
+`llm_client` is a **sibling SkillSet**, so `bin/` resolves it as
+`../../llm_client/lib/llm_client` — the same relative path whether this copy is
+the gem's template under `templates/skillsets/` or an instance's projection
+under `.kairos/skillsets/`. It is a hard dependency: without `llm_client`
+projected alongside, `run_gm.rb` aborts naming both directories it looked in
+rather than failing inside a `require`.
+
+Paths below are written for an instance where this SkillSet has been projected.
+In the development checkout, substitute
+`KairosChain_mcp_server/templates/skillsets/minimum_nomic/bin/`.
 
 ```
-ruby bench/minimum_nomic/run_gm.rb   --out log/minimum_nomic_gm_20260810/g3 --turns 15
-ruby bench/minimum_nomic/check_gm.rb  log/minimum_nomic_gm_20260810/g3 --falsify
-ruby bench/minimum_nomic/reanalyse.rb log/minimum_nomic_gm_20260810/g3
+ruby .kairos/skillsets/minimum_nomic/bin/run_gm.rb    --out log/nomic/g3 --turns 15
+ruby .kairos/skillsets/minimum_nomic/bin/check_gm.rb  log/nomic/g3 --falsify
+ruby .kairos/skillsets/minimum_nomic/bin/reanalyse.rb log/nomic/g3
 ```
 
 One directory per game, a fresh one every time. A run refuses to start when the
@@ -46,6 +53,23 @@ stored record, so changing the guideline costs no replay. Results append to
 `records/analyses_rescored.jsonl`, each row carrying the digest of the guideline
 that produced it, and the game's own record is never touched — two read-outs of
 the same game stay distinguishable instead of merging.
+
+`cross_model.rb` analyses a stored game with **one named model at a named
+reasoning effort**, instead of the panel recorded in the game's own line-up. It
+exists because `reanalyse.rb` reads the panel from the game, which is right for
+re-reading under a changed guideline and cannot answer "would a different model
+have caught this?". Results append to `records/analyses_crossmodel.jsonl`, kept
+separate so a cross-model read-out never merges with the game's own panel.
+
+```
+ruby .kairos/skillsets/minimum_nomic/bin/cross_model.rb log/nomic/g3 claude_code claude-opus-5 medium
+```
+
+Holding effort fixed is the point of the argument, not a convenience: the stored
+games ran `claude-opus-4-6` at medium and `claude-opus-5` at high, so any
+comparison that reuses both stored panels confounds generation with effort. Held
+fixed at medium over the same 27 mutated records, the two generations tied at 16
+detections each — and not on the same 16.
 
 ## What each participant is given
 
@@ -92,8 +116,9 @@ game played after it.
 
 ## The corpus is never committed
 
-This directory is tracked by git. The games are not, and are not to be. They
-live under `log/`, which is ignored. Protection of the record comes from
+This directory is tracked by git and ships inside the gem, so that anyone who
+installs KairosChain can reproduce a run. The games are not, and are not to be.
+They live under `log/`, which is ignored. Protection of the record comes from
 append-only writing and from one directory per game, not from version control.
 
 ## Known gaps, deliberately left
@@ -106,13 +131,20 @@ append-only writing and from one directory per game, not from version control.
   games archived before this change). The number players cite is that position,
   so renumbering either gaps what players see or moves what a citation points
   at. Left until more games say which is worse.
-- **Seat and model are confounded.** Seat A is always the same model and always
-  speaks first, so a first-mover effect and a model effect cannot be told apart.
-  Rotating models across seats is the next change, before any series.
 - **Two of the three seats could read the game's records if they looked** — one
   runs read-only in the project root, one runs there with no sandbox at all.
   Recorded in each game's lineup rather than solved.
+- **A mutation must not leave a grammatical scar.** Rewriting
+  `I vote **in favor** of X` as `I vote **against** of X` strands the *of*, and
+  that is a clue visible without consulting the record at all. It happened in 4
+  of 27 substitutions on 2026-08-15, and one analyst reverse-engineered the edit
+  from it. Check the grammar of the replacement, not only that exactly one
+  substitution was made.
 
-A duplicate copy of these three files still sits in
-`log/minimum_nomic_gm_20260810/`, left in place beside the games it produced.
-**This directory is the live one.** Edit here.
+Seat and model used to be confounded — seat A was always the same model and
+always spoke first. Seat rotation landed on 2026-08-13, so games from the `s50`
+and `t100` series carry rotated line-ups while the `inv29` series does not. Read
+each game's own `lineup.jsonl` rather than assuming.
+
+Older copies of these scripts sit beside the games they produced, under
+`log/minimum_nomic_gm_20260810/`. **This directory is the live one.** Edit here.

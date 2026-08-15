@@ -1,0 +1,13 @@
+{
+  "name": "minimum_nomic",
+  "version": "0.1.0",
+  "description": "Minimum Nomic bench: three language models play a self-amending game with nine changeable rules, no goal and no termination condition, while a fourth acts as game master. Runnable scripts, not MCP tools — a game is started from the command line and its record is analysed, audited and mutation-tested afterwards.",
+  "author": "Masaomi Hatakeyama",
+  "layer": "L1",
+  "depends_on": ["llm_client"],
+  "provides": ["minimum_nomic_bench"],
+  "tool_classes": [],
+  "config_files": [],
+  "knowledge_dirs": [],
+  "min_core_version": "3.67.0"
+}
