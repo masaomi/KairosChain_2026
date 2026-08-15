@@ -71,6 +71,57 @@ comparison that reuses both stored panels confounds generation with effort. Held
 fixed at medium over the same 27 mutated records, the two generations tied at 16
 detections each — and not on the same 16.
 
+## Measuring an analyst instead of trusting its score
+
+The 0-10 metacognition score the analysts return cannot rank models. Measured
+over five games scored twice, the spread between judges was 1.35-1.50 points
+while the spread between the judged was 0.67-0.71, and re-scoring the same cell
+moved it 0.73. Asking a model for a number measures the asker.
+
+`mutate.rb` replaces that with a question whose answer we already hold: copy a
+finished game, reverse exactly one vote, and see whether the analyst notices.
+
+```
+ruby .kairos/skillsets/minimum_nomic/bin/mutate.rb log/nomic/g1 --out log/nomic/g1_mut
+ruby .kairos/skillsets/minimum_nomic/bin/reanalyse.rb log/nomic/g1_mut/clean
+ruby .kairos/skillsets/minimum_nomic/bin/reanalyse.rb log/nomic/g1_mut/seat_A     # and B, C
+ruby .kairos/skillsets/minimum_nomic/bin/score_detections.rb log/nomic/g1_mut
+```
+
+`mutate.rb` writes one arm per seat plus a `clean/` control, and a
+`mutations.json` naming what was planted where. **The control is not optional**:
+without it a reported contradiction cannot be told from a confabulated one.
+Across 35 planted mutations the control arms produced zero false alarms, and
+that is what makes the detections evidence.
+
+It refuses three things: overwriting an output directory, making anything other
+than exactly one substitution, and leaving a grammatical scar. The third check
+exists because 4 of 27 substitutions on 2026-08-15 rewrote
+`I vote **in favor** of X` as `I vote **against** of X`, stranding the *of* — a
+clue visible without consulting the record at all. One analyst reverse-engineered
+the edit from it.
+
+`score_detections.rb` **does not decide**. It prints, per arm and per analyst,
+the lines citing the mutated utterance, and the verdict is made by a person. A
+first pass over 81 verdicts using keyword matching undercounted one analyst by
+four, because its findings were written purely as a contrast — "its reasoning
+says it will vote for its proposal, but it votes against" — which contains no
+keyword. All 105 had to be re-read by hand. A script returning a number here
+would have shipped that error silently.
+
+## Writing it up
+
+`report/report_template.html` is the shape the 2026-08 report settled on after
+being rewritten once: a TL;DR before chapter 1, the run diagram immediately
+after it, then method, results, discussion, appendices. Every placeholder is in
+capitals and every structural choice carries the reason for it in a comment, so
+that departing from it is a decision rather than an oversight. The stylesheet is
+inline; there is nothing else to install.
+
+Two rules the template enforces in its comments and the body should keep. Every
+number carries its denominator. A claim the sample does not support is written
+as "cannot be claimed" rather than rounded into a finding.
+
 ## What each participant is given
 
 ```

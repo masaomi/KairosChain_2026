@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="LANG">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TITLE</title>
+<style>
+  :root {
+    color-scheme: light;
+    --plane:      #f9f9f7;
+    --surface:    #fcfcfb;
+    --ink:        #0b0b0b;
+    --ink-2:      #52514e;
+    --ink-muted:  #898781;
+    --rule:       #e1e0d9;
+    --axis:       #c3c2b7;
+    --border:     rgba(11,11,11,0.10);
+    --s1: #2a78d6;   /* 青   — 上限まで進んだ */
+    --s2: #eb6834;   /* 橙   — 参加者が終わりを作った */
+    --s3: #1baf7a;   /* 緑青 — 全員一致の相互勝利 */
+    --pending: #898781;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --plane: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7;
+      --ink-muted: #898781; --rule: #2c2c2a; --axis: #383835;
+      --border: rgba(255,255,255,0.10);
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 1.25rem 5rem;
+    background: var(--plane); color: var(--ink);
+    font: 400 16px/1.85 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  main { max-width: 46rem; margin: 0 auto; }
+  header { padding: 3rem 0 1.5rem; border-bottom: 2px solid var(--ink); margin-bottom: 2rem; }
+  h1 { font-size: 1.75rem; line-height: 1.4; margin: 0 0 .6rem; }
+  .sub { color: var(--ink-2); font-size: 1.02rem; margin: 0 0 1rem; }
+  .meta { color: var(--ink-muted); font-size: .85rem; margin: 0; }
+  h2 {
+    font-size: 1.25rem; margin: 3rem 0 .25rem; padding-top: 1.5rem;
+    border-top: 1px solid var(--rule);
+  }
+  h2 .num { color: var(--ink-muted); font-weight: 400; margin-right: .5rem; }
+  h3 { font-size: 1.02rem; margin: 2rem 0 .5rem; }
+  p { margin: 0 0 1rem; }
+  .lede { font-size: 1.02rem; color: var(--ink-2); margin-bottom: 1.5rem; }
+  .banner {
+    background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--s2);
+    padding: .9rem 1.1rem; border-radius: 6px; font-size: .9rem; color: var(--ink-2);
+    margin: 0 0 2rem;
+  }
+  .banner strong { color: var(--ink); }
+  figure {
+    margin: 1.75rem 0; padding: 1.25rem; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+  figcaption { font-size: .85rem; color: var(--ink-2); margin-top: .9rem; line-height: 1.75; }
+  figcaption b { color: var(--ink); font-weight: 600; }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; margin: 1.25rem 0; }
+  th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { color: var(--ink-2); font-weight: 600; font-size: .82rem; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  code {
+    font: 400 .85em/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 4px; padding: .1em .35em;
+  }
+  blockquote {
+    margin: 1.25rem 0; padding: .25rem 0 .25rem 1.1rem;
+    border-left: 3px solid var(--axis); color: var(--ink-2);
+  }
+  .key {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 1.1rem 1.25rem; margin: 1.5rem 0;
+  }
+  .key p:last-child { margin-bottom: 0; }
+  .legend { display: flex; flex-wrap: wrap; gap: 1rem; font-size: .82rem; color: var(--ink-2); margin-top: .9rem; }
+  .legend span { display: inline-flex; align-items: center; gap: .4rem; }
+  .swatch { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+  ul { margin: 0 0 1rem; padding-left: 1.3rem; }
+  li { margin-bottom: .6rem; }
+  details { margin-top: .9rem; font-size: .88rem; }
+  summary { cursor: pointer; color: var(--ink-2); }
+  pre { background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+        padding: .9rem 1.1rem; margin: 1.25rem 0; overflow-x: auto; line-height: 1.5;
+        font-size: .8rem; color: var(--ink-2);
+        font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; }
+  .tldr ol { margin: .2rem 0 0; padding-left: 1.4rem; }
+  .tldr li { margin-bottom: .55rem; }
+  .foot { margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--rule);
+          font-size: .82rem; color: var(--ink-muted); }
+</style>
+</head>
+<body>
+<main>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     Minimum Nomic — report template.
+
+     Fill every ALL-CAPS placeholder and delete every comment. The chapter
+     numbering, the class names and the order below are the shape the 2026-08
+     report settled on after being rewritten once; the reasons are stated in
+     each comment so that a departure is a decision rather than an oversight.
+
+     Rule for the whole document: every number carries its denominator, and a
+     claim the sample does not support is written as "cannot be claimed"
+     rather than rounded into a finding.
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<header>
+  <h1>TITLE</h1>
+  <p class="sub">ONE SENTENCE SAYING WHAT IS BEING MEASURED, NOT WHAT WAS BUILT.</p>
+  <p class="meta">DRAFT vX.Y ・ KairosChain Bench ・ GAMES PLAYED YYYY-MM-DD TO YYYY-MM-DD</p>
+</header>
+
+<div class="banner">
+  <strong>Provisional.</strong> STATE THE SAMPLE SIZE AND THE HONESTY RULE: every figure
+  measured rather than estimated, and anything the sample does not support written as
+  "cannot be claimed".
+</div>
+
+<!-- TL;DR — put this before chapter 1, never after. A reader who stops here
+     should still leave with the findings, each with its denominator. Eight to
+     ten items; if an item needs a paragraph, it belongs in chapter 3. -->
+<div class="key tldr">
+<p style="margin:0 0 .7rem"><b>TL;DR</b> — before reading the rest.</p>
+<ol>
+<li><b>The setup.</b> WHAT WAS GIVEN TO WHOM, AND WHAT WAS DELIBERATELY WITHHELD.</li>
+<li><b>FINDING.</b> CLAIM, WITH ITS DENOMINATOR.</li>
+<li><b>FINDING.</b> ...</li>
+<li><b>What could not be claimed.</b> THE STRONGEST NEGATIVE RESULT.</li>
+</ol>
+</div>
+
+<!-- The run diagram. Prose cannot carry a pipeline; replace the prose with
+     this rather than printing both. One line per stage, cost on the right. -->
+<h3 style="margin-top:2.5rem">How a run proceeds</h3>
+
+<pre>
+1  PLAY A GAME                       one game = N turns / N model calls / ~N min
+      Player A ─┐
+      Player B ─┼──→ the game master decides only who speaks next
+      Player C ─┘      it compiles no rule set and adjudicates no legality
+         ↓
+2  RECORDS ACCUMULATE                append-only, one directory per game
+      ├ utterance log                … every player reads this
+      ├ reasoning log                … shown to no player, ever
+      └ turn-control record          … the game master's decisions and reasons
+         ↓
+3  MECHANICAL CHECKS                 check_gm.rb --falsify; no model is called
+         ↓
+4  ANALYSTS                          reanalyse.rb; the same models, fresh calls
+         ↓
+5  AUDIT                             audit_scores.rb; self-audit as the control
+         ↓
+6  MUTATION EXPERIMENT               mutate.rb then score_detections.rb
+      the answer key is ours, so no model decides whether a detection happened
+</pre>
+
+<h2><span class="num">1</span>Introduction</h2>
+
+<p class="lede">WHY THE ORDINARY EVALUATION SHAPE DOES NOT REACH WHAT IS BEING LOOKED FOR.</p>
+
+<p>WHAT NOMIC IS, IN TWO SENTENCES, FOR A READER WHO HAS NEVER HEARD OF IT.</p>
+
+<blockquote>THE QUESTION, STATED ONCE, IN ONE SENTENCE.</blockquote>
+
+<p><b>The design rule.</b> STATE IT: what is to be observed is not written into the system.
+Nothing instructs a participant to do the thing being measured, and nothing detects, scores
+or reacts to it during play. A stall, a deadlock, a malformed move is a result.</p>
+
+<h2><span class="num">2</span>Method</h2>
+
+<h3>2.1 The game</h3>
+<p>THE INITIAL RULES, AND WHICH ONE DOES WHAT. LINK TO THE APPENDIX FOR THE FULL TEXT.</p>
+
+<h3>2.2 Who is at the table</h3>
+<table>
+  <thead><tr><th>Seat</th><th>Tool</th><th>Model</th><th>Reasoning effort</th></tr></thead>
+  <tbody>
+    <tr><td>SEAT</td><td>CLI</td><td><code>MODEL</code></td><td>EFFORT OR "not settable"</td></tr>
+  </tbody>
+</table>
+<p><b>Record the effort setting even when it cannot be set.</b> A comparison that reuses two
+stored panels confounds model with effort, and the confound is invisible unless both were
+written down at the time.</p>
+
+<h3>2.3 What each participant is given — and what it is not</h3>
+<pre>
+Player      → its own identity + the INITIAL rules + every utterance so far
+              + one line asking for its reasoning. Nothing else.
+Game master → the roster + the INITIAL rules + every utterance so far.
+              Decides who speaks next. Renders nothing to anybody.
+Analyst     → the initial rules, both logs in full, the turn-control record.
+              A fresh call. NOT told which seat it held.
+</pre>
+
+<h3>2.4 What the game master is, exactly</h3>
+<h3>2.5 Analysis and scoring</h3>
+
+<h2><span class="num">3</span>Results</h2>
+
+<!-- One subsection per finding. Each opens with the finding, then the evidence,
+     then what it does not show. Quote the record verbatim; a summary removes
+     the material a reader needs to disagree with you. -->
+
+<h3>3.1 SHORTEST TRUE HEADLINE</h3>
+
+<h3>3.N The scoring instrument</h3>
+<p>IF A 0-10 SCORE IS USED, MEASURE IT BEFORE TRUSTING IT: judge-to-judge spread against
+judged-to-judged spread, and the movement when the same cell is scored twice. Where the
+first exceeds the second, say plainly that the score cannot rank models.</p>
+
+<h3>3.N+1 Planting one lie in a record</h3>
+<p>THE MUTATION RESULT. Include, without exception: the criterion declared BEFORE any result
+was read; the control arm and its false-alarm count; the per-game spread as well as the
+per-model rate; and the limits of the mutations themselves.</p>
+
+<h2><span class="num">4</span>Discussion</h2>
+
+<h3>4.1 What the games show</h3>
+<h3>4.2 What cannot be claimed</h3>
+<!-- Not a disclaimer section. Each item names the specific measurement that
+     would settle it, so the next round has a work list. -->
+<h3>4.3 What comes next</h3>
+
+<h2 id="appendix"><span class="num">A</span>Appendix A — the nine initial rules</h2>
+<p>Verbatim. Participants read the original wording; a translation goes beside it, never
+in place of it.</p>
+
+<h2 id="appendix-b"><span class="num">B</span>Appendix B — QUOTED MATERIAL IN FULL</h2>
+<p>Whatever the body quotes selectively belongs here in full, so that a reader who distrusts
+the selection can check it.</p>
+
+<div class="foot">
+  Records under <code>log/</code>, one directory per game, append-only.
+  Scripts: <code>.kairos/skillsets/minimum_nomic/bin/</code>.
+</div>
+
+</main>
+</body>
+</html>
