@@ -4,6 +4,54 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.69.0] - 2026-08-15
+
+### Added
+
+- **The mutation experiment and the report shape ship with `minimum_nomic`**
+  (SkillSet v0.2.0). Until now the bench could play a game and score it, and the
+  score could not rank models: over five games scored twice, the spread between
+  judges was 1.35–1.50 points while the spread between the judged was 0.67–0.71,
+  and re-scoring the same cell moved it 0.73. Asking a model for a number
+  measures the asker.
+
+  `bin/mutate.rb` replaces that with a question whose answer we hold: copy a
+  finished game, reverse exactly one vote, and see whether the analyst notices.
+  It writes one arm per seat plus a `clean/` control — not optional, because
+  without it a reported contradiction cannot be told from a confabulated one —
+  and a manifest naming what was planted where. It refuses to overwrite an
+  output directory, to make anything but exactly one substitution, and to leave
+  a grammatical scar.
+
+  `bin/score_detections.rb` prints the evidence and **returns no number**. A
+  first pass over 81 verdicts by keyword matching undercounted one analyst by
+  four, because its findings were written purely as a contrast — "its reasoning
+  says it will vote for its proposal, but it votes against" — which contains no
+  keyword. A script returning a count here would have shipped that error
+  silently.
+
+  `report/report_template.html` carries the chapter shape the 2026-08 report
+  settled on after being rewritten once: TL;DR before chapter 1, the run diagram
+  immediately after, then method, results, discussion, appendices. Placeholders
+  are in capitals and each structural choice carries its reason in a comment.
+
+  Three defects were found by running it rather than by reading it, and are
+  fixed here. Vote phrasing is not stable between games, so the flat pattern
+  list matched nothing in a fresh game whose ballots read `**Vote:** IN FAVOR`;
+  detection is now a marker search followed by a polarity flip within a short
+  window. Substituting by first occurrence rewrote a *quoted rule* — "adopted if
+  more than half of the players vote in favor of it" — instead of the speaker's
+  ballot; substitution is now by offset with the expected text asserted there.
+  And a copied arm inherits the original game's analyses, written before
+  anything was planted, which the worksheet was presenting as readings of the
+  mutated record; every analysis kind is now offset by what the arm inherited.
+
+  Demonstrated end to end from an installed gem: `skillset install
+  minimum_nomic`, a 6-turn game (11.3 minutes, analysts included), `mutate.rb`
+  planting three arms and a control, `reanalyse.rb` on two of them, and
+  `score_detections.rb`. All three analysts caught the planted reversal; the
+  control produced no false alarm.
+
 ## [3.67.0] - 2026-08-15
 
 ### Added
