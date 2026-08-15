@@ -4,6 +4,33 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.67.0] - 2026-08-15
+
+### Added
+
+- **The Minimum Nomic bench ships.** Three language models play a self-amending
+  game with nine changeable rules, no goal and no termination condition, while a
+  fourth decides only who speaks next. It lived at `bench/minimum_nomic/` in the
+  development checkout, which the gemspec never walked, so nobody outside this
+  repository could reproduce a run. It is now the `minimum_nomic` SkillSet under
+  `templates/skillsets/`, with the five scripts in `bin/`.
+
+  The single thing that kept it out was a hard-coded `../../.kairos/` path to the
+  `llm_client` adapters, which resolved only in the development checkout.
+  `llm_client` is now resolved as a **sibling SkillSet**
+  (`../../llm_client/lib/llm_client`), the same relative path in the gem's
+  templates and in a projected instance. When it is absent the run aborts naming
+  both directories it searched, rather than failing inside a `require`.
+
+  `bin/cross_model.rb` is new: it analyses a stored game with one named model at
+  one named reasoning effort, instead of the panel recorded in the game's own
+  line-up. Without it, a comparison between model generations reuses both stored
+  panels and confounds generation with effort — the stored games ran
+  `claude-opus-4-6` at medium and `claude-opus-5` at high.
+
+  Not yet demonstrated: no game has been played from an installed gem. Until one
+  has, treat distribution as untested.
+
 ## [3.65.0] - 2026-08-13
 
 ### Changed

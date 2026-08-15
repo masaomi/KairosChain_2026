@@ -59,8 +59,28 @@ require 'time'
 require 'digest'
 require 'optparse'
 
-PROJECT_ROOT = File.expand_path('../..', __dir__)
-ADAPTER_DIR  = File.join(PROJECT_ROOT, '.kairos/skillsets/llm_client/lib/llm_client')
+PROJECT_ROOT = Dir.pwd
+
+# The adapters live in a sibling SkillSet, not at a path relative to any one
+# project. `bin/` sits inside the minimum_nomic SkillSet, so `../../llm_client`
+# is llm_client's directory whether this copy is the gem's template
+# (templates/skillsets/) or an instance's projection (.kairos/skillsets/). The
+# earlier form hard-coded '../../.kairos/...' from the repository's own bench/
+# directory, which resolved only in the development checkout and was the single
+# thing keeping this bench out of the gem.
+SIBLING_LLM_CLIENT = File.expand_path('../../llm_client/lib/llm_client', __dir__)
+LEGACY_LLM_CLIENT  = File.join(PROJECT_ROOT, '.kairos/skillsets/llm_client/lib/llm_client')
+
+ADAPTER_DIR = [SIBLING_LLM_CLIENT, LEGACY_LLM_CLIENT].find { |d| File.directory?(d) }
+
+if ADAPTER_DIR.nil?
+  abort <<~MSG
+    minimum_nomic needs the llm_client SkillSet and cannot find it. Looked in:
+      #{SIBLING_LLM_CLIENT}
+      #{LEGACY_LLM_CLIENT}
+    llm_client ships with the gem; project it into this instance before running a game.
+  MSG
+end
 
 %w[adapter safe_subprocess claude_code_adapter codex_adapter cursor_adapter].each do |f|
   require File.join(ADAPTER_DIR, f)
