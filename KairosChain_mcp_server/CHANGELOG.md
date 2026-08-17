@@ -16,7 +16,9 @@ This project follows [Semantic Versioning](https://semver.org/).
   filesystem, a hardlink, and any read input the check did not enumerate, which
   included every L2 context and `config/pm.yml` — and each failure destroyed the
   memo while the run printed that nothing had been written to it. The page now
-  always goes to `<data dir>/reports/pm_l2_report.html`. The carried `exclude` is
+  always goes to `<data dir>/log/pm_l2_report.html`, beside the data directory so a
+  relocated instance still finds it, and under a name the operator's own `.gitignore`
+  already knows how to handle. The carried `exclude` is
   also removed: carrying it was itself a round-1 fix, and since an exclude term is
   a substring of document names while an inferred term is usually the item's own
   record name, it suppressed the item's own primary record. It still applies to

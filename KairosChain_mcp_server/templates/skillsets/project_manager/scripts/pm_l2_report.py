@@ -7,7 +7,7 @@ item's own title and notes instead of the item going unreported. L2 is never ask
 to change; inference reads the memo.
 
 Read-only, and the reading is what enforces it rather than a comparison. There is
-no way to name an output path: the page always goes to `<data dir>/reports/`, so
+no way to name an output path: the page always goes to `<data dir>/log/`, so
 no argument can point a write at the memo, the mapping, an L2 context, or
 `config/pm.yml`. An earlier version took `-o` and guarded it by comparing resolved
 paths, which failed three ways — a case-only difference on a case-insensitive
@@ -75,7 +75,7 @@ reaches more than 20, and across the 28 live items every inferred union is at mo
 20 today, so the row cap refuses nothing that currently works.
 
 Usage:
-    python3 pm_l2_report.py            # writes <data dir>/reports/pm_l2_report.html
+    python3 pm_l2_report.py            # writes <data dir>/log/pm_l2_report.html
     python3 pm_l2_report.py --quiet     # two lines instead of three, for the hook
     python3 pm_l2_report.py --open      # write, then open in a browser
 """
@@ -96,7 +96,7 @@ SCAN_PATH = os.path.join(HERE, "l2_scan.py")
 # <data dir>/skillsets/project_manager/scripts -> <data dir>. Derived from this
 # file's position rather than from the name ".kairos", which is relocatable.
 DATA_DIR = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
-OUT_PATH = os.path.join(DATA_DIR, "reports", "pm_l2_report.html")
+OUT_PATH = os.path.join(DATA_DIR, "log", "pm_l2_report.html")
 
 # The largest number of L2 documents a term may reach, and also the largest number
 # of records an inferred row may end up with. See the module docstring for what an

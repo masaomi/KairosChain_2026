@@ -65,7 +65,7 @@ Prefer the sub-agent for "what needs attention?", at session start, and for sche
 ## The session-start L2 comparison
 
 `scripts/pm_l2_report.py` compares the memo against the L2 context store and writes one HTML page,
-to `<data dir>/reports/pm_l2_report.html`. `plugin/hooks.json` declares it as a `SessionStart` hook.
+to `<data dir>/log/pm_l2_report.html`. `plugin/hooks.json` declares it as a `SessionStart` hook.
 
 **Read-only by having no aim, not by checking one.** There is no output-path argument, so nothing
 can point a write at the memo, the mapping, an L2 context, or `config/pm.yml`. An earlier version

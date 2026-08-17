@@ -130,7 +130,7 @@ class Instance:
 
     @property
     def out_path(self):
-        return os.path.join(self.data, "reports", "pm_l2_report.html")
+        return os.path.join(self.data, "log", "pm_l2_report.html")
 
 
 class TheProgramCannotBeAimedAtAnInput(unittest.TestCase):
@@ -678,7 +678,7 @@ class TheSuiteRunsAnywhere(unittest.TestCase):
 
     def test_the_module_under_test_does_not_read_the_live_store_at_import(self):
         self.assertTrue(callable(rep.build_rows))
-        self.assertTrue(rep.OUT_PATH.endswith(os.path.join("reports", "pm_l2_report.html")))
+        self.assertTrue(rep.OUT_PATH.endswith(os.path.join("log", "pm_l2_report.html")))
 
 
 if __name__ == "__main__":
