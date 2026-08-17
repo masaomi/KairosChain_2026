@@ -62,6 +62,38 @@ Prefer the sub-agent for "what needs attention?", at session start, and for sche
 - **Layer discipline.** These tools never write L0 or L1.
 - **World-event dependencies are operator-cleared.** The system never auto-resolves them.
 
+## The session-start L2 comparison
+
+`scripts/pm_l2_report.py` compares the memo against the L2 context store and writes one HTML page.
+It reads three things — the context store, the memo's items, and the authored mapping — and writes
+only that page. It never writes the memo, and that is checkable by reading the file: the single
+`open(..., "w")` in it is the output path.
+
+`plugin/hooks.json` declares it as a `SessionStart` hook. Delivery is by **projection**, not by
+install, and the difference matters because install alone changes no host settings:
+
+```
+kairos-chain skillset install project_manager   files land; the host's settings are untouched
+next start of the host                          the MCP handshake projects; the hook is written
+```
+
+Whether the hook then fires on that same start or on the following one depends on when the host
+reads its settings relative to the MCP handshake. That ordering has not been measured. Running
+`kairos-plugin-project` by hand after install settles it either way; nothing else is needed, and
+`skillset upgrade --apply` is not a substitute — it projects only when it actually upgrades
+something, and this SkillSet is not in the core set it upgrades.
+
+Search terms come from the authored mapping first. When the mapping has no entry for an item, or
+its entry matched nothing, terms are inferred from that item's own title and notes, so no item goes
+unreported and L2 is never asked to change. Inference accepts only a token that is itself the name
+of an existing L2 document, or a compound identifier reaching at most twenty documents. A bare
+English word is refused however rare it looks. Measured 2026-08-17: accepting bare words returned
+51 and 82 records for two items that have almost none, because a defect is described with words
+like store, write, config and yaml, and those match hundreds of unrelated names as substrings.
+Refusing them, the same two return 2 and 17. The cost is misses — across the 24 mapped items,
+inference alone found 87 records where the mapping found 296 — and that trade is deliberate: a miss
+shows up as a smaller count, a spurious record does not show up at all.
+
 ## Relation to instruction modes
 
 The tools carry no disposition and depend on no particular instruction mode. This SkillSet does

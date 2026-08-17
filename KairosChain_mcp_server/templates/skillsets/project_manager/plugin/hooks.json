@@ -1,0 +1,32 @@
+{
+  "_comment": [
+    "Hooks this SkillSet contributes to the host harness. The plugin projector",
+    "merges this into the host's settings under a _projected_by tag, so",
+    "re-projection replaces only what it put there and leaves hand-written",
+    "hooks alone. Installing the SkillSet and re-projecting is the whole",
+    "delivery -- nobody edits settings.json by hand.",
+    "",
+    "SessionStart, not Stop. A Stop-family gate can brake itself once per turn",
+    "via stop_hook_active, which is why kairos_hook_projector restricts its",
+    "gates to Stop and SubagentStop; this is not a gate. It reports, it decides",
+    "nothing, and it runs once when a session opens.",
+    "",
+    "The command does not begin with kairos-, so projection prints one",
+    "non-standard-command warning. That is the projector asking for a human to",
+    "look, and this is what it looks like: a read-only report that writes only",
+    "its own HTML output. Measured at 0.18s over 1172 contexts."
+  ],
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.kairos/skillsets/project_manager/scripts/pm_l2_report.py\" --quiet 2>/dev/null || true",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}
