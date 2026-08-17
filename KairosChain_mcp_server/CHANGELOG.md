@@ -6,9 +6,71 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [3.72.0] - 2026-08-17
 
+### Fixed
+
+- **Six defects in the session-start report below, all found by a pre-release
+  multi-LLM review and all demonstrated by running code rather than reasoning
+  about it.** The review returned 0 APPROVE of 3 counted seats. Two of the five
+  invariants the change declared were false as stated, which is why they are
+  listed here rather than deferred.
+  - *The read-only promise was prose.* `open(out, "w")` accepted any path, so
+    `-o <memo>` truncated `store.json` while the run printed that nothing had been
+    written to it. The output path is now refused if it resolves to the memo or
+    the mapping, via `realpath`, so a symlink cannot walk around it.
+  - *A read-only report changed the SkillSet's chain-recorded hash.*
+    `exec_module` writes bytecode, and `scripts/__pycache__/l2_scan.cpython-310.pyc`
+    landed inside the SkillSet directory — inside `Skillset#all_file_hashes`, hence
+    inside `content_hash`, hence inside what `skillset_manager` records as
+    `skillset_event` and verifies with `raise SecurityError`. The recorded hash was
+    a function of the local CPython build and of whether the report had run.
+    `sys.dont_write_bytecode` is now set around the import.
+  - *The anti-flood guard was capped on one tier only.* A document's name is
+    `name:` or `title:` or its basename, and 321 of 1177 contexts take it from a
+    free-text `title:`. One context titled `Review` made `review` a search term
+    reaching 351 records; titled `Context`, all 1178. Both tiers are now capped at
+    twenty documents, which costs nothing measurable: of 1125 distinct names none
+    reaches more than 20, and the two items that use inference return the same 2
+    and 17 records.
+  - *A non-string `touched_at` or `due` crashed the report.* `pm_item` writes both
+    through with no check beyond a JSON type and this SkillSet's own Ruby suite
+    writes the integer `20260701` to each, so slicing them raised `TypeError` — the
+    defect `lib/project_manager/parsed_time.rb` exists to prevent, re-acquired at a
+    fifth call site because the reader is in another language. Permanent once
+    triggered, since the value stays in the store.
+  - *One shape-valid impossible date took the whole run down.* `l2_scan` validates
+    that a declared date looks like a date, not that it exists, so `2026-02-30`
+    reached `date.fromisoformat` outside the `try` — the guard covered one end of
+    the interval only. Both ends now go through it.
+  - *An unreadable memo marker was reported as unreadable records.* An item with
+    seventeen perfectly datable records was described as "records found, none
+    datable", and it silently left the denominator: 28/28 matched with median 29
+    became 27/28 with median 28.5. The three causes — no terms, undatable records,
+    unreadable marker — are now counted and worded apart.
+- **Smaller fixes from the same review.** The authored `exclude` is carried into
+  the inference fallback rather than dropped, so a distinction the operator wrote
+  down is not undone by the fallback. A mapping whose `include` is a string rather
+  than a list no longer expands to single-character terms (one of which matched
+  1177 of 1177 documents, displayed as the operator's own authored mapping).
+  `store['projects']`, `mapping['items']` and dependency entries missing `kind` or
+  `ref` no longer raise. `--open` falls back to `xdg-open` and survives neither
+  binary existing, since the gem ships to Linux. The hook reads `KAIROS_DATA_DIR`
+  before `$CLAUDE_PROJECT_DIR/.kairos`, because the data directory is relocatable
+  and a relocated instance got a hook pointing at nothing. The hook no longer
+  discards stderr or forces a zero exit: doing both made every failure
+  indistinguishable from a session where nothing had drifted. Operator-facing text
+  no longer renders a Python list repr, and `--quiet` documents the two lines it
+  prints instead of three.
+- **`test/test_pm_l2_report.py`, 30 cases, 27 of them red against the version that
+  shipped before them.** Of those 27, nine exercise the old behaviour directly and
+  eighteen fail because the guard function did not exist — that distinction is
+  recorded rather than counted as thirty demonstrations. The remaining three cover
+  HTML escaping and a degenerate render, which were already correct and are held
+  as regression guards. The suite drives the real `l2_scan.match` rather than a
+  copy of it, so the two views cannot disagree about what a term matched.
+
 ### Added
 
-- **The `project_manager` SkillSet (v0.5.0) reports the memo-versus-L2 drift once
+- **The `project_manager` SkillSet (v0.5.1) reports the memo-versus-L2 drift once
   per session, and no longer needs a human to author search terms first.** The
   memo lags the context store and the lag is invisible from whichever side is
   being read: on the development instance, 19 of 28 items have L2 activity more
