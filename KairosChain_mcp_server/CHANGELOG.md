@@ -4,6 +4,49 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.72.0] - 2026-08-17
+
+### Added
+
+- **The `project_manager` SkillSet (v0.5.0) reports the memo-versus-L2 drift once
+  per session, and no longer needs a human to author search terms first.** The
+  memo lags the context store and the lag is invisible from whichever side is
+  being read: on the development instance, 19 of 28 items have L2 activity more
+  recent than their last memo touch, median 29 days, widest 81. Derivation could
+  already measure that, but only when someone remembered to run it and only for
+  items a human had authored terms for. Two read-only additions.
+  `scripts/pm_l2_report.py` renders the comparison as one HTML page, and
+  `plugin/hooks.json` declares it as a `SessionStart` hook so the harness runs it
+  without anyone deciding to. `SessionStart` and not `Stop`: this is not a gate,
+  it decides nothing, and only Stop-family payloads carry the once-per-turn brake
+  `kairos_hook_projector`'s gates need. Delivery is by projection — `skillset
+  install` changes no host settings, and the MCP handshake projects on every host
+  start, so no core change was needed to reach the host. Whether the newly
+  written hook fires on that same start or the following one depends on when the
+  host reads its settings relative to the handshake; that ordering is not
+  measured, and `kairos-plugin-project` run by hand settles it. `skillset upgrade
+  --apply` is not a substitute: it projects only when it actually upgrades
+  something, and `project_manager` is not in the core set it upgrades. Measured
+  at 0.18s over 1172 contexts; the script writes exactly one file, its own
+  output, and the memo's hash is unchanged across a run.
+- **Search terms fall back to inference from the item's own title and notes**
+  when the authored mapping has no entry for an item, or its entry matched
+  nothing — so no item goes unreported and L2 is never asked to be relabelled.
+  Inference cannot replace the mapping and does not try: 43 of 53 hand-authored
+  terms appear nowhere in any item's title or notes, having been written from
+  knowledge of the work. What it can do is refuse to flood. Only a token that is
+  itself the name of an existing L2 document, or a compound identifier reaching
+  at most twenty documents, is accepted; a bare English word is refused however
+  rare it looks. Accepting bare words returned 51 and 82 records for the two
+  items that have almost none, because a defect is described with words like
+  store, write, config and yaml, and those match hundreds of unrelated names as
+  substrings. Refusing them, the same two return 2 and 17, and all 28 items
+  become comparable. The cost is misses — inference alone found 87 records across
+  the 24 mapped items where the mapping found 296 — and the trade is deliberate:
+  a miss shows up as a smaller count, a spurious record does not show up at all.
+  Unchanged by this release: nothing writes to the memo (derivation v0.12 §1),
+  and neither the digest's shape nor the secretary's grant moved.
+
 ## [3.71.0] - 2026-08-17
 
 ### Added
