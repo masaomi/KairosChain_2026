@@ -8,6 +8,55 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Round 2 of the same review returned 0 APPROVE of 3 valid seats and thirteen
+  more blocking findings, three of them saying round 1's fixes did not hold. The
+  response was to subtract.** Two of the six guards round 1 added are removed
+  rather than repaired. The `-o` output path is deleted: guarding it by comparing
+  resolved paths failed three ways — a case-only difference on a case-insensitive
+  filesystem, a hardlink, and any read input the check did not enumerate, which
+  included every L2 context and `config/pm.yml` — and each failure destroyed the
+  memo while the run printed that nothing had been written to it. The page now
+  always goes to `<data dir>/reports/pm_l2_report.html`. The carried `exclude` is
+  also removed: carrying it was itself a round-1 fix, and since an exclude term is
+  a substring of document names while an inferred term is usually the item's own
+  record name, it suppressed the item's own primary record. It still applies to
+  the authored terms it was written beside, and the row says when it was not
+  applied.
+- **The anti-flood cap bounds the row, not only each term.** Twelve terms each
+  under the twenty-document cap unioned to 124 of 1179 documents for one item, and
+  a note of the ordinary shape reached 23. A row over the cap is refused rather
+  than truncated, because truncation is silent and moves `last_activity` and the
+  headline figures with it; the row reports how many its terms reached.
+- **Paths are derived from the script's own location** instead of by appending a
+  literal `.kairos`, which had reported a populated instance as empty at exit 0 on
+  every session of a relocated data directory. **A row with no comparison names
+  which of five things is missing**, separating an unparseable L2 date from an
+  unparseable memo marker, because they blame different files and collapsing them
+  stated a false fact for the second time. **Nested store shapes are checked**, not
+  only their absence: a `projects` or `items` value that was truthy and not an
+  object reached `.values()` and raised.
+- **The test file is rewritten, not extended.** An audit applied 65 one-line
+  mutations to the round-1 suite and 36 survived — the whole of `main`'s wiring,
+  all cross-item aggregation, and the impossible-date guard the suite was named
+  for, whose fixture built a second document matching the same term so the valid
+  date sorted last and the impossible one never reached the parse point. 53 cases
+  now, and of the 30 mutations that map to a reported finding 29 are killed; the
+  survivor is equivalent. Four habits are stated in the file: exercise guards
+  through `main` in a subprocess, check that a fixture cannot satisfy its own
+  assertion, build several rows when testing aggregation, and assert messages and
+  exit codes by content. Nothing runs the suite automatically — `rake test`
+  collects Ruby files only.
+- **Accepted rather than fixed, and recorded where they happen.** A context
+  declaring a parseable but absurd date such as `9999-12-31` flattens the other lag
+  bars, which is what bars relative to the widest lag mean. And what the report
+  says still depends on which `python3` resolves, since `date.fromisoformat`
+  accepts basic format from 3.11. Separately, two stale `.pyc` files sit inside one
+  installed SkillSet from earlier runs, so its `content_hash` differs from a clean
+  tree's; nothing here removes them.
+- Live data after the change: 28 of 28 items comparable, 19 with L2 more recent,
+  median 29 days, widest 81 — identical to before, so nothing the subtraction
+  removed was carrying coverage.
+
 - **Six defects in the session-start report below, all found by a pre-release
   multi-LLM review and all demonstrated by running code rather than reasoning
   about it.** The review returned 0 APPROVE of 3 counted seats. Two of the five
@@ -70,7 +119,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **The `project_manager` SkillSet (v0.5.1) reports the memo-versus-L2 drift once
+- **The `project_manager` SkillSet (v0.6.0) reports the memo-versus-L2 drift once
   per session, and no longer needs a human to author search terms first.** The
   memo lags the context store and the lag is invisible from whichever side is
   being read: on the development instance, 19 of 28 items have L2 activity more
