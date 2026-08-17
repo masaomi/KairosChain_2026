@@ -420,8 +420,8 @@ module KairosMcp
             '3/5 APPROVE', min_quorum: 2
           )
 
-          assert_equal 2, out[:convergence][:successful_count]
-          assert_equal 1, out[:convergence][:skip_count]
+          assert_equal 2, out[:vote_tally][:successful_count]
+          assert_equal 1, out[:vote_tally][:skip_count]
           hollow = out[:reviews].find { |r| r[:role_label] == 'c' }
           assert_equal 'SKIP', hollow[:verdict]
           assert_equal Consensus::SKIP_REASON_INSUBSTANTIAL, hollow[:skip_reason]
@@ -440,8 +440,8 @@ module KairosMcp
           out = Consensus.aggregate([review('a', REAL), review('b', short)],
                                     '3/5 APPROVE', min_quorum: 1)
 
-          assert_equal 2, out[:convergence][:successful_count]
-          assert_equal 1, out[:convergence][:reject_count]
+          assert_equal 2, out[:vote_tally][:successful_count]
+          assert_equal 1, out[:vote_tally][:reject_count]
         end
 
         # And a review that says something real without stating its verdict in
@@ -454,7 +454,7 @@ module KairosMcp
           out = Consensus.aggregate([review('a', REAL), review('b', headerless)],
                                     '3/5 APPROVE', min_quorum: 1)
 
-          assert_equal 1, out[:convergence][:successful_count]
+          assert_equal 1, out[:vote_tally][:successful_count]
           left = out[:reviews].find { |r| r[:role_label] == 'b' }
           assert_equal Consensus::SKIP_REASON_NO_VERDICT, left[:skip_reason]
         end
@@ -478,7 +478,7 @@ module KairosMcp
             '3/5 APPROVE', min_quorum: 2
           )
 
-          assert_equal 2, out[:convergence][:threshold]
+          assert_equal 2, out[:vote_tally][:threshold]
           assert_equal 'APPROVE', out[:reference_verdict]
         end
 
@@ -493,7 +493,7 @@ module KairosMcp
             escalation: { 'escalated' => true, 'slots' => ['cli_fable5'] }
           )
 
-          comp = out[:convergence][:denominator_composition]
+          comp = out[:vote_tally][:denominator_composition]
           assert_equal %w[a c cli_opus5], comp[:observers].map { |o| o[:role_label] }
           # A record that exists is carried as it is. Filling its gaps wrote
           # `requested: false` beside `escalated: true`, a pair the producing
@@ -517,7 +517,7 @@ module KairosMcp
           out = Consensus.aggregate([review('a', REAL), hollow],
                                     '3/5 APPROVE', min_quorum: 1)
 
-          assert_equal 1, out[:convergence][:successful_count]
+          assert_equal 1, out[:vote_tally][:successful_count]
           assert_equal Consensus::SKIP_REASON_INSUBSTANTIAL,
                        out[:reviews].find { |r| r[:role_label] == 'team' }[:skip_reason]
         end
@@ -527,7 +527,7 @@ module KairosMcp
           out = Consensus.aggregate([review('a', REAL), terse],
                                     '3/5 APPROVE', min_quorum: 1)
 
-          assert_equal 2, out[:convergence][:successful_count]
+          assert_equal 2, out[:vote_tally][:successful_count]
         end
 
         # INV-E5 / INV-P1: a record says whether the model name was observed or
@@ -538,7 +538,7 @@ module KairosMcp
           declared = review('b', REAL).merge(model_source: 'declared')
           out = Consensus.aggregate([observed, declared], '3/5 APPROVE', min_quorum: 1)
 
-          by_label = out[:convergence][:denominator_composition][:observers]
+          by_label = out[:vote_tally][:denominator_composition][:observers]
                      .map { |o| [o[:role_label], o] }.to_h
           assert_equal 'observed', by_label['a'][:model_source]
           assert_equal true, by_label['a'][:model_divergence]

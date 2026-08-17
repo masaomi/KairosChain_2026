@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.10.0"
+version: "3.10.1"
 tags:
   - workflow
   - review
@@ -400,7 +400,10 @@ they disagree, the config is right and this section is stale.
 - [ ] Codex models: gpt-5.6-sol AND gpt-5.5 (both, not either/or), each with -m
 - [ ] Cursor model: composer-2.5, passed explicitly as --model composer-2.5
 - [ ] Total reviewer count: 5 (or 4 after orchestrator exclusion from subprocess)
-- [ ] Convergence rule: 3/5 APPROVE (full) or 3/4 APPROVE (after exclusion)
+- [ ] Closing condition: new (a)+(b) P0 = 0, with carryover P0s counted
+      separately and a closure verdict on each. The APPROVE ratio the tool
+      reports (3/5 full roster, 3/4 after exclusion) is a reference value,
+      not the condition — see § Convergence Rules
 ```
 
 **Every slot names its model on the command line (INV-E5).** A reviewer launched
@@ -1573,6 +1576,17 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   mechanically; whether a stated consequence is real or trivial stays the
   orchestrator's call, per the (a)/(b)/(c) discipline. Handoff record: L2
   `handoff_mlr_finding_weight_axis_and_reviewer_incentive_20260806`
+
+- The Path A pre-flight checklist states the closing condition, not the ratio
+  (v3.10.1, 2026-08-17): the checklist line read "Convergence rule: 3/5 APPROVE
+  (full) or 3/4 APPROVE (after exclusion)" while § Convergence Rules, 200 lines
+  further down in a 1578-line file, states that the machine-side signal is
+  "new (a)+(b) P0 = 0" and the ratio is auxiliary. The checklist is what is read
+  before dispatch, so the ratio was the operative rule in practice regardless of
+  what the prose said. The line now leads with the closing condition and keeps
+  the two ratios beside it as reference values. No rule changed; the order in
+  which a reader meets them did. Operator observation, 2026-08-17: attention
+  failed to land on the P0 criterion round after round.
 
 **Key insight**: Design reviews and implementation reviews find
 **categorically different bugs**. Both phases are necessary.

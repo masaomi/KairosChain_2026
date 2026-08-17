@@ -360,7 +360,7 @@ module KairosMcp
             [{ status: :success, role_label: 'a', substantive: true,
                raw_text: "**Overall Verdict**: APPROVE\n\nthe design reads correctly to me" }],
             '1/1 APPROVE', min_quorum: 1, excluded_slots: excluded
-          )[:convergence][:denominator_composition][:observers]
+          )[:vote_tally][:denominator_composition][:observers]
         end
 
         def test_a_slot_that_never_ran_omits_the_fields_it_has_no_value_for
@@ -1119,7 +1119,7 @@ module KairosMcp
           out = Consensus.aggregate(reviews, '3/4 APPROVE', min_quorum: 2)
 
           assert_equal 'APPROVE', out[:reference_verdict]
-          assert_equal 3, out[:convergence][:approve_count]
+          assert_equal 3, out[:vote_tally][:approve_count]
         end
       end
     end

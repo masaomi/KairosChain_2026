@@ -294,7 +294,7 @@ module KairosMcp
           # Nothing was lost in transport, and the row has to say so on its own.
           assert_equal 'insubstantial', hollow['skip_reason']
           assert_nil hollow['error']
-          assert_equal 3, payload['convergence']['successful_count']
+          assert_equal 3, payload['vote_tally']['successful_count']
 
           # A row that did not leave the denominator has no reason to give, and
           # omits the field rather than carrying an explicit null — the shape
@@ -324,7 +324,7 @@ module KairosMcp
         # INV-E4: the slots that never ran, and the escalation, survive into
         # the final record.
         def test_composition_survives_the_round_trip
-          comp = collect(write_state)['convergence']['denominator_composition']
+          comp = collect(write_state)['vote_tally']['denominator_composition']
 
           labels = comp['observers'].map { |o| o['role_label'] }
           assert_includes labels, 'cli_opus5'
@@ -386,7 +386,7 @@ module KairosMcp
           token = write_state('escalation' => { 'requested' => true })
 
           assert_equal({ 'requested' => true },
-                       collect(token)['convergence']['denominator_composition']['escalation'])
+                       collect(token)['vote_tally']['denominator_composition']['escalation'])
         end
 
         # The one case that is answered rather than left silent, because it can
@@ -400,7 +400,7 @@ module KairosMcp
 
           assert_equal({ 'requested' => false, 'escalated' => false,
                          'slots' => [], 'dispatched' => [] },
-                       collect(token)['convergence']['denominator_composition']['escalation'])
+                       collect(token)['vote_tally']['denominator_composition']['escalation'])
         end
 
         # The filled record is built fresh each time. Returning copies that
@@ -417,7 +417,7 @@ module KairosMcp
         # INV-E5: a divergence recorded by the dispatcher is still legible at
         # the end of the round trip.
         def test_divergence_survives_the_round_trip
-          comp = collect(write_state)['convergence']['denominator_composition']
+          comp = collect(write_state)['vote_tally']['denominator_composition']
           diverged = comp['observers'].find { |o| o['role_label'] == 'cli_opus46' }
 
           assert_equal 'observed', diverged['model_source']
@@ -449,14 +449,14 @@ module KairosMcp
           lenient = split.call('2/3 APPROVE')
           strict  = split.call('3/3 APPROVE')
 
-          assert_equal 3, lenient['convergence']['successful_count']
-          assert_equal 2, lenient['convergence']['approve_count']
+          assert_equal 3, lenient['vote_tally']['successful_count']
+          assert_equal 2, lenient['vote_tally']['approve_count']
 
           assert_equal 'APPROVE', lenient['reference_verdict']
-          assert_equal '2/3 APPROVE', lenient['convergence']['rule']
+          assert_equal '2/3 APPROVE', lenient['vote_tally']['rule']
 
           assert_equal 'REVISE', strict['reference_verdict']
-          assert_equal '3/3 APPROVE', strict['convergence']['rule']
+          assert_equal '3/3 APPROVE', strict['vote_tally']['rule']
         end
 
         # The other half of the verdict decision travels the same boundary and
@@ -467,10 +467,10 @@ module KairosMcp
           high = collect(write_state('min_quorum' => 9))
 
           assert_equal 'APPROVE', low['reference_verdict']
-          assert_equal 1, low['convergence']['min_quorum']
+          assert_equal 1, low['vote_tally']['min_quorum']
 
           assert_equal 'INSUFFICIENT', high['reference_verdict']
-          assert_equal 9, high['convergence']['min_quorum']
+          assert_equal 9, high['vote_tally']['min_quorum']
         end
 
         # INV-E5 on the rows a reader reads, not only in the composition. The
@@ -496,7 +496,7 @@ module KairosMcp
           assert_equal true, persona['synthetic']
           assert_equal false, executed['synthetic']
 
-          observers = payload['convergence']['denominator_composition']['observers']
+          observers = payload['vote_tally']['denominator_composition']['observers']
           assert_equal true, observers.find { |o| o['role_label'] == persona['role_label'] }['synthetic']
           assert_equal false, observers.find { |o| o['role_label'] == 'codex' }['synthetic']
         end
@@ -862,7 +862,7 @@ module KairosMcp
              { status: :success, role_label: 'b', verdict: 'SKIP', raw_text: 'x',
                skip_reason: nil }],
             '3/5 APPROVE', min_quorum: 1
-          )[:convergence][:denominator_composition]
+          )[:vote_tally][:denominator_composition]
 
           by_label = comp[:observers].map { |o| [o[:role_label], o] }.to_h
           assert_equal Consensus::SKIP_REASON_NO_VERDICT, by_label['b'][:reason]
