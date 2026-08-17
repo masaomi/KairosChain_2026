@@ -64,73 +64,91 @@ Prefer the sub-agent for "what needs attention?", at session start, and for sche
 
 ## The session-start L2 comparison
 
-`scripts/pm_l2_report.py` compares the memo against the L2 context store and writes one HTML page.
-It reads three things — the context store, the memo's items, and the authored mapping — and writes
-only that page. Two things enforce that rather than asserting it. The output path is refused if it
-resolves to the memo or the mapping, because the promise used to be prose while `open(out, "w")`
-accepted any path, and `-o <memo>` truncated the memo while the run reported that nothing had been
-written to it. And `sys.dont_write_bytecode` is set before the derivation is imported: importing it
-left `scripts/__pycache__/l2_scan.cpython-310.pyc` inside the SkillSet, which sits inside
-`Skillset#all_file_hashes` and therefore inside `content_hash` — the value recorded on chain. A
-read-only report was changing the SkillSet's recorded hash as a function of the local CPython build.
+`scripts/pm_l2_report.py` compares the memo against the L2 context store and writes one HTML page,
+to `<data dir>/reports/pm_l2_report.html`. `plugin/hooks.json` declares it as a `SessionStart` hook.
 
-It runs unattended, so it treats every absence and every malformed input as something to report in
-one line rather than raise. An absent memo or mapping is the first-run state and exits zero; a
-malformed one names the file and exits non-zero. Stored values are not trusted to be strings:
-`pm_item` writes `due` and `touched_at` through with no check beyond a JSON type, and this
-SkillSet's own Ruby suite writes the integer `20260701` to both, which crashed the reader. A date is
-parsed through one guard that covers both ends of every interval, because `l2_scan` validates a
-declared date's *shape* and not its existence — one context declaring `2026-02-30` took the whole
-report down.
+**Read-only by having no aim, not by checking one.** There is no output-path argument, so nothing
+can point a write at the memo, the mapping, an L2 context, or `config/pm.yml`. An earlier version
+took `-o` and guarded it by comparing resolved paths; that guard failed three ways — a case-only
+difference on a case-insensitive filesystem, a hardlink, and any read input it did not know about —
+and each failure destroyed the memo while the run printed that nothing had been written to it.
+Deleting the argument closed all three. `sys.dont_write_bytecode` is set around the derivation
+import for the same reason a second guard was not added: a `.pyc` inside the SkillSet sits inside
+`Skillset#all_file_hashes` and therefore inside `content_hash`, the value recorded on chain.
 
-`plugin/hooks.json` declares it as a `SessionStart` hook. It reads `KAIROS_DATA_DIR` before falling
-back to `$CLAUDE_PROJECT_DIR/.kairos`, since the data directory is relocatable and `PluginProjector`
-takes `data_dir` separately from `project_root`. It does not discard stderr and does not force a
-zero exit: doing both turned every failure into an empty success, which is indistinguishable from a
-session where nothing had drifted. Delivery is by **projection**, not by install, and the difference
-matters because install alone changes no host settings:
+**Paths come from this file's own location**, three levels up from `scripts/`, not from the name
+`.kairos`. `l2_scan` derives its own by appending that literal, which reported a populated instance
+as empty on every session whenever the data dir had been relocated, so its four path constants are
+re-pointed after import.
+
+**Nothing is trusted to have a type.** `pm_item` writes `due` and `touched_at` through with no check
+beyond a JSON type, and this SkillSet's own Ruby suite writes the integer `20260701` to both. Dates
+are parsed in exactly one function, which both ends of every interval go through: `l2_scan`
+validates that a declared date *looks* like a date, never that it exists, so one context declaring
+`2026-02-30` used to take the whole unattended run down.
+
+Delivery is by **projection**, not by install, because install alone changes no host settings:
 
 ```
 kairos-chain skillset install project_manager   files land; the host's settings are untouched
 next start of the host                          the MCP handshake projects; the hook is written
 ```
 
-Whether the hook then fires on that same start or on the following one depends on when the host
-reads its settings relative to the MCP handshake. That ordering has not been measured. Running
-`kairos-plugin-project` by hand after install settles it either way; nothing else is needed, and
-`skillset upgrade --apply` is not a substitute — it projects only when it actually upgrades
-something, and this SkillSet is not in the core set it upgrades.
+Whether the hook then fires on that same start or the following one depends on when the host reads
+its settings relative to the handshake; observed firing on the following one. `kairos-plugin-project`
+run by hand settles it, and `skillset upgrade --apply` is not a substitute — it projects only when
+it actually upgrades something, and this SkillSet is not in the core set it upgrades.
 
-Search terms come from the authored mapping first. When the mapping has no entry for an item, or
-its entry matched nothing, terms are inferred from that item's own title and notes, so no item goes
-unreported and L2 is never asked to change. Any `exclude` the operator authored for that item is
-carried into the fallback: it names a distinction the include terms cannot make on their own,
-because names in this project nest, and it is not specific to the terms it was written beside.
+### Where search terms come from
 
-Inference accepts only a token that is itself the name of an existing L2 document, or a compound
-identifier containing an underscore — and in **both** cases only if the token reaches at most twenty
-documents. A bare English word is refused however rare it looks. Two measurements, 2026-08-17, one
-for each half of that rule. Accepting bare words returned 51 and 82 records for two items that have
-almost none, because a defect is described with words like store, write, config and yaml, and those
-match hundreds of unrelated names as substrings; refusing them, the same two return 2 and 17.
-Leaving the document-name tier uncapped reopened the same hole through a different door: a name is
-`name:` or `title:` or the basename, and 321 of 1177 contexts take it from a free-text `title:`, so
-one context titled `Review` made `review` a term reaching 351 records and one titled `Context`
-returned all 1178. The cap costs nothing measurable — of 1125 distinct document names none reaches
-more than 20, and the two items that actually use inference return the same 2 and 17 with it applied.
+The authored mapping first. When it has no entry for an item, or its entry matched nothing, terms
+are inferred from that item's own title and notes, so no item goes unreported and L2 is never asked
+to be relabelled. Inference cannot replace the mapping and does not try: 43 of 53 hand-authored
+terms appear nowhere in any item's title or notes, having been written from knowledge of the work.
 
-The cost is misses — across the 24 mapped items, inference alone found 87 records where the mapping
-found 296 — and that trade is deliberate: a miss shows up as a smaller count, a spurious record does
-not show up at all.
+What it can do is refuse to flood, and it took three measurements to get that right, each from a
+reviewer running the code:
 
-Three causes of "no comparison" are worded apart rather than collapsed: no usable terms, records
-whose dates cannot be read, and a memo marker that cannot be read. Collapsing the third into the
-second stated a false fact — an item with seventeen perfectly datable records was described as
-having none — and it also silently shrank the headline figures, since an item with no delta leaves
-the denominator.
+| what was accepted | what happened | rule now |
+|---|---|---|
+| bare English words | 51 and 82 records for two items that have nearly none, because a defect is described with words like store, write, config and yaml | only a document name or a compound identifier containing an underscore |
+| an uncapped document-name tier | a context titled `Review` made `review` a term reaching 351 records; titled `Context`, all 1178 | both tiers capped at twenty documents per term |
+| a cap per term but not per row | twelve terms each under the cap unioned to 124 of 1179 documents; an ordinary note reached 23 | the row's whole union is capped too, and inference is **refused** rather than truncated |
 
-`test/test_pm_l2_report.py` covers the above; 27 of its 30 cases are red against the version that
-shipped before them.
+Refused and not truncated, because truncation is silent and moves `last_activity` and the headline
+figures with it. A refused row says its terms were too broad and how many they reached, and the page
+shows the terms — a row claiming no term could be built while not showing what it tried is a claim
+the operator cannot check where it is wrong.
+
+**An authored `exclude` stops at the authored terms.** Carrying it into inference was itself a fix
+in an earlier round, and it traded one wrong answer for another: an exclude term is a substring of
+document names, and an inferred term is usually the item's own record name, so carrying it
+suppressed the item's own primary record. The row says so rather than dropping it silently.
+
+The cost of all this is misses — across the 24 mapped items, inference alone found 87 records where
+the mapping found 296 — and the trade is deliberate: a miss shows up as a smaller count, a spurious
+record does not show up at all.
+
+### Five reasons, not one
+
+A row with no comparison names which side is missing: no usable terms, terms too broad, records
+carrying no date, an L2 date that cannot be parsed, or a memo marker that cannot be parsed. The last
+two are separate sentences because they blame different files. Collapsing them produced a false
+statement twice — first an item with seventeen datable records reported as having none, then a memo
+blamed for a date that L2 had written wrong — and each time the item also left the denominator, so
+the headline figures shrank without saying so.
+
+### Tests
+
+`test/test_pm_l2_report.py`. The bar is mutation, not redness against an older commit: breaking a
+guard by one line must make the suite red. An audit of an earlier version applied 65 one-line
+mutations and 36 survived, so guards are now exercised through `main()` in a subprocess, fixtures
+are checked not to satisfy their own assertion, aggregation is tested with several items, and
+messages and exit codes are asserted by content. Of the 30 mutations that map to a reported finding,
+29 are killed; the survivor is equivalent (deleting the absent-derivation branch leaves the generic
+handler producing the same message, exit code and absence of a traceback).
+
+Nothing runs this suite automatically — `rake test` collects Ruby files only.
 
 ## Relation to instruction modes
 
