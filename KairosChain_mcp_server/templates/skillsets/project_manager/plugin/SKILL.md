@@ -66,11 +66,29 @@ Prefer the sub-agent for "what needs attention?", at session start, and for sche
 
 `scripts/pm_l2_report.py` compares the memo against the L2 context store and writes one HTML page.
 It reads three things — the context store, the memo's items, and the authored mapping — and writes
-only that page. It never writes the memo, and that is checkable by reading the file: the single
-`open(..., "w")` in it is the output path.
+only that page. Two things enforce that rather than asserting it. The output path is refused if it
+resolves to the memo or the mapping, because the promise used to be prose while `open(out, "w")`
+accepted any path, and `-o <memo>` truncated the memo while the run reported that nothing had been
+written to it. And `sys.dont_write_bytecode` is set before the derivation is imported: importing it
+left `scripts/__pycache__/l2_scan.cpython-310.pyc` inside the SkillSet, which sits inside
+`Skillset#all_file_hashes` and therefore inside `content_hash` — the value recorded on chain. A
+read-only report was changing the SkillSet's recorded hash as a function of the local CPython build.
 
-`plugin/hooks.json` declares it as a `SessionStart` hook. Delivery is by **projection**, not by
-install, and the difference matters because install alone changes no host settings:
+It runs unattended, so it treats every absence and every malformed input as something to report in
+one line rather than raise. An absent memo or mapping is the first-run state and exits zero; a
+malformed one names the file and exits non-zero. Stored values are not trusted to be strings:
+`pm_item` writes `due` and `touched_at` through with no check beyond a JSON type, and this
+SkillSet's own Ruby suite writes the integer `20260701` to both, which crashed the reader. A date is
+parsed through one guard that covers both ends of every interval, because `l2_scan` validates a
+declared date's *shape* and not its existence — one context declaring `2026-02-30` took the whole
+report down.
+
+`plugin/hooks.json` declares it as a `SessionStart` hook. It reads `KAIROS_DATA_DIR` before falling
+back to `$CLAUDE_PROJECT_DIR/.kairos`, since the data directory is relocatable and `PluginProjector`
+takes `data_dir` separately from `project_root`. It does not discard stderr and does not force a
+zero exit: doing both turned every failure into an empty success, which is indistinguishable from a
+session where nothing had drifted. Delivery is by **projection**, not by install, and the difference
+matters because install alone changes no host settings:
 
 ```
 kairos-chain skillset install project_manager   files land; the host's settings are untouched
@@ -85,14 +103,34 @@ something, and this SkillSet is not in the core set it upgrades.
 
 Search terms come from the authored mapping first. When the mapping has no entry for an item, or
 its entry matched nothing, terms are inferred from that item's own title and notes, so no item goes
-unreported and L2 is never asked to change. Inference accepts only a token that is itself the name
-of an existing L2 document, or a compound identifier reaching at most twenty documents. A bare
-English word is refused however rare it looks. Measured 2026-08-17: accepting bare words returned
-51 and 82 records for two items that have almost none, because a defect is described with words
-like store, write, config and yaml, and those match hundreds of unrelated names as substrings.
-Refusing them, the same two return 2 and 17. The cost is misses — across the 24 mapped items,
-inference alone found 87 records where the mapping found 296 — and that trade is deliberate: a miss
-shows up as a smaller count, a spurious record does not show up at all.
+unreported and L2 is never asked to change. Any `exclude` the operator authored for that item is
+carried into the fallback: it names a distinction the include terms cannot make on their own,
+because names in this project nest, and it is not specific to the terms it was written beside.
+
+Inference accepts only a token that is itself the name of an existing L2 document, or a compound
+identifier containing an underscore — and in **both** cases only if the token reaches at most twenty
+documents. A bare English word is refused however rare it looks. Two measurements, 2026-08-17, one
+for each half of that rule. Accepting bare words returned 51 and 82 records for two items that have
+almost none, because a defect is described with words like store, write, config and yaml, and those
+match hundreds of unrelated names as substrings; refusing them, the same two return 2 and 17.
+Leaving the document-name tier uncapped reopened the same hole through a different door: a name is
+`name:` or `title:` or the basename, and 321 of 1177 contexts take it from a free-text `title:`, so
+one context titled `Review` made `review` a term reaching 351 records and one titled `Context`
+returned all 1178. The cap costs nothing measurable — of 1125 distinct document names none reaches
+more than 20, and the two items that actually use inference return the same 2 and 17 with it applied.
+
+The cost is misses — across the 24 mapped items, inference alone found 87 records where the mapping
+found 296 — and that trade is deliberate: a miss shows up as a smaller count, a spurious record does
+not show up at all.
+
+Three causes of "no comparison" are worded apart rather than collapsed: no usable terms, records
+whose dates cannot be read, and a memo marker that cannot be read. Collapsing the third into the
+second stated a false fact — an item with seventeen perfectly datable records was described as
+having none — and it also silently shrank the headline figures, since an item with no delta leaves
+the denominator.
+
+`test/test_pm_l2_report.py` covers the above; 27 of its 30 cases are red against the version that
+shipped before them.
 
 ## Relation to instruction modes
 

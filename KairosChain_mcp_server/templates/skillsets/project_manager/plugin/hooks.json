@@ -11,10 +11,24 @@
     "gates to Stop and SubagentStop; this is not a gate. It reports, it decides",
     "nothing, and it runs once when a session opens.",
     "",
+    "KAIROS_DATA_DIR before $CLAUDE_PROJECT_DIR/.kairos. The data directory is",
+    "relocatable -- KairosMcp.resolve_data_dir reads that variable, and",
+    "PluginProjector takes data_dir separately from project_root with a guard",
+    "that exists because the two are expected to differ. Hardcoding the second",
+    "form meant that on a relocated instance the hook pointed at nothing and,",
+    "with stderr discarded, said nothing about it.",
+    "",
+    "No 2>/dev/null and no || true. Suppressing both turned every failure --",
+    "absent script, unreadable store, a stored timestamp that is not a string --",
+    "into exit 0 with empty output, which is indistinguishable from a session",
+    "where nothing had drifted. The script now handles its own absences and",
+    "reports each in one line on stdout, so what is left uncaught is a genuine",
+    "defect and should be visible. Measured at 0.18s over 1172 contexts.",
+    "",
     "The command does not begin with kairos-, so projection prints one",
-    "non-standard-command warning. That is the projector asking for a human to",
-    "look, and this is what it looks like: a read-only report that writes only",
-    "its own HTML output. Measured at 0.18s over 1172 contexts."
+    "non-standard-command warning. That is the projector asking a human to look,",
+    "and this is what it looks like: a read-only report that refuses an output",
+    "path resolving to the memo, and writes only its own HTML."
   ],
   "hooks": {
     "SessionStart": [
@@ -22,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.kairos/skillsets/project_manager/scripts/pm_l2_report.py\" --quiet 2>/dev/null || true",
+            "command": "python3 \"${KAIROS_DATA_DIR:-$CLAUDE_PROJECT_DIR/.kairos}/skillsets/project_manager/scripts/pm_l2_report.py\" --quiet",
             "timeout": 20
           }
         ]
