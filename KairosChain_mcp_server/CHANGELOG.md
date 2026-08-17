@@ -4,6 +4,49 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.70.0] - 2026-08-17
+
+### Changed
+
+- **The block of vote counts `multi_llm_review` returns is named `vote_tally`,
+  not `convergence`** (SkillSet v0.10.1). It holds `approve_count`,
+  `reject_count`, `skip_count`, `successful_count`, `threshold` and `rule` —
+  vote arithmetic. The closing condition the L1 workflow states is
+  "new (a)+(b) P0 = 0, carryover counted separately", which this SkillSet does
+  not compute and no returned field carries. INV-R2 had already demoted the
+  ratio to a recorded reference value in a comment at `consensus.rb:156` while
+  leaving the field's name intact, so every round handed the orchestrator a
+  block whose name claimed what its contents could not answer. Renamed rather
+  than given a new sibling field: with nothing in the payload called
+  convergence, the criterion has to be fetched from the findings, whereas a new
+  field would have left the misleading name in place. 62 sites across 8 files —
+  one definition, four production reads, 57 test assertions. One SkillSet
+  boundary is crossed: `agent`'s `agent_step.rb` reads this column and now reads
+  `vote_tally` with a fallback to `convergence`, following the pattern that file
+  already uses for the v0.7 `verdict` → `reference_verdict` rename, because
+  records written earlier still say `convergence`. Consumers outside this
+  repository that read the old key get nil. Falsified: with the three
+  production files reverted to the old name and the tests left renamed, the five
+  affected test files produce 44 errors; restored, the suite is 556 runs / 1809
+  assertions / 0 failures. Merged at the operator's instruction without
+  multi-LLM review.
+- **The L1 `multi_llm_review_workflow` pre-flight checklist states the closing
+  condition, not the ratio** (v3.10.1). The checklist line read "Convergence
+  rule: 3/5 APPROVE (full) or 3/4 APPROVE (after exclusion)", while
+  § Convergence Rules — 200 lines further down a 1578-line file — states that
+  the machine-side signal is "new (a)+(b) P0 = 0" and the ratio is auxiliary.
+  The checklist is what gets read before dispatch, so the ratio was the
+  operative rule in practice regardless of the prose. The line now leads with
+  the closing condition and keeps both ratios beside it as reference values. No
+  rule changed; the order in which a reader meets them did.
+
+### Known issue, recorded rather than fixed
+
+- `consensus[:vote_tally][:reason]` is read in two places
+  (`multi_llm_review.rb:548`, `multi_llm_review_collect.rb:431`) and is never
+  written, so the `|| 'quorum not met'` fallback is the only reachable value.
+  Changing it would alter an operator-facing message, which is a new claim.
+
 ## [3.69.0] - 2026-08-15
 
 ### Added
