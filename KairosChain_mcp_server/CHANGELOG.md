@@ -4,6 +4,52 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.71.0] - 2026-08-17
+
+### Added
+
+- **The round dashboard ships with the L1 `multi_llm_review_workflow` entry**
+  (v3.10.2). `scripts/render_dashboard.rb` reads a round summary as JSON on
+  stdin, fills `assets/review_dashboard.html`, and writes a self-contained page.
+  These are the worked example `resource_render` names in its own description
+  and in its default output derivation (`render_dashboard.rb` →
+  `dashboard.html`), and neither was in the distribution — they existed on one
+  instance only. A fresh install therefore had a core tool whose documented
+  example pointed at files that were not on disk. `dashboard.html` itself is
+  deliberately not shipped: it is one June 2026 render of
+  `kairos_hook_projector_stage1_design_v0.1`, and the renderer recreates it.
+
+### Fixed
+
+- **An L1 entry's `assets/` and `scripts/` are deleted by an upgrade without
+  appearing in the report.** The 3.70.0 upgrade removed three files from this
+  instance's `multi_llm_review_workflow` entry (two dashboard pages and the
+  renderer, 30.9 KB, last touched 2026-06-02) while the L1 section of the report
+  said only `[UPDATED] multi_llm_review_workflow` and `Conflicts: 0`. Mechanism:
+  `UpgradeAnalyzer#analyze_knowledge` hashes `<name>.md` alone to decide
+  new / unchanged / updated / user_modified / conflict, and the apply step
+  replaces the whole entry directory, so any subdirectory content the
+  distribution does not carry is removed silently. The L0 section, by contrast,
+  reports `[KEPT] … (user-modified)`. Shipping the two files removes the
+  deletion for this entry; the general reporting gap is unfixed and recorded.
+  Note for anyone adding assets to a shipped entry: the `.md` must change in the
+  same release, or the entry is classified `:unchanged` and the new files never
+  install.
+- **The dashboard's gate stated a closing condition the project does not use.**
+  It required every blocking-pool seat to APPROVE *and* the displayed round's
+  entire (a)+(b) count to be zero. Findings may now carry `carryover: true`
+  (raised in an earlier round, still open; an absent flag means new), and the
+  panel reports a **freeze candidate** when new (a)+(b) is zero, showing the vote
+  tally beside it as a reference value. Driven through the real renderer and the
+  real gate function: a round with zero new and one carryover (a) at 1 of 2 seats
+  approving reports `GATE NOT PASSED` under the old rule and `FREEZE CANDIDATE`
+  under this one — and that is the state both 2026-08 review threads actually
+  closed in. A round with one new (a) and one carryover (a) at 2 of 2 approving
+  reports `NOT CLOSED — 1 new blocking P0 (a+b), 1 carryover`.
+- `Consensus.aggregate`'s `@return` line documented a `:convergence` key the
+  method no longer returns; the 3.70.0 rename matched bracket and definition
+  forms only. Comment only.
+
 ## [3.70.0] - 2026-08-17
 
 ### Changed
