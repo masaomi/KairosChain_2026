@@ -137,7 +137,7 @@ module KairosMcp
         # @param reviews [Array<Hash>] from Dispatcher, each with :status, :raw_text, :role_label, etc.
         # @param rule_str [String] e.g., "3/4 APPROVE"
         # @param min_quorum [Integer] minimum successful reviews needed
-        # @return [Hash] with :reference_verdict, :convergence, :reviews, :aggregated_findings
+        # @return [Hash] with :reference_verdict, :vote_tally, :reviews, :aggregated_findings
         def self.aggregate(reviews, rule_str = '3/4 APPROVE', min_quorum: 2,
                            excluded_slots: [], escalation: nil)
           # Parsing a verdict and deciding whether the reply belongs in the
