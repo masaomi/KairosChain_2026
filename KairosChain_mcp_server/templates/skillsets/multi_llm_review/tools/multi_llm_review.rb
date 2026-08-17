@@ -545,7 +545,7 @@ module KairosMcp
               case consensus[:reference_verdict]
               when 'APPROVE' then nil
               when 'INSUFFICIENT'
-                FeedbackFormatter.build_insufficient(consensus[:convergence][:reason] || 'quorum not met')
+                FeedbackFormatter.build_insufficient(consensus[:vote_tally][:reason] || 'quorum not met')
               else
                 FeedbackFormatter.build(sanitized_findings)
               end
@@ -558,7 +558,7 @@ module KairosMcp
               # closed by the operator's declaration, outside this record.
               'reference_verdict' => consensus[:reference_verdict],
               'feedback_text' => feedback_text,
-              'convergence' => hash_to_string_keys(consensus[:convergence]),
+              'vote_tally' => hash_to_string_keys(consensus[:vote_tally]),
               'reviews' => consensus[:reviews].map { |r|
                 ReviewSerializer.payload_row(r, include_raw_text: include_raw_text)
               },

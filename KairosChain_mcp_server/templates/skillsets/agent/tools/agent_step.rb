@@ -1748,7 +1748,13 @@ module KairosMcp
                 # records still carry 'verdict'; read whichever the record
                 # speaks.
                 verdict: parsed['reference_verdict'] || parsed['verdict'],
-                convergence: parsed['convergence'],
+                # multi_llm_review 0.10.1 renamed this column to vote_tally for
+                # the same reason INV-R2 renamed the one above: the block holds
+                # vote counts and a threshold, and calling it convergence made
+                # the ratio read as the run's closing condition. Records written
+                # before that rename still say 'convergence'; read whichever the
+                # record speaks.
+                vote_tally: parsed['vote_tally'] || parsed['convergence'],
                 aggregated_findings: (parsed['aggregated_findings'] || []).map { |f|
                   f.transform_keys(&:to_sym)
                 },

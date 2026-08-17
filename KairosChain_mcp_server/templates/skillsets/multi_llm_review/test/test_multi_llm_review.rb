@@ -51,8 +51,8 @@ module KairosMcp
           ]
           result = Consensus.aggregate(reviews, '3/4 APPROVE', min_quorum: 2)
           assert_equal 'APPROVE', result[:reference_verdict]
-          assert_equal 3, result[:convergence][:approve_count]
-          assert_equal 0, result[:convergence][:reject_count]
+          assert_equal 3, result[:vote_tally][:approve_count]
+          assert_equal 0, result[:vote_tally][:reject_count]
         end
 
         def test_any_reject_means_revise
@@ -63,7 +63,7 @@ module KairosMcp
           ]
           result = Consensus.aggregate(reviews, '2/3 APPROVE', min_quorum: 2)
           assert_equal 'REVISE', result[:reference_verdict]
-          assert_equal 1, result[:convergence][:reject_count]
+          assert_equal 1, result[:vote_tally][:reject_count]
         end
 
         def test_skip_excluded_from_denominator
@@ -75,10 +75,10 @@ module KairosMcp
           ]
           result = Consensus.aggregate(reviews, '3/4 APPROVE', min_quorum: 2)
           assert_equal 'APPROVE', result[:reference_verdict]
-          assert_equal 2, result[:convergence][:successful_count]
-          assert_equal 2, result[:convergence][:skip_count]
+          assert_equal 2, result[:vote_tally][:successful_count]
+          assert_equal 2, result[:vote_tally][:skip_count]
           # threshold = ceil(2 * 0.75) = 2, approve = 2 >= 2
-          assert_equal 2, result[:convergence][:threshold]
+          assert_equal 2, result[:vote_tally][:threshold]
         end
 
         def test_insufficient_quorum
@@ -137,12 +137,12 @@ module KairosMcp
             { role_label: 'r5', raw_text: body('APPROVE'), status: :success }
           ]
           result = Consensus.aggregate(reviews, '3/5 APPROVE', min_quorum: 2)
-          excl = result[:convergence][:excluding_divergent]
+          excl = result[:vote_tally][:excluding_divergent]
           assert_equal 3, excl[:successful_count]
           assert_equal 3, excl[:approve_count]
           # ceil(3 * 0.6) = 2 — NOT ceil(5 * 0.6) = 3.
           assert_equal 2, excl[:threshold]
-          assert_equal 3, result[:convergence][:threshold]
+          assert_equal 3, result[:vote_tally][:threshold]
         end
 
         def test_aggregate_findings_dedup
@@ -1620,7 +1620,7 @@ module KairosMcp
           assert_equal ['codex_gpt5.5'], failure['recovered_seats']
           assert_equal ['cursor'], failure['lost_seats']
 
-          observers = payload.dig('convergence', 'denominator_composition', 'observers')
+          observers = payload.dig('vote_tally', 'denominator_composition', 'observers')
           lost = observers.find { |o| o['role_label'] == 'cursor' }
           refute lost['counted']
           assert_equal 'worker_crashed_seat_lost', lost['reason']
@@ -1931,7 +1931,7 @@ module KairosMcp
           assert_equal 'LGTM', row['stated_text']
 
           comp = Consensus.aggregate([review], '3/5 APPROVE', min_quorum: 1)
-          observer = comp[:convergence][:denominator_composition][:observers].first
+          observer = comp[:vote_tally][:denominator_composition][:observers].first
           assert_equal 'LGTM', observer[:stated_text]
         end
 

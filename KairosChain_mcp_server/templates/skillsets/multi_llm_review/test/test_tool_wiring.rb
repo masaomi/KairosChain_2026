@@ -148,7 +148,7 @@ module KairosMcp
                                        'orchestrator_strategy' => 'exclude',
                                        'persona_model' => 'claude-fable-5')
 
-          assert_equal '3/4 APPROVE', lost_one['convergence']['rule']
+          assert_equal '3/4 APPROVE', lost_one['vote_tally']['rule']
 
           # The persona answers in the excluded slot's place, so the roster is
           # whole and the rule it is judged by is the whole-roster one.
@@ -247,17 +247,17 @@ module KairosMcp
         def test_exclude_applies_the_post_exclusion_rule
           out = run_review(tool, 'orchestrator_model' => 'claude-opus-5',
                                  'orchestrator_strategy' => 'exclude')
-          assert_equal '3/4 APPROVE', out['convergence']['rule']
+          assert_equal '3/4 APPROVE', out['vote_tally']['rule']
         end
 
         def test_the_post_exclusion_rule_does_not_apply_without_an_exclusion
           out = run_review(tool, 'orchestrator_strategy' => 'exclude')
-          assert_equal '3/5 APPROVE', out['convergence']['rule']
+          assert_equal '3/5 APPROVE', out['vote_tally']['rule']
         end
 
         def test_the_default_strategy_keeps_the_full_roster_rule
           out = run_review(tool)
-          assert_equal '3/5 APPROVE', out['convergence']['rule']
+          assert_equal '3/5 APPROVE', out['vote_tally']['rule']
         end
 
         # --- INV-E3: the container, through the tool ---
@@ -269,8 +269,8 @@ module KairosMcp
           refute_includes off['reviews'].map { |r| r['role_label'] }, 'r'
           assert_includes on['reviews'].map { |r| r['role_label'] }, 'r'
 
-          off_rec = off['convergence']['denominator_composition']['escalation']
-          on_rec  = on['convergence']['denominator_composition']['escalation']
+          off_rec = off['vote_tally']['denominator_composition']['escalation']
+          on_rec  = on['vote_tally']['denominator_composition']['escalation']
           assert_equal({ 'requested' => false, 'escalated' => false, 'slots' => [], 'dispatched' => [] }, off_rec)
           assert_equal({ 'requested' => true, 'escalated' => true, 'slots' => ['r'], 'dispatched' => ['r'] }, on_rec)
         end
@@ -283,7 +283,7 @@ module KairosMcp
           out = run_review(tool, 'escalate' => true,
                                  'orchestrator_model' => 'claude-fable-5',
                                  'orchestrator_strategy' => 'exclude')
-          rec = out['convergence']['denominator_composition']['escalation']
+          rec = out['vote_tally']['denominator_composition']['escalation']
 
           assert_equal({ 'requested' => true, 'escalated' => true, 'slots' => ['r'], 'dispatched' => [] }, rec)
           refute_includes out['reviews'].map { |r| r['role_label'] }, 'r'
@@ -301,10 +301,10 @@ module KairosMcp
           assert_equal %w[a b c], out['reviews'].map { |r| r['role_label'] }
           assert_equal({ 'requested' => true, 'escalated' => false,
                          'slots' => [], 'dispatched' => [] },
-                       out['convergence']['denominator_composition']['escalation'])
+                       out['vote_tally']['denominator_composition']['escalation'])
 
           # Distinguishable from the run that never asked.
-          never_asked = run_review(t)['convergence']['denominator_composition']['escalation']
+          never_asked = run_review(t)['vote_tally']['denominator_composition']['escalation']
           assert_equal false, never_asked['requested']
         end
 
@@ -321,7 +321,7 @@ module KairosMcp
 
         def test_a_divergent_answer_names_both_models_in_the_record
           out = run_review(tool(observed: 'claude-opus-4-8'))
-          row = out['convergence']['denominator_composition']['observers']
+          row = out['vote_tally']['denominator_composition']['observers']
                 .find { |o| o['role_label'] == 'b' }
 
           assert_equal 'observed', row['model_source']
@@ -491,7 +491,7 @@ module KairosMcp
         def test_the_single_phase_record_keeps_the_slot_that_did_not_run
           out = run_review(tool, 'orchestrator_model' => 'claude-opus-5',
                                  'orchestrator_strategy' => 'exclude')
-          observers = out['convergence']['denominator_composition']['observers']
+          observers = out['vote_tally']['denominator_composition']['observers']
           dropped = observers.find { |o| o['role_label'] == 'a' }
 
           refute_nil dropped, 'the excluded slot vanished from the composition'
@@ -557,17 +557,17 @@ module KairosMcp
           hollow = out['reviews'].find { |r| r['role_label'] == 'c' }
           assert_equal 'SKIP', hollow['verdict']
           assert_equal 'insubstantial', hollow['skip_reason']
-          assert_equal 2, out['convergence']['successful_count']
+          assert_equal 2, out['vote_tally']['successful_count']
           # Three observers answered; one of them said nothing. What the
           # configuration named is a different number and a different field.
-          assert_equal 3, out['convergence']['observers_reporting']
+          assert_equal 3, out['vote_tally']['observers_reporting']
         end
 
         # The denominator shrank, so the record has to say why. A transport
         # failure and an empty reply both remove a slot and must stay apart.
         def test_the_record_separates_a_hollow_reply_from_a_lost_one
           comp = run_review(tool_answering_hollow_for('gpt-5.5'))
-                 .dig('convergence', 'denominator_composition', 'observers')
+                 .dig('vote_tally', 'denominator_composition', 'observers')
           entry = comp.find { |o| o['role_label'] == 'c' }
 
           assert_equal false, entry['counted']
@@ -584,9 +584,9 @@ module KairosMcp
           plain  = run_review(tool)
           stale  = run_review(tool({ 'substance_min_chars' => 400 }))
 
-          assert_operator plain['convergence']['successful_count'], :>, 0
-          assert_equal plain['convergence']['successful_count'],
-                       stale['convergence']['successful_count']
+          assert_operator plain['vote_tally']['successful_count'], :>, 0
+          assert_equal plain['vote_tally']['successful_count'],
+                       stale['vote_tally']['successful_count']
           assert_equal plain['reviews'].map { |r| r['verdict'] },
                        stale['reviews'].map { |r| r['verdict'] }
         end
@@ -649,7 +649,7 @@ module KairosMcp
                raw_text: 'APPROVE. A record written before provenance existed.' }],
             '3/5 APPROVE', min_quorum: 1
           )
-          row = parsed[:convergence][:denominator_composition][:observers].first
+          row = parsed[:vote_tally][:denominator_composition][:observers].first
 
           assert_equal 'declared', row[:model_source]
         end
@@ -881,7 +881,7 @@ module KairosMcp
           assert_equal 'inline', deliveries['d']
 
           # The same column on the composition's dispatched rows (INV-R7).
-          observers = out['convergence']['denominator_composition']['observers']
+          observers = out['vote_tally']['denominator_composition']['observers']
           by_label = observers.map { |o| [o['role_label'], o] }.to_h
           assert_equal 'by_reference', by_label['c']['artifact_delivery']
           assert_equal 'inline', by_label['d']['artifact_delivery']
@@ -901,7 +901,7 @@ module KairosMcp
 
           assert_equal 'ok', out['status']
           assert_equal ['c'], out['reviews'].map { |r| r['role_label'] }
-          observers = out['convergence']['denominator_composition']['observers']
+          observers = out['vote_tally']['denominator_composition']['observers']
           refused = observers.find { |o| o['role_label'] == 'cli' }
           assert_equal false, refused['counted']
           assert_equal 'by_reference_unreachable_in_sandbox', refused['reason']
@@ -919,7 +919,7 @@ module KairosMcp
           ]
           out = run_review(tool(roster))
 
-          observers = out['convergence']['denominator_composition']['observers']
+          observers = out['vote_tally']['denominator_composition']['observers']
           refused = observers.find { |o| o['role_label'] == 'c' }
           assert_equal 'by_reference_without_artifact_path', refused['reason']
         end
@@ -946,8 +946,8 @@ module KairosMcp
             'gpt-5.5' => { 'model_observed' => 'gpt-5-mini' }
           }))
 
-          assert_equal 2, out['convergence']['approve_count']
-          excl = out['convergence']['excluding_divergent']
+          assert_equal 2, out['vote_tally']['approve_count']
+          excl = out['vote_tally']['excluding_divergent']
           assert_equal 1, excl['approve_count']
           assert_equal 1, excl['successful_count']
 
@@ -1011,7 +1011,7 @@ module KairosMcp
         def test_composition_rows_carry_the_seat_mark
           out = run_review(tool(roster_one))
 
-          observers = out['convergence']['denominator_composition']['observers']
+          observers = out['vote_tally']['denominator_composition']['observers']
           assert observers.all? { |o| o['seat'] == true }
         end
       end

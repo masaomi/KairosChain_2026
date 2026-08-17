@@ -177,7 +177,7 @@ module KairosMcp
           findings = aggregate_findings(parsed)
           {
             reference_verdict: overall,
-            convergence: {
+            vote_tally: {
               approve_count: approve_n,
               reject_count: reject_n,
               skip_count: skipped.size,
