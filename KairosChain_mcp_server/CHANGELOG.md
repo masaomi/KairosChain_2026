@@ -4,7 +4,7 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [3.72.0] - 2026-08-17
+## [3.73.0] - 2026-08-17
 
 ### Fixed
 
@@ -56,6 +56,12 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Live data after the change: 28 of 28 items comparable, 19 with L2 more recent,
   median 29 days, widest 81 — identical to before, so nothing the subtraction
   removed was carrying coverage.
+
+## [3.72.0] - 2026-08-17
+
+**Built and never published.** Its contents ship in 3.73.0, which carries the second round of fixes to the same feature; the entry is kept because the commits it describes are in the history.
+
+### Fixed
 
 - **Six defects in the session-start report below, all found by a pre-release
   multi-LLM review and all demonstrated by running code rather than reasoning
