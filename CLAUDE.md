@@ -116,7 +116,13 @@ If unsure between (b) and (c), default to (c).
 
 ### Aggregation rule
 
-When aggregating reviews, P0 count uses (a) + (b) only. (c) findings are listed in a separate "advisory observations" section and are NOT blocking. Per-reviewer (a)/(b)/(c) breakdown is recorded for the experiment observation log (see memory `multi_llm_review_philosophy_briefing_observations.md`).
+(a)/(b)/(c) is a **kind** axis, not a severity. (c) findings are listed in a separate "advisory observations" section and never block. Only (a)+(b) can block.
+
+The blocking count is **new (a)+(b) P0**, not the running total. Count carryover P0s — raised in an earlier round and still open — separately from new ones, and require each reviewer to state a closure verdict on its own prior-round P0s: closed / open / half-closed, with grounds. The machine-side convergence signal is **new (a)+(b) P0 = 0**; the APPROVE ratio is auxiliary and never sufficient on its own. The intended close is still (a)+(b) exhaustion declared by the human. Normative detail and the evidence base: L1 `multi_llm_review_workflow` § Convergence Rules and § Revision Discipline.
+
+Why the split is load-bearing: a running (a)+(b) total cannot fall in a loop where reviewers run mutations, because every surviving mutation is by construction an (a). If a loop needs a further split, grade severity on a second axis by a context that wrote neither the artifact nor its fixes. That is not part of core multi-LLM review today; adopting it is an operator decision, not a default.
+
+Per-reviewer (a)/(b)/(c) breakdown is recorded for the experiment observation log (see memory `multi_llm_review_philosophy_briefing_observations.md`).
 
 ### Scope: design phase only
 
