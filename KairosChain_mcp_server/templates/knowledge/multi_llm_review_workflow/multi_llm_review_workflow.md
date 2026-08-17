@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.10.1"
+version: "3.10.2"
 tags:
   - workflow
   - review
@@ -1587,6 +1587,29 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   the two ratios beside it as reference values. No rule changed; the order in
   which a reader meets them did. Operator observation, 2026-08-17: attention
   failed to land on the P0 criterion round after round.
+
+- The round dashboard ships with this entry, and its gate states the closing
+  condition (v3.10.2, 2026-08-17): `scripts/render_dashboard.rb` reads a round
+  summary as JSON on stdin, fills `assets/review_dashboard.html`, and writes a
+  self-contained page — the worked example `resource_render` names in its own
+  description and default output derivation (`render_dashboard.rb` →
+  `dashboard.html`). Both files had existed only on one instance, so a fresh
+  install had a tool whose documented example pointed at absent files, and an
+  upgrade of this entry deleted them: the update decision hashes
+  `multi_llm_review_workflow.md` alone, and the apply step replaces the whole
+  entry directory, so anything under `assets/` or `scripts/` that the
+  distribution does not carry is removed without appearing in the report. The
+  input shape is assembled by hand and is not the review tool's payload:
+  `{artifact, rounds:[{round, reviewers:[{id, label, pool: blocking|advisory,
+  verdict, findings:[{class: a|b|c, text, severity}]}]}]}`. Findings may carry
+  `carryover: true`, meaning raised in an earlier round and still open; an
+  absent flag means new. The gate reports a **freeze candidate** when new
+  (a)+(b) is zero, and shows the vote tally as a reference value beside it. It
+  previously required every blocking-pool seat to APPROVE *and* the round's
+  whole (a)+(b) count to be zero, which is unreachable in the state both
+  2026-08 threads actually closed in — driven through the real renderer, a round
+  with zero new and one carryover (a) at 1 of 2 seats approving reports
+  "GATE NOT PASSED" under the old rule and "FREEZE CANDIDATE" under this one.
 
 **Key insight**: Design reviews and implementation reviews find
 **categorically different bugs**. Both phases are necessary.

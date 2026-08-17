@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-LLM Review Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --text-muted: #8b949e;
+    --approve: #3fb950; --reject: #f85149; --revise: #d29922;
+    --advisory: #58a6ff; --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--font); background: var(--bg); color: var(--text); padding: 24px; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  .subtitle { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 24px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .card h2 { font-size: 0.95rem; color: var(--text-muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .verdict { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; }
+  .verdict.approve { background: rgba(63,185,80,0.15); color: var(--approve); }
+  .verdict.reject { background: rgba(248,81,73,0.15); color: var(--reject); }
+  .verdict.revise { background: rgba(210,153,34,0.15); color: var(--revise); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-muted); font-weight: 500; }
+  .finding-tag { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-right: 4px; }
+  .finding-a { background: rgba(248,81,73,0.15); color: var(--reject); }
+  .finding-b { background: rgba(210,153,34,0.15); color: var(--revise); }
+  .finding-c { background: rgba(88,166,255,0.15); color: var(--advisory); }
+  .stat-number { font-size: 2rem; font-weight: 700; }
+  .stat-label { color: var(--text-muted); font-size: 0.8rem; }
+  .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .bar-label { width: 120px; font-size: 0.8rem; color: var(--text-muted); text-align: right; }
+  .bar-track { flex: 1; height: 20px; background: var(--border); border-radius: 4px; overflow: hidden; display: flex; }
+  .bar-seg { height: 100%; transition: width 0.3s; }
+  .bar-seg.a { background: var(--reject); }
+  .bar-seg.b { background: var(--revise); }
+  .bar-seg.c { background: var(--advisory); }
+  .round-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .round-tab { padding: 6px 16px; border-radius: 6px; border: 1px solid var(--border); background: transparent;
+    color: var(--text-muted); cursor: pointer; font-size: 0.85rem; }
+  .round-tab.active { background: var(--surface); color: var(--text); border-color: var(--advisory); }
+  .legend { display: flex; gap: 16px; margin-bottom: 16px; font-size: 0.8rem; color: var(--text-muted); }
+  .legend-item { display: flex; align-items: center; gap: 4px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+  .instructions { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 16px; margin-bottom: 24px; font-size: 0.85rem; color: var(--text-muted); }
+  .instructions code { background: var(--border); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; color: var(--text); }
+  textarea { width: 100%; min-height: 120px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 12px; color: var(--text); font-family: monospace; font-size: 0.8rem; resize: vertical; }
+  button { padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface);
+    color: var(--text); cursor: pointer; font-size: 0.85rem; }
+  button:hover { border-color: var(--advisory); }
+  button.primary { background: rgba(88,166,255,0.15); border-color: var(--advisory); color: var(--advisory); }
+  .actions { display: flex; gap: 8px; margin-top: 12px; }
+  #json-error { color: var(--reject); font-size: 0.8rem; margin-top: 4px; min-height: 1.2em; }
+</style>
+</head>
+<body>
+
+<h1>Multi-LLM Review Dashboard</h1>
+<p class="subtitle">KairosChain L1: multi_llm_review_workflow — HTML resource (assets/)</p>
+
+<div class="instructions">
+  <strong>How to use:</strong> Paste a review result JSON into the editor below, or use the sample data to explore.
+  The JSON format follows the <code>(a)/(b)/(c)</code> finding classification from the multi-LLM review workflow.
+  After visualizing, use <strong>Copy as Prompt</strong> to feed the analysis back into Claude Code.
+</div>
+
+<div class="card" style="margin-bottom: 24px;">
+  <h2>Review Data Input</h2>
+  <textarea id="json-input" placeholder='Paste review JSON here...'></textarea>
+  <div id="json-error"></div>
+  <div class="actions">
+    <button class="primary" onclick="loadData()">Visualize</button>
+    <button onclick="loadSample()">Load Sample</button>
+    <button onclick="copyAsPrompt()">Copy as Prompt</button>
+  </div>
+</div>
+
+<div id="dashboard" style="display:none;">
+
+  <div class="round-tabs" id="round-tabs"></div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--reject)"></div> (a) deployment-grounded</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--revise)"></div> (b) philosophy-aligned</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--advisory)"></div> (c) value-divergent</div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Consensus</h2>
+      <div id="consensus-verdicts"></div>
+      <div style="margin-top:12px;">
+        <span class="stat-label">New blocking P0 (a+b): </span>
+        <span id="blocking-count" class="stat-number" style="font-size:1.4rem;"></span>
+        <span class="stat-label" style="margin-left:16px;">Carryover (a+b): </span>
+        <span id="carryover-count" class="stat-number" style="font-size:1.4rem;"></span>
+        <span class="stat-label" style="margin-left:16px;">Advisory (c): </span>
+        <span id="advisory-count" class="stat-number" style="font-size:1.4rem; color:var(--advisory);"></span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Gate Status</h2>
+      <div id="gate-status" style="font-size:1.1rem; margin-top:8px;"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <h2>Finding Distribution by Reviewer</h2>
+    <div id="finding-bars"></div>
+  </div>
+
+  <div class="card">
+    <h2>All Findings</h2>
+    <table>
+      <thead><tr><th>Reviewer</th><th>Class</th><th>Finding</th><th>Severity</th></tr></thead>
+      <tbody id="findings-table"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const SAMPLE = {
+  artifact: "kairos_hook_projector_stage1_design_v0.1",
+  rounds: [
+    {
+      round: 1,
+      reviewers: [
+        {
+          id: "philosophy_persona",
+          label: "Philosophy Persona (4.7)",
+          pool: "blocking",
+          verdict: "APPROVE",
+          findings: [
+            { class: "b", text: "Inv-C2: substrate reference (plugin_projector) should be invariant, not named dependency", severity: "P0" },
+            { class: "c", text: "Consider adding explicit Prop 5 recording annotation", severity: "P2" }
+          ]
+        },
+        {
+          id: "engineering_persona",
+          label: "Engineering Persona (4.7)",
+          pool: "blocking",
+          verdict: "REVISE",
+          findings: [
+            { class: "a", text: "Inv-2 vs Inv-5 timestamp semantics contradict each other", severity: "P0" },
+            { class: "a", text: "Orphaned compile record lifecycle not specified", severity: "P0" },
+            { class: "b", text: "Inv-O1 declaration-order is mechanism dressed as invariant", severity: "P0" },
+            { class: "c", text: "Prefer explicit error types over string matching", severity: "P2" }
+          ]
+        },
+        {
+          id: "claude_cli_4.6",
+          label: "Claude CLI (Opus 4.6)",
+          pool: "blocking",
+          verdict: "REVISE",
+          findings: [
+            { class: "b", text: "Substrate-as-invariant: compiler must not name plugin_projector", severity: "P0" },
+            { class: "a", text: "mode_name binding integrity across recompile not guaranteed", severity: "P0" },
+            { class: "c", text: "Section ordering could improve readability", severity: "P2" }
+          ]
+        },
+        {
+          id: "codex_gpt5.4",
+          label: "Codex (GPT-5.4)",
+          pool: "advisory",
+          verdict: "REJECT",
+          findings: [
+            { class: "c", text: "Exhaustiveness of Inv-C3 not formally verifiable", severity: "P0" },
+            { class: "c", text: "Missing rollback procedure specification", severity: "P0" },
+            { class: "a", text: "Race condition possible if two compiles run concurrently", severity: "P1" }
+          ]
+        },
+        {
+          id: "cursor_composer2.5",
+          label: "Cursor (Composer 2.5)",
+          pool: "advisory",
+          verdict: "REJECT",
+          findings: [
+            { class: "c", text: "Design lacks complete error taxonomy", severity: "P0" },
+            { class: "c", text: "No performance benchmarks specified", severity: "P1" },
+            { class: "a", text: "File path validation insufficient for symlink traversal", severity: "P1" }
+          ]
+        }
+      ]
+    }
+  ]
+};
+
+let currentData = null;
+let currentRound = 0;
+
+function loadSample() {
+  document.getElementById('json-input').value = JSON.stringify(SAMPLE, null, 2);
+  loadData();
+}
+
+function loadData() {
+  const errEl = document.getElementById('json-error');
+  errEl.textContent = '';
+  try {
+    currentData = JSON.parse(document.getElementById('json-input').value);
+    currentRound = 0;
+    renderRoundTabs();
+    renderRound(0);
+    document.getElementById('dashboard').style.display = 'block';
+  } catch (e) {
+    errEl.textContent = 'JSON parse error: ' + e.message;
+  }
+}
+
+function renderRoundTabs() {
+  const tabs = document.getElementById('round-tabs');
+  tabs.innerHTML = '';
+  currentData.rounds.forEach((r, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'round-tab' + (i === currentRound ? ' active' : '');
+    btn.textContent = 'Round ' + r.round;
+    btn.onclick = () => { currentRound = i; renderRoundTabs(); renderRound(i); };
+    tabs.appendChild(btn);
+  });
+}
+
+function renderRound(idx) {
+  const round = currentData.rounds[idx];
+  const reviewers = round.reviewers;
+
+  // Verdicts
+  const vEl = document.getElementById('consensus-verdicts');
+  vEl.innerHTML = reviewers.map(r =>
+    `<span style="margin-right:12px;">${r.label}: <span class="verdict ${r.verdict.toLowerCase()}">${r.verdict}</span></span>`
+  ).join('<br>');
+
+  // Counts. A finding carrying carryover: true was raised in an earlier round
+  // and is still open; it does not enter the closing condition. An absent flag
+  // means new, which is what the round-1 shape and every earlier input produce.
+  let blocking = 0, carryover = 0, advisory = 0;
+  reviewers.forEach(r => r.findings.forEach(f => {
+    if (f.class === 'a' || f.class === 'b') {
+      if (f.carryover) carryover++; else blocking++;
+    } else advisory++;
+  }));
+  document.getElementById('blocking-count').textContent = blocking;
+  document.getElementById('carryover-count').textContent = carryover;
+  document.getElementById('advisory-count').textContent = advisory;
+
+  // Gate. The closing condition is new (a)+(b) = 0 — CLAUDE.md § Aggregation
+  // rule, L1 multi_llm_review_workflow § Convergence Rules. The vote tally is a
+  // reference value, shown and not required: the roster ratio can be
+  // arithmetically unreachable, and the intended close is (a)+(b) exhaustion
+  // declared by the operator. This panel therefore reports a freeze candidate,
+  // never a passed gate.
+  const blockingReviewers = reviewers.filter(r => r.pool === 'blocking');
+  const approveCount = blockingReviewers.filter(r => r.verdict === 'APPROVE').length;
+  const gateEl = document.getElementById('gate-status');
+  const votes = `votes ${approveCount}/${blockingReviewers.length} APPROVE (reference)`;
+  gateEl.innerHTML = blocking === 0
+    ? `<span style="color:var(--approve);">&#10003; FREEZE CANDIDATE</span> — 0 new blocking P0, ${carryover} carryover still open — ${votes}`
+    : `<span style="color:var(--reject);">&#10007; NOT CLOSED</span> — ${blocking} new blocking P0 (a+b), ${carryover} carryover — ${votes}`;
+
+  // Bars
+  const barsEl = document.getElementById('finding-bars');
+  barsEl.innerHTML = '';
+  reviewers.forEach(r => {
+    const a = r.findings.filter(f => f.class === 'a').length;
+    const b = r.findings.filter(f => f.class === 'b').length;
+    const c = r.findings.filter(f => f.class === 'c').length;
+    const total = Math.max(a + b + c, 1);
+    const maxFindings = Math.max(...reviewers.map(rv => rv.findings.length), 1);
+    const scale = 100 / maxFindings;
+    barsEl.innerHTML += `<div class="bar-row">
+      <div class="bar-label">${r.id}</div>
+      <div class="bar-track">
+        <div class="bar-seg a" style="width:${a * scale}%" title="(a) ${a}"></div>
+        <div class="bar-seg b" style="width:${b * scale}%" title="(b) ${b}"></div>
+        <div class="bar-seg c" style="width:${c * scale}%" title="(c) ${c}"></div>
+      </div>
+      <span style="font-size:0.8rem;color:var(--text-muted);width:40px;">${a+b+c}</span>
+    </div>`;
+  });
+
+  // Table
+  const tbody = document.getElementById('findings-table');
+  tbody.innerHTML = '';
+  reviewers.forEach(r => {
+    r.findings.forEach(f => {
+      tbody.innerHTML += `<tr>
+        <td>${r.id}</td>
+        <td><span class="finding-tag finding-${f.class}">(${f.class})</span></td>
+        <td>${f.text}</td>
+        <td>${f.severity}</td>
+      </tr>`;
+    });
+  });
+}
+
+function copyAsPrompt() {
+  if (!currentData) return;
+  const round = currentData.rounds[currentRound];
+  let prompt = `## Multi-LLM Review Round ${round.round} Summary\n\n`;
+  prompt += `**Artifact:** ${currentData.artifact}\n\n`;
+
+  const blockingReviewers = round.reviewers.filter(r => r.pool === 'blocking');
+  const approves = blockingReviewers.filter(r => r.verdict === 'APPROVE').length;
+  prompt += `**Gate:** ${approves}/${blockingReviewers.length} blocking APPROVE\n\n`;
+
+  prompt += `### Blocking findings (a+b) — must address:\n\n`;
+  round.reviewers.forEach(r => {
+    r.findings.filter(f => f.class !== 'c').forEach(f => {
+      prompt += `- [${r.id}] (${f.class}) ${f.severity}: ${f.text}\n`;
+    });
+  });
+
+  prompt += `\n### Advisory findings (c) — reviewer preference:\n\n`;
+  round.reviewers.forEach(r => {
+    r.findings.filter(f => f.class === 'c').forEach(f => {
+      prompt += `- [${r.id}] (${f.class}) ${f.severity}: ${f.text}\n`;
+    });
+  });
+
+  navigator.clipboard.writeText(prompt).then(() => {
+    const btn = event.target;
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy as Prompt', 1500);
+  });
+}
+</script>
+</body>
+</html>
