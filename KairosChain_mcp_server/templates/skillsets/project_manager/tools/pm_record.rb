@@ -83,10 +83,14 @@ module KairosMcp
               pm_store.update_project(project['id'], { 'status' => arguments['apply_project_status'] })
             end
 
-            text_content(JSON.pretty_generate({
-              recorded: true, action: arguments['action'],
-              project_id: project['id'], attestation: attestation
-            }))
+            out = { recorded: true, action: arguments['action'],
+                    project_id: project['id'], attestation: attestation }
+            # The ttl above comes from pm.yml. When that file cannot be read the
+            # default stands in for it silently, so an operator who shortened the
+            # ttl would believe their value was applied to a record that is
+            # meant to be permanent. The reason travels with the receipt.
+            out[:config_error] = pm_config_error if pm_config_error
+            text_content(JSON.pretty_generate(out))
           rescue StandardError => e
             text_content(JSON.pretty_generate({ error: e.message }))
           end

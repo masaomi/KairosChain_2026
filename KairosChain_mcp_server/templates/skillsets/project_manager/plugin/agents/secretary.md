@@ -51,6 +51,13 @@ thresholds cannot be compared with yesterday's. If the operator asks for a diffe
 use it, and say in the report which value you used and that this report is not comparable to the
 default one.
 
+The digest reads those defaults from `pm.yml`, and that file can be unreadable — a stray tab, an
+unclosed quote, a bare date. When it is, the digest still answers, on built-in defaults rather than
+the operator's settings, and returns a `config_error` field saying why. **If that field is present,
+say so first, before the buckets**, and name the reason verbatim: this report was built on defaults,
+so it is not comparable to one built on the configured thresholds, and the settings file needs
+repair. Reporting the buckets without it presents defaults as though the operator had chosen them.
+
 The digest computes its buckets independently, so one item can appear in several of them. Report
 each item exactly once, in the first bucket that claims it, in this fixed order:
 

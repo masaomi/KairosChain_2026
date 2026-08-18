@@ -59,7 +59,14 @@ module KairosMcp
             config['dormancy_days'] = arguments['dormancy_days'] if arguments['dormancy_days']
             config['approaching_days'] = arguments['approaching_days'] if arguments['approaching_days']
             digest = ::ProjectManager::Digest.new(pm_store, config)
-            text_content(JSON.pretty_generate(digest.compute))
+            out = digest.compute
+            # An unreadable pm.yml no longer takes this tool down, and that is
+            # only half a fix: defaults that look like the operator's settings
+            # are worse than the outage. The reason travels with the digest so
+            # the consumer says the file was ignored instead of reporting
+            # thresholds nobody chose.
+            out[:config_error] = pm_config_error if pm_config_error
+            text_content(JSON.pretty_generate(out))
           rescue StandardError => e
             text_content(JSON.pretty_generate({ error: e.message }))
           end

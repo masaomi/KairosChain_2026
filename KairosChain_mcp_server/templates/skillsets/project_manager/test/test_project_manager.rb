@@ -795,3 +795,335 @@ class TestProjectManagerAttention < Minitest::Test
     assert_match(/invalid attention kind/, out['error'])
   end
 end
+
+# The write side (2026-08-18). Every guard in this SkillSet used to sit on the
+# reading side — parse_time, whole_number, the config containers — and a value
+# that cannot be turned into JSON walked straight past all of them. Generation
+# failed before File.write, so the file survived and @data did not: the bad value
+# stayed in memory and every later save failed identically, which read to the
+# caller as one error and to the store as a permanent refusal to record anything.
+class TestProjectManagerStoreWriteGuard < Minitest::Test
+  # Valid Ruby strings and numbers that JSON cannot represent. Both arrive
+  # through ordinary tool arguments; neither is caught by the status/salience
+  # enum checks, which are the only write-side validation that existed.
+  LONE_SURROGATE = "bad\xED\xA0\x80title".dup.force_encoding('UTF-8')
+
+  def setup
+    @dir = Dir.mktmpdir
+    @path = File.join(@dir, 'store.json')
+    @store = ProjectManager::Store.new(path: @path)
+    @now = Time.utc(2026, 8, 18, 12, 0, 0)
+    @prj = @store.register_project(name: 'p', now: @now)
+    @kept = @store.add_item(project_id: @prj['id'], title: 'kept', now: @now)
+  end
+
+  def teardown
+    FileUtils.remove_entry(@dir)
+  end
+
+  def on_disk
+    JSON.parse(File.read(@path))
+  end
+
+  def test_an_unwritable_title_is_refused_rather_than_written
+    assert_raises(JSON::GeneratorError) do
+      @store.add_item(project_id: @prj['id'], title: LONE_SURROGATE, now: @now)
+    end
+  end
+
+  # The defect proper: not that the bad write failed, but that every good write
+  # after it failed too, on disk and in memory, without anything saying so.
+  def test_the_store_still_accepts_writes_after_a_refused_one
+    begin
+      @store.add_item(project_id: @prj['id'], title: LONE_SURROGATE, now: @now)
+    rescue JSON::GeneratorError
+      nil
+    end
+
+    later = @store.add_item(project_id: @prj['id'], title: 'written after', now: @now)
+    assert_equal 'written after', @store.fetch_item(later['id'])['title']
+    assert_equal 2, on_disk['items'].size, 'the good writes reached disk'
+    assert_equal %w[kept written\ after].sort,
+                 on_disk['items'].values.map { |i| i['title'] }.sort
+  end
+
+  # A refused write must not survive in memory either, or a reader counts items
+  # that were never recorded — which is how the digest reported phantom work.
+  def test_a_refused_write_leaves_nothing_behind_in_memory
+    begin
+      @store.add_item(project_id: @prj['id'], title: LONE_SURROGATE, now: @now)
+    rescue JSON::GeneratorError
+      nil
+    end
+
+    assert_equal 1, @store.items.size
+    assert_equal 'kept', @store.items.first['title']
+    refute_includes @store.items.map { |i| i['title'] }, LONE_SURROGATE
+  end
+
+  # Infinity reaches JSON through any numeric field and fails generation the same
+  # way. Different value, same path, so it must be refused by the same guard
+  # rather than by a check written for strings.
+  def test_an_unrepresentable_number_is_refused_the_same_way
+    assert_raises(JSON::GeneratorError) do
+      @store.update_item(@kept['id'], { 'notes' => Float::INFINITY }, now: @now)
+    end
+    assert_equal 1, @store.items.size
+    @store.update_item(@kept['id'], { 'notes' => 'fine' }, now: @now)
+    assert_equal 'fine', on_disk['items'][@kept['id']]['notes']
+  end
+
+  # Rolling back restores @committed, which advances only after a write finishes.
+  # An earlier write that had been accepted must therefore survive the rollback of
+  # a later refused one.
+  def test_rollback_does_not_discard_an_earlier_accepted_write
+    @store.update_item(@kept['id'], { 'salience' => 'high' }, now: @now)
+    begin
+      @store.add_item(project_id: @prj['id'], title: LONE_SURROGATE, now: @now)
+    rescue JSON::GeneratorError
+      nil
+    end
+    assert_equal 'high', @store.fetch_item(@kept['id'])['salience']
+    assert_equal 'high', on_disk['items'][@kept['id']]['salience']
+  end
+
+  # A failure after generation — no space, a read-only directory, a rename that
+  # cannot complete — leaves the same poisoned @data as a generation failure did.
+  # Guarding only generation would let a write reported as failed reappear in the
+  # next successful save.
+  def test_a_failure_after_generation_rolls_back_too
+    File.chmod(0o500, @dir)
+    begin
+      assert_raises(SystemCallError) do
+        @store.add_item(project_id: @prj['id'], title: 'never written', now: @now)
+      end
+    ensure
+      File.chmod(0o700, @dir)
+    end
+
+    assert_equal 1, @store.items.size, 'the refused write stayed in memory'
+    refute_includes @store.items.map { |i| i['title'] }, 'never written'
+    @store.add_item(project_id: @prj['id'], title: 'after', now: @now)
+    assert_equal %w[after kept], on_disk['items'].values.map { |i| i['title'] }.sort
+  end
+
+  # Rollback restores from an in-memory copy of the last written state, not from
+  # the file. Re-reading would fail exactly when it is needed most — a store.json
+  # that has become unreadable would leave the bad value in place and wedge the
+  # process, which is the defect this guard exists to remove.
+  def test_rollback_survives_an_unreadable_file_on_disk
+    File.write(@path, 'not json at all')
+    begin
+      @store.add_item(project_id: @prj['id'], title: LONE_SURROGATE, now: @now)
+    rescue JSON::GeneratorError
+      nil
+    end
+    assert_equal 1, @store.items.size
+    assert_equal 'kept', @store.items.first['title']
+  end
+
+  # Honest boundary, pinned so it cannot be quietly claimed otherwise: rollback
+  # drops everything in memory since the last successful save, and the fetch_*
+  # methods hand out the live hash, so an edit written straight into one is
+  # dropped as well. Go through a mutator to keep a change.
+  def test_an_edit_written_straight_into_a_returned_record_is_discarded
+    @store.fetch_item(@kept['id'])['assignee'] = 'written behind the mutators'
+    begin
+      @store.add_item(project_id: @prj['id'], title: LONE_SURROGATE, now: @now)
+    rescue JSON::GeneratorError
+      nil
+    end
+    refute @store.fetch_item(@kept['id']).key?('assignee'),
+           'the direct edit survived a rollback the comment says discards it'
+  end
+
+  # The guard sits in save, not in the item attribute path, so writes that never
+  # touch an item attribute are covered too.
+  def test_a_project_name_is_covered_by_the_same_guard
+    assert_raises(JSON::GeneratorError) do
+      @store.update_project(@prj['id'], { 'name' => LONE_SURROGATE }, now: @now)
+    end
+    assert_equal 'p', @store.fetch_project(@prj['id'])['name']
+    @store.update_project(@prj['id'], { 'name' => 'renamed' }, now: @now)
+    assert_equal 'renamed', on_disk['projects'][@prj['id']]['name']
+  end
+end
+
+load File.expand_path('../tools/pm_record.rb', __dir__)
+
+# pm.yml is the only file an operator is invited to edit and `skillset upgrade`
+# never repairs it, so a bad edit is permanent. safe_load_file is strict and the
+# raise landed above every guard the tools carry, so one stray tab returned an
+# error from every pm tool at once.
+class TestPmConfigReadGuard < Minitest::Test
+  # Ordinary edits, each measured to raise a different Psych error.
+  BAD_YAML = {
+    'tab indent' => "digest:\n\tapproaching_days: 7\n",
+    'unclosed quote' => "digest:\n  approaching_days: 'oops\n",
+    'bare date' => "when: 2026-08-18\n",
+    'anchor and alias' => "a: &x 1\nb: *x\n",
+    'symbol' => "k: :sym\n"
+  }.freeze
+
+  def setup
+    @dir = Dir.mktmpdir
+    @path = File.join(@dir, 'pm.yml')
+  end
+
+  def teardown
+    FileUtils.remove_entry(@dir)
+  end
+
+  # A fresh host each time: pm_config memoises, which is the point of it.
+  def host(write: nil)
+    File.write(@path, write) unless write.nil?
+    path = @path
+    obj = Object.new
+    obj.extend(ProjectManager::ToolHelpers)
+    obj.define_singleton_method(:pm_config_path) { path }
+    obj
+  end
+
+  def test_an_unreadable_file_falls_back_to_defaults_instead_of_raising
+    BAD_YAML.each do |label, body|
+      h = host(write: body)
+      assert_equal({}, h.pm_config, "#{label} did not fall back")
+      refute_nil h.pm_config_error, "#{label} fell back without saying why"
+    end
+  end
+
+  # Falling back silently would hand the operator thresholds nobody chose and
+  # call them settings. The reason has to name the failure, not just exist.
+  def test_the_reason_names_the_failure
+    assert_match(/Psych::SyntaxError/, host(write: BAD_YAML['tab indent']).pm_config_error)
+    assert_match(/Psych::DisallowedClass/, host(write: BAD_YAML['bare date']).pm_config_error)
+  end
+
+  # A document that parses but is not a mapping breaks the first caller that
+  # subscripts it — pm_record has no guard of its own.
+  def test_a_non_mapping_document_is_coerced_and_reported
+    ['just a string', "- 1\n- 2\n", '42'].each do |body|
+      h = host(write: body)
+      assert_equal({}, h.pm_config, "#{body.inspect} was not coerced")
+      refute_nil h.pm_config_error, "#{body.inspect} was coerced silently"
+    end
+  end
+
+  def test_an_absent_or_empty_file_is_not_a_failure
+    assert_equal({}, host.pm_config)
+    assert_nil host.pm_config_error, 'an absent file is the documented default'
+
+    # All three parse to nil, so emptiness is recognised by the parse result and
+    # nothing else has to be exempted from the non-mapping report.
+    ['', "\n", "# only a comment\n"].each do |body|
+      h = host(write: body)
+      assert_equal({}, h.pm_config)
+      assert_nil h.pm_config_error, "#{body.inspect} is the operator saying \"no settings\""
+    end
+  end
+
+  # `false` parses, is not a mapping, and is not emptiness. Exempting it would
+  # hand back defaults with nothing said — the failure this guard exists to stop.
+  def test_a_literal_false_is_reported_rather_than_read_as_emptiness
+    h = host(write: "false\n")
+    assert_equal({}, h.pm_config)
+    refute_nil h.pm_config_error, 'literal false was swallowed as "no settings"'
+    assert_match(/FalseClass/, h.pm_config_error)
+  end
+
+  # The guard must not eat a good file: the shipped pm.yml has to survive it.
+  def test_a_usable_file_is_read_and_reports_nothing
+    h = host(write: "digest:\n  dormancy_days: 30\nrecord_ttl_seconds: 99\n")
+    assert_equal 30, h.pm_config['digest']['dormancy_days']
+    assert_equal 99, h.pm_config['record_ttl_seconds']
+    assert_nil h.pm_config_error
+  end
+
+  def test_the_shipped_pm_yml_is_readable
+    shipped = File.expand_path('../config/pm.yml', __dir__)
+    h = host
+    h.define_singleton_method(:pm_config_path) { shipped }
+    assert_nil h.pm_config_error, 'the file this SkillSet ships must pass its own guard'
+    assert_equal 14, h.pm_config['digest']['dormancy_days']
+  end
+
+  # The tool is the path an agent actually takes. It must answer, and it must
+  # carry the reason rather than presenting defaults as the operator's settings.
+  def test_the_digest_tool_answers_and_carries_the_reason
+    dir = Dir.mktmpdir
+    store = ProjectManager::Store.new(path: File.join(dir, 'store.json'))
+    prj = store.register_project(name: 'p', now: Time.utc(2026, 8, 18))
+    store.add_item(project_id: prj['id'], title: 'ember',
+                   now: Time.utc(2026, 8, 18) - (40 * 86_400), salience: 'high')
+
+    File.write(@path, BAD_YAML['tab indent'])
+    path = @path
+    t = KairosMcp::SkillSets::ProjectManagerSkillSet::Tools::PmDigest.allocate
+    t.define_singleton_method(:pm_config_path) { path }
+    t.define_singleton_method(:pm_store) { store }
+
+    out = JSON.parse(t.call({}))
+    refute out.key?('error'), "an unreadable pm.yml still took the tool down: #{out['error'].inspect}"
+    assert_equal 1, out['dormant_neglected'].size, 'the defaults still produced a digest'
+    assert_match(/Psych::SyntaxError/, out['config_error'].to_s)
+  ensure
+    FileUtils.remove_entry(dir) if dir
+  end
+
+  def test_the_digest_tool_says_nothing_when_the_file_is_fine
+    dir = Dir.mktmpdir
+    store = ProjectManager::Store.new(path: File.join(dir, 'store.json'))
+    store.register_project(name: 'p', now: Time.utc(2026, 8, 18))
+
+    File.write(@path, "digest:\n  dormancy_days: 14\n")
+    path = @path
+    t = KairosMcp::SkillSets::ProjectManagerSkillSet::Tools::PmDigest.allocate
+    t.define_singleton_method(:pm_config_path) { path }
+    t.define_singleton_method(:pm_store) { store }
+
+    out = JSON.parse(t.call({}))
+    refute out.key?('config_error'), 'a healthy file must not be reported as ignored'
+  ensure
+    FileUtils.remove_entry(dir) if dir
+  end
+
+  # pm_record reads the record ttl from the same file, and its records are meant
+  # to be permanent. A silent default there would tell an operator who shortened
+  # the ttl that their value was applied when it was not.
+  def record_tool(store)
+    path = @path
+    t = KairosMcp::SkillSets::ProjectManagerSkillSet::Tools::PmRecord.allocate
+    t.define_singleton_method(:pm_config_path) { path }
+    t.define_singleton_method(:pm_store) { store }
+    t.define_singleton_method(:issue_attestation) { |_project, _args| { proof_id: 'proof_1' } }
+    t
+  end
+
+  def test_the_record_tool_carries_the_reason
+    dir = Dir.mktmpdir
+    store = ProjectManager::Store.new(path: File.join(dir, 'store.json'))
+    prj = store.register_project(name: 'p', now: Time.utc(2026, 8, 18))
+
+    File.write(@path, BAD_YAML['bare date'])
+    out = JSON.parse(record_tool(store).call({ 'project_id' => prj['id'],
+                                               'action' => 'shipped', 'summary' => 's' }))
+    refute out.key?('error'), "an unreadable pm.yml took pm_record down: #{out['error'].inspect}"
+    assert_equal true, out['recorded']
+    assert_match(/Psych::DisallowedClass/, out['config_error'].to_s)
+  ensure
+    FileUtils.remove_entry(dir) if dir
+  end
+
+  def test_the_record_tool_says_nothing_when_the_file_is_fine
+    dir = Dir.mktmpdir
+    store = ProjectManager::Store.new(path: File.join(dir, 'store.json'))
+    prj = store.register_project(name: 'p', now: Time.utc(2026, 8, 18))
+
+    File.write(@path, "record_ttl_seconds: 99\n")
+    out = JSON.parse(record_tool(store).call({ 'project_id' => prj['id'],
+                                               'action' => 'shipped', 'summary' => 's' }))
+    refute out.key?('config_error'), 'a healthy file must not be reported as ignored'
+  ensure
+    FileUtils.remove_entry(dir) if dir
+  end
+end

@@ -35,6 +35,12 @@ module ProjectManager
     def initialize(path: nil)
       @path = path || default_path
       @data = load_data
+      # The last state known to be writable, kept as generated JSON. A rollback
+      # restores from this rather than re-reading the file, so it cannot fail the
+      # way the write it undoes did — a store.json that has meanwhile become
+      # unreadable would otherwise leave the rollback with nothing to restore and
+      # the offending value still in place.
+      @committed = JSON.generate(@data)
     end
 
     def default_path
@@ -315,11 +321,50 @@ module ProjectManager
       { 'version' => 1, 'projects' => {}, 'items' => {}, 'attention_days' => {} }
     end
 
+    # The whole write is one unit — generation, mkdir, write, rename. Any failure
+    # restores the last state that reached disk and re-raises, so a caller reports
+    # a refused write instead of losing one. Before this, a value JSON cannot
+    # represent stayed in @data and every later save failed identically, so the
+    # store silently accepted nothing while each caller saw only its own error.
+    #
+    # Rollback discards everything in memory since the last successful save.
+    # Store's own mutators each end in save, so that is normally just the
+    # offending write — but `items`, `projects` and the fetch_* methods hand out
+    # the live hashes, and an edit written straight into one of those is discarded
+    # too. Records returned by this class are for reading; go through a mutator to
+    # keep a change.
+    #
+    # The guard belongs here rather than in apply_item_attrs: every writer passes
+    # through save, and an attribute-level check would leave project names,
+    # provenance entries and attention records unguarded.
+    #
+    # Two residuals, both raised in review and both left open because no current
+    # caller can reach them. Read these before adding a caller that does.
+    #
+    # 1. Rollback rebuilds @data, so a record handed out earlier by items,
+    #    projects or fetch_* is detached from the store afterwards: reads from it
+    #    go stale and writes into it reach nothing. Of the three tools that hold
+    #    a returned record, only pm_record holds one across a save, and it uses
+    #    the id string alone. A caller that keeps a record and edits it after a
+    #    refused write would need this to restore in place instead.
+    # 2. JSON.parse(@committed) is assumed to succeed. It does, because
+    #    @committed is only ever assigned the output of a generate that already
+    #    round-tripped, and tool arguments arrive parsed from JSON so no object
+    #    with its own to_json can enter. A value reaching @data from Ruby rather
+    #    than from a tool could break that.
     def save
-      FileUtils.mkdir_p(File.dirname(@path))
-      tmp = "#{@path}.tmp"
-      File.write(tmp, JSON.pretty_generate(@data))
-      File.rename(tmp, @path)
+      json = nil
+      begin
+        json = JSON.pretty_generate(@data)
+        FileUtils.mkdir_p(File.dirname(@path))
+        tmp = "#{@path}.tmp"
+        File.write(tmp, json)
+        File.rename(tmp, @path)
+      rescue StandardError
+        @data = JSON.parse(@committed)
+        raise
+      end
+      @committed = json
     end
   end
 end
