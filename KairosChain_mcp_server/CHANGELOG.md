@@ -4,6 +4,64 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.74.0] - 2026-08-18
+
+### Fixed
+
+- **Every guard in `project_manager` sat on the reading side, and a value JSON
+  cannot represent walked past all of them and wedged the store.** Generation ran
+  before `File.write`, so the file survived and `@data` did not: the bad value
+  stayed in memory and every later save in the process failed identically. The
+  store went on silently accepting nothing while each caller saw only its own
+  error, and the digest counted items that were never written. Measured on a
+  probe: a title carrying a lone surrogate raised, and so did the next perfectly
+  ordinary write; 0 items on disk against 2 in memory. `Store#save` now treats
+  generation, `mkdir`, write and rename as one unit, and any failure restores
+  `@committed` — the last state that reached disk, held in memory and advanced
+  only after a write completes — before re-raising. Restoring from memory rather
+  than by re-reading the file matters because a `store.json` that had itself
+  become unreadable would otherwise leave the rollback with nothing to restore.
+  What rollback discards is stated rather than glossed: everything in memory since
+  the last successful save, including an edit written straight into a record
+  handed out by `items` or `fetch_*`. Records returned by the store are for
+  reading; go through a mutator to keep a change.
+- **`pm.yml` is the one file an operator is invited to edit and `skillset upgrade`
+  never repairs it, so a bad edit was permanent — and it returned an error from
+  every pm tool at once.** `YAML.safe_load_file` is strict: 5 of 5 ordinary edits
+  raise (tab indent, unclosed quote, bare date, `&anchor`/`*alias`, `:symbol`),
+  and the raise landed one level above every guard the tools carry. The read now
+  falls back to the defaults — but falling back is only half a fix, because
+  defaults wearing the operator's settings are worse than the outage they replace.
+  The reason is kept in `pm_config_error`, `pm_digest` and `pm_record` carry it as
+  `config_error`, and the secretary is told to say it **before** the buckets and
+  to state that the report was built on defaults and is not comparable to a
+  configured one. A document that parses but is not a mapping is reported the same
+  way, `false` included; only `nil` means "no settings", which an empty file, a
+  newline-only file and a comment-only file all produce (3 of 3 measured).
+  `ToolHelpers#pm_digest` carried the same hole and had no caller, so it is
+  deleted rather than guarded.
+- **Two rounds of review, and the second round's fixes came from findings the
+  first round's fixes created.** Round 1 returned 1 APPROVE of 3 seats with six
+  blocking findings; all six were checked against the code before acting and all
+  six were real. Round 2 returned 2 of 3. One correction runs the other way: a
+  finding claimed an operator's shortened record ttl would be silently replaced,
+  but the shipped value and the built-in default are the same 100 years, so only
+  an operator who changed it is affected — the gap was real, the stated magnitude
+  was not. Two residuals are shipped open, both unreachable from any of the five
+  tool entry points and both recorded at the call site as well as in the store:
+  rollback detaches previously returned records (0 of 3 holders are harmed today),
+  and `JSON.parse(@committed)` is assumed to succeed (tool arguments arrive parsed
+  from JSON, so no object with its own `to_json` can enter).
+- **The mutant set grew from 8 to 14 and one of its own results was thrown out.**
+  Mutant 18-d first read as a survivor; the mutation was malformed, splitting the
+  `begin` block while leaving the original `rescue` attached to the second half,
+  so the mutant still rolled back and was equivalent rather than surviving.
+  Rewritten as a whole-method replacement it is killed. 14 of 14 killed, including
+  the two a reviewer predicted would survive. Suite: 78 runs, 259 assertions.
+  Still uncovered, and recorded as such: `secretary.md` is prose, so deleting the
+  paragraph it gained passes all 14 mutants — as would deleting any other rule in
+  that file, since nothing in this SkillSet inspects what the secretary produces.
+
 ## [3.73.0] - 2026-08-17
 
 ### Fixed
