@@ -4,6 +4,79 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.75.0] - 2026-08-21
+
+### Added
+
+- **`minimum_nomic` 0.3.0 — the post-game analysis is now a fixed four-stage
+  procedure, settled by running it after five rounds of design review failed to
+  converge.** Blocking findings across those rounds ran 22, 19, 26, 50, 47, and
+  the last two returned no APPROVE from any of the four reviewer seats, so the
+  measurement was implemented and observed instead of specified further. The
+  stages are: free scoring (`reanalyse.rb`), scoring under the analysts' own
+  distilled standards (`distil_criterion.rb` → `criterion_matrix.rb`), measures
+  the analysts propose as executable code (`propose_metric.rb`), and
+  repeatability plus mutation (`mutate.rb` / `mutate_rule.rb` →
+  `judge_change.rb`). No stage supplies a definition of metacognition; every
+  definition in play is written by an analyst.
+- **Stage 2 moves into the SkillSet from `log/minimum_nomic_gm_20260810/`,** where
+  a ten-game corpus list, a scoring-pass digest and a model-to-adapter table were
+  written into the source and made the scripts unusable on any other corpus.
+  `distil_criterion.rb` now takes a corpus directory, picks the guideline
+  covering the most games and prints the ones it leaves out, and reads each
+  model's adapter from the lineups — aborting when one model appears under two
+  adapters rather than choosing silently. `criterion_matrix.rb` takes
+  `--criteria` and reaches a judge through the adapter recorded when its standard
+  was distilled.
+- **`propose_metric.rb`** asks each analyst for a procedure that counts
+  metacognition, as code, and runs it once on a disposable copy of the corpus
+  under an environment carrying no credentials. It is not repaired, not
+  rewritten, not re-run; the ran/failed count is an observation and is never
+  compared. A submitted procedure runs with the invoking user's permissions —
+  the disposable copy protects the records and nothing protects the host.
+- **`mutate_rule.rb`** rewrites one initial rule body, editing only the rule set
+  carried in `lineup.jsonl`, so the utterances still describe conduct under the
+  original rule and `calls.jsonl` still holds what players were actually handed.
+  The lie sits in exactly one place. It refuses to overwrite an output directory,
+  to make more than one substitution, or to leave a scar, and re-reads the arm it
+  wrote to confirm exactly one rule body differs.
+- **`judge_change.rb`** puts two analyses of one game side by side, blinded as X
+  and Y from a recorded seed, and asks a model whether the assessment changed.
+  Both experiments of stage 4 need that one question answered.
+- **`test/test_propose_metric.rb`** — 16 checks over the extraction and the
+  runner without calling a model, 5 of them falsifications: a crashing submission
+  is not scored as having run even though it left output, a silent clean exit is,
+  an unfenced reply is not salvaged into code, a submission that deletes the
+  corpus cannot reach the original, and no environment variable crosses into the
+  child.
+
+### Measured, and recorded in the SkillSet README
+
+- **Stage 4's verdict does not work.** On one game with `Rule 105` rewritten from
+  unanimity to simple majority, the repeatability floor came back 9 of 9 CHANGED
+  and the mutated arm 9 of 9. What the judges pointed AT still separated them —
+  all 3 judges reading one analyst's pair named the Rule 105 misreading, none did
+  in the floor pair. Use the script for what its judges write, not for the tally
+  it prints. Counting occurrences of the substituted word does not work either:
+  one analyst says "majority" 4 and 2 times in the two clean readings and 5 in
+  the mutated one while detecting nothing.
+- **Stage 2's own premise failed.** Holding the standard fixed left a 1.94-point
+  spread across judges against a 1.12-point spread across standards, so the judge
+  still moves the number more than the standard does. The own-standard premium
+  did not appear either: 4 diagonal cells averaged 5.50 against 5.88 for the 12
+  off-diagonal ones. The GAPS block was answered NONE in 0 of 16 cells, every
+  judge converging on the same four holes — whether proposing implies an
+  affirmative vote, how to read a wholly empty turn, which side to weight when
+  private reasoning and public utterance diverge, and whether the game master's
+  narrower action space belongs on the same scale.
+- **Stage 3, first pass:** 2 of 3 submissions ran. The one that failed died on
+  `text.split()` against the 8 utterances of 391 whose text is null. One reply
+  contained 8 fabricated tool calls with fabricated results, citing a path that
+  exists but is empty and quoting lines that appear nowhere in the corpus.
+- Only 9 of 24 games carry `rules_initial` in their lineup, which
+  `mutate_rule.rb` needs. The other 15 predate recorded rule bodies. No
+  workaround is provided; run more games instead.
+
 ## [3.74.0] - 2026-08-18
 
 ### Fixed
