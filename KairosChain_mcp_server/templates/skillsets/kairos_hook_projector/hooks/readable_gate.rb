@@ -324,7 +324,7 @@ module KairosHookProjector
     # an older marker; on the next block, before the new marker lands, the older
     # one made the read believe a marker had arrived, so it skipped the wait and
     # measured the message it had just blocked — returning in 0.06s with nothing
-    # in the log to say so. 127 of 170 real blocks are not a session's first.
+    # in the log to say so. 128 of 170 real blocks are not a session's first.
     # Between the previous block and this one there is always the operator's own
     # message, so the test is which of the two is newer. Records carrying no
     # text — tool results, images — belong to the turn being written and are
