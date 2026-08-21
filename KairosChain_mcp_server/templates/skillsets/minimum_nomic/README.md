@@ -54,6 +54,16 @@ stored record, so changing the guideline costs no replay. Results append to
 that produced it, and the game's own record is never touched — two read-outs of
 the same game stay distinguishable instead of merging.
 
+The four-stage procedure below adds five more, run from the same directory:
+
+```
+ruby .../bin/distil_criterion.rb CORPUS_DIR                      # stage 2, first half
+ruby .../bin/criterion_matrix.rb GAME_DIR AUTHOR JUDGE --criteria CORPUS_DIR/criteria
+ruby .../bin/propose_metric.rb   CORPUS_DIR --out OUT             # stage 3
+ruby .../bin/mutate_rule.rb      GAME_DIR --out MUT               # stage 4
+ruby .../bin/judge_change.rb     --a MUT/clean --b MUT/rule_105 --out OUT
+```
+
 `cross_model.rb` analyses a stored game with **one named model at a named
 reasoning effort**, instead of the panel recorded in the game's own line-up. It
 exists because `reanalyse.rb` reads the panel from the game, which is right for
@@ -70,6 +80,111 @@ games ran `claude-opus-4-6` at medium and `claude-opus-5` at high, so any
 comparison that reuses both stored panels confounds generation with effort. Held
 fixed at medium over the same 27 mutated records, the two generations tied at 16
 detections each — and not on the same 16.
+
+## The four stages of analysis
+
+Fixed on 2026-08-21 after five rounds of design review failed to converge and the
+procedure was settled by running it instead. The order matters: each stage takes
+its material from the one before it, and no stage supplies a definition of
+metacognition. Every definition in play comes from an analyst.
+
+```
+  1  free scoring          reanalyse.rb
+        Analysts read the record under ANALYSIS_GUIDELINE and return prose, a
+        LENS block stating the standard they applied, a TEN block, and 0-10
+        scores. The scores cannot rank models (see the next section); the LENS
+        blocks are what stage 2 consumes.
+
+  2  scoring under a       distil_criterion.rb  ->  criterion_matrix.rb
+     stated standard
+        Each analyst restates its own LENS blocks as one game-independent
+        standard. Every game is then re-scored under every standard by every
+        analyst. The diagonal — an analyst under its own standard — is the
+        control, and the gap to the off-diagonal is its own-standard premium.
+
+  3  proposed measures     propose_metric.rb
+        Each analyst is asked for a procedure that counts metacognition, as
+        executable code, and the code is run once on a disposable copy. It is
+        not repaired, rewritten or re-run. What is kept is the proposals plus
+        what happened; the run/fail count is not a score and is not compared.
+
+  4  repeatability and     reanalyse.rb x2  /  mutate.rb  /  mutate_rule.rb
+     mutation                 ->  judge_change.rb  /  score_detections.rb
+        Two experiments sharing one question. Repeatability re-runs stage 1
+        unchanged and measures how far an assessment moves on its own; that is
+        the floor. Mutation plants one lie — a reversed vote, or one rewritten
+        rule body — and asks whether the assessment moves further than the
+        floor.
+```
+
+**What the first full pass found, 2026-08-21.** Recorded here because it bounds
+what each stage can currently be used for.
+
+Stage 2, one game (`t100_g1`) scored under 4 distilled standards by 4 judges,
+16 of 16 cells returning. **Fixing the standard did not remove the judge
+effect,** which is what this stage was built to test:
+
+```
+  spread across judges, standard held fixed      1.94 points
+  spread across standards, judge held fixed      1.12 points
+  spread across the participants being judged    3.31 points
+      (A 4.25, B 5.19, C 7.56, GM 6.12, averaged over all 16 cells)
+```
+
+The judge still moves the number more than the standard does. What did change is
+the third figure: in the free pass the judged spread was 0.67-0.71 against a
+judge spread of 1.35-1.50, and under a fixed standard the judged spread is the
+largest of the three. One game, so that is an observation and not a rate.
+
+The own-standard premium did not appear. The four diagonal cells averaged 5.50
+and the twelve off-diagonal cells 5.88 — judges were slightly HARSHER under
+their own standard, not softer.
+
+The GAPS block was answered NONE in **0 of 16 cells**. Every judge reported the
+supplied standard leaving something undecided, and they converge on the same
+four holes: whether proposing implies an affirmative vote (4 judges), how to read
+an entirely empty turn where both the utterance and the reasoning block are blank
+(4 judges), which side to weight when private reasoning and public utterance
+diverge (3 judges), and whether the game master's much narrower action space can
+be scored on the same scale (2 judges). Those are unresolved questions in the
+GAME, surfacing as gaps in every standard rather than as a defect in any one of
+them.
+
+The distillation itself is worth reading before the scores. Three of the four
+analysts reported their own statements disagreeing with one another, as the task
+requires rather than smoothing over: `claude-opus-4-6` on whether modelling other
+participants is metacognitive evidence at all (2 statements exclude it, 1 makes
+it a top-three criterion; it kept the exclusion), `claude-opus-5` on whether a
+costly act counts without evidence the cost was priced, and `composer-2.5` on
+strategic success (1 statement of 10 credits it, 7 decline). All four declined to
+count cleverness, winning and eloquence — a convergence nothing in the harness
+asked for. The material is uneven: `composer-2.5` and `gpt-5.6-sol` distilled
+from 10 games each, `claude-opus-4-6` and `claude-opus-5` from 5.
+
+Stage 3, on a 24-game corpus with the panel `composer-2.5`, `gpt-5.6-sol`,
+`claude-opus-4-6`: 2 of 3 submissions ran. The one that failed died on
+`text.split()` against the 8 utterances of 391 whose `text` is null — records of
+calls that failed. The two that ran took metacognition to mean different things
+and neither said so was a problem. One reply also contained 8 fabricated tool
+calls with fabricated results, citing a path that exists but is empty and
+quoting lines that appear nowhere in the corpus.
+
+Stage 4, on one game with one rewritten rule body (`Rule 105`, unanimity ->
+simple majority, cited 14 times in that game's public log): **the CHANGED /
+UNCHANGED verdict saturates and is unusable.** The floor was 9 of 9 CHANGED and
+the mutated arm was also 9 of 9. What judges pointed AT still separated them —
+all 3 judges reading analyst B's pair named the Rule 105 misreading, and no judge
+named anything of the kind in the floor pair. Counting occurrences of the
+substituted word does not separate them: analyst C mentions "majority" 4 and 2
+times in the two clean readings and 5 times in the mutated one, without ever
+detecting anything.
+
+So: use `judge_change.rb` for what its judges WRITE, not for the verdict it
+tallies. One game, three analysts, one rule — not a rate.
+
+Only 9 of the 24 games carry `rules_initial` in their lineup, and
+`mutate_rule.rb` needs it. The other 15 predate recorded rule bodies and cannot
+carry a rule mutation. No workaround is provided; run more games instead.
 
 ## Measuring an analyst instead of trusting its score
 
