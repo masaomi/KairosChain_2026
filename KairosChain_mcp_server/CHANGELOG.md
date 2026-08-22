@@ -4,6 +4,83 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.76.0] - 2026-08-22
+
+### Changed
+
+- **L1 `multi_llm_review_workflow` 3.10.2 → 3.11.0 — three norms and one
+  recorded open question, for three failures the operator named and one request
+  he made.** The failures: an orchestrator issuing different criteria each
+  round, the APPROVE ratio operating as the close condition, and design reviews
+  descending into code. The request: bound mutation experiments. Four rules were
+  drafted, reviewed over three rounds, applied, reviewed once more as applied
+  text — one APPROVE of four seats, eighteen blocking findings — and revised
+  subtractively. What ships is narrower than what was drafted, which is the
+  point: this entry's own § Revision Discipline records that deletions drew zero
+  new P0s in every measured case and additions became the next round's
+  battleground.
+
+  **§ Prompt Generation Rules gains a recording duty on the round's
+  instrument** — what a seat is told to look for, how much of the artifact it is
+  given, and which seats answer. It bounds nothing: narrowing criteria, cutting
+  scope and convening a different panel are each a documented remedy for
+  something. It forbids moving the instrument and then reading the resulting
+  change in finding counts as a property of the artifact. It was drafted around
+  criteria alone, which left scope and panel composition — two channels that
+  move the count just as well — outside it.
+
+  **§ Review Types gains the phase rule as an invariant with no branches**: a
+  review answers at the phase of its target and does not descend. Design and
+  Document reviews read code only to refute a factual claim and write none;
+  implementation review is where fixes are written. Two enumerated sentences
+  drafted with it are not here. "An implementation-phase finding that reopens
+  the design belongs to the backlog" collided with this entry's own "any (a) or
+  (b) REJECT or FAIL = revise and re-review" over exactly the
+  design-implementation seam it calls the most valuable layer, and pre-answered
+  the operator question § Revision Discipline rule 1 requires. "Fix plan and
+  Final/convergence reviews inherit the phase of the artifact they check" gave
+  those two nothing to inherit, no phase being assigned to a fix plan anywhere.
+  The `<structured_output_contract>` line drops "consider improving" without
+  enumerating review types, because the enumerated form left this entry's own
+  knowledge/documentation-update review unassigned.
+
+  **The mutation norm is one sentence inside the phase rule and assigns no
+  party**: a green suite is not evidence until its tests have been shown to
+  fail, and a pass whose sites the code's author chose measures the author's
+  attention, not the suite. It was drafted as a seventh item in Step -1 carrying
+  the duty "whoever chooses the sites is not whoever wrote the code", and no
+  party in this entry can discharge that — before dispatch the only actor is the
+  orchestrator, which § Roles makes the same context as the implementer, and
+  review seats run sandboxed read-only and cannot execute anything. Stated as a
+  property of evidence rather than a duty on someone, it holds wherever a
+  mutation result is read. The bound the operator asked for is not here and the
+  omission is open, not settled: the recorded decision is to accumulate three
+  runs and then judge.
+
+  **Withdrawn in the same version: a rule making each seat label its own
+  findings new or carryover.** A seat sees only its own priors, so a finding one
+  seat raises after another raised it is new to that seat and carryover to the
+  round, and a seat added or returning mid-thread has no priors at all, making
+  every finding it raises new by construction — the machine-side signal "new
+  (a)+(b) P0 = 0" is then not computable from seat labels. § Convergence Rules
+  records that who makes the label is undecided and that the orchestrator makes
+  it meanwhile, which is the biased judge the withdrawn rule was written to
+  replace. Its paired edits revert with it, which also removes "the round number
+  is never written into a prompt" — that sentence contradicted § Output
+  Directive's MUST that the prompt carry `review{N}` in the output path, and an
+  orchestrator obeying it would have had round N+1 overwrite round N.
+
+  A fifth proposed rule, an exception for self-referential reviews, was dropped
+  before the version was written, after four reviewer contexts — occupying two
+  of that round's three counted seats — shot it on three independent grounds.
+
+  Across all four review rounds the thing most often refuted was not the rules
+  but the change's account of itself. The pre-flight falsifier for the applied
+  round refuted 8 of 22 checked claims, three of them inside the version entry;
+  the correction to those three introduced a fourth false claim, which the round
+  then refuted. Every such claim is a record summarised without its denominator
+  or its condition.
+
 ## [3.75.0] - 2026-08-21
 
 ### Added
