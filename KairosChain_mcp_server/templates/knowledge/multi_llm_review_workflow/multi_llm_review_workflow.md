@@ -1671,18 +1671,29 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   gains item 7**, the mutation pass, implementation-phase only: a green suite is
   not evidence until its tests have been shown to fail, and a self-authored
   pass is not a measurement of itself. The bound the operator asked for is not
-  in it — three rounds of review found no evidence for a number, so the pass
-  records what it did not reach instead of stopping at a cap. Evidence for the
-  self-authored clause: a Ruby port whose author's harness ran 36 mutations and
-  killed 36, where reviewers then chose 12 sites disjoint from that harness and
-  11 survived, exposing 10 unheld guards in a 112-line region neither suite had
-  ever called (L2 `pm_mutation_measurement_and_g1_arbitration_20260822`). Design
+  in it, and the omission is provisional rather than settled. The proposed bound
+  — three mutation sites per finding under verification — appeared in the first
+  draft only, was shot in round 1 on two grounds (the sites are not commensurable
+  across findings; a count is mechanism in the body), and was removed by operator
+  arbitration before round 2, so rounds 2 and 3 reviewed drafts carrying no bound
+  and are not evidence about one either way. The recorded decision is to
+  accumulate three runs and then judge whether a bound is needed, and the draft
+  states in its own open-questions section that the grounds for omitting it are
+  weak. Until then the pass records what it did not reach instead of stopping at
+  a cap. Evidence for the self-authored clause: a Ruby port whose author's
+  harness ran 36 mutations and killed 36, where reviewers then chose 12 sites
+  disjoint from that harness and 11 survived, exposing 10 unheld guards — six of
+  them in the file whose `derive`, `report` and `main`, 112 lines, neither suite
+  had ever called, which is the structural cause of three of the findings and not
+  the location of all ten (L2
+  `pm_mutation_measurement_and_g1_arbitration_20260822`). Design
   history: three review rounds, new (a)+(b) P0 47 → 19 → 13, zero APPROVE of 3
   seats in every round, closed by operator declaration rather than convergence —
   because what kept being shot was the draft's account of itself, not the rules
   it proposed, and the last round's defect was a ledger of finding identifiers
   that no design change can fix. A fifth proposed rule, an exception for
-  self-referential reviews, was dropped: four seats shot it independently.
+  self-referential reviews, was dropped after four reviewer contexts — occupying
+  two of that round's three counted seats — shot it on three independent grounds.
   Records: L2 `handoff_mlr_l1_norms_revision_three_rounds_and_switch_to_implementation_20260821`
 
 **Key insight**: Design reviews and implementation reviews find
