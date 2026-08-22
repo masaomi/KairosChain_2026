@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.10.2"
+version: "3.11.0"
 tags:
   - workflow
   - review
@@ -38,7 +38,9 @@ For **development lifecycle** (design → implement → verify), see: `design_to
 > numbers below as one loop's evidence, not a law.
 
 Before dispatching round 1 — and again whenever the review TARGET changes —
-write a review spec and declare it frozen for the round:
+write a review spec and declare it frozen for the round. Item 7 additionally
+runs before every implementation-phase round: the target may be unchanged while
+the code under it is not. Then:
 
 1. **Pre-declare the pass condition** (per `loop_validation`: spec before
    judgement, fail-closed). State what APPROVE requires. A loop whose target
@@ -53,12 +55,15 @@ write a review spec and declare it frozen for the round:
 3. **Cap fixes per round (≤5)** and write one line per fix: *what this fix
    newly claims* (values pinned, ranges narrowed, failure visibility
    changed). A fix that cannot state its new claims is doing more than the
-   finding asked.
+   finding asked. A round that moves its instrument records that it moved it
+   (§ Prompt Generation Rules). That is a recording duty; unlike the cap
+   above, it bounds nothing.
 4. **Pre-flight falsifier.** Before dispatch, one agent whose only job is to
    refute every factual claim in the spec and artifact — especially numbers
    and "X does not exist" claims. In this loop it caught real errors before
    every single dispatch (3 + 1 + 0 refuted across R13–R15); rounds without
-   it had returned the same errors as P0s.
+   it had returned the same errors as P0s. The falsifier covers what the
+   prose claims; item 7 covers what the tests claim.
 5. **Check threshold reachability before dispatching.** Compute the maximum
    achievable approve count from live slots; if the threshold is
    unreachable, declare the exhaustion path up front (the frozen design's
@@ -67,6 +72,15 @@ write a review spec and declare it frozen for the round:
 6. **Reference originals by path + sha256; do not transcribe.** Reviewers
    read the repository; the artifact carries the manifest. Transcription
    errors are undetectable and 100KB+ pastes rot.
+7. **Mutation pass — implementation-phase reviews only.** A green suite is
+   not evidence until its tests have been shown to fail. Break the code
+   deliberately, inside the harness, and confirm the suite goes red. A
+   survivor is either a gap or an equivalent mutant, and the pass says
+   which. A pass that stops short records what it did not reach; a
+   truncated pass reported as complete makes green look like evidence.
+
+   **A self-authored pass is not a measurement of itself.** Whoever chooses
+   the sites is not whoever wrote the code.
 
 Corollaries observed in the same loop: fix the *class*, and fix every copy —
 a corrected lib comment whose refuted twin survives in a test file costs a
@@ -563,6 +577,13 @@ Rules:
 | Document review | Accuracy, completeness, consistency | Document text | Grant applications, papers |
 | Final/convergence review | All prior findings resolved, no new issues | Resolution matrix + revised artifact | Before merge |
 
+**A review answers at the phase of its target and does not descend.** Design
+review and Document review read code only to refute a factual claim the
+artifact makes about an existing system, and write none. Implementation review
+is where fixes are written. An implementation-phase finding that reopens the
+design belongs to the backlog. Fix plan and Final/convergence reviews are not
+phases of their own — each inherits the phase of the artifact it checks.
+
 ## LLM Role Differentiation
 
 Without explicit instruction, different LLMs naturally focus on different verification layers:
@@ -601,9 +622,12 @@ numerator moved. Do not treat a reached ratio as sufficient on its own either:
 check what the approving replies actually said before counting them.
 
 **Count carryover and new (a)/(b) P0s separately; the machine-side signal of
-convergence is "new P0 = 0", not the APPROVE ratio.** Require each persona to
+convergence is "new P0 = 0", not the APPROVE ratio.** Require each **seat** to
 state a closure verdict on its own prior-round P0s — closed / open /
-half-closed, with grounds. This format is validated live (chain erasure
+half-closed, with grounds. **A finding a seat raises that matches none of its
+own prior findings is new, and the seat says so; that judgement is the seat's,
+because a context deciding which of its own findings are new is deciding when
+its own artifact converges.** This format is validated live (chain erasure
 R6–R8) and is what makes the carryover/new split computable. A round whose
 (a)+(b) findings are all carryover with closure verdicts, and whose revision
 drew zero new P0s (observed without exception when the revision was
@@ -1202,6 +1226,18 @@ Every review prompt MUST include these 7 items:
 
 All prompt content MUST be in **English** for consistent parsing across LLM tools.
 
+**A round that changes the criteria a seat is told to apply records the
+change.** Much of a prompt varies by construction — the artifact, the target
+and scope, the prior findings a round asks a seat to verdict. What must not
+vary silently is what the seat is told to look for. When a round alters that,
+it says so on the record, in one line, naming what changed and why.
+
+This is a recording duty, not a prohibition. An orchestrator may narrow or
+widen a seat's criteria mid-thread; one of the documented remedies for a seat
+returning no verdict does exactly that. What it may not do is alter the
+criteria and then read the resulting change in finding counts as a property of
+the artifact.
+
 ### Reviewer incentive rule
 
 **Never tell a reviewer — subprocess or persona — that its finding count is
@@ -1211,15 +1247,17 @@ deliverable, and that selects for finding-*production* over finding-*weight*
 (observed 2026-08-06: an orchestrator wrote "your finding count is compared
 across rounds" into persona prompts during the project_orientation_report
 loop; of the round's 7 P0s, 3 were factually correct findings that cost
-nobody anything). Convergence — carryover vs new, (a)+(b) exhaustion, the
-ratio — is measured by the orchestrator from the record, after the replies
-are in. The reviewer receives the artifact, the review criteria, and the
-prior findings it must verify. Nothing else about the loop's state.
+nobody anything). Convergence — (a)+(b) exhaustion, the ratio — is measured by
+the orchestrator from the record, after the replies are in. The reviewer
+receives the artifact, the review criteria, and the prior findings it must
+verify. Nothing else about the loop's state.
 
 What this rule does NOT forbid: passing prior findings for closure
-verification (rule #4 — that is content, not score-keeping), and the
-carryover/new split in § Convergence Rules (that is orchestrator-side
-bookkeeping the reviewer never sees).
+verification (rule #4 — that is content, not score-keeping), and the closure
+verdict's corollary, a seat saying which of its own findings are carried and
+which are not. The seat is reading content it was given. Aggregate counts, the
+ratio, and the round number stay orchestrator-side and are never written into
+a prompt.
 
 ### XML Block Structure for Review Prompts
 
@@ -1247,7 +1285,9 @@ For each finding:
 - **What can go wrong**: concrete failure scenario
 - **Why this is vulnerable**: code path or design gap
 - **Likely impact**: data loss, security breach, silent corruption, etc.
-- **Recommended fix**: specific change (not "consider improving")
+- **Recommended fix**: for an implementation review, the specific change (not
+  "consider improving"). For a design or document review, the specific claim
+  that does not hold — not code, tests or a diff.
 </structured_output_contract>
 
 <grounding_rules>
@@ -1610,6 +1650,40 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   2026-08 threads actually closed in — driven through the real renderer, a round
   with zero new and one carryover (a) at 1 of 2 seats approving reports
   "GATE NOT PASSED" under the old rule and "FREEZE CANDIDATE" under this one.
+
+- Four norms for defects the loop had been absorbing by hand (v3.11.0,
+  2026-08-22): the operator named three recurring failures — an orchestrator
+  issuing different criteria each round, the APPROVE ratio operating as the
+  close condition, and design reviews descending into code — plus a request to
+  bound mutation experiments. Four rules land, one per failure. **§ Prompt
+  Generation Rules** gains a recording duty: a round that changes what a seat
+  is told to look for says so on the record. It bounds nothing, because
+  narrowing a seat's criteria is itself a documented remedy for a no_verdict
+  seat; what it forbids is reading the resulting change in counts as a property
+  of the artifact. **§ Convergence Rules** moves the carryover/new judgement to
+  the seat — a context deciding which of its own findings are new is deciding
+  when its own artifact converges — which required the Reviewer incentive rule
+  to stop calling that split orchestrator-side bookkeeping the reviewer never
+  sees. Aggregate counts, the ratio and the round number stay orchestrator-side
+  as before. **§ Review Types** gains the phase rule, and the output contract
+  at `<structured_output_contract>` is split by phase so that a design review
+  is asked for the claim that does not hold rather than for a change. **Step -1
+  gains item 7**, the mutation pass, implementation-phase only: a green suite is
+  not evidence until its tests have been shown to fail, and a self-authored
+  pass is not a measurement of itself. The bound the operator asked for is not
+  in it — three rounds of review found no evidence for a number, so the pass
+  records what it did not reach instead of stopping at a cap. Evidence for the
+  self-authored clause: a Ruby port whose author's harness ran 36 mutations and
+  killed 36, where reviewers then chose 12 sites disjoint from that harness and
+  11 survived, exposing 10 unheld guards in a 112-line region neither suite had
+  ever called (L2 `pm_mutation_measurement_and_g1_arbitration_20260822`). Design
+  history: three review rounds, new (a)+(b) P0 47 → 19 → 13, zero APPROVE of 3
+  seats in every round, closed by operator declaration rather than convergence —
+  because what kept being shot was the draft's account of itself, not the rules
+  it proposed, and the last round's defect was a ledger of finding identifiers
+  that no design change can fix. A fifth proposed rule, an exception for
+  self-referential reviews, was dropped: four seats shot it independently.
+  Records: L2 `handoff_mlr_l1_norms_revision_three_rounds_and_switch_to_implementation_20260821`
 
 **Key insight**: Design reviews and implementation reviews find
 **categorically different bugs**. Both phases are necessary.
