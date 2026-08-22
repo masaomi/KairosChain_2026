@@ -38,9 +38,7 @@ For **development lifecycle** (design → implement → verify), see: `design_to
 > numbers below as one loop's evidence, not a law.
 
 Before dispatching round 1 — and again whenever the review TARGET changes —
-write a review spec and declare it frozen for the round. Item 7 additionally
-runs before every implementation-phase round: the target may be unchanged while
-the code under it is not. Then:
+write a review spec and declare it frozen for the round:
 
 1. **Pre-declare the pass condition** (per `loop_validation`: spec before
    judgement, fail-closed). State what APPROVE requires. A loop whose target
@@ -62,8 +60,7 @@ the code under it is not. Then:
    refute every factual claim in the spec and artifact — especially numbers
    and "X does not exist" claims. In this loop it caught real errors before
    every single dispatch (3 + 1 + 0 refuted across R13–R15); rounds without
-   it had returned the same errors as P0s. The falsifier covers what the
-   prose claims; item 7 covers what the tests claim.
+   it had returned the same errors as P0s.
 5. **Check threshold reachability before dispatching.** Compute the maximum
    achievable approve count from live slots; if the threshold is
    unreachable, declare the exhaustion path up front (the frozen design's
@@ -72,15 +69,6 @@ the code under it is not. Then:
 6. **Reference originals by path + sha256; do not transcribe.** Reviewers
    read the repository; the artifact carries the manifest. Transcription
    errors are undetectable and 100KB+ pastes rot.
-7. **Mutation pass — implementation-phase reviews only.** A green suite is
-   not evidence until its tests have been shown to fail. Break the code
-   deliberately, inside the harness, and confirm the suite goes red. A
-   survivor is either a gap or an equivalent mutant, and the pass says
-   which. A pass that stops short records what it did not reach; a
-   truncated pass reported as complete makes green look like evidence.
-
-   **A self-authored pass is not a measurement of itself.** Whoever chooses
-   the sites is not whoever wrote the code.
 
 Corollaries observed in the same loop: fix the *class*, and fix every copy —
 a corrected lib comment whose refuted twin survives in a test file costs a
@@ -580,9 +568,9 @@ Rules:
 **A review answers at the phase of its target and does not descend.** Design
 review and Document review read code only to refute a factual claim the
 artifact makes about an existing system, and write none. Implementation review
-is where fixes are written. An implementation-phase finding that reopens the
-design belongs to the backlog. Fix plan and Final/convergence reviews are not
-phases of their own — each inherits the phase of the artifact it checks.
+is where fixes are written, and is also where a green suite is not evidence
+until its tests have been shown to fail — a mutation pass whose sites the
+code's author chose measures the author's attention, not the suite.
 
 ## LLM Role Differentiation
 
@@ -624,10 +612,15 @@ check what the approving replies actually said before counting them.
 **Count carryover and new (a)/(b) P0s separately; the machine-side signal of
 convergence is "new P0 = 0", not the APPROVE ratio.** Require each **seat** to
 state a closure verdict on its own prior-round P0s — closed / open /
-half-closed, with grounds. **A finding a seat raises that matches none of its
-own prior findings is new, and the seat says so; that judgement is the seat's,
-because a context deciding which of its own findings are new is deciding when
-its own artifact converges.** This format is validated live (chain erasure
+half-closed, with grounds. **Who labels a finding new versus carryover is
+undecided.** The seat-side answer — each seat labelling against its own prior
+findings — was written into this section on 2026-08-22 and removed the same day:
+a seat sees only its own priors, so a finding one seat raises after another seat
+raised it is new to that seat and carryover to the round, and a seat added or
+returning mid-thread has no priors at all, making every finding it raises new by
+construction. Until this is answered, the orchestrator makes the call, knowing
+that it is the context whose artifact the call converges. This format is
+validated live (chain erasure
 R6–R8) and is what makes the carryover/new split computable. A round whose
 (a)+(b) findings are all carryover with closure verdicts, and whose revision
 drew zero new P0s (observed without exception when the revision was
@@ -1226,17 +1219,18 @@ Every review prompt MUST include these 7 items:
 
 All prompt content MUST be in **English** for consistent parsing across LLM tools.
 
-**A round that changes the criteria a seat is told to apply records the
-change.** Much of a prompt varies by construction — the artifact, the target
-and scope, the prior findings a round asks a seat to verdict. What must not
-vary silently is what the seat is told to look for. When a round alters that,
-it says so on the record, in one line, naming what changed and why.
+**A round that changes its instrument records the change.** The instrument is
+whatever bounds what the round can find: what a seat is told to look for, how
+much of the artifact it is given, and which seats answer. Some of a prompt
+varies by construction — the artifact itself, the prior findings a round asks a
+seat to verdict — and that is not the instrument. When a round moves the
+instrument, it says so on the record, in one line, naming what moved and why.
 
-This is a recording duty, not a prohibition. An orchestrator may narrow or
-widen a seat's criteria mid-thread; one of the documented remedies for a seat
-returning no verdict does exactly that. What it may not do is alter the
-criteria and then read the resulting change in finding counts as a property of
-the artifact.
+This is a recording duty, not a prohibition. An orchestrator may narrow a
+seat's criteria mid-thread, cut the scope, or convene a different panel; each
+of those is a documented remedy for something. What it may not do is move the
+instrument and then read the resulting change in finding counts as a property
+of the artifact.
 
 ### Reviewer incentive rule
 
@@ -1247,17 +1241,15 @@ deliverable, and that selects for finding-*production* over finding-*weight*
 (observed 2026-08-06: an orchestrator wrote "your finding count is compared
 across rounds" into persona prompts during the project_orientation_report
 loop; of the round's 7 P0s, 3 were factually correct findings that cost
-nobody anything). Convergence — (a)+(b) exhaustion, the ratio — is measured by
-the orchestrator from the record, after the replies are in. The reviewer
-receives the artifact, the review criteria, and the prior findings it must
-verify. Nothing else about the loop's state.
+nobody anything). Convergence — carryover vs new, (a)+(b) exhaustion, the
+ratio — is measured by the orchestrator from the record, after the replies
+are in. The reviewer receives the artifact, the review criteria, and the
+prior findings it must verify. Nothing else about the loop's state.
 
 What this rule does NOT forbid: passing prior findings for closure
-verification (rule #4 — that is content, not score-keeping), and the closure
-verdict's corollary, a seat saying which of its own findings are carried and
-which are not. The seat is reading content it was given. Aggregate counts, the
-ratio, and the round number stay orchestrator-side and are never written into
-a prompt.
+verification (rule #4 — that is content, not score-keeping), and the
+carryover/new split in § Convergence Rules (that is orchestrator-side
+bookkeeping the reviewer never sees).
 
 ### XML Block Structure for Review Prompts
 
@@ -1285,9 +1277,8 @@ For each finding:
 - **What can go wrong**: concrete failure scenario
 - **Why this is vulnerable**: code path or design gap
 - **Likely impact**: data loss, security breach, silent corruption, etc.
-- **Recommended fix**: for an implementation review, the specific change (not
-  "consider improving"). For a design or document review, the specific claim
-  that does not hold — not code, tests or a diff.
+- **Recommended fix**: specific, never "consider improving" — the change where
+  this review writes changes, the claim that does not hold where it does not.
 </structured_output_contract>
 
 <grounding_rules>
@@ -1651,50 +1642,59 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   with zero new and one carryover (a) at 1 of 2 seats approving reports
   "GATE NOT PASSED" under the old rule and "FREEZE CANDIDATE" under this one.
 
-- Four norms for defects the loop had been absorbing by hand (v3.11.0,
-  2026-08-22): the operator named three recurring failures — an orchestrator
-  issuing different criteria each round, the APPROVE ratio operating as the
-  close condition, and design reviews descending into code — plus a request to
-  bound mutation experiments. Four rules land, one per failure. **§ Prompt
-  Generation Rules** gains a recording duty: a round that changes what a seat
-  is told to look for says so on the record. It bounds nothing, because
-  narrowing a seat's criteria is itself a documented remedy for a no_verdict
-  seat; what it forbids is reading the resulting change in counts as a property
-  of the artifact. **§ Convergence Rules** moves the carryover/new judgement to
-  the seat — a context deciding which of its own findings are new is deciding
-  when its own artifact converges — which required the Reviewer incentive rule
-  to stop calling that split orchestrator-side bookkeeping the reviewer never
-  sees. Aggregate counts, the ratio and the round number stay orchestrator-side
-  as before. **§ Review Types** gains the phase rule, and the output contract
-  at `<structured_output_contract>` is split by phase so that a design review
-  is asked for the claim that does not hold rather than for a change. **Step -1
-  gains item 7**, the mutation pass, implementation-phase only: a green suite is
-  not evidence until its tests have been shown to fail, and a self-authored
-  pass is not a measurement of itself. The bound the operator asked for is not
-  in it, and the omission is provisional rather than settled. The proposed bound
-  — three mutation sites per finding under verification — appeared in the first
-  draft only, was shot in round 1 on two grounds (the sites are not commensurable
-  across findings; a count is mechanism in the body), and was removed by operator
-  arbitration before round 2, so rounds 2 and 3 reviewed drafts carrying no bound
-  and are not evidence about one either way. The recorded decision is to
-  accumulate three runs and then judge whether a bound is needed, and the draft
-  states in its own open-questions section that the grounds for omitting it are
-  weak. Until then the pass records what it did not reach instead of stopping at
-  a cap. Evidence for the self-authored clause: a Ruby port whose author's
-  harness ran 36 mutations and killed 36, where reviewers then chose 12 sites
-  disjoint from that harness and 11 survived, exposing 10 unheld guards — six of
-  them in the file whose `derive`, `report` and `main`, 112 lines, neither suite
-  had ever called, which is the structural cause of three of the findings and not
-  the location of all ten (L2
-  `pm_mutation_measurement_and_g1_arbitration_20260822`). Design
-  history: three review rounds, new (a)+(b) P0 47 → 19 → 13, zero APPROVE of 3
-  seats in every round, closed by operator declaration rather than convergence —
-  because what kept being shot was the draft's account of itself, not the rules
-  it proposed, and the last round's defect was a ledger of finding identifiers
-  that no design change can fix. A fifth proposed rule, an exception for
-  self-referential reviews, was dropped after four reviewer contexts — occupying
-  two of that round's three counted seats — shot it on three independent grounds.
+- Three norms, subtractively (v3.11.0, 2026-08-22): the operator named three
+  recurring failures — an orchestrator issuing different criteria each round,
+  the APPROVE ratio operating as the close condition, and design reviews
+  descending into code — and asked for mutation experiments to be bounded. Four
+  rules were written and reviewed; one was withdrawn in the same version and two
+  of the survivors are narrower than they were drafted, so what ships is three
+  norms and one recorded open question. **§ Prompt Generation Rules** gains a
+  recording duty on the round's instrument — what a seat is told to look for,
+  how much of the artifact it is given, and which seats answer. It bounds
+  nothing: narrowing criteria, cutting scope and convening a different panel are
+  each a documented remedy for something. What it forbids is moving the
+  instrument and then reading the resulting change in counts as a property of
+  the artifact. It was drafted around criteria alone, which left scope and panel
+  composition — two channels that move the count just as well — outside it.
+  **§ Review Types** gains the phase rule as an invariant with no branches: a
+  review answers at the phase of its target and does not descend. Two enumerated
+  sentences were drafted with it and are not here. "An implementation-phase
+  finding that reopens the design belongs to the backlog" collided with this
+  document's own "any (a) or (b) REJECT or FAIL = revise and re-review" over
+  exactly the design-implementation seam it calls the most valuable layer, and
+  pre-answered the operator question § Revision Discipline rule 1 requires. "Fix
+  plan and Final/convergence reviews inherit the phase of the artifact they
+  check" gave those two reviews nothing to inherit, since no phase is assigned to
+  a fix plan anywhere. The output contract at `<structured_output_contract>`
+  drops "consider improving" without enumerating review types, because the
+  enumerated form left this document's own knowledge/documentation-update review
+  unassigned. **The mutation norm** is one sentence inside the phase rule and
+  assigns no party: a green suite is not evidence until its tests have been shown
+  to fail, and a pass whose sites the code's author chose measures the author's
+  attention, not the suite. It was drafted as a seventh item in Step -1 with the
+  duty "whoever chooses the sites is not whoever wrote the code", and no party in
+  this document can discharge that — before dispatch the only actor is the
+  orchestrator, which § Roles makes the same context as the implementer, and the
+  seats are sandboxed read-only and cannot execute anything. Stated as a property
+  of evidence rather than a duty on someone, it holds wherever a mutation result
+  is read. The bound the operator asked for is not here and the omission is open,
+  not settled: the recorded decision is to accumulate three runs and then judge.
+  **Withdrawn in this version**: a rule making each seat label its own findings
+  new or carryover. A seat sees only its own priors, so a finding one seat raises
+  after another raised it is new to that seat and carryover to the round, and a
+  seat added or returning mid-thread has no priors at all. § Convergence Rules
+  now records that who makes the label is undecided and that the orchestrator
+  makes it meanwhile, which is the biased judge the withdrawn rule was written to
+  replace. A fifth proposed rule, an exception for self-referential reviews, was
+  dropped before this version was written, after four reviewer contexts —
+  occupying two of that round's three counted seats — shot it on three
+  independent grounds. Design history: three review rounds on the proposal
+  (closed by operator declaration, not convergence), then one round on the
+  applied text, which returned one APPROVE of four seats and eighteen blocking
+  findings — every rule above is narrower for it. What kept being shot across all
+  four rounds was the change's account of itself, not the rules it proposed.
   Records: L2 `handoff_mlr_l1_norms_revision_three_rounds_and_switch_to_implementation_20260821`
+  and L2 `mlr_v3_11_0_applied_review_r1_and_subtractive_revision_20260822`
 
 **Key insight**: Design reviews and implementation reviews find
 **categorically different bugs**. Both phases are necessary.
