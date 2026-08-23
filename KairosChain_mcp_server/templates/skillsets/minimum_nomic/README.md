@@ -169,6 +169,13 @@ and neither said so was a problem. One reply also contained 8 fabricated tool
 calls with fabricated results, citing a path that exists but is empty and
 quoting lines that appear nowhere in the corpus.
 
+That run used request `a830924dff9e`, whose field list did not say `text` can be
+null. On 2026-08-23 the request was amended to name the null case, so runs from
+here answer request `8eb7e40059f1` and are not comparable to the run above on
+that point. The amendment was made because the failed row could not be read: it
+could mean the analyst was careless, or that the layout handed over was
+incomplete. Naming the case removes the second reading and keeps the first.
+
 Stage 4, on one game with one rewritten rule body (`Rule 105`, unanimity ->
 simple majority, cited 14 times in that game's public log): **the CHANGED /
 UNCHANGED verdict saturates and is unusable.** The floor was 9 of 9 CHANGED and

@@ -63,6 +63,16 @@ S
 
 # The record layout, stated as fields rather than as prose, because the submitted
 # code has to open these files.
+#
+# The null case is named here as of 2026-08-23. It was not named in the first run
+# (request a830924dff9e, 24 games), where 8 of 391 utterances carried a null
+# `text` because the call to that player had failed. Two of the three submissions
+# survived it; the third crashed on `len(text.split())` and was recorded as
+# failed. That row was ambiguous in a way the stage cannot settle from its own
+# record: it could mean the analyst's procedure was careless, or it could mean
+# the layout we handed over was incomplete. Naming the case removes the second
+# reading, at the cost of making runs before and after this line answer different
+# requests. The request digest is recorded per row, so the boundary is visible.
 MATERIAL = <<~M.strip
   The working directory contains one subdirectory per game. Each game directory
   has a `records/` subdirectory holding JSON Lines files — one JSON object per
@@ -70,7 +80,10 @@ MATERIAL = <<~M.strip
 
     utterances.jsonl    at, seq, turn, player, text, form, in_public_log
                         What players said. Every player saw every line whose
-                        in_public_log is true.
+                        in_public_log is true. A row whose `text` is null is a
+                        turn on which the call to that player failed and nothing
+                        was said; `form` carries the reason and in_public_log is
+                        false on such a row.
 
     reasonings.jsonl    at, seq, turn, player, text, form
                         What players wrote as their reasoning. No player ever
@@ -87,8 +100,9 @@ MATERIAL = <<~M.strip
                         `text` holding prose, a LENS block, a TEN block and a
                         SCORES block. Present for some games only.
 
-  Field names not listed above may also be present. Read the files rather than
-  assuming this list is complete.
+  Field names not listed above may also be present, and a field listed above may
+  be absent from a row or hold null. Read the files rather than assuming this
+  list is complete.
 M
 
 SUBJECT = {
