@@ -1,4 +1,4 @@
 module KairosMcp
-  VERSION = "3.78.0"
+  VERSION = "3.79.0"
   CHANGELOG_URL = "https://github.com/masaomi/KairosChain_2026/blob/main/CHANGELOG.md"
 end

@@ -4,6 +4,66 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.79.0] - 2026-08-26
+
+### Fixed
+
+- **Field defect D4 — the delegated worker's watchdog killed healthy slow
+  cycles at minute 25, and killed them silently.** 3.77.0's first night of
+  field use ran the agent SkillSet on real goals; twice, a worker died with
+  nothing written, and the second death gave the mechanism away: spawn 20:31,
+  last heartbeat 20:56 — spawn plus exactly `WORKER_SELF_TIMEOUT_SECONDS`
+  (1500). The watchdog's design assumption was that only a HUNG gated call
+  reaches the bound; a healthy cycle with several LLM subprocess calls
+  routinely runs past 25 minutes. The bound is now two-fold: a stall bound
+  (default 45 min) measured against real session-dir activity — heartbeats
+  and lock files excluded, because the heartbeat thread outlives a hung main
+  thread and would blind the detector — and an absolute hard cap (default
+  3 h). Both are env-overridable (`KAIROS_WORKER_STALL_SECONDS`,
+  `KAIROS_WORKER_TIMEOUT_SECONDS`), and both write a `worker_exit.json`
+  record before `exit!(124)`. Every other exit the worker can see coming —
+  superseded, trapped signal, setsid failure, bootstrap failure, uncaught
+  error, normal completion — now leaves the same one-line record, and a
+  `crashed` report from `agent_wait` / `agent_status` carries the record (or
+  says explicitly that the process vanished without one, which is what a
+  SIGKILL still looks like). The record is deliberately NOT a result file:
+  the collector's crash path stays the crash path, so a committed advance is
+  still recovered from the gate log and never masked.
+
+- **Field defect D5 — a reviewer reply that defeats parsing lost both the
+  cycle and the evidence.** The high-complexity plan review extracts JSON
+  from the reviewer's reply; a long reply can contain several JSON blocks
+  (echoed plan fragments in code fences, code in findings), and taking the
+  first parseable one produced a hash with no `overall_verdict` — REVISE by
+  fallback, twice, then `review_max_retries` with zero cycles run, while the
+  5,819-character reply itself was discarded (snapshots keep metadata only).
+  The parser now scans all candidate blocks — whole reply, every fenced
+  block, every balanced object around an `"overall_verdict"` occurrence —
+  and prefers the one carrying a String verdict; and when parsing still
+  falls back, the raw reply is persisted beside the session records
+  (`review_raw_<ts>.txt`, 64 KiB cap) with the path named in the review's
+  findings.
+
+### Added
+
+- **Norm (g)** in the agent's standing norms, from field defect D2: what
+  `operator_report` receives must already be the finished text. The executor
+  feeds no step's output into another step's arguments, so a body written as
+  an assembly instruction is delivered verbatim as the report — cycle 1 of
+  the first field run did exactly that, and cycle 2 corrected it on its own.
+  The norm makes the correction standing.
+
+- `test_agent_worker_exit_and_review_parse.rb` — 19 tests, 42 assertions:
+  exit-record round-trip and token matching, stall-clock exclusion of
+  heartbeats and locks, env-overridable bounds, decoy-JSON regression for
+  the review parser, raw-reply persistence, norm (g) presence.
+
+Field context: defects D1 (worker bootstrap vs host-profile add-on guards,
+fixed and proven in 3.77.0's field night) through D5 are ledgered in L2
+`agent_3_77_0_field_defects` with the two field runs that surfaced them.
+D3 (read-only status calls queue behind a blocking wait on the stdio
+transport) remains open and recorded.
+
 ## [3.78.0] - 2026-08-26
 
 ### Fixed
