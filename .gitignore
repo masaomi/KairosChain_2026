@@ -60,3 +60,10 @@ docs/drafts/*
 # these two lines catch output written next to the harness by mistake.
 bench/minimum_nomic/**/records/
 bench/minimum_nomic/out/
+
+# Generated outputs (ruling 2026-08-27): docs/reports/ holds rendered HTML
+# reports; presentations/ holds decks and their rendered files. Two files in
+# presentations/ look hand-authored (deck_to_pptx.py,
+# omakase-auto-analysis-design.md) — re-track via a `!` exception if wanted.
+docs/reports/
+presentations/
