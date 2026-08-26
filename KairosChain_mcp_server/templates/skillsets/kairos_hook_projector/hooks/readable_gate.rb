@@ -36,11 +36,27 @@ module KairosHookProjector
     # Bounded well under the hook's own timeout; the turn it lengthens is one
     # that already spent a full regeneration.
     RECHECK_POLL_ATTEMPTS = 40
-    # Claude Code's own wording, written into the transcript as a user record
-    # when a Stop hook blocks. Not this gate's string: if it changes, no marker
-    # is found and the read falls back to the pre-2026-08-20 behaviour, which
-    # the verdict names so the drift shows up in the log instead of silently.
-    BLOCK_MARKER = 'Stop hook feedback:'
+    # This gate's own block reason opens with this, followed by the mode's name.
+    # Operator-facing text only. Until 2026-08-26 it was also the recheck's
+    # evidence: the gate read it back out of the transcript to tell its own
+    # block from another Stop hook's, because Claude Code prefaces every
+    # blocking Stop hook with one shared string. That mechanism is gone — the
+    # gate now records what it blocked instead of inferring it — so changing
+    # this wording no longer costs a single verdict.
+    OWN_BLOCK_REASON = 'Your last message violates '
+    # Where the carry-over note lives: a directory beside the log, so the
+    # operator controls its location through log_path and no second config key
+    # exists to disagree with the first. A mode that declares no log declares no
+    # note either, and so has no recheck verdicts — the same trade the log
+    # already makes.
+    NOTE_DIR_NAME = 'readable_gate_notes'
+    # How long a note may sit unclaimed before the recheck refuses it. Measured
+    # over this instance's live log, 2026-08-26: of 240 blocks, 212 drew a
+    # recheck at a median of 17.0s, a 99th percentile of 43.0s and a maximum of
+    # 109.0s. This is about 2.75x that maximum. The other 28 (11.7%) drew no
+    # recheck at all — interrupted turns — and are exactly what this bound and
+    # the consume-on-read in take_note are for.
+    NOTE_TTL_SECONDS = 300.0
     # Claude Code's limit on how long a Stop hook may run, declared twice
     # outside this file: in `.claude/settings.json` and in this SkillSet's
     # `lib/mode_hooks_compiler.rb`. Named here because this file spends two
@@ -49,11 +65,27 @@ module KairosHookProjector
     # the gate stops enforcing and the measurement loses rows, both silently.
     HOOK_TIMEOUT = 10.0
     # Held back from the pair for interpreter start-up and for the poll's own
-    # overhead, which measures 0.2-0.6s above the sleeps it accounts for.
+    # overhead. Measured 2026-08-22 on Ruby 3.4.10: 0.030s for the first read's
+    # 15 tail reads, 0.075s for the recheck's 40 plus turn_marker, and roughly
+    # 0.3s more for interpreter start-up. An earlier version of this line said
+    # 0.2-0.6s for the poll alone, which the shipped code cannot reproduce.
+    #
+    # Round 5 measured start-up itself at a median 0.033s through the projected
+    # `sh -c ruby …` form, so 1.0 is about thirty times what it holds back. Left
+    # as it stands: the value is the measurement bound's, and the bound is no
+    # longer part of this design. See docs/drafts on the bound.
     HOOK_TIMEOUT_MARGIN = 1.0
     # What is left for measurement once the recheck has spent its budget. A mode
     # asking for more than this is honoured up to here and no further: the
     # alternative is a mode file being able to silence the gate by arithmetic.
+    #
+    # A constant, and wrong in a way that is known and recorded: it charges a
+    # first read for the four seconds only a recheck spends. Rounds 4 and 5
+    # replaced it twice — one ceiling per read, then a clock read at the top of
+    # main — and round 5's review falsified both, the second because a bound
+    # applied per match bounds the number this file quotes and not the time it
+    # spends. The bound is therefore carved out of this design and carried in
+    # its own, and this line is back to the shape shipped since 6d7fe02.
     MEASURE_TIMEOUT_CEILING =
       HOOK_TIMEOUT - HOOK_TIMEOUT_MARGIN - (RECHECK_POLL_ATTEMPTS * POLL_DELAY)
 
@@ -190,6 +222,13 @@ module KairosHookProjector
         raw.each do |key, value|
           if INT_KEYS.include?(key) &&
              (!value.is_a?(Integer) || value.is_a?(TrueClass) || value.is_a?(FalseClass))
+            # "a number" is imprecise — every value here is rejected unless it
+            # is an Integer, so a mode writing 5.0 is told its number is not a
+            # number. It stays imprecise on purpose. The first read is held
+            # byte-for-byte to 366f3fc wherever 366f3fc produced output at all,
+            # and this string is output: improving it changes the banner and the
+            # log line a first read emits for every mistyped threshold. A round
+            # 3 advisory asked for the wording; the pass condition outranks it.
             @problems << "#{key} is #{describe(value)}, expected a number"
             next
           end
@@ -311,60 +350,199 @@ module KairosHookProjector
       joined.empty? ? nil : joined
     end
 
-    # Index of the marker for THIS turn, or nil while it has not landed.
+    # The opening of the block reason the operator sees. One reader now, where
+    # there were two: the recheck used to read this same string back out of the
+    # transcript, and keeping the two in step was a standing hazard because a
+    # divergence was silent and cost every recheck verdict.
     #
-    # The transcript records the block itself: a user record carrying Claude
-    # Code's feedback text, whose parentUuid names the assistant record that was
-    # judged. That pair is the entire state the recheck needs — which record has
-    # already had a verdict, and where the rewrite begins — so no state file and
-    # no config key are involved.
-    #
-    # The newest marker in the transcript is not necessarily this turn's, and
-    # taking it was a defect of its own. A session blocked once already carries
-    # an older marker; on the next block, before the new marker lands, the older
-    # one made the read believe a marker had arrived, so it skipped the wait and
-    # measured the message it had just blocked — returning in 0.06s with nothing
-    # in the log to say so. 128 of 170 real blocks are not a session's first.
-    # Between the previous block and this one there is always the operator's own
-    # message, so the test is which of the two is newer. Records carrying no
-    # text — tool results, images — belong to the turn being written and are
-    # stepped over.
-    def turn_marker(rows)
-      i = rows.length - 1
-      while i >= 0
-        row = rows[i]
-        if row['type'] == 'user'
-          text = text_of(row)
-          return text.start_with?(BLOCK_MARKER) ? i : nil if text.is_a?(String)
-        end
+    # It used to scrub the mode name here as well. That was load-bearing while
+    # the recheck compared this string against the transcript — the transcript
+    # holds the scrubbed form, because emit scrubs on the way out — and it is
+    # not any more: emit is now the only consumer, so scrubbing twice changes
+    # nothing. Removed rather than kept, because a line that cannot fail is a
+    # line no mutation can pin: the 2026-08-26 run reported exactly that,
+    # replacing the scrub with the raw name and finding all 122 tests green.
+    def own_block_reason(cfg)
+      "#{OWN_BLOCK_REASON}#{cfg.mode_name}"
+    end
 
-        i -= 1
-      end
+    # --- the carry-over note -------------------------------------------------
+    #
+    # The recheck's whole problem is telling the rewrite from the message that
+    # was blocked. Until 2026-08-26 it was solved by reading Claude Code's block
+    # feedback back out of the transcript. That string is Claude Code's preface
+    # to *every* blocking Stop hook, so the gate had to guess which markers were
+    # its own, and the guessing is what six rounds of review kept breaking: the
+    # last attempt — step over a foreign marker rather than stop at it — removed
+    # the only thing bounding the walk to one turn, and made the gate judge a
+    # previous turn's rewrite a second time.
+    #
+    # The gate does not have to guess. At the moment it blocks it already knows
+    # which record it judged; it writes that down and reads it back. What was an
+    # inference over a shared string becomes a fact this gate alone can write.
+    #
+    # The note is per session and per mode, lives beside the log, and is
+    # consumed on read.
+
+    # The note's path, or nil when the mode declares no log and therefore no
+    # place to put one.
+    #
+    # The file name is a digest and nothing else. mode_name is operator-supplied
+    # and defaults to '?', so any name built from it directly is a path the
+    # operator can steer — `../` and a NUL among them. A digest cannot be
+    # steered, and the readable values go inside the file instead, where they
+    # also serve as the collision check.
+    def note_path(transcript_path, cfg)
+      dir = note_dir(cfg)
+      return nil if dir.nil?
+
+      key = Digest::SHA256.hexdigest("#{note_key_path(transcript_path)}\0#{cfg.mode_name}")[0, 32]
+      File.join(dir, "#{key}.json")
+    rescue StandardError
       nil
     end
 
-    # Compared only when a judged uuid is present: comparing it while nil made a
-    # record carrying no uuid look like the judged record and skipped a real
-    # rewrite.
-    def judged?(row, judged)
-      judged && row['uuid'] == judged
+    # The transcript's identity, not its spelling. The design says the digest is
+    # taken over the absolute path; hashing whatever the caller wrote means the
+    # same file reached by two spellings yields two notes, so a turn blocked
+    # through a relative path and rechecked through an absolute one loses its
+    # verdict. Round 1's review named this. Expansion is also what the note's
+    # stored `transcript` field is compared against, so both sides agree.
+    def note_key_path(transcript_path)
+      File.expand_path(transcript_path.to_s)
+    rescue StandardError
+      transcript_path.to_s
     end
 
-    # The newest assistant record after `index` other than the judged one,
-    # whether or not it carries text yet. nil while none has landed.
+    def note_dir(cfg)
+      return nil if cfg.log_path.nil?
+
+      log = File.expand_path(cfg.log_path)
+      File.join(File.dirname(log), NOTE_DIR_NAME)
+    rescue StandardError
+      nil
+    end
+
+    # Records which assistant record this gate just blocked. Returns nil on
+    # success and a reason string on failure; never raises, and never changes
+    # what the first read emits. A block that cannot be written down still
+    # blocks — the cost is one recheck verdict, not a wedged turn.
     #
-    # This is the first read's rule applied after the marker, and it is what the
-    # recheck uses while it still has budget. A rewrite that is mid-write shows
-    # up here as text-less and is waited for, rather than stepped over in favour
-    # of whatever text lies beneath it. Stepping over had a measured cost: a
-    # rewrite that called a tool was judged on its own two-line preamble and
-    # logged RECHECK-PASS in 0.04s, while the rewrite itself — a four-heading
-    # FAIL landing 0.6s later — was never read.
-    def newest_after(rows, index, judged)
+    # Written to a temporary name and renamed, so a reader can never see a
+    # half-written note. The pid is in the temporary name because two modes'
+    # gates can run against one session at the same moment.
+    def write_note(transcript_path, cfg, uuid)
+      return 'no uuid to record' if uuid.nil? || uuid.to_s.empty?
+
+      path = note_path(transcript_path, cfg)
+      return nil if path.nil? # no log declared: not a failure, a declared absence
+
+      FileUtils.mkdir_p(File.dirname(path))
+      tmp = "#{path}.#{Process.pid}.tmp"
+      File.write(
+        tmp,
+        JSON.generate(
+          'transcript' => note_key_path(transcript_path).scrub,
+          'mode' => cfg.mode_name.to_s.scrub,
+          'blocked_uuid' => uuid.to_s.scrub,
+          'at' => Time.now.to_f
+        )
+      )
+      File.rename(tmp, path)
+      nil
+    rescue StandardError => e
+      "#{e.class}: #{e.message}"
+    end
+
+    # [uuid this gate blocked, nil] or [nil, why not].
+    #
+    # Deletes the note before using it. A note that is read and left in place
+    # can be read again by a later turn, and later turns are not hypothetical:
+    # 28 of 240 blocks in the 2026-08-26 measurement drew no recheck at all, so
+    # an unconsumed note outlives its turn about one time in nine.
+    #
+    # transcript and mode are compared as well as the digest that named the
+    # file, because a digest collision or a reused file must not be resolved
+    # silently in favour of judging something.
+    #
+    # Scrubbed on both sides: write_note scrubs, so a mode whose name carries a
+    # byte that is not valid UTF-8 would otherwise never match its own note.
+    def take_note(transcript_path, cfg)
+      path = note_path(transcript_path, cfg)
+      return [nil, 'nonote'] if path.nil?
+
+      raw = begin
+        File.read(path)
+      rescue StandardError
+        return [nil, 'nonote']
+      end
+
+      # A note that could not be deleted has not been consumed, and using it
+      # anyway is the one thing consume-on-read exists to prevent: it stays on
+      # disk and the next recheck reads it again. Round 1's review drove exactly
+      # that — a notes directory that permits reading and forbids unlinking gave
+      # two RECHECK-PASS rows naming the same record, which is the invariant this
+      # whole design exists to hold. The comment that stood here said a note that
+      # cannot be deleted must not be reused; the code went on to reuse it.
+      #
+      # Refusing is fail-closed in the direction this gate already leans: a
+      # recheck never blocks, so declining costs one log line, while reusing
+      # costs the invariant.
+      begin
+        File.unlink(path)
+      rescue StandardError
+        return [nil, 'nonote-unspent']
+      end
+
+      data = begin
+        JSON.parse(raw)
+      rescue StandardError
+        return [nil, 'nonote-mismatch']
+      end
+      return [nil, 'nonote-mismatch'] unless data.is_a?(Hash)
+      return [nil, 'nonote-mismatch'] unless data['transcript'] == note_key_path(transcript_path).scrub
+      return [nil, 'nonote-mismatch'] unless data['mode'] == cfg.mode_name.to_s.scrub
+
+      at = data['at']
+      return [nil, 'nonote-mismatch'] unless at.is_a?(Numeric)
+
+      # A note from the future is as unusable as one from too far back: both
+      # mean the clock this note was stamped against is not the one being read.
+      age = Time.now.to_f - at
+      return [nil, 'nonote-stale'] unless age >= -1.0 && age <= NOTE_TTL_SECONDS
+
+      uuid = data['blocked_uuid']
+      return [nil, 'nonote-mismatch'] unless uuid.is_a?(String) && !uuid.empty?
+
+      [uuid, nil]
+    end
+
+    # Where the blocked record sits in the window, or nil when it is not in the
+    # window at all. Not in the window means the transcript outgrew the tail
+    # read since the block; there is nothing to wait for, so the recheck says so
+    # rather than measuring whatever it can reach.
+    def index_of_uuid(rows, uuid)
+      rows.index { |row| row.is_a?(Hash) && row['uuid'] == uuid }
+    end
+
+    # The newest assistant record after `index`, whether or not it carries text
+    # yet. nil while none has landed.
+    #
+    # Position does the work the already-judged exclusion used to do: everything
+    # at or before `index` is the blocked message or older, so a record found
+    # here cannot be one a verdict has already named.
+    #
+    # A rewrite that is mid-write shows up here as text-less and is waited for,
+    # rather than stepped over in favour of whatever text lies beneath it: a
+    # rewrite that calls a tool writes a short preamble first, and stepping over
+    # reaches the preamble while the answer is still being written. That cost is
+    # reachable from the code, not measured — an earlier version of this comment
+    # gave it as an observation and round 3 could not reproduce it.
+    def newest_after_index(rows, index)
       i = rows.length - 1
       while i > index
         row = rows[i]
-        return [text_of(row), row['uuid']] if row['type'] == 'assistant' && !judged?(row, judged)
+        return [text_of(row), row['uuid']] if row.is_a?(Hash) && row['type'] == 'assistant'
 
         i -= 1
       end
@@ -374,16 +552,16 @@ module KairosHookProjector
     # The newest text-bearing assistant record after `index`, stepping over
     # records that carry none. Used only once the budget is spent.
     #
-    # Over 3,248 transcripts and 170 real blocks, a completed rewrite sitting
-    # beneath a newer text-less record occurred 0 times, so this shape must not
-    # pre-empt the wait — that is what cost the preamble above. It is kept as a
-    # last resort because if the shape ever does occur, the alternative is the
-    # same skipped verdict this reaches past.
-    def deep_after(rows, index, judged)
+    # Over the 3,248 transcripts and 170 real blocks of the 2026-08-21 scan, a
+    # completed rewrite sitting beneath a newer text-less record occurred 0
+    # times, so this shape must not pre-empt the wait. It is kept as a last
+    # resort because if the shape ever does occur, the alternative is the same
+    # skipped verdict this reaches past.
+    def deep_after_index(rows, index)
       i = rows.length - 1
       while i > index
         row = rows[i]
-        if row['type'] == 'assistant' && !judged?(row, judged)
+        if row.is_a?(Hash) && row['type'] == 'assistant'
           text = text_of(row)
           return [text, row['uuid']] if text
         end
@@ -395,8 +573,11 @@ module KairosHookProjector
 
     # The newest assistant record, whether or not it carries text yet, or nil
     # when the transcript holds none. The first read's rule, unchanged since
-    # before 2026-08-20, and the rule the recheck falls back to when no marker
-    # is found.
+    # before 2026-08-20.
+    #
+    # The recheck no longer falls back to it. It used to, when no marker was
+    # found, and that fallback was the defect: the newest record a recheck
+    # reaches is the message this turn has just blocked.
     def newest_assistant(rows)
       row = rows.reverse_each.find { |r| r['type'] == 'assistant' }
       row && [text_of(row), row['uuid']]
@@ -409,15 +590,33 @@ module KairosHookProjector
     # so the newest assistant record is often thinking-only. Wait for the text
     # rather than judging an earlier message from the same turn.
     #
-    # On a recheck that wait never engaged, and that was the defect: the blocked
-    # message is still the newest record carrying text, so it satisfied the
-    # "has text" test immediately and was judged a second time. Measured over
-    # one instance's first 768 log records, 140 of 140 rechecks took the newest
-    # record without ever waiting, and 109 of 140 reported metrics identical to
-    # the verdict that had just blocked. The rewrite had passed in most of them.
-    # The invariant this restores, as long as the marker is found: a record that
-    # a verdict already named is never judged again.
-    def last_assistant_text(transcript_path, rechecked = false)
+    # On a recheck that wait never engaged, and that was the original defect:
+    # the blocked message is still the newest record carrying text, so it
+    # satisfied the "has text" test immediately and was judged a second time.
+    # Measured over one instance's first 768 log records, 140 of 140 rechecks
+    # took the newest record without ever waiting, and 110 of 140 reported
+    # metrics identical to the verdict that had just blocked.
+    #
+    # The recheck now starts from the note this gate wrote when it blocked, so
+    # "which record was already judged" is read rather than inferred, and
+    # everything the recheck considers lies strictly after it.
+    #
+    # `cfg` is required and not defaulted. It carries the log path the note is
+    # derived from, and an optional argument whose absence silently disables the
+    # mechanism is the shape round 5 caught in the measurement bound: three unit
+    # fixtures on the helper, none on the wiring, and dropping the argument at
+    # the call site left the whole suite green.
+    def last_assistant_text(transcript_path, cfg, rechecked)
+      blocked_uuid = nil
+      if rechecked
+        blocked_uuid, why_not = take_note(transcript_path, cfg)
+        # No usable note means this gate did not block this turn, or blocked a
+        # turn that was then abandoned. Either way it has no verdict of its own
+        # for a rewrite to be measured against, and a recheck never blocks, so
+        # refusing to judge costs the operator nothing but the log line.
+        return [nil, why_not, nil] if blocked_uuid.nil?
+      end
+
       attempts = rechecked ? RECHECK_POLL_ATTEMPTS : POLL_ATTEMPTS
       attempts.times do |attempt|
         rows = tail_records(transcript_path)
@@ -426,16 +625,14 @@ module KairosHookProjector
         waited = attempt.zero? ? 'ok' : 'ok-after-wait'
 
         if rechecked
-          # The marker is waited for on the same terms as the rewrite: both are
-          # written by the same process at nearly the same moment, so "not there
-          # yet" is as ordinary for one as for the other. Inside the budget the
-          # selection rule is the first read's — newest record, wait for its
-          # text — so the two reads agree wherever they can.
-          marker = turn_marker(rows)
-          if marker
-            found = newest_after(rows, marker, rows[marker]['parentUuid'])
-            return [found[0], waited, found[1]] if found && found[0]
-          end
+          index = index_of_uuid(rows, blocked_uuid)
+          # Stable across polls: the blocked record was written before the
+          # block, so if it is not in the window now it will not appear by
+          # waiting. Returning here rather than spending the budget.
+          return [nil, 'blocked-record-gone', nil] if index.nil?
+
+          found = newest_after_index(rows, index)
+          return [found[0], waited, found[1]] if found && found[0]
         else
           newest = newest_assistant(rows)
           return [nil, 'no-assistant-record', nil] if newest.nil?
@@ -446,33 +643,19 @@ module KairosHookProjector
 
       return [nil, 'race-timeout', nil] unless rechecked
 
-      # The recheck's budget is spent. Either this turn's marker never appeared
-      # — Claude Code's wording is not this gate's to guarantee — or it appeared
-      # and the rewrite did not. Both are named, and every no-marker outcome
-      # carries the suffix, because a drift detector whose only visible trace is
-      # the exit that happens to find text reports nothing in the cases drift
-      # actually produces.
+      # The recheck's budget is spent with the note in hand and no rewrite
+      # visible above the blocked record. One last pass that steps over
+      # text-less records, then the named give-up.
       rows = tail_records(transcript_path)
       return [nil, 'unreadable', nil] if rows.nil?
 
-      marker = turn_marker(rows)
-      if marker
-        # Last resort, and named apart so the log can say how often the ordinary
-        # rule was not enough.
-        found = deep_after(rows, marker, rows[marker]['parentUuid'])
-        return [found[0], 'ok-after-wait-deep', found[1]] if found
+      index = index_of_uuid(rows, blocked_uuid)
+      return [nil, 'blocked-record-gone', nil] if index.nil?
 
-        return [nil, 'awaiting-rewrite', nil]
-      end
+      found = deep_after_index(rows, index)
+      return [found[0], 'ok-after-wait-deep', found[1]] if found
 
-      # No marker for this turn, so nothing is judged. Falling back to the first
-      # read's rule here looked conservative and was the opposite: the newest
-      # record it reaches is the message this turn has just blocked, so the
-      # fallback re-judged it — the very behaviour this method exists to end,
-      # reachable on any block after a session's first. A recheck never blocks,
-      # so refusing to judge costs the operator nothing except the line, and it
-      # keeps both the invariant and the measurement intact.
-      newest_assistant(rows) ? [nil, 'nomarker', nil] : [nil, 'no-assistant-record-nomarker', nil]
+      [nil, 'awaiting-rewrite', nil]
     end
 
     # --- measurement ---------------------------------------------------------
@@ -820,7 +1003,8 @@ module KairosHookProjector
       # reported, so its outcome is visible; it is simply never blocked again.
       rechecked = payload['stop_hook_active'] ? true : false
 
-      text, why, record_id = last_assistant_text(payload.fetch('transcript_path', ''), rechecked)
+      text, why, record_id =
+        last_assistant_text(payload.fetch('transcript_path', ''), cfg, rechecked)
       if text.nil? || text.strip.empty?
         lost = note(cfg, "SKIP-#{why}")
         # Every recheck that produces no verdict says so on screen. Naming only
@@ -835,10 +1019,27 @@ module KairosHookProjector
           case why
           when 'awaiting-rewrite'
             "the rewrite had not been recorded within #{budget}s"
-          when 'nomarker', 'no-assistant-record-nomarker'
-            "no block marker appeared within #{budget}s, so the rewrite could not be told " \
-            "apart from the message that was blocked. Claude Code's feedback wording may " \
-            'have changed'
+          when 'nonote'
+            'this gate did not block this turn — another Stop hook did — so it has no ' \
+            'verdict of its own to measure a rewrite against'
+          when 'nonote-stale'
+            # Both halves of the age test land here, and an earlier version of
+            # this sentence asserted the older one for both — a note stamped
+            # ahead of the clock was reported as "more than 300s old", which is
+            # the opposite of true. Round 1's review named it.
+            "this gate's record of what it blocked is not from this turn: it is either more " \
+            "than #{NOTE_TTL_SECONDS.round}s old, and so belongs to an earlier turn that was " \
+            'interrupted, or it is stamped ahead of the clock reading it'
+          when 'nonote-unspent'
+            "this gate's record of what it blocked could not be deleted, so it could not be " \
+            'used: a record that survives being read would be read again on a later turn. ' \
+            'Check that the notes directory beside the log is writable'
+          when 'nonote-mismatch'
+            "this gate's record of what it blocked did not match this session, so it was " \
+            'not used'
+          when 'blocked-record-gone'
+            'the message this gate blocked is no longer in the part of the transcript that ' \
+            'was read'
           when 'unreadable'
             'the transcript could not be read'
           else
@@ -869,10 +1070,17 @@ module KairosHookProjector
         out['decision'] = 'block'
         instruction = cfg.rewrite_instruction.to_s
         out['reason'] =
-          "Your last message violates #{cfg.mode_name}" \
+          "#{own_block_reason(cfg)}" \
           "#{cfg.section.to_s.empty? ? '' : " #{cfg.section}"}:\n- " +
           failures.join("\n- ") +
           (instruction.empty? ? '' : "\n\n#{instruction}")
+
+        # Written before the block is emitted, so the note exists by the time
+        # Claude Code can act on the block. A failure here is logged and the
+        # turn is still blocked: enforcement does not depend on the note, only
+        # the recheck's verdict does.
+        failure = write_note(payload.fetch('transcript_path', ''), cfg, record_id)
+        note(cfg, "NOTE-WRITE-FAILED: #{failure}") if failure
       end
       emit(out)
       0

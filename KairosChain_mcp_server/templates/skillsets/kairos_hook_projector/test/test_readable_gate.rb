@@ -26,6 +26,27 @@ class TestReadableGate < Minitest::Test
     G::Config.new(raw, '<inline>')
   end
 
+  # What Claude Code writes into the transcript when THIS gate blocks.
+  #
+  # Inert since 2026-08-26 and deliberately kept: the recheck used to read this
+  # text back and infer from it which block was its own, and the inference is
+  # what six rounds of review broke. Fixtures still put it in the transcript so
+  # that "the gate ignores it" is falsifiable. The preface is written out here
+  # rather than taken from the gate, because a fixture that borrows the value it
+  # is testing against cannot fail when the value is wrong.
+  BLOCK_PREFACE = 'Stop hook feedback:'
+
+  def own_marker(detail = '- x', mode: 'test')
+    "#{BLOCK_PREFACE}\n#{G::OWN_BLOCK_REASON}#{mode} § Test:\n#{detail}"
+  end
+
+  # What another blocking Stop hook writes. Same preface, no reason of this
+  # gate's. Taken verbatim from the shape found live in this project: records
+  # 267 and 270 of session 9fb5b88e, 7.0s apart with the foreign one newer.
+  def foreign_marker(detail = '[agent を 1 周だけ走らせ…]')
+    "#{BLOCK_PREFACE}\n#{detail}"
+  end
+
   def measure(text, overrides = {})
     G.measure(text, cfg(overrides), nil)
   end
@@ -278,13 +299,12 @@ class TestReadableGate < Minitest::Test
   end
 
   # A failing rewrite is still measured and still reported; it is simply never
-  # blocked a second time. The marker has to be present for a verdict to be
-  # issued at all — see "a recheck with no marker for this turn issues no
-  # verdict" below for why the marker-less case stopped producing one.
+  # blocked a second time. A note has to be present for a verdict to be issued
+  # at all — see "a recheck with no note issues no verdict" below.
   def test_a_rewrite_is_measured_and_reported_but_never_blocked_again
     out, log = drive(blocked_then(row_for('assistant', text: "# a\n## b\n### c\n#### d\n",
                                           uuid: 'BBB')),
-                     max_headings: 3)
+                     note: 'AAA', max_headings: 3)
     refute out.key?('decision'), out.inspect
     assert_includes out.fetch('systemMessage', ''), 'FAIL'
     assert_includes out.fetch('systemMessage', ''), 'recheck'
@@ -297,7 +317,7 @@ class TestReadableGate < Minitest::Test
   # is still the newest record carrying text when the recheck runs, so the
   # existing wait — which only engages when the newest record has no text —
   # never engaged: over one instance's first 768 log records, 140 of 140
-  # rechecks took the newest record immediately, and 109 of 140 reported
+  # rechecks took the newest record immediately, and 110 of 140 reported
   # metrics identical to the verdict that had just blocked. Re-measuring 145
   # real rewrites from the transcripts showed 101 of them passing while the log
   # recorded RECHECK-FAIL. The two sweeps are two hours apart and are not one
@@ -322,7 +342,22 @@ class TestReadableGate < Minitest::Test
   # Drive the real script over a hand-built transcript and hand back both the
   # emitted object and the log. The log is what carries `rec=`, and a verdict
   # that names no record cannot be checked for naming the right one.
-  def drive(rows, rechecked: true, **overrides)
+  # Drive the real script over a transcript, optionally with a carry-over note
+  # already in place.
+  #
+  # `note:` is the uuid this gate is to have blocked. The note is written by
+  # calling the gate's own write_note rather than by composing the file here: a
+  # fixture that writes its own copy of the format stops driving the seam the
+  # moment the two disagree, and disagreeing silently is the failure mode the
+  # note replaced. `note_at:` shifts the recorded timestamp, which is the only
+  # way to reach the staleness branch without sleeping.
+  #
+  # There is deliberately no parameter for writing the note somewhere else. A
+  # note under a different mode or transcript lands at a different path, so the
+  # gate finds none at all rather than a mismatched one; the mismatch branch is
+  # reached only by a note that is at the right path and unusable, which "a note
+  # that does not check out is refused" builds by hand.
+  def drive(rows, rechecked: true, note: nil, note_at: nil, **overrides)
     Dir.mktmpdir do |tmp|
       cfg_path = File.join(tmp, 'cfg.json')
       tx_path = File.join(tmp, 't.jsonl')
@@ -331,6 +366,14 @@ class TestReadableGate < Minitest::Test
             .merge(overrides.transform_keys(&:to_s))
       File.write(cfg_path, JSON.generate(raw), encoding: 'UTF-8')
       File.write(tx_path, rows_json(rows), encoding: 'UTF-8')
+
+      if note
+        note_cfg = G::Config.new(raw, cfg_path)
+        failure = G.write_note(tx_path, note_cfg, note)
+        assert_nil failure, "the fixture could not write its note: #{failure}"
+        backdate_note(tx_path, note_cfg, note_at) if note_at
+      end
+
       out, err, status = run_script(
         cfg_path,
         JSON.generate('transcript_path' => tx_path, 'stop_hook_active' => rechecked)
@@ -341,18 +384,36 @@ class TestReadableGate < Minitest::Test
     end
   end
 
+  # Rewrite only the timestamp of a note the gate wrote. Everything else stays
+  # as write_note produced it, so a fixture testing staleness is not also
+  # testing a hand-built file.
+  def backdate_note(tx_path, note_cfg, seconds_ago)
+    path = G.note_path(tx_path, note_cfg)
+    data = JSON.parse(File.read(path))
+    data['at'] = Time.now.to_f - seconds_ago
+    File.write(path, JSON.generate(data))
+    path
+  end
+
   BLOCKED = "# a\n# b\n# c\n# d\n"
   REWRITE = "# a\n"
 
+  # A transcript in which this gate blocked record AAA. The feedback record is
+  # still here because Claude Code really does write it, and because a gate that
+  # started reading it again would pass fixtures that omitted it.
+  #
+  # Pair every use with `note: 'AAA'` on drive. The two together are what "this
+  # gate blocked here" now means: the transcript shows the block happened, the
+  # note says it was this gate's.
   def blocked_then(*after)
     [row_for('assistant', text: BLOCKED, uuid: 'AAA'),
-     row_for('user', text: "Stop hook feedback:\n- HEADINGS: 4 (cap 3).", parent: 'AAA',
+     row_for('user', text: own_marker("- HEADINGS: 4 (cap 3)."), parent: 'AAA',
                      uuid: 'MMM')] + after
   end
 
   def test_the_recheck_judges_the_rewrite_not_the_message_it_already_judged
     out, log = drive(blocked_then(row_for('assistant', text: REWRITE, uuid: 'BBB')),
-                     max_headings: 3)
+                     note: 'AAA', max_headings: 3)
     assert_includes out.fetch('systemMessage', ''), 'PASS', out.inspect
     assert_includes out.fetch('systemMessage', ''), '1 headings',
                     'the rewrite has one heading; the blocked message had four'
@@ -361,7 +422,7 @@ class TestReadableGate < Minitest::Test
   end
 
   def test_a_recheck_whose_rewrite_has_not_landed_records_no_verdict
-    out, log = drive(blocked_then, max_headings: 3)
+    out, log = drive(blocked_then, note: 'AAA', max_headings: 3)
     assert_includes log, 'SKIP-awaiting-rewrite', log.inspect
     refute_includes log, 'RECHECK-FAIL',
                     'a verdict on the already-judged record is the defect itself'
@@ -369,40 +430,49 @@ class TestReadableGate < Minitest::Test
     refute out.key?('decision')
   end
 
-  def test_the_already_judged_record_is_skipped_even_when_it_is_the_newest
-    # Ordering that only a truncated tail or a rewritten transcript produces,
-    # and the only fixture that can fail when the uuid guard is deleted: the
-    # index check alone would let the judged record through here.
+  def test_the_blocked_record_is_never_judged_again_even_when_it_is_the_newest
+    # Ordering that only a truncated tail or a rewritten transcript produces.
+    # Position is what excludes the blocked record now: everything at or before
+    # it is older by construction, so a walk that starts one past it cannot
+    # reach it. A walk written as "at or after" instead of "after" fails here
+    # and nowhere else.
     rows = [row_for('assistant', text: REWRITE, uuid: 'BBB'),
-            row_for('user', text: "Stop hook feedback:\n- x", parent: 'AAA', uuid: 'MMM'),
+            row_for('user', text: own_marker, parent: 'AAA', uuid: 'MMM'),
             row_for('assistant', text: BLOCKED, uuid: 'AAA')]
-    _out, log = drive(rows, max_headings: 3)
+    _out, log = drive(rows, note: 'AAA', max_headings: 3)
     assert_includes log, 'SKIP-awaiting-rewrite', log.inspect
+    refute_includes log, 'rec=AAA', 'AAA is the record the note names'
+    refute_includes log, 'rec=BBB', 'BBB lies before it, so it is older, not a rewrite'
   end
 
-  def test_the_newest_marker_is_the_one_that_counts
+  # Two blocks in one session. The note names the second, so the first block's
+  # rewrite is out of reach — which is the property the marker walk lost when it
+  # was widened to step over foreign markers.
+  def test_the_note_names_this_turns_block_not_an_earlier_one
     rows = [row_for('assistant', text: BLOCKED, uuid: 'AAA'),
-            row_for('user', text: "Stop hook feedback:\n- x", parent: 'AAA', uuid: 'M1'),
+            row_for('user', text: own_marker, parent: 'AAA', uuid: 'M1'),
             row_for('assistant', text: "#{BLOCKED}# e\n", uuid: 'BBB'),
-            row_for('user', text: "Stop hook feedback:\n- x", parent: 'BBB', uuid: 'M2'),
+            row_for('user', text: own_marker, parent: 'BBB', uuid: 'M2'),
             row_for('assistant', text: REWRITE, uuid: 'CCC')]
-    out, log = drive(rows, max_headings: 3)
+    out, log = drive(rows, note: 'BBB', max_headings: 3)
     assert_includes log, 'rec=CCC', log.inspect
     assert_includes out.fetch('systemMessage', ''), 'PASS'
+
+    # The same transcript with the older block's note: everything after AAA is
+    # in reach, and the newest of it is CCC, so the verdict is the same record.
+    # What differs is what the gate would have done had the rewrite not landed.
+    _out2, older = drive(rows[0..3], note: 'AAA', max_headings: 3)
+    assert_includes older, 'rec=BBB', "AAA's rewrite is BBB: #{older}"
   end
 
-  def test_a_recheck_with_no_marker_for_this_turn_issues_no_verdict
-    # Claude Code's wording is not this gate's to guarantee, and when it changes
-    # the drift has to be visible. It must not be papered over by degrading to
-    # the old rule: the newest record that rule reaches is the message this turn
-    # has just blocked, so degrading meant re-judging it — reachable on any
-    # block after a session's first, and logged as an ordinary verdict. A
-    # recheck never blocks, so declining to judge costs only the line.
+  def test_a_recheck_with_no_note_issues_no_verdict
+    # The fallback this replaces looked conservative and was the opposite: the
+    # newest record it reached is the message this turn has just blocked, so it
+    # re-judged it — reachable on any block after a session's first, and logged
+    # as an ordinary verdict. A recheck never blocks, so declining to judge
+    # costs only the line.
     out, log = drive([row_for('assistant', text: BLOCKED, uuid: 'AAA')], max_headings: 3)
-    assert_includes log, 'SKIP-nomarker', log.inspect
-    refute_includes log, 'no-assistant-record',
-                    'there is an assistant record; only the marker is missing, and the two ' \
-                    'are separate rows in the measurement'
+    assert_includes log, 'SKIP-nonote', log.inspect
     refute_includes log, 'rec=AAA', 'AAA is the message that was just blocked'
     assert_includes out.fetch('systemMessage', ''), 'NOT RUN'
     refute out.key?('decision')
@@ -413,7 +483,7 @@ class TestReadableGate < Minitest::Test
                      rechecked: false, max_headings: 3)
     assert_equal 'block', out['decision'], out.inspect
     assert_includes log, 'rec=AAA', log.inspect
-    refute_includes log, 'nomarker', 'a first read has no marker to miss'
+    refute_includes log, 'nonote', 'a first read has no note to look for'
   end
 
   # The recheck's own flush race, driven with a real late write. The rewrite
@@ -421,14 +491,16 @@ class TestReadableGate < Minitest::Test
   def test_the_recheck_waits_for_the_rewrite_to_land
     Dir.mktmpdir do |tmp|
       tx = File.join(tmp, 't.jsonl')
+      c = cfg('log_path' => File.join(tmp, 'gate.log'))
       File.write(tx, rows_json(blocked_then), encoding: 'UTF-8')
+      assert_nil G.write_note(tx, c, 'AAA')
       writer = Thread.new do
         sleep(G::POLL_DELAY * 3)
         File.write(tx, rows_json([row_for('assistant', text: 'landed late', uuid: 'BBB')]),
                    mode: 'a', encoding: 'UTF-8')
       end
       begin
-        text, why, record_id = G.last_assistant_text(tx, true)
+        text, why, record_id = G.last_assistant_text(tx, c, true)
       ensure
         writer.join
       end
@@ -443,107 +515,94 @@ class TestReadableGate < Minitest::Test
   # Every fixture below was written against a mutation that the original seven
   # left green. A behaviour no mutation can kill is untested however many
   # assertions surround it.
+  #
+  # Three fixtures that stood here were retired on 2026-08-26 with the mechanism
+  # they held: waiting for the marker as well as the rewrite, preferring the
+  # newest marker to the oldest, and refusing a user record that merely mentions
+  # the wording. None of them has anything left to fail against — the recheck
+  # reads a note this gate wrote and never looks at the transcript's feedback
+  # text at all. What replaced the first of them is below; the other two are
+  # covered by "the note names this turn's block, not an earlier one".
 
-  # The marker was read once, on attempt zero, while the rewrite got forty
-  # attempts. Both are written by the same process at nearly the same moment,
-  # so a marker a fraction of a second late sent the read to the fallback and
-  # re-judged the blocked message — the defect this whole method exists to end,
-  # restored in full, with nothing but a suffix in the log to show for it.
-  def test_the_recheck_waits_for_the_marker_as_well_as_the_rewrite
+  # The note is taken once, before the polling begins. Taking it inside the loop
+  # spends it on attempt zero and finds nothing on attempt one, so a rewrite that
+  # is even slightly late loses its verdict — with every unit fixture green,
+  # because a note taken once and a note taken forty times are the same thing
+  # whenever the rewrite has already landed.
+  def test_the_note_is_taken_before_the_wait_not_during_it
     Dir.mktmpdir do |tmp|
       tx = File.join(tmp, 't.jsonl')
-      File.write(tx, rows_json([row_for('assistant', text: BLOCKED, uuid: 'AAA')]),
-                 encoding: 'UTF-8')
+      c = cfg('log_path' => File.join(tmp, 'gate.log'))
+      File.write(tx, rows_json(blocked_then), encoding: 'UTF-8')
+      assert_nil G.write_note(tx, c, 'AAA')
+
       writer = Thread.new do
         sleep(G::POLL_DELAY * 3)
-        File.write(
-          tx,
-          rows_json([row_for('user', text: "Stop hook feedback:\n- x", parent: 'AAA', uuid: 'MMM'),
-                     row_for('assistant', text: REWRITE, uuid: 'BBB')]),
-          mode: 'a', encoding: 'UTF-8'
-        )
+        File.write(tx, rows_json([row_for('assistant', text: REWRITE, uuid: 'BBB')]),
+                   mode: 'a', encoding: 'UTF-8')
       end
       begin
-        text, why, record_id = G.last_assistant_text(tx, true)
+        text, why, record_id = G.last_assistant_text(tx, c, true)
       ensure
         writer.join
       end
-      assert_equal REWRITE, text, 'a marker 0.3s late must not send the read to the fallback'
+      assert_equal REWRITE, text, 'the note must outlive the first poll'
       assert_equal 'ok-after-wait', why
       assert_equal 'BBB', record_id
     end
   end
 
-  # Operator ruling, 2026-08-21: the recheck searches backward for text rather
-  # than stopping at the newest record, accepting that it now differs from the
-  # first read. Stopping at the newest record spent the whole budget and called
-  # the rewrite absent while it sat one row down.
+  # Superseded by round 2, and the comment that stood here said the opposite of
+  # what ships: it recorded the round-1 ruling that the recheck searches backward
+  # for text. Backward search happens only after the budget is spent — inside it,
+  # the newest record is waited for. What this fixture still witnesses is the
+  # outcome, which both shapes share: a rewrite under a later text-less record is
+  # measured rather than called absent.
   def test_a_rewrite_behind_a_later_textless_record_is_still_measured
     rows = blocked_then(row_for('assistant', text: REWRITE, uuid: 'BBB'),
                         row_for('assistant', uuid: 'CCC', thinking: true))
-    out, log = drive(rows, max_headings: 3)
+    out, log = drive(rows, note: 'AAA', max_headings: 3)
     assert_includes log, 'rec=BBB', log.inspect
     refute_includes log, 'awaiting-rewrite',
                     'the rewrite was in the tail; a trailing thinking record must not hide it'
     assert_includes out.fetch('systemMessage', ''), 'PASS', out.inspect
   end
 
-  # Two blocks in a row, the second with no rewrite yet. The fixture above this
-  # one cannot tell the newest marker from the oldest, because both lead to the
-  # same record; here the older marker hands back the message the *second*
-  # block just named.
-  def test_the_oldest_marker_would_hand_back_the_message_the_newest_one_named
-    rows = [row_for('assistant', text: BLOCKED, uuid: 'AAA'),
-            row_for('user', text: "Stop hook feedback:\n- x", parent: 'AAA', uuid: 'M1'),
-            row_for('assistant', text: REWRITE, uuid: 'BBB'),
-            row_for('user', text: "Stop hook feedback:\n- x", parent: 'BBB', uuid: 'M2')]
-    _out, log = drive(rows, max_headings: 3)
-    assert_includes log, 'SKIP-awaiting-rewrite', log.inspect
-    refute_includes log, 'rec=BBB', 'BBB is what the newest marker names, not a rewrite'
-  end
-
   # This project discusses its own gate, so an assistant message opening with
-  # Claude Code's feedback wording is not hypothetical.
-  def test_only_a_user_record_can_be_a_marker
+  # Claude Code's feedback wording is not hypothetical. It is a rewrite like any
+  # other and must be measured as one.
+  def test_a_rewrite_that_quotes_the_feedback_wording_is_still_a_rewrite
     rows = blocked_then(row_for('assistant', text: "Stop hook feedback: 見出しなし\n", uuid: 'BBB'))
-    _out, log = drive(rows, max_headings: 3)
+    _out, log = drive(rows, note: 'AAA', max_headings: 3)
     assert_includes log, 'rec=BBB', log.inspect
     refute_includes log, 'awaiting-rewrite', log.inspect
   end
 
-  def test_a_record_that_merely_mentions_the_wording_is_not_a_marker
-    # The operator asking about the gate is an ordinary turn in this project.
-    # If that question counted as a marker, the read would treat the answer it
-    # just blocked as lying after a marker, and measure it.
-    rows = [row_for('user', text: 'なぜ Stop hook feedback: が出るの？', uuid: 'Q'),
-            row_for('assistant', text: BLOCKED, uuid: 'AAA')]
-    _out, log = drive(rows, max_headings: 3)
-    assert_includes log, 'nomarker', log.inspect
-    refute_includes log, 'rec=AAA', 'AAA is the message that was just blocked'
+  # The give-up exits used to be silent in exactly the cases they occur in, and
+  # one of them borrowed the name of another. Each has to name itself.
+  def test_a_recheck_that_finds_nothing_says_which_nothing_it_found
+    _out, no_note = drive([row_for('assistant', uuid: 'AAA', thinking: true)], max_headings: 3)
+    assert_includes no_note, 'SKIP-nonote', no_note.inspect
+    refute_includes no_note, 'awaiting-rewrite',
+                    'there was no note, so the rewrite was never the question'
+
+    _out2, waiting = drive(blocked_then, note: 'AAA', max_headings: 3)
+    assert_includes waiting, 'SKIP-awaiting-rewrite', waiting.inspect
+    refute_includes waiting, 'nonote', 'the note was there; the rewrite was not'
+
+    _out3, gone = drive([row_for('user', text: 'hello')], note: 'AAA', max_headings: 3)
+    assert_includes gone, 'SKIP-blocked-record-gone', gone.inspect
+    refute_includes gone, 'awaiting-rewrite', gone.inspect
   end
 
-  # The fallback's only visible trace used to be the exit that finds text, so a
-  # change in Claude Code's wording reported nothing in the two cases it
-  # actually produces — and one of them borrowed the name of the counter that
-  # decides whether a rewrite cap is worth building.
-  def test_a_recheck_with_no_marker_says_so_on_every_exit
-    _out, textless = drive([row_for('assistant', uuid: 'AAA', thinking: true)], max_headings: 3)
-    assert_includes textless, 'nomarker', textless.inspect
-    refute_includes textless, 'awaiting-rewrite',
-                    'no marker was found, so the rewrite was never the question'
-
-    _out2, none = drive([row_for('user', text: 'hello')], max_headings: 3)
-    assert_includes none, 'SKIP-no-assistant-record-nomarker', none.inspect
-    refute_includes none, 'awaiting-rewrite', none.inspect
-  end
-
-  # Comparing the judged uuid while it is nil made a record carrying no uuid
-  # look like the judged record, and skipped a rewrite that was right there.
-  def test_a_rewrite_with_no_uuid_is_measured_rather_than_taken_for_the_judged_one
+  # A rewrite carrying no uuid at all must still be measured. The exclusion is
+  # positional now, so a missing uuid cannot be mistaken for the blocked one —
+  # but the walk still has to survive reading it.
+  def test_a_rewrite_with_no_uuid_is_measured_rather_than_skipped
     rows = [row_for('assistant', text: BLOCKED, uuid: 'AAA'),
-            row_for('user', text: "Stop hook feedback:\n- x", uuid: 'MMM'),
+            row_for('user', text: own_marker, uuid: 'MMM'),
             row_for('assistant', text: REWRITE)]
-    out, log = drive(rows, max_headings: 3)
+    out, log = drive(rows, note: 'AAA', max_headings: 3)
     assert_includes out.fetch('systemMessage', ''), 'PASS', out.inspect
     refute_includes log, 'awaiting-rewrite', log.inspect
   end
@@ -555,14 +614,16 @@ class TestReadableGate < Minitest::Test
   def test_the_recheck_budget_outlasts_the_first_read_s
     Dir.mktmpdir do |tmp|
       tx = File.join(tmp, 't.jsonl')
+      c = cfg('log_path' => File.join(tmp, 'gate.log'))
       File.write(tx, rows_json(blocked_then), encoding: 'UTF-8')
+      assert_nil G.write_note(tx, c, 'AAA')
       writer = Thread.new do
         sleep((G::POLL_ATTEMPTS * G::POLL_DELAY) + 0.4)
         File.write(tx, rows_json([row_for('assistant', text: REWRITE, uuid: 'BBB')]),
                    mode: 'a', encoding: 'UTF-8')
       end
       begin
-        text, why, record_id = G.last_assistant_text(tx, true)
+        text, why, record_id = G.last_assistant_text(tx, c, true)
       ensure
         writer.join
       end
@@ -578,7 +639,7 @@ class TestReadableGate < Minitest::Test
   def test_the_rec_column_carries_only_the_first_eight_characters
     long = 'abcdefgh-1234-5678-9abc-def012345678'
     rows = blocked_then(row_for('assistant', text: REWRITE, uuid: long))
-    _out, log = drive(rows, max_headings: 3)
+    _out, log = drive(rows, note: 'AAA', max_headings: 3)
     assert_includes log, "rec=abcdefgh\t", log.inspect
     refute_includes log, "rec=#{long}", 'the whole uuid would push the metrics off the line'
   end
@@ -588,53 +649,59 @@ class TestReadableGate < Minitest::Test
   def second_block(*after)
     # A session already blocked once: the first rewrite passed and was
     # delivered, the operator asked something else, and that answer was blocked
-    # too. Everything up to and including CCC is on disk before CCC's own marker
-    # is written.
+    # too. Everything up to and including CCC is on disk. Pair with note: 'CCC'
+    # for the second block, note: 'AAA' for the first.
     [row_for('assistant', text: BLOCKED, uuid: 'AAA'),
-     row_for('user', text: "Stop hook feedback:\n- x", parent: 'AAA', uuid: 'M1'),
+     row_for('user', text: own_marker, parent: 'AAA', uuid: 'M1'),
      row_for('assistant', text: REWRITE, uuid: 'BBB'),
      row_for('user', text: '次の質問です', uuid: 'Q'),
      row_for('assistant', text: BLOCKED, uuid: 'CCC')] + after
   end
 
-  # The marker that counts is this turn's, not the newest in the file. Taking the
-  # newest one let the older marker stand in for a marker that had not landed,
-  # so the read skipped its wait and measured the message it had just blocked —
-  # in 0.06s, logged as an ordinary RECHECK verdict. 127 of 170 real blocks are
-  # not a session's first.
-  def test_a_marker_from_an_earlier_block_is_not_this_turn_s
-    _out, log = drive(second_block, max_headings: 3)
-    assert_includes log, 'nomarker', log.inspect
+  # The record that counts is the one the note names. Taking the newest block
+  # feedback in the file instead let an older turn's feedback stand in for one
+  # that had not landed, so the read skipped its wait and measured the message
+  # it had just blocked — in 0.06s, logged as an ordinary RECHECK verdict. 128
+  # of 170 real blocks are not a session's first.
+  def test_the_previous_turns_rewrite_is_out_of_reach_of_this_turns_note
+    _out, log = drive(second_block, note: 'CCC', max_headings: 3)
+    assert_includes log, 'SKIP-awaiting-rewrite', log.inspect
     refute_includes log, 'rec=CCC', 'CCC is the message this turn just blocked'
     refute_includes log, 'rec=BBB', "BBB is the previous turn's delivered rewrite"
   end
 
-  def test_the_second_block_s_own_marker_is_used_once_it_lands
-    rows = second_block(row_for('user', text: "Stop hook feedback:\n- x", parent: 'CCC', uuid: 'M2'),
+  def test_the_second_blocks_rewrite_is_judged_once_it_lands
+    rows = second_block(row_for('user', text: own_marker, parent: 'CCC', uuid: 'M2'),
                         row_for('assistant', text: REWRITE, uuid: 'DDD'))
-    out, log = drive(rows, max_headings: 3)
+    out, log = drive(rows, note: 'CCC', max_headings: 3)
     assert_includes log, 'rec=DDD', log.inspect
     assert_includes out.fetch('systemMessage', ''), 'PASS'
   end
 
   # A rewrite that calls a tool writes a short preamble, then tool records, then
-  # its real answer. Stepping over the text-less records to find text measured
-  # the two-line preamble and logged RECHECK-PASS in 0.04s, while the real
-  # rewrite — landing 0.6s later, four headings, a FAIL — was never read. Inside
-  # the budget the newest record is now waited for instead.
+  # its real answer. Stepping over the text-less records to find text reaches
+  # the preamble and judges that, while the real rewrite is still being written.
+  # Inside the budget the newest record is waited for instead.
+  #
+  # Reachable from the code, not observed. An earlier version of this comment
+  # gave figures — RECHECK-PASS in 0.04s, the real four-heading FAIL 0.6s later
+  # — and round 3 could not reproduce them: no RECHECK row in the log carries
+  # lines= 6 or fewer, and of 184 real blocks the rewrite calls a tool in 0.
   def test_a_preamble_is_not_mistaken_for_the_rewrite_while_the_budget_remains
     Dir.mktmpdir do |tmp|
       tx = File.join(tmp, 't.jsonl')
+      c = cfg('log_path' => File.join(tmp, 'gate.log'))
       File.write(tx, rows_json(blocked_then(row_for('assistant', text: "少し調べます\n", uuid: 'P1'),
                                             row_for('assistant', uuid: 'T1', thinking: true))),
                  encoding: 'UTF-8')
+      assert_nil G.write_note(tx, c, 'AAA')
       writer = Thread.new do
         sleep(G::POLL_DELAY * 3)
         File.write(tx, rows_json([row_for('assistant', text: BLOCKED, uuid: 'REAL')]),
                    mode: 'a', encoding: 'UTF-8')
       end
       begin
-        text, why, record_id = G.last_assistant_text(tx, true)
+        text, why, record_id = G.last_assistant_text(tx, c, true)
       ensure
         writer.join
       end
@@ -645,25 +712,28 @@ class TestReadableGate < Minitest::Test
   end
 
   # Kept as a last resort, and named apart so the log can count how often the
-  # ordinary rule was not enough. Over 3,248 transcripts this shape occurred 0
-  # times, so it must never pre-empt the wait — only outlive it.
+  # ordinary rule was not enough. Over the 3,248 transcripts of the 2026-08-21
+  # scan this shape occurred 0 times, so it must never pre-empt the wait — only
+  # outlive it.
   def test_text_under_a_newer_textless_record_is_reached_only_after_the_budget
     rows = blocked_then(row_for('assistant', text: REWRITE, uuid: 'BBB'),
                         row_for('assistant', uuid: 'T1', thinking: true))
-    out, log = drive(rows, max_headings: 3)
+    out, log = drive(rows, note: 'AAA', max_headings: 3)
     assert_includes log, 'ok-after-wait-deep', log.inspect
     assert_includes log, 'rec=BBB', log.inspect
     assert_includes out.fetch('systemMessage', ''), 'PASS'
   end
 
-  # Naming only the two expected reasons left the other exits silent, and both
-  # of the silent ones are live: a transcript momentarily unreadable, and a
-  # fallback that found whitespace. Each spent the whole budget and told the
-  # operator nothing.
+  # Naming only the two expected reasons left the other exits silent, and all of
+  # the silent ones are live: no note, a transcript momentarily unreadable, and
+  # a rewrite that turned out to be whitespace. Each spent the budget and told
+  # the operator nothing.
   def test_every_recheck_that_produces_no_verdict_says_so_on_screen
-    _out, = drive([row_for('assistant', uuid: 'AAA', thinking: true)], max_headings: 3)
+    no_note, = drive([row_for('assistant', uuid: 'AAA', thinking: true)], max_headings: 3)
+    assert_includes no_note.fetch('systemMessage', ''), 'NOT RUN', no_note.inspect
 
-    whitespace, = drive([row_for('assistant', text: "   \n", uuid: 'AAA')], max_headings: 3)
+    whitespace, = drive(blocked_then(row_for('assistant', text: "   \n", uuid: 'BBB')),
+                        note: 'AAA', max_headings: 3)
     assert_includes whitespace.fetch('systemMessage', ''), 'NOT RUN', whitespace.inspect
 
     Dir.mktmpdir do |tmp|
@@ -683,7 +753,7 @@ class TestReadableGate < Minitest::Test
   # The banner quotes a number. Hard-coding it left the suite green while the
   # figure the operator reads drifted away from the budget actually spent.
   def test_the_banner_quotes_the_budget_it_actually_spent
-    out, = drive(blocked_then, max_headings: 3)
+    out, = drive(blocked_then, note: 'AAA', max_headings: 3)
     expected = format('%.1f', G::RECHECK_POLL_ATTEMPTS * G::POLL_DELAY)
     assert_includes out.fetch('systemMessage', ''), "#{expected}s", out.inspect
   end
@@ -693,6 +763,281 @@ class TestReadableGate < Minitest::Test
       out = decide("短い応答。\n", max_headings: 3, blocking: blocking)
       refute out.key?('decision'), "blocking=#{blocking}: #{out.inspect}"
     end
+  end
+
+  # --- round 3: the instrument the evidence is read through ------------------
+  #
+  # Everything above measures the gate. The fixtures below measure the things
+  # the design reads its own evidence with — the waited token, the order of the
+  # last-resort walk, the step-over rule, the guard that skips the judged
+  # record. Each survived all 91 earlier fixtures, so any of them could have
+  # stopped discriminating without a test going red, and the design's headline
+  # numbers are derived from them.
+
+  # A tool result: a `user` record carrying no text at all. At 2026-08-22 05:22
+  # UTC, 54,984 of the 62,179 user records in this instance's 3,205 transcripts
+  # are these — the counts move by the hour, the ratio does not — so the marker
+  # walk reaching past them is not an edge case, it is the ordinary path the
+  # moment a blocked rewrite calls a tool.
+  def tool_result_row(uuid = nil)
+    row = { 'type' => 'user',
+            'message' => { 'content' => [{ 'type' => 'tool_result',
+                                           'tool_use_id' => 'toolu_x',
+                                           'content' => 'ok' }] },
+            'toolUseResult' => { 'stdout' => 'ok' } }
+    row['uuid'] = uuid if uuid
+    row
+  end
+
+  # Collapsing `attempt.zero? ? 'ok' : 'ok-after-wait'` to the constant
+  # 'ok-after-wait' left 91 runs green: every fixture that asserted a waited
+  # value asserted the waited one. That token is the sole basis of the design's
+  # two headline numbers — 140 of 140 rechecks never waited, 404 of 608 first
+  # reads did — so it could have stopped telling the two apart while the
+  # measurement went on reporting a constant.
+  def test_a_read_that_did_not_wait_says_so_and_not_the_other_way_round
+    _out, recheck = drive(blocked_then(row_for('assistant', text: REWRITE, uuid: 'BBB')),
+                          note: 'AAA', max_headings: 3)
+    assert_includes recheck, "RECHECK-PASS-ok\trec=BBB",
+                    "the rewrite was already there; nothing was waited for: #{recheck.inspect}"
+    refute_includes recheck, 'ok-after-wait', recheck.inspect
+
+    _out2, first = drive([row_for('assistant', text: FOUR_HEADINGS, uuid: 'AAA')],
+                         rechecked: false, max_headings: 3)
+    assert_includes first, "FAIL-ok\trec=AAA", first.inspect
+    refute_includes first, 'ok-after-wait', first.inspect
+  end
+
+  # The last resort walks newest-first. Reversing it left 91 runs green, because
+  # the only fixture that reached it had one text-bearing record after the
+  # marker and both directions found the same one. Two of them tell the
+  # directions apart, and the older one here is the message that failed.
+  def test_the_last_resort_takes_the_newest_rewrite_not_the_oldest
+    rows = blocked_then(row_for('assistant', text: FOUR_HEADINGS, uuid: 'OLD'),
+                        row_for('assistant', text: REWRITE, uuid: 'NEW'),
+                        row_for('assistant', uuid: 'T1', thinking: true))
+    out, log = drive(rows, note: 'AAA', max_headings: 3)
+    assert_includes log, 'ok-after-wait-deep', log.inspect
+    assert_includes log, 'rec=NEW', "the newest rewrite, not the one before it: #{log.inspect}"
+    refute_includes log, 'rec=OLD', log.inspect
+    assert_includes out.fetch('systemMessage', ''), 'PASS', out.inspect
+  end
+
+  # Round 3 asked for the opposite rule — stop the walk at any text-less user
+  # record — on the ground that image-only and document-only user records are
+  # operator turns. At 2026-08-22 05:22 UTC there are 26 of them on the main
+  # chain, every one follows a tool result and carries isMeta, and none follows
+  # an assistant record, so every one is the harness writing tool output. The
+  # probe is log/reviews/probe_textless_user_records_20260822.rb.
+  #
+  # What the rule lacked was this fixture: rewriting the guard to end the walk
+  # left all 91 of round 3's runs green, and what it breaks is a blocked rewrite
+  # that calls a tool — reachable from the code, though 0 of 184 real blocks
+  # have taken it.
+  def test_the_rewrite_is_still_reached_when_it_called_a_tool
+    rows = blocked_then(row_for('assistant', text: '少し調べます', uuid: 'P1'),
+                        tool_result_row('TR1'),
+                        row_for('assistant', text: REWRITE, uuid: 'BBB'))
+    out, log = drive(rows, note: 'AAA', max_headings: 3)
+    assert_includes log, 'rec=BBB', "the tool result must not hide the rewrite: #{log.inspect}"
+    refute_includes log, 'nonote', log.inspect
+    assert_includes out.fetch('systemMessage', ''), 'PASS', out.inspect
+  end
+
+  # Two fixtures stood here and were retired on 2026-08-26 as duplicates of
+  # tighter ones above. The uuid guard they exercised is gone — a rewrite is
+  # excluded by position now, not by comparing uuids — so "a rewrite with no
+  # uuid is measured rather than skipped" covers what is left of it. The
+  # unreadable-exit budget is asserted against one poll interval rather than
+  # half the budget by "the unreadable exit returns in well under one poll
+  # interval", which is the tighter of the two.
+
+  # --- round 4: what the log's own columns say, and where the walks end ------
+  #
+  # Round 4 shipped fixtures for the `waited` token and left the four columns
+  # beside it unwitnessed, the two first-read exit names unasserted, and three
+  # loop boundaries free. Every one of those is read by section 6 as a count.
+
+  # Swapping headings= and tables= left 106 runs green. Section 2.2's headline —
+  # 110 of 140 rechecks identical in all four columns — is read off these.
+  def test_the_log_names_each_metric_in_its_own_column
+    # Four different numbers, so a transposition of any pair is visible. One
+    # each would have made the swap invisible, and the first version of this
+    # fixture made exactly that mistake.
+    text = "# a\n## b\n### c\n\n| x | y |\n|---|---|\n| 1 | 2 |\n" \
+           "\n```\nfig one\n```\n\n```\nfig two\n```\n"
+    _out, log = drive([row_for('assistant', text: text, uuid: 'AAA')],
+                      rechecked: false, max_headings: 3)
+    assert_includes log, "\tlines=10\theadings=3\ttables=1\tdiagrams=2\t",
+                    "three headings, one table, two diagrams, in that order: #{log.inspect}"
+  end
+
+  # The first read's budget is fifteen attempts, and nothing said so: the
+  # existing flush fixture lands its text at 0.3s, which a five-attempt budget
+  # also catches. A flush that takes most of the budget is what tells them apart.
+  def test_the_first_reads_budget_outlasts_a_flush_that_takes_most_of_it
+    Dir.mktmpdir do |tmp|
+      tx = File.join(tmp, 't.jsonl')
+      File.write(tx, rows_json([row_for('assistant', uuid: 'AAA', thinking: true)]),
+                 encoding: 'UTF-8')
+      writer = Thread.new do
+        sleep(G::POLL_DELAY * (G::POLL_ATTEMPTS - 6))
+        File.write(tx, rows_json([row_for('assistant', text: REWRITE, uuid: 'BBB')]),
+                   mode: 'a', encoding: 'UTF-8')
+      end
+      begin
+        text, why, record_id = G.last_assistant_text(tx, cfg, false)
+      ensure
+        writer.join
+      end
+      assert_equal REWRITE, text, "the first read's budget must outlast this flush"
+      assert_equal 'ok-after-wait', why
+      assert_equal 'BBB', record_id
+    end
+  end
+
+  # The first read's two no-verdict names live in the same shared log as the
+  # recheck's. Renaming them into the recheck's families left the suite green,
+  # and section 6 rule 3 greps that log by name.
+  def test_the_first_reads_own_no_verdict_names_are_not_the_rechecks
+    _out, none = drive([row_for('user', text: 'hello')], rechecked: false, max_headings: 3)
+    assert_includes none, 'SKIP-no-assistant-record', none.inspect
+    refute_includes none, 'nomarker', 'that suffix belongs to the recheck alone'
+
+    Dir.mktmpdir do |tmp|
+      tx = File.join(tmp, 't.jsonl')
+      File.write(tx, rows_json([row_for('assistant', uuid: 'AAA', thinking: true)]),
+                 encoding: 'UTF-8')
+      _text, why, = G.last_assistant_text(tx, cfg, false)
+      assert_equal 'race-timeout', why,
+                   "the first read's give-up name, not the recheck's awaiting-rewrite"
+    end
+  end
+
+  # The window is the last 512 KB of the transcript. A note naming a record that
+  # fell above it has nothing to anchor on, and the walk must say so rather than
+  # measure whatever it can reach. Reachable: the tail of one real 22 MB
+  # transcript in this instance holds 14 records.
+  def test_a_blocked_record_above_the_window_is_named_as_such
+    filler = JSON.generate(row_for('assistant', text: 'x' * 900, uuid: 'F')) + "\n"
+    rows = [JSON.generate(row_for('assistant', text: BLOCKED, uuid: 'AAA')) + "\n"]
+    rows << filler while rows.join.bytesize <= G::TAIL_BYTES + 4096
+
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx_path = File.join(tmp, 't.jsonl')
+      log_path = File.join(tmp, 'gate.log')
+      raw = { 'mode_name' => 'test', 'max_headings' => 3, 'log_path' => log_path }
+      File.write(cfg_path, JSON.generate(raw), encoding: 'UTF-8')
+      File.write(tx_path, rows.join, encoding: 'UTF-8')
+      assert_operator File.size(tx_path), :>, G::TAIL_BYTES, 'the fixture must exceed the window'
+      assert_nil G.write_note(tx_path, G::Config.new(raw, cfg_path), 'AAA')
+
+      out, _err, status = run_script(
+        cfg_path, JSON.generate('transcript_path' => tx_path, 'stop_hook_active' => true)
+      )
+      assert_equal 0, status.exitstatus
+      log = File.read(log_path, encoding: 'UTF-8')
+      assert_includes log, 'SKIP-blocked-record-gone', log.inspect
+      refute_includes log, 'rec=F', 'the filler is not a rewrite of anything'
+      assert_includes JSON.parse(out).fetch('systemMessage', ''),
+                      'no longer in the part of the transcript'
+    end
+  end
+
+  # The blocked record can be the oldest row in the window. A walk written as
+  # `i > 0` rather than `i >= 0` cannot find it, and every other fixture puts
+  # something in front of it.
+  def test_a_blocked_record_that_is_the_oldest_row_in_the_window_is_still_found
+    rows = [row_for('assistant', text: BLOCKED, uuid: 'AAA'),
+            row_for('assistant', text: REWRITE, uuid: 'BBB')]
+    out, log = drive(rows, note: 'AAA', max_headings: 3)
+    assert_includes log, 'rec=BBB', log.inspect
+    refute_includes log, 'blocked-record-gone', 'AAA was row 0, not absent'
+    assert_includes out.fetch('systemMessage', ''), 'PASS'
+  end
+
+  # The declaration says this exit spends none of the budget. Asserting half of
+  # it let a 1.5s sleep through, so the assertion has to be tight enough to be
+  # the declaration.
+  def test_the_unreadable_exit_returns_in_well_under_one_poll_interval
+    Dir.mktmpdir do |tmp|
+      c = cfg('log_path' => File.join(tmp, 'gate.log'))
+      missing = File.join(tmp, 'no-such-transcript.jsonl')
+      assert_nil G.write_note(missing, c, 'AAA')
+      started = G.monotonic
+      _text, why, = G.last_assistant_text(missing, c, true)
+      elapsed = G.monotonic - started
+      assert_equal 'unreadable', why
+      assert_operator elapsed, :<, G::POLL_DELAY,
+                      'this exit returns without polling at all'
+    end
+  end
+
+  # The whitespace guard is only reached when a note was found and the record
+  # after it is whitespace. Round 4's fixture had no marker, so the run exited
+  # before the guard was ever evaluated; without a note the same is true here.
+  def test_a_whitespace_only_rewrite_produces_no_verdict
+    rows = blocked_then(row_for('assistant', text: "   \n", uuid: 'BBB'))
+    out, log = drive(rows, note: 'AAA', max_headings: 3)
+    assert_includes out.fetch('systemMessage', ''), 'NOT RUN', out.inspect
+    refute_includes log, 'RECHECK-PASS', "whitespace is not a passing message: #{log.inspect}"
+    refute_includes log, 'RECHECK-FAIL', log.inspect
+  end
+
+  # --- the reasons a recheck declines to judge -------------------------------
+  #
+  # Replaces round 3's three no-marker reasons. One word used to cover all of
+  # them and the banner asserted the rarest — "Claude Code's feedback wording
+  # may have changed" — which is a sentence the gate can no longer have an
+  # opinion about, because it no longer reads that wording. The reasons that
+  # remain are about this gate's own record of what it blocked, and each names
+  # itself so the log can be counted by cause.
+
+  # The one that carries a number worth having: how often another Stop hook
+  # takes a turn this gate would otherwise have rechecked. Under the marker
+  # scheme this was an inference; now it is whatever is left when the gate
+  # knows it did not block.
+  def test_a_turn_this_gate_did_not_block_is_named_as_such_and_not_as_a_wait
+    out, log = drive(second_block, max_headings: 3)
+    assert_includes log, 'SKIP-nonote', log.inspect
+    refute_includes log, 'awaiting-rewrite',
+                     'nothing was being waited for; this gate had blocked nothing'
+    message = out.fetch('systemMessage', '')
+    assert_includes message, 'did not block this turn', message
+  end
+
+  # Each declining reason gets its own word in the log, so the column can be
+  # counted. Sharing one word made the count unreadable in both directions.
+  #
+  # Compared as whole fields, not as substrings: `SKIP-nonote` is a prefix of
+  # `SKIP-nonote-stale`, so an assertion written with assert_includes cannot
+  # tell a distinct reason from a shared one — which is the property under test.
+  def test_each_declining_reason_is_named_apart_in_the_log
+    rows = blocked_then(row_for('assistant', text: REWRITE, uuid: 'BBB'))
+    expected = {
+      'SKIP-nonote' => drive(rows, max_headings: 3),
+      'SKIP-nonote-stale' => drive(rows, note: 'AAA', note_at: G::NOTE_TTL_SECONDS + 60,
+                                         max_headings: 3),
+      'SKIP-blocked-record-gone' => drive(rows, note: 'GONE', max_headings: 3),
+      'SKIP-awaiting-rewrite' => drive(blocked_then, note: 'AAA', max_headings: 3)
+    }
+    expected.each do |word, (_out, log)|
+      verdicts = log.lines.map { |line| line.split("\t")[2].to_s.strip }
+      assert_equal [word], verdicts, "#{word}: #{log.inspect}"
+    end
+  end
+
+  # No assistant record in the window at all. With a note in hand this is the
+  # same condition as the blocked record being gone, and it must not borrow the
+  # first read's name for it.
+  def test_a_window_holding_no_assistant_record_does_not_borrow_the_first_reads_name
+    out, log = drive([row_for('user', text: 'hello')], note: 'AAA', max_headings: 3)
+    assert_includes log, 'SKIP-blocked-record-gone', log.inspect
+    refute_includes log, 'race-timeout', "that is the first read's give-up: #{log.inspect}"
+    refute_includes log, 'no-assistant-record', log.inspect
+    refute_includes out.fetch('systemMessage', ''), 'may have changed',
+                    'the gate has no opinion about wording any more'
   end
 
   # --- round 2 hardening -----------------------------------------------------
@@ -822,7 +1167,7 @@ class TestReadableGate < Minitest::Test
 
   # --- round 3 test debt: properties the suite could not see the loss of ----
   #
-  # A reviewer ran 60 mutations through this suite; 38 survived. The cases below
+  # A reviewer reported survivors against this suite. The cases below
   # are the survivors that named a property section 4 of the review spec claims.
   # Each is written against the deletion that used to leave the suite green.
 
@@ -844,23 +1189,87 @@ class TestReadableGate < Minitest::Test
     assert_nil Regexp.timeout, 'and restored afterwards'
   end
 
-  # The two budgets this file spends run one after the other inside one hook
-  # invocation, and neither knew about the other. A mode asking for 6 seconds of
-  # measurement put the pair at 10.4 against a 10-second limit; Claude Code kills
-  # the hook there and it emits nothing at all, so the gate stops enforcing and
-  # the log stops recording, both without a trace.
-  def test_a_mode_cannot_ask_for_more_measurement_time_than_the_hook_has_left
-    assert_operator (G::RECHECK_POLL_ATTEMPTS * G::POLL_DELAY) + G::MEASURE_TIMEOUT_CEILING,
-                    :<=, G::HOOK_TIMEOUT - G::HOOK_TIMEOUT_MARGIN,
-                    'the recheck budget and the measurement ceiling must fit the hook timeout'
+  # §9.14 declares that `stop_hook_active` is read by Ruby truthiness, so the
+  # string "false" takes the recheck path. A declaration with no fixture is a
+  # sentence; this makes it a property.
+  def test_stop_hook_active_is_read_by_truthiness_as_declared
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx_path = File.join(tmp, 't.jsonl')
+      log_path = File.join(tmp, 'gate.log')
+      File.write(cfg_path, JSON.generate('mode_name' => 'test', 'max_headings' => 1,
+                                         'log_path' => log_path), encoding: 'UTF-8')
+      File.write(tx_path, rows_json([row_for('assistant', text: FOUR_HEADINGS, uuid: 'AAA')]),
+                 encoding: 'UTF-8')
+      out, _err, status = run_script(
+        cfg_path, JSON.generate('transcript_path' => tx_path, 'stop_hook_active' => 'false')
+      )
+      assert_equal 0, status.exitstatus
+      refute JSON.parse(out).key?('decision'),
+             'the string "false" is truthy in Ruby, so this took the recheck path'
+      assert_includes File.read(log_path, encoding: 'UTF-8'), 'nonote',
+                      'and a recheck with no note issues no verdict'
+    end
+  end
 
-    over = cfg('measure_timeout_seconds' => 60)
-    assert_equal G::MEASURE_TIMEOUT_CEILING, over.measure_timeout,
-                 'an over-large request is clamped to what is left'
-    assert_empty over.problems, 'and clamping is not an error the operator must act on'
+  # The window check this fixture drove is gone with the marker walk: whether
+  # the tail was truncated only mattered for deciding which no-marker cause to
+  # name. The window still bounds the read, and "a blocked record above the
+  # window is named as such" is what witnesses it now.
 
-    under = cfg('measure_timeout_seconds' => 2)
-    assert_equal 2, under.measure_timeout, 'a request that fits is passed through unchanged'
+  # Driven through the real script, because what the operator loses when the
+  # clamp is wrong is a verdict, not an arithmetic result. A mode declaring six
+  # seconds is clamped to MEASURE_TIMEOUT_CEILING and must still be judged: the
+  # clamp lowers the bound, it does not withdraw the read.
+  def test_a_six_second_mode_still_gets_a_first_pass_verdict
+    out, log = drive([row_for('assistant', text: FOUR_HEADINGS, uuid: 'AAA')],
+                     rechecked: false, max_headings: 3, measure_timeout_seconds: 6)
+    assert_equal 'block', out['decision'], out.inspect
+    assert_includes log, 'FAIL-ok', log.inspect
+    refute_includes log, 'SKIP-measure-timeout', 'a clamped bound still yields a verdict'
+  end
+
+  # A round-3 advisory asked for this wording to be corrected: every INT_KEYS
+  # value is rejected unless it is an Integer, so a mode writing 5.0 is told its
+  # number is not a number. It was corrected and then put back, because the
+  # message is output a first read emits, and pass condition 3 holds the first
+  # read to 366f3fc wherever 366f3fc emitted at all. Driving both versions with
+  # `max_lines: "60"` and `stop_hook_active` false showed the banner and the log
+  # line differing in exactly this string. The advisory stays open; this fixture
+  # is what stops the wording being improved again by accident.
+  def test_a_float_threshold_reports_with_the_baseline_wording
+    problems = cfg('measure_timeout_seconds' => 5.0).problems
+    assert_equal 1, problems.length, problems.inspect
+    assert_includes problems.first, 'expected a number', problems.inspect
+    assert_includes problems.first, 'measure_timeout_seconds is number',
+                    'imprecise, and deliberately unchanged from 366f3fc'
+  end
+
+  # HOOK_TIMEOUT is declared twice and neither copy knew about the other:
+  # mutating this one to 20.0 left 91 runs green, because the only assertion
+  # that read it compared it against a constant derived from itself. The other
+  # declaration is the compiler's, and it is what Claude Code is actually told.
+  def test_the_hook_timeout_matches_the_limit_the_compiler_declares
+    compiler = File.join(File.dirname(HERE), 'lib', 'mode_hooks_compiler.rb')
+    source = File.read(compiler, encoding: 'UTF-8')
+    declared = source[/'readable_gate'\s*=>\s*\{[^}]*?timeout:\s*(\d+(?:\.\d+)?)/, 1]
+    refute_nil declared, "the compiler no longer declares a timeout for readable_gate: #{compiler}"
+    assert_in_delta declared.to_f, G::HOOK_TIMEOUT, 1e-9,
+                    'the gate and the compiler must name the same limit'
+  end
+
+  # The margin holds back interpreter start-up and the poll's own overhead —
+  # everything the gate spends that is neither sleeping nor measuring. Asserting
+  # only that it is positive left every value in (0, 1) alive, so this measures
+  # the overhead instead of asserting a sign. A recheck with no rewrite spends
+  # its whole 4s budget; everything above that is what the margin must cover.
+  def test_the_headroom_covers_what_the_gate_spends_outside_sleeping
+    started = G.monotonic
+    drive(blocked_then, note: 'AAA', max_headings: 3)
+    overhead = (G.monotonic - started) - (G::RECHECK_POLL_ATTEMPTS * G::POLL_DELAY)
+    assert_operator overhead, :>, 0, 'the interpreter does not start for free'
+    assert_operator overhead, :<, G::HOOK_TIMEOUT_MARGIN,
+                    "measured overhead #{overhead.round(3)}s must fit the declared margin"
   end
 
   def test_a_transcript_that_cannot_be_read_is_recorded_as_a_skip
@@ -1115,7 +1524,7 @@ class TestReadableGate < Minitest::Test
         ) + "\n", mode: 'a', encoding: 'UTF-8')
       end
       begin
-        text, why = G.last_assistant_text(tx)
+        text, why = G.last_assistant_text(tx, cfg, false)
       ensure
         writer.join
       end
@@ -1593,5 +2002,481 @@ class TestReadableGate < Minitest::Test
                                      'announce_patterns' => ['(?i:\blong\b)'])
     assert f.any? { |x| x.start_with?('LENGTH') },
            "an announcement buried on line 40 clears nothing: #{f.inspect}"
+  end
+
+  # --- the carry-over note ---------------------------------------------------
+  #
+  # Replaces round 6's marker fixtures wholesale. Those held a mechanism that no
+  # longer exists: the recheck used to read Claude Code's block feedback back out
+  # of the transcript and infer which block was its own, because one preface is
+  # written for every blocking Stop hook. The inference is what six rounds of
+  # review kept breaking, and the last attempt at it — step over a foreign marker
+  # rather than stop at it — removed the only thing bounding the walk to one turn
+  # and made the gate judge a previous turn's rewrite a second time.
+  #
+  # What the gate does now is record which record it blocked, at the moment it
+  # blocks it. Every fixture below drives that: the note is written by the gate's
+  # own write_note, never composed here.
+
+  def test_the_first_read_writes_a_note_naming_the_record_it_blocked
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx_path = File.join(tmp, 't.jsonl')
+      log_path = File.join(tmp, 'gate.log')
+      raw = { 'mode_name' => 'test', 'section' => '§ Test',
+              'log_path' => log_path, 'max_headings' => 3 }
+      File.write(cfg_path, JSON.generate(raw), encoding: 'UTF-8')
+      File.write(tx_path, rows_json([row_for('assistant', text: BLOCKED, uuid: 'AAA')]),
+                 encoding: 'UTF-8')
+      out, _err, status = run_script(
+        cfg_path, JSON.generate('transcript_path' => tx_path, 'stop_hook_active' => false)
+      )
+      assert_equal 0, status.exitstatus
+      assert_equal 'block', JSON.parse(out)['decision']
+
+      path = G.note_path(tx_path, G::Config.new(raw, cfg_path))
+      assert File.exist?(path), "the block left no note at #{path}"
+      data = JSON.parse(File.read(path))
+      assert_equal 'AAA', data['blocked_uuid'], data.inspect
+      assert_equal tx_path, data['transcript'], data.inspect
+      assert_equal 'test', data['mode'], data.inspect
+      assert_in_delta Time.now.to_f, data['at'], 60.0, 'the note is stamped when it is written'
+    end
+  end
+
+  # A first read that passes must leave nothing behind. A note written on every
+  # turn would make the next recheck judge a turn this gate never blocked.
+  def test_a_first_read_that_does_not_block_writes_no_note
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx_path = File.join(tmp, 't.jsonl')
+      raw = { 'mode_name' => 'test', 'log_path' => File.join(tmp, 'gate.log'),
+              'max_headings' => 3 }
+      File.write(cfg_path, JSON.generate(raw), encoding: 'UTF-8')
+      File.write(tx_path, rows_json([row_for('assistant', text: REWRITE, uuid: 'AAA')]),
+                 encoding: 'UTF-8')
+      run_script(cfg_path, JSON.generate('transcript_path' => tx_path,
+                                         'stop_hook_active' => false))
+      refute File.exist?(G.note_path(tx_path, G::Config.new(raw, cfg_path))),
+             'nothing was blocked, so there is nothing to remember'
+    end
+  end
+
+  # A mode that declares blocking false never blocks, so it never writes a note
+  # and has no recheck verdicts. Stated rather than branched on: before the
+  # note, such a mode did get verdicts, and they were keyed off another hook's
+  # marker — wrong ones.
+  def test_a_non_blocking_mode_writes_no_note
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx_path = File.join(tmp, 't.jsonl')
+      raw = { 'mode_name' => 'test', 'log_path' => File.join(tmp, 'gate.log'),
+              'max_headings' => 3, 'blocking' => false }
+      File.write(cfg_path, JSON.generate(raw), encoding: 'UTF-8')
+      File.write(tx_path, rows_json([row_for('assistant', text: BLOCKED, uuid: 'AAA')]),
+                 encoding: 'UTF-8')
+      out, = run_script(cfg_path, JSON.generate('transcript_path' => tx_path,
+                                                'stop_hook_active' => false))
+      refute JSON.parse(out).key?('decision'), 'blocking false must not block'
+      refute File.exist?(G.note_path(tx_path, G::Config.new(raw, cfg_path)))
+    end
+  end
+
+  # The whole point, stated as a fixture: the transcript's block feedback is now
+  # inert. Same rows that used to yield a verdict, no note, no verdict.
+  def test_the_transcripts_block_feedback_is_no_longer_evidence
+    rows = blocked_then(row_for('assistant', text: REWRITE, uuid: 'BBB'))
+    _out, log = drive(rows, max_headings: 3)
+    assert_includes log, 'SKIP-nonote', log.inspect
+    refute_includes log, 'rec=BBB',
+                     'the feedback record alone must not produce a verdict any more'
+  end
+
+  # The defect the note was adopted to remove, driven in the arrangement the
+  # pre-dispatch falsifier used on 2026-08-26: this gate blocked, the rewrite
+  # landed and was judged, a text-less boundary follows, and then another hook
+  # blocks. The stepping-over walk reached back past the turn boundary and
+  # judged BBB a second time. With the note consumed by BBB's own recheck there
+  # is nothing left to reach with.
+  def test_a_turn_blocked_only_by_another_hook_reaches_no_earlier_rewrite
+    rows = [row_for('assistant', text: BLOCKED, uuid: 'AAA'),
+            row_for('user', text: own_marker, parent: 'AAA', uuid: 'MMM'),
+            row_for('assistant', text: REWRITE, uuid: 'BBB'),
+            row_for('user', uuid: 'IMG', text: nil),
+            row_for('user', text: foreign_marker, parent: 'IMG', uuid: 'F1')]
+    out, log = drive(rows, max_headings: 3)
+    assert_includes log, 'SKIP-nonote', log.inspect
+    refute_includes log, 'rec=BBB',
+                     'BBB is the previous turn s rewrite and already carries a verdict'
+    assert_includes out.fetch('systemMessage', ''), 'did not block this turn', out.inspect
+    refute out.key?('decision'), 'a recheck never blocks'
+  end
+
+  # Consume on read. 28 of 240 blocks in the 2026-08-26 measurement drew no
+  # recheck, so a note left in place outlives its turn about one time in nine.
+  def test_the_note_is_spent_by_the_recheck_that_reads_it
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx_path = File.join(tmp, 't.jsonl')
+      log_path = File.join(tmp, 'gate.log')
+      raw = { 'mode_name' => 'test', 'log_path' => log_path, 'max_headings' => 3 }
+      File.write(cfg_path, JSON.generate(raw), encoding: 'UTF-8')
+      File.write(tx_path, rows_json(blocked_then(row_for('assistant', text: REWRITE,
+                                                         uuid: 'BBB'))), encoding: 'UTF-8')
+      cfg_obj = G::Config.new(raw, cfg_path)
+      assert_nil G.write_note(tx_path, cfg_obj, 'AAA')
+
+      stdin = JSON.generate('transcript_path' => tx_path, 'stop_hook_active' => true)
+      run_script(cfg_path, stdin)
+      refute File.exist?(G.note_path(tx_path, cfg_obj)), 'the note must be spent'
+
+      run_script(cfg_path, stdin)
+      log = File.read(log_path, encoding: 'UTF-8')
+      assert_includes log, 'RECHECK-PASS-ok\trec=BBB'.gsub('\t', "\t"), log.inspect
+      assert_includes log, 'SKIP-nonote', "the second recheck must find nothing: #{log}"
+      assert_equal 1, log.scan('rec=BBB').length,
+                   "one verdict per rewrite, not one per recheck: #{log}"
+    end
+  end
+
+  # The bound is 300s against a measured maximum of 109s over 212 rechecks. An
+  # older note belongs to a turn that was interrupted.
+  def test_a_note_older_than_the_bound_is_refused
+    rows = blocked_then(row_for('assistant', text: REWRITE, uuid: 'BBB'))
+    _out, fresh = drive(rows, note: 'AAA', note_at: G::NOTE_TTL_SECONDS - 30, max_headings: 3)
+    assert_includes fresh, 'rec=BBB', "just inside the bound must still be used: #{fresh}"
+
+    out, stale = drive(rows, note: 'AAA', note_at: G::NOTE_TTL_SECONDS + 30, max_headings: 3)
+    assert_includes stale, 'SKIP-nonote-stale', stale.inspect
+    refute_includes stale, 'rec=BBB', 'a stale note must not name a record'
+    assert_includes out.fetch('systemMessage', ''), 'interrupted', out.inspect
+  end
+
+  # A note stamped ahead of the clock reading it is as unusable as one from too
+  # far back, and a bound written as a single greater-than lets it through.
+  def test_a_note_stamped_in_the_future_is_refused
+    rows = blocked_then(row_for('assistant', text: REWRITE, uuid: 'BBB'))
+    _out, log = drive(rows, note: 'AAA', note_at: -600, max_headings: 3)
+    assert_includes log, 'SKIP-nonote-stale', log.inspect
+    refute_includes log, 'rec=BBB', log.inspect
+  end
+
+  # The note's own fields are checked, not just its file name. A note that
+  # cannot be parsed, or that names a different session, must stop the recheck
+  # rather than be resolved in favour of judging something.
+  def test_a_note_that_does_not_check_out_is_refused
+    %w[corrupt wrong_transcript wrong_mode no_uuid bad_stamp].each do |kind|
+      Dir.mktmpdir do |tmp|
+        cfg_path = File.join(tmp, 'cfg.json')
+        tx_path = File.join(tmp, 't.jsonl')
+        log_path = File.join(tmp, 'gate.log')
+        raw = { 'mode_name' => 'test', 'log_path' => log_path, 'max_headings' => 3 }
+        File.write(cfg_path, JSON.generate(raw), encoding: 'UTF-8')
+        File.write(tx_path, rows_json(blocked_then(row_for('assistant', text: REWRITE,
+                                                           uuid: 'BBB'))), encoding: 'UTF-8')
+        cfg_obj = G::Config.new(raw, cfg_path)
+        path = G.note_path(tx_path, cfg_obj)
+        FileUtils.mkdir_p(File.dirname(path))
+        good = { 'transcript' => tx_path, 'mode' => 'test',
+                 'blocked_uuid' => 'AAA', 'at' => Time.now.to_f }
+        body =
+          case kind
+          when 'corrupt' then '{not json'
+          when 'wrong_transcript' then JSON.generate(good.merge('transcript' => '/elsewhere'))
+          when 'wrong_mode' then JSON.generate(good.merge('mode' => 'other'))
+          when 'no_uuid' then JSON.generate(good.merge('blocked_uuid' => ''))
+          else JSON.generate(good.merge('at' => 'noon'))
+          end
+        File.write(path, body)
+        run_script(cfg_path, JSON.generate('transcript_path' => tx_path,
+                                           'stop_hook_active' => true))
+        log = File.read(log_path, encoding: 'UTF-8')
+        assert_includes log, 'SKIP-nonote-mismatch', "#{kind}: #{log}"
+        refute_includes log, 'rec=', "#{kind} must not name a record: #{log}"
+        refute File.exist?(path), "#{kind}: an unusable note must still be spent"
+      end
+    end
+  end
+
+  # The blocked record is written before the block, so if it is not in the
+  # window it never will be. Spending the budget waiting for it is 4s of nothing.
+  def test_a_note_naming_a_record_outside_the_window_gives_up_at_once
+    rows = [row_for('assistant', text: REWRITE, uuid: 'BBB')]
+    started = Time.now
+    out, log = drive(rows, note: 'GONE', max_headings: 3)
+    elapsed = Time.now - started
+    assert_includes log, 'SKIP-blocked-record-gone', log.inspect
+    refute_includes log, 'rec=BBB', 'nothing is known to lie after a record that is not there'
+    assert_operator elapsed, :<, G::RECHECK_POLL_ATTEMPTS * G::POLL_DELAY,
+                    'the give-up must not spend the recheck budget'
+    assert_includes out.fetch('systemMessage', ''), 'no longer in the part of the transcript'
+  end
+
+  # mode_name is operator-supplied and defaults to '?'. Built into a file name
+  # directly it is a path the operator steers.
+  def test_a_mode_name_that_is_a_path_cannot_escape_the_note_directory
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx_path = File.join(tmp, 't.jsonl')
+      log_path = File.join(tmp, 'logs', 'gate.log')
+      escape = File.join(tmp, 'ESCAPED')
+      raw = { 'mode_name' => "../../#{File.basename(escape)}", 'log_path' => log_path,
+              'max_headings' => 3 }
+      File.write(cfg_path, JSON.generate(raw), encoding: 'UTF-8')
+      File.write(tx_path, rows_json([row_for('assistant', text: BLOCKED, uuid: 'AAA')]),
+                 encoding: 'UTF-8')
+      run_script(cfg_path, JSON.generate('transcript_path' => tx_path,
+                                         'stop_hook_active' => false))
+      notes = File.join(File.dirname(log_path), 'readable_gate_notes')
+      written = Dir.glob(File.join(notes, '*'))
+      assert_equal 1, written.length, "the note must land inside #{notes}: #{written.inspect}"
+      assert_match(/\A[0-9a-f]{32}\.json\z/, File.basename(written.first))
+      refute File.exist?(escape), 'the mode name steered the write out of the directory'
+      refute File.exist?("#{escape}.json"), 'the mode name steered the write out of the directory'
+    end
+  end
+
+  # A note that cannot be written must not cost the block. Enforcement does not
+  # depend on the note; only the recheck's verdict does.
+  def test_a_note_that_cannot_be_written_still_blocks_and_says_so
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx_path = File.join(tmp, 't.jsonl')
+      logs = File.join(tmp, 'logs')
+      FileUtils.mkdir_p(logs)
+      log_path = File.join(logs, 'gate.log')
+      raw = { 'mode_name' => 'test', 'section' => '§ Test',
+              'log_path' => log_path, 'max_headings' => 3 }
+      File.write(cfg_path, JSON.generate(raw), encoding: 'UTF-8')
+      File.write(tx_path, rows_json([row_for('assistant', text: BLOCKED, uuid: 'AAA')]),
+                 encoding: 'UTF-8')
+      # Occupy the notes directory's name with a file, so mkdir_p cannot make it.
+      File.write(File.join(logs, 'readable_gate_notes'), 'in the way')
+
+      out, _err, status = run_script(
+        cfg_path, JSON.generate('transcript_path' => tx_path, 'stop_hook_active' => false)
+      )
+      assert_equal 0, status.exitstatus
+      assert_equal 'block', JSON.parse(out)['decision'], 'the turn is still blocked'
+      log = File.read(log_path, encoding: 'UTF-8')
+      assert_includes log, 'NOTE-WRITE-FAILED', "the failure must be visible: #{log}"
+      assert_includes log, 'FAIL-ok', 'and the verdict is still recorded'
+    end
+  end
+
+  # No log declared means no place for a note, and the gate says so by writing
+  # neither rather than by raising. Enforcement is unaffected.
+  def test_a_mode_with_no_log_blocks_but_keeps_no_note
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx_path = File.join(tmp, 't.jsonl')
+      raw = { 'mode_name' => 'test', 'section' => '§ Test', 'max_headings' => 3 }
+      File.write(cfg_path, JSON.generate(raw), encoding: 'UTF-8')
+      File.write(tx_path, rows_json([row_for('assistant', text: BLOCKED, uuid: 'AAA')]),
+                 encoding: 'UTF-8')
+      out, _err, status = run_script(
+        cfg_path, JSON.generate('transcript_path' => tx_path, 'stop_hook_active' => false)
+      )
+      assert_equal 0, status.exitstatus
+      assert_equal 'block', JSON.parse(out)['decision']
+      assert_nil G.note_path(tx_path, G::Config.new(raw, cfg_path)),
+                 'no log path means no note path'
+    end
+  end
+
+  # Two modes' gates can run against one session. Their notes must not be the
+  # same file, or each spends the other's.
+  def test_two_modes_on_one_session_keep_separate_notes
+    Dir.mktmpdir do |tmp|
+      tx_path = File.join(tmp, 't.jsonl')
+      raw = { 'log_path' => File.join(tmp, 'gate.log') }
+      a = G::Config.new(raw.merge('mode_name' => 'masa'), '<inline>')
+      b = G::Config.new(raw.merge('mode_name' => 'tutorial'), '<inline>')
+      refute_equal G.note_path(tx_path, a), G.note_path(tx_path, b)
+
+      assert_nil G.write_note(tx_path, a, 'AAA')
+      assert_nil G.write_note(tx_path, b, 'BBB')
+      assert_equal ['AAA', nil], G.take_note(tx_path, a)
+      assert_equal ['BBB', nil], G.take_note(tx_path, b),
+                   "spending one mode's note must not spend the other's"
+    end
+  end
+
+  # Two sessions of one mode, for the same reason.
+  def test_two_sessions_of_one_mode_keep_separate_notes
+    Dir.mktmpdir do |tmp|
+      c = G::Config.new({ 'mode_name' => 'test', 'log_path' => File.join(tmp, 'gate.log') },
+                        '<inline>')
+      one = File.join(tmp, 'one.jsonl')
+      two = File.join(tmp, 'two.jsonl')
+      refute_equal G.note_path(one, c), G.note_path(two, c)
+
+      assert_nil G.write_note(one, c, 'AAA')
+      assert_equal [nil, 'nonote'], G.take_note(two, c)
+      assert_equal ['AAA', nil], G.take_note(one, c)
+    end
+  end
+
+  # emit scrubs on the way out, so write_note scrubs too; comparing the raw name
+  # on one side only loses every recheck for exactly the modes whose name
+  # carries a byte that is not valid UTF-8, and for no other mode.
+  def test_a_mode_name_with_an_invalid_byte_still_finds_its_own_note
+    Dir.mktmpdir do |tmp|
+      c = G::Config.new({ 'mode_name' => "te\xFFst", 'log_path' => File.join(tmp, 'gate.log') },
+                        '<inline>')
+      tx = File.join(tmp, 't.jsonl')
+      assert_nil G.write_note(tx, c, 'AAA')
+      assert_equal ['AAA', nil], G.take_note(tx, c)
+    end
+  end
+
+  # --- what the 2026-08-26 mutation run found unwitnessed --------------------
+  #
+  # Four mutations survived the first run against the note. One of them — the
+  # mode name scrubbed twice in the block reason — turned out to be a no-op
+  # rather than a gap, and the redundant scrub was deleted instead of pinned.
+  # The three below are real gaps and these are what close them.
+
+  # The reason the operator reads is a shipped string. Nothing asserted its
+  # opening, so rewriting it — a colon added, the constant abandoned — left all
+  # 122 tests green. Written out here rather than taken from the gate: a fixture
+  # that borrows the value it is checking cannot fail when the value is wrong.
+  def test_the_block_reason_opens_with_the_shipped_wording_and_the_mode_name
+    out = decide(FOUR_HEADINGS, max_headings: 3, mode_name: 'masa')
+    reason = out.fetch('reason', '')
+    assert reason.start_with?('Your last message violates masa'),
+           "the operator-facing opening is a shipped string: #{reason.inspect}"
+    refute_includes reason, 'violates:', 'no colon between the wording and the mode name'
+  end
+
+  # The lifetime is a number with grounds — 300s against a measured maximum of
+  # 109s over 212 rechecks — and every staleness fixture computed its backdate
+  # from the constant, so the constant could take any value with the suite
+  # green. These two pin the value itself: two minutes is inside the measured
+  # range and must be honoured, ten minutes is far outside it and must not be.
+  def test_the_note_lifetime_is_the_measured_one_not_merely_some_number
+    rows = blocked_then(row_for('assistant', text: REWRITE, uuid: 'BBB'))
+
+    _out, recent = drive(rows, note: 'AAA', note_at: 120, max_headings: 3)
+    assert_includes recent, 'rec=BBB',
+                    "120s is inside the measured range and must be honoured: #{recent}"
+
+    _out2, old = drive(rows, note: 'AAA', note_at: 600, max_headings: 3)
+    assert_includes old, 'SKIP-nonote-stale',
+                    "600s is far past any measured recheck and must not be: #{old}"
+  end
+
+  # A blocked record carrying no uuid leaves nothing to record. Inventing a
+  # placeholder writes a note that names a record no transcript contains, so
+  # every recheck of that turn reports the blocked record as gone — a wrong
+  # answer in place of an honest refusal. Reachable: the first read takes the
+  # uuid straight off the record, and a record without one is valid JSON.
+  def test_a_block_with_no_record_id_records_nothing_and_says_so
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx_path = File.join(tmp, 't.jsonl')
+      log_path = File.join(tmp, 'gate.log')
+      raw = { 'mode_name' => 'test', 'section' => '§ Test',
+              'log_path' => log_path, 'max_headings' => 3 }
+      File.write(cfg_path, JSON.generate(raw), encoding: 'UTF-8')
+      File.write(tx_path, rows_json([row_for('assistant', text: BLOCKED)]), encoding: 'UTF-8')
+
+      out, = run_script(cfg_path, JSON.generate('transcript_path' => tx_path,
+                                                'stop_hook_active' => false))
+      assert_equal 'block', JSON.parse(out)['decision'], 'the turn is still blocked'
+      log = File.read(log_path, encoding: 'UTF-8')
+      assert_includes log, 'NOTE-WRITE-FAILED: no uuid to record', log
+      notes = File.join(File.dirname(log_path), 'readable_gate_notes')
+      assert_empty Dir.glob(File.join(notes, '*')),
+                   'a placeholder note would name a record no transcript holds'
+    end
+  end
+
+  # And the recheck of that same turn declines rather than guessing.
+  def test_the_recheck_of_a_block_that_recorded_nothing_declines
+    _out, log = drive(blocked_then(row_for('assistant', text: REWRITE, uuid: 'BBB')),
+                      max_headings: 3)
+    assert_includes log, 'SKIP-nonote', log
+    refute_includes log, 'blocked-record-gone',
+                    'nothing was recorded, so nothing is missing'
+  end
+
+  # --- what round 1 of the conformance review found ---------------------------
+
+  # A note that could not be deleted has not been consumed. Using it anyway
+  # leaves it on disk for the next turn to read again, and the review drove
+  # exactly that: two RECHECK-PASS rows naming one record, which is the
+  # invariant this design exists to hold.
+  #
+  # Every other unusable-note fixture in this file uses a deletable note, which
+  # is why ten of them and a mutation run of 47 all passed over this.
+  def test_a_note_that_cannot_be_deleted_is_refused_rather_than_reused
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx_path = File.join(tmp, 't.jsonl')
+      logs = File.join(tmp, 'logs')
+      FileUtils.mkdir_p(logs)
+      log_path = File.join(logs, 'gate.log')
+      raw = { 'mode_name' => 'test', 'log_path' => log_path, 'max_headings' => 3 }
+      File.write(cfg_path, JSON.generate(raw), encoding: 'UTF-8')
+      File.write(tx_path, rows_json(blocked_then(row_for('assistant', text: REWRITE,
+                                                         uuid: 'BBB'))), encoding: 'UTF-8')
+      cfg_obj = G::Config.new(raw, cfg_path)
+      assert_nil G.write_note(tx_path, cfg_obj, 'AAA')
+      notes = File.dirname(G.note_path(tx_path, cfg_obj))
+
+      stdin = JSON.generate('transcript_path' => tx_path, 'stop_hook_active' => true)
+      File.chmod(0o555, notes) # readable and listable, entries cannot be removed
+      begin
+        out, _err, status = run_script(cfg_path, stdin)
+        assert_equal 0, status.exitstatus
+        run_script(cfg_path, stdin)
+      ensure
+        File.chmod(0o755, notes)
+      end
+
+      log = File.read(log_path, encoding: 'UTF-8')
+      assert_equal 2, log.scan('SKIP-nonote-unspent').length,
+                   "both rechecks must refuse the note they could not spend: #{log}"
+      refute_includes log, 'rec=BBB',
+                       "an unspendable note must produce no verdict at all: #{log}"
+      assert_includes JSON.parse(out).fetch('systemMessage', ''), 'could not be deleted',
+                      'the operator is told why, and where to look'
+      refute JSON.parse(out).key?('decision'), 'a recheck never blocks'
+    end
+  end
+
+  # The design says the digest is taken over the transcript's absolute path. The
+  # code hashed whatever the caller wrote, so one file reached by two spellings
+  # produced two notes and the recheck lost its verdict.
+  def test_the_note_is_found_through_a_different_spelling_of_one_transcript
+    Dir.mktmpdir do |tmp|
+      real = File.realpath(tmp)
+      c = G::Config.new({ 'mode_name' => 'test', 'log_path' => File.join(real, 'gate.log') },
+                        '<inline>')
+      absolute = File.join(real, 't.jsonl')
+      relative = File.join(real, 'sub', '..', 't.jsonl')
+
+      assert_equal G.note_path(absolute, c), G.note_path(relative, c),
+                   'two spellings of one file are one transcript'
+      assert_nil G.write_note(relative, c, 'AAA')
+      assert_equal ['AAA', nil], G.take_note(absolute, c),
+                   'a note written through one spelling is found through the other'
+    end
+  end
+
+  # The banner for a note stamped ahead of the clock used to assert the opposite
+  # of what happened — "more than 300s old" for something from the future.
+  def test_the_stale_banner_covers_both_halves_of_the_age_test
+    rows = blocked_then(row_for('assistant', text: REWRITE, uuid: 'BBB'))
+
+    old_out, = drive(rows, note: 'AAA', note_at: 600, max_headings: 3)
+    future_out, = drive(rows, note: 'AAA', note_at: -600, max_headings: 3)
+
+    [old_out, future_out].each do |out|
+      message = out.fetch('systemMessage', '')
+      assert_includes message, 'not from this turn', message
+      assert_includes message, 'stamped ahead of the clock', message
+    end
   end
 end

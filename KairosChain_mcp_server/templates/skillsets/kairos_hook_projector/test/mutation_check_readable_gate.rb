@@ -27,22 +27,9 @@ require 'rbconfig'
 SKILLSET_ROOT = File.dirname(__dir__)
 
 MUTATIONS = [
-  # --- the recheck's target: what it measures the second time ----------------
-  ['M1  recheck ignores the marker and takes the newest record',
-   %q{          marker = turn_marker(rows)},
-   %q{          marker = nil}],
-  ['M2  the already-judged record is not excluded (inside the budget)',
-   %q{        return [text_of(row), row['uuid']] if row['type'] == 'assistant' && !judged?(row, judged)},
-   %q{        return [text_of(row), row['uuid']] if row['type'] == 'assistant'}],
   ['M3  the recheck does not wait',
    %q{      attempts = rechecked ? RECHECK_POLL_ATTEMPTS : POLL_ATTEMPTS},
    %q{      attempts = rechecked ? 1 : POLL_ATTEMPTS}],
-  ['M4  the no-marker exit claims there is no assistant record at all',
-   %q{      newest_assistant(rows) ? [nil, 'nomarker', nil] : [nil, 'no-assistant-record-nomarker', nil]},
-   %q{      [nil, 'no-assistant-record-nomarker', nil]}],
-  ['M5  the -nomarker suffix is dropped',
-   %q{      newest_assistant(rows) ? [nil, 'nomarker', nil] : [nil, 'no-assistant-record-nomarker', nil]},
-   %q{      newest_assistant(rows) ? [nil, 'awaiting-rewrite', nil] : [nil, 'no-assistant-record', nil]}],
   ['M6  the rec= column is dropped from the log',
    %q{      detail += "\trec=#{record_id[0, 8]}" if record_id.is_a?(String) && !record_id.empty?},
    %q{      detail += ''}],
@@ -51,51 +38,240 @@ MUTATIONS = [
    %q{      if !failures.empty? && cfg.blocking}],
 
   # --- which record is the marker, and how long it is waited for ------------
-  ['M8  an earlier turn\'s marker is accepted as this turn\'s',
-   %q{          return text.start_with?(BLOCK_MARKER) ? i : nil if text.is_a?(String)},
-   %q{          return i if text.is_a?(String) && text.start_with?(BLOCK_MARKER)}],
   ['M9  the recheck budget is cut from 40 attempts to 15',
    %q{    RECHECK_POLL_ATTEMPTS = 40},
    %q{    RECHECK_POLL_ATTEMPTS = 15}],
   ['M10 rec= logs the whole uuid instead of the first 8 characters',
    %q{      detail += "\trec=#{record_id[0, 8]}" if record_id.is_a?(String) && !record_id.empty?},
    %q{      detail += "\trec=#{record_id}" if record_id.is_a?(String) && !record_id.empty?}],
-  ['M11 any record type may be a marker, not only user',
-   "        if row['type'] == 'user'\n          text = text_of(row)",
-   "        if row['type']\n          text = text_of(row)"],
-  ['M12 a record that merely mentions the wording counts as a marker',
-   %q{          return text.start_with?(BLOCK_MARKER) ? i : nil if text.is_a?(String)},
-   %q{          return text.include?(BLOCK_MARKER) ? i : nil if text.is_a?(String)}],
+  # M11 and M12 were here. Round 5 merged turn_marker's predicate with
+  # any_marker?'s into one method, so M34 and M35 now cover both call sites
+  # where these covered one. Retired rather than duplicated.
 
   # --- the shape settled on 2026-08-21 after two review rounds ---------------
-  ['M13 no marker means judge the newest record anyway',
-   %q{      newest_assistant(rows) ? [nil, 'nomarker', nil] : [nil, 'no-assistant-record-nomarker', nil]},
-   "      n = newest_assistant(rows)\n" \
-   "      return [nil, 'no-assistant-record-nomarker', nil] if n.nil?\n" \
-   "      n[0] ? [n[0], 'ok-after-wait-nomarker', n[1]] : [nil, 'nomarker', nil]"],
-  ['M14 the deep walk pre-empts the wait instead of outliving it',
-   %q{        return [text_of(row), row['uuid']] if row['type'] == 'assistant' && !judged?(row, judged)},
-   "        if row['type'] == 'assistant' && !judged?(row, judged)\n" \
-   "          t = text_of(row)\n" \
-   "          return [t, row['uuid']] if t\n" \
-   "        end"],
-  ['M15 the nil-judged guard reverted to a plain inequality',
-   %q{      judged && row['uuid'] == judged},
-   %q{      row['uuid'] == judged}],
-
-  # --- what round 2 found no mutation could reach ---------------------------
   ['M16 the no-verdict banner is not emitted at all',
    %q{        emit('systemMessage' => "#{cfg.banner_prefix} (recheck): NOT RUN — #{reason}#{tail}") if rechecked},
    %q{        nil}],
   ['M17 the banner quotes a fixed number instead of the budget it spent',
    %q{        budget = format('%.1f', RECHECK_POLL_ATTEMPTS * POLL_DELAY)},
    %q{        budget = '1.5'}],
-  ['M18 the deep walk never finds the rewrite it is the last resort for',
-   "    def deep_after(rows, index, judged)\n      i = rows.length - 1",
-   "    def deep_after(rows, index, judged)\n      return nil\n      i = rows.length - 1"],
-  ['M19 a mode may ask for more measurement time than the hook has left',
-   %q{          if requested.is_a?(Numeric) && requested > MEASURE_TIMEOUT_CEILING},
-   %q{          if false}]
+  ['M27 HOOK_TIMEOUT drifts from the limit the compiler declares',
+   %q{    HOOK_TIMEOUT = 10.0},
+   %q{    HOOK_TIMEOUT = 20.0}],
+  ['M28 the interpreter start-up headroom is deleted',
+   %q{    HOOK_TIMEOUT_MARGIN = 1.0},
+   %q{    HOOK_TIMEOUT_MARGIN = 0.0}],
+
+  # --- round 3: the instrument the design reads its own evidence through -----
+  ['M22 the waited token stops telling a wait from no wait',
+   %q{        waited = attempt.zero? ? 'ok' : 'ok-after-wait'},
+   %q{        waited = 'ok-after-wait'}],
+  ['M26 the unreadable exit spends the whole budget instead of returning at once',
+   %q{        rows = tail_records(transcript_path)
+        return [nil, 'unreadable', nil] if rows.nil?},
+   %q{        rows = tail_records(transcript_path)
+        if rows.nil?
+          sleep(POLL_DELAY)
+          next
+        end}],
+  ['M30 the start-up headroom shrinks but stays positive',
+   %q{    HOOK_TIMEOUT_MARGIN = 1.0},
+   %q{    HOOK_TIMEOUT_MARGIN = 0.05}],
+  ['M31 the recheck budget grows instead of shrinking',
+   %q{    RECHECK_POLL_ATTEMPTS = 40},
+   %q{    RECHECK_POLL_ATTEMPTS = 95}],
+  ['M32 the first read waits a third as long',
+   %q{    POLL_ATTEMPTS = 15},
+   %q{    POLL_ATTEMPTS = 5}],
+  ['M39 the log swaps the headings and tables columns',
+   %q{          "\tlines=%d\theadings=%d\ttables=%d\tdiagrams=%d\tunglossed=%s",
+          metrics['lines'], metrics['headings'], metrics['tables'], metrics['diagrams'],},
+   %q{          "\tlines=%d\theadings=%d\ttables=%d\tdiagrams=%d\tunglossed=%s",
+          metrics['lines'], metrics['tables'], metrics['headings'], metrics['diagrams'],}],
+  ['M42 the unreadable exit polls before giving up',
+   %q{        rows = tail_records(transcript_path)
+        return [nil, 'unreadable', nil] if rows.nil?},
+   %q{        rows = tail_records(transcript_path)
+        if rows.nil?
+          sleep(POLL_DELAY * 15)
+          return [nil, 'unreadable', nil]
+        end}],
+  ['M43 the whitespace guard is deleted',
+   %q{      if text.nil? || text.strip.empty?},
+   %q{      if text.nil?}],
+
+  # --- round 5's own seam: the clock is wired through main, and the wiring is
+  # what a helper's unit fixtures do not reach. A reviewer invented 20 of these
+  # against the round-5 tree and 14 survived; 8 were in this seam alone.
+  # M44 through M50 were the clock seam and are gone with it, for the reason
+  # given at M19 above. M44 and M45 are the two the round-5 review named as
+  # half-witnessed — the fixture drove the first read only — and that debt is
+  # carried into the bound's own design rather than left here as a mutation with
+  # no code to mutate.
+  ['M52 stop_hook_active is read as a strict boolean',
+   %q{      rechecked = payload['stop_hook_active'] ? true : false},
+   %q{      rechecked = payload['stop_hook_active'] == true}],
+  ['M55 the operator-facing block reason stops reading the constant',
+   %q{          "#{own_block_reason(cfg)}" \\},
+   %q{          "Your last message violates: #{cfg.mode_name}" \\}],
+  # M57 was "the block reason carries the unscrubbed mode name". It survived the
+  # 2026-08-26 run, and the reason was not a gap in the suite: emit scrubs every
+  # string in the payload on the way out, so scrubbing again inside the block
+  # reason changed nothing that could be observed. The redundant scrub was
+  # deleted rather than pinned. What is left to pin is emit's own scrub, which
+  # is now the only one on that path.
+  ['M57 emit stops scrubbing on the way out',
+   %q{      puts JSON.generate(payload.transform_values { |v| v.is_a?(String) ? v.scrub : v })},
+   %q{      puts JSON.generate(payload)}],
+  ['M40 the first read borrows the recheck\'s give-up name',
+   %q{      return [nil, 'race-timeout', nil] unless rechecked},
+   %q{      return [nil, 'awaiting-rewrite', nil] unless rechecked}],
+  ['M41 the first read borrows a recheck-only give-up name',
+   %q{          return [nil, 'no-assistant-record', nil] if newest.nil?},
+   %q{          return [nil, 'blocked-record-gone', nil] if newest.nil?}],
+
+  # --- the carry-over note: what the recheck starts from ---------------------
+  #
+  # Replaces the twenty-five mutations that aimed at the marker walk. Their
+  # anchors went with it on 2026-08-26; a mutation whose anchor is not in the
+  # source is not a passing mutation, it is an absent one, and the harness
+  # reports it as ANCHOR NOT FOUND rather than counting it killed.
+  ['N1  the recheck ignores the note and takes the newest record',
+   %q{          index = index_of_uuid(rows, blocked_uuid)},
+   %q{          index = -1}],
+  ['N2  the walk starts at the blocked record instead of after it',
+   %q{      i = rows.length - 1
+      while i > index
+        row = rows[i]
+        return [text_of(row), row['uuid']] if row.is_a?(Hash) && row['type'] == 'assistant'},
+   %q{      i = rows.length - 1
+      while i >= index
+        row = rows[i]
+        return [text_of(row), row['uuid']] if row.is_a?(Hash) && row['type'] == 'assistant'}],
+  # --- what round 1 of the conformance review found --------------------------
+  #
+  # N26 is the one a whole 47-mutation run and ten unusable-note fixtures walked
+  # past: every one of them used a note that could be deleted. The reviewer that
+  # found it did so by reading the code, not by running the suite.
+  ['N26 a note that cannot be deleted is used anyway',
+   %q{      begin
+        File.unlink(path)
+      rescue StandardError
+        return [nil, 'nonote-unspent']
+      end},
+   %q{      begin
+        File.unlink(path)
+      rescue StandardError
+        nil
+      end}],
+  ['N27 the note key is the caller\'s spelling rather than the absolute path',
+   %q{      File.expand_path(transcript_path.to_s)},
+   %q{      transcript_path.to_s}],
+  ['N28 the stale banner asserts age for a note stamped in the future',
+   %q{            "this gate's record of what it blocked is not from this turn: it is either more " \\},
+   %q{            "this gate's record of what it blocked is more than " \\}],
+  # Retargeted after round 1. It used to mutate the rescue arm, which is now
+  # N26's job; this one deletes the attempt itself, so the two are distinct:
+  # N3 never tries, N26 tries and ignores the failure.
+  ['N3  the note is read and no delete is even attempted',
+   %q{        File.unlink(path)},
+   %q{        path},
+   ],
+  ['N4  the staleness bound is not applied at all',
+   %q{      return [nil, 'nonote-stale'] unless age >= -1.0 && age <= NOTE_TTL_SECONDS},
+   %q{      return [nil, 'nonote-stale'] unless age >= -1.0 || age <= NOTE_TTL_SECONDS}],
+  ['N5  a note stamped in the future is accepted',
+   %q{      return [nil, 'nonote-stale'] unless age >= -1.0 && age <= NOTE_TTL_SECONDS},
+   %q{      return [nil, 'nonote-stale'] unless age <= NOTE_TTL_SECONDS}],
+  ['N6  the note lifetime grows by an order of magnitude',
+   %q{    NOTE_TTL_SECONDS = 300.0},
+   %q{    NOTE_TTL_SECONDS = 3000.0}],
+  ['N7  the note is not checked against the transcript it names',
+   %q{      return [nil, 'nonote-mismatch'] unless data['transcript'] == note_key_path(transcript_path).scrub},
+   %q{      return [nil, 'nonote-mismatch'] if false}],
+  ['N8  the note is not checked against the mode that wrote it',
+   %q{      return [nil, 'nonote-mismatch'] unless data['mode'] == cfg.mode_name.to_s.scrub},
+   %q{      return [nil, 'nonote-mismatch'] if false}],
+  ['N9  an empty blocked_uuid is accepted',
+   %q{      return [nil, 'nonote-mismatch'] unless uuid.is_a?(String) && !uuid.empty?},
+   %q{      return [nil, 'nonote-mismatch'] unless uuid.is_a?(String)}],
+  ['N10 a note whose stamp is not a number is accepted',
+   %q{      return [nil, 'nonote-mismatch'] unless at.is_a?(Numeric)},
+   %q{      at = 0.0 unless at.is_a?(Numeric)}],
+  ['N11 a note that cannot be parsed is treated as usable',
+   %q{      data = begin
+        JSON.parse(raw)
+      rescue StandardError
+        return [nil, 'nonote-mismatch']
+      end},
+   %q{      data = begin
+        JSON.parse(raw)
+      rescue StandardError
+        { 'transcript' => transcript_path.to_s.scrub, 'mode' => cfg.mode_name.to_s.scrub,
+          'blocked_uuid' => 'AAA', 'at' => Time.now.to_f }
+      end}],
+  ['N12 the note file name is built from the mode name instead of a digest',
+   %q{      key = Digest::SHA256.hexdigest("#{note_key_path(transcript_path)}\0#{cfg.mode_name}")[0, 32]},
+   %q{      key = "#{File.basename(transcript_path)}-#{cfg.mode_name}"}],
+  ['N13 the note file name drops the transcript, so all sessions share one',
+   %q{      key = Digest::SHA256.hexdigest("#{note_key_path(transcript_path)}\0#{cfg.mode_name}")[0, 32]},
+   %q{      key = Digest::SHA256.hexdigest(cfg.mode_name.to_s)[0, 32]}],
+  ['N14 the note file name drops the mode, so two modes share one',
+   %q{      key = Digest::SHA256.hexdigest("#{note_key_path(transcript_path)}\0#{cfg.mode_name}")[0, 32]},
+   %q{      key = Digest::SHA256.hexdigest(transcript_path.to_s)[0, 32]}],
+  ['N15 the writer stops scrubbing the mode name the reader scrubs',
+   %q{          'mode' => cfg.mode_name.to_s.scrub,},
+   %q{          'mode' => cfg.mode_name.to_s,}],
+  ['N16 a failed note write is silent',
+   %q{        note(cfg, "NOTE-WRITE-FAILED: #{failure}") if failure},
+   %q{        note(cfg, "NOTE-WRITE-FAILED: #{failure}") if false}],
+  ['N17 a failed note write stops the block',
+   %q{        failure = write_note(payload.fetch('transcript_path', ''), cfg, record_id)
+        note(cfg, "NOTE-WRITE-FAILED: #{failure}") if failure},
+   %q{        failure = write_note(payload.fetch('transcript_path', ''), cfg, record_id)
+        if failure
+          note(cfg, "NOTE-WRITE-FAILED: #{failure}")
+          out.delete('decision')
+        end}],
+  ['N18 write_note records a uuid it was not given',
+   %q{      return 'no uuid to record' if uuid.nil? || uuid.to_s.empty?},
+   %q{      uuid = 'unknown' if uuid.nil? || uuid.to_s.empty?}],
+  ['N19 the note is written whole rather than renamed into place',
+   %q{      File.rename(tmp, path)},
+   %q{      FileUtils.cp(tmp, path)}],
+  ['N20 the blocked record being outside the window spends the whole budget',
+   %q{          return [nil, 'blocked-record-gone', nil] if index.nil?},
+   %q{          if index.nil?
+            sleep(POLL_DELAY)
+            next
+          end}],
+  ['N21 the give-up for a missing blocked record borrows the wait name',
+   %q{          return [nil, 'blocked-record-gone', nil] if index.nil?},
+   %q{          return [nil, 'awaiting-rewrite', nil] if index.nil?}],
+  ['N22 the last resort walks oldest-first',
+   %q{    def deep_after_index(rows, index)
+      i = rows.length - 1
+      while i > index},
+   %q{    def deep_after_index(rows, index)
+      i = index + 1
+      while i < rows.length}],
+  ['N23 the last resort never finds the rewrite it is the last resort for',
+   %q{          return [text, row['uuid']] if text},
+   %q{          return [text, row['uuid']] if text && false}],
+  ['N24 the wait is pre-empted: a text-less rewrite is stepped over at once',
+   %q{        return [text_of(row), row['uuid']] if row.is_a?(Hash) && row['type'] == 'assistant'},
+   %q{        if row.is_a?(Hash) && row['type'] == 'assistant' && text_of(row)
+          return [text_of(row), row['uuid']]
+        end}],
+  ['N25 the note is taken again on every poll instead of once',
+   %q{      blocked_uuid = nil
+      if rechecked
+        blocked_uuid, why_not = take_note(transcript_path, cfg)},
+   %q{      blocked_uuid = nil
+      if rechecked
+        blocked_uuid, why_not = take_note(transcript_path, cfg)
+        blocked_uuid, why_not = take_note(transcript_path, cfg) if blocked_uuid},
+   ],
 ].freeze
 
 def run_suite(root)
