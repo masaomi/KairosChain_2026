@@ -233,8 +233,10 @@ MUTATIONS = [
           note(cfg, "NOTE-WRITE-FAILED: #{failure}")
           out.delete('decision')
         end}],
+  # Retargeted after round 2: the no-uuid return now spends the leftover first,
+  # so the anchor moved with it. The mutation is unchanged in spirit.
   ['N18 write_note records a uuid it was not given',
-   %q{      return 'no uuid to record' if uuid.nil? || uuid.to_s.empty?},
+   %q{      return spend_stale_note(path, 'no uuid to record') if uuid.nil? || uuid.to_s.empty?},
    %q{      uuid = 'unknown' if uuid.nil? || uuid.to_s.empty?}],
   ['N19 the note is written whole rather than renamed into place',
    %q{      File.rename(tmp, path)},
@@ -272,6 +274,47 @@ MUTATIONS = [
         blocked_uuid, why_not = take_note(transcript_path, cfg)
         blocked_uuid, why_not = take_note(transcript_path, cfg) if blocked_uuid},
    ],
+
+  # --- what round 2 of the conformance review found --------------------------
+  #
+  # A leftover note from an interrupted turn is valid on its face, so a block
+  # whose own note write fails must spend it — otherwise the recheck reads the
+  # leftover and judges the message this turn just blocked. One seat of six
+  # found it, by composing two declared behaviours (the 11.7% unconsumed-note
+  # population and the no-uuid write failure) that every fixture had exercised
+  # only in isolation.
+  ['N29 the spend is a no-op that still reports success',
+   %q{    def spend_stale_note(path, reason)
+      File.unlink(path)},
+   %q{    def spend_stale_note(path, reason)
+      return reason if path
+      File.unlink(path)}],
+  ['N30 the no-uuid failure path stops spending the leftover',
+   %q{      return spend_stale_note(path, 'no uuid to record') if uuid.nil? || uuid.to_s.empty?},
+   %q{      return 'no uuid to record' if uuid.nil? || uuid.to_s.empty?}],
+  ['N31 the write\'s exception path stops spending the leftover',
+   %q{        spend_stale_note(path, "#{e.class}: #{e.message}")},
+   %q{        "#{e.class}: #{e.message}"}],
+
+  # --- what round 3 of the conformance review found --------------------------
+  #
+  # Unspendability is not stable: a directory that refuses the unlink at block
+  # time and permits it again before the recheck let the recheck spend the
+  # leftover this block had failed to delete. Three of five verifying contexts
+  # reached the same window independently. The truncation fallback is what
+  # closes it; this deletes the fallback and the window reopens.
+  ['N32 the truncation fallback is deleted, so a lifted window revives the leftover',
+   %q{    rescue StandardError
+      begin
+        File.write(path, '')
+        "#{reason}; a stale note could not be deleted and was emptied instead"
+      rescue StandardError => e
+        "#{reason}; a stale note could not be deleted (#{e.class})"
+      end
+    end},
+   %q{    rescue StandardError => e
+      "#{reason}; a stale note could not be deleted (#{e.class})"
+    end}],
 ].freeze
 
 def run_suite(root)

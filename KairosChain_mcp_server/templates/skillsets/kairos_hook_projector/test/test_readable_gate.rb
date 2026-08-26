@@ -2479,4 +2479,148 @@ class TestReadableGate < Minitest::Test
       assert_includes message, 'stamped ahead of the clock', message
     end
   end
+
+  # --- what round 2 of the conformance review found ---------------------------
+  #
+  # A leftover note from an interrupted turn checks out as valid: fresh, same
+  # session, deletable. When the next block's own note write fails, the recheck
+  # read that leftover and judged the message this turn had just blocked — no
+  # foreign hook involved, no filesystem failure needed (a record with no uuid
+  # is enough). After a block, the note must be this block's or absent.
+
+  def test_a_failed_note_write_also_spends_the_note_an_earlier_turn_left
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx_path = File.join(tmp, 't.jsonl')
+      log_path = File.join(tmp, 'gate.log')
+      raw = { 'mode_name' => 'test', 'log_path' => log_path, 'max_headings' => 3 }
+      File.write(cfg_path, JSON.generate(raw), encoding: 'UTF-8')
+      File.write(tx_path, rows_json([row_for('assistant', text: BLOCKED, uuid: 'AAA'),
+                                     row_for('assistant', text: BLOCKED)]),
+                 encoding: 'UTF-8')
+      cfg_obj = G::Config.new(raw, cfg_path)
+      assert_nil G.write_note(tx_path, cfg_obj, 'AAA'), 'the interrupted turn left its note'
+
+      out, = run_script(cfg_path, JSON.generate('transcript_path' => tx_path,
+                                                'stop_hook_active' => false))
+      assert_equal 'block', JSON.parse(out)['decision'], 'the turn is still blocked'
+      log = File.read(log_path, encoding: 'UTF-8')
+      assert_includes log, 'NOTE-WRITE-FAILED: no uuid to record; a stale note was deleted', log
+      assert_empty Dir.glob(File.join(File.dirname(G.note_path(tx_path, cfg_obj)), '*')),
+                   'the leftover would name a block this turn did not make'
+
+      _out2, = run_script(cfg_path, JSON.generate('transcript_path' => tx_path,
+                                                  'stop_hook_active' => true))
+      log = File.read(log_path, encoding: 'UTF-8')
+      assert_includes log, 'SKIP-nonote', "the recheck must decline, not judge: #{log}"
+      refute_includes log, 'RECHECK-',
+                      "a verdict here re-judges the message this turn blocked: #{log}"
+    end
+  end
+
+  # When the leftover cannot be spent either, the two failures must compose to
+  # the same refusal: the leftover stays, and the recheck refuses it as the
+  # note it cannot delete.
+  def test_a_leftover_the_failed_write_cannot_spend_is_refused_at_the_recheck
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx_path = File.join(tmp, 't.jsonl')
+      logs = File.join(tmp, 'logs')
+      FileUtils.mkdir_p(logs)
+      log_path = File.join(logs, 'gate.log')
+      raw = { 'mode_name' => 'test', 'log_path' => log_path, 'max_headings' => 3 }
+      File.write(cfg_path, JSON.generate(raw), encoding: 'UTF-8')
+      File.write(tx_path, rows_json([row_for('assistant', text: BLOCKED, uuid: 'AAA'),
+                                     row_for('assistant', text: BLOCKED, uuid: 'BBB')]),
+                 encoding: 'UTF-8')
+      cfg_obj = G::Config.new(raw, cfg_path)
+      assert_nil G.write_note(tx_path, cfg_obj, 'AAA'), 'the interrupted turn left its note'
+      notes = File.dirname(G.note_path(tx_path, cfg_obj))
+
+      File.chmod(0o555, notes) # neither the new write nor the spend can touch it
+      begin
+        out, = run_script(cfg_path, JSON.generate('transcript_path' => tx_path,
+                                                  'stop_hook_active' => false))
+        assert_equal 'block', JSON.parse(out)['decision'], 'the turn is still blocked'
+        log = File.read(log_path, encoding: 'UTF-8')
+        assert_includes log, 'a stale note could not be deleted',
+                        "the second failure must be visible too: #{log}"
+
+        run_script(cfg_path, JSON.generate('transcript_path' => tx_path,
+                                           'stop_hook_active' => true))
+      ensure
+        File.chmod(0o755, notes)
+      end
+
+      log = File.read(log_path, encoding: 'UTF-8')
+      assert_includes log, 'SKIP-nonote-unspent',
+                      "the unspendable leftover must be refused: #{log}"
+      refute_includes log, 'RECHECK-',
+                      "a verdict here re-judges the message this turn blocked: #{log}"
+    end
+  end
+
+  # Round 3: unspendability is not stable. A directory that refuses the unlink
+  # at block time and permits it again before the recheck let the recheck spend
+  # the leftover this block had failed to delete — round 2's defect through a
+  # transient window. Deleting needs directory-write; truncating needs only
+  # file-write; an emptied note fails the parse on every later read, whatever
+  # the directory permits by then.
+  def test_a_leftover_spent_by_truncation_stays_spent_after_the_window_lifts
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx_path = File.join(tmp, 't.jsonl')
+      logs = File.join(tmp, 'logs')
+      FileUtils.mkdir_p(logs)
+      log_path = File.join(logs, 'gate.log')
+      raw = { 'mode_name' => 'test', 'log_path' => log_path, 'max_headings' => 3 }
+      File.write(cfg_path, JSON.generate(raw), encoding: 'UTF-8')
+      File.write(tx_path, rows_json([row_for('assistant', text: BLOCKED, uuid: 'AAA'),
+                                     row_for('assistant', text: BLOCKED, uuid: 'BBB')]),
+                 encoding: 'UTF-8')
+      cfg_obj = G::Config.new(raw, cfg_path)
+      assert_nil G.write_note(tx_path, cfg_obj, 'AAA'), 'the interrupted turn left its note'
+      notes = File.dirname(G.note_path(tx_path, cfg_obj))
+
+      File.chmod(0o555, notes) # the write and the unlink both fail; file-write does not
+      begin
+        out, = run_script(cfg_path, JSON.generate('transcript_path' => tx_path,
+                                                  'stop_hook_active' => false))
+        assert_equal 'block', JSON.parse(out)['decision'], 'the turn is still blocked'
+      ensure
+        File.chmod(0o755, notes) # the window lifts before the recheck
+      end
+      log = File.read(log_path, encoding: 'UTF-8')
+      assert_includes log, 'a stale note could not be deleted and was emptied instead', log
+
+      run_script(cfg_path, JSON.generate('transcript_path' => tx_path,
+                                         'stop_hook_active' => true))
+      log = File.read(log_path, encoding: 'UTF-8')
+      refute_includes log, 'RECHECK-',
+                      "the emptied leftover must not yield a verdict once the window lifts: #{log}"
+      assert_includes log, 'SKIP-nonote-mismatch',
+                      "an emptied note fails the parse and is refused by name: #{log}"
+    end
+  end
+
+  # The exception path of the write — not just the no-uuid return — must spend
+  # the leftover too. Driven in-process because the deterministic failure is a
+  # directory squatting the temporary name, and that name carries the pid.
+  def test_a_write_that_raises_spends_the_leftover_before_reporting
+    Dir.mktmpdir do |tmp|
+      c = G::Config.new({ 'mode_name' => 'test', 'log_path' => File.join(tmp, 'gate.log') },
+                        '<inline>')
+      tx = File.join(tmp, 't.jsonl')
+      assert_nil G.write_note(tx, c, 'AAA'), 'the interrupted turn left its note'
+      path = G.note_path(tx, c)
+      FileUtils.mkdir_p("#{path}.#{Process.pid}.tmp") # the write raises, the spend can work
+
+      failure = G.write_note(tx, c, 'BBB')
+      refute_nil failure, 'the write must report its failure'
+      assert_includes failure, 'a stale note was deleted', failure
+      refute File.exist?(path), 'the leftover would name a block this turn did not make'
+      assert_equal [nil, 'nonote'], G.take_note(tx, c),
+                   'the recheck must find nothing rather than the wrong block'
+    end
+  end
 end

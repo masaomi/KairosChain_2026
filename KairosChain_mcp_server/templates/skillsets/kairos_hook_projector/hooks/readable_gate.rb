@@ -431,27 +431,61 @@ module KairosHookProjector
     # Written to a temporary name and renamed, so a reader can never see a
     # half-written note. The pid is in the temporary name because two modes'
     # gates can run against one session at the same moment.
+    #
+    # After a block, the note is this block's or absent. A write that succeeds
+    # replaces any earlier note through the rename; a write that fails must not
+    # leave one either, because a leftover from an interrupted turn checks out
+    # as valid — fresh, same session, deletable — and the recheck then measures
+    # against the wrong block: round 2 of the conformance review demonstrated
+    # the message this turn blocked being judged a second time. So every
+    # failure path spends whatever note is already at the key.
     def write_note(transcript_path, cfg, uuid)
-      return 'no uuid to record' if uuid.nil? || uuid.to_s.empty?
-
       path = note_path(transcript_path, cfg)
       return nil if path.nil? # no log declared: not a failure, a declared absence
 
-      FileUtils.mkdir_p(File.dirname(path))
-      tmp = "#{path}.#{Process.pid}.tmp"
-      File.write(
-        tmp,
-        JSON.generate(
-          'transcript' => note_key_path(transcript_path).scrub,
-          'mode' => cfg.mode_name.to_s.scrub,
-          'blocked_uuid' => uuid.to_s.scrub,
-          'at' => Time.now.to_f
+      return spend_stale_note(path, 'no uuid to record') if uuid.nil? || uuid.to_s.empty?
+
+      begin
+        FileUtils.mkdir_p(File.dirname(path))
+        tmp = "#{path}.#{Process.pid}.tmp"
+        File.write(
+          tmp,
+          JSON.generate(
+            'transcript' => note_key_path(transcript_path).scrub,
+            'mode' => cfg.mode_name.to_s.scrub,
+            'blocked_uuid' => uuid.to_s.scrub,
+            'at' => Time.now.to_f
+          )
         )
-      )
-      File.rename(tmp, path)
-      nil
-    rescue StandardError => e
-      "#{e.class}: #{e.message}"
+        File.rename(tmp, path)
+        nil
+      rescue StandardError => e
+        spend_stale_note(path, "#{e.class}: #{e.message}")
+      end
+    end
+
+    # Deletion first, truncation as the fallback. "A leftover that cannot be
+    # deleted here cannot be spent at the recheck either" was round 3's found
+    # assumption: it identifies write-time state with read-time state, and a
+    # directory made writable again inside the block-to-recheck window let the
+    # recheck spend a leftover this path had already failed to delete. Deleting
+    # needs directory-write; truncating needs only file-write, so the fallback
+    # usually works exactly where the unlink fails, and an emptied note fails
+    # the parse on every later read whatever the directory permits by then.
+    # Only when both are refused does the leftover stay valid, and that state
+    # is declared in design §7 rather than closed.
+    def spend_stale_note(path, reason)
+      File.unlink(path)
+      "#{reason}; a stale note was deleted"
+    rescue Errno::ENOENT
+      reason
+    rescue StandardError
+      begin
+        File.write(path, '')
+        "#{reason}; a stale note could not be deleted and was emptied instead"
+      rescue StandardError => e
+        "#{reason}; a stale note could not be deleted (#{e.class})"
+      end
     end
 
     # [uuid this gate blocked, nil] or [nil, why not].
