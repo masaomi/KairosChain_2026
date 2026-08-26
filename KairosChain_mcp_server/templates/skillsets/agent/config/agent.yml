@@ -30,6 +30,10 @@ tool_blacklist:
   - "skills_rollback"
   - "skills_promote"
   - "instructions_update"
+  # The norms the agent is held to live in L1. A run with risk_budget: medium
+  # would otherwise reach knowledge_update (medium in TOOL_RISK) and let the
+  # constrained side rewrite what constrains it.
+  - "knowledge_update"
   - "token_manage"
   - "system_upgrade"
   - "chain_import"
@@ -82,8 +86,15 @@ orient_tools_extra: []
 
 # Autonomous mode limits
 autonomous:
-  max_total_llm_calls: 60        # across all cycles in one batch
-  max_duration_seconds: 300      # wall-clock timeout per batch (5 min)
+  # The cost bound, and the one that actually stops a runaway. At the ~4 calls
+  # per cycle measured on 2026-08-26 this is about 15 cycles.
+  max_total_llm_calls: 60
+  # Wall-clock bound, off. Blank or 0 means no bound: the loop runs until it is
+  # done rather than until the clock says so. It never interrupted a running
+  # cycle — it only refused to start the next — so at 300 against a measured
+  # 823-second cycle it just made max_cycles above 1 unreachable. Withdrawn
+  # 2026-08-26; put a number back only if a run is seen to go on too long.
+  max_duration_seconds:
   min_cycles_before_exit: 2      # confidence exit disabled for first N cycles
   confidence_exit_threshold: 0.9 # minimum confidence for early exit
 

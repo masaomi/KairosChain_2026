@@ -67,10 +67,10 @@ module Autonomos
   end
 end
 
-require File.expand_path('../../../../.kairos/skillsets/autonomos/lib/autonomos/mandate',
+require File.expand_path('../autonomos/lib/autonomos/mandate',
                          File.dirname(__dir__))
 # The autonomous loop reaches Ooda for goal loading and COMPLEX_KEYWORDS.
-require File.expand_path('../../../../.kairos/skillsets/autonomos/lib/autonomos/ooda',
+require File.expand_path('../autonomos/lib/autonomos/ooda',
                          File.dirname(__dir__))
 
 Session = KairosMcp::SkillSets::Agent::Session

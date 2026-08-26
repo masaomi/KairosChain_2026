@@ -755,7 +755,13 @@ module KairosMcp
           def run_autonomous_loop(session)
             auto_cfg = session.config['autonomous'] || {}
             max_total_llm = auto_cfg['max_total_llm_calls'] || 60
-            max_duration = auto_cfg['max_duration_seconds'] || 300
+            # nil or 0 means no wall-clock bound. It never interrupted a running
+            # cycle anyway — it only refused to start the next one — so at 300
+            # against a measured 823-second cycle it simply made max_cycles
+            # above 1 unreachable. Cost is bounded by max_total_llm_calls, and
+            # the operator decides at every checkpoint.
+            max_duration = auto_cfg['max_duration_seconds']
+            max_duration = nil if max_duration.to_i <= 0
             min_exit_cycles = auto_cfg['min_cycles_before_exit'] || 2
             confidence_threshold = auto_cfg['confidence_exit_threshold'] || 0.9
 
@@ -787,9 +793,9 @@ module KairosMcp
                                              warning: 'goal_content_changed')
                 end
 
-                # Gate 3: Wall-clock timeout
+                # Gate 3: Wall-clock timeout (off unless configured)
                 elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time
-                if elapsed > max_duration
+                if max_duration && elapsed > max_duration
                   session.update_state('checkpoint')
                   session.save
                   return finalize_autonomous(session, results, checkpoint: true,
@@ -1038,9 +1044,21 @@ module KairosMcp
                   return finalize_autonomous(session, results, checkpoint: true,
                                              warning: 'guard_halt: human review required')
                 end
-                # A human-cognition halt stops the loop for the person the step
-                # asked for. Continuing here would silently re-plan around the
-                # step instead of letting anyone act on it.
+                # Everything that could run has run. What is left needs the
+                # operator: the steps the plan marked for a person, and the
+                # steps downstream of those. Hand over one list at the end of
+                # the cycle rather than stopping dead at the first mark.
+                deferred = Array(ar_result.dig(:act, 'deferred'))
+                unless deferred.empty?
+                  session.update_state('checkpoint')
+                  session.save
+                  return finalize_autonomous(
+                    session, results, checkpoint: true, deferred: deferred,
+                    warning: "awaiting_operator: #{deferred.size} step(s) still need you"
+                  )
+                end
+                # Kept for callers that did not ask to defer. Under defer this
+                # fires only if a mark slipped past — worth knowing about.
                 if ar_result.dig(:act, 'human_halt')
                   halt_at = ar_result.dig(:act, 'halted_at')
                   session.update_state('checkpoint')
@@ -1114,7 +1132,7 @@ module KairosMcp
 
           def finalize_autonomous(session, cycle_results, terminated: nil, paused: nil,
                                   checkpoint: nil, error: nil, warning: nil,
-                                  review: nil, multi_llm_prompt: nil)
+                                  review: nil, multi_llm_prompt: nil, deferred: nil)
             session.save
 
             reason = terminated || paused || warning || (error ? 'error' : 'checkpoint')
@@ -1144,10 +1162,59 @@ module KairosMcp
                   'remaining_count' => Array(r.dig(:reflect, 'remaining')).size }
               }
             }
+            reports = surface_reports(session)
+            response['reports'] = reports if reports && !reports.empty?
+            response['awaiting_operator'] = deferred if deferred && !deferred.empty?
+            response['run_metrics'] = accumulate_run_metrics(session, reason, cycle_results)
             response['permission_advisory'] = session.permission_advisory if session.permission_advisory
             response['review'] = review if review
             response['multi_llm_prompt'] = multi_llm_prompt if multi_llm_prompt
             text_content(JSON.generate(response))
+          end
+
+          # Per-run totals, accumulated in the mandate because a run spans many
+          # agent_step calls and the response is per call.
+          #
+          # The denominator is attempted cycles, not completed ones: runs that
+          # complete zero cycles exist (agent_20260805_122142_82ede0), and a
+          # completed-cycle denominator makes the division undefined for them.
+          #
+          # exits counts every way control came back, keyed by the reason the
+          # loop itself computed. It is not a closed taxonomy of four buckets —
+          # terminated, timeout, llm_budget_exceeded, act_failed, guard_halt,
+          # review_rejected and review_max_retries all appear here as themselves.
+          def accumulate_run_metrics(session, reason, cycle_results)
+            mandate = ::Autonomos::Mandate.load(session.mandate_id)
+            return nil unless mandate
+
+            # Fold on read as well as on write: a session started before this
+            # normalisation existed carries whole-sentence keys, and leaving
+            # them beside the folded ones would double-count the same exit.
+            exits = (mandate[:exits] || {}).each_with_object({}) { |(k, v), h|
+              key = exit_reason_key(k)
+              h[key] = (h[key] || 0) + v.to_i
+            }
+            key = exit_reason_key(reason)
+            exits[key] = (exits[key] || 0) + 1
+            mandate[:exits] = exits
+            # cycle_results holds this call's cycles only, and a run spans many
+            # calls. Counting it directly reported 1 completed against 2
+            # attempted on the second call — same hash, two different units.
+            completed = (mandate[:completed_cycles_total] || 0) + Array(cycle_results).size
+            mandate[:completed_cycles_total] = completed
+            ::Autonomos::Mandate.save(session.mandate_id, mandate)
+
+            { 'attempted_cycles' => session.cycle_number,
+              'completed_cycles' => completed,
+              'exits' => exits,
+              'norm_breaks' => symbolize_break_counts(mandate[:norm_breaks] || {})
+                                 .transform_keys(&:to_s),
+              # Slice A embeds the norms in decide_system_prompt. When they move
+              # to instance L1 this reports which copy the run actually used, so
+              # an edit that never reached the run is visible.
+              'norms_source' => 'embedded' }
+          rescue StandardError
+            nil
           end
 
           def clamp_confidence(raw)
@@ -1269,6 +1336,7 @@ module KairosMcp
 
           def run_act(session, decision_payload)
             task_json = decision_payload['task_json']
+            observe_norms(session, task_json)
 
             # Route: file operations → agent_execute; MCP tools → autoexec
             if requires_file_operations?(task_json)
@@ -1280,11 +1348,89 @@ module KairosMcp
             { 'error' => "ACT failed: #{e.message}" }
           end
 
-          FILE_TOOL_NAMES = %w[Edit Write Read Bash file_edit file_write file_read].freeze
-
+          # The route decision and the risk gate's human-mark exemption must be
+          # taken from one definition. MandateAdapter owns it; this delegates.
           def requires_file_operations?(task_json)
-            steps = task_json&.dig('steps') || []
-            steps.any? { |s| FILE_TOOL_NAMES.include?(s['tool_name']) }
+            MandateAdapter.routes_to_subcontractor?(task_json)
+          end
+
+          # Count the two standing norms a machine can check, on the plan about
+          # to run. Norms (a) do-not-remove and (b) do-not-run-away are not
+          # decidable here and are deliberately left uncounted: the per-step
+          # record is what the operator reads to judge those.
+          #
+          # Counted on plans that reach ACT. A plan rejected at the risk gate is
+          # not counted, so these numbers are a floor, not a total.
+          #
+          # Measurement must never be able to end a run: any failure here is
+          # swallowed, because a lost count is cheaper than a lost cycle.
+          def observe_norms(session, task_json)
+            mandate = ::Autonomos::Mandate.load(session.mandate_id)
+            return unless mandate
+
+            steps = Array(task_json && task_json['steps'])
+            task_id = task_json && task_json['task_id']
+            breaks = mandate[:norm_breaks] || { reused_task_id: 0, unlisted_writing_tool_unmarked: 0 }
+            breaks = symbolize_break_counts(breaks)
+
+            # (c) a repeated plan id makes the executor skip steps it reads as
+            # already completed — including one marked for human cognition.
+            if task_id && mandate[:last_task_id] && task_id == mandate[:last_task_id]
+              breaks[:reused_task_id] += 1
+            end
+
+            # (d) a tool absent from the risk table passes on the model's own
+            # label. Only the ones that change something need the operator.
+            #
+            # Whether an unlisted tool writes is exactly what nothing here can
+            # decide — that is why the table exists. The model's own risk label
+            # is the only signal available, so medium or high stands in for
+            # "changes something". Counting every unlisted tool made four
+            # read-only queries look like breaches on 2026-08-26, which told the
+            # operator nothing about risk.
+            breaks[:unlisted_writing_tool_unmarked] += steps.count { |s|
+              tool = s['tool_name']
+              tool && !tool.to_s.empty? &&
+                !::Autonomos::Mandate::TOOL_RISK.key?(tool) &&
+                %w[medium high].include?(s['risk'].to_s) &&
+                s['requires_human_cognition'] != true
+            }
+
+            mandate[:norm_breaks] = breaks
+            mandate[:last_task_id] = task_id if task_id
+            mandate[:attempted_cycles] = session.cycle_number
+            ::Autonomos::Mandate.save(session.mandate_id, mandate)
+          rescue StandardError => e
+            log_agent(:warn, 'norm_observation_failed', session, error: e.message[0..120])
+          end
+
+          # An exit reason arrives either bare ('max_cycles_reached') or as an
+          # identifier followed by prose ('human_cognition_halt at step s2: ...',
+          # 'guard_halt: human review required'). The prose carries the step id,
+          # so keying a tally on the whole string gives every halt its own
+          # bucket and the counts never add up across cycles — observed on the
+          # first run, 2026-08-26. Key on the leading identifier only.
+          #
+          # A reason that does not begin with one lands in 'unclassified'
+          # rather than widening the key space. A non-zero count there is the
+          # signal that this needs extending, not a silent miss.
+          EXIT_REASON_HEAD = /\A[a-z][a-z0-9_]*/.freeze
+
+          def exit_reason_key(reason)
+            EXIT_REASON_HEAD.match(reason.to_s)&.to_s || 'unclassified'
+          end
+
+          # unlisted_tool_unmarked was the same count before it was narrowed to
+          # writing tools on 2026-08-26. A mandate written under the old name is
+          # carried over rather than dropped, so a run in progress keeps its
+          # history; the old counts include read-only steps and are therefore
+          # high compared with anything measured afterwards.
+          def symbolize_break_counts(raw)
+            legacy = (raw[:unlisted_tool_unmarked] || raw['unlisted_tool_unmarked'] || 0).to_i
+            current = (raw[:unlisted_writing_tool_unmarked] ||
+                       raw['unlisted_writing_tool_unmarked'] || 0).to_i
+            { reused_task_id: (raw[:reused_task_id] || raw['reused_task_id'] || 0).to_i,
+              unlisted_writing_tool_unmarked: current + legacy }
           end
 
           def run_act_via_autoexec(session, decision_payload)
@@ -1314,6 +1460,10 @@ module KairosMcp
               'task_id' => task_id,
               'mode' => 'internal_execute',
               'approved_hash' => plan_hash,
+              # Do not stop at the first step marked for a person. Run what can
+              # run, put the marked steps and their dependents aside, and hand
+              # the operator one list at the end of the cycle.
+              'human_mark_mode' => 'defer',
               'invocation_context_json' => act_ctx.to_json
             }, context: act_ctx)
 
@@ -1326,7 +1476,9 @@ module KairosMcp
             # delegated modes, so a suffix test only happens to work for the
             # internal_execute mode hard-coded above.
             halted_at = run_parsed['halted_at']
+            deferred = Array(run_parsed['deferred'])
             summary = if halted_at then 'halted'
+                      elsif !deferred.empty? then 'deferred'
                       elsif run_parsed['outcome']&.end_with?('_complete') then 'completed'
                       else 'failed'
                       end
@@ -1337,13 +1489,69 @@ module KairosMcp
               'execution' => run_parsed,
               'summary' => summary
             }
+            unless deferred.empty?
+              result['deferred'] = deferred
+            end
+            record_report_paths(session, run_parsed)
             if halted_at
-              result['human_halt'] = true
+              # human_halt is now the human-cognition kind alone. It used to be
+              # every kind, so a tool error was filed as waiting for a person
+              # and consecutive_errors was reset on it.
+              kind = run_parsed['halt_kind'] || 'human_cognition'
+              result['halt_kind'] = kind
+              result['human_halt'] = kind == 'human_cognition'
               result['halted_at'] = halted_at
               result['halt_reason'] = run_parsed['halt_reason']
               result['resume_hint'] = run_parsed['resume_hint']
             end
             result
+          end
+
+          # operator_report writes the whole text to a file and returns the path,
+          # because a step result is cut at 500 characters.
+          #
+          # Paths are kept on the mandate rather than threaded through the exit
+          # the cycle happens to take. A report is just as real when the cycle
+          # ends at goal_achieved or max_cycles as when it ends waiting for the
+          # operator, and there are seven ways out of that loop.
+          REPORT_SURFACE_LIMIT = 20_000
+
+          def record_report_paths(session, run_parsed)
+            paths = Array(run_parsed['steps']).filter_map { |step|
+              next unless step['tool_name'] == 'operator_report'
+
+              JSON.parse(step['tool_result'].to_s)['report_path']
+            }
+            return if paths.empty?
+
+            mandate = ::Autonomos::Mandate.load(session.mandate_id)
+            return unless mandate
+
+            mandate[:report_paths] = (Array(mandate[:report_paths]) + paths).uniq
+            ::Autonomos::Mandate.save(session.mandate_id, mandate)
+          rescue StandardError => e
+            log_agent(:warn, 'report_path_record_failed', session, error: e.message[0..120])
+          end
+
+          def surface_reports(session)
+            mandate = ::Autonomos::Mandate.load(session.mandate_id)
+            paths = Array(mandate && mandate[:report_paths])
+            return nil if paths.empty?
+
+            paths.map do |path|
+              unless File.file?(path.to_s)
+                next { 'path' => path, 'error' => 'report file is gone' }
+              end
+
+              body = File.read(path)
+              if body.length > REPORT_SURFACE_LIMIT
+                body = "#{body[0, REPORT_SURFACE_LIMIT]}\n" \
+                       "[report truncated here — the whole text is at #{path}]"
+              end
+              { 'path' => path, 'content' => body }
+            end
+          rescue StandardError
+            nil
           end
 
           def run_act_via_agent_execute(session, decision_payload)
@@ -2149,7 +2357,51 @@ module KairosMcp
             "instructions string, term list, or content to hand to a sub-tool (e.g. the " \
             "`instructions` for `write_section`), copy it through UNCHANGED into that " \
             "tool's arguments. Do not paraphrase, summarise, re-scope, or re-target the " \
-            "task (e.g. do not invent a new audience or output format the goal did not ask for)."
+            "task (e.g. do not invent a new audience or output format the goal did not ask for).\n" \
+            "#{permission_norms}"
+          end
+
+          # The four norms this instance is held to. They are norms, not
+          # mechanism: nothing here refuses a plan that ignores them. That is
+          # the point — the run is what shows which of them get broken, and a
+          # norm broken often enough is the case for building the mechanism.
+          #
+          # Embedded for now. The destination is instance L1
+          # (.kairos/knowledge/agent_permission_norms/) so the operator can edit
+          # them between runs; until the seed-copy path exists this text is the
+          # only copy, and moving it must not duplicate it.
+          def permission_norms
+            "Standing norms — these bind the plan you write:\n" \
+            "  (a) Do not remove things on your own initiative. A step that deletes a " \
+            "file, a record, or anything published is permitted only when the goal " \
+            "explicitly asks for it. If the goal does not ask, set " \
+            "requires_human_cognition on that step instead.\n" \
+            "  (b) Do not run away with it. Do not repeat steps against the same tool " \
+            "and the same target within one plan, and do not re-issue in this cycle, " \
+            "in the same shape, what failed to resolve in the previous one.\n" \
+            "  (c) Do not reuse a plan identifier. task_json.task_id must differ from " \
+            "the previous cycle's. A repeated id makes the executor read a step as " \
+            "already-completed and skip it silently — including a step you marked for " \
+            "human cognition.\n" \
+            "  (d) An unlisted tool that CHANGES something needs the operator. The risk " \
+            "table covers 25 of the 148 registered tools; every other tool passes on the " \
+            "risk you assign it yourself. Where such a tool writes, records, sends or " \
+            "removes, set requires_human_cognition and let the operator confirm it. " \
+            "Reading is not changing: an unlisted tool that only queries or reports needs " \
+            "no mark, and marking it would stop the plan for nothing.\n" \
+            "  (f) There is a tool for telling the operator something: " \
+            "`operator_report`. The deliverable itself goes through it — a ranking, an " \
+            "analysis, an answer, whatever the goal asked you to report. Do not mark " \
+            "such a step for a person, and do not conclude you have no way to hand " \
+            "prose over; reporting is that tool doing its job. Keep " \
+            "requires_human_cognition for a judgment or an input only the operator " \
+            "can give.\n" \
+            "  (e) An operation that cannot be undone does not stop the plan. Deleting, " \
+            "pushing, publishing — keep the step, set requires_human_cognition on it, and " \
+            "place it so that everything not depending on it comes first. Marked steps are " \
+            "set aside and the rest of the plan still runs; the operator is shown what was " \
+            "set aside at the end of the cycle. Do not drop such a step, and do not " \
+            "substitute a reversible half-measure without saying so in the summary."
           end
 
           def reflect_system_prompt
@@ -2193,10 +2445,22 @@ module KairosMcp
             }.join("\n")
           end
 
+          # The goal text was reaching OBSERVE and nothing else. A goal that said
+          # "read only — do not create files, do not touch the work-item store"
+          # produced a plan that did both, because DECIDE was shown ORIENT's
+          # analysis and the tool catalogue and never the goal itself. Observed
+          # 2026-08-26: the model did not disobey, it was never told.
+          GOAL_EXCERPT_LIMIT = 6000
+
           def build_decide_prompt(session, orient_result)
             analysis = orient_result['content'] || orient_result.to_json
             catalog = build_tool_catalog(session)
+            goal = goal_excerpt(session)
 
+            (goal ? "## The goal, verbatim\n#{goal}\n\n" \
+                    "Whatever the goal forbids, the plan may not do — not in any step, " \
+                    "and not by delegating it. If the goal rules out a means you need, " \
+                    "say so in the summary instead of planning around it.\n\n" : '') +
             "Based on this analysis:\n#{analysis}\n\n" \
             "## Available Tools\n#{catalog}\n\n" \
             "Create a task execution plan as JSON (decision_payload format). " \
@@ -2204,6 +2468,16 @@ module KairosMcp
             "\"signals\": [\"reason1\"]}. Assess complexity based on risk, step count, " \
             "architectural scope, and L0 framework changes. " \
             "Use ONLY tools listed above."
+          end
+
+          # Bounded, and says so when it cuts: a goal is a document and an
+          # unbounded paste would crowd out the analysis it sits beside.
+          def goal_excerpt(session)
+            text = load_goal_content(session.goal_name)
+            return nil if text.nil? || text.strip.empty?
+            return text if text.length <= GOAL_EXCERPT_LIMIT
+
+            "#{text[0, GOAL_EXCERPT_LIMIT]}\n[goal truncated at #{GOAL_EXCERPT_LIMIT} characters]"
           end
 
           def build_persona_review_prompt(decision_payload, complexity, persona_defs)

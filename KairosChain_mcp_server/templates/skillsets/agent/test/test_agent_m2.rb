@@ -64,7 +64,7 @@ module Autonomos
 end
 
 # Load Mandate for testing
-require File.expand_path('../../../../.kairos/skillsets/autonomos/lib/autonomos/mandate',
+require File.expand_path('../autonomos/lib/autonomos/mandate',
   File.dirname(__dir__))
 
 Session = KairosMcp::SkillSets::Agent::Session

@@ -33,6 +33,11 @@ module Autonomos
       'skills_get' => 'low', 'context_save' => 'low', 'document_status' => 'low',
       'write_section' => 'low', 'llm_call' => 'low', 'safe_file_read' => 'low',
       'safe_file_list' => 'low', 'chain_status' => 'low', 'chain_verify' => 'low',
+      # Writes only into the agent's own report area under the data dir, never
+      # into the work tree or a governance store. Listed rather than left out on
+      # purpose: an unlisted tool falls under the norm that says mark it for a
+      # person, and a report that waits for permission is not a report.
+      'operator_report' => 'low',
       # durable / L0-L1 / external-effect writes → medium
       'chain_record' => 'medium', 'safe_file_write' => 'medium', 'safe_file_edit' => 'medium',
       'safe_file_copy' => 'medium', 'knowledge_update' => 'medium',
@@ -148,7 +153,8 @@ module Autonomos
       end
 
       def check_termination(mandate)
-        if mandate[:cycles_completed] >= mandate[:max_cycles]
+        limit = mandate[:max_cycles]
+        if limit && mandate[:cycles_completed] >= limit
           return 'max_cycles_reached'
         end
 
@@ -195,8 +201,18 @@ module Autonomos
       def risk_exceeds_budget?(proposal, risk_budget)
         return false unless proposal && proposal[:autoexec_task]
 
-        steps = proposal[:autoexec_task][:steps] || []
+        task = proposal[:autoexec_task]
+        steps = task[:steps] || []
+        # A step the model marked for human cognition is not executed on the
+        # in-process route: autoexec_run breaks before it. Counting its risk
+        # rejects the whole plan for work that never runs — the 2026-08-22 case,
+        # where one honest mark in nine steps cost the operator the whole plan.
+        # Only honoured when the caller declares it enforces the mark at
+        # execution time; a plan bound for the subcontractor gets no exemption.
+        enforce_marks = task[:enforce_human_marks] == true
         steps.any? do |step|
+          next false if enforce_marks && human_marked?(step)
+
           risk = effective_risk(step)
           case risk_budget
           when 'low'
@@ -215,6 +231,13 @@ module Autonomos
       def effective_risk(step)
         tool = step[:tool_name] || step['tool_name']
         TOOL_RISK[tool] || step[:risk] || 'low'
+      end
+
+      # Strict comparison, matching TaskDsl's own reading of the flag
+      # (task_dsl.rb:117). A truthy string such as "false" must not mark a step.
+      def human_marked?(step)
+        value = step.key?(:requires_human_cognition) ? step[:requires_human_cognition] : step['requires_human_cognition']
+        value == true
       end
 
       def list_active
@@ -245,17 +268,24 @@ module Autonomos
         end
       end
 
+      # max_cycles nil means unlimited: the loop runs until it is done, errs
+      # out, detects a loop, exhausts the call budget, or the operator stops it
+      # at a checkpoint. Withdrawn as a default on 2026-08-26 — a cycle count
+      # fixed in advance is a guess about how long the work takes, and the
+      # operator already gets the decision back every checkpoint_every cycles.
       def validate_params!(max_cycles, checkpoint_every, risk_budget)
-        unless (1..10).cover?(max_cycles.to_i)
-          raise ArgumentError, "max_cycles must be 1-10, got: #{max_cycles}"
+        unless max_cycles.nil?
+          unless (1..10).cover?(max_cycles.to_i)
+            raise ArgumentError, "max_cycles must be 1-10 or omitted for unlimited, got: #{max_cycles}"
+          end
+
+          if checkpoint_every.to_i > max_cycles.to_i
+            raise ArgumentError, "checkpoint_every (#{checkpoint_every}) must be <= max_cycles (#{max_cycles})"
+          end
         end
 
         unless (1..3).cover?(checkpoint_every.to_i)
           raise ArgumentError, "checkpoint_every must be 1-3, got: #{checkpoint_every}"
-        end
-
-        if checkpoint_every.to_i > max_cycles.to_i
-          raise ArgumentError, "checkpoint_every (#{checkpoint_every}) must be <= max_cycles (#{max_cycles})"
         end
 
         unless RISK_BUDGETS.include?(risk_budget.to_s)

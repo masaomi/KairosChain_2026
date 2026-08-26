@@ -63,6 +63,12 @@ module KairosMcp
             task_id = arguments['task_id']
             mode = arguments['mode'] || 'dry_run'
             approved_hash = arguments['approved_hash']
+            # 'halt' (default) keeps the historical behaviour: stop at the first
+            # step the plan marked for a person. 'defer' skips that step and
+            # carries on, so the caller gets everything that could run plus one
+            # list of what still needs the operator. Default unchanged, because
+            # autoexec has callers other than the agent loop.
+            defer_marks = arguments['human_mark_mode'].to_s == 'defer'
 
             # Status mode: show task info without execution
             if mode == 'status'
@@ -126,6 +132,10 @@ module KairosMcp
               # depends_on one of these cannot run in internal_execute: autoexec has
               # no cognitive engine to produce the prior step's output.
               delegated_step_ids = []
+              # Steps put aside under human_mark_mode 'defer', plus everything
+              # downstream of them. Kept apart from delegated_step_ids: that list
+              # halts, this one carries on.
+              deferred_step_ids = []
 
               sorted_steps.each_with_index do |step, idx|
                 # Skip already-completed steps (checkpoint resume)
@@ -134,7 +144,28 @@ module KairosMcp
                   next
                 end
 
+                # A step downstream of a deferred one cannot run — its input was
+                # never produced. It joins the deferred list so its own
+                # dependents follow it, rather than being reported separately.
+                blocked_by = Array(step.depends_on) & deferred_step_ids
+                unless blocked_by.empty?
+                  results << { step_id: step.step_id, action: step.action,
+                               status: 'blocked_by_deferred', index: idx + 1,
+                               total: sorted_steps.size,
+                               error: "Depends on deferred step(s) #{blocked_by.join(', ')}" }
+                  deferred_step_ids << step.step_id
+                  next
+                end
+
                 # Check requires_human_cognition (Philosophy BLOCKER resolution)
+                if step.requires_human_cognition && defer_marks
+                  results << { step_id: step.step_id, action: step.action,
+                               status: 'deferred', index: idx + 1,
+                               total: sorted_steps.size }
+                  deferred_step_ids << step.step_id
+                  next
+                end
+
                 if step.requires_human_cognition
                   checkpoint_state = {
                     task_id: task_id,
@@ -268,9 +299,17 @@ module KairosMcp
                   'Execution result is valid but not fully recorded on chain.'
               end
 
+              unless deferred_step_ids.empty?
+                response[:deferred] = results
+                                      .select { |r| %w[deferred blocked_by_deferred].include?(r[:status]) }
+                                      .map { |r| r.slice(:step_id, :status, :action, :error) }
+              end
+
               if halted_at
+                kind = halt_kind(results, halted_at)
                 response[:halted_at] = halted_at
-                response[:halt_reason] = 'Human cognitive participation required at this step'
+                response[:halt_kind] = kind
+                response[:halt_reason] = HALT_REASONS[kind] || "Execution stopped: #{kind}"
                 response[:resume_hint] = 'Review the step, then re-run with the same parameters to continue'
               end
 
@@ -390,6 +429,35 @@ module KairosMcp
             rescue StandardError => e
               warn "[autoexec] Outcome recording failed: #{e.message}"
               [nil, e.message]
+            end
+          end
+
+          HALT_REASONS = {
+            'human_cognition' => 'Human cognitive participation required at this step',
+            'blocked_on_delegated' => 'Depends on a delegated step whose output was not produced',
+            'policy_denied' => 'The step was refused by policy',
+            'tool_missing' => 'The step names a tool that is not in the registry',
+            'step_failed' => 'The step ran and returned an error'
+          }.freeze
+
+          # Six paths reach `break`, and the reason used to be hard-coded as the
+          # first of them. A run that stopped because a tool returned an error
+          # was therefore recorded as waiting for a person — observed live on
+          # 2026-08-26. The kind is already in the results, so read it from
+          # there rather than adding a field to the step type.
+          #
+          # The human-cognition path breaks before pushing a result, so a
+          # halted_at with no matching row is that path.
+          def halt_kind(results, halted_at)
+            row = results.reverse.find { |r| r[:step_id] == halted_at }
+            return 'human_cognition' unless row
+
+            case row[:status]
+            when 'blocked' then 'blocked_on_delegated'
+            when 'policy_denied' then 'policy_denied'
+            when 'failed'
+              row[:error].to_s.include?('not found in registry') ? 'tool_missing' : 'step_failed'
+            else row[:status].to_s
             end
           end
 

@@ -45,7 +45,11 @@ module KairosMcp
                 },
                 max_cycles: {
                   type: 'integer',
-                  description: 'Maximum OODA cycles (1-10, default: 3)'
+                  description: 'Cap on OODA cycles (1-10). Omit for unlimited, which is ' \
+                               'the ordinary case: the loop runs until it finishes, errs ' \
+                               'out, detects repetition, or exhausts the LLM call budget, ' \
+                               'and returns to you every checkpoint_every cycles for the ' \
+                               'decision on whether to continue.'
                 },
                 checkpoint_every: {
                   type: 'integer',
@@ -76,7 +80,9 @@ module KairosMcp
 
           def call(arguments)
             goal_name = arguments['goal_name']
-            max_cycles = arguments['max_cycles'] || 3
+            # nil means unlimited. Omitting it is now the ordinary case: the
+            # operator decides at each checkpoint whether there is more to do.
+            max_cycles = arguments['max_cycles']
             checkpoint_every = arguments['checkpoint_every'] || 1
             risk_budget = arguments['risk_budget'] || 'low'
             autonomous = arguments['autonomous'] == true
