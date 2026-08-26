@@ -474,6 +474,16 @@ module KairosHookProjector
     # the parse on every later read whatever the directory permits by then.
     # Only when both are refused does the leftover stay valid, and that state
     # is declared in design §7 rather than closed.
+    #
+    # The truncation refuses to follow a symlink. The note's name sits in
+    # operator space, and round 4 planted a link there — the directory then
+    # made unwritable so the unlink cannot spend it — and pointed the old
+    # File.write at a file outside the notes directory. NOFOLLOW turns that
+    # open into an ELOOP, which lands in the refusal arm below: the leaning is
+    # to refuse, never to write through a name to somewhere the path did not
+    # say. A hard link, or a link planted higher up the path, still reaches
+    # through — each needs the same outside hand that plants the link, and both
+    # are declared rather than closed.
     def spend_stale_note(path, reason)
       File.unlink(path)
       "#{reason}; a stale note was deleted"
@@ -481,7 +491,7 @@ module KairosHookProjector
       reason
     rescue StandardError
       begin
-        File.write(path, '')
+        File.open(path, File::WRONLY | File::TRUNC | File::NOFOLLOW).close
         "#{reason}; a stale note could not be deleted and was emptied instead"
       rescue StandardError => e
         "#{reason}; a stale note could not be deleted (#{e.class})"

@@ -2603,6 +2603,109 @@ class TestReadableGate < Minitest::Test
     end
   end
 
+  # --- what round 4 of the conformance review found ---------------------------
+  #
+  # The truncation fallback wrote through whatever the note's name pointed at.
+  # A symlink planted at the note key — the directory then made unwritable so
+  # the unlink cannot spend it — let the emptying reach a file outside the
+  # notes directory. Two seats demonstrated it. The fix opens with NOFOLLOW and
+  # leans to refusing: the link stays unspent, the file it names stays intact,
+  # and every later recheck refuses the leftover by name.
+  def test_the_truncation_does_not_follow_a_symlink_out_of_the_notes_directory
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx_path = File.join(tmp, 't.jsonl')
+      logs = File.join(tmp, 'logs')
+      FileUtils.mkdir_p(logs)
+      log_path = File.join(logs, 'gate.log')
+      raw = { 'mode_name' => 'test', 'log_path' => log_path, 'max_headings' => 3 }
+      File.write(cfg_path, JSON.generate(raw), encoding: 'UTF-8')
+      File.write(tx_path, rows_json([row_for('assistant', text: BLOCKED, uuid: 'BBB')]),
+                 encoding: 'UTF-8')
+      cfg_obj = G::Config.new(raw, cfg_path)
+
+      victim = File.join(tmp, 'victim.txt')
+      File.write(victim, 'the operator wrote this', encoding: 'UTF-8')
+      note_file = G.note_path(tx_path, cfg_obj)
+      FileUtils.mkdir_p(File.dirname(note_file))
+      File.symlink(victim, note_file)
+      notes = File.dirname(note_file)
+
+      File.chmod(0o555, notes) # the write and the unlink both fail; only the truncation is left
+      begin
+        out, = run_script(cfg_path, JSON.generate('transcript_path' => tx_path,
+                                                  'stop_hook_active' => false))
+        assert_equal 'block', JSON.parse(out)['decision'], 'the turn is still blocked'
+        assert_equal 'the operator wrote this', File.read(victim, encoding: 'UTF-8'),
+                     'emptying the leftover must not reach through its name'
+        log = File.read(log_path, encoding: 'UTF-8')
+        assert_includes log, 'a stale note could not be deleted', log
+        refute_includes log, 'was emptied instead',
+                        'an emptying that was refused must not be reported as done'
+
+        run_script(cfg_path, JSON.generate('transcript_path' => tx_path,
+                                           'stop_hook_active' => true))
+      ensure
+        File.chmod(0o755, notes)
+      end
+
+      log = File.read(log_path, encoding: 'UTF-8')
+      assert_includes log, 'SKIP-nonote-unspent',
+                      "the surviving link must be refused, not read: #{log}"
+      refute_includes log, 'RECHECK-',
+                      "a verdict here judged whatever the link names: #{log}"
+      assert_equal 'the operator wrote this', File.read(victim, encoding: 'UTF-8'),
+                   'the recheck must not reach through the name either'
+    end
+  end
+
+  # Round 6's corrected claim states two refusal arms, and this pins the second:
+  # when the link's target exists but cannot be read, take_note's read fails
+  # before the unlink is ever attempted, so the refusal is named nonote — not
+  # nonote-unspent — and the linked bytes are never parsed. Round 5's claim said
+  # nonote-unspent for every recheck; the codex seat refused it with this state.
+  def test_a_link_to_an_unreadable_target_is_refused_as_nonote_before_the_unlink
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx_path = File.join(tmp, 't.jsonl')
+      logs = File.join(tmp, 'logs')
+      FileUtils.mkdir_p(logs)
+      log_path = File.join(logs, 'gate.log')
+      raw = { 'mode_name' => 'test', 'log_path' => log_path, 'max_headings' => 3 }
+      File.write(cfg_path, JSON.generate(raw), encoding: 'UTF-8')
+      File.write(tx_path, rows_json([row_for('assistant', text: BLOCKED, uuid: 'BBB')]),
+                 encoding: 'UTF-8')
+      cfg_obj = G::Config.new(raw, cfg_path)
+
+      victim = File.join(tmp, 'victim.txt')
+      File.write(victim, 'the operator wrote this', encoding: 'UTF-8')
+      note_file = G.note_path(tx_path, cfg_obj)
+      FileUtils.mkdir_p(File.dirname(note_file))
+      File.symlink(victim, note_file)
+      notes = File.dirname(note_file)
+
+      File.chmod(0o000, victim) # the read fails before the unlink can be tried
+      File.chmod(0o555, notes)
+      begin
+        run_script(cfg_path, JSON.generate('transcript_path' => tx_path,
+                                           'stop_hook_active' => true))
+      ensure
+        File.chmod(0o755, notes)
+        File.chmod(0o644, victim)
+      end
+
+      log = File.read(log_path, encoding: 'UTF-8')
+      assert_includes log, 'SKIP-nonote', "the failed read refuses by the nonote name: #{log}"
+      refute_includes log, 'SKIP-nonote-unspent',
+                      'the unlink was never reached, so its refusal name must not appear'
+      refute_includes log, 'RECHECK-',
+                      "a verdict here parsed bytes the read should never have used: #{log}"
+      assert File.symlink?(note_file), 'the leftover stays: nothing consumed it'
+      assert_equal 'the operator wrote this', File.read(victim, encoding: 'UTF-8'),
+                   'the linked bytes are unchanged'
+    end
+  end
+
   # The exception path of the write — not just the no-uuid return — must spend
   # the leftover too. Driven in-process because the deterministic failure is a
   # directory squatting the temporary name, and that name carries the pid.

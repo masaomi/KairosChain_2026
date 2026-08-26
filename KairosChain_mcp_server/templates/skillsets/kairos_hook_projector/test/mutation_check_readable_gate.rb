@@ -306,7 +306,7 @@ MUTATIONS = [
   ['N32 the truncation fallback is deleted, so a lifted window revives the leftover',
    %q{    rescue StandardError
       begin
-        File.write(path, '')
+        File.open(path, File::WRONLY | File::TRUNC | File::NOFOLLOW).close
         "#{reason}; a stale note could not be deleted and was emptied instead"
       rescue StandardError => e
         "#{reason}; a stale note could not be deleted (#{e.class})"
@@ -315,6 +315,16 @@ MUTATIONS = [
    %q{    rescue StandardError => e
       "#{reason}; a stale note could not be deleted (#{e.class})"
     end}],
+
+  # --- what round 4 of the conformance review found --------------------------
+  #
+  # The truncation is a write through a name in operator space. Two seats
+  # planted a symlink at the note key, made the directory unwritable so the
+  # unlink fails, and watched the old File.write empty a file outside the notes
+  # directory. This restores that write; the fix's NOFOLLOW is what it deletes.
+  ['N33 the truncation follows a symlink to whatever it names',
+   %q{        File.open(path, File::WRONLY | File::TRUNC | File::NOFOLLOW).close},
+   %q{        File.write(path, '')}],
 ].freeze
 
 def run_suite(root)
