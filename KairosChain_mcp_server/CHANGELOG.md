@@ -4,6 +4,29 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.78.0] - 2026-08-26
+
+### Fixed
+
+- **`readable_gate` — a failed note write no longer leaves an earlier turn's
+  note in place.** The carry-over note (shipped in 3.77.0) records which
+  record the gate blocked, so the recheck measures only what came after it. A
+  leftover note from an interrupted turn — 28 of 240 blocks draw no recheck —
+  survived the next block's failed note write, checked out as valid, and the
+  recheck judged the message that block had just made. A record with no uuid
+  was input enough. Every write failure now spends the leftover: deleted, or —
+  when deletion is refused — truncated in place, since deletion needs
+  directory-write while truncation needs only file-write, and an emptied note
+  fails the parse on every later read whatever the directory permits by then.
+  Only a leftover refusing both deletion and truncation survives, and the
+  design declares that state rather than claiming it closed. Found by
+  conformance review rounds 2-4: six reading contexts per round answering a
+  fixed claim list (21 → 4 → 2 → 1 claims), each finding reproduced end-to-end
+  before its fix, and round 4 closing with zero claims disputed. 133 tests /
+  815 assertions; 54 mutations killed 54/54; first-read stdout byte-identical
+  to the 3.74.0 baseline across up to 2,520 inputs measured by four
+  independent contexts.
+
 ## [3.77.0] - 2026-08-26
 
 ### Added
