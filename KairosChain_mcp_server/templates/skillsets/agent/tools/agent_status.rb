@@ -71,6 +71,12 @@ module KairosMcp
                   'status' => dstatus,
                   'step_token' => delegation.pending&.dig('step_token')
                 }.compact
+                if dstatus == 'crashed'
+                  # Field defect D4: surface the worker's own exit record so
+                  # the operator sees WHY, not just 'crashed'.
+                  payload['delegation']['worker_exit'] =
+                    delegation.crash_detail(delegation.pending&.dig('step_token'))
+                end
                 if %w[ready still_pending].include?(dstatus)
                   payload['next_move'] = {
                     'tool' => 'agent_wait',

@@ -174,6 +174,10 @@ module KairosMcp
             text_content(JSON.generate({
               'status' => 'crashed', 'session_id' => session.session_id,
               'step_token' => pending&.dig('step_token'),
+              # Field defect D4: say WHY when the worker left an exit record
+              # (self_timeout_stalled / hard_cap / superseded / uncaught …),
+              # or say explicitly that it vanished without one.
+              'worker_exit' => delegation.crash_detail(pending&.dig('step_token')),
               'next_action' => status_hint(session.session_id,
                                            'the delegated worker died before committing; the gate makes a ' \
                                            're-issue safe (exactly-once) — read agent_status and follow next_move')

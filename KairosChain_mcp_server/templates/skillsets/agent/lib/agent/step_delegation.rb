@@ -44,14 +44,23 @@ module KairosMcp
         HEARTBEAT_FILE = 'delegation.heartbeat'
         RESULT_FILE    = 'delegation_result.json'
         LOG_FILE       = 'delegation_worker.log'
+        WORKER_EXIT_FILE = 'worker_exit.json'
 
         HEARTBEAT_INTERVAL_SECONDS        = 2
         HEARTBEAT_STALE_THRESHOLD_SECONDS = 15
         STARTUP_GRACE_SECONDS             = 30
-        # Wall-clock ceiling for a delegated step; past it the worker exits so
-        # a hung gated call cannot hold the advance lock forever (a dead
-        # process releases its flock). Generous: real steps are LLM-bound.
-        WORKER_SELF_TIMEOUT_SECONDS       = 1500
+        # Two-bound watchdog for the delegated worker (field defect D4,
+        # 2026-08-26). The original single 1500 s wall clock assumed only a
+        # hung call could reach it; a healthy cycle with several LLM
+        # subprocess calls routinely runs past 25 minutes, so the clock killed
+        # sound workers — silently, because its exit wrote nothing. The stall
+        # bound frees a hung call's flock once the session dir has gone quiet
+        # (heartbeats and locks excluded: the heartbeat thread outlives a hung
+        # main thread, so it must not count as activity); the hard cap remains
+        # the absolute ceiling. Both are env-overridable per run and both
+        # record their firing in WORKER_EXIT_FILE before exiting.
+        WORKER_STALL_SECONDS_DEFAULT      = 2700
+        WORKER_HARD_CAP_SECONDS_DEFAULT   = 10800
 
         WORKER_SCRIPT = File.expand_path('../../bin/agent_step_worker.rb', __dir__)
 
@@ -195,6 +204,68 @@ module KairosMcp
           atomic_write(result_path, JSON.pretty_generate(payload))
         end
 
+        # ---- worker exit record (field defect D4) ----
+
+        # One line, written by the worker at every exit it can see coming
+        # (self-timeout, supersession, trapped signal, setsid/bootstrap
+        # failure, uncaught error, normal completion). Deliberately NOT the
+        # result file: the collector's crash path must stay the crash path, so
+        # a committed advance is still recovered from the gate log and never
+        # masked by an error result. Overwrites are fine — readers match on
+        # step_token, so a stale record for an older worker is ignored.
+        def write_worker_exit(identity, exit_class, detail = {})
+          payload = {
+            'timestamp'    => Time.now.utc.iso8601,
+            'pid'          => Process.pid,
+            'exit_class'   => exit_class.to_s,
+            'step_token'   => identity && identity['step_token'],
+            'issue_anchor' => identity && identity['issue_anchor']
+          }.merge(detail)
+          atomic_write(worker_exit_path, JSON.generate(payload))
+          payload
+        rescue StandardError
+          nil
+        end
+
+        def worker_exit
+          JSON.parse(File.read(worker_exit_path))
+        rescue Errno::ENOENT, JSON::ParserError
+          nil
+        end
+
+        # The exit record for THIS token, or a positive "no record" marker —
+        # so a 'crashed' report can say WHY (e.g. self_timeout_stalled after
+        # N s of silence) or say explicitly that the process vanished without
+        # writing anything (SIGKILL and kin, or a pre-3.78 worker).
+        def crash_detail(token)
+          rec = worker_exit
+          if rec && rec['step_token'] == token
+            rec
+          else
+            { 'exit_class' => 'no_record',
+              'note' => 'process gone without an exit record (killed, or a pre-3.78 worker)' }
+          end
+        end
+
+        # Most recent write anywhere in the session dir EXCLUDING liveness and
+        # locking artifacts: heartbeats tick every 2 s even when the main
+        # thread hangs, so counting them would blind the stall bound.
+        def last_activity_time
+          newest = nil
+          Dir.glob(File.join(@dir, '*')).each do |f|
+            base = File.basename(f)
+            next if base.start_with?(HEARTBEAT_FILE)
+            next if base == LOCK_FILE || base.end_with?('.lock')
+            t = begin
+              File.mtime(f)
+            rescue StandardError
+              next
+            end
+            newest = t if newest.nil? || t > newest
+          end
+          newest || Time.now
+        end
+
         # Collect-once, atomically and self-contained: under the lock, consume
         # the result ONLY if it belongs to the CURRENT pending handle (same
         # issue_anchor + action_key + step_token), clearing both the result and
@@ -274,8 +345,12 @@ module KairosMcp
           pid
         end
 
-        def self.worker_self_timeout_seconds
-          WORKER_SELF_TIMEOUT_SECONDS
+        def self.worker_stall_seconds
+          (ENV['KAIROS_WORKER_STALL_SECONDS'] || WORKER_STALL_SECONDS_DEFAULT).to_i
+        end
+
+        def self.worker_hard_cap_seconds
+          (ENV['KAIROS_WORKER_TIMEOUT_SECONDS'] || WORKER_HARD_CAP_SECONDS_DEFAULT).to_i
         end
 
         private
@@ -338,6 +413,7 @@ module KairosMcp
         def pending_path   = File.join(@dir, PENDING_FILE)
         def heartbeat_path(token) = File.join(@dir, "#{HEARTBEAT_FILE}.#{token}")
         def result_path    = File.join(@dir, RESULT_FILE)
+        def worker_exit_path = File.join(@dir, WORKER_EXIT_FILE)
       end
     end
   end

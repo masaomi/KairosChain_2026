@@ -62,6 +62,17 @@ rescue ScriptError, StandardError => e
   write_raw_result(session_dir, boot_identity,
                    { 'status' => 'error',
                      'error' => "worker bootstrap failed: #{e.class}: #{e.message}" })
+  # StepDelegation itself failed to load, so write the exit record by hand
+  # (field defect D4: every exit this worker can see coming leaves one).
+  begin
+    File.write(File.join(session_dir, 'worker_exit.json'),
+               JSON.generate({ 'timestamp' => Time.now.utc.iso8601, 'pid' => Process.pid,
+                               'exit_class' => 'bootstrap_failure',
+                               'step_token' => boot_identity['step_token'],
+                               'error' => "#{e.class}: #{e.message}" }))
+  rescue StandardError
+    # best effort
+  end
   exit 1
 end
 
@@ -81,6 +92,7 @@ rescue StandardError => e
   delegation.write_result({ 'status' => 'error',
                             'error' => "worker setsid failed: #{e.message}" },
                           identity: boot_identity)
+  delegation.write_worker_exit(boot_identity, 'setsid_failure', 'error' => e.message)
   exit 125
 end
 
@@ -96,16 +108,36 @@ heartbeat_thread = Thread.new do
   end
 end
 
-# Self-timeout watchdog: a hung gated call would otherwise hold the advance
-# lock forever. Exiting the process releases its flock; the driver then sees
-# 'crashed' and re-issues safely. We deliberately write NO result here so the
-# collector takes the crash path — if the gated advance had already committed,
-# crashed_response recovers its outcome from the gate log; an error result
-# would instead mask that committed advance.
-timeout_s = KairosMcp::SkillSets::Agent::StepDelegation.worker_self_timeout_seconds
+# Watchdog (field defect D4, 2026-08-26): two bounds instead of one wall
+# clock. A hung gated call must not hold the advance flock forever — but the
+# old fixed 1500 s assumed only a hung call could reach it, and killed
+# healthy LLM-bound cycles at minute 25 with nothing written. Now the worker
+# dies when the session dir has gone SILENT for the stall bound (heartbeats
+# and locks excluded — the heartbeat thread outlives a hung main thread), or
+# when the hard cap elapses, whichever comes first. Either firing writes a
+# worker_exit record BEFORE exit!(124). That record is not a result, so the
+# collector still takes the crash path and a committed advance is still
+# recovered from the gate log, never masked.
+worker_started = Time.now
+stall_s = KairosMcp::SkillSets::Agent::StepDelegation.worker_stall_seconds
+cap_s   = KairosMcp::SkillSets::Agent::StepDelegation.worker_hard_cap_seconds
 watchdog = Thread.new do
-  sleep timeout_s
-  exit!(124)
+  loop do
+    sleep 30
+    elapsed = (Time.now - worker_started).round
+    silent  = (Time.now - delegation.last_activity_time).round
+    if elapsed > cap_s
+      delegation.write_worker_exit(boot_identity, 'self_timeout_hard_cap',
+                                   'elapsed_seconds' => elapsed,
+                                   'silent_seconds' => silent)
+      exit!(124)
+    elsif silent > stall_s
+      delegation.write_worker_exit(boot_identity, 'self_timeout_stalled',
+                                   'elapsed_seconds' => elapsed,
+                                   'silent_seconds' => silent)
+      exit!(124)
+    end
+  end
 end
 
 begin
@@ -115,6 +147,12 @@ begin
   # KAIROS_DATA_DIR was set in the worker env by spawn_worker so ToolRegistry
   # / Session resolve the server's effective .kairos even under --data-dir.
   require 'kairos_mcp/tool_registry'
+  # Host-profile add-on SkillSets (codex_projection, opencode_projection) guard
+  # their lib entry point with `raise unless defined?(PluginProjector::HostProfile)`.
+  # The server satisfies that guard as a side effect of protocol.rb; this worker
+  # bootstraps only tool_registry, so it must load the core explicitly or
+  # Skillset#load! trips the guard and the whole registry bootstrap dies.
+  require 'kairos_mcp/plugin_projector'
 
   pending = delegation.pending
   raise "no pending delegation in #{session_dir}" unless pending
@@ -126,6 +164,8 @@ begin
   # worker owns this delegation, and the gate would replay/serialize our stale
   # call anyway. Exiting leaves the current handle to its rightful worker.
   if my_token.nil? || pending['step_token'] != my_token
+    delegation.write_worker_exit(boot_identity, 'superseded',
+                                 'current_token' => pending['step_token'])
     exit 0
   end
 
@@ -136,7 +176,10 @@ begin
   args = (pending['arguments'] || {}).merge('session_id' => session_id)
   args.delete('execution') # never recurse into another delegation
 
-  exit 130 if shutdown[:requested]
+  if shutdown[:requested]
+    delegation.write_worker_exit(boot_identity, 'trapped_signal')
+    exit 130
+  end
 
   registry = KairosMcp::ToolRegistry.new
   raw = registry.call_tool('agent_step', args)
@@ -158,6 +201,7 @@ begin
   # races a concurrently-opened fresh delegation by clearing state it may no
   # longer own or by mislabeling its result as a newer delegation's.
   delegation.write_result(response, identity: identity)
+  delegation.write_worker_exit(identity, 'normal')
   exit 0
 rescue SystemExit, SignalException
   # A deliberate exit (including our own `exit 0`) or a signal is not a
@@ -173,6 +217,11 @@ rescue Exception => e # rubocop:disable Lint/RescueException
   begin
     delegation.write_result({ 'status' => 'error', 'error' => "worker: #{e.class}: #{e.message}" },
                             identity: (boot_identity.empty? ? nil : boot_identity))
+  rescue StandardError
+    # best effort
+  end
+  begin
+    delegation.write_worker_exit(boot_identity, 'uncaught', 'error' => "#{e.class}: #{e.message}")
   rescue StandardError
     # best effort
   end

@@ -1843,8 +1843,27 @@ module KairosMcp
             result = review_loop.run_phase('review', persona_review_system_prompt, messages, [])
 
             parsed = parse_persona_review(result['content'])
+            if parsed[:parse_error]
+              # Field defect D5: without the raw reply on disk a parse failure
+              # is undiagnosable — llm_snapshots keeps only metadata.
+              raw_path = persist_raw_review(session, result['content'])
+              parsed[:key_findings] = Array(parsed[:key_findings]) +
+                                      ["raw reviewer reply saved: #{raw_path}"] if raw_path
+            end
             parsed[:llm_calls] = review_loop.total_calls
             parsed
+          end
+
+          # Persist an unparseable reviewer reply beside the session records
+          # (capped at 64 KiB). Returns the path, or nil when nothing usable.
+          def persist_raw_review(session, content)
+            return nil if content.nil? || content.to_s.empty?
+            name = "review_raw_#{Time.now.utc.strftime('%Y%m%dT%H%M%SZ')}.txt"
+            path = File.join(session.session_dir, name)
+            File.write(path, content.to_s[0, 65_536])
+            path
+          rescue StandardError
+            nil
           end
 
           def run_lightweight_review(session, decision_payload, ar_result)
@@ -2062,18 +2081,76 @@ module KairosMcp
           def parse_persona_review(content)
             return review_parse_fallback('no content') unless content
 
-            json_str = extract_json_from_content(content)
-            return review_parse_fallback('no JSON found') unless json_str
+            # Field defect D5 (2026-08-26): a long reviewer reply can contain
+            # SEVERAL JSON blocks — echoed plan fragments, code in findings —
+            # and taking the first parseable one yielded a hash with no
+            # overall_verdict at all. Scan every candidate and prefer the one
+            # that actually carries a String overall_verdict; fall back to the
+            # first hash only when none does, so the failure reason stays
+            # honest ("invalid overall_verdict type").
+            candidates = extract_json_candidates(content)
+            return review_parse_fallback('no JSON found') if candidates.empty?
 
-            parsed = JSON.parse(json_str)
-            verdict = parsed['overall_verdict']
+            chosen = nil
+            candidates.each do |json_str|
+              parsed = begin
+                JSON.parse(json_str)
+              rescue JSON::ParserError
+                next
+              end
+              next unless parsed.is_a?(Hash)
+              if parsed['overall_verdict'].is_a?(String)
+                chosen = parsed
+                break
+              end
+              chosen ||= parsed
+            end
+            return review_parse_fallback('no JSON found') if chosen.nil?
+
+            verdict = chosen['overall_verdict']
             unless verdict.is_a?(String)
               return review_parse_fallback("invalid overall_verdict type: #{verdict.class}")
             end
-            parsed['overall_verdict'] = verdict.upcase
-            parsed.transform_keys(&:to_sym)
-          rescue JSON::ParserError => e
-            review_parse_fallback("JSON parse error: #{e.message}")
+            chosen['overall_verdict'] = verdict.upcase
+            chosen.transform_keys(&:to_sym)
+          end
+
+          # All plausible JSON blocks in a reviewer reply, in preference order:
+          # the whole reply, every fenced block, every balanced object around
+          # an "overall_verdict" occurrence, then the crude first-{ to last-}
+          # span. Invalid candidates are skipped by the caller's JSON.parse.
+          def extract_json_candidates(content)
+            begin
+              JSON.parse(content)
+              return [content]
+            rescue JSON::ParserError
+              # fall through to scanning
+            end
+
+            candidates = []
+            content.scan(/```(?:json)?\s*\n?(.*?)\n?```/m) { |m| candidates << m[0] }
+
+            search_from = 0
+            while (key_at = content.index('"overall_verdict"', search_from))
+              open_at = content.rindex('{', key_at)
+              if open_at
+                depth = 0
+                i = open_at
+                while i < content.length
+                  depth += 1 if content[i] == '{'
+                  depth -= 1 if content[i] == '}'
+                  if depth.zero?
+                    candidates << content[open_at..i]
+                    break
+                  end
+                  i += 1
+                end
+              end
+              search_from = key_at + 1
+            end
+
+            candidates << Regexp.last_match(1) if content =~ /(\{.*\})/m
+            candidates.compact.uniq
           end
 
           def review_parse_fallback(reason)
@@ -2401,7 +2478,13 @@ module KairosMcp
             "place it so that everything not depending on it comes first. Marked steps are " \
             "set aside and the rest of the plan still runs; the operator is shown what was " \
             "set aside at the end of the cycle. Do not drop such a step, and do not " \
-            "substitute a reversible half-measure without saying so in the summary."
+            "substitute a reversible half-measure without saying so in the summary.\n" \
+            "  (g) What `operator_report` receives must already be the finished text. " \
+            "The executor does not feed one step's output into another step's " \
+            "arguments, so a body written as an instruction — assemble this, summarize " \
+            "that — is delivered to the operator verbatim as the report. When the " \
+            "deliverable depends on outputs of steps in this plan, deliver it in the " \
+            "next cycle, written from what those steps actually returned."
           end
 
           def reflect_system_prompt
