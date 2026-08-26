@@ -4,6 +4,60 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.77.0] - 2026-08-26
+
+### Added
+
+- **`operator_report` — the agent SkillSet's first tool for handing a
+  deliverable to a human.** Three runs produced documents no one could receive;
+  the loop concluded "there is no way to deliver this" and it was right. The
+  tool writes the report body to a file under `.kairos/log/agent_reports/` and
+  returns only the path, because the executor truncates tool output at 500
+  characters. It is registered `low` in the risk table — an unlisted tool would
+  be marked by norm (d) and the report itself would wait for human
+  confirmation. Two norms ship with it: (e) an irreversible step is marked and
+  deferred, not a reason to halt the plan; (f) a delivery tool exists — do not
+  conclude there is no way to hand the result over.
+
+- **`test_agent_human_mark_gate.rb`** — 39 tests, 87 assertions, covering the
+  deferred-mark path, halt-kind classification, and the cumulative cycle
+  ledger.
+
+### Changed
+
+- **Seven fixes surfaced by running the loop, not by reviewing it.** The goal
+  text never reached the DECIDE prompt — the loop was judging without its goal;
+  it is now included, truncated at 6,000 characters with the cut declared in
+  the text. Halt kinds were hardcoded to one kind, so tool errors were recorded
+  as "waiting for human"; the kind now reads from each step's own status, and
+  the seven-site refactor a prior design round estimated for this turned out
+  unnecessary. A plan halted at its first human-marked step; `human_mark_mode:
+  'defer'` sets marked steps and their dependents aside, runs the rest, and
+  returns the deferred list at the cycle's end (the default remains `halt`).
+  The completed-cycle count was per call; the ledger now accumulates across the
+  run. Norm (d) pulled read-only tools into confirmation waits; it now names
+  writing, recording, sending, and deleting tools only, and its counter is
+  renamed `unlisted_writing_tool_unmarked` with the old name's counts folded
+  in. Report titles doubled when the body already opened with a heading; they
+  no longer do.
+
+### Removed
+
+- **The 300-second wall clock and `max_cycles`.** The clock was shorter than
+  one measured cycle (823 seconds for a 13-step cycle); both caps are gone.
+  What still stops a run: the call budget (`max_total_llm_calls`, default 60 —
+  about 15 cycles at the measured 4 calls per cycle), two consecutive errors,
+  loop detection, self-declared completion at confidence ≥ 0.9, and the
+  `checkpoint_every` return, where continuing is decided by whether the
+  operator calls the next `agent_step`. The uncapped run that validated this
+  went three cycles: the first drafted a priority list, the second found and
+  corrected six errors in it, the third declined to write a third version,
+  declared the second canonical, and returned four open items — zero norm
+  violations, confidence never reaching the self-completion threshold. Mutation
+  testing covers the session's first half (11 mutants, 11 killed); the latter
+  eight fixes ship unmutated by operator decision — this release exists to find
+  their defects in use.
+
 ## [3.76.0] - 2026-08-22
 
 ### Changed
