@@ -4,6 +4,44 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.81.0] - 2026-08-27
+
+### Changed
+
+- **`project_manager` ships its L2 comparison in Ruby, 0.7.0 -> 0.8.0.** The
+  three hook-side scripts move from Python to Ruby (`pm_l2_report.rb`,
+  `l2_scan.rb`, and the ported test), and the SessionStart hook it contributes
+  now invokes `ruby` rather than `python3`. python3 was never guaranteed on a
+  host the gem ships to; the interpreter the rest of the SkillSet already runs
+  on is. The port itself was committed before this release (`1ec9bd5`) and is
+  unchanged here — 505 execution comparisons over 101 input classes with zero
+  undeclared differences, 100 unit runs / 485 assertions green, 6/6 mutations
+  killed.
+
+  The version move is the load-bearing part of this release. Without it
+  `skillset upgrade` compares versions, finds them equal, reports UNCHANGED and
+  copies nothing, so an instance would take the new gem and keep the Python
+  scripts while the projected hook still names them.
+
+- **`project_manager/plugin/hooks.json`: the bare `ruby` is now a ruling, not
+  an open question.** The comment block previously said the resolution was
+  undecided and named two candidates — the projector embedding an absolute
+  interpreter path, or this file checking `RUBY_VERSION`. Neither ships
+  (operator ruling, 2026-08-27). The comment now records why each was declined:
+  an embedded path has to be written by the projector, which turns an
+  interpreter choice into a core change and pins every host to one machine's
+  layout; a version check in this file trades the loud failure for a quiet one;
+  and `rbenv exec` fails outright wherever rbenv is absent — a Docker ruby
+  image, a homebrew install, asdf — which is strictly worse than the bare form,
+  since those hosts run the bare form fine.
+
+  Resolution therefore stays with the host's PATH, and the residual risk is
+  stated rather than hidden: `/usr/bin/ruby` 2.6.10 fails this script at parse
+  time with a 43-line syntax error and writes no page (measured). That failure
+  is visible at session start rather than silent, and the visibility is what
+  makes the bare form acceptable rather than merely convenient. The command
+  string is unchanged by this release; only the comment moved.
+
 ## [3.80.0] - 2026-08-27
 
 ### Changed
