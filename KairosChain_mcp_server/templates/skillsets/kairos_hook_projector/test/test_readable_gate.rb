@@ -1062,8 +1062,20 @@ class TestReadableGate < Minitest::Test
   # assertion, guarding a claim about the bound. A machine ~9% faster failed it.
   # At 2,000 the work is an order of magnitude over the budget, and the deadline
   # aborts the scan, so the test does not get slower for it.
-  def test_the_measurement_bound_stops_an_accumulating_scan_and_never_blocks
-    patterns = (1..2000).map do |i|
+  # §5-3: the deadline crossed by accumulation alone. Every single match here
+  # is cheap — a few microseconds — so no Regexp::TimeoutError can pre-empt
+  # the deadline, and the raise limb of the seam is the only thing that can
+  # end the scan. Deleting that raise turns this red: the next grant is
+  # negative, Regexp.timeout= raises ArgumentError past the MeasureTimeout
+  # rescue, and the budget banner this fixture pins never appears. The
+  # workload is roughly 4x the 9.5s budget (4,000 patterns; at 200 patterns
+  # this shape measured ~1.08s), well off the crossing knife-edge.
+  #
+  # The wall-time band is the behavioural witness that the deadline sits where
+  # deadline_for puts it. Its edges give ±0.25s: MARGIN's own mutations are
+  # killed by the constant pin, not here.
+  def test_an_accumulating_scan_is_cut_at_the_deadline_with_the_budget_banner
+    patterns = (1..4000).map do |i|
       "(?<![A-Za-z0-9_])([A-Z]{1,4}★|[A-Z]{2,5}-#{i}\\d+|[PR]\\d+|[a-z]\\d{1,2})"
     end
     text = (['これは普通の散文の行で、INV-5 や a9 のような語を含みます。'] * 4000).join("\n")
@@ -1071,12 +1083,13 @@ class TestReadableGate < Minitest::Test
 
     started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     out = decide(text, shorthand_patterns: patterns, gloss_patterns: ['[(（]'],
-                       vocab_min_lines: 1, measure_timeout_seconds: 1, max_headings: 1)
+                       vocab_min_lines: 1, max_headings: 1)
     elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
 
-    assert_operator elapsed, :<, 20, format('took %.1fs', elapsed)
+    assert_operator elapsed, :>, 9.3, format('took %.1fs — the budget was not used', elapsed)
+    assert_operator elapsed, :<, 9.8, format('took %.1fs — the deadline did not cut', elapsed)
     refute out.key?('decision'), out.inspect
-    assert_includes out.fetch('systemMessage', ''), 'NOT RUN'
+    assert_includes out.fetch('systemMessage', ''), 'measurement ran out of the hook budget'
   end
 
   # Where the deadline is read, driven on a clock this test controls rather than
@@ -1172,21 +1185,26 @@ class TestReadableGate < Minitest::Test
   # Each is written against the deletion that used to leave the suite green.
 
   # The bound the Ruby 3.2 floor was raised for. Nothing asserted it was ever
-  # installed: the timeout test stubbed measure to raise, so it drove only the
-  # rescue, and its restore assertion passed because the previous value was nil
-  # either way. Delete the assignment and the whole distribution-wide floor
-  # becomes unnecessary with nothing to notice.
-  def test_the_per_match_bound_is_installed_for_the_scan_and_restored_after
-    seen = :never_called
-    original = G.method(:measure)
-    G.define_singleton_method(:measure) { |*| seen = Regexp.timeout; [{}, []] }
+  # measure_bounded owns what sits outside any single match: whatever bound the
+  # caller had is saved and restored here, outside every per-match grant. The
+  # grant-and-revoke inside the seam sets the global to nil between matches, so
+  # without this restore a caller's own bound would be silently erased by the
+  # measurement it invoked. Driven with a non-nil previous, because with nil the
+  # restore assertion passes whether the restore exists or not — the exact
+  # blindness the earlier version of this test had.
+  def test_measure_bounded_restores_the_bound_the_caller_had
+    previous = Regexp.timeout
+    Regexp.timeout = 3.0
     begin
-      G.measure_bounded("x\n", cfg('measure_timeout_seconds' => 3))
+      G.measure_bounded("x\n", cfg, G.monotonic + 5)
+      assert_equal 3.0, Regexp.timeout, 'the caller bound survives a measurement'
+      G.stub(:measure, ->(*) { raise Regexp::TimeoutError }) do
+        assert_raises(G::MeasureTimeout) { G.measure_bounded("x\n", cfg, G.monotonic + 5) }
+      end
+      assert_equal 3.0, Regexp.timeout, 'and survives a measurement that was cut'
     ensure
-      G.define_singleton_method(:measure, original)
+      Regexp.timeout = previous
     end
-    assert_equal 3, seen, 'the per-match bound is installed while measuring'
-    assert_nil Regexp.timeout, 'and restored afterwards'
   end
 
   # §9.14 declares that `stop_hook_active` is read by Ruby truthiness, so the
@@ -1217,32 +1235,55 @@ class TestReadableGate < Minitest::Test
   # name. The window still bounds the read, and "a blocked record above the
   # window is named as such" is what witnesses it now.
 
-  # Driven through the real script, because what the operator loses when the
-  # clamp is wrong is a verdict, not an arithmetic result. A mode declaring six
-  # seconds is clamped to MEASURE_TIMEOUT_CEILING and must still be judged: the
-  # clamp lowers the bound, it does not withdraw the read.
-  def test_a_six_second_mode_still_gets_a_first_pass_verdict
+  # Driven through the real script, because what the operator loses when this
+  # goes wrong is a verdict. A mode declaring six seconds used to be clamped;
+  # now the key does nothing at all, and the verdict arrives under the internal
+  # budget. Part of the retired key's inertness pin (declared diffs d1/d3):
+  # its siblings below drive 0, a negative and a string through the same seam.
+  def test_a_mode_still_declaring_the_retired_key_gets_a_first_pass_verdict
     out, log = drive([row_for('assistant', text: FOUR_HEADINGS, uuid: 'AAA')],
                      rechecked: false, max_headings: 3, measure_timeout_seconds: 6)
     assert_equal 'block', out['decision'], out.inspect
     assert_includes log, 'FAIL-ok', log.inspect
-    refute_includes log, 'SKIP-measure-timeout', 'a clamped bound still yields a verdict'
+    refute_includes log, 'SKIP-measure-timeout', 'an ignored key still yields a verdict'
   end
 
-  # A round-3 advisory asked for this wording to be corrected: every INT_KEYS
-  # value is rejected unless it is an Integer, so a mode writing 5.0 is told its
-  # number is not a number. It was corrected and then put back, because the
-  # message is output a first read emits, and pass condition 3 holds the first
-  # read to 366f3fc wherever 366f3fc emitted at all. Driving both versions with
-  # `max_lines: "60"` and `stop_hook_active` false showed the banner and the log
-  # line differing in exactly this string. The advisory stays open; this fixture
-  # is what stops the wording being improved again by accident.
-  def test_a_float_threshold_reports_with_the_baseline_wording
-    problems = cfg('measure_timeout_seconds' => 5.0).problems
-    assert_equal 1, problems.length, problems.inspect
-    assert_includes problems.first, 'expected a number', problems.inspect
-    assert_includes problems.first, 'measure_timeout_seconds is number',
-                    'imprecise, and deliberately unchanged from 366f3fc'
+  # The values that used to be lethal. 0 and a negative passed the Integer type
+  # check, reached Regexp.timeout= and killed the gate with exit 0, empty
+  # stdout and no log file at all; a string drew a type-error NOT RUN. All
+  # three now measure and judge — the key has no observable surface left.
+  def test_the_retired_keys_lethal_values_now_measure_and_judge
+    [0, -3, '5'].each do |value|
+      out, log = drive([row_for('assistant', text: FOUR_HEADINGS, uuid: 'AAA')],
+                       rechecked: false, max_headings: 3, measure_timeout_seconds: value)
+      assert_equal 'block', out['decision'], "value #{value.inspect}: #{out.inspect}"
+      assert_includes log, 'FAIL-ok', "value #{value.inspect}: #{log.inspect}"
+    end
+  end
+
+  # d1's exact multi-problem form: with another key mistyped alongside the
+  # retired one, the NOT RUN line carries the other key's clause ONLY — the
+  # retired key's clause is gone, and the gate still does not run.
+  def test_a_multi_problem_config_loses_only_the_retired_keys_clause
+    out = decide(FOUR_HEADINGS, max_lines: '60', measure_timeout_seconds: '5')
+    msg = out.fetch('systemMessage', '')
+    assert_includes msg, 'NOT RUN'
+    assert_includes msg, 'max_lines is string', msg
+    refute_includes msg, 'measure_timeout_seconds', msg
+    refute out.key?('decision'), 'the remaining problem still suppresses the run'
+  end
+
+  # Declared diff d1: the retired key produces no problem clause for ANY value
+  # shape. It used to be an INT_KEY, so 5.0 drew "measure_timeout_seconds is
+  # number, expected a number" and a NOT RUN; now it flows through checked()'s
+  # unknown-key fall-through and is read by nobody. This is the diff the design
+  # declares, pinned so it cannot half-return: a value shape drawing a clause
+  # again means the key crept back into INT_KEYS.
+  def test_the_retired_key_draws_no_problem_clause_for_any_value_shape
+    [5, 60, 1, 0, -3, '5', 5.0, true, false, nil, [], {}].each do |value|
+      problems = cfg('measure_timeout_seconds' => value).problems
+      assert_empty problems, "value #{value.inspect} drew: #{problems.inspect}"
+    end
   end
 
   # HOOK_TIMEOUT is declared twice and neither copy knew about the other:
@@ -1362,9 +1403,9 @@ class TestReadableGate < Minitest::Test
   # reaches it — see the note above.
   def test_a_regexp_timeout_becomes_not_run_rather_than_an_escape
     c = cfg('shorthand_patterns' => ['(a)'], 'gloss_patterns' => ['x'],
-            'vocab_min_lines' => 1, 'measure_timeout_seconds' => 1)
+            'vocab_min_lines' => 1)
     G.stub(:measure, ->(*) { raise Regexp::TimeoutError }) do
-      assert_raises(G::MeasureTimeout) { G.measure_bounded("a\n", c) }
+      assert_raises(G::MeasureTimeout) { G.measure_bounded("a\n", c, G.monotonic + 5) }
     end
     assert_nil Regexp.timeout, 'the bound must be restored after measurement'
   end
@@ -1828,7 +1869,12 @@ class TestReadableGate < Minitest::Test
       end
       msg = JSON.parse(out).fetch('systemMessage', '')
       assert_includes msg, 'NOT RUN'
-      assert_includes msg, 'exceeded', 'the timeout is what the banner explains'
+      # The declared d2 wording: the banner quotes the time actually spent and
+      # the budget it ran out of, not a mode-declared value — the key that
+      # carried one is retired. This is the pin that stops the wording drifting.
+      assert_includes msg, 'measurement ran out of the hook budget',
+                      'the timeout is what the banner explains'
+      assert_includes msg, 'of 9.5s', 'and the budget it quotes is the internal one'
       assert_includes msg, 'log not written', 'and the lost record is named beside it'
     end
   end
@@ -1917,7 +1963,14 @@ class TestReadableGate < Minitest::Test
     assert_includes out.fetch('reason', ''), 'VOCABULARY'
   end
 
-  def test_omitting_the_measure_timeout_bounds_the_scan_at_five_seconds
+  # No mode-facing bound exists any more, so the default is structural: no
+  # ambient Regexp.timeout is installed around the scan. Each match is granted
+  # its bound inside bounded_match and the grant is revoked as the match ends;
+  # between matches — which is where a stubbed measure observes — the global
+  # is nil. The five-second default this test used to assert is retired with
+  # the key (declared diff d3: the budget is now the hook's own remaining
+  # time, ≈9.4s on a first read).
+  def test_no_ambient_bound_is_installed_around_the_scan
     seen = :never_measured
     original = G.method(:measure)
     G.define_singleton_method(:measure) do |*|
@@ -1942,8 +1995,8 @@ class TestReadableGate < Minitest::Test
     ensure
       G.define_singleton_method(:measure, original)
     end
-    assert_equal 5, seen, 'the scan runs under the default five-second bound'
-    assert_nil Regexp.timeout, 'and the bound is restored afterwards'
+    assert_nil seen, 'no ambient bound: authorisation lives inside the seam, per match'
+    assert_nil Regexp.timeout, 'and nothing is left behind afterwards'
   end
 
   def test_omitting_the_log_bound_rotates_at_exactly_one_megabyte
@@ -2725,5 +2778,336 @@ class TestReadableGate < Minitest::Test
       assert_equal [nil, 'nonote'], G.take_note(tx, c),
                    'the recheck must find nothing rather than the wrong block'
     end
+  end
+
+  # --- the measurement bound: the seam, its floor, its witnesses (design v0.7)
+  #
+  # Every mode-supplied match passes through bounded_match: bound computed from
+  # the time actually remaining, floor below a millisecond, grant revoked as
+  # the match ends. The fixtures below are the design's §5 pass conditions.
+  # Deadline-reaching fixtures assert a wall-time BAND (9.3 < wall < 9.8) and
+  # the banner KIND, never just "something was emitted"; in-process fixtures
+  # assert their own premise inside themselves (a fixture whose premise fails
+  # silently is how three review rounds were spent).
+
+  # The catastrophic pattern. Plain (a+)+b is neutralised by Ruby 3.4's
+  # linear-time optimisation; the backreference disables it, and the subject
+  # "x" + "a"*46 does not return within hours unbounded (a*40 was already
+  # ~2^14 × 0.74s). Everything that must be CUT uses this; the one thing that
+  # must FINISH unbounded (§5-13's second leg) uses a*27, about 1.5s.
+  EVIL_SRC = '(x)(a+)+b\1'
+  EVIL_SUBJECT = "x#{'a' * 46}".freeze
+
+  # §5-1: two-stage — cheap matches burn most of the budget, then the runaway
+  # meets its subject and is granted only what remains. The grant is the
+  # remaining time, so the cut lands on the deadline wherever the cheap phase
+  # ends (~6-7s here; the runaway absorbs the rest on any machine speed).
+  # Deleting `Regexp.timeout = remaining` in the seam turns this red by the
+  # 30s outer kill: the runaway would run for hours.
+  #
+  # Declared machine-speed premise: the cheap phase (~6.8s here) must finish
+  # inside the 9.5s budget for the runaway to be reached at all; a ~1.4x
+  # slower machine silently turns this into a second accumulation fixture.
+  # Both outcomes keep the band and the banner, so the premise has no
+  # in-fixture witness — the per-family fixtures below carry the runaway-cut
+  # property independently either way.
+  def test_a_runaway_late_in_the_scan_is_granted_only_the_remaining_time
+    patterns = (1..1200).map do |i|
+      "(?<![A-Za-z0-9_])([A-Z]{1,4}★|[A-Z]{2,5}-#{i}\\d+|[PR]\\d+|[a-z]\\d{1,2})"
+    end
+    patterns << EVIL_SRC
+    text = (['これは普通の散文の行で、INV-5 や a9 のような語を含みます。'] * 3999)
+           .join("\n") + "\n#{EVIL_SUBJECT}"
+
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    out = decide(text, shorthand_patterns: patterns, gloss_patterns: ['[(（]'],
+                       vocab_min_lines: 1, max_headings: 1)
+    elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+
+    assert_operator elapsed, :>, 9.3, format('took %.1fs — the budget was not used', elapsed)
+    assert_operator elapsed, :<, 9.8, format('took %.1fs — the runaway was not cut', elapsed)
+    refute out.key?('decision'), out.inspect
+    assert_includes out.fetch('systemMessage', ''), 'measurement ran out of the hook budget'
+  end
+
+  # §5-2: the same crossing driven on a RECHECK, where ~4s of poll have already
+  # been spent before measurement begins — the transcript shape is the one the
+  # natural construction does not produce (a newer text-less record above the
+  # rewrite, so the wait runs its whole budget and deep_after_index resolves).
+  # A deadline recomputed at the measurement call instead of main's head lands
+  # at ≈13.6s here, past the band's top edge.
+  #
+  # The band cannot see whether the poll actually ran: the deadline is
+  # absolute, so the total is ≈9.5s with or without it. The companion run below
+  # is the premise assert — same transcript, cheap config, so its wall is
+  # dominated by the poll itself (≈4.1s if the poll ran, ≈0.1s if not).
+  # ONE transcript for the recheck fixture and its companion, built here so the
+  # two cannot drift apart: the design requires the companion to share the
+  # measured fixture's transcript, because the companion is what proves that
+  # transcript actually spends the poll — a premise the band cannot see.
+  def deep_poll_rows
+    heavy = (['これは普通の散文の行で、INV-5 や a9 のような語を含みます。'] * 3999)
+            .join("\n") + "\n#{EVIL_SUBJECT}"
+    [row_for('assistant', text: FOUR_HEADINGS, uuid: 'AAA'),
+     row_for('assistant', text: heavy, uuid: 'BBB'),
+     row_for('assistant', uuid: 'CCC', thinking: true)]
+  end
+
+  def test_a_recheck_measurement_is_cut_at_the_same_absolute_deadline
+    patterns = (1..1200).map { |i| "(?<![A-Za-z0-9_])([A-Z]{2,5}-#{i}\\d+|[a-z]\\d{1,2})" }
+    patterns << EVIL_SRC
+
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    out, = drive(deep_poll_rows, note: 'AAA', shorthand_patterns: patterns,
+                                 gloss_patterns: ['[(（]'], vocab_min_lines: 1, max_headings: 1)
+    elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+
+    assert_operator elapsed, :>, 9.3, format('took %.1fs — the budget was not used', elapsed)
+    assert_operator elapsed, :<, 9.8, format('took %.1fs — poll and measurement did not share ' \
+                                             'one absolute deadline', elapsed)
+    assert_includes out.fetch('systemMessage', ''), 'measurement ran out of the hook budget'
+    # No in-fixture premise token exists on this path: the measure-timeout log
+    # row is SKIP-measure-timeout, which carries no why code, so the deep-poll
+    # token never reaches the log here. The companion below is the premise
+    # witness, and it shares this fixture's transcript so the two cannot drift.
+  end
+
+  def test_the_recheck_fixtures_transcript_really_spends_the_poll
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    out, = drive(deep_poll_rows, note: 'AAA', max_headings: 3)
+    elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+
+    assert_operator elapsed, :>=, 4.0,
+                    format('took %.1fs — the poll was skipped, so the fixture above is ' \
+                           'a duplicate of the first-read one', elapsed)
+    message = out.fetch('systemMessage', '')
+    assert_includes message, '(recheck', message
+    refute_includes message, 'NOT RUN', 'the cheap companion must reach a verdict'
+  end
+
+  # §5-4: one runaway per pattern family, each with its reachability named.
+  # A family bypassed around the seam runs at the ambient nil — unbounded —
+  # and dies on the 30s outer kill; that this is observable AT ALL is the
+  # revocation's doing (a bypassed match used to inherit the previous grant).
+
+  # ① announce. Reachability: announce matches only the FIRST non-blank line,
+  # and shorthand stays empty so the whole vocabulary block is skipped — the
+  # path where nothing else would ever set a bound.
+  def test_a_runaway_announce_pattern_is_cut_even_when_the_vocab_loop_never_runs
+    text = "#{EVIL_SUBJECT}\nsecond line\n"
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    out = decide(text, announce_patterns: [EVIL_SRC], max_lines: 10)
+    elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+
+    assert_operator elapsed, :>, 9.3, format('took %.1fs', elapsed)
+    assert_operator elapsed, :<, 9.8, format('took %.1fs', elapsed)
+    assert_includes out.fetch('systemMessage', ''), 'measurement ran out of the hook budget'
+  end
+
+  # ② gloss, first operand. Reachability: one cheap shorthand pattern accepts
+  # a token, and the runaway subject sits in the text after it on the same
+  # line, which is gloss's first operand.
+  def test_a_runaway_gloss_pattern_is_cut_on_the_same_line_operand
+    text = "a1 #{EVIL_SUBJECT}\n"
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    out = decide(text, shorthand_patterns: ['([a-z]\d)'], gloss_patterns: [EVIL_SRC],
+                       vocab_min_lines: 1, max_headings: 3)
+    elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+
+    assert_operator elapsed, :>, 9.3, format('took %.1fs', elapsed)
+    assert_operator elapsed, :<, 9.8, format('took %.1fs', elapsed)
+    assert_includes out.fetch('systemMessage', ''), 'measurement ran out of the hook budget'
+  end
+
+  # ③ gloss, second operand. The || short-circuit means an operand-level
+  # bypass on nxt alone survives an ②-shaped fixture: here the first operand
+  # fails cheaply and the runaway subject is the NEXT line.
+  def test_a_runaway_gloss_pattern_is_cut_on_the_next_line_operand
+    text = "a1 zzz\n#{EVIL_SUBJECT}\n"
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    out = decide(text, shorthand_patterns: ['([a-z]\d)'], gloss_patterns: [EVIL_SRC],
+                       vocab_min_lines: 1, max_headings: 3)
+    elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+
+    assert_operator elapsed, :>, 9.3, format('took %.1fs', elapsed)
+    assert_operator elapsed, :<, 9.8, format('took %.1fs', elapsed)
+    assert_includes out.fetch('systemMessage', ''), 'measurement ran out of the hook budget'
+  end
+
+  # ④ specimen. Reachability: specimen_spans is called only inside the
+  # vocabulary block, so a cheap shorthand pattern must be declared for the
+  # specimen scan to run at all.
+  def test_a_runaway_specimen_pattern_is_cut_inside_the_vocab_loop
+    text = "a1 #{EVIL_SUBJECT}\n"
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    out = decide(text, shorthand_patterns: ['([a-z]\d)'], specimen_patterns: [EVIL_SRC],
+                       gloss_patterns: ['[(（]'], vocab_min_lines: 1, max_headings: 3)
+    elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+
+    assert_operator elapsed, :>, 9.3, format('took %.1fs', elapsed)
+    assert_operator elapsed, :<, 9.8, format('took %.1fs', elapsed)
+    assert_includes out.fetch('systemMessage', ''), 'measurement ran out of the hook budget'
+  end
+
+  # §5-5: the floor, witnessed on a clock this fixture owns. The stub replaces
+  # the module helper, so `remaining` is exactly 5e-4 — positive, below the
+  # floor — with no dependence on scheduling or on where the fixed value sits
+  # relative to the real clock. Three self-monitoring asserts guard the
+  # premise: the positive control proves a clear deadline still grants and
+  # matches, and the call count proves the seam read the clock through the
+  # stub exactly twice — a dead stub is 0 calls, an inlined clock is 0 calls,
+  # and both are red here rather than a silent vacuous pass.
+  def test_the_floor_refuses_a_positive_remaining_below_a_millisecond
+    calls = 0
+    fixed = 1000.0
+    original = G.method(:monotonic)
+    G.define_singleton_method(:monotonic) { calls += 1; fixed }
+    begin
+      assert_raises(G::MeasureTimeout) do
+        G.bounded_match(/x/, 'x', 0, fixed + 5e-4)
+      end
+      m = G.bounded_match(/x/, 'x', 0, fixed + 2 * G::MIN_TIMEOUT)
+      refute_nil m, 'positive control: a deadline clear of the floor grants and matches'
+      assert_nil Regexp.timeout, 'and the grant is revoked as the match ends'
+    ensure
+      G.define_singleton_method(:monotonic, original)
+    end
+    # The count is the only machine-independent catcher of an inlined clock:
+    # the positive control also reds when the real clock sits far from the
+    # fixed value, but on a machine whose uptime is near 1000s the control
+    # passes and this line alone goes red. Not redundant — do not tidy it out.
+    # (The three older ticking-clock fixtures also stub monotonic, but they
+    # pass under an inlined seam clock for the wrong reason; this fixture is
+    # the only one whose green depends on the stub reaching the seam.)
+    assert_equal 2, calls, 'both seam calls must read the clock through the module helper'
+  end
+
+  # §5-6: the floor constant, pinned in both directions, plus the property it
+  # exists for: the floor itself must be a value Regexp.timeout= keeps, since
+  # below 1e-9 the setter silently stores nil — no bound at all.
+  def test_the_floor_constant_is_pinned_and_survives_the_setter
+    assert_equal 0.001, G::MIN_TIMEOUT
+    previous = Regexp.timeout
+    begin
+      Regexp.timeout = G::MIN_TIMEOUT
+      refute_nil Regexp.timeout, 'the floor must be above the silent-nil threshold'
+    ensure
+      Regexp.timeout = previous
+    end
+  end
+
+  # §5-7: the margin and the deadline formula, pinned by constants. The
+  # wall-time bands witness the deadline behaviourally, but their flake
+  # headroom and kill margin always sum to exactly the margin, so no band can
+  # pin the margin's value from both sides — these asserts do.
+  def test_the_margin_and_the_deadline_formula_are_pinned
+    assert_equal 0.5, G::HOOK_TIMEOUT_MARGIN
+    assert_in_delta 100.0 + (G::HOOK_TIMEOUT - G::HOOK_TIMEOUT_MARGIN),
+                    G.deadline_for(100.0), 1e-9
+  end
+
+  # §5-9: why FENCE, HEADING and TABLE_SEP may stay outside the seam — Ruby
+  # matches them in linear time, and the absolute quantity is capped by
+  # TAIL_BYTES. The pin breaks the moment one of them gains a shape the
+  # optimisation cannot take.
+  def test_the_core_patterns_are_linear_time_and_may_stay_outside_the_seam
+    [G::FENCE, G::HEADING, G::TABLE_SEP].each do |re|
+      assert Regexp.linear_time?(re), re.source
+    end
+  end
+
+  # §5-10: the budget oracle, declared diff d3 made falsifiable. A workload
+  # sized past the retired 5-second budget must now COMPLETE and yield a
+  # verdict. The wall floor is the premise assert: a faster machine finishing
+  # under 5s would silently stop discriminating. Portability premise, declared:
+  # a machine ~1.3x faster or slower than this one moves the workload out of
+  # the (5.0, 9.4) window and this fixture reddens on unmutated code.
+  def test_a_workload_past_the_retired_budget_now_completes_and_judges
+    patterns = (1..1200).map do |i|
+      "(?<![A-Za-z0-9_])([A-Z]{1,4}★|[A-Z]{2,5}-#{i}\\d+|[PR]\\d+|[a-z]\\d{1,2})"
+    end
+    # 4,200 lines targets ~7.0s, the centre of the (5.0, 9.4) window; 3,000
+    # measured 5.02s against the >5.0 premise floor — the same 2%-margin
+    # knife-edge the §5-3 comment above records a machine once failed on.
+    text = (['これは普通の散文の行で、INV-5 や a9 のような語を含みます。'] * 4200).join("\n")
+
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    out = decide(text, shorthand_patterns: patterns, gloss_patterns: ['[(（]'],
+                       vocab_min_lines: 1, max_headings: 1)
+    elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+
+    assert_operator elapsed, :>, 5.0,
+                    format('took %.1fs — under the retired budget, the oracle discriminates ' \
+                           'nothing', elapsed)
+    message = out.fetch('systemMessage', '')
+    refute_includes message, 'NOT RUN',
+                    format('took %.1fs — the workload must complete inside the new budget',
+                           elapsed)
+    # FAIL, not PASS: the workload's tokens are unglossed by construction, so
+    # a completed measurement necessarily reaches the VOCABULARY verdict — a
+    # stronger completion witness than a PASS that skipped the vocab loop.
+    assert_includes message, 'FAIL', message
+    assert_includes message, 'VOCABULARY', message
+  end
+
+  # §5-11: the --report path's smoke, with both reachability conditions and a
+  # positive witness that the seam was entered. One cheap shorthand pattern
+  # (no pattern at all short-circuits announce and skips the vocab block), the
+  # default vocab_min_lines with one prose line (a higher floor skips the
+  # block too), and an unglossed token whose VOCABULARY failure can only come
+  # from inside the vocab loop. The exact line count catches a half-death
+  # where a later record raises after earlier lines printed.
+  def test_the_report_path_reaches_the_seam_and_prints_one_line_per_record
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx = File.join(tmp, 't.jsonl')
+      File.write(cfg_path, JSON.generate(
+                   'mode_name' => 't', 'shorthand_patterns' => ['([a-z]\d)'],
+                   'gloss_patterns' => ['[（(]']
+                 ), encoding: 'UTF-8')
+      rows = Array.new(3) { row_for('assistant', text: "t0 が壊れます。\n") }
+      File.write(tx, rows_json(rows), encoding: 'UTF-8')
+
+      out, _err, status = run_script(cfg_path, '', ['--report', tx])
+      assert_equal 0, status.exitstatus
+      lines = out.lines
+      assert_equal 3, lines.length, "one line per text-bearing record: #{out.inspect}"
+      lines.each do |l|
+        assert_includes l, 'VOCABULARY', 'reachable only through the vocab loop — the seam ran'
+      end
+    end
+  end
+
+  # §5-13: the grant dies with its match, on both exits that ever hold one.
+  # Leg (i), completed: the deadline sits well clear of the floor (2x and
+  # above), the MatchData proves the match ran, and the post-state is nil.
+  # Leg (ii), cut: a runaway under a small live remaining raises Ruby's own
+  # Regexp::TimeoutError — only possible while a finite bound was in force,
+  # which is what excludes both vacuous paths (expired deadline raises
+  # MeasureTimeout instead; nil deadline never raises) — and the post-state is
+  # nil there too, which is what an `ensure` demoted to a plain trailing
+  # statement cannot deliver. The runaway subject is a*27, ~1.5s even
+  # unbounded: a mis-authored deadline fails an assert instead of hanging an
+  # in-process fixture that has no outer kill.
+  def test_the_grant_is_revoked_as_the_match_ends_on_both_exits
+    m = G.bounded_match(/x/, 'x', 0, G.monotonic + 0.05)
+    refute_nil m, 'the completed leg must actually run its match'
+    assert_nil Regexp.timeout, 'completed: the grant must not outlive its match'
+
+    evil = Regexp.new(EVIL_SRC)
+    assert_raises(Regexp::TimeoutError) do
+      G.bounded_match(evil, "x#{'a' * 27}", 0, G.monotonic + 0.05)
+    end
+    assert_nil Regexp.timeout, 'cut: the grant must not outlive its match either way'
+  end
+
+  # §5-14: the machine form of the family checklist. bounded_match's coverage
+  # is defended by one runaway fixture per pattern family; this equality pin
+  # breaks the moment a fifth list-shaped family is added and forces a fifth
+  # fixture. Scope, stated: a pattern family added as a scalar key would live
+  # in STR_KEYS and slip past this — widen the pin if that shape is chosen.
+  def test_the_pattern_family_list_is_pinned
+    assert_equal %w[announce_patterns shorthand_patterns gloss_patterns specimen_patterns],
+                 G::LIST_KEYS
   end
 end

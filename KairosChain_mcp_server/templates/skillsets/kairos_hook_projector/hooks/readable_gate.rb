@@ -64,30 +64,26 @@ module KairosHookProjector
     # the limit emits nothing at all — no verdict, no banner, no log line — so
     # the gate stops enforcing and the measurement loses rows, both silently.
     HOOK_TIMEOUT = 10.0
-    # Held back from the pair for interpreter start-up and for the poll's own
-    # overhead. Measured 2026-08-22 on Ruby 3.4.10: 0.030s for the first read's
-    # 15 tail reads, 0.075s for the recheck's 40 plus turn_marker, and roughly
-    # 0.3s more for interpreter start-up. An earlier version of this line said
-    # 0.2-0.6s for the poll alone, which the shipped code cannot reproduce.
-    #
-    # Round 5 measured start-up itself at a median 0.033s through the projected
-    # `sh -c ruby …` form, so 1.0 is about thirty times what it holds back. Left
-    # as it stands: the value is the measurement bound's, and the bound is no
-    # longer part of this design. See docs/drafts on the bound.
-    HOOK_TIMEOUT_MARGIN = 1.0
-    # What is left for measurement once the recheck has spent its budget. A mode
-    # asking for more than this is honoured up to here and no further: the
-    # alternative is a mode file being able to silence the gate by arithmetic.
-    #
-    # A constant, and wrong in a way that is known and recorded: it charges a
-    # first read for the four seconds only a recheck spends. Rounds 4 and 5
-    # replaced it twice — one ceiling per read, then a clock read at the top of
-    # main — and round 5's review falsified both, the second because a bound
-    # applied per match bounds the number this file quotes and not the time it
-    # spends. The bound is therefore carved out of this design and carried in
-    # its own, and this line is back to the shape shipped since 6d7fe02.
-    MEASURE_TIMEOUT_CEILING =
-      HOOK_TIMEOUT - HOOK_TIMEOUT_MARGIN - (RECHECK_POLL_ATTEMPTS * POLL_DELAY)
+    # Held back for what the deadline cannot see: interpreter start-up before
+    # main's first clock read, and the output written after measurement ends.
+    # Start-up measured at 0.033s median over 8 runs through the projected
+    # `sh -c ruby …` form (2026-08-27, consistent with round 5's 0.033-0.039s);
+    # the log append and JSON emit are under 10ms. The previous value, 1.0, was
+    # about thirty times the measured start-up and discarded ~0.95s in which
+    # the pre-bound gate would have measured and blocked. Pinned by an equality
+    # assert, not by the wall-time band: the band's flake headroom and kill
+    # margin always sum to exactly this value, so no band can pin it robustly
+    # from both sides.
+    HOOK_TIMEOUT_MARGIN = 0.5
+    # The least remaining time bounded_match will grant. Two grounds. First,
+    # Regexp.timeout= silently stores nil — no bound at all — for positive
+    # values below 1e-9 (measured on Ruby 3.4.10: 1e-9 is kept, 7.5e-10 reads
+    # back nil), so a remaining that small must refuse rather than arm nothing.
+    # Second, a measurement with under a millisecond left cannot produce a
+    # verdict anyway; raising is the honest outcome. Pinned by equality in both
+    # directions: lowering it re-opens the silent-nil window, raising it
+    # quietly shrinks every budget.
+    MIN_TIMEOUT = 0.001
 
     # Built from single-quoted strings so that `#{` in a pattern stays literal
     # rather than becoming interpolation, and anchored with \A because Python's
@@ -110,12 +106,14 @@ module KairosHookProjector
       'specimen_patterns' => [],
       'vocab_min_lines' => 1,
       'blocking' => true,
-      # A mode-supplied pattern with nested quantifiers backtracks without
-      # bound: one such pattern had not returned after two minutes on a
-      # 74-character line, burning the hook's whole budget every turn. Ruby
-      # bounds each match with Regexp.timeout; the deadline in measure() keeps
-      # the total bounded too, which is what the Python SIGALRM did.
-      'measure_timeout_seconds' => 5,
+      # measure_timeout_seconds is deliberately absent. It was a mode-declared
+      # bound on measurement time, and its whole observable surface — the
+      # clamp, the type-error clause, the 0-or-negative silent death, and the
+      # 5-second budget itself — was retired by the 2026-08-27 operator ruling
+      # ("no mode-facing bound setting"): a mode file must not be able to
+      # silence the gate by arithmetic. A config still declaring it is passed
+      # through checked() as an unknown key and read by nobody. Time protection
+      # is bounded_match's, derived from the hook's own remaining time.
       'log_max_bytes' => 1024 * 1024,
       'banner_prefix' => 'gate',
       # nil, and pinned here, because nil is what note() reads as "this mode
@@ -126,7 +124,7 @@ module KairosHookProjector
     }.freeze
 
     INT_KEYS = %w[max_lines max_headings max_tables diagram_required_over_lines
-                  vocab_min_lines measure_timeout_seconds log_max_bytes].freeze
+                  vocab_min_lines log_max_bytes].freeze
     LIST_KEYS = %w[announce_patterns shorthand_patterns gloss_patterns
                    specimen_patterns].freeze
     # log_path is deliberately absent. It was added here once, and the cost was
@@ -151,7 +149,7 @@ module KairosHookProjector
                   :max_lines, :max_headings, :max_tables, :diagram_over_lines,
                   :vocab_min_lines,
                   :blocking, :banner_prefix, :rewrite_instruction, :log_path,
-                  :announce, :shorthand, :gloss, :specimen, :measure_timeout,
+                  :announce, :shorthand, :gloss, :specimen,
                   :log_max_bytes
 
       def initialize(raw, path)
@@ -188,18 +186,6 @@ module KairosHookProjector
         # list. Text explaining the vocabulary rule has to name the shapes it
         # governs, and naming them is not using them.
         @specimen = merged['specimen_patterns'].map { |p| Regexp.new(p) }
-        # Clamped, not rejected: a mode that asks for 6 seconds gets what fits
-        # rather than a refusal it cannot act on. 4 seconds of recheck poll plus
-        # 6 of measurement is 10.4 against a 10-second hook limit, and the hook
-        # dies with no output, so the gate would silently stop enforcing for
-        # exactly the modes whose patterns are expensive enough to need the time.
-        requested = merged['measure_timeout_seconds']
-        @measure_timeout =
-          if requested.is_a?(Numeric) && requested > MEASURE_TIMEOUT_CEILING
-            MEASURE_TIMEOUT_CEILING
-          else
-            requested
-          end
         @log_max_bytes = merged['log_max_bytes']
       end
 
@@ -704,44 +690,74 @@ module KairosHookProjector
 
     # --- measurement ---------------------------------------------------------
 
-    # The deadline reaches here because one pattern can produce many matches on
-    # one line, and the specimen scan runs its own patterns before the shorthand
-    # loop is entered at all. Bounding only the shorthand loop, which is what the
-    # first fix did, left both of those unbounded — the same invariant-as-an-AND
-    # with one half done that this work keeps producing.
-    def each_match(regexp, string, deadline = nil)
-      pos = 0
-      while pos <= string.length && (m = regexp.match(string, pos))
-        raise MeasureTimeout if deadline && monotonic > deadline
+    # The one gate every mode-supplied match passes through. The invariant is
+    # over match operations, not call sites: no mode pattern ever starts a
+    # match without a bound computed from the time actually remaining, and no
+    # match runs under an authorisation granted to another — the grant is
+    # revoked as the match ends, whichever way it ends. Both halves are
+    # review-taught: naming three sites and bounding those left announce and
+    # both gloss operands unbounded, and granting without revoking let a match
+    # outside the seam inherit the previous grant, which made every bypass
+    # unobservable (measured at +65µs against a band needing +0.25s).
+    #
+    # The floor: a remaining below MIN_TIMEOUT raises instead of arming the
+    # bound, because Regexp.timeout= silently stores nil — no bound at all —
+    # for positive values under 1e-9, and a sub-millisecond measurement cannot
+    # finish regardless. The check precedes the match, so no ordering exists
+    # in which a match starts and the clock is read only after it.
+    #
+    # A nil deadline is the --report path: offline calibration, run by the
+    # operator outside the hook limit, deliberately unbounded.
+    #
+    # monotonic is read through the module helper and must stay that way: the
+    # floor fixture stubs it and counts the calls, so inlining the clock here
+    # is a mutation that fixture kills.
+    def bounded_match(regexp, string, pos, deadline)
+      return regexp.match(string, pos) if deadline.nil?
 
+      remaining = deadline - monotonic
+      raise MeasureTimeout if remaining < MIN_TIMEOUT
+
+      Regexp.timeout = remaining
+      begin
+        regexp.match(string, pos)
+      ensure
+        Regexp.timeout = nil
+      end
+    end
+
+    # In a named helper so the formula is assertable: an assert against an
+    # inline expression only re-derives it, which is a test that cannot fail.
+    def deadline_for(started)
+      started + (HOOK_TIMEOUT - HOOK_TIMEOUT_MARGIN)
+    end
+
+    def each_match(regexp, string, deadline)
+      pos = 0
+      while pos <= string.length && (m = bounded_match(regexp, string, pos, deadline))
         yield m
         pos = m.end(0) > m.begin(0) ? m.end(0) : m.begin(0) + 1
       end
     end
 
-    def specimen_spans(line, cfg, deadline = nil)
+    def specimen_spans(line, cfg, deadline)
       spans = []
       cfg.specimen.each do |pattern|
-        raise MeasureTimeout if deadline && monotonic > deadline
-
         each_match(pattern, line, deadline) { |m| spans << [m.begin(0), m.end(0)] }
       end
       spans
     end
 
-    # measure() under a wall-clock bound.
-    #
-    # Two bounds, because they catch different things. Regexp.timeout stops one
-    # pattern that backtracks without returning. The deadline inside measure
-    # stops many patterns that each return slowly — which is what the Python
-    # SIGALRM bounded, and what a per-operation limit alone would not.
-    def measure_bounded(text, cfg)
-      return measure(text, cfg, nil) unless cfg.measure_timeout
-
+    # measure() with the deadline threaded through. This wrapper owns the two
+    # things that sit outside any single match: whatever Regexp.timeout the
+    # caller had is saved and restored here, outside every per-match grant,
+    # and a match cut by Ruby's own Regexp::TimeoutError maps to the same
+    # MeasureTimeout the deadline raises — one banner for both ways of
+    # running out.
+    def measure_bounded(text, cfg, deadline)
       previous = Regexp.timeout
-      Regexp.timeout = cfg.measure_timeout
       begin
-        measure(text, cfg, monotonic + cfg.measure_timeout)
+        measure(text, cfg, deadline)
       rescue Regexp::TimeoutError
         raise MeasureTimeout
       ensure
@@ -754,7 +770,7 @@ module KairosHookProjector
     end
 
     # Pure. [metrics, failures]. The whole judgement lives here.
-    def measure(text, cfg, deadline = nil)
+    def measure(text, cfg, deadline)
       raw = text.split("\n", -1)
 
       prose = []
@@ -775,27 +791,20 @@ module KairosHookProjector
       tables = prose.count { |l| TABLE_SEP.match(l) }
 
       first = raw.find { |l| !l.strip.empty? } || ''
-      announced = !(cfg.announce && cfg.announce.match(first)).nil?
+      announced = !(cfg.announce && bounded_match(cfg.announce, first, 0, deadline)).nil?
 
       seen = {}
       unglossed = []
       if !cfg.shorthand.empty? && prose.length >= cfg.vocab_min_lines
         prose.each_with_index do |line, i|
-          # No per-line check. There was one here, and round 3 showed nothing
-          # could falsify it: the specimen scan and the loop between patterns
-          # both read the clock, and one of them runs before anything on a line
-          # can be slow. An unfalsifiable guard is not defence, it is a claim,
-          # so it is deleted rather than given a test that cannot fail.
+          # No per-line or per-pattern check. Every match on this line starts
+          # inside bounded_match, which reads the clock before it; a check here
+          # would be a guard no fixture can redden — the shape this file
+          # deleted once already ("an unfalsifiable guard is not defence, it
+          # is a claim") and declines to reintroduce.
           nxt = i + 1 < prose.length ? prose[i + 1] : ''
           spans = specimen_spans(line, cfg, deadline)
           cfg.shorthand.each do |pattern|
-            # Per pattern, not only per line. Regexp.timeout bounds one match,
-            # so a line carrying n patterns could overshoot the deadline by
-            # n times that bound while the clock was read only once, between
-            # lines. The check above still stands: it catches a line whose
-            # specimen scan alone is what runs long.
-            raise MeasureTimeout if deadline && monotonic > deadline
-
             each_match(pattern, line, deadline) do |m|
               tok = m.size > 1 ? m[1] : m[0]
               next if tok.nil? || seen.key?(tok)
@@ -804,7 +813,8 @@ module KairosHookProjector
 
               seen[tok] = true
               after = line[m.end(0)..] || ''
-              if cfg.gloss && !(cfg.gloss.match(after) || cfg.gloss.match(nxt))
+              if cfg.gloss && !(bounded_match(cfg.gloss, after, 0, deadline) ||
+                                bounded_match(cfg.gloss, nxt, 0, deadline))
                 unglossed << tok
               end
             end
@@ -1000,6 +1010,14 @@ module KairosHookProjector
     end
 
     def main(argv = ARGV, stdin = $stdin)
+      # The first executable statement, before config or stdin are read: the
+      # deadline is absolute, so everything main does — config load, transcript
+      # reads, the recheck's poll sleeps — is charged against it as time
+      # actually spent, and measurement bounds itself by whatever is left.
+      # This is what retires the old static arithmetic that pre-charged a
+      # first read for the four seconds only a recheck spends.
+      started = monotonic
+      deadline = deadline_for(started)
       config_path, report_paths = parse_args(argv)
       if config_path.nil?
         # Zero, not two. The header two hundred lines up says the exit status is
@@ -1094,13 +1112,18 @@ module KairosHookProjector
       end
 
       begin
-        metrics, failures = measure_bounded(text, cfg)
+        metrics, failures = measure_bounded(text, cfg, deadline)
       rescue MeasureTimeout
         lost = note(cfg, 'SKIP-measure-timeout')
+        # Quotes the time actually spent and the budget it ran out of. The old
+        # banner quoted the mode's declared bound — post-clamp, so a declared
+        # 60 read "exceeded 5.0s" — and both the declaration and the clamp are
+        # gone with the key.
         emit(
           'systemMessage' =>
-            "#{cfg.banner_prefix}: NOT RUN — measurement exceeded #{cfg.measure_timeout}s; " \
-            "check the mode's patterns for unbounded backtracking" +
+            format('%s: NOT RUN — measurement ran out of the hook budget (%.1fs elapsed ' \
+                   "of %.1fs); check the mode's patterns for unbounded backtracking",
+                   cfg.banner_prefix, monotonic - started, deadline - started) +
             (lost ? "; #{log_note(lost)}" : '')
         )
         return 0

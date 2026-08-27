@@ -17,7 +17,14 @@
 # The harness is this SkillSet's own suite, unmodified: `SCRIPT` in the test
 # files resolves from `__dir__`, so the copied tests drive the copied hook.
 #
-#   ruby test/mutation_check_readable_gate.rb
+#   ruby test/mutation_check_readable_gate.rb           # full sweep
+#   ruby test/mutation_check_readable_gate.rb 'B\\d+'    # rows whose label matches
+#
+# A label filter narrows the sweep to the rows named; the summary line then
+# says FILTERED so a narrowed run can never be mistaken for a full one. The
+# per-mutation suite run stops at the first file with a red — the question
+# per row is binary — and the hook's own test file runs first, which is where
+# a readable_gate mutation reds if it reds at all.
 #
 require 'fileutils'
 require 'tmpdir'
@@ -58,9 +65,11 @@ MUTATIONS = [
   ['M27 HOOK_TIMEOUT drifts from the limit the compiler declares',
    %q{    HOOK_TIMEOUT = 10.0},
    %q{    HOOK_TIMEOUT = 20.0}],
-  ['M28 the interpreter start-up headroom is deleted',
-   %q{    HOOK_TIMEOUT_MARGIN = 1.0},
-   %q{    HOOK_TIMEOUT_MARGIN = 0.0}],
+  # M28 and M30 were the margin mutations against the old constant (1.0). The
+  # 2026-08-27 bound redesign moved the margin to 0.5 and pinned it by
+  # equality, and B14/B15 below carry both directions against the new value.
+  # Retired rather than retargeted: keeping two rows per direction would
+  # double-count one anchor.
 
   # --- round 3: the instrument the design reads its own evidence through -----
   ['M22 the waited token stops telling a wait from no wait',
@@ -74,9 +83,6 @@ MUTATIONS = [
           sleep(POLL_DELAY)
           next
         end}],
-  ['M30 the start-up headroom shrinks but stays positive',
-   %q{    HOOK_TIMEOUT_MARGIN = 1.0},
-   %q{    HOOK_TIMEOUT_MARGIN = 0.05}],
   ['M31 the recheck budget grows instead of shrinking',
    %q{    RECHECK_POLL_ATTEMPTS = 40},
    %q{    RECHECK_POLL_ATTEMPTS = 95}],
@@ -325,10 +331,108 @@ MUTATIONS = [
   ['N33 the truncation follows a symlink to whatever it names',
    %q{        File.open(path, File::WRONLY | File::TRUNC | File::NOFOLLOW).close},
    %q{        File.write(path, '')}],
+
+  # --- the measurement bound: the seam and its witnesses (design v0.7 §5-12) --
+  #
+  # Every mutation here is paired with the fixture the design names as its
+  # killer; the pairing is the §5-12 table, and anchor verification before a
+  # sweep is what keeps it honest. Mutations that unbound a runaway make the
+  # affected fixtures run to run_script's 30s outer kill, so those rows cost
+  # minutes each in a sweep — declared, not accidental.
+  ['B1  the floor predicate is loosened to <= 0',
+   %q{      raise MeasureTimeout if remaining < MIN_TIMEOUT},
+   %q{      raise MeasureTimeout if remaining <= 0}],
+  ['B2  the raise (floor included) is deleted',
+   %q{      raise MeasureTimeout if remaining < MIN_TIMEOUT},
+   %q{      # raise deleted}],
+  ['B3  the floor constant is lowered into the silent-nil window',
+   %q{    MIN_TIMEOUT = 0.001},
+   %q{    MIN_TIMEOUT = 1.0e-12}],
+  ['B4  the floor constant is raised, quietly shrinking every budget',
+   %q{    MIN_TIMEOUT = 0.001},
+   %q{    MIN_TIMEOUT = 1.0}],
+  ['B5  the grant is never armed',
+   %q{      Regexp.timeout = remaining
+      begin},
+   %q{      begin}],
+  ['B6  the TimeoutError-to-MeasureTimeout mapping is deleted',
+   %q{      rescue Regexp::TimeoutError
+        raise MeasureTimeout},
+   %q{      rescue Regexp::TimeoutError
+        raise}],
+  ['B7  the clock read is dropped from the remaining computation',
+   %q{      remaining = deadline - monotonic},
+   %q{      remaining = deadline}],
+  ['B8  each_match reverts to matching before the seam checks',
+   %q{      while pos <= string.length && (m = bounded_match(regexp, string, pos, deadline))
+        yield m},
+   %q{      while pos <= string.length && (m = regexp.match(string, pos))
+        raise MeasureTimeout if deadline && monotonic > deadline
+        yield m}],
+  ['B19 the seam inlines the clock, putting it beyond the floor fixture stub',
+   %q{      remaining = deadline - monotonic},
+   %q{      remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)}],
+  # Five bypass targets, three dedicated rows: specimen and shorthand have no
+  # independent seam call site — both reach bounded_match only through
+  # each_match's single call — so their bypass IS the each_match reversion,
+  # which is B8. B10-B12 carry the three families with call sites of their own.
+  ['B9  the announce call drops its deadline argument',
+   %q{      announced = !(cfg.announce && bounded_match(cfg.announce, first, 0, deadline)).nil?},
+   %q{      announced = !(cfg.announce && bounded_match(cfg.announce, first, 0, nil)).nil?}],
+  ['B10 the announce match bypasses the seam entirely',
+   %q{      announced = !(cfg.announce && bounded_match(cfg.announce, first, 0, deadline)).nil?},
+   %q{      announced = !(cfg.announce && cfg.announce.match(first)).nil?}],
+  ['B11 the gloss after-operand bypasses the seam',
+   %q{              if cfg.gloss && !(bounded_match(cfg.gloss, after, 0, deadline) ||
+                                bounded_match(cfg.gloss, nxt, 0, deadline))},
+   %q{              if cfg.gloss && !(cfg.gloss.match(after) ||
+                                bounded_match(cfg.gloss, nxt, 0, deadline))}],
+  ['B12 the gloss nxt-operand bypasses the seam behind the short-circuit',
+   %q{              if cfg.gloss && !(bounded_match(cfg.gloss, after, 0, deadline) ||
+                                bounded_match(cfg.gloss, nxt, 0, deadline))},
+   %q{              if cfg.gloss && !(bounded_match(cfg.gloss, after, 0, deadline) ||
+                                cfg.gloss.match(nxt))}],
+  ['B13 the deadline is recomputed at the measurement call instead of main head',
+   %q{        metrics, failures = measure_bounded(text, cfg, deadline)},
+   %q{        metrics, failures = measure_bounded(text, cfg, deadline_for(monotonic))}],
+  ['B14 the margin collapses to zero',
+   %q{    HOOK_TIMEOUT_MARGIN = 0.5},
+   %q{    HOOK_TIMEOUT_MARGIN = 0.0}],
+  ['B15 the margin swallows half the budget',
+   %q{    HOOK_TIMEOUT_MARGIN = 0.5},
+   %q{    HOOK_TIMEOUT_MARGIN = 5.0}],
+  ['B16 the report path loses the nil-deadline passthrough',
+   %q{      return regexp.match(string, pos) if deadline.nil?
+
+      remaining = deadline - monotonic},
+   %q{      remaining = deadline - monotonic}],
+  ['B17 the revocation is deleted, so a grant outlives its match',
+   %q{      Regexp.timeout = remaining
+      begin
+        regexp.match(string, pos)
+      ensure
+        Regexp.timeout = nil
+      end},
+   %q{      Regexp.timeout = remaining
+      regexp.match(string, pos)}],
+  ['B18 the revocation is demoted to a trailing statement, leaking on the cut exit',
+   %q{      Regexp.timeout = remaining
+      begin
+        regexp.match(string, pos)
+      ensure
+        Regexp.timeout = nil
+      end},
+   %q{      Regexp.timeout = remaining
+      m = regexp.match(string, pos)
+      Regexp.timeout = nil
+      m}],
 ].freeze
 
-def run_suite(root)
+def run_suite(root, early_exit: true)
   files = Dir[File.join(root, 'test', 'test_*.rb')].sort
+  # The hook's own suite first: a readable_gate mutation reds there if it reds
+  # at all, and the early exit below then skips the unrelated files.
+  files = files.partition { |f| File.basename(f) == 'test_readable_gate.rb' }.flatten
   runs = 0
   bad = 0
   unparseable = []
@@ -342,11 +446,18 @@ def run_suite(root)
       unparseable << File.basename(f)
       bad += 1 unless st.success?
     end
+    break if early_exit && bad.positive?
   end
   [runs, bad, unparseable, files.length]
 end
 
 exit_code = 0
+label_filter = ARGV[0] && Regexp.new(ARGV[0])
+selected = label_filter ? MUTATIONS.select { |l, _, _| l.match?(label_filter) } : MUTATIONS
+if label_filter
+  puts format('FILTERED sweep: %d of %d rows match %s — NOT a full sweep',
+              selected.length, MUTATIONS.length, label_filter.inspect)
+end
 
 Dir.mktmpdir do |tmp|
   root = File.join(tmp, File.basename(SKILLSET_ROOT))
@@ -354,7 +465,7 @@ Dir.mktmpdir do |tmp|
   hook = File.join(root, 'hooks', 'readable_gate.rb')
   pristine = File.read(hook)
 
-  runs, bad, unparseable, nfiles = run_suite(root)
+  runs, bad, unparseable, nfiles = run_suite(root, early_exit: false)
   puts format('BASELINE (unmutated copy): %d test files, %d runs, %d failures+errors%s',
               nfiles, runs, bad, unparseable.empty? ? '' : " [unparseable: #{unparseable.join(', ')}]")
   puts
@@ -366,7 +477,7 @@ Dir.mktmpdir do |tmp|
   killed = 0
   survived = 0
   not_applied = 0
-  MUTATIONS.each do |label, from, to|
+  selected.each do |label, from, to|
     unless pristine.include?(from)
       not_applied += 1
       puts format('%-70s  ANCHOR NOT FOUND', label)
@@ -391,7 +502,8 @@ Dir.mktmpdir do |tmp|
 
   puts
   puts "source restored byte-identical: #{File.read(hook) == pristine}"
-  puts "killed #{killed}/#{MUTATIONS.length}, survived #{survived}, anchor-not-found #{not_applied}"
+  scope = label_filter ? "FILTERED #{selected.length} of #{MUTATIONS.length}" : MUTATIONS.length.to_s
+  puts "killed #{killed}/#{scope}, survived #{survived}, anchor-not-found #{not_applied}"
   exit_code = 1 if survived.positive? || not_applied.positive?
 end
 
