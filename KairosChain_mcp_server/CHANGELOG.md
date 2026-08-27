@@ -4,6 +4,65 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.80.0] - 2026-08-27
+
+### Changed
+
+- **`readable_gate`: the measurement bound is the hook's own remaining time,
+  not a mode's declaration.** `measure_timeout_seconds` is retired, and its
+  whole observable surface goes with it — the clamp, the type-error clause,
+  and the silent death where `0` or a negative passed the Integer check,
+  reached `Regexp.timeout=` and killed the gate with exit 0, empty stdout and
+  no log file. A mode file must not be able to silence the gate by arithmetic
+  (operator ruling, 2026-08-27). A config still declaring the key flows
+  through `checked()` as an unknown key and is read by nobody.
+
+  Time protection is now `bounded_match`, the one seam every mode-supplied
+  match passes through: remaining computed from an absolute deadline fixed at
+  `main`'s first statement, a floor at one millisecond (`Regexp.timeout=`
+  silently stores nil for positive values under 1e-9), the grant set to the
+  remaining time, and the grant revoked as the match ends — no match runs
+  under an authorisation granted to another. Announce, specimen, shorthand and
+  both gloss operands route through it; `each_match` starts every match inside
+  the seam, so no ordering exists in which a match begins before the clock is
+  read. The recheck's poll is charged as time actually spent, which retires
+  the old static arithmetic that billed a first read for the four seconds only
+  a recheck uses. `HOOK_TIMEOUT_MARGIN` drops from 1.0 to 0.5 (start-up
+  measured at a 0.033s median), recovering half the band the old margin
+  discarded.
+
+  **Three declared output differences** against the pre-bound gate: a config
+  declaring the key loses its problem clause and the gate runs when no other
+  problem remains; the measurement-exceeded banner quotes elapsed time against
+  the live budget instead of a mode-declared value; and the budget itself
+  grows from a flat 5s to the deadline's remainder (≈9.4s on a first read,
+  ≈5.4s on a recheck), so a measurement finishing between 5s and the budget
+  now yields a verdict where it used to yield NOT RUN. Probed at 10, 12 and 14
+  configurations by three independent contexts: no undeclared difference.
+
+  Design frozen at v0.7 after six review rounds; implementation conformance
+  round 1 REVISE, round 2 APPROVE 3/3 with zero DOES NOT HOLD. Suite 152 runs
+  / 948 assertions green; the mutation harness gains 19 rows paired one-to-one
+  with the design's table (anchors verified 72/72), plus a label filter and
+  early exit so a narrowed sweep is possible and says so in its summary.
+
+### Fixed
+
+- **`readable_gate`: the carry-over note's truncation fallback refuses to
+  follow a symlink.** When a stale note cannot be deleted the gate empties it
+  in place, and that write followed whatever the note's name pointed at: with
+  a symlink planted at the note key and the notes directory made unwritable so
+  the unlink is refused, the emptying truncated a file outside the notes
+  directory. The open now carries `File::NOFOLLOW`, so a final-component
+  symlink fails with `ELOOP` and lands in the existing refusal arm — the
+  leaning is to refuse, never to write through a name to somewhere the path
+  did not say. The leftover link stays unspent and every later recheck refuses
+  it. A hard link and an intermediate-component symlink still reach through;
+  both need the same outside hand and are declared rather than closed.
+
+- `kairos_hook_projector` SkillSet version 0.5.0 → 0.6.0, so instances
+  actually receive the two changes above on `skillset upgrade`.
+
 ## [3.79.0] - 2026-08-26
 
 ### Fixed
