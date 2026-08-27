@@ -158,11 +158,11 @@ Masaomi Hatakeyama
 GenomicsChain  
 © 2026 Masaomi Hatakeyama（GenomicsChain）· ライセンス CC BY 4.0
 
-**平易版**——正式（deposited）版は **Zenodo DOI [10.5281/zenodo.21459275](https://doi.org/10.5281/zenodo.21459275)**（v1.8）。本体と同じ議論を平明に言い換えたもので、食い違う場合は正式版が優先します。（この平易版自体は deposit しない〔著者・伝達用〕。deposit 済みなのは正本 v1.8。§2 は v1.7 から改訂。）
+**平易版**——正式（deposited）版は **Zenodo DOI [10.5281/zenodo.21766502](https://doi.org/10.5281/zenodo.21766502)**（v1.9）。本体と同じ議論を平明に言い換えたもので、食い違う場合は正式版が優先します。（この平易版自体は deposit しない〔著者・伝達用〕。deposit 済みなのは正本 v1.9。§5 は v1.8 から改訂。）
 
-- 正式ノート（deposited）: <https://doi.org/10.5281/zenodo.21459275>
+- 正式ノート（deposited）: <https://doi.org/10.5281/zenodo.21766502>
 - ソースリポジトリ: <https://github.com/masaomi/KairosChain_2026>
-- 検証（attestation）: <https://meeting.genomicschain.io/anchor/constitutive-note-v1.8>
+- 検証（attestation）: <https://meeting.genomicschain.io/anchor/constitutive-note-v1.9>
 
 ---
 
