@@ -64,7 +64,7 @@ Prefer the sub-agent for "what needs attention?", at session start, and for sche
 
 ## The session-start L2 comparison
 
-`scripts/pm_l2_report.py` compares the memo against the L2 context store and writes one HTML page,
+`scripts/pm_l2_report.rb` compares the memo against the L2 context store and writes one HTML page,
 to `<data dir>/log/pm_l2_report.html`. `plugin/hooks.json` declares it as a `SessionStart` hook.
 
 **Read-only by having no aim, not by checking one.** There is no output-path argument, so nothing
@@ -72,14 +72,11 @@ can point a write at the memo, the mapping, an L2 context, or `config/pm.yml`. A
 took `-o` and guarded it by comparing resolved paths; that guard failed three ways — a case-only
 difference on a case-insensitive filesystem, a hardlink, and any read input it did not know about —
 and each failure destroyed the memo while the run printed that nothing had been written to it.
-Deleting the argument closed all three. `sys.dont_write_bytecode` is set around the derivation
-import for the same reason a second guard was not added: a `.pyc` inside the SkillSet sits inside
-`Skillset#all_file_hashes` and therefore inside `content_hash`, the value recorded on chain.
+Deleting the argument closed all three.
 
-**Paths come from this file's own location**, three levels up from `scripts/`, not from the name
-`.kairos`. `l2_scan` derives its own by appending that literal, which reported a populated instance
-as empty on every session whenever the data dir had been relocated, so its four path constants are
-re-pointed after import.
+**Paths come from each file's own location**, three levels up from `scripts/`, not from the name
+`.kairos`. Both files derive their own; appending that literal reported a populated instance as
+empty on every session whenever the data dir had been relocated under another name.
 
 **Nothing is trusted to have a type.** `pm_item` writes `due` and `touched_at` through with no check
 beyond a JSON type, and this SkillSet's own Ruby suite writes the integer `20260701` to both. Dates
@@ -140,13 +137,28 @@ the headline figures shrank without saying so.
 
 ### Tests
 
-`test/test_pm_l2_report.py`. The bar is mutation, not redness against an older commit: breaking a
-guard by one line must make the suite red. An audit of an earlier version applied 65 one-line
-mutations and 36 survived, so guards are now exercised through `main()` in a subprocess, fixtures
-are checked not to satisfy their own assertion, aggregation is tested with several items, and
-messages and exit codes are asserted by content. Of the 30 mutations that map to a reported finding,
-29 are killed; the survivor is equivalent (deleting the absent-derivation branch leaves the generic
-handler producing the same message, exit code and absence of a traceback).
+`test/test_pm_l2_report.rb` (minitest, 75 cases). The bar is mutation, not redness against an older
+commit: breaking a guard by one line must make the suite red. Guards are exercised through `main` in
+a subprocess, fixtures are checked not to satisfy their own assertion, aggregation is tested with
+several items, and messages and exit codes are asserted by content.
+
+The 2026-08-20 port to Ruby was audited that way twice, and the second audit is the one worth
+recording. The author's own harness ran 36 mutations and killed 36. Reviewers then ran 12 chosen to
+be disjoint from it and **11 survived** — the harness was not wrong, it was self-authored and
+therefore blind in exactly the places its author was. Ten distinct guards were unheld. The
+structural cause: `L2Scan.derive`, `report` and `main` — 112 of `l2_scan.rb`'s lines — had never
+been called by either suite, so every mutation there survived by construction, and three real
+defects were hiding in that region. All ten are now killed, and `derive`, `report` and
+`marker_string` have their own cases.
+
+Some cases pin measured Ruby/Python differences rather than a design constraint, and each names the
+measurement in place. `\w` is ASCII-only in Ruby, which dropped a Japanese tag out of the haystack.
+`String#split`'s limit counts parts where Python's `maxsplit` counted splits, which made a whole
+document its own frontmatter. `File.read(encoding:)` tags an encoding without validating it, where
+Python's `open(encoding=)` decoded and raised — so a memo with one bad byte could write a page that
+was not valid UTF-8 at exit 0. `sort_by` is unstable where Python's `sorted` is stable, and only
+once two distinct key values are present: a first attempt at that case used forty rows of one delta
+and passed against an unstable sort.
 
 Nothing runs this suite automatically — `rake test` collects Ruby files only.
 

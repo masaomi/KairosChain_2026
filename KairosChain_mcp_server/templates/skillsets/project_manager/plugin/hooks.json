@@ -23,7 +23,15 @@
     "into exit 0 with empty output, which is indistinguishable from a session",
     "where nothing had drifted. The script now handles its own absences and",
     "reports each in one line on stdout, so what is left uncaught is a genuine",
-    "defect and should be visible. Measured at 0.18s over 1172 contexts.",
+    "defect and should be visible. Measured at 0.27s over 1192 contexts.",
+    "",
+    "ruby, not python3. python3 was not guaranteed on any host the gem ships",
+    "to. The bare `ruby` is not guaranteed either, and saying otherwise here",
+    "would be false: /usr/bin/ruby 2.6.10 fails on this script with a 43-line",
+    "syntax error and writes no page (measured). Which ruby the hook resolves",
+    "to is undecided -- either the projector embeds the absolute path of the",
+    "interpreter KairosChain itself runs on, or this file checks the version.",
+    "Ported 2026-08-20.",
     "",
     "The command does not begin with kairos-, so projection prints one",
     "non-standard-command warning. That is the projector asking a human to look,",
@@ -36,7 +44,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${KAIROS_DATA_DIR:-$CLAUDE_PROJECT_DIR/.kairos}/skillsets/project_manager/scripts/pm_l2_report.py\" --quiet",
+            "command": "ruby \"${KAIROS_DATA_DIR:-$CLAUDE_PROJECT_DIR/.kairos}/skillsets/project_manager/scripts/pm_l2_report.rb\" --quiet",
             "timeout": 20
           }
         ]
