@@ -10,6 +10,9 @@ log/
 .DS_Store
 refs/
 hermes-desktop/
+.tmp_*
+.mcp.json.bak.*
+docs/zenodo/*_v1.0*
 
 
 # Vector search index files (auto-generated)
