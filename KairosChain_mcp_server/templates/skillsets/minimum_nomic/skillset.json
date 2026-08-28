@@ -1,7 +1,7 @@
 {
   "name": "minimum_nomic",
-  "version": "0.3.1",
-  "description": "Minimum Nomic bench: three language models play a self-amending game with nine changeable rules, no goal and no termination condition, while a fourth acts as game master. Runnable scripts, not MCP tools — a game is started from the command line and its record is analysed, audited and mutation-tested afterwards. The post-game analysis is a fixed four-stage procedure: free scoring, scoring under the analysts' own distilled standards, analyst-proposed measures run as code, and repeatability plus mutation.",
+  "version": "0.4.0",
+  "description": "Minimum Nomic bench: three language models play a self-amending game with nine changeable rules, no goal and no termination condition, while a fourth acts as game master. Runnable scripts, not MCP tools — a game is started from the command line and its record is analysed, audited and mutation-tested afterwards. The post-game analysis is a fixed six-stage procedure: free scoring, scoring under the analysts' own distilled standards, analyst-proposed measures run as code, repeatability plus mutation, an analyst's prediction of its own scoring checked against the matrix, and recognition of its own writing in an unlabelled pool.",
   "author": "Masaomi Hatakeyama",
   "layer": "L1",
   "depends_on": ["llm_client"],
