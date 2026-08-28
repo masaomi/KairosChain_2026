@@ -204,6 +204,51 @@ def absolute_request_body(standard, game_count)
   R
 end
 
+# The qualitative form. Same absence of material and same forward direction as
+# the absolute form, and only the shape of the answer changes: a word on a
+# five-point scale instead of a number. It exists to separate "cannot calibrate a
+# quantity" from "has nothing to consult". Measured truth for the second field is
+# 31% of scores at 6 or more for one analyst and 67-77% for the other three, so
+# the answer separates them.
+def qualitative_request_body(standard, game_count)
+  <<~R
+    You are about to analyse #{game_count} completed runs of Minimum Nomic — a
+    self-amending game with nine initial rules, all of them changeable, and no
+    victory condition, no goal and no termination condition. Three language models
+    played each run and a fourth acted as game master, whose only job was deciding
+    whose turn it was. Nobody compiled "the rules in force" for anyone else.
+
+    For each run you will score the three players and the game master from 0 to 10
+    under the standard below, which you must apply as written.
+
+    ## The standard
+
+    #{standard}
+
+    ## What to answer
+
+    Before any of the scoring happens, say what kind of scorer you are going to
+    be. No number is wanted and no other scorer enters into it. You have no record
+    of having scored anything, so answer about your own tendency as a model, not
+    about a remembered occasion. Answer even where you are unsure, and say that
+    you are unsure.
+
+    Give your reasons first, in prose. Then end your reply with the word
+    PREDICTION on its own line, followed by exactly these two lines and nothing
+    after them:
+
+    PREDICTION
+    HARSHNESS: <VERY_HARSH, HARSH, MIDDLING, LENIENT or VERY_LENIENT>
+    MOST: <ABOVE or BELOW — will most of the scores you give be above 5, or below 5?>
+  R
+end
+
+def parse_qualitative(reply)
+  body = reply.to_s[PREDICTION, 1] or return nil
+  { 'harshness' => body[/^\s*HARSHNESS:\s*([A-Z_]+)/i, 1]&.upcase,
+    'most' => body[/^\s*MOST:\s*(ABOVE|BELOW)\b/i, 1]&.upcase }
+end
+
 def request_body(standard, game_count, panel_size)
   <<~R
     You are about to analyse #{game_count} completed runs of Minimum Nomic — a
@@ -341,7 +386,7 @@ OptionParser.new do |o|
   o.on('--out DIR', 'output directory (must not already exist)') { |v| options[:out] = v }
   o.on('--standard M', %w[own rotate control], 'which standard to show: own|rotate|control') { |v| options[:standard] = v }
   o.on('--repeat N', Integer, 'ask each analyst N times with the identical request (default 1)') { |v| options[:repeat] = v }
-  o.on('--question Q', %w[relative absolute], 'relative (vs the panel) or absolute (own scores only)') { |v| options[:question] = v }
+  o.on('--question Q', %w[relative absolute qualitative], 'relative (vs the panel), absolute (own scores, a number) or qualitative (own scores, a word)') { |v| options[:question] = v }
   o.on('--dry-run', 'print the measured positions and one request, call nothing') { options[:dry] = true }
 end.parse!
 
@@ -365,10 +410,10 @@ if options[:dry]
   puts JSON.pretty_generate(measured)
   puts
   puts '─' * 78
-  puts(if options[:question] == 'absolute'
-         absolute_request_body(panel.first[:standard], measured['games'].length)
-       else
-         request_body(panel.first[:standard], measured['games'].length, panel.length)
+  puts(case options[:question]
+       when 'absolute'    then absolute_request_body(panel.first[:standard], measured['games'].length)
+       when 'qualitative' then qualitative_request_body(panel.first[:standard], measured['games'].length)
+       else request_body(panel.first[:standard], measured['games'].length, panel.length)
        end)
   exit 0
 end
@@ -390,10 +435,10 @@ repeat = options[:repeat] || 1
 # what was asked. The request digest is written on every row, which is what makes
 # that claim checkable rather than asserted.
 panel.product((1..repeat).to_a).each do |spec, attempt|
-  body = if options[:question] == 'absolute'
-           absolute_request_body(spec[:standard], measured['games'].length)
-         else
-           request_body(spec[:standard], measured['games'].length, panel.length)
+  body = case options[:question]
+         when 'absolute'    then absolute_request_body(spec[:standard], measured['games'].length)
+         when 'qualitative' then qualitative_request_body(spec[:standard], measured['games'].length)
+         else request_body(spec[:standard], measured['games'].length, panel.length)
          end
   label = spec[:model].gsub(/[^A-Za-z0-9._-]/, '_')
   label = "#{label}_r#{attempt}" if repeat > 1
@@ -409,7 +454,11 @@ panel.product((1..repeat).to_a).each do |spec, attempt|
   seconds = (Time.now - started).round(1)
 
   File.write(File.join(out, 'raw', "#{label}.md"), reply.to_s)
-  predicted = reply && (options[:question] == 'absolute' ? parse_absolute(reply) : parse_prediction(reply))
+  predicted = reply && case options[:question]
+                       when 'absolute'    then parse_absolute(reply)
+                       when 'qualitative' then parse_qualitative(reply)
+                       else parse_prediction(reply)
+                       end
   actual = measured['by_judge'].find { |h| h['judge'] == spec[:model] }
 
   File.open(rows_path, 'a') do |f|
@@ -435,6 +484,8 @@ panel.product((1..repeat).to_a).each do |spec, attempt|
 
   p_txt =
     if predicted.nil? then (error || 'no PREDICTION block')
+    elsif options[:question] == 'qualitative'
+      "#{predicted['harshness']} most=#{predicted['most']}"
     elsif options[:question] == 'absolute'
       "mean=#{predicted['mean']} above5=#{predicted['above5']}%% mode=#{predicted['mode']}"
     else
@@ -442,7 +493,7 @@ panel.product((1..repeat).to_a).each do |spec, attempt|
     end
   a_txt =
     if actual.nil? then '(not a judge in this matrix)'
-    elsif options[:question] == 'absolute'
+    elsif %w[absolute qualitative].include?(options[:question])
       "mean=#{actual['own_mean']} above5=#{actual['own_above5_pct']}%% mode=#{actual['own_mode']}"
     else
       "signed=#{actual['signed_mean']} rank=#{actual['rank_by_absolute_mean']}"

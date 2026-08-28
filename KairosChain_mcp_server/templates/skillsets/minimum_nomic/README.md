@@ -54,7 +54,7 @@ stored record, so changing the guideline costs no replay. Results append to
 that produced it, and the game's own record is never touched — two read-outs of
 the same game stay distinguishable instead of merging.
 
-The procedure below adds seven more, run from the same directory:
+The procedure below adds eight more, run from the same directory:
 
 ```
 ruby .../bin/distil_criterion.rb CORPUS_DIR                      # stage 2, first half
@@ -64,6 +64,7 @@ ruby .../bin/mutate_rule.rb      GAME_DIR --out MUT               # stage 4
 ruby .../bin/judge_change.rb     --a MUT/clean --b MUT/rule_105 --out OUT
 ruby .../bin/predict_divergence.rb CORPUS_DIR --criteria DIR --out OUT   # stage 5
 ruby .../bin/self_recognition.rb   CORPUS_DIR --criteria DIR --out OUT   # stage 6
+ruby .../bin/score_readback.rb     CORPUS_DIR --criteria DIR --out OUT   # stage 7
 ```
 
 `cross_model.rb` analyses a stored game with **one named model at a named
@@ -83,14 +84,15 @@ comparison that reuses both stored panels confounds generation with effort. Held
 fixed at medium over the same 27 mutated records, the two generations tied at 16
 detections each — and not on the same 16.
 
-## The six stages of analysis
+## The seven stages of analysis
 
 Stages 1-4 were fixed on 2026-08-21 after five rounds of design review failed to
-converge and the procedure was settled by running it instead. Stages 5 and 6 were
+converge and the procedure was settled by running it instead. Stages 5 to 7 were
 added on 2026-08-27/28, once stages 1-4 had established that the score measures
 the scorer and left the divergence BETWEEN scorers as the only quantity the
-record fixes. The order matters: each stage takes
-its material from the one before it, and no stage supplies a definition of
+record fixes. Stage 7 exists because stages 5 and 6 disagreed and three readings
+survived both; it holds two of the three fixed. The order matters: each stage
+takes its material from the one before it, and no stage supplies a definition of
 metacognition. Every definition in play comes from an analyst.
 
 ```
@@ -127,16 +129,26 @@ metacognition. Every definition in play comes from an analyst.
         the panel; `--question absolute` asks only about its own scores, which
         is the panel-independent form. `--standard own|rotate|control` varies
         whose standard it is shown, and `control` shows a hand-written
-        permissive one that is never scored under.
+        permissive one that is never scored under. `--question qualitative`
+        asks the same thing in words rather than numbers, which is how the
+        "cannot calibrate a quantity" reading was tested and dropped.
 
   6  self-recognition      self_recognition.rb
         The stage-1 LENS blocks are pooled unlabelled and the analyst is asked
         which ones it wrote. Japanese statements are dropped by default because
         only one analyst wrote any, so language would name the author for free.
+
+  7  score readback        score_readback.rb
+        An analysis is shown with its SCORES block removed and the analyst is
+        asked what the scores were. Each cell contributes one analysis the
+        subject wrote and one someone else wrote, on the same game under the
+        same standard, so only the author differs. Stages 5 and 7 ask for the
+        same kind of answer about the same scores; what changes is whether
+        there is anything to read it off.
 ```
 
-Neither stage 5 nor stage 6 scores its own result. Both write the answer and the
-measured truth into one file and stop; what counts as a hit is not fixed in
+None of stages 5 to 7 scores its own result. Each writes the answer and the
+measured truth into one file and stops; what counts as a hit is not fixed in
 advance, because fixing it decides what is being measured before the observation.
 
 **What the first full pass found, 2026-08-21.** Recorded here because it bounds
@@ -215,9 +227,9 @@ Only 9 of the 24 games carry `rules_initial` in their lineup, and
 `mutate_rule.rb` needs it. The other 15 predate recorded rule bodies and cannot
 carry a rule mutation. No workaround is provided; run more games instead.
 
-**What stages 5 and 6 found, 2026-08-27/28.** Both read the same 176-cell matrix,
-which by then was complete: 11 games x 4 standards x 4 judges, every row returning
-and every SCORES block parsing.
+**What stages 5 to 7 found, 2026-08-27/28.** All three read the same 176-cell
+matrix, which by then was complete: 11 games x 4 standards x 4 judges, every row
+returning and every SCORES block parsing. 136 calls in all, none failing.
 
 Stage 6, four analysts x three repeats over a pool of 22 unlabelled statements:
 **59 of 66 of their own claimed, and 0 of 198 belonging to someone else.** One
@@ -237,10 +249,32 @@ second of four. That form is also defective and is kept only as a record — thr
 of the four analysts change magnitude, and one changes sign, depending on which
 analysts are on the panel, and the panel is withheld from them by design.
 
-**The two stages come apart inside a single model.** The analyst with the best
-stage-6 result — 15 of 15, and the complete four-way partition — had the worst
-stage-5 result on both forms. Recognising one's own writing needs only one's own
-generator; saying what one's own scores will be does not follow from it.
+Three readings survived both stages, and two further runs were built to separate
+them: that what is missing is **material** to look at, that it is the **forward
+direction**, or that it is **calibrating a quantity**.
+
+The last of those is gone. Asked the same thing in words instead of numbers —
+harsh or lenient on a five-point scale, and whether most scores will sit above or
+below 5 — the analysts answered **20 of 20 "below" and 19 of 20 "harsh"**, which
+is more uniform than the numeric form, not less, and wrong for the same three of
+four. Answering in words consults nothing that answering in numbers did not.
+
+Stage 7 shows what the same models do when there IS something to look at. Reading
+the removed scores back off a finished analysis, **mean absolute error 0.19 points
+and 41 of 48 scores recovered exactly** when the analysis was their own, against
+0.67 and 31 of 48 when it was someone else's. A model that cannot say its own
+mean within 2 points reconstructs individual scores off prose within 0.2. The
+own-versus-other gap is NOT established: the "other" analyses are drawn
+alphabetically and so are mostly one analyst's, and that analyst is the outlier
+scorer. Rotate the author before believing it.
+
+**The stages come apart inside a single model.** The analyst with the best
+stage-6 result — 15 of 15, and the complete four-way partition — also had a
+perfect stage-7 readback of its own work, and the worst stage-5 result on both
+forms. Recognising one's own writing needs only one's own generator; saying what
+one's own scores will be does not follow from it. On the evidence here, what an
+analyst does with nothing in front of it is emit a fixed self-description — "I am
+a harsh scorer" — which is true of one of the four.
 
 ## Measuring an analyst instead of trusting its score
 
