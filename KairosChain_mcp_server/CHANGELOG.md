@@ -4,6 +4,43 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.82.0] - 2026-08-31
+
+### Added — L1 knowledge: html_slide_deck_authoring
+
+New gem-bundled L1 knowledge entry `html_slide_deck_authoring` (v1.0), written
+by the operator from the 2026-08 build of a bilingual lab-meeting deck: 24 main
+slides plus a 58-slide appendix, ja/en generated from one source, click-driven
+builds, a searchable index, and a handout PDF.
+
+Contents: the five-module split (`kit` / `txt_*` / `viz_*` / `make_*` /
+`check_*`) and why kit and viz must not merge — they constrain different units
+(viewport height vs SVG user units); the one-slide budget; the rule that every
+number on a slide is read from the same context the report reads, never written
+into prose, with the sibling deck that still said "sweep in progress" after the
+sweep finished as the counter-example; the three ways a number was actually
+misread on the day (missing denominator, two axes in one sentence, a range
+whose span was not named); inline SVG rather than rasterised PNG (CJK fonts,
+scaling, tooltips); the animation safety direction — draw the finished state
+and animate backwards from it, so print, `prefers-reduced-motion`, CSS-off and
+JS-off all render something true; two checkers with different jurisdictions
+(inside the SVG vs the slide's vertical budget); the handout-PDF variant and
+the values a JS-free build leaves blank; and a searchable index whose filter
+must listen on the `input` event, since CJK IME text never reaches `keydown`.
+
+- Shipped to both `knowledge/` and `templates/knowledge/`, byte-identical, so
+  the next `system_upgrade` on the authoring instance reports UNCHANGED rather
+  than `user_modified` — a divergent instance copy wins silently over every
+  later template update.
+- Two neighbouring entries (`frontend_design`, `html_to_pdf_conversion`) are
+  instance-local and do not ship, so the `[[...]]` links to them dangle on a
+  fresh install. Same convention as `loop_engineering_patterns`.
+- Not multi-LLM reviewed. This is a record of what was measured while building,
+  not a design under review. It ships as written apart from a `version` field,
+  a folded-scalar fix (`>` to `>-`) so the description does not carry a
+  trailing newline into the `knowledge_list` table, and one paragraph stating
+  the boundary against the two neighbours.
+
 ## [3.81.0] - 2026-08-27
 
 ### Changed
