@@ -4,6 +4,71 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.83.0] - 2026-09-01
+
+### Added — readable_gate measures sentence length
+
+`kairos_hook_projector` 0.6.0 → 0.7.0. The gate now reports three sentence
+metrics on every turn (`sentences`, `sentence_p90`, `sentence_max`) and honours
+two new thresholds, both off unless a mode names them:
+`max_sentence_chars_p90` and `sentence_min_count`.
+
+Why it was missing: the readable-output norm this gate exists to enforce names
+long sentences as its first observed failure form, and says "split overlong
+sentences" outright. Nothing in `measure()` was sentence-aware. The one symptom
+the norm names by hand was the one nothing measured, while the line cap — which
+the same norm calls a soft target rather than a gate — was enforced as a hard
+block.
+
+The cap is on the 90th percentile, not the mean and not the maximum: a mean
+hides the tail that does the damage, and a maximum fails a good answer for its
+one long sentence. Nearest-rank, so the number reported is the length of a
+sentence actually in the message. The length announcement does not clear it,
+for the diagram floor's reason — announcing that a message is long says nothing
+about whether its sentences are.
+
+`sentence_min_count` is not a convenience. Nearest-rank puts the 90th
+percentile at the last element for every count under ten, so below that floor
+the cap would be a maximum cap under another name.
+
+What counts as a sentence, each rule with a killed mutation behind it:
+
+- Sentences never span a line. A bullet with no terminating punctuation is one
+  sentence the length of its line, which is what it costs to read rather than
+  an artefact of the author's punctuation.
+- Headings, table rows, horizontal rules and blockquotes are not sentences. A
+  seven-column table row measured as one reads as a single 200-character
+  sentence and takes over every percentile in the message; and a quotation
+  cannot be shortened without cutting quoted facts, which a mode's own rewrite
+  instruction is likely to forbid — leaving "stop quoting sources" as the only
+  compliance.
+- A list marker is stripped rather than skipped. The text after it is prose the
+  reader reads, and skipping list items would exempt most bullet-written output.
+- A URL collapses to one character: it is clicked, not read.
+- An ASCII full stop splits only before whitespace. Without that condition
+  `readable_gate.rb`, `v0.4.6` and `3.82.0` shatter into fragments and the
+  measured tail collapses towards zero — a metric reporting every message as
+  readable.
+
+Declared and not closed: prose moved inside a fenced block is not measured.
+That is the hole the line count has always had, and closing it for one metric
+only would leave the two disagreeing about what the message contains.
+
+The core ships no number. `--report` gained `sent`, `sent_p90` and `sent_max`
+columns and is where a mode's cap comes from; `mode_hooks/_EXAMPLE.json`
+documents both keys and deliberately omits values, since the right one depends
+on what the author writes and in which script.
+
+- Cost: 0.9 ms of a 3.2 ms full measurement on a 25,719-character message,
+  against the hook's 9.5 s budget.
+- Tests: 168 runs, 997 assertions, 0 failures (was 152 runs; 16 new fixtures).
+  Mutation sweep filtered to the new family — 19/19 killed, 0 survived, 0
+  anchor-not-found, source restored byte-identical, 11-file baseline green at
+  325 runs.
+- One existing mutation anchor (M39) was retargeted: the sentence columns were
+  inserted into the argument list it points at, and a stale anchor reports
+  ANCHOR NOT FOUND rather than a survivor.
+
 ## [3.82.0] - 2026-08-31
 
 ### Added — L1 knowledge: html_slide_deck_authoring
