@@ -92,6 +92,47 @@ module KairosHookProjector
     HEADING = Regexp.new('\A#{1,6}\s+\S')
     TABLE_SEP = Regexp.new('\A\s*\|?[\s:|-]*-[\s:|-]*\|[\s:|-]*\z')
 
+    # --- sentence measurement ------------------------------------------------
+    #
+    # Every pattern below is the core's own and fixed, so none of it goes
+    # through bounded_match. That seam exists for mode-supplied patterns, whose
+    # backtracking the core cannot bound by inspection; these are constant and
+    # linear, exactly like FENCE, HEADING and TABLE_SEP above.
+    #
+    # A table row and a horizontal rule carry no sentence, and measuring one as
+    # a sentence is the first thing that goes wrong when a length metric meets
+    # this project's output: a seven-column row reads as a single 200-character
+    # sentence and dominates every percentile taken over the message.
+    TABLE_ROW = Regexp.new('\A\s*\|')
+    RULE = Regexp.new('\A\s*(?:[-*_]\s*){3,}\z')
+    # A blockquote is not the author's sentence. Dropping it is not leniency:
+    # the mode's own rewrite instruction forbids cutting quoted facts, so a cap
+    # that fires on a quotation demands the one repair the instruction refuses,
+    # and the only compliance left is to stop quoting sources. Verbatim source
+    # text was one of the two false-positive classes in the 2026-09-01
+    # calibration.
+    QUOTE = Regexp.new('\A\s*>')
+    # A URL is one token however long it is: it is clicked, not read. Collapsed
+    # rather than dropped, so the sentence around it is still measured — the
+    # other false-positive class was the citation list, 226 to 333 characters
+    # of which almost none was prose.
+    URL = Regexp.new('(?:https?|ftp)://[^\s)]*')
+    # A list marker is stripped, not skipped. The text after it is prose the
+    # reader reads, and a bullet that runs to 150 characters is precisely what
+    # this metric exists to catch; skipping list items would have exempted most
+    # of this instance's output, which is written in bullets.
+    LIST_MARKER = Regexp.new('\A\s*(?:[-*+]|[0-9]+[.)])\s+')
+    # Where one sentence ends and the next begins. Two arms, because the corpus
+    # is mixed script. A CJK full stop needs no following space; an ASCII one
+    # does, and without that condition `readable_gate.rb`, `v0.4.6` and `3.82.0`
+    # each split into fragments and the measured tail collapses. Both arms are
+    # fixed-width lookbehind, which is all Ruby permits.
+    #
+    # Sentences never span a line. A bullet with no terminating punctuation is
+    # then one sentence the length of its line, which is the honest measure of
+    # what it costs to read rather than an artefact of the author's punctuation.
+    SENTENCE_BREAK = Regexp.new('(?<=[。．！？])|(?<=[.!?])(?=\s)')
+
     DEFAULTS = {
       'max_lines' => nil,
       'max_headings' => nil,
@@ -100,6 +141,20 @@ module KairosHookProjector
       # diagram is what the rule is about. Off unless the mode names a number,
       # like every other threshold here.
       'diagram_required_over_lines' => nil,
+      # The tail of the sentence-length distribution. The mode body names long
+      # sentences as the first observed failure form and says "split overlong
+      # sentences" in so many words, and until 2026-09-01 nothing here was
+      # sentence-aware: the one symptom the norm names by hand was the one
+      # nothing measured. Off unless the mode names a number, like every other
+      # threshold here.
+      'max_sentence_chars_p90' => nil,
+      # Below this many measured sentences the cap above does not apply. Not a
+      # convenience. Nearest-rank puts the 90th percentile at index
+      # ceil(0.9n) - 1, which is the last element for every n under ten — so on
+      # a short message the percentile IS the maximum, and a cap applied there
+      # is a maximum cap by another name, failing a good answer for one long
+      # sentence. That is the instrument the metric was chosen to avoid.
+      'sentence_min_count' => 1,
       'announce_patterns' => [],
       'shorthand_patterns' => [],
       'gloss_patterns' => [],
@@ -124,6 +179,7 @@ module KairosHookProjector
     }.freeze
 
     INT_KEYS = %w[max_lines max_headings max_tables diagram_required_over_lines
+                  max_sentence_chars_p90 sentence_min_count
                   vocab_min_lines log_max_bytes].freeze
     LIST_KEYS = %w[announce_patterns shorthand_patterns gloss_patterns
                    specimen_patterns].freeze
@@ -147,6 +203,7 @@ module KairosHookProjector
     class Config
       attr_reader :problems, :path, :mode_name, :mode_version, :section,
                   :max_lines, :max_headings, :max_tables, :diagram_over_lines,
+                  :max_sentence_p90, :sentence_min_count,
                   :vocab_min_lines,
                   :blocking, :banner_prefix, :rewrite_instruction, :log_path,
                   :announce, :shorthand, :gloss, :specimen,
@@ -169,6 +226,12 @@ module KairosHookProjector
         @max_headings = merged['max_headings']
         @max_tables = merged['max_tables']
         @diagram_over_lines = merged['diagram_required_over_lines']
+        # Named max_sentence_p90 on this side and max_sentence_chars_p90 on the
+        # mode's. The config key says what the number is measured in, because a
+        # mode author writing `"max_sentence_p90": 90` has no way to know from
+        # the name whether 90 is characters or a rank.
+        @max_sentence_p90 = merged['max_sentence_chars_p90']
+        @sentence_min_count = merged['sentence_min_count']
         @vocab_min_lines = merged['vocab_min_lines']
         # Declared by the mode, written into this config by the compiler, and
         # honoured here. A mode that declares blocking:false gets the verdict
@@ -769,6 +832,45 @@ module KairosHookProjector
       Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
 
+    # The character length of every sentence in the measured prose, unsorted.
+    #
+    # Fenced blocks never reach here — `prose` has already dropped them — which
+    # is a way past this metric: prose moved inside a fence stops being
+    # measured. Declared rather than closed, because it is the same hole
+    # `lines` has had since the gate was written, and closing it for one metric
+    # only would leave the two disagreeing about what the message contains.
+    def sentence_lengths(prose)
+      out = []
+      prose.each do |line|
+        next if HEADING.match(line) || TABLE_ROW.match(line) ||
+                RULE.match(line) || QUOTE.match(line)
+
+        body = line.sub(LIST_MARKER, '').gsub(URL, '#').strip
+        next if body.empty?
+
+        body.split(SENTENCE_BREAK).each do |sentence|
+          sentence = sentence.strip
+          out << sentence.length unless sentence.empty?
+        end
+      end
+      out
+    end
+
+    # Nearest-rank percentile over an unsorted list, and 0 for an empty one.
+    #
+    # A percentile rather than a mean or a maximum: a mean hides the tail that
+    # does the damage, and a maximum fails a good answer for its one long
+    # sentence. Nearest-rank rather than an interpolating definition, so the
+    # number the operator is shown is the length of a sentence that is actually
+    # in the message and can be found by reading it.
+    def percentile(values, fraction)
+      return 0 if values.empty?
+
+      sorted = values.sort
+      index = (fraction * sorted.length).ceil - 1
+      sorted[index.clamp(0, sorted.length - 1)]
+    end
+
     # Pure. [metrics, failures]. The whole judgement lives here.
     def measure(text, cfg, deadline)
       raw = text.split("\n", -1)
@@ -789,6 +891,7 @@ module KairosHookProjector
 
       headings = prose.count { |l| HEADING.match(l) }
       tables = prose.count { |l| TABLE_SEP.match(l) }
+      lengths = sentence_lengths(prose)
 
       first = raw.find { |l| !l.strip.empty? } || ''
       announced = !(cfg.announce && bounded_match(cfg.announce, first, 0, deadline)).nil?
@@ -827,6 +930,9 @@ module KairosHookProjector
         'headings' => headings,
         'tables' => tables,
         'diagrams' => diagrams,
+        'sentences' => lengths.length,
+        'sentence_p90' => percentile(lengths, 0.9),
+        'sentence_max' => lengths.max || 0,
         'announced' => announced,
         'unglossed' => unglossed
       }
@@ -843,6 +949,21 @@ module KairosHookProjector
       end
       if cfg.max_tables && tables > cfg.max_tables
         failures << format('TABLES: %d (cap %d).', tables, cfg.max_tables)
+      end
+      # The announcement does not clear this one either, for the diagram
+      # floor's reason: saying a message is long says nothing about whether its
+      # sentences are, and the two exemptions must not be shared. The count and
+      # the maximum travel with the verdict because the cap alone does not say
+      # how far off the message is, or whether one sentence or twenty carried it
+      # there.
+      if cfg.max_sentence_p90 && metrics['sentences'] >= cfg.sentence_min_count &&
+         metrics['sentence_p90'] > cfg.max_sentence_p90
+        failures << format(
+          'SENTENCES: the 90th-percentile sentence is %d characters (cap %d); ' \
+          'the longest is %d, over %d sentences. Split the long ones.',
+          metrics['sentence_p90'], cfg.max_sentence_p90,
+          metrics['sentence_max'], metrics['sentences']
+        )
       end
       # A floor, and the announcement does not clear it: announcing that a
       # message is long says nothing about whether prose was the right carrier
@@ -883,8 +1004,10 @@ module KairosHookProjector
       detail += "\trec=#{record_id[0, 8]}" if record_id.is_a?(String) && !record_id.empty?
       if metrics
         detail += format(
-          "\tlines=%d\theadings=%d\ttables=%d\tdiagrams=%d\tunglossed=%s",
+          "\tlines=%d\theadings=%d\ttables=%d\tdiagrams=%d" \
+          "\tsent=%d\tsent_p90=%d\tsent_max=%d\tunglossed=%s",
           metrics['lines'], metrics['headings'], metrics['tables'], metrics['diagrams'],
+          metrics['sentences'], metrics['sentence_p90'], metrics['sentence_max'],
           metrics['unglossed'].empty? ? '-' : metrics['unglossed'].join(',')
         )
       end
@@ -936,9 +1059,10 @@ module KairosHookProjector
     end
 
     def banner(cfg, verdict, metrics, failures, rechecked, log_failure = nil)
-      shape = format('%d lines / %d headings / %d tables / %d diagrams',
+      shape = format('%d lines / %d headings / %d tables / %d diagrams / ' \
+                     'sentence p90 %d chars',
                      metrics['lines'], metrics['headings'], metrics['tables'],
-                     metrics['diagrams'])
+                     metrics['diagrams'], metrics['sentence_p90'])
       notes = []
       notes << failures.map { |f| f.split(':').first }.join(' / ') unless failures.empty?
       notes << log_note(log_failure) if log_failure
@@ -977,8 +1101,15 @@ module KairosHookProjector
           next unless text
 
           m, f = measure(text, cfg, nil)
-          puts format("%s\tlines=%d\theadings=%d\ttables=%d\tFAIL=%s",
+          # The sentence columns are here for the reason the whole metric was
+          # added off: no number was proposed with it, and the distribution
+          # these three columns produce over a real corpus is where one comes
+          # from. A cap picked from anything smaller repeats the mistake the
+          # metric was written to correct.
+          puts format("%s\tlines=%d\theadings=%d\ttables=%d" \
+                      "\tsent=%d\tsent_p90=%d\tsent_max=%d\tFAIL=%s",
                       path, m['lines'], m['headings'], m['tables'],
+                      m['sentences'], m['sentence_p90'], m['sentence_max'],
                       f.empty? ? '-' : f.map { |x| x.split(':').first }.join(','))
         end
       end

@@ -89,11 +89,21 @@ MUTATIONS = [
   ['M32 the first read waits a third as long',
    %q{    POLL_ATTEMPTS = 15},
    %q{    POLL_ATTEMPTS = 5}],
+  # Retargeted 2026-09-01 when the three sentence columns were inserted between
+  # diagrams= and unglossed=. The anchor is the whole argument list, so an
+  # anchor left pointing at the four-column form would have reported ANCHOR NOT
+  # FOUND rather than a survivor — visible, but only to someone reading the
+  # sweep output rather than its summary line.
   ['M39 the log swaps the headings and tables columns',
-   %q{          "\tlines=%d\theadings=%d\ttables=%d\tdiagrams=%d\tunglossed=%s",
-          metrics['lines'], metrics['headings'], metrics['tables'], metrics['diagrams'],},
-   %q{          "\tlines=%d\theadings=%d\ttables=%d\tdiagrams=%d\tunglossed=%s",
-          metrics['lines'], metrics['tables'], metrics['headings'], metrics['diagrams'],}],
+   %q{          metrics['lines'], metrics['headings'], metrics['tables'], metrics['diagrams'],
+          metrics['sentences'], metrics['sentence_p90'], metrics['sentence_max'],},
+   %q{          metrics['lines'], metrics['tables'], metrics['headings'], metrics['diagrams'],
+          metrics['sentences'], metrics['sentence_p90'], metrics['sentence_max'],}],
+  ['M60 the log swaps the sentence p90 and max columns',
+   %q{          metrics['sentences'], metrics['sentence_p90'], metrics['sentence_max'],
+          metrics['unglossed'].empty? ? '-' : metrics['unglossed'].join(',')},
+   %q{          metrics['sentences'], metrics['sentence_max'], metrics['sentence_p90'],
+          metrics['unglossed'].empty? ? '-' : metrics['unglossed'].join(',')}],
   ['M42 the unreadable exit polls before giving up',
    %q{        rows = tail_records(transcript_path)
         return [nil, 'unreadable', nil] if rows.nil?},
@@ -415,6 +425,81 @@ MUTATIONS = [
       end},
    %q{      Regexp.timeout = remaining
       regexp.match(string, pos)}],
+  # --- sentence length: the metric added 2026-09-01 --------------------------
+  #
+  # The norm this gate enforces names long sentences as its first failure form
+  # and says "split overlong sentences" outright, and nothing here was
+  # sentence-aware until now. Each row below is paired with the fixture that
+  # kills it; the pairing is what keeps "the metric is witnessed" from being a
+  # claim about assertion count.
+  ['S1  the sentence cap is never applied',
+   %q{      if cfg.max_sentence_p90 && metrics['sentences'] >= cfg.sentence_min_count &&},
+   %q{      if false && metrics['sentences'] >= cfg.sentence_min_count &&}],
+  ['S2  the cap reads the maximum instead of the 90th percentile',
+   %q{         metrics['sentence_p90'] > cfg.max_sentence_p90},
+   %q{         metrics['sentence_max'] > cfg.max_sentence_p90}],
+  ['S3  the count floor is ignored, so a short message is judged by its maximum',
+   %q{      if cfg.max_sentence_p90 && metrics['sentences'] >= cfg.sentence_min_count &&},
+   %q{      if cfg.max_sentence_p90 && true &&}],
+  ['S4  the cap boundary fires at the cap instead of above it',
+   %q{         metrics['sentence_p90'] > cfg.max_sentence_p90},
+   %q{         metrics['sentence_p90'] >= cfg.max_sentence_p90}],
+  ['S5  the announcement is made to clear the sentence cap too',
+   %q{      if cfg.max_sentence_p90 && metrics['sentences'] >= cfg.sentence_min_count &&},
+   %q{      if cfg.max_sentence_p90 && !announced && metrics['sentences'] >= cfg.sentence_min_count &&}],
+  ['S6  the percentile index loses its rank correction',
+   %q{      index = (fraction * sorted.length).ceil - 1},
+   %q{      index = (fraction * sorted.length).ceil}],
+  ['S7  the empty message is given a sentence length rather than none',
+   %q{      return 0 if values.empty?},
+   %q{      return 1 if values.empty?}],
+  ['S8  a table row is measured as a sentence',
+   %q{        next if HEADING.match(line) || TABLE_ROW.match(line) ||
+                RULE.match(line) || QUOTE.match(line)},
+   %q{        next if HEADING.match(line) ||
+                RULE.match(line) || QUOTE.match(line)}],
+  ['S9  a heading is measured as a sentence',
+   %q{        next if HEADING.match(line) || TABLE_ROW.match(line) ||
+                RULE.match(line) || QUOTE.match(line)},
+   %q{        next if TABLE_ROW.match(line) ||
+                RULE.match(line) || QUOTE.match(line)}],
+  ['S10 a quotation is measured as the author\'s own sentence',
+   %q{        next if HEADING.match(line) || TABLE_ROW.match(line) ||
+                RULE.match(line) || QUOTE.match(line)},
+   %q{        next if HEADING.match(line) || TABLE_ROW.match(line) ||
+                RULE.match(line)}],
+  ['S11 the list marker is skipped instead of stripped, exempting every bullet',
+   %q{        body = line.sub(LIST_MARKER, '').gsub(URL, '#').strip},
+   %q{        next if LIST_MARKER.match(line)
+        body = line.gsub(URL, '#').strip}],
+  ['S12 a URL carries its own length into the sentence',
+   %q{        body = line.sub(LIST_MARKER, '').gsub(URL, '#').strip},
+   %q{        body = line.sub(LIST_MARKER, '').strip}],
+  ['S13 a line is never split at its terminators',
+   %q{        body.split(SENTENCE_BREAK).each do |sentence|},
+   %q{        [body].each do |sentence|}],
+  ['S14 the ASCII arm loses its whitespace condition, shattering identifiers',
+   %q{    SENTENCE_BREAK = Regexp.new('(?<=[。．！？])|(?<=[.!?])(?=\s)')},
+   %q{    SENTENCE_BREAK = Regexp.new('(?<=[。．！？])|(?<=[.!?])')}],
+  ['S15 the CJK arm is dropped, so Japanese reads as one sentence per line',
+   %q{    SENTENCE_BREAK = Regexp.new('(?<=[。．！？])|(?<=[.!?])(?=\s)')},
+   %q{    SENTENCE_BREAK = Regexp.new('(?<=[.!?])(?=\s)')}],
+  ['S16 sentence_max reports the percentile, so the log has two of one column',
+   %q{        'sentence_max' => lengths.max || 0,},
+   %q{        'sentence_max' => percentile(lengths, 0.9),}],
+  ['S17 the banner stops naming the sentence measurement',
+   %q{                     'sentence p90 %d chars',},
+   %q{                     'sentence p90 unmeasured',}],
+  ['S18 the two sentence thresholds leave the type check',
+   %q{    INT_KEYS = %w[max_lines max_headings max_tables diagram_required_over_lines
+                  max_sentence_chars_p90 sentence_min_count
+                  vocab_min_lines log_max_bytes].freeze},
+   %q{    INT_KEYS = %w[max_lines max_headings max_tables diagram_required_over_lines
+                  vocab_min_lines log_max_bytes].freeze}],
+  ['S19 the --report path stops printing the columns a cap is calibrated from',
+   %q{                      "\tsent=%d\tsent_p90=%d\tsent_max=%d\tFAIL=%s",},
+   %q{                      "\tFAIL=%s%s%s%s",}],
+
   ['B18 the revocation is demoted to a trailing statement, leaking on the cut exit',
    %q{      Regexp.timeout = remaining
       begin

@@ -50,7 +50,7 @@
     "Stop": [
       {
         "gate": "readable_gate",
-        "_description": "Measures the turn's last message against declared readability limits — length, headings, tables, undefined shorthand, a missing diagram — and reports to its log, or blocks the turn once blocking is true.",
+        "_description": "Measures the turn's last message against declared readability limits — length, headings, tables, sentence length, undefined shorthand, a missing diagram — and reports to its log, or blocks the turn once blocking is true.",
         "section": "§ Readable output",
 
         "_blocking_note": "false on purpose in the example. The vocabulary rule below is the one thing here that cannot be got right by reading: whether a shape is coined shorthand or an ordinary technical word depends on what you write about. Start in report-only mode, read your log for a week, then set this to true. Shipping the example with true meant a consumer who copied it as instructed was blocked on the first message mentioning a character encoding.",
@@ -62,6 +62,8 @@
 
           "_diagram_note": "A floor rather than a cap: over this many lines of prose, a message carrying no fenced block is reported. Omit the key to leave the floor off. Announcing the length does not clear it — an announcement says the message is long, not that prose was the right carrier.",
           "diagram_required_over_lines": 30,
+
+          "_sentence_note": "A cap on the 90th percentile of sentence length in characters, not the mean and not the maximum: a mean hides the tail that does the damage, and a maximum fails a good answer for its one long sentence. Both keys are omitted here on purpose, because the right number depends entirely on what you write — a Japanese sentence, an English one and a line of dense technical prose are not the same length at the same reading cost. Run `readable_gate.rb --config <cfg> --report <transcript.jsonl>` over your own answers first: it prints sent, sent_p90 and sent_max per message, and the number to set is read off that distribution. To turn it on, add: \"max_sentence_chars_p90\": <number>, \"sentence_min_count\": 10. The floor is not a convenience — nearest-rank puts the 90th percentile at the last element for every count under ten, so below it the cap is a maximum cap under another name. Table rows, headings, horizontal rules and blockquotes are not measured as sentences, a URL counts as one token however long, and a list marker is stripped rather than skipped so a long bullet is still measured.",
 
           "vocab_min_lines": 8,
           "banner_prefix": "readable gate",

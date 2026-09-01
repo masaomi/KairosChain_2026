@@ -201,6 +201,107 @@ class TestReadableGate < Minitest::Test
     assert_empty f, 'the core supplies no floor of its own'
   end
 
+  # --- sentence length ------------------------------------------------------
+  #
+  # The mode body names long sentences as the first observed failure form and
+  # says "split overlong sentences" outright, and until 2026-09-01 nothing here
+  # was sentence-aware. The rewrite that occasioned this metric met every cap
+  # and kept 36% of its sentences over 60 characters with a 177-character
+  # maximum: the caps were met by packing more into each line, and per-line
+  # effort is what the reader experienced.
+
+  # Three rules at once, on one fixture: a line splits at its terminators, a
+  # bullet is measured with its marker stripped rather than skipped, and a
+  # heading or a table row is not a sentence at all. Four different numbers so
+  # that dropping any one rule moves a count.
+  def test_what_counts_as_a_sentence
+    text = "これはテスト。次の文です。\n- 箇条書きの行\n| a | b |\n|---|---|\n# 見出し\n"
+    m, = measure(text)
+    assert_equal 3, m['sentences'],
+                 "two sentences on the first line and the bullet: #{m.inspect}"
+    assert_equal 7, m['sentence_max'], 'これはテスト。 is the longest of the three'
+  end
+
+  # A table row measured as a sentence is what goes wrong first when a length
+  # metric meets this project's output: one seven-column row reads as a single
+  # 200-character sentence and takes over every percentile in the message.
+  def test_a_table_row_never_becomes_the_longest_sentence
+    row = "| #{(['very long cell text here'] * 7).join(' | ')} |"
+    m, = measure("短い文です。\n#{row}\n")
+    assert_equal 1, m['sentences'], "the row is not a sentence: #{m.inspect}"
+    assert_equal 6, m['sentence_max'], m.inspect
+  end
+
+  # The ASCII arm requires whitespace after the stop. Without that condition a
+  # file name, a version and a dotted number each shatter into fragments, and
+  # the measured tail collapses towards zero — a metric that reports every
+  # message as readable.
+  def test_an_identifier_full_stop_does_not_end_a_sentence
+    m, = measure("See readable_gate.rb now. Then v0.4.6 ships.\n")
+    assert_equal 2, m['sentences'], m.inspect
+    assert_equal 25, m['sentence_max'], 'See readable_gate.rb now. is the longer'
+  end
+
+  # Sentences do not span lines. A bullet with no terminating punctuation is
+  # one sentence the length of its line, which is what it costs to read; the
+  # alternative measures the author's punctuation habits instead.
+  def test_an_unterminated_line_is_one_sentence_of_its_own_length
+    m, = measure("- 終止符のない箇条書き\n- 二つ目\n")
+    assert_equal 2, m['sentences'], m.inspect
+    assert_equal 10, m['sentence_max'], 'the marker is stripped before the length is taken'
+  end
+
+  # Quoted source text is not the author's sentence, and the mode's own rewrite
+  # instruction forbids cutting quoted facts — so a cap that fired here would
+  # demand the one repair the instruction refuses, leaving "stop quoting
+  # sources" as the only compliance.
+  def test_a_blockquote_is_not_the_authors_sentence
+    m, = measure("短い文です。\n> #{'x' * 400}\n")
+    assert_equal 1, m['sentences'], m.inspect
+    assert_equal 6, m['sentence_max'], m.inspect
+  end
+
+  # A URL is clicked, not read. Collapsed rather than dropped, so the sentence
+  # around it is still measured: the citation list was one of the two
+  # false-positive classes the 2026-09-01 calibration turned up.
+  def test_a_url_counts_as_one_token_however_long
+    m, = measure("出典は https://example.com/#{'a' * 300} です。\n")
+    assert_equal 1, m['sentences'], m.inspect
+    assert_operator m['sentence_max'], :<, 20, "the URL must not carry its length: #{m.inspect}"
+  end
+
+  # The cap reads the 90th percentile, not the maximum. Every boundary fixture
+  # above uses sentences of one length, where the two coincide; this one is the
+  # only place they differ, and it is what tells a p90 cap from a max cap.
+  def test_the_cap_reads_the_percentile_and_not_the_maximum
+    text = (['x' * 10] * 9).join("\n") + "\n#{'y' * 400}"
+    m, f = measure(text, 'max_sentence_chars_p90' => 60, 'sentence_min_count' => 10)
+    assert_equal 10, m['sentence_p90'], m.inspect
+    assert_equal 400, m['sentence_max'], m.inspect
+    assert_empty f.select { |x| x.start_with?('SENTENCES') },
+                 'one long sentence among ten must not fail a good answer'
+  end
+
+  # The cap is type-checked where every other threshold is. A mode writing
+  # `"max_sentence_chars_p90": "160"` used to be the shape that raised on every
+  # turn: non-zero exit, no verdict, no log line.
+  def test_a_mistyped_sentence_cap_reports_instead_of_enforcing
+    out = decide((['x' * 100] * 12).join("\n"),
+                 max_sentence_chars_p90: '60', sentence_min_count: '10')
+    refute out.key?('decision'), out.inspect
+    assert_includes out.fetch('systemMessage', ''), 'max_sentence_chars_p90'
+    assert_includes out.fetch('systemMessage', ''), 'sentence_min_count'
+  end
+
+  # Nearest-rank, and the degeneracy it carries. Below ten sentences the 90th
+  # percentile IS the maximum, which is the whole ground for sentence_min_count
+  # and the reason a short message must not be judged by this cap.
+  def test_the_percentile_is_nearest_rank_and_degenerates_under_ten
+    assert_equal 9, G.percentile((1..10).to_a, 0.9), 'the ninth of ten'
+    assert_equal 9, G.percentile((1..9).to_a, 0.9), 'under ten it is the maximum'
+    assert_equal 0, G.percentile([], 0.9), 'and an empty message has no sentence'
+  end
+
   # --- vocabulary: the case that misfired in production ---------------------
 
   MASA_SHORTHAND =
@@ -1925,6 +2026,84 @@ class TestReadableGate < Minitest::Test
     assert f.any? { |x| x.start_with?('DIAGRAM') }, f.inspect
   end
 
+  def test_the_sentence_cap_boundary
+    at_cap = (['x' * 60] * 10).join("\n")
+    _, f = measure(at_cap, 'max_sentence_chars_p90' => 60, 'sentence_min_count' => 10)
+    assert_empty f.select { |x| x.start_with?('SENTENCES') },
+                 'a 60-character p90 at cap 60 is within the cap'
+    over = (['x' * 61] * 10).join("\n")
+    _, f = measure(over, 'max_sentence_chars_p90' => 60, 'sentence_min_count' => 10)
+    assert f.any? { |x| x.start_with?('SENTENCES') }, f.inspect
+  end
+
+  # The count floor under its own name. Its whole ground is that nearest-rank
+  # puts the 90th percentile at the last element for every n under ten, so a
+  # short message judged by this cap is judged by its maximum — the instrument
+  # the metric was chosen over.
+  def test_the_sentence_count_floor_boundary
+    overrides = { 'max_sentence_chars_p90' => 60, 'sentence_min_count' => 10 }
+    _, f = measure((['x' * 100] * 10).join("\n"), overrides)
+    assert f.any? { |x| x.start_with?('SENTENCES') },
+           "10 sentences at floor 10 is judged: #{f.inspect}"
+    _, f = measure((['x' * 100] * 9).join("\n"), overrides)
+    assert_empty f.select { |x| x.start_with?('SENTENCES') },
+                 '9 stays below the floor'
+  end
+
+  # The length cap yields to an announcement; this one does not, for the
+  # diagram floor's reason. Saying a message is long says nothing about whether
+  # its sentences are, so the two exemptions must not be shared.
+  def test_announcing_the_length_does_not_clear_the_sentence_cap
+    text = "長いです。\n" + (['x' * 100] * 10).join("\n")
+    _, f = measure(text, 'max_sentence_chars_p90' => 60, 'sentence_min_count' => 10,
+                         'max_lines' => 5, 'announce_patterns' => ['長い'])
+    assert_empty f.select { |x| x.start_with?('LENGTH') }, 'the announcement clears length'
+    assert f.any? { |x| x.start_with?('SENTENCES') }, f.inspect
+  end
+
+  def test_the_sentence_cap_is_off_unless_the_mode_names_a_number
+    m, f = measure((['x' * 300] * 20).join("\n"))
+    assert_empty f, 'the core supplies no sentence cap of its own'
+    assert_equal 300, m['sentence_p90'], 'and measures anyway, which is what calibration reads'
+  end
+
+  # The block a mode with this cap declared actually issues, driven end to end,
+  # plus the banner shape the operator reads every turn.
+  def test_a_message_whose_sentences_run_long_is_blocked
+    out = decide((['x' * 100] * 12).join("\n"),
+                 max_sentence_chars_p90: 60, sentence_min_count: 10)
+    assert_equal 'block', out['decision'], out.inspect
+    assert_includes out.fetch('reason', ''), 'SENTENCES'
+    assert_includes out.fetch('systemMessage', ''), 'sentence p90 100 chars'
+  end
+
+  # Three different numbers, so a transposition of any pair is visible. p90 and
+  # max coincide on any message under ten sentences, which is why this fixture
+  # has ten.
+  def test_the_log_names_each_sentence_metric_in_its_own_column
+    text = (['ab。'] * 9).join("\n") + "\nabcdefghijk"
+    _out, log = drive([row_for('assistant', text: text, uuid: 'AAA')],
+                      rechecked: false, max_headings: 3)
+    assert_includes log, "\tsent=10\tsent_p90=3\tsent_max=11\t",
+                    "ten sentences, a p90 of 3 and a maximum of 11: #{log.inspect}"
+  end
+
+  # The offline path is where a number for this cap comes from, so its columns
+  # are load-bearing rather than decorative.
+  def test_the_report_path_prints_the_sentence_columns
+    Dir.mktmpdir do |tmp|
+      cfg_path = File.join(tmp, 'cfg.json')
+      tx = File.join(tmp, 't.jsonl')
+      File.write(cfg_path, JSON.generate('mode_name' => 't'), encoding: 'UTF-8')
+      text = (['ab。'] * 9).join("\n") + "\nabcdefghijk"
+      File.write(tx, rows_json([row_for('assistant', text: text)]), encoding: 'UTF-8')
+
+      out, _err, status = run_script(cfg_path, '', ['--report', tx])
+      assert_equal 0, status.exitstatus
+      assert_includes out, "\tsent=10\tsent_p90=3\tsent_max=11\t", out.inspect
+    end
+  end
+
   # The floor under its own name. Until now its loss reddened only tests about
   # the timeout machinery, so a maintainer who broke it was shown the wrong
   # defect entirely.
@@ -1976,6 +2155,7 @@ class TestReadableGate < Minitest::Test
     G.define_singleton_method(:measure) do |*|
       seen = Regexp.timeout
       [{ 'lines' => 1, 'headings' => 0, 'tables' => 0, 'diagrams' => 0,
+         'sentences' => 1, 'sentence_p90' => 1, 'sentence_max' => 1,
          'announced' => false, 'unglossed' => [] }, []]
     end
     begin
