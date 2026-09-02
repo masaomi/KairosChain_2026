@@ -261,13 +261,18 @@ module KairosMcp
 
         # Most recent write anywhere in the session dir EXCLUDING liveness and
         # locking artifacts: heartbeats tick every 2 s even when the main
-        # thread hangs, so counting them would blind the stall bound.
+        # thread hangs, so counting them would blind the stall bound. The
+        # worker's own exit record (and its atomic-write temp file) is excluded
+        # too: the D6 interim record is written by a TERM to a possibly HUNG
+        # worker, and counting it pushed the stall bound out by a whole stall
+        # window for exactly the worker the operator had asked to stop.
         def last_activity_time
           newest = nil
           Dir.glob(File.join(@dir, '*')).each do |f|
             base = File.basename(f)
             next if base.start_with?(HEARTBEAT_FILE)
             next if base == LOCK_FILE || base.end_with?('.lock')
+            next if base == WORKER_EXIT_FILE || base.start_with?("#{WORKER_EXIT_FILE}.tmp.")
             t = begin
               File.mtime(f)
             rescue StandardError

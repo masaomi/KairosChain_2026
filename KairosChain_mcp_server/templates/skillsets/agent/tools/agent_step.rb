@@ -2117,9 +2117,10 @@ module KairosMcp
 
           # All plausible JSON blocks in a reviewer reply, in preference order:
           # the whole reply, every fenced block, every balanced object that
-          # ENCLOSES an "overall_verdict" occurrence (innermost first), then the
-          # crude first-{ to last-} span. Invalid candidates are skipped by the
-          # caller's JSON.parse.
+          # ENCLOSES an "overall_verdict" occurrence (shallowest occurrence
+          # first, see below), the nearest-brace walk-back for any occurrence no
+          # span encloses, then the crude first-{ to last-} span. Invalid
+          # candidates are skipped by the caller's JSON.parse.
           #
           # Field defect D5-b (2026-08-27): the previous scan walked back to the
           # NEAREST '{' before the key and counted braces with no notion of
@@ -2128,6 +2129,17 @@ module KairosMcp
           # a brace inside a string value corrupted the depth count. Spans now
           # come from one string-aware forward pass over the whole reply, and
           # the candidate for a key is the object that actually contains it.
+          #
+          # Impl review R1 (2026-09-02, I4): a reply can carry SEVERAL
+          # overall_verdict keys — one per persona block plus the panel's — and
+          # the panel's is the one nested least deeply. Occurrences are
+          # therefore emitted in ascending order of how many objects enclose
+          # them (text order within a depth; innermost object first for one
+          # occurrence), so the top-level verdict beats a per-persona one.
+          # (I6): when NO span encloses an occurrence — an odd quote on the same
+          # line made the scanner read the JSON as a string — the pre-D5-b
+          # nearest-brace walk-back is appended for that occurrence, so the
+          # candidate set stays a strict superset of the earlier scanner's.
           def extract_json_candidates(content)
             begin
               JSON.parse(content)
@@ -2140,19 +2152,49 @@ module KairosMcp
             content.scan(/```(?:json)?\s*\n?(.*?)\n?```/m) { |m| candidates << m[0] }
 
             spans = balanced_object_spans(content)
+            by_depth = Hash.new { |h, k| h[k] = [] }
+            unenclosed = []
             search_from = 0
             while (key_at = content.index('"overall_verdict"', search_from))
               enclosing = spans.select { |open_at, close_at| open_at < key_at && close_at > key_at }
-              # Innermost first: the smallest enclosing object is the one whose
-              # top level carries the key; outer ones are tried afterwards.
-              enclosing.sort_by { |open_at, close_at| close_at - open_at }.each do |open_at, close_at|
-                candidates << content[open_at..close_at]
+              if enclosing.empty?
+                unenclosed << nearest_brace_candidate(content, key_at)
+              else
+                # Innermost first within one occurrence: the smallest enclosing
+                # object is the one whose top level carries the key.
+                enclosing.sort_by { |open_at, close_at| close_at - open_at }.each do |open_at, close_at|
+                  by_depth[enclosing.size] << content[open_at..close_at]
+                end
               end
               search_from = key_at + 1
             end
+            by_depth.keys.sort.each { |depth| candidates.concat(by_depth[depth]) }
+            candidates.concat(unenclosed)
 
             candidates << Regexp.last_match(1) if content =~ /(\{.*\})/m
             candidates.compact.uniq
+          end
+
+          # The pre-D5-b candidate for one key occurrence: walk back to the
+          # nearest '{' and count braces forward with no notion of strings.
+          # Wrong for nested siblings and braces inside strings (that is what
+          # balanced_object_spans fixed), but it is the only scan that reads a
+          # verdict object sitting on the same line as an unbalanced prose
+          # quote, so it is kept as the candidate of last resort for exactly
+          # the occurrences the string-aware pass cannot place.
+          def nearest_brace_candidate(content, key_at)
+            open_at = content.rindex('{', key_at)
+            return nil unless open_at
+
+            depth = 0
+            i = open_at
+            while i < content.length
+              depth += 1 if content[i] == '{'
+              depth -= 1 if content[i] == '}'
+              return content[open_at..i] if depth.zero?
+              i += 1
+            end
+            nil
           end
 
           # [open_index, close_index] (character indices, inclusive) for every

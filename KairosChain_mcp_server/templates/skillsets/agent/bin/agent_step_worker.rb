@@ -129,6 +129,13 @@ end
 # worker_exit record BEFORE exit!(124). That record is not a result, so the
 # collector still takes the crash path and a committed advance is still
 # recovered from the gate log, never masked.
+#
+# Impl review R1 (2026-09-02, I5): a watchdog record is a FINAL record, so it
+# carries the signals that landed during the call — otherwise the operator's
+# TERM vanished from the crash report the moment the watchdog superseded the
+# D6 interim record. The phase is cleared first so the recorder cannot
+# overwrite the final record (see call_phase below).
+call_phase = { active: false }
 worker_started = Time.now
 stall_s = KairosMcp::SkillSets::Agent::StepDelegation.worker_stall_seconds
 cap_s   = KairosMcp::SkillSets::Agent::StepDelegation.worker_hard_cap_seconds
@@ -138,17 +145,18 @@ watchdog = Thread.new do
     sleep tick_s
     elapsed = (Time.now - worker_started).round
     silent  = (Time.now - delegation.last_activity_time).round
-    if elapsed > cap_s
-      delegation.write_worker_exit(boot_identity, 'self_timeout_hard_cap',
-                                   'elapsed_seconds' => elapsed,
-                                   'silent_seconds' => silent)
-      exit!(124)
-    elsif silent > stall_s
-      delegation.write_worker_exit(boot_identity, 'self_timeout_stalled',
-                                   'elapsed_seconds' => elapsed,
-                                   'silent_seconds' => silent)
-      exit!(124)
-    end
+    exit_class = if elapsed > cap_s
+                   'self_timeout_hard_cap'
+                 elsif silent > stall_s
+                   'self_timeout_stalled'
+                 end
+    next unless exit_class
+
+    call_phase[:active] = false
+    detail = { 'elapsed_seconds' => elapsed, 'silent_seconds' => silent }
+    detail['signals_during_call'] = shutdown[:signals].dup unless shutdown[:signals].empty?
+    delegation.write_worker_exit(boot_identity, exit_class, detail)
+    exit!(124)
   end
 end
 
@@ -164,15 +172,21 @@ end
 # the signal list; if it is killed first, the interim record is what the
 # collector's crash report finds. Recording from a thread rather than inside
 # the trap keeps file I/O out of trap context.
-call_phase = { active: false }
+#
+# Impl review R1 (I2, I3): `seen` advances ONLY while the phase is active. A
+# signal that lands before the call starts (e.g. inside ToolRegistry.new) is
+# not consumed here — it is either caught by the main thread's re-check below
+# or recorded on the recorder's first active tick. And the phase is cleared by
+# the main thread before EVERY final record (ensure around the call, and again
+# before each write), so the recorder cannot overwrite an `uncaught` record.
 signal_recorder = Thread.new do
   seen = 0
   loop do
     sleep 0.25
+    next unless call_phase[:active]
     sigs = shutdown[:signals]
     next unless sigs.size > seen
     seen = sigs.size
-    next unless call_phase[:active]
     delegation.write_worker_exit(boot_identity, 'trapped_signal',
                                  'phase' => 'during_gated_call',
                                  'signals' => sigs.dup,
@@ -216,17 +230,26 @@ begin
   args = (pending['arguments'] || {}).merge('session_id' => session_id)
   args.delete('execution') # never recurse into another delegation
 
-  if shutdown[:requested]
+  exit_before_call = lambda do
     delegation.write_worker_exit(boot_identity, 'trapped_signal',
                                  'phase' => 'before_gated_call',
                                  'signals' => shutdown[:signals].dup)
     exit 130
   end
+  exit_before_call.call if shutdown[:requested]
 
   registry = KairosMcp::ToolRegistry.new
+  # Re-check (I3): registry bootstrap takes long enough for a signal to land
+  # in it, and the recorder deliberately does not consume signals while the
+  # phase is inactive — so this check is what turns that signal into a record.
+  exit_before_call.call if shutdown[:requested]
+
   call_phase[:active] = true
-  raw = registry.call_tool('agent_step', args)
-  call_phase[:active] = false
+  begin
+    raw = registry.call_tool('agent_step', args)
+  ensure
+    call_phase[:active] = false # the exception path clears it too (I2)
+  end
 
   # Normalize the MCP content shape to the response hash the inline call
   # would have returned.
@@ -246,6 +269,7 @@ begin
   # longer own or by mislabeling its result as a newer delegation's.
   delegation.write_result(response, identity: identity)
   signal_detail = shutdown[:signals].empty? ? {} : { 'signals_during_call' => shutdown[:signals].dup }
+  call_phase[:active] = false
   delegation.write_worker_exit(identity, 'normal', signal_detail)
   exit 0
 rescue SystemExit, SignalException
@@ -268,6 +292,7 @@ rescue Exception => e # rubocop:disable Lint/RescueException
   begin
     detail = { 'error' => "#{e.class}: #{e.message}" }
     detail['signals_during_call'] = shutdown[:signals].dup unless shutdown[:signals].empty?
+    call_phase[:active] = false
     delegation.write_worker_exit(boot_identity, 'uncaught', detail)
   rescue StandardError
     # best effort

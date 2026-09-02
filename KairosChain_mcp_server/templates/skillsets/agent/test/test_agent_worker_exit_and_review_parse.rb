@@ -243,6 +243,19 @@ class TestStallActivityClock < Minitest::Test
     assert_in_delta Time.now.to_f, @delegation.last_activity_time.to_f, 5.0
   end
 
+  # Impl review R1, I1: the worker's exit record (the D6 interim write in
+  # particular) and its atomic-write temp file are not session activity.
+  def test_worker_exit_record_and_its_tmp_do_not_count_as_activity
+    old = Time.now - 300
+    content = File.join(@dir, 'progress.jsonl')
+    File.write(content, 'x')
+    File.utime(old, old, content)
+    @delegation.write_worker_exit({ 'step_token' => 'tok-1' }, 'trapped_signal', 'phase' => 'during_gated_call')
+    File.write(File.join(@dir, "worker_exit.json.tmp.#{Process.pid}.123"), '{}')
+
+    assert_in_delta old.to_f, @delegation.last_activity_time.to_f, 5.0
+  end
+
   def test_empty_dir_falls_back_to_now
     assert_in_delta Time.now.to_f, @delegation.last_activity_time.to_f, 5.0
   end
@@ -261,23 +274,29 @@ class TestWatchdogBounds < Minitest::Test
     end
   end
 
+  # Both tests below start from a CLEARED knob (with_env(k => nil)) so an
+  # ambient value in the shell that runs the suite cannot fail them.
   def test_env_overrides_restore_preexisting_values
-    with_env('KAIROS_WORKER_STALL_SECONDS' => '7') do
-      with_env('KAIROS_WORKER_STALL_SECONDS' => '60') do
-        assert_equal 60, StepDelegation.worker_stall_seconds
+    with_env('KAIROS_WORKER_STALL_SECONDS' => nil) do
+      with_env('KAIROS_WORKER_STALL_SECONDS' => '7') do
+        with_env('KAIROS_WORKER_STALL_SECONDS' => '60') do
+          assert_equal 60, StepDelegation.worker_stall_seconds
+        end
+        assert_equal '7', ENV['KAIROS_WORKER_STALL_SECONDS'], 'inner block must restore, not delete'
       end
-      assert_equal '7', ENV['KAIROS_WORKER_STALL_SECONDS'], 'inner block must restore, not delete'
+      assert_nil ENV['KAIROS_WORKER_STALL_SECONDS']
     end
-    assert_nil ENV['KAIROS_WORKER_STALL_SECONDS']
   end
 
   def test_watchdog_tick_default_and_floor
-    assert_equal 30, StepDelegation.worker_watchdog_tick_seconds
-    with_env('KAIROS_WORKER_WATCHDOG_TICK_SECONDS' => '2') do
-      assert_equal 2, StepDelegation.worker_watchdog_tick_seconds
-    end
-    with_env('KAIROS_WORKER_WATCHDOG_TICK_SECONDS' => '0') do
-      assert_equal 1, StepDelegation.worker_watchdog_tick_seconds, 'floor is 1 s, never a busy loop'
+    with_env('KAIROS_WORKER_WATCHDOG_TICK_SECONDS' => nil) do
+      assert_equal 30, StepDelegation.worker_watchdog_tick_seconds
+      with_env('KAIROS_WORKER_WATCHDOG_TICK_SECONDS' => '2') do
+        assert_equal 2, StepDelegation.worker_watchdog_tick_seconds
+      end
+      with_env('KAIROS_WORKER_WATCHDOG_TICK_SECONDS' => '0') do
+        assert_equal 1, StepDelegation.worker_watchdog_tick_seconds, 'floor is 1 s, never a busy loop'
+      end
     end
   end
 
@@ -383,6 +402,56 @@ class TestReviewParseHardening < Minitest::Test
               "The tool is 5\" wide, which is fine.\n" \
               "{\"overall_verdict\": \"approve\"}\n"
     assert_equal 'APPROVE', parse(content)[:overall_verdict]
+  end
+
+  # ---- impl review R1: I4 (nested verdicts) and I6 (same-line odd quote) ----
+
+  # I4 — the persona-block shape. Per-persona objects each carry their own
+  # overall_verdict; the panel verdict is the top-level one. Both main's
+  # nearest-brace walk-back and the first D5-b scan (innermost first, text
+  # order) picked a persona's verdict. Depth-ascending order picks the panel's.
+  def test_top_level_verdict_beats_per_persona_verdicts
+    content = DECOY_FENCE +
+              "Panel verdict:\n" \
+              '{"personas": {"pragmatic": {"overall_verdict": "approve"}, ' \
+              '"security": {"overall_verdict": "reject"}}, ' \
+              '"overall_verdict": "reject", "key_findings": ["no rollback"]}' + "\n"
+    r = parse(content)
+    assert_equal 'REJECT', r[:overall_verdict]
+    assert_equal ['no rollback'], r[:key_findings]
+    refute r[:parse_error]
+  end
+
+  def test_top_level_verdict_beats_a_nested_summary_verdict
+    content = DECOY_FENCE +
+              "Verdict:\n" \
+              '{"summary": {"overall_verdict": "n/a"}, "overall_verdict": "REJECT", "key_findings": []}' + "\n"
+    r = parse(content)
+    assert_equal 'REJECT', r[:overall_verdict]
+    refute r[:parse_error]
+  end
+
+  # I6 — an odd quote on the SAME line as the JSON. The string-aware scan
+  # reads `" wide: {"` as a string, so no span encloses the key; main's
+  # nearest-brace walk-back parsed this shape, so it is kept as the candidate
+  # of last resort for exactly that case (coverage stays a superset of main).
+  def test_same_line_unbalanced_quote_before_the_json_still_parses
+    content = DECOY_FENCE +
+              "The tool is 5\" wide: {\"overall_verdict\": \"approve\"}\n"
+    r = parse(content)
+    assert_equal 'APPROVE', r[:overall_verdict]
+    refute r[:parse_error]
+  end
+
+  # Pins the "encloses the key" half of the span predicate (the mutant that
+  # survived R1: `open_at < key_at` alone). Prose in front forces the scan
+  # path; the sibling object {"a": 1} opens before the key but closes before
+  # it too, so it must not be offered as a candidate at all.
+  def test_candidates_exclude_a_sibling_object_that_closes_before_the_key
+    outer = '{"summary": {"a": 1}, "overall_verdict": "APPROVE"}'
+    candidates = @tool.send(:extract_json_candidates, "Verdict: #{outer}")
+    assert_includes candidates, outer
+    refute_includes candidates, '{"a": 1}'
   end
 
   def test_balanced_object_spans_ignore_braces_inside_strings
