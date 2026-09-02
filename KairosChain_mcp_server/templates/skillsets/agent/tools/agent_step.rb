@@ -2116,9 +2116,18 @@ module KairosMcp
           end
 
           # All plausible JSON blocks in a reviewer reply, in preference order:
-          # the whole reply, every fenced block, every balanced object around
-          # an "overall_verdict" occurrence, then the crude first-{ to last-}
-          # span. Invalid candidates are skipped by the caller's JSON.parse.
+          # the whole reply, every fenced block, every balanced object that
+          # ENCLOSES an "overall_verdict" occurrence (innermost first), then the
+          # crude first-{ to last-} span. Invalid candidates are skipped by the
+          # caller's JSON.parse.
+          #
+          # Field defect D5-b (2026-08-27): the previous scan walked back to the
+          # NEAREST '{' before the key and counted braces with no notion of
+          # strings, so `{"summary": {"a":1}, "overall_verdict": …}` yielded the
+          # decoy `{"a":1}` (the nearest brace belongs to a sibling value), and
+          # a brace inside a string value corrupted the depth count. Spans now
+          # come from one string-aware forward pass over the whole reply, and
+          # the candidate for a key is the object that actually contains it.
           def extract_json_candidates(content)
             begin
               JSON.parse(content)
@@ -2130,27 +2139,53 @@ module KairosMcp
             candidates = []
             content.scan(/```(?:json)?\s*\n?(.*?)\n?```/m) { |m| candidates << m[0] }
 
+            spans = balanced_object_spans(content)
             search_from = 0
             while (key_at = content.index('"overall_verdict"', search_from))
-              open_at = content.rindex('{', key_at)
-              if open_at
-                depth = 0
-                i = open_at
-                while i < content.length
-                  depth += 1 if content[i] == '{'
-                  depth -= 1 if content[i] == '}'
-                  if depth.zero?
-                    candidates << content[open_at..i]
-                    break
-                  end
-                  i += 1
-                end
+              enclosing = spans.select { |open_at, close_at| open_at < key_at && close_at > key_at }
+              # Innermost first: the smallest enclosing object is the one whose
+              # top level carries the key; outer ones are tried afterwards.
+              enclosing.sort_by { |open_at, close_at| close_at - open_at }.each do |open_at, close_at|
+                candidates << content[open_at..close_at]
               end
               search_from = key_at + 1
             end
 
             candidates << Regexp.last_match(1) if content =~ /(\{.*\})/m
             candidates.compact.uniq
+          end
+
+          # [open_index, close_index] (character indices, inclusive) for every
+          # '{' … '}' pair in content, ignoring braces inside double-quoted
+          # strings (backslash escapes honoured). A raw newline ends a string:
+          # JSON strings cannot contain one, so an unbalanced quote in the
+          # surrounding prose cannot swallow the JSON that follows it. Unclosed
+          # braces yield no span. One pass, linear in the reply length.
+          def balanced_object_spans(content)
+            spans = []
+            stack = []
+            in_string = false
+            escaped = false
+            content.each_char.with_index do |ch, i|
+              if in_string
+                if escaped
+                  escaped = false
+                elsif ch == '\\'
+                  escaped = true
+                elsif ch == '"' || ch == "\n"
+                  in_string = false
+                end
+                next
+              end
+              case ch
+              when '"' then in_string = true
+              when '{' then stack << i
+              when '}'
+                open_at = stack.pop
+                spans << [open_at, i] if open_at
+              end
+            end
+            spans
           end
 
           def review_parse_fallback(reason)
