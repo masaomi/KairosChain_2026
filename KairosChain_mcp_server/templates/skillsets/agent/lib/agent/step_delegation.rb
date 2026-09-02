@@ -38,6 +38,9 @@ module KairosMcp
       #   delegation.heartbeat  — touched by the live worker every 2s
       #   delegation_result.json— the worker's final response, tagged with the
       #                           issue_anchor it belongs to
+      #   worker_exit.json      — the worker's exit record (why it left), one
+      #                           file overwritten per exit; readers match on
+      #                           step_token, a fresh open_handle removes it
       class StepDelegation
         LOCK_FILE      = 'delegation.lock'
         PENDING_FILE   = 'delegation.json'
@@ -61,6 +64,10 @@ module KairosMcp
         # record their firing in WORKER_EXIT_FILE before exiting.
         WORKER_STALL_SECONDS_DEFAULT      = 2700
         WORKER_HARD_CAP_SECONDS_DEFAULT   = 10800
+        # How often the watchdog re-evaluates the two bounds. Env-overridable
+        # (floor 1 s) so a real-process test can drive both firings in seconds
+        # instead of minutes; the default is unchanged from the D4 fix.
+        WORKER_WATCHDOG_TICK_SECONDS_DEFAULT = 30
 
         WORKER_SCRIPT = File.expand_path('../../bin/agent_step_worker.rb', __dir__)
 
@@ -154,11 +161,16 @@ module KairosMcp
               # (crashed) — fall through to open a fresh handle below.
             end
 
-            # Fresh delegation: clear any stale result and ALL prior per-token
+            # Fresh delegation: clear any stale result, ALL prior per-token
             # heartbeats (a superseded worker's heartbeat must not count toward
-            # this handle's liveness), then write the new handle. The
+            # this handle's liveness) and the previous worker's exit record
+            # (it belongs to a token that is stale by construction once a new
+            # token is minted; crash_detail already filters by token, so this
+            # is housekeeping — the record would otherwise linger until the
+            # session dir is removed), then write the new handle. The
             # issue_anchor is injected into the worker args.
             FileUtils.rm_f(result_path)
+            FileUtils.rm_f(worker_exit_path)
             clear_all_heartbeats
             token = SecureRandom.uuid
             worker_args = recorded_args.merge('anchor' => issue_anchor)
@@ -351,6 +363,10 @@ module KairosMcp
 
         def self.worker_hard_cap_seconds
           (ENV['KAIROS_WORKER_TIMEOUT_SECONDS'] || WORKER_HARD_CAP_SECONDS_DEFAULT).to_i
+        end
+
+        def self.worker_watchdog_tick_seconds
+          [(ENV['KAIROS_WORKER_WATCHDOG_TICK_SECONDS'] || WORKER_WATCHDOG_TICK_SECONDS_DEFAULT).to_i, 1].max
         end
 
         private

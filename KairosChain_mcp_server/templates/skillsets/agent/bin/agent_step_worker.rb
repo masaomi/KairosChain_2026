@@ -19,7 +19,12 @@
 #       KAIROS_DATA_DIR     (the server's effective data dir; makes the
 #                            worker resolve the SAME .kairos)
 #
-# Exit codes: 0 success; 1 exception; 125 setsid failed; 130 signal.
+# Exit codes: 0 success (also: superseded); 1 exception / bootstrap failure;
+#             124 watchdog (stall bound or hard cap); 125 setsid failed;
+#             130 signal received BEFORE the gated call. A signal received
+#             DURING the call is recorded but the call is left to finish (D6).
+#
+# Every exit path above leaves a worker_exit.json record (field defect D4).
 #
 # NB: bootstrap failures (LoadError/ScriptError from require) are caught too,
 # so the driver always sees a result rather than a silently hung handle.
@@ -79,9 +84,15 @@ end
 delegation = KairosMcp::SkillSets::Agent::StepDelegation.new(session_dir)
 my_token = boot_identity['step_token']
 
-shutdown = { requested: false }
+# Signals are trapped, not honoured mid-flight: a TERM during a multi-minute
+# gated call must not turn a sound advance into a crash-path recovery. The
+# trap only records; who reads the record is decided below (field defect D6).
+shutdown = { requested: false, signals: [] }
 %w[TERM INT HUP].each do |sig|
-  Signal.trap(sig) { shutdown[:requested] = true }
+  Signal.trap(sig) do
+    shutdown[:requested] = true
+    shutdown[:signals] << sig
+  end
 end
 
 begin
@@ -121,9 +132,10 @@ end
 worker_started = Time.now
 stall_s = KairosMcp::SkillSets::Agent::StepDelegation.worker_stall_seconds
 cap_s   = KairosMcp::SkillSets::Agent::StepDelegation.worker_hard_cap_seconds
+tick_s  = KairosMcp::SkillSets::Agent::StepDelegation.worker_watchdog_tick_seconds
 watchdog = Thread.new do
   loop do
-    sleep 30
+    sleep tick_s
     elapsed = (Time.now - worker_started).round
     silent  = (Time.now - delegation.last_activity_time).round
     if elapsed > cap_s
@@ -137,6 +149,34 @@ watchdog = Thread.new do
                                    'silent_seconds' => silent)
       exit!(124)
     end
+  end
+end
+
+# Field defect D6 (2026-08-27): the shutdown flag used to be read exactly once,
+# just before the gated call, so a TERM/INT/HUP that landed DURING the call —
+# which can run for minutes — was trapped, set a flag nobody read again, and
+# left no record; the worker then finished and reported 'normal'. The usual
+# shutdown sequence is TERM, then KILL after a grace period, so that worker
+# vanished with 'no_record'. The call is still left to finish (see the trap
+# comment above), but the signal is now recorded the moment it lands: an
+# interim 'trapped_signal' exit record with phase 'during_gated_call'. If the
+# worker survives to its own exit, the final record supersedes it and carries
+# the signal list; if it is killed first, the interim record is what the
+# collector's crash report finds. Recording from a thread rather than inside
+# the trap keeps file I/O out of trap context.
+call_phase = { active: false }
+signal_recorder = Thread.new do
+  seen = 0
+  loop do
+    sleep 0.25
+    sigs = shutdown[:signals]
+    next unless sigs.size > seen
+    seen = sigs.size
+    next unless call_phase[:active]
+    delegation.write_worker_exit(boot_identity, 'trapped_signal',
+                                 'phase' => 'during_gated_call',
+                                 'signals' => sigs.dup,
+                                 'note' => 'gated call left to finish; the final exit record supersedes this one')
   end
 end
 
@@ -177,12 +217,16 @@ begin
   args.delete('execution') # never recurse into another delegation
 
   if shutdown[:requested]
-    delegation.write_worker_exit(boot_identity, 'trapped_signal')
+    delegation.write_worker_exit(boot_identity, 'trapped_signal',
+                                 'phase' => 'before_gated_call',
+                                 'signals' => shutdown[:signals].dup)
     exit 130
   end
 
   registry = KairosMcp::ToolRegistry.new
+  call_phase[:active] = true
   raw = registry.call_tool('agent_step', args)
+  call_phase[:active] = false
 
   # Normalize the MCP content shape to the response hash the inline call
   # would have returned.
@@ -201,7 +245,8 @@ begin
   # races a concurrently-opened fresh delegation by clearing state it may no
   # longer own or by mislabeling its result as a newer delegation's.
   delegation.write_result(response, identity: identity)
-  delegation.write_worker_exit(identity, 'normal')
+  signal_detail = shutdown[:signals].empty? ? {} : { 'signals_during_call' => shutdown[:signals].dup }
+  delegation.write_worker_exit(identity, 'normal', signal_detail)
   exit 0
 rescue SystemExit, SignalException
   # A deliberate exit (including our own `exit 0`) or a signal is not a
@@ -221,12 +266,15 @@ rescue Exception => e # rubocop:disable Lint/RescueException
     # best effort
   end
   begin
-    delegation.write_worker_exit(boot_identity, 'uncaught', 'error' => "#{e.class}: #{e.message}")
+    detail = { 'error' => "#{e.class}: #{e.message}" }
+    detail['signals_during_call'] = shutdown[:signals].dup unless shutdown[:signals].empty?
+    delegation.write_worker_exit(boot_identity, 'uncaught', detail)
   rescue StandardError
     # best effort
   end
   exit 1
 ensure
   watchdog&.kill
+  signal_recorder&.kill
   heartbeat_thread&.kill
 end
