@@ -133,9 +133,21 @@ end
 # Impl review R1 (2026-09-02, I5): a watchdog record is a FINAL record, so it
 # carries the signals that landed during the call — otherwise the operator's
 # TERM vanished from the crash report the moment the watchdog superseded the
-# D6 interim record. The phase is cleared first so the recorder cannot
-# overwrite the final record (see call_phase below).
+# D6 interim record.
+#
+# Impl review R2 (2026-09-03, J1): clearing the phase only NARROWED the window
+# in which the recorder, already past its phase check, could rename an interim
+# record over the final one. Every final write now first stops the recorder
+# (kill, then join — join is safe after kill) so the two writers are
+# serialised, not raced. A recorder killed mid-write may leave a
+# worker_exit.json.tmp.* file behind; readers ignore it (they open the
+# renamed file only) and so does the activity clock (last_activity_time).
 call_phase = { active: false }
+signal_recorder = nil # assigned below; the watchdog closes over it
+stop_recorder = lambda do
+  signal_recorder&.kill
+  signal_recorder&.join
+end
 worker_started = Time.now
 stall_s = KairosMcp::SkillSets::Agent::StepDelegation.worker_stall_seconds
 cap_s   = KairosMcp::SkillSets::Agent::StepDelegation.worker_hard_cap_seconds
@@ -153,6 +165,7 @@ watchdog = Thread.new do
     next unless exit_class
 
     call_phase[:active] = false
+    stop_recorder.call
     detail = { 'elapsed_seconds' => elapsed, 'silent_seconds' => silent }
     detail['signals_during_call'] = shutdown[:signals].dup unless shutdown[:signals].empty?
     delegation.write_worker_exit(boot_identity, exit_class, detail)
@@ -176,9 +189,10 @@ end
 # Impl review R1 (I2, I3): `seen` advances ONLY while the phase is active. A
 # signal that lands before the call starts (e.g. inside ToolRegistry.new) is
 # not consumed here — it is either caught by the main thread's re-check below
-# or recorded on the recorder's first active tick. And the phase is cleared by
-# the main thread before EVERY final record (ensure around the call, and again
-# before each write), so the recorder cannot overwrite an `uncaught` record.
+# or recorded on the recorder's first active tick. The phase is cleared by
+# the main thread around the call (ensure) and before each final write; R2 J1
+# then stops this thread (stop_recorder) before every final record, which is
+# what actually prevents it overwriting an `uncaught` / watchdog / normal one.
 signal_recorder = Thread.new do
   seen = 0
   loop do
@@ -268,8 +282,9 @@ begin
   # races a concurrently-opened fresh delegation by clearing state it may no
   # longer own or by mislabeling its result as a newer delegation's.
   delegation.write_result(response, identity: identity)
-  signal_detail = shutdown[:signals].empty? ? {} : { 'signals_during_call' => shutdown[:signals].dup }
   call_phase[:active] = false
+  stop_recorder.call
+  signal_detail = shutdown[:signals].empty? ? {} : { 'signals_during_call' => shutdown[:signals].dup }
   delegation.write_worker_exit(identity, 'normal', signal_detail)
   exit 0
 rescue SystemExit, SignalException
@@ -290,9 +305,10 @@ rescue Exception => e # rubocop:disable Lint/RescueException
     # best effort
   end
   begin
+    call_phase[:active] = false
+    stop_recorder.call
     detail = { 'error' => "#{e.class}: #{e.message}" }
     detail['signals_during_call'] = shutdown[:signals].dup unless shutdown[:signals].empty?
-    call_phase[:active] = false
     delegation.write_worker_exit(boot_identity, 'uncaught', detail)
   rescue StandardError
     # best effort

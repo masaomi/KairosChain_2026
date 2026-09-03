@@ -2134,12 +2134,23 @@ module KairosMcp
           # overall_verdict keys — one per persona block plus the panel's — and
           # the panel's is the one nested least deeply. Occurrences are
           # therefore emitted in ascending order of how many objects enclose
-          # them (text order within a depth; innermost object first for one
-          # occurrence), so the top-level verdict beats a per-persona one.
-          # (I6): when NO span encloses an occurrence — an odd quote on the same
-          # line made the scanner read the JSON as a string — the pre-D5-b
-          # nearest-brace walk-back is appended for that occurrence, so the
-          # candidate set stays a strict superset of the earlier scanner's.
+          # them (innermost object first for one occurrence), so the top-level
+          # verdict beats a per-persona one.
+          # Impl review R2 (2026-09-03, J3): within one depth, the occurrence
+          # whose innermost enclosing object is LARGEST goes first — persona
+          # objects written as prose siblings of the panel object sit at the
+          # panel key's depth, and the panel object is the one that carries
+          # the findings. Text order is only the final tie-break.
+          # (I6, reworked by R2 J2): when NO span of the whole-reply pass
+          # encloses an occurrence — an odd quote earlier on the same line made
+          # the scanner read the JSON as a string — the string-aware scan is
+          # re-run from each '{' on that line before the key (that start is
+          # outside any string), and the spans it finds enclosing the key are
+          # routed into the depth buckets like any other. Only when that too
+          # finds nothing is the pre-D5-b nearest-brace walk-back appended for
+          # the occurrence, so coverage is a superset of main's for unenclosed
+          # occurrences (an odd-quote line inside an enclosing invalid brace
+          # pair still falls to the fallback, fail-safe).
           def extract_json_candidates(content)
             begin
               JSON.parse(content)
@@ -2155,24 +2166,48 @@ module KairosMcp
             by_depth = Hash.new { |h, k| h[k] = [] }
             unenclosed = []
             search_from = 0
+            seq = 0
             while (key_at = content.index('"overall_verdict"', search_from))
               enclosing = spans.select { |open_at, close_at| open_at < key_at && close_at > key_at }
+              enclosing = line_anchored_enclosing_spans(content, key_at) if enclosing.empty?
               if enclosing.empty?
                 unenclosed << nearest_brace_candidate(content, key_at)
               else
                 # Innermost first within one occurrence: the smallest enclosing
                 # object is the one whose top level carries the key.
-                enclosing.sort_by { |open_at, close_at| close_at - open_at }.each do |open_at, close_at|
-                  by_depth[enclosing.size] << content[open_at..close_at]
-                end
+                ordered = enclosing.sort_by { |open_at, close_at| close_at - open_at }
+                innermost_size = ordered.first[1] - ordered.first[0]
+                by_depth[enclosing.size] << [innermost_size, seq, ordered.map { |o, c| content[o..c] }]
               end
               search_from = key_at + 1
+              seq += 1
             end
-            by_depth.keys.sort.each { |depth| candidates.concat(by_depth[depth]) }
+            by_depth.keys.sort.each do |depth|
+              by_depth[depth].sort_by { |size, at, _| [-size, at] }.each { |_, _, objs| candidates.concat(objs) }
+            end
             candidates.concat(unenclosed)
 
             candidates << Regexp.last_match(1) if content =~ /(\{.*\})/m
             candidates.compact.uniq
+          end
+
+          # R2 J2: spans enclosing key_at found by re-running the string-aware
+          # scan from each '{' on the key's line that precedes it, earliest
+          # first. Starting at a brace puts the scanner outside any string, so
+          # an odd quote earlier on the line cannot hide the object; spans are
+          # shifted back to whole-content indices and de-duplicated.
+          def line_anchored_enclosing_spans(content, key_at)
+            line_start = (content.rindex("\n", key_at) || -1) + 1
+            found = []
+            b = content.index('{', line_start)
+            while b && b < key_at
+              balanced_object_spans(content[b..]).each do |open_at, close_at|
+                span = [open_at + b, close_at + b]
+                found << span if span[0] < key_at && span[1] > key_at
+              end
+              b = content.index('{', b + 1)
+            end
+            found.uniq
           end
 
           # The pre-D5-b candidate for one key occurrence: walk back to the

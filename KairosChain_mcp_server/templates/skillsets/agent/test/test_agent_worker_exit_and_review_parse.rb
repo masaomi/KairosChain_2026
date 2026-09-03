@@ -251,7 +251,11 @@ class TestStallActivityClock < Minitest::Test
     File.write(content, 'x')
     File.utime(old, old, content)
     @delegation.write_worker_exit({ 'step_token' => 'tok-1' }, 'trapped_signal', 'phase' => 'during_gated_call')
-    File.write(File.join(@dir, "worker_exit.json.tmp.#{Process.pid}.123"), '{}')
+    # The temp name comes from the writer itself (R2 J6), so a renamed
+    # temp scheme cannot leave this test guarding a name nobody writes.
+    tmp = @delegation.send(:atomic_tmp_path, File.join(@dir, StepDelegation::WORKER_EXIT_FILE))
+    assert tmp.start_with?(File.join(@dir, StepDelegation::WORKER_EXIT_FILE) + StepDelegation::ATOMIC_TMP_INFIX)
+    File.write(tmp, '{}')
 
     assert_in_delta old.to_f, @delegation.last_activity_time.to_f, 5.0
   end
@@ -432,14 +436,85 @@ class TestReviewParseHardening < Minitest::Test
   end
 
   # I6 — an odd quote on the SAME line as the JSON. The string-aware scan
-  # reads `" wide: {"` as a string, so no span encloses the key; main's
-  # nearest-brace walk-back parsed this shape, so it is kept as the candidate
-  # of last resort for exactly that case (coverage stays a superset of main).
+  # reads `" wide: {"` as a string, so no span encloses the key. The
+  # line-anchored re-scan (below) places it; failing that, main's
+  # nearest-brace walk-back is the candidate of last resort, so coverage is
+  # a superset of main's for unenclosed occurrences.
   def test_same_line_unbalanced_quote_before_the_json_still_parses
     content = DECOY_FENCE +
               "The tool is 5\" wide: {\"overall_verdict\": \"approve\"}\n"
     r = parse(content)
     assert_equal 'APPROVE', r[:overall_verdict]
+    refute r[:parse_error]
+  end
+
+  # ---- impl review R2 (2026-09-03): J2 — the I6 walk-back re-enabled I4 ----
+
+  # An odd quote on the JSON's line makes the whole-reply scan read every
+  # brace as string content, so ALL occurrences are unenclosed and each fell
+  # to the nearest-brace walk-back — which for the first occurrence is a
+  # persona's own object: APPROVE where the panel said reject, parse_error
+  # false (20db628 failed safe on this shape). The fix re-runs the
+  # string-aware scan from each '{' on the key's line, which starts it
+  # outside any string, and routes the spans found into the depth buckets.
+  def test_odd_quote_line_with_persona_blocks_still_picks_the_panel_verdict
+    content = DECOY_FENCE +
+              'Panel verdict (5" rule): ' \
+              '{"personas": {"pragmatic": {"overall_verdict": "approve"}, ' \
+              '"security": {"overall_verdict": "reject"}}, ' \
+              '"overall_verdict": "reject", "key_findings": ["no rollback"]}' + "\n"
+    r = parse(content)
+    assert_equal 'REJECT', r[:overall_verdict]
+    assert_equal ['no rollback'], r[:key_findings]
+    refute r[:parse_error]
+  end
+
+  def test_odd_quote_line_with_a_nested_summary_verdict_still_picks_the_top_level
+    content = DECOY_FENCE +
+              'Verdict (5" rule): ' \
+              '{"summary": {"overall_verdict": "n/a"}, "overall_verdict": "REJECT", "key_findings": []}' + "\n"
+    r = parse(content)
+    assert_equal 'REJECT', r[:overall_verdict]
+    refute r[:parse_error]
+  end
+
+  # ---- impl review R2: J3 — same-depth tie-break ----
+
+  # Within one depth bucket the occurrence whose innermost enclosing object
+  # is LARGEST goes first; text order is only the final tie-break. Persona
+  # objects written as prose siblings of the panel object sit at the same
+  # depth as the panel's key, and the first in text order used to win.
+  def test_same_depth_prose_siblings_prefer_the_largest_object
+    content = DECOY_FENCE +
+              "pragmatic: {\"overall_verdict\": \"approve\"}\n" \
+              "security: {\"overall_verdict\": \"approve\"}\n" \
+              "panel: {\"overall_verdict\": \"reject\", \"key_findings\": [\"no rollback\"]}\n"
+    r = parse(content)
+    assert_equal 'REJECT', r[:overall_verdict]
+    assert_equal ['no rollback'], r[:key_findings]
+    refute r[:parse_error]
+  end
+
+  # Guard (green before the tie-break too — the depth order already places
+  # the panel key above persona keys that sit inside its array): the panel
+  # key before an array of persona objects.
+  def test_panel_verdict_before_an_array_of_persona_objects
+    content = DECOY_FENCE +
+              "Verdict:\n" \
+              '{"panel": "x", "overall_verdict": "reject", ' \
+              '"personas": [{"overall_verdict": "approve"}, {"overall_verdict": "approve"}]}' + "\n"
+    r = parse(content)
+    assert_equal 'REJECT', r[:overall_verdict]
+    refute r[:parse_error]
+  end
+
+  # Guard (same reason): persona objects in an array BEFORE the panel key.
+  def test_panel_verdict_after_an_array_of_persona_objects
+    content = DECOY_FENCE +
+              "Panel verdict follows:\n" \
+              '{"personas": [{"overall_verdict": "approve"}], "overall_verdict": "reject"}' + "\n"
+    r = parse(content)
+    assert_equal 'REJECT', r[:overall_verdict]
     refute r[:parse_error]
   end
 

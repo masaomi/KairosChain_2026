@@ -71,6 +71,11 @@ module KairosMcp
 
         WORKER_SCRIPT = File.expand_path('../../bin/agent_step_worker.rb', __dir__)
 
+        # atomic_write's temp file is "<path>.tmp.<pid>.<thread>"; the infix
+        # is shared with last_activity_time's exclusion (and the test that
+        # pins it) so the three cannot drift apart.
+        ATOMIC_TMP_INFIX = '.tmp.'
+
         def initialize(session_dir)
           @dir = session_dir
           FileUtils.mkdir_p(@dir)
@@ -272,7 +277,7 @@ module KairosMcp
             base = File.basename(f)
             next if base.start_with?(HEARTBEAT_FILE)
             next if base == LOCK_FILE || base.end_with?('.lock')
-            next if base == WORKER_EXIT_FILE || base.start_with?("#{WORKER_EXIT_FILE}.tmp.")
+            next if base == WORKER_EXIT_FILE || base.start_with?("#{WORKER_EXIT_FILE}#{ATOMIC_TMP_INFIX}")
             t = begin
               File.mtime(f)
             rescue StandardError
@@ -420,9 +425,13 @@ module KairosMcp
         end
 
         def atomic_write(path, content)
-          tmp = "#{path}.tmp.#{Process.pid}.#{Thread.current.object_id}"
+          tmp = atomic_tmp_path(path)
           File.write(tmp, content)
           File.rename(tmp, path)
+        end
+
+        def atomic_tmp_path(path)
+          "#{path}#{ATOMIC_TMP_INFIX}#{Process.pid}.#{Thread.current.object_id}"
         end
 
         def clear_all_heartbeats

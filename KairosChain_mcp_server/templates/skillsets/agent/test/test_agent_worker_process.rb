@@ -250,25 +250,21 @@ class TestWorkerProcess < Minitest::Test
   # advanced while the phase was inactive — and never recorded; the worker ran
   # the call and, under the usual TERM-then-KILL sequence, vanished with
   # `no_record` (D6's own symptom, one window over). Now the worker re-checks
-  # the flag after bootstrap and takes the before_gated_call exit; should the
-  # call start anyway, the recorder records the signal once the phase is
-  # active. Either record satisfies this probe; none did before.
+  # the flag after bootstrap and takes the before_gated_call exit. The fake
+  # registry sleeps 0.3 s after the TERM, so the trap has run by the time the
+  # re-check reads the flag: this probe demands THAT branch (R2 J5) — a
+  # during_gated_call interim record would mean the re-check is gone.
   def test_signal_during_registry_bootstrap_leaves_a_record
     spawn_worker('term_at_registry_init:6')
-    wait_until('a trapped_signal record (pre-call exit or interim)', timeout: 8) do
-      rec = exit_record
-      rec && rec['exit_class'] == 'trapped_signal'
-    end
+    status = wait_exit(timeout: 10)
+    assert_equal 130, status.exitstatus, worker_log
     rec = exit_record
+    assert_equal 'trapped_signal', rec['exit_class']
+    assert_equal 'before_gated_call', rec['phase']
     assert_equal ['TERM'], rec['signals']
     assert_equal @token, rec['step_token']
-    assert_includes %w[before_gated_call during_gated_call], rec['phase']
-    if rec['phase'] == 'before_gated_call'
-      status = wait_exit(timeout: 10)
-      assert_equal 130, status.exitstatus, worker_log
-      assert_nil @delegation.result
-      refute File.exist?(marker_path), 'the gated call must not have run'
-    end
+    assert_nil @delegation.result
+    refute File.exist?(marker_path), 'the gated call must not have run'
   end
 
   def test_bootstrap_failure_leaves_a_hand_written_record_and_an_error_result
@@ -335,7 +331,9 @@ class TestWorkerProcess < Minitest::Test
     fired_after = Time.now - call_started
     assert_equal 124, status.exitstatus, worker_log
     assert_equal 'self_timeout_stalled', exit_record['exit_class']
-    assert_operator fired_after, :<, 5.5,
+    # Bound 6.0 s (R2 J6): still discriminates against the pre-fix 7.1 s,
+    # with the slack over the ~4.0 s expected firing doubled from 1.5 to 2.0.
+    assert_operator fired_after, :<, 6.0,
                     "stall fired +#{fired_after.round(2)} s after the call started; " \
                     'the interim exit record must not count as session activity'
   end
