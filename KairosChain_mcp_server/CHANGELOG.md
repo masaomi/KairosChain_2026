@@ -4,6 +4,54 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.84.0] - 2026-09-03
+
+### Fixed — agent: second field-defect bundle (D5-b, D6, exit-record housekeeping), real-process worker tests
+
+`agent` SkillSet templates only; the at-most-once advance gate (`lib/agent/advance_gate.rb`) is
+byte-identical to 3.83.0 and the normal path writes the same records with the same content.
+
+**D5-b — the review-verdict parser lost to nested objects and braces inside strings.** The old
+candidate scan walked back to the nearest `{` before `"overall_verdict"` and counted braces with no
+notion of strings, so `{"summary": {"a": 1}, "overall_verdict": …}` yielded the sibling `{"a": 1}`
+and a `}` inside a string value corrupted the depth count. Candidates now come from one string-aware
+forward pass over the reply; for each key occurrence they are emitted by enclosing depth ascending
+(so a panel's top-level verdict beats a per-persona one), with a size tie-break within a depth; an
+occurrence no span encloses (an odd quote on the same line) gets a line-anchored string-aware scan,
+and the old nearest-brace walk-back only as the candidate of last resort. Fence and crude fallbacks
+are unchanged.
+
+**D6 — a TERM/INT/HUP during the gated call left no record.** The shutdown flag was read once before
+the call; a signal landing during a minutes-long call was swallowed and, under the usual TERM-then-KILL
+sequence, the worker vanished as `no_record`. A recorder thread now writes an interim `trapped_signal`
+record (`phase: during_gated_call`) the moment a signal lands while the call is active; the final
+`normal` / `uncaught` / watchdog record supersedes it and carries `signals_during_call`. The call is
+still left to finish (aborting it would turn a sound advance into a crash-path recovery); no result
+file is written on any signal path. The flag is re-checked after tool-registry bootstrap, so a signal
+in that window exits 130 with a `before_gated_call` record; the recorder is stopped before every
+final write so it cannot overwrite a final record; and the exit record (and its atomic-write temp
+file) no longer counts as session activity — before this fix a TERM to a hung worker pushed the
+stall bound out by a full stall window (measured +4.0 s → +7.1 s with stall=3).
+
+**Housekeeping.** A fresh delegation handle removes the previous worker's `worker_exit.json`
+(readers already filtered by token; the file lingered). New env knob
+`KAIROS_WORKER_WATCHDOG_TICK_SECONDS` (default 30, floor 1) sets how often the watchdog re-evaluates
+its two bounds — the default is unchanged; the knob exists so real-process tests can drive both
+bounds in seconds.
+
+**Not changed, by evidence.** D3 (read-side queries blocked during a delegated run) is MCP stdio
+serialisation in the server's request loop, not the SkillSet; mitigation today is a short
+`max_wait_seconds` on `agent_wait`. D7 (a GVL-holding call starving the watchdog) did not reproduce:
+every blocking primitive on the worker's path releases the GVL (probe table in the implementation log).
+
+**Tests.** New `test_agent_worker_process.rb` starts the shipped worker script as a real child
+process and drives 7 of its 8 exit classes (normal, uncaught, superseded, signal before the call,
+bootstrap failure, stall bound, hard cap) plus the D6 interim record, a TERM to a hung worker, a TERM
+inside registry bootstrap, and signals carried on a watchdog record. Agent suite 96 runs / 209
+assertions → 131 / 345; every fix has a test shown red on the pre-fix code (one exception recorded:
+the recorder-serialisation window is sub-millisecond and has no deterministic test). Reviewed in two
+implementation rounds (7 seats each); records in the instance's L2 store.
+
 ## [3.83.0] - 2026-09-01
 
 ### Added — readable_gate measures sentence length
