@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.11.0"
+version: "3.12.0"
 tags:
   - workflow
   - review
@@ -89,6 +89,62 @@ Skipping Step 0 leads to misreading reviewer output — in particular, treating
 Codex (c)-class value-divergent REJECTs as blocking, which causes review loops to
 fail to converge. The cross-reference exists in `related:` frontmatter; this step
 makes it an explicit pre-condition rather than an implicit hint.
+
+## Step 0.1 — Measured seat characteristics (corpus 2026-08-03 .. 2026-09-03)
+
+Qualitative per-model profiles stay in `multi_llm_reviewer_evaluation`. What
+follows is the counted complement: seat behaviour as it actually occurred, so
+seat selection is a lookup rather than a recollection. A **seat** is one
+reviewer slot in one run.
+
+Corpus: 138 completed runs in the local run store, 556 seat observations, 5286
+findings (P0 1473 / P1 560 / P2 2994 / P3 259). Run types: design 54,
+implementation 60, document 24. Extraction script `log/mlr_extract/extract.py`
+lives in the development repository and does not ship; re-run it to refresh
+these numbers.
+
+| Seat | Runs | APPROVE rate design / impl / doc | Median wall s | Median output chars | (c) share, labelled only |
+|---|---|---|---|---|---|
+| `claude_cli_opus4.6` | 134 | 64% (31/48) / 71% (27/38) / 86% (20/23) | 54 | 4,536 | 70% (19/27) |
+| `cursor_composer2.5` | 138 | 13% (7/51) / 48% (24/50) / 25% (6/24) | 133 | 3,795 | 100% (2/2) |
+| `codex_gpt5.6-sol` | 138 | 1% (1/54) / 11% (7/60) / 4% (1/24) | 113 | 2,038 | 3% (5/140) |
+| `claude_team_opus-5` (persona) | 131 | 0% (0/51) / 12% (7/56) / 0% (0/22) | not measured per seat | 11,512 | 27% (374/1362) |
+
+Selection consequences, each tied to the number above it:
+
+- **A `codex` APPROVE carries the most information and an `opus4.6` APPROVE the
+  least.** Codex approves 1 design review in 54 and pairs that with the lowest
+  advisory rate in the corpus (5 of 140 labelled findings). Opus4.6 approves 20
+  document reviews in 23 while 19 of its 27 labelled findings are advisory. Seat
+  both, read them differently: the `3/5 APPROVE` threshold is met, in practice,
+  with opus4.6's vote already inside it, so the live question is whether two of
+  the remaining three agree.
+- **Volume anti-correlates with signal.** The persona seat raises 3,249 of the
+  5,286 findings (61%) and 27% of its labelled ones are advisory. Seat personas
+  when breadth is wanted; do not seat them to obtain a verdict.
+- **Design draws roughly seven times the P0 of implementation** — median 14 P0
+  per design-medium run against 2 per implementation-high run. Budget rounds
+  accordingly; a design round returning two P0 is anomalous, not clean.
+- **Dropping a seat does not shorten the round.** Seats run concurrently, so
+  wall-clock is the slowest seat (median 179 s per run against 300–400 s summed
+  across seats). Removing the 54 s seat saves nothing.
+- **Loops do not converge on their own.** Of 29 artifacts reviewed more than
+  once, the last round was REVISE in 26 and APPROVE in 3; rounds per loop median
+  3, maximum 12. P0 counts are not monotone: `chain_history_erasure_fix` ran
+  25, 25, 21, 14, **38**, 29, 26, 13 across rounds 1–8, and
+  `ruby_association_grant_2026_application_ja` returned APPROVE at round 8 with
+  3 P0 and then 23 P0 at round 9. Treat a single APPROVE as an observation, not
+  as a close — § Convergence Rules already requires the operator's declaration.
+
+Two limits of this corpus, both open:
+
+- **Findings are not deduplicated across seats.** `cited_by` had exactly one
+  entry in 5,286 of 5,286 findings, so agreement between seats is not derivable
+  from the store, and the (c) shares above are per-seat rates rather than
+  contested classifications.
+- **(a)/(b)/(c) labels are present on 1,622 of 5,286 findings (31%)**, and
+  `cursor` labelled 2 of its 730. Classification is applied unevenly by the
+  seats, so the shares are computed over labelled findings only.
 
 ## Step 0.25 — Unknowns Pass (pre-draft, qualifying reviews only)
 
