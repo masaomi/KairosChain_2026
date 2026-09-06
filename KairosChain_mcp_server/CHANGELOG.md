@@ -4,6 +4,83 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.85.0] - 2026-09-06
+
+### Changed — multi-LLM review: high effort by default, gpt-6-astra seats, gpt-5.5 retires
+
+Templates only: `multi_llm_review/config/multi_llm_review.yml`, L1
+`multi_llm_review_workflow` 3.12.0 → 3.13.0. No library code.
+
+**Effort.** Every seat that has an effort control now runs at `high`, at every
+complexity level, so `effort_map` is a constant rather than a function of complexity.
+Claude CLI takes `--effort high`, codex takes `-c model_reasoning_effort=high`, Cursor
+takes nothing — `cursor_adapter` builds no effort flag, so a value set for a cursor
+entry would be recorded and never sent. Both the roster defaults and `effort_map` are
+set, because `effort_map` overrides the roster per dispatch and an entry left at
+`medium` would be silently raised. `high` rather than `xhigh`/`max` because it is the
+ceiling the two providers share (Claude CLI accepts low/medium/high/xhigh/max, codex
+accepts minimal/low/medium/high), and a roster split across incomparable settings is
+worth less than a lower common one.
+
+This supersedes the 2026-04-29 default-effort policy. That policy rested on one
+low-vs-high measurement — 8.35 vs 8.16 — taken on the Opus 4.6 / 4.7 generation, on
+none of the models now in the roster. It was not re-measured, so the supersession is a
+judgement and a later measurement could reverse it. Cost is measured and rises:
+gpt-6-astra spent 8,274 tokens at high against 3,150 at its default on one identical
+one-line prompt.
+
+**Roster.** `codex_gpt6-astra` replaces `codex_gpt5.6-sol`, verified before the swap
+through the flags `codex_adapter` actually builds. `codex_gpt5.5` retires in the same
+edit and is not replaced: it had been commented out of the instance roster since
+2026-07-30 "for round R10 only" and never restored, so the calibrated
+cross-generation anchor role had already lapsed for five weeks. Codex now holds one
+slot and it is uncalibrated. Roster 5 → 4, so `convergence_rule` moves 3/5 → 3/4 and
+`convergence_rule_after_exclusion` 3/4 → 2/3, both on the same ceil(N × 0.6) basis and
+both reference figures rather than gates. Three calibration warnings are recorded in
+the L1: the 138-run seat profile is gpt-5.6-sol's and does not transfer; that corpus
+was gathered at medium effort; and it was gathered on a 5-seat roster.
+
+### Fixed — three documents called the APPROVE ratio the closing condition
+
+A round closes on the exhaustion of (a)+(b) findings, declared by the operator, with
+new (a)+(b) P0 = 0 as the machine-side signal. The tooling has said so since v0.7
+INV-R2 named the field `reference_verdict` and v0.10.1 renamed `convergence` to
+`vote_tally`. Three documents had not caught up, and they are the ones actually read.
+
+L1 `multi_llm_reviewer_evaluation` 1.5 → 1.6. § Convergence Rule (Updated) stated
+`3/4 APPROVE = proceed to next step` and `4/4 APPROVE = merge-ready` with no note that
+the ratio is a reference value — while L1 `multi_llm_review_workflow` names this very
+section as the normative detail it defers to. The document saying "the ratio is not
+the primary close" pointed at a document saying it was. The closing condition is now
+stated first, the one blocking rule (any (a)/(b) REJECT) is separated from the
+reference figures, and the two facts that make the ratio unusable as a criterion sit
+in the section: Codex went 24 of 24 reviews without APPROVE on one design loop, and
+both 2026-08 threads closed by (a)+(b) exhaustion without reaching their ratio.
+
+L1 `design_to_implementation_workflow` 1.1 → 1.2. `merge gate: 3/3 APPROVE =
+merge-ready` and `Merge criteria: 3/3 APPROVE with 0 FAIL` replaced by the closing
+condition; the anti-pattern list gains reading an APPROVE count as the closing
+condition, naming this document as having carried it. The reviewer lineup written here
+("3 reviewers: Opus 4.6 + Codex GPT-5.4 + Composer-2") is deleted rather than
+corrected — it had been wrong since 2026-04-19, and a roster copied into a second
+document goes stale silently.
+
+`agent` SkillSet: the bundle handed to reviewers opened "aggregate per the convergence
+rule below" followed by the bare ratio. The heading no longer calls it a convergence
+rule, a Closing condition section states what actually closes a round, and the ratio
+is labelled "Reference ratio (recorded, never sufficient on its own)".
+
+Surviving uses of "merge gate" name the stage and its reviewer lineup, not a ratio,
+and stay.
+
+**Not reviewed by multi-LLM review**, at the operator's explicit instruction — the
+change is a seat swap plus wording, and a round would have cost hours. Verification is
+this agent's own and is not an independent judgement: YAML load of both configs, the
+three CLI invocations run for real (gpt-6-astra and both Claude models answered at
+high, with the model echoed back), `ruby -c` on `agent_step.rb`, multi_llm_review 556
+runs / 1,809 assertions and agent 21 checks, all passing. No test asserts the reviewer
+prompt wording, so that one line is unguarded.
+
 ## [3.84.0] - 2026-09-03
 
 ### Fixed — agent: second field-defect bundle (D5-b, D6, exit-record housekeeping), real-process worker tests
