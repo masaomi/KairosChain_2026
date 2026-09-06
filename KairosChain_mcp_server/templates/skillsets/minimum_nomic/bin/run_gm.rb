@@ -48,6 +48,12 @@
 #   ruby bench/minimum_nomic/run_gm.rb --out /tmp/smoke --turns 2   # smoke
 #   ruby bench/minimum_nomic/check_gm.rb log/minimum_nomic_gm_20260810/g3 --falsify
 #
+# Seating a different model, or a different provider in turn control:
+#   --codex-model gpt-6-astra --codex-effort high      # B seat
+#   --gm-adapter codex --gm-model gpt-6-astra --gm-effort high
+# Both go into the lineup, so a game says which generation played without the
+# reader having to know when this file was edited.
+#
 # One directory per game, and a fresh one every time: the run refuses to start
 # when the target already holds records. The games themselves are never
 # committed — this file is tracked, the corpus under log/ is not.
@@ -120,10 +126,47 @@ LC = KairosMcp::SkillSets::LlmClient
 # Read from ARGV here rather than in the option parser at the foot of the file,
 # because PLAYER_SPECS is a constant that the prompts and the lineup are built
 # from and it has to exist before either.
+# Which model sits in the claude seat is also a run parameter, for the same
+# reason. The 61-game corpus of 2026-08 was produced by editing the constant
+# below in place, so "which generation played" is recoverable only from each
+# game's own lineup row and never from this file's history. --claude-model and
+# --claude-effort put that choice on the command line and therefore in the
+# lineup. Defaults are unchanged, so an unflagged run stays comparable.
+def arg_after(flag)
+  i = ARGV.index(flag)
+  i && ARGV[i + 1] && !ARGV[i + 1].start_with?('--') ? ARGV[i + 1] : nil
+end
+
+CLAUDE_SEAT_MODEL  = arg_after('--claude-model')  || 'claude-opus-5'
+CLAUDE_SEAT_EFFORT = arg_after('--claude-effort') || 'high'
+GM_MODEL           = arg_after('--gm-model')      || 'claude-opus-5'
+GM_EFFORT          = arg_after('--gm-effort')     || 'high'
+
+# The codex seat carries a model name for the same reason the claude seat does.
+# gpt-5.6-sol sat there through the whole 2026-08 corpus and was written into
+# the constant, so seating a later generation meant editing this file, and the
+# edit left no trace anywhere except in each game's own lineup row. The effort
+# default stays nil rather than becoming a level, because every stored game ran
+# this seat without one and a default would silently change what "unflagged"
+# means.
+CODEX_SEAT_MODEL   = arg_after('--codex-model')   || 'gpt-5.6-sol'
+CODEX_SEAT_EFFORT  = arg_after('--codex-effort')
+
+# The game master's ADAPTER, not only its model. Turn control ran on claude_code
+# in every stored game, so "can a different provider hold turn control" cannot
+# be asked by changing the model name alone: a codex model name handed to the
+# claude_code adapter reaches a CLI that cannot serve it, and the run then
+# measures the mismatch instead of the model. Moving both together is the only
+# form of the question that has an answer. The adapter is recorded in the
+# lineup beside the model, so a reader never has to infer it from the name.
+GM_ADAPTER         = arg_after('--gm-adapter')    || 'claude_code'
+
 SEAT_POOL = {
-  'cursor'      => { adapter: 'cursor',      model: 'composer-2.5',  effort: nil    },
-  'codex'       => { adapter: 'codex',       model: 'gpt-5.6-sol',   effort: nil    },
-  'claude_code' => { adapter: 'claude_code', model: 'claude-opus-5', effort: 'high' }
+  'cursor'      => { adapter: 'cursor',      model: 'composer-2.5',      effort: nil },
+  'codex'       => { adapter: 'codex',       model: CODEX_SEAT_MODEL,
+                     effort: CODEX_SEAT_EFFORT },
+  'claude_code' => { adapter: 'claude_code', model: CLAUDE_SEAT_MODEL,
+                     effort: CLAUDE_SEAT_EFFORT }
 }.freeze
 
 DEFAULT_SEAT_ORDER = %w[cursor codex claude_code].freeze
@@ -141,7 +184,17 @@ PLAYER_SPECS = SEAT_ORDER.each_with_index.map do |key, i|
   { id: %w[A B C].fetch(i) }.merge(SEAT_POOL.fetch(key))
 end.freeze
 
-GM_SPEC = { id: 'GM', adapter: 'claude_code', model: 'claude-opus-5', effort: 'high' }.freeze
+GM_SPEC = { id: 'GM', adapter: GM_ADAPTER, model: GM_MODEL, effort: GM_EFFORT }.freeze
+
+# Who can reach this run's own record, over every participant rather than over
+# the players alone. claude_code is the only contained adapter: it is chdired
+# to an empty directory with no tools, so the record is not under its cwd and
+# it has nothing to open it with. codex has a read-only sandbox rooted at the
+# project root and cursor has no sandbox flag at all, so either one can read
+# the record from any seat — the game master's included. Used by the lineup.
+ALL_PARTICIPANTS = (PLAYER_SPECS + [GM_SPEC]).freeze
+CONTAINED   = ALL_PARTICIPANTS.select { |s| s[:adapter] == 'claude_code' }.freeze
+UNCONTAINED = ALL_PARTICIPANTS.reject { |s| s[:adapter] == 'claude_code' }.freeze
 
 # The analyst roster equals the player roster (v0.8 §6), so self-analysis is
 # part of the output and is recorded as such.
@@ -420,11 +473,47 @@ class Run
   def call!
     load_initial_rules!
     write_lineup!
+    probe_identity!('before_game')
     halt = play!
+    probe_identity!('after_game')
     analyse! unless @utterances.empty?
     write_summary!(halt)
     @recorder.close
     halt
+  end
+
+  # ── identity probe ──────────────────────────────────────────────────────────
+  #
+  # Asks each seat, in its own words, which model it is — once before the game
+  # and once after. This is SELF-REPORT and is recorded as such: a model that
+  # was silently re-routed has no way to know it, and a model that was not can
+  # still name itself wrongly. It is kept because it is the answer a reader
+  # would otherwise assume, and having it written down beside the transport's
+  # account makes the two comparable instead of leaving one of them imagined.
+  # The transport account (`model_observed` on every call) is the evidence.
+  #
+  # It is a separate call and touches no player or game-master prompt. Putting
+  # "say which model you are" into the game prompt would tell a player
+  # something about itself that no stored game told its players, and every
+  # game recorded before this would stop being comparable.
+  IDENTITY_PROBE = <<~P.strip
+    Which model are you? Reply with the exact model identifier you were invoked
+    as, on one line, and nothing else.
+  P
+
+  def probe_identity!(when_label)
+    (PLAYER_SPECS + [GM_SPEC]).each do |spec|
+      reply = call_llm(spec, [{ 'role' => 'user', 'content' => IDENTITY_PROBE }],
+                       kind: 'probe', purpose: "identity_#{when_label}")
+      @recorder.write('identity_probes', {
+        'at' => now_stamp, 'party' => spec[:id], 'when' => when_label,
+        'requested_model' => spec[:model], 'effort' => spec[:effort],
+        'self_reported' => reply&.strip,
+        'evidential_status' => 'self-report; not evidence of which model answered. ' \
+                               'See model_observed on the matching row in calls.jsonl'
+      })
+      puts "probe #{when_label}: #{spec[:id]} (#{spec[:model]}) said #{reply&.strip.inspect}"
+    end
   end
 
   private
@@ -485,6 +574,51 @@ class Run
       row['output_tokens'] = res['output_tokens']
       row['token_absence_reason'] =
         "the #{spec[:adapter]} adapter returns no usage counts" if res['input_tokens'].nil?
+
+      # WHICH MODEL ACTUALLY ANSWERED. `model` above echoes the request; these
+      # fields are the transport's own account of what produced the output
+      # tokens, taken from the CLI's modelUsage envelope. They exist because a
+      # request can be served by a different model than the one asked for —
+      # a safety re-route, a fast-mode substitution, a CLI fallback — and
+      # nothing else in this record would show it. A seat's identity is then a
+      # measured fact per call rather than a claim made once in the lineup.
+      #
+      # Only the claude_code adapter reports this; the codex and cursor CLIs
+      # return no usage envelope, so their rows carry the reason instead of a
+      # silent nil.
+      row['model_observed'] = res['model_observed']
+      row['model_usage'] = res['model_usage']
+      row['fast_mode_state'] = res['fast_mode_state']
+      row['api_error_status'] = res['api_error_status']
+
+      # `model_observed` is the adapter's guess: the envelope entry with the
+      # most output tokens. It is wrong for short replies. The CLI places an
+      # internal helper call (claude-haiku, ~10-17 output tokens against a
+      # fixed ~918-token input) beside the main one, so a reply of a dozen
+      # tokens loses the comparison to the helper and the call is attributed
+      # to a model that answered nothing. Measured on the 2026-09-02 smoke
+      # run: 3 of 7 claude calls misattributed this way, all three of them
+      # one-line replies, while the 5,691-token analysis was attributed
+      # correctly.
+      #
+      # `model_served_request` does not compare sizes. It asks whether the
+      # model that was requested is present in the envelope having produced
+      # output at all, which is the question, and is unaffected by how long
+      # the reply was. This is the field to read for "did the seat's model
+      # actually answer"; `model_observed` is kept beside it unchanged so the
+      # two accounts stay distinguishable.
+      usage = res['model_usage'] || {}
+      row['models_in_envelope'] = usage.empty? ? nil : usage.transform_values { |u|
+        (u || {})['outputTokens']
+      }
+      row['model_served_request'] =
+        usage.empty? ? nil : (usage.dig(spec[:model], 'outputTokens').to_i.positive?)
+      row['model_matches_request'] =
+        res['model_observed'].nil? ? nil : (res['model_observed'] == spec[:model])
+      if usage.empty?
+        row['model_observation_absence_reason'] =
+          "the #{spec[:adapter]} adapter returns no model usage envelope"
+      end
     rescue StandardError => e
       row['ok'] = false
       row['error'] = "#{e.class}: #{e.message}"
@@ -589,12 +723,16 @@ class Run
         # Derived from the seat assignment, not written out: --seats moves the
         # contained adapter off C, and a hardcoded "C is contained" would then
         # be a false statement in the record about which seats could read it.
-        'contained_seats' => PLAYER_SPECS.select { |s| s[:adapter] == 'claude_code' }
-                                         .map { |s| s[:id] } + ['GM'],
-        'uncontained_seats' => PLAYER_SPECS.reject { |s| s[:adapter] == 'claude_code' }
-                                           .map { |s| s[:id] },
-        'statement' => 'containment is by seat capability, not by file location; seats ' \
-                       "#{PLAYER_SPECS.reject { |s| s[:adapter] == 'claude_code' }.map { |s| s[:id] }.join(' and ')} " \
+        # The game master is derived the same way and for the same reason.
+        # Until 2026-09-05 it was appended to contained_seats as a literal,
+        # which was true only while its adapter could not be changed; with
+        # --gm-adapter it would have become the very false statement this
+        # derivation exists to prevent, and a codex or cursor game master can
+        # read this directory exactly as a player on that adapter can.
+        'contained_seats' => CONTAINED.map { |s| s[:id] },
+        'uncontained_seats' => UNCONTAINED.map { |s| s[:id] },
+        'statement' => 'containment is by seat capability, not by file location; ' \
+                       "#{UNCONTAINED.empty? ? 'no participant' : "seats #{UNCONTAINED.map { |s| s[:id] }.join(' and ')}"} " \
                        'could read this directory if they looked. Not fixed, recorded.',
         'write_mode' => 'append-only, one game per directory; the run refuses to start when the ' \
                         'directory already holds records, so a game is never destroyed and two ' \
@@ -933,6 +1071,27 @@ class Run
       'calls_failed_by_participant' => calls.reject { |c| c['ok'] }
                                             .group_by { |c| c['participant'] }
                                             .transform_values(&:length),
+      # Which model answered, counted rather than assumed. A run where every
+      # claude call was served by the model that was asked for reads
+      # observed_model_mismatches: 0 with a denominator; a re-routed run reads
+      # the substitute's name in observed_models_by_participant.
+      'observed_models_by_participant' => calls.select { |c| c['models_in_envelope'] }
+                                               .group_by { |c| c['participant'] }
+                                               .transform_values { |rows|
+                                                 rows.flat_map { |c|
+                                                   c['models_in_envelope'].keys
+                                                 }.tally
+                                               },
+      'calls_with_model_observation' => calls.count { |c| c['models_in_envelope'] },
+      # The one to read. Counts calls where the requested model produced no
+      # output in the envelope — a genuine substitution.
+      'calls_requested_model_did_not_answer' =>
+        calls.count { |c| c['model_served_request'] == false },
+      # The size-comparison heuristic's disagreement rate, kept for calibration
+      # of that heuristic only. A nonzero count here with zero above means the
+      # short-reply misattribution, not a substitution.
+      'observed_model_mismatches' => calls.count { |c| c['model_matches_request'] == false },
+      'fast_mode_states' => calls.map { |c| c['fast_mode_state'] }.compact.tally,
       'gm_reasks' => calls.count { |c| c['purpose'] == 'turn_control_reask' },
       'gm_turns_unreadable' => @gm_turns.count { |g| !g['readable'] },
       'deliveries_recorded' => File.readlines(File.join(@out, 'records', 'deliveries.jsonl')).length,
@@ -970,6 +1129,15 @@ if __FILE__ == $PROGRAM_NAME
     # Consumed at the head of this file, where PLAYER_SPECS is built. Declared
     # here only so that parse! accepts it instead of dying on an unknown flag.
     o.on('--seats LIST') { |_| }
+    # Likewise consumed at the head of the file, where SEAT_POOL and GM_SPEC
+    # are built.
+    o.on('--claude-model MODEL')  { |_| }
+    o.on('--claude-effort LEVEL') { |_| }
+    o.on('--codex-model MODEL')   { |_| }
+    o.on('--codex-effort LEVEL')  { |_| }
+    o.on('--gm-model MODEL')      { |_| }
+    o.on('--gm-effort LEVEL')     { |_| }
+    o.on('--gm-adapter NAME')     { |_| }
   end.parse!(ARGV)
 
   started = Time.now
