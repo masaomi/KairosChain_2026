@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.12.0"
+version: "3.13.0"
 tags:
   - workflow
   - review
@@ -107,8 +107,17 @@ these numbers.
 |---|---|---|---|---|---|
 | `claude_cli_opus4.6` | 134 | 64% (31/48) / 71% (27/38) / 86% (20/23) | 54 | 4,536 | 70% (19/27) |
 | `cursor_composer2.5` | 138 | 13% (7/51) / 48% (24/50) / 25% (6/24) | 133 | 3,795 | 100% (2/2) |
-| `codex_gpt5.6-sol` | 138 | 1% (1/54) / 11% (7/60) / 4% (1/24) | 113 | 2,038 | 3% (5/140) |
+| `codex_gpt5.6-sol` (retired 2026-09-05) | 138 | 1% (1/54) / 11% (7/60) / 4% (1/24) | 113 | 2,038 | 3% (5/140) |
 | `claude_team_opus-5` (persona) | 131 | 0% (0/51) / 12% (7/56) / 0% (0/22) | not measured per seat | 11,512 | 27% (374/1362) |
+
+The codex row is a profile of **gpt-5.6-sol**, which left the roster on
+2026-09-05 when gpt-6-astra replaced it. Nothing in that row transfers to the
+new occupant: the seat's identity here is the model, not the slot. Until a
+comparable corpus accumulates for `codex_gpt6-astra`, read the codex row as
+history and treat the new seat as uncalibrated. The same caution applies to
+every row from 2026-09-05 onward for a second reason — the corpus was gathered
+with reviewers at medium effort, and reviewers now run at high (see § Thinking
+Effort Configuration), so post-swap rounds are not directly comparable to it.
 
 Selection consequences, each tied to the number above it:
 
@@ -116,9 +125,10 @@ Selection consequences, each tied to the number above it:
   least.** Codex approves 1 design review in 54 and pairs that with the lowest
   advisory rate in the corpus (5 of 140 labelled findings). Opus4.6 approves 20
   document reviews in 23 while 19 of its 27 labelled findings are advisory. Seat
-  both, read them differently: the `3/5 APPROVE` threshold is met, in practice,
+  both, read them differently: the `3/4 APPROVE` threshold is met, in practice,
   with opus4.6's vote already inside it, so the live question is whether two of
-  the remaining three agree.
+  the remaining three agree. (That threshold is a reference figure, not a gate —
+  see § Convergence Rules.)
 - **Volume anti-correlates with signal.** The persona seat raises 3,249 of the
   5,286 findings (61%) and 27% of its labelled ones are advisory. Seat personas
   when breadth is wanted; do not seat them to obtain a verdict.
@@ -455,12 +465,17 @@ they disagree, the config is right and this section is stale.
       which under the default "delegate" strategy is taken by your persona team
       rather than spawned — so when you are Opus 5, Opus 4.6 is the only Claude
       CLI subprocess
-- [ ] Codex models: gpt-5.6-sol AND gpt-5.5 (both, not either/or), each with -m
+- [ ] Codex model: gpt-6-astra, with -m. One codex slot since gpt-5.5 was
+      retired 2026-09-05 — do not add a second codex entry expecting the old
+      cross-generation pairing
 - [ ] Cursor model: composer-2.5, passed explicitly as --model composer-2.5
-- [ ] Total reviewer count: 5 (or 4 after orchestrator exclusion from subprocess)
+- [ ] Effort: high on every seat that has an effort control — `--effort high`
+      for Claude CLI, `-c model_reasoning_effort=high` for codex. Cursor has no
+      effort control and takes no flag
+- [ ] Total reviewer count: 4 (or 3 after orchestrator exclusion from subprocess)
 - [ ] Closing condition: new (a)+(b) P0 = 0, with carryover P0s counted
       separately and a closure verdict on each. The APPROVE ratio the tool
-      reports (3/5 full roster, 3/4 after exclusion) is a reference value,
+      reports (3/4 full roster, 2/3 after exclusion) is a reference value,
       not the condition — see § Convergence Rules
 ```
 
@@ -479,7 +494,7 @@ Path B refuses such a slot outright; on Path A nothing refuses it but you.
 |---------|-----------------|----------------|
 | Launch a reviewer without an explicit model flag | Always pass `--model` / `-m`. A slot with no flag takes the CLI's user-editable default | "The default is the one we want" — it was, until someone changed it outside this repo |
 | Exclude orchestrator model from Agent Team Personas | Agent Team uses orchestrator model — they provide persona diversity, not epistemic diversity | LLM misreads "do not assign yourself as a reviewer" as applying to Agent Team; it applies only to subprocess CLI |
-| Run only Codex GPT-5.6-sol, skip 5.5 | Run both — cross-generation entries catch different things (5.5 found §5 schema contradiction in Phase 2 Case A that no other reviewer caught) | Cost-saving heuristic; roster has both for a reason |
+| Run only Codex GPT-6-astra, skip 5.5 | Run both — cross-generation entries catch different things (5.5 found §5 schema contradiction in Phase 2 Case A that no other reviewer caught) | Cost-saving heuristic; roster has both for a reason |
 | Use a smaller/cheaper model as Agent Team substitute | Use the orchestrator's own model with different personas | Confusing "model diversity" with "persona diversity" — Agent Team is the latter |
 | Run 3 reviewers instead of the configured roster | Use the full roster from config | Ad-hoc "3 is enough" reasoning; the roster size is empirical |
 | Count a reply that carries only a verdict | Drop it from the denominator, and say why | A bare "APPROVE" looks like agreement and raises the bar for everyone else without contributing (see § Substance and the denominator) |
@@ -648,7 +663,7 @@ The rule applies **after** orchestrator classifies each finding as (a)/(b)/(c) p
 findings count toward the thresholds below; (c) findings are recorded as advisory
 and never block.
 
-- **3/5 APPROVE** full roster, or **3/4 APPROVE** after orchestrator exclusion ("exclude" strategy only — the default "delegate" strategy keeps 5 voters via collect) (no (a)/(b) REJECT) = proceed to next step
+- **3/4 APPROVE** full roster, or **2/3 APPROVE** after orchestrator exclusion ("exclude" strategy only — the default "delegate" strategy keeps 4 voters via collect) (no (a)/(b) REJECT) = proceed to next step
 - **Any (a) or (b) REJECT or FAIL** = revise and re-review
 - **(c)-only REJECT** = record as advisory, non-blocking
 - **Unanimous APPROVE** (no (a)/(b)) = highest confidence, proceed
@@ -699,7 +714,7 @@ For normative detail and the underlying classification, see
 | Agreement | Meaning | Action |
 |-----------|---------|--------|
 | **N/N** (unanimous) | Architectural-level gap | Must fix |
-| **Majority** (e.g. 3/5, 3/4) | Implementation-level issue | Should fix |
+| **Majority** (e.g. 3/4, 2/3) | Implementation-level issue | Should fix |
 | **1/N only** | Specialty-specific insight | Do NOT ignore — often the most novel finding |
 
 1/N findings are not "minority opinions to discard." They represent unique expertise.
@@ -799,7 +814,7 @@ outside this repository — see the incident recorded in § Pre-flight checklist
 
 | Tool | Command | Prompt Input | Output Collection | Model |
 |------|---------|-------------|-------------------|-------|
-| **Codex** | `codex exec -m <model>` | stdin pipe: `cat prompt.md \| codex exec -m <model> -` | `-o /path/output.md` | gpt-5.6-sol + gpt-5.5 (both roster entries, `-m` per entry) |
+| **Codex** | `codex exec -m <model> -c model_reasoning_effort=high` | stdin pipe: `cat prompt.md \| codex exec -m <model> -` | `-o /path/output.md` | gpt-6-astra — one slot since gpt-5.5 was retired 2026-09-05 |
 | **Cursor Agent** | `agent -p --model composer-2.5` | File reference (stdin NOT supported) | stdout redirect: `> output.md` | composer-2.5, passed explicitly — never relying on the CLI default |
 | **Claude Code** | Agent tool (internal) | Direct prompt string | Write to workspace file | Orchestrator model, or the declared `persona_model` when personas run elsewhere |
 | **Claude CLI (4.6)** | `claude -p --model claude-opus-4-6` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-4-6` | stdout redirect: `> output.md` | Opus 4.6 — the calibrated anchor, deliberately not a frontier model |
@@ -822,11 +837,27 @@ Based on cross-evaluation experiment (7 models × 4 tasks + Nomic, 518 CLI calls
 |------|-------|-------------|-----------|
 | **Primary (orchestrator)** | session default | (default) | Sufficient for integration, dialogue, judgment |
 | **Reviewer: Agent Team** | = orchestrator, or the declared `persona_model` | (default) | Personas inherit whichever model actually runs them |
-| **Reviewer: Claude CLI** | Opus 4.6, plus any frontier roster slot the orchestrator is not | (default; config `effort: medium`) | Evaluator quality is effort-independent (low≈high: 8.35 vs 8.16) — per 2026-04-29 policy reviewers stay at default |
+| **Reviewer: Claude CLI** | Opus 4.6, plus any frontier roster slot the orchestrator is not | `--effort high` (config `effort: high`) | Operator instruction 2026-09-05; supersedes the 2026-04-29 default-effort policy — see the note below the table |
 | **Coding sub-agent** | Opus 5 | `--effort xhigh` | Published starting point for coding/agentic work; not measured here (see note) |
 | **Design sub-agent** | Opus 5 | `--effort high` | Published starting point for intelligence-sensitive work; not measured here (see note) |
-| **Codex** | GPT-5.6-sol / GPT-5.5 | (no flag) | Fixed effort |
-| **Cursor Agent** | Composer-2.5 | (no flag) | Fixed effort |
+| **Codex** | GPT-6-astra / GPT-5.5 | `-c model_reasoning_effort=high` | Same operator instruction. The earlier "(no flag) / fixed effort" entry was wrong: codex_adapter has always emitted this flag when the roster set `effort` |
+| **Cursor Agent** | Composer-2.5 | (no flag) | Genuinely has no effort control — cursor_adapter builds no such flag, so an `effort:` key on a cursor roster entry is recorded and never sent |
+
+Effort policy (2026-09-05, operator instruction). Every reviewer that HAS an
+effort control runs at **high**, at every complexity level, and the `effort_map`
+in `config/multi_llm_review.yml` is a constant rather than a function of
+complexity. `high` is deliberate rather than maximal: it is the ceiling the two
+providers share (Claude CLI accepts low/medium/high/xhigh/max, codex accepts
+minimal/low/medium/high), so it is the highest setting at which the roster stays
+comparable across providers.
+
+This supersedes the 2026-04-29 policy that kept reviewers at each CLI's default.
+That policy rested on one measurement — low vs high scoring 8.35 vs 8.16 in
+cross-evaluation — taken on the Opus 4.6 / 4.7 generation, on none of the models
+in the current roster. It was not re-measured, so it is superseded by judgement,
+not by a counter-measurement, and a later measurement could reinstate it. The
+cost side is measured: on one identical one-line prompt, gpt-6-astra spent 8,274
+tokens at high against 3,150 at its default (2026-09-05).
 
 Note (2026-07-25): the effort experiment data is from the Opus 4.6/4.7
 generation. Opus 5 and Fable 5 effort sensitivity is not yet calibrated;
@@ -923,13 +954,13 @@ multi_llm_review(
 **Dispatcher behavior** (config: `exclude_orchestrator_model: true`, default `true`):
 - If `orchestrator_model` matches a roster entry's `model`, that entry is skipped.
 - `min_quorum` and `convergence_rule` apply to the remaining reviewers.
-- 5-reviewer roster → 4 reviewers; `convergence_rule_after_exclusion: "3/4 APPROVE"`
+- 4-reviewer roster → 3 reviewers; `convergence_rule_after_exclusion: "2/3 APPROVE"`
   (from config) replaces the full-roster rule. This reduced count applies to the
   "exclude" strategy only. The "subprocess" strategy keeps the full roster (the
   matching entry runs as a fresh CLI process instead of being skipped). Under the
   default "delegate" strategy, the matching entry is dropped at dispatch but
-  re-added at collect as the persona-team entry, so the voter count returns to 5
-  and the full-roster rule (3/5 APPROVE) applies.
+  re-added at collect as the persona-team entry, so the voter count returns to 4
+  and the full-roster rule (3/4 APPROVE) applies.
 - **At most one roster entry leaves for matching the caller.** This is only
   visible on a roster carrying three or more entries on the orchestrator's own
   model: the first is taken over by the persona team, the second leaves as the
@@ -1398,16 +1429,16 @@ Step 2: Detect environment, and check the roster against config
   - Read the roster from config/multi_llm_review.yml — do NOT read CLI defaults
     and treat them as the roster. Detection only tells you whether a default has
     drifted; the model each slot runs is named on the command line.
-  - Report: "Auto mode: Codex (gpt-5.6-sol, gpt-5.5), Cursor (composer-2.5),
+  - Report: "Auto mode: Codex (gpt-6-astra), Cursor (composer-2.5),
     Claude Team (orchestrator model), Claude CLI (opus-4.6)"
 
-Step 3: Execute the configured roster in parallel (currently 5 slots, one of
+Step 3: Execute the configured roster in parallel (currently 4 slots, one of
         which is your own persona team)
-  - Bash(background): cat prompt.md | codex exec -m gpt-5.5 -C workspace -o log/review_codex_gpt5.5.md -
-  - Bash(background): cat prompt.md | codex exec -m gpt-5.6-sol -C workspace -o log/review_codex_gpt5.6-sol.md -
+  - Bash(background): cat prompt.md | codex exec -m gpt-6-astra -c model_reasoning_effort=high -C workspace -o log/review_codex_gpt6-astra.md -
   - Bash(background): agent -p --trust --model composer-2.5 "Read prompt and review..." > log/review_cursor.md
+    (no effort flag — Cursor has no effort control)
   - Agent(background): Claude Team (orchestrator model, e.g. Opus 5) → write to log/review_claude_team_opus5.md
-  - Bash(background): cat prompt.md | claude -p --model claude-opus-4-6 > log/review_claude_opus4.6.md 2>log/review_claude_opus4.6.stderr.log
+  - Bash(background): cat prompt.md | claude -p --model claude-opus-4-6 --effort high > log/review_claude_opus4.6.md 2>log/review_claude_opus4.6.stderr.log
     (add a line per further Claude roster slot you are not; with the 2026-07-26
      roster an Opus 5 orchestrator has none, so opus-4.6 is the only one)
 
@@ -1447,7 +1478,7 @@ log/{artifact}_review{N}_consensus_{date}.md       # Consensus analysis
 ```
 
 LLM identifiers: `claude_cli_opus5`, `claude_cli_opus4.6`,
-`codex_gpt5.6-sol`, `codex_gpt5.5`, `cursor_composer2.5`, `cursor_gpt5.4`,
+`codex_gpt6-astra`, `cursor_composer2.5`, `cursor_gpt5.4`,
 `cursor_premium`. The delegated slot is reported as `claude_team_<model>`
 (e.g. `claude_team_claude-opus-5`), assembled at collect time — the roster's
 own labels stay CLI-neutral because either frontier entry can take either path.
@@ -1455,7 +1486,11 @@ own labels stay CLI-neutral because either frontier entry can take either path.
 `claude_cli_opus4.7`, `cursor_composer2`; retired 2026-07-23: `codex_gpt5.4`;
 retired 2026-07-25: `claude_cli_opus4.8`, `claude_team_fable5`;
 retired 2026-07-26: `claude_cli_fable5` — five consecutive non-substantive
-returns, 85-128 characters in 5-7 seconds, no findings and no verdict text)
+returns, 85-128 characters in 5-7 seconds, no findings and no verdict text;
+retired 2026-09-05: `codex_gpt5.6-sol`, replaced by `codex_gpt6-astra`, and
+`codex_gpt5.5`, not replaced. Runs recorded under a retired identifier keep it —
+the label names the model that answered, so renaming old records would attribute
+one model's findings to another)
 
 ## Internal Agent Team Review
 
@@ -1751,6 +1786,44 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   four rounds was the change's account of itself, not the rules it proposed.
   Records: L2 `handoff_mlr_l1_norms_revision_three_rounds_and_switch_to_implementation_20260821`
   and L2 `mlr_v3_11_0_applied_review_r1_and_subtractive_revision_20260822`
+- Effort raised to high, and gpt-6-astra replaces gpt-5.6-sol (v3.13.0,
+  2026-09-05, operator instruction). Two changes with one config edit. **Effort**:
+  every seat that has an effort control now runs at high at every complexity
+  level, so `effort_map` is a constant rather than a function of complexity —
+  Claude CLI gets `--effort high`, codex gets `-c model_reasoning_effort=high`,
+  Cursor gets nothing because cursor_adapter builds no effort flag and a value
+  set for it would be recorded and never sent. `high` rather than `xhigh`/`max`
+  because it is the ceiling the two providers share, and a roster split across
+  incomparable settings is worth less than a lower common one. This supersedes
+  the 2026-04-29 default-effort policy, which rested on a single low-vs-high
+  measurement (8.35 vs 8.16) taken on the Opus 4.6 / 4.7 generation — none of
+  the models now in the roster. No counter-measurement was taken, so the
+  supersession is a judgement and a later measurement could reverse it. Cost is
+  measured and rises: gpt-6-astra spent 8,274 tokens at high against 3,150 at
+  its default on one identical one-line prompt. **Roster**: `codex_gpt6-astra`
+  replaces `codex_gpt5.6-sol`, verified before the swap through the flags
+  codex_adapter actually builds. **gpt-5.5 retired in the same edit**, not
+  replaced: it had been the calibrated cross-generation anchor, but it had been
+  commented out of the instance roster since 2026-07-30 "for round R10 only" and
+  never restored, so the anchor role had already lapsed for five weeks and the
+  retirement only names the state. Codex therefore holds ONE slot, and it is
+  uncalibrated — there is no longer a calibrated codex seat to read a new one
+  against. Roster 5 → 4, so `convergence_rule` moves 3/5 → 3/4 and
+  `convergence_rule_after_exclusion` 3/4 → 2/3, both on the same ceil(N × 0.6)
+  basis. Three calibration warnings follow and none is optional: the 138-run
+  seat profile in § Reviewer selection is gpt-5.6-sol's and does not transfer to
+  the new occupant; the whole of that corpus was gathered at medium effort, so
+  rounds from 2026-09-05 onward are not directly comparable to any of it; and
+  the corpus was gathered on a 5-seat roster, so per-round finding counts shift
+  for a third, independent reason. Record (a)/(b)/(c) breakdowns per round in
+  `multi_llm_reviewer_evaluation` until a profile for the new seat accumulates.
+  Recorded because it was got wrong in the session that made the change: the
+  new ratio was first reported to the operator as "3 of 4 seats must APPROVE",
+  as though it were a gate. It is not. § Convergence Rules has said since v3.5
+  that the ratio is neither the only nor the primary close, `Consensus.compute`
+  returns it under the name `reference_verdict`, and both 2026-08 threads closed
+  by (a)+(b) exhaustion without ever reaching it. Every ratio in this document
+  is a reference figure.
 
 **Key insight**: Design reviews and implementation reviews find
 **categorically different bugs**. Both phases are necessary.
