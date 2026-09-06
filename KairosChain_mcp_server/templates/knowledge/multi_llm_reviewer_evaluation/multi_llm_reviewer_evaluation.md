@@ -1,7 +1,7 @@
 ---
 name: multi_llm_reviewer_evaluation
 description: "Multi-LLM reviewer performance evaluation — strengths, weaknesses, value-system biases, and recommended workflows. Based on 185+ reviews (Phase 1, 2026-02 to 03) + Phase 2 Case A 4-round Codex bias study (2026-05-04)."
-version: "1.5"
+version: "1.6"
 tags:
   - multi-llm
   - review
@@ -172,8 +172,9 @@ When a reviewer issues a P0, classify the *cause* — not just the severity:
 | (b) philosophy-aligned | Deviation from declared design principles (e.g., enumeration where invariant suffices). | **Blocking P0** |
 | (c) value-divergent | Reviewer's own style preference or generic best practice not entailed by project principles. | **Advisory only** (non-blocking) |
 
-When uncertain between (b) and (c), default to (c). Convergence rule applies to (a)+(b);
-(c) findings are recorded but do not block.
+When uncertain between (b) and (c), default to (c). Only (a)+(b) findings count toward
+closing a round; (c) findings are recorded but do not block. Closing is the exhaustion
+of (a)+(b), not an APPROVE count — see § Convergence Rule (Updated).
 
 **Codex ↔ classes**: Codex finds genuine (a) bugs (e.g., the §5 schema contradiction).
 Codex also produces many (c) findings driven by the 3 biases above. The skill of using
@@ -201,6 +202,9 @@ Final Review:    Codex APPROVE | Composer-2.5 APPROVE+ | Claude APPROVE+
 - Codex REJECT reasons are always **substantive** (not stylistic): storage model contradictions, missing call sites, fail-open security
 - When Codex finally APPROVEs, all prior FAIL/HIGH issues have been genuinely resolved
 - **Codex APPROVE = strongest merge-readiness signal** in the 3-LLM configuration
+  — as a *reference* signal. It is not a gate, and waiting for it is not a
+  closing procedure; see the caveat immediately below and § Convergence Rule
+  (Updated)
 
 > **Note**: The above convergence data is from the 3-reviewer configuration in
 > the Attestation Nudge session. With the 4-reviewer default (Opus 4.7 added
@@ -216,17 +220,40 @@ Final Review:    Codex APPROVE | Composer-2.5 APPROVE+ | Claude APPROVE+
 
 ### Convergence Rule (Updated)
 
-The convergence rule applies **after** orchestrator classifies findings as (a)/(b)/(c)
-per § Reviewer Value-System Divergence. A REJECT whose findings are entirely (c)
-value-divergent is recorded but treated as non-blocking; only (a)+(b) findings count
-toward the rule below.
+**The APPROVE ratio is not the convergence criterion.** A round closes on the
+exhaustion of (a)+(b) findings, declared by the operator. The machine-side signal
+is **new (a)+(b) P0 = 0**, counting carryover P0s separately; nothing in the
+multi_llm_review SkillSet computes it and no returned field carries it, so it is
+read off the findings. `Consensus.compute` returns the ratio under the name
+`reference_verdict` and the vote counts under `vote_tally` — both recorded
+observations, neither a conclusion.
 
-- 3/4 APPROVE (no (a)/(b) REJECT) = proceed to next step (4-reviewer default)
-- Any (a) or (b) REJECT or FAIL = revise and re-review
-- **4/4 APPROVE (including Codex) = highest confidence, merge-ready**
-- Legacy 3-reviewer mode: 2/3 APPROVE = proceed
+The evidence that the ratio cannot serve as the criterion is in this document:
+two Codex entries went 24 of 24 reviews without reaching APPROVE on one design
+loop, and both 2026-08 review threads closed by (a)+(b) exhaustion plus an
+operator freeze declaration without ever reaching their ratio. A threshold a seat
+is structurally unlikely to meet cannot be what closes a round.
+
+Everything below applies **after** the orchestrator classifies findings as
+(a)/(b)/(c) per § Reviewer Value-System Divergence. A REJECT whose findings are
+entirely (c) value-divergent is recorded but non-blocking; only (a)+(b) findings
+count.
+
+- Any (a) or (b) REJECT or FAIL = revise and re-review. **This one blocks.**
 - Codex-only REJECT with (a)/(b) findings + others APPROVE = likely real issue, investigate before overriding
 - Codex REJECT with only (c) findings = expected per Codex value-system divergence; non-blocking
+
+Reference figures, recorded and never sufficient on their own. Read what the
+approving replies actually said before counting them:
+
+- 3/4 APPROVE (no (a)/(b) REJECT) on the current 4-reviewer roster — the literal
+  ratio tracks the roster size and changed on 2026-09-05 when gpt-5.5 retired
+- 4/4 APPROVE (including Codex) = the strongest reference signal available, still
+  a reference
+- Legacy 3-reviewer mode: 2/3 APPROVE
+
+Normative statement and the carryover/new split: L1 `multi_llm_review_workflow`
+§ Convergence Rules. Aggregation rule: project CLAUDE.md.
 
 ### Bug Category Differentiation Across Rounds
 
@@ -323,6 +350,26 @@ To stop the treadmill structurally, PRE-COMMIT a freeze criterion before the rou
 MECHANISM of a sound invariant is (c) -> §11 / implementation review." This converts "wait for
 Codex APPROVE" (not always reachable) into "freeze when only (c)/mechanism findings remain,"
 which is decidable by the orchestrator and resistant to value-divergence stalling.
+
+## Changelog
+
+- **v1.6 (2026-09-06)**: § Convergence Rule (Updated) rewritten. It had stated
+  `3/4 APPROVE = proceed to next step` and `4/4 APPROVE = merge-ready` with no
+  note that the ratio is a reference value — while L1 `multi_llm_review_workflow`
+  § Convergence Rules names *this* section as the normative detail it defers to.
+  So the document that says "the ratio is not the primary close" pointed at a
+  document that said it was. Now: the closing condition (new (a)+(b) P0 = 0,
+  carryover counted separately, operator declares the freeze) is stated first and
+  the blocking rule — any (a)/(b) REJECT — is separated from the reference
+  figures. Two supporting facts moved into the section because they are the
+  reason the ratio cannot be the criterion: Codex went 24 of 24 reviews without
+  APPROVE on one design loop, and both 2026-08 threads closed by (a)+(b)
+  exhaustion without reaching their ratio. The "Codex APPROVE = strongest
+  merge-readiness signal" line keeps its wording and gains "as a reference
+  signal, not a gate". Prompted by the operator after this agent reported an
+  APPROVE ratio to them as a gate for the third time; the wrong belief was
+  traceable to the text here, not to the tooling, which had been correct since
+  v0.7 INV-R2 (`reference_verdict`) and v0.10.1 (`vote_tally`).
 
 ## Refinement Source
 

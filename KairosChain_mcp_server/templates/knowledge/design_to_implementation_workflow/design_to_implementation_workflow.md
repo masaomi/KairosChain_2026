@@ -1,7 +1,7 @@
 ---
 name: design_to_implementation_workflow
 description: "Full-lifecycle workflow for complex features: design review, self-review, implementation review, and final merge gate. Derived from Service Grant + Attestation Nudge experiments."
-version: "1.1"
+version: "1.2"
 tags:
   - workflow
   - implementation
@@ -31,7 +31,8 @@ different bugs.
 │  v0.2 ──→ Multi-LLM Review R2 ──→ Fix ──→ v0.3            │
 │            (fix correctness)                                │
 │                                                             │
-│  Convergence: 0 FAIL, 2/3+ APPROVE                         │
+│  Closes on: new (a)+(b) P0 = 0, operator declares freeze    │
+│  (APPROVE ratio is a reference figure, not the gate)        │
 ├─────────────────────────────────────────────────────────────┤
 │ IMPLEMENTATION PHASE                                        │
 │                                                             │
@@ -48,7 +49,7 @@ different bugs.
 │  (missing wiring, fail-open, integration gaps)              │
 │                                                             │
 │  Final Multi-LLM Review + Persona Assembly                  │
-│  (merge gate: 3/3 APPROVE = merge-ready)                   │
+│  (closes the same way; ratio stays a reference figure)      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -76,8 +77,15 @@ different bugs.
 - Output: Complete design document with pseudocode
 
 #### Multi-LLM Review Rounds
-- **3 reviewers**: Claude Opus 4.6 + Codex GPT-5.4 + Composer-2
-- **Convergence criteria**: 0 FAIL, 2/3+ APPROVE
+- **Reviewers**: the roster in `multi_llm_review/config/multi_llm_review.yml`,
+  which is where the count and the models live. The "3 reviewers: Opus 4.6 +
+  Codex GPT-5.4 + Composer-2" written here until 2026-09-06 had been wrong since
+  2026-04-19 and is not restated, because a roster copied into a second document
+  goes stale silently
+- **Closing condition**: new (a)+(b) P0 = 0, carryover P0s counted separately
+  with a closure verdict on each, and the freeze declared by the operator. The
+  APPROVE ratio the tool reports is a recorded reference value — see L1
+  `multi_llm_review_workflow` § Convergence Rules
 - **Typical rounds**: 2-3 for Tier 3 complexity
 - **Convergence curve**:
   - R1: Structural gaps — "this is missing" (existence)
@@ -148,7 +156,11 @@ Claude Persona Assembly (4 personas):
 - Safety-critical components
 - NOT for intermediate rounds (diminishing returns)
 
-**Merge criteria**: 3/3 APPROVE with 0 FAIL. Codex APPROVE is the strongest signal (see `multi_llm_reviewer_evaluation`).
+**Merge criteria**: new (a)+(b) P0 = 0, with the freeze declared by the operator.
+A Codex APPROVE is the strongest *reference* signal (see
+`multi_llm_reviewer_evaluation`), and it is not a gate: Codex went 24 of 24
+reviews without reaching APPROVE on one design loop, so a merge waiting on it
+would never have merged.
 
 ## Effort Level Selection
 
@@ -192,6 +204,9 @@ Reviewer 側 (Opus 4.7) は effort-independent なので high が天井。xhigh/
 
 ## Convergence Data
 
+Observed outcomes of past loops, not criteria. The APPROVE counts below record
+what those particular rounds happened to reach; they are not what closed them.
+
 ### Service Grant (Tier 3, 2026-03-18)
 - Design: v1.0 → v1.4, 3 review rounds, 3 LLMs
 - Design review findings: R1: 8 P0/P1, R2: 2 FAIL + 28 CONCERN, R3: 0 FAIL
@@ -207,6 +222,10 @@ Reviewer 側 (Opus 4.7) は effort-independent なので high が天井。xhigh/
 
 ## Anti-Patterns
 
+- **Reading an APPROVE count as the closing condition.** It is a recorded
+  reference value; a round closes on new (a)+(b) P0 = 0 with the freeze declared
+  by the operator. This document itself carried the mistake until v1.2, in the
+  strongest available wording ("merge gate: 3/3 APPROVE = merge-ready")
 - Implementing Phase 2+ when Phase 1 prerequisites aren't met
 - Using agent team for implementation (context fragmentation)
 - Skipping self-review (misses cheap P0 fixes)
