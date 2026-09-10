@@ -45,6 +45,17 @@ meeting.genomicschain.io {
 		reverse_proxy meeting-place:8080
 	}
 
+	# MCP JSON-RPC endpoint. The Rails free-service Tier-1 client calls
+	# gc_tier1_assess here with a Bearer token; the app enforces auth, this
+	# route only proxies. request_body cap sized for extracted paper text
+	# carried as tool arguments.
+	handle /mcp {
+		request_body {
+			max_size 10MB
+		}
+		reverse_proxy meeting-place:8080
+	}
+
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"

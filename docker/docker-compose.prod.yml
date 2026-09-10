@@ -38,6 +38,8 @@ services:
       - kairos-data:/app/.kairos
     environment:
       - KAIROS_DATA_DIR=/app/.kairos
+      - AWS_BEARER_TOKEN_BEDROCK
+      - AWS_REGION
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DB=${POSTGRES_DB:-kairoschain}
