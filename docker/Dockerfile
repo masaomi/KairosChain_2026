@@ -17,7 +17,7 @@ COPY KairosChain_mcp_server/ ./gem-source/
 RUN cd gem-source && \
     gem build kairos-chain.gemspec && \
     gem install --no-document kairos-chain-*.gem && \
-    gem install --no-document puma rack pg json_schemer json-schema ed25519
+    gem install --no-document puma rack pg json_schemer json-schema ed25519 aws-sdk-bedrockruntime
 
 RUN ruby -e "require 'pg'; puts \"pg gem OK: libpq #{PG.library_version}\""
 
