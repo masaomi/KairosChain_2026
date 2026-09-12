@@ -82,7 +82,23 @@ module KairosMcp
           region = @config['aws_region'] || @config[:aws_region] ||
                    ENV.fetch('AWS_REGION', 'us-east-1')
 
-          Aws::BedrockRuntime::Client.new(region: region)
+          Aws::BedrockRuntime::Client.new(region: region, **client_options)
+        end
+
+        # The SDK's defaults are a 60 s read timeout and 3 retries, and a retry
+        # re-sends the whole prompt. A long generation (a Tier-1 assessment over
+        # a full paper) therefore failed after exactly 4 x 60 s with
+        # Net::ReadTimeout, having been billed four times (measured 2026-09-12,
+        # 243 s). The read timeout follows the same `timeout_seconds` the other
+        # adapters honour, and there is no retry: a timed-out generation is not
+        # made shorter by sending it again, and the caller decides whether to
+        # retry.
+        def client_options
+          {
+            http_open_timeout: 10,
+            http_read_timeout: timeout_seconds,
+            retry_limit: 0
+          }
         end
 
         def resolve_model(override)
