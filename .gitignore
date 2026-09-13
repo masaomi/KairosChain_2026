@@ -68,5 +68,14 @@ bench/minimum_nomic/out/
 # reports; presentations/ holds decks and their rendered files. Two files in
 # presentations/ look hand-authored (deck_to_pptx.py,
 # omakase-auto-analysis-design.md) — re-track via a `!` exception if wanted.
-docs/reports/
+#
+# Written `docs/reports/*` rather than `docs/reports/`: git cannot re-include a
+# file whose parent directory is excluded, so the trailing `*` is what makes the
+# `!` exceptions below possible at all. Each exception names one hand-authored
+# source; renders (.html, .svg, .png) stay out because the scripts rebuild them.
+docs/reports/*
+!docs/reports/nomic_bench_self_reference_report_20260913_ja.md
+!docs/reports/nomic_bench_self_reference_report_20260913_en.md
+!docs/reports/nomic_self_reference_report.py
+!docs/reports/nomic_self_reference_card.py
 presentations/
