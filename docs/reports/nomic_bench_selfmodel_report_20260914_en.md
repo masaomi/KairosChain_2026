@@ -353,8 +353,11 @@ one answer that did move was set by the wording of the standard shown: swap in a
 credit-heavy standard and 2 of 4 flip to "higher".
 
 This is not self-deprecation. The models score the game's participants, not
-themselves. What they miss is **their own leniency**, and "I am a demanding
-judge" is the more flattering self-image. The error points toward looking good.
+themselves. **All four underestimate how high they will score** — three of the
+four measured in the sixes and were lenient in absolute terms, while
+claude-opus-4-6 measured 4.57, so its "demanding" self-image was correct. Since
+"I am a demanding judge" is the more flattering self-image, the error points
+toward looking good.
 
 **Neither "bad at comparison" nor "abstraction is hard" fits the record.**
 
