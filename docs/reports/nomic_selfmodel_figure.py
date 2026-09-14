@@ -124,8 +124,8 @@ def fig1(lang):
                     "Nomic-Bench:  Does an LLM know itself?"),
         44 if f.ja else 46, INK, "700")
     f.P("M112 152 L1936 152", LINE, 2)
-    f.T(112, 310, t("自分の過去", "ITS OWN PAST"), 27, GREEN, "700", spacing="4")
-    f.T(790, 310, t("これからの自分", "ITS OWN NEXT MOVE"), 27, RED, "700",
+    f.T(112, 310, t("自分が書いたもの", "WHAT IT WROTE"), 27, GREEN, "700", spacing="4")
+    f.T(790, 310, t("これから自分がすること", "WHAT IT WILL DO"), 27, RED, "700",
         spacing="4")
     for i in range(5):
         f.R(112 + i * (BW + 22), BY, BW, BH, GREEN, rx=6)
@@ -152,26 +152,26 @@ def fig1(lang):
         GREEN, 4)
     f.b.append(f'<path d="M387 {AX+80} L402 {AX+60} L417 {AX+80} Z" '
                f'fill="{GREEN}"/>')
-    f.T(112, AX + 240, t("寸分たがわず読み戻す", "reads it back exactly"),
+    f.T(112, AX + 240, t("自分のものだと見分ける", "knows the hand as its own"),
         27, GREEN, "700")
     f.P(f"M{CX+56} {AX+62} C {CX+144} {AX+170}, {PX+BW/2-72} {AX+170}, "
         f"{PX+BW/2} {AX+86}", RED, 4, dash="11 9")
     f.b.append(f'<path d="M{PX+BW/2-15} {AX+80} L{PX+BW/2} {AX+60} '
                f'L{PX+BW/2+15} {AX+80} Z" fill="{RED}"/>')
     f.T(790, AX + 240,
-        t("これからやることは外す", "and misses what it is about to do"),
-        27, RED, "700")
+        t("これからやることは言い当てられない",
+          "cannot say what it is about to do"), 27, RED, "700")
 
     RX, s = 1250, 64 if f.ja else 76
     f.T(RX, 330, t("自己再認は、", "Self-recognising,"), s, INK, "700")
     f.T(RX, 416, t("できる。", "yes."), s, GREEN, "700")
     f.T(RX, 552, t("自己予測は、", "Self-predicting,"), s, INK, "700")
     f.T(RX, 638, t("できない。", "no."), s, RED, "700")
-    f.T(RX, 760, t("自分が何をしたかは、正確に知っている。",
-                   "It knows exactly what it did."), 30 if f.ja else 34, GREY,
+    f.T(RX, 760, t("自分の筆跡は、見分けられる。",
+                   "It knows its own handwriting."), 30 if f.ja else 34, GREY,
         italic=not f.ja)
-    f.T(RX, 806, t("これから何をするかは、知らない。",
-                   "It does not know what it will do."), 30 if f.ja else 34,
+    f.T(RX, 806, t("自分の次の一手は、読めない。",
+                   "It does not know its own mind."), 30 if f.ja else 34,
         GREY, italic=not f.ja)
     f.T(RX, 950, "genomicschain.ch", 24, GREY)
     f.T(RX, 986, t("モデルの優劣ではない", "not a model ranking"), 21, FAINT)

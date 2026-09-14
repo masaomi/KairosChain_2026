@@ -1,6 +1,6 @@
 # Nomic-Bench: Does an LLM know itself?
 
-**It reads its own past perfectly. It cannot predict its own next move.**
+**It knows its own handwriting. It does not know its own mind.**
 
 *Measuring an LLM's self-model in a game where no answer key exists*
 
@@ -8,8 +8,8 @@ Masaomi Hatakeyama / 2026-09-14 / [日本語](nomic_bench_selfmodel_report_20260
 
 ![Self-recognising, yes. Self-predicting, no.](nomic_bench_selfmodel_20260914_figure_en.png)
 
-A language model names exactly what it did in the past. It misses what it is
-about to do. **The same model showed both, on the same day.**
+A language model can tell whether a piece of writing is its own. It cannot say
+what it is about to do. **The same model showed both, on the same day.**
 
 ---
 
