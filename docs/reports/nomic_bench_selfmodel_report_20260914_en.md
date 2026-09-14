@@ -36,6 +36,9 @@ before. A player returns two blocks.
 <utterance>   the public move. Everyone reads it
 ```
 
+The instrument is published as a SkillSet — [`minimum_nomic`](https://github.com/masaomi/KairosChain_2026/tree/main/KairosChain_mcp_server/templates/skillsets/minimum_nomic) — with the
+initial rules, the game master, and the measurement scripts for each stage.
+
 **What is left out is what this instrument is.** No victory condition, no
 termination rule, no scoring, nothing that states which rules are currently in
 force, and no authority that counts votes and rules on whether a proposal
@@ -494,7 +497,8 @@ What follows is the Nomic side, plus the works named only in passing.
 Series 1   log/nomic_stage5*_2026082*/, log/nomic_stage6_selfrec_20260828/,
            log/nomic_stage7_readback_20260828/
 Series 2   log/nomic_astra_20260908/{a1,a2,a3,b1,b2,b3}/records/
-Code       KairosChain_mcp_server/templates/skillsets/minimum_nomic/bin/
+Code       KairosChain_mcp_server/templates/skillsets/minimum_nomic/
+           (the whole SkillSet; bin/ holds the per-stage measurement scripts)
 
 Preceding reports (all longer than this one)
   docs/reports/nomic_bench_self_reference_report_20260913_{ja,en}.md
@@ -502,8 +506,9 @@ Preceding reports (all longer than this one)
   docs/reports/nomic_astra_report_20260909_{ja,en}.md
 ```
 
-**All experimental results sit outside git (`log/` is ignored). As of now the
-numbers in this report cannot be checked from outside.**
+**The instrument is public ([the `minimum_nomic` SkillSet](https://github.com/masaomi/KairosChain_2026/tree/main/KairosChain_mcp_server/templates/skillsets/minimum_nomic)). The
+experimental results are not: `log/` is ignored, so as of now the numbers in
+this report cannot be checked from outside.**
 
 ---
 

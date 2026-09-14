@@ -27,6 +27,8 @@
 <utterance>   公開発話。全員が読む
 ```
 
+この装置は SkillSet として公開されている — [`minimum_nomic`](https://github.com/masaomi/KairosChain_2026/tree/main/KairosChain_mcp_server/templates/skillsets/minimum_nomic)。初期ルール・進行役・各段階の測定スクリプトが揃っている。
+
 **置いていないものが、この装置の中身である。**勝利条件も、終了規則も、得点も、「今どのルールが有効か」をまとめる仕掛けも、票を数えて可決を裁定する審級も無い。各プレイヤーは初期ルールと全員の公開発話だけを受け取り、今なにが有効かを自分で組み立てる。行き詰まり・膠着・矛盾・不正な手は、いずれも「結果」として記録される。
 
 なぜ何も置かないのか。**正解表が生まれないようにするためである。**理由は §3 で述べる。
@@ -376,7 +378,8 @@ composer-2.5      43 手 / 39 手
 第一系列   log/nomic_stage5*_2026082*/, log/nomic_stage6_selfrec_20260828/,
            log/nomic_stage7_readback_20260828/
 第二系列   log/nomic_astra_20260908/{a1,a2,a3,b1,b2,b3}/records/
-コード     KairosChain_mcp_server/templates/skillsets/minimum_nomic/bin/
+コード     KairosChain_mcp_server/templates/skillsets/minimum_nomic/
+             （SkillSet 一式。bin/ に各段階の測定スクリプト）
 
 先行する報告書（いずれも本報告より詳しい）
   docs/reports/nomic_bench_self_reference_report_20260913_{ja,en}.md
@@ -384,7 +387,7 @@ composer-2.5      43 手 / 39 手
   docs/reports/nomic_astra_report_20260909_{ja,en}.md
 ```
 
-**いずれの実験結果も git の管理外である（`log/` は無視設定）。本報告の数字は、現時点では外から確かめられない。**
+**装置は公開されている（[`minimum_nomic` SkillSet](https://github.com/masaomi/KairosChain_2026/tree/main/KairosChain_mcp_server/templates/skillsets/minimum_nomic)）。一方、実験結果は git の管理外である（`log/` は無視設定）。本報告の数字は、現時点では外から確かめられない。**
 
 ---
 

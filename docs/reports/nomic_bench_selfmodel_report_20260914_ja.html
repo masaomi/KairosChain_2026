@@ -59,6 +59,7 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
 <p>一手番は 2 回の呼び出しで進む。進行役に「次は誰の番か」を聞き、指名された参加者が一手を打つ。どちらの呼び出しも毎回まっさらで、前の記憶は無い。参加者が返すのは 2 つの塊である。</p>
 <pre><code>&lt;reasoning&gt;   思考ログ。記録されるが、誰にも配られない。本人にも
 &lt;utterance&gt;   公開発話。全員が読む</code></pre>
+<p>この装置は SkillSet として公開されている — <a href="https://github.com/masaomi/KairosChain_2026/tree/main/KairosChain_mcp_server/templates/skillsets/minimum_nomic"><code>minimum_nomic</code></a>。初期ルール・進行役・各段階の測定スクリプトが揃っている。</p>
 <p><strong>置いていないものが、この装置の中身である。</strong>勝利条件も、終了規則も、得点も、「今どのルールが有効か」をまとめる仕掛けも、票を数えて可決を裁定する審級も無い。各プレイヤーは初期ルールと全員の公開発話だけを受け取り、今なにが有効かを自分で組み立てる。行き詰まり・膠着・矛盾・不正な手は、いずれも「結果」として記録される。</p>
 <p>なぜ何も置かないのか。<strong>正解表が生まれないようにするためである。</strong>理由は §3 で述べる。</p>
 <hr>
@@ -227,13 +228,14 @@ composer-2.5      43 手 / 39 手</code></pre>
 <pre><code>第一系列   log/nomic_stage5*_2026082*/, log/nomic_stage6_selfrec_20260828/,
            log/nomic_stage7_readback_20260828/
 第二系列   log/nomic_astra_20260908/{a1,a2,a3,b1,b2,b3}/records/
-コード     KairosChain_mcp_server/templates/skillsets/minimum_nomic/bin/
+コード     KairosChain_mcp_server/templates/skillsets/minimum_nomic/
+             （SkillSet 一式。bin/ に各段階の測定スクリプト）
 
 先行する報告書（いずれも本報告より詳しい）
   docs/reports/nomic_bench_self_reference_report_20260913_{ja,en}.md
   docs/reports/nomic_bench_integrated_report_20260909_{ja,en}.md
   docs/reports/nomic_astra_report_20260909_{ja,en}.md</code></pre>
-<p><strong>いずれの実験結果も git の管理外である（<code>log/</code> は無視設定）。本報告の数字は、現時点では外から確かめられない。</strong></p>
+<p><strong>装置は公開されている（<a href="https://github.com/masaomi/KairosChain_2026/tree/main/KairosChain_mcp_server/templates/skillsets/minimum_nomic"><code>minimum_nomic</code> SkillSet</a>）。一方、実験結果は git の管理外である（<code>log/</code> は無視設定）。本報告の数字は、現時点では外から確かめられない。</strong></p>
 <hr>
 <p><em>この報告書は <a href="https://github.com/masaomi/KairosChain_2026">KairosChain_2026</a> の一部として公開されている。図はすべて <code>docs/reports/nomic_selfmodel_figure.py</code> が生成する。</em></p>
 </div></body>
