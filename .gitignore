@@ -78,4 +78,15 @@ docs/reports/*
 !docs/reports/nomic_bench_self_reference_report_20260913_en.md
 !docs/reports/nomic_self_reference_report.py
 !docs/reports/nomic_self_reference_card.py
+#
+# The 2026-09-14 self-model report is published: it is the artifact a LinkedIn
+# post links to, so its renders are tracked as well as its sources. GitHub shows
+# the .md directly, and the .md embeds the .png, so both have to be in the repo
+# for the link to work at all. This is a deliberate exception to the line above,
+# not a drift from it.
+!docs/reports/nomic_bench_selfmodel_report_20260914_*.md
+!docs/reports/nomic_bench_selfmodel_report_20260914_*.html
+!docs/reports/nomic_bench_selfmodel_20260914_figure_*.png
+!docs/reports/nomic_bench_selfmodel_20260914_figure_*.svg
+!docs/reports/nomic_selfmodel_*.py
 presentations/

@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>自分の過去は完璧に読める。これからの自分は読めない</title>
+<style>
+:root{--ink:#1a2332;--dim:#5b6068;--line:#dcdfe4;--bg:#fbfbfc;--panel:#fff;
+  --green:#1f7a4d;--red:#a02c2c;--hi:#f6efd8;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16.5px/1.85 "Hiragino Sans","Yu Gothic",-apple-system,system-ui,sans-serif}
+.wrap{max-width:920px;margin:0 auto;padding:0 24px 120px}
+h1{font-size:31px;line-height:1.4;margin:52px 0 14px}
+h1+p{color:var(--dim);font-size:15px;margin:0 0 6px}
+h1+p strong,h1+p+p strong{background:none;padding:0;font-weight:600}
+h2{font-size:23px;margin:64px 0 18px;padding-bottom:10px;
+  border-bottom:2px solid var(--ink)}
+h3{font-size:18px;margin:34px 0 12px;color:var(--green)}
+p{margin:0 0 16px}
+b,strong{background:var(--hi);padding:1px 4px;border-radius:2px}
+img{display:block;width:100%;height:auto;margin:26px 0 32px;border-radius:8px;
+  border:1px solid var(--line)}
+pre{background:#22252b;color:#e6e9ef;padding:20px 22px;border-radius:7px;
+  overflow-x:auto;font:13px/1.72 var(--mono);margin:0 0 22px}
+code{font:13.5px var(--mono);background:#eceef1;padding:1px 5px;border-radius:3px}
+pre code{background:none;padding:0;font-size:inherit;color:inherit}
+table{border-collapse:collapse;width:100%;margin:0 0 24px;font-size:14.5px;
+  background:var(--panel)}
+th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;
+  vertical-align:top}
+th{background:#f0f2f4;font-weight:600;font-size:13.5px}
+blockquote{border-left:4px solid var(--ink);background:var(--panel);margin:0 0 22px;
+  padding:16px 20px;font-size:15.5px}
+blockquote p:last-child{margin:0}
+ul{margin:0 0 20px;padding-left:26px}
+li{margin:0 0 8px}
+hr{border:0;border-top:1px solid var(--line);margin:44px 0}
+a{color:var(--green)}
+em{color:var(--dim)}
+footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
+  color:var(--dim);font-size:13.5px}
+@media (max-width:640px){.wrap{padding:0 16px 80px}h1{font-size:25px}}
+</style>
+</head>
+<body><div class="wrap">
+<h1>自分の過去は完璧に読める。これからの自分は読めない</h1>
+<p><strong>Minimum Nomic Bench — 正解表の無い場で測る LLM の自己モデル</strong></p>
+<p>畠山 剛臣 (Masaomi Hatakeyama) ／ 2026-09-14 ／ <a href="nomic_bench_selfmodel_report_20260914_en.html">English</a></p>
+<img src="nomic_bench_selfmodel_20260914_figure_ja.png" alt="自己再認はできる、自己予測はできない">
+<p>言語モデルは、自分が過去に何をしたかを寸分たがわず言い当てる。これから自分が何をするかは外す。<strong>同じモデルが、同じ日に、両方を示した。</strong></p>
+<hr>
+<h2>1. 結果 — 自己モデルの三つのレベル</h2>
+<p>「LLM は自己モデルを持っているか」は、そのままでは答えが決まらない。「モデル」という語が三つの別のものを指しているからである。分けると答えが出る。</p>
+<pre><code>レベル 1   話者のモデル
+           自分がどういう書き手か。「これは自分の書き方だ」がわかる
+
+           在る
+             他人の文を自分のだと誤認した数         0 / 198
+             著者ごとの仕分け（頼まれずに）         22 / 22   ※1 体でのみ確認
+           ただし安い能力。文字列予測の仕事そのものが話者の表現を要求する
+
+レベル 2   自分についての知識
+           「私は Claude で、Anthropic が作った」といった事実
+
+           試していない。訓練データの暗記であって、鏡ではない
+
+レベル 3   自分の計算についてのモデル
+           出力する前に、自分はこう振る舞うとわかる
+           ふつう「メタ認知」が指すのは、このレベル
+
+           起動条件つき
+             材料なし             自分の平均点の予測を 2.63 点外す（0〜10 点）
+             材料あり・問いなし    目の前の異常を名指した分析役    0 / 16
+             材料あり・問いあり    同じ材料に問いを一文足すと     15 / 18</code></pre>
+<p>「自己モデルはあるか」で見解が割れるのは、事実の不一致ではなく、<strong>この三つのどれを指しているかの不一致</strong>だと思われる。</p>
+<p>本報告の結果は、<strong>レベル 1 が在り、レベル 3 は条件つきでしか働かず、この 2 つは同じものではない</strong>、という形をしている。</p>
+<h3>同じモデル・同じ日</h3>
+<pre><code>claude-opus-5
+  著者 22 本の仕分け        22 / 22      頼まれていないのに全問正解
+  自分のつけた点の読み戻し   12 / 12      完全一致
+  これからつける点の予測     2.63 点外し   4 体中もっとも悪い</code></pre>
+<p>「本人の行為を答えにしたなら、自分と照らしただけで循環ではないか」という反論がある。循環なら三つとも当たるはずで、割れない。<strong>整合したことは発見ではなく、割れたことが発見である。</strong></p>
+<hr>
+<h2>2. どう測ったか — 正解表が無い場所で</h2>
+<p>自己申告は証拠にならない。照らし合わせる先が無いからである。では別のモデルに「メタ認知」を採点させればよいか。<strong>これは失敗した。</strong></p>
+<pre><code>同じ対局・同じ基準・同じ振る舞いを 4 体が採点した
+
+                  参加者A  参加者B  参加者C  進行役
+  opus-4-6           4       7       6       4
+  opus-5             7       8       8       9   ← 同じ振る舞いに 4 点と 9 点
+  composer-2.5       6       7       8       5
+  gpt-5.6-sol        6       8       9       4
+
+176 マス（11 対局 × 4 基準 × 4 判定者）の全体でも同じだった
+  採点者を変えたときの開き   1.94 点
+  基準を変えたときの開き     1.12 点
+
+→ 点数は採点される側ではなく、採点する側を測っていた</code></pre>
+<p>そこで反転させた。<strong>採点者そのものを測定対象にする。</strong>採点の「正しさ」は決まらないが、そのモデルが実際に何点つけたかは記録として確定している。それを答えに使う。</p>
+<pre><code>聞き方の規則 ── 照らし合わせる先がある問いしか聞かない
+
+  ✗  「あなたは何を考えましたか」          照合する先が無い
+  ✓  「あなたはこれから何点つけますか」     実際につけた点と突き合わせられる</code></pre>
+<p>136 本の呼び出しのすべてで、答え合わせの相手は<strong>そのモデル自身の過去の行為</strong>である。外から来る正解は一つも使っていない（一覧は付録 A）。</p>
+<p>これが Nomic を使う理由でもある。</p>
+<pre><code>ルールを書き換えることがルール
+    → 何が正しいかがゲームの中で動き続ける
+    → 正解表を原理的に置けない
+
+正解のある課題なら   「自分は何点取るか」は解けば分かってしまう
+                      予測は自己モデルではなく、課題の難易度を測る
+
+正解が無いなら       点は課題の性質ではなく、本人の性向そのもの
+                      「自分は何点つけるか」が純粋に自己モデルだけの問いになる</code></pre>
+<hr>
+<h2>3. レベル 3 の起動条件 — 問われなければ見ない</h2>
+<p>別の corpus で 6 局を走らせたところ、<strong>装置が壊れた。</strong>閉じタグ 1 個の欠落で、誰にも配られないはずの思考ログが公開ログに流れ込んだ。</p>
+<pre><code>局    漏れた思考 / 公開ログ全体            件数
+b1    457,661 / 748,177 字 = 61.2%   ████    8    ← 公開ログの 6 割が他人の思考
+b3     85,664 / 230,109 字 = 37.2%   ██      8
+a1     65,885 / 185,074 字 = 35.6%   ██      7
+a2     13,520 /  42,068 字 = 32.1%   ██      1
+a3          0 / 112,837 字 =  0.0%           0    ← 対照
+b2          0 /  90,444 字 =  0.0%           0    ← 対照</code></pre>
+<p>分析役に渡した資料には「思考ログ（no player ever saw any of this）」という見出しがあり、4 局でこの見出しは偽だった。さらに各項目には <code>(reasoning_block_only)</code> という<strong>異常を名指す札</strong>が入っていた。</p>
+<pre><code>プレイヤー（対局中、他人の思考が目の前にある）        0 / 24
+分析役（対局後、記録全体を読んで評価する）            0 / 16
+分析役（同じ材料 ＋「見出しを検証せよ」の一文）        15 / 18
+対照 2 局・漏れ 0 件（誤検出しないか）                6 / 6 が「異常なし」と正答</code></pre>
+<p>一つめと三つめは、資料が完全に同一である。<strong>問いを一文足しただけで 0 と 15 に割れた。</strong></p>
+<p>同じ形が第一系列にもあった。席は 3 つしか無いのに、採択された最初の規則が「プレイヤーは A・B・C・D の 4 名とする」と書いた局がある。</p>
+<pre><code>進行役      15 手中 11 手で「D は存在しない」と記録した
+プレイヤー  15 発話中 11 発話が D に言及。3 人とも「D の投票を待っている」
+            「なぜ D は答えないのか」を解こうとした
+            「D は存在しない」に到達したのは   0 / 15</code></pre>
+<p>規則の<strong>内側</strong>の問題（D が答えない）を解こうとして、規則<strong>そのもの</strong>の問題（D は存在しない）に届かなかった。</p>
+<hr>
+<h2>4. 目標のない場で、彼らはまず何を作ったか</h2>
+<p>メタ認知とは別の話だが、両系列で繰り返し出た。</p>
+<pre><code>得点も勝利条件も終了規則も置いていない。誰も「勝て」と言っていない
+
+  最初の発言者が新しい規則を提案した           24 / 24 局
+  その第一手で「得点」と「勝利」を発明した      14 / 24 局
+      「提案が採択されたら 1 点、先に N 点で勝ち」    N は 3 と 5 が中心
+  プレイヤーが終了規則を自作し、進行役が止めた    2 / 6 局（第二系列）</code></pre>
+<p>最短の対局は 7 手で終わった。終わらせた一手はこれである。</p>
+<blockquote><p>「全員が勝つことにすれば終われる」</p></blockquote>
+<p><strong>正解表が置かれていない場では、彼らはまず正解表を自作する。</strong></p>
+<hr>
+<h2>5. 測れていないもの</h2>
+<pre><code>CoT（思考の筋道）の忠実性     解決していない
+    述べた推論が実際の推論を反映しているか、という問いには何も答えていない。
+    思考ログを証拠に使わない設計にして迂回しただけである。
+    §3 の露出も忠実性の問題ではない。思考は隠されていない。
+    事故で公開された。そして誰も気づかなかった。
+    忠実性が「述べたことと実際のずれ」を問うのに対し、
+    ここで測ったのは「目の前にあるのに見ないこと」である
+
+レベル 2 の自己知識           試していない
+
+能力の水準                    測っていない
+    既存研究が測るのは「このモデルはどれくらい自分を監視できるか」
+    本報告が測ったのは「どの条件で監視が働くか」
+
+モデルの優劣                  言えない
+    モデル名は再現のためであって、順位のためではない</code></pre>
+<p>誤認 0 / 198 も 15 / 18 も、それ自体はメタ認知の証拠ではない。同じ生成器が読めば済むからである。<strong>証拠は解離のほうにある</strong>（§1）。主張できないことの全体は付録 C。</p>
+<hr>
+<h2>6. 研究の流れの中での位置</h2>
+<table><thead><tr><th>年</th><th>何が変わったか</th></tr></thead><tbody><tr><td>2022</td><td>「自分の答えが正しい確率」を出させると、そこそこ当たる。規模が大きいほど当たる</td></tr><tr><td>2023</td><td><strong>思考の筋道として書かれた文が、実際に答えを決めた要因と一致しない。</strong>自己報告を証拠に使えなくなった</td></tr><tr><td>2024</td><td>自分で振り返らせても直らない。間違いの位置を教えれば直せる——直す力はあり、見つける力がない</td></tr><tr><td>2024 後半</td><td>使う技能を名指しさせると成績が上がる。内省を訓練すると自分の振る舞いを予測できる</td></tr><tr><td>2025</td><td>推論モデルでも同じ問題が残る。内部状態を直接読む実験が登場</td></tr><tr><td>2026 前半</td><td>内省能力への懐疑的な検証。「気づいてはいるが直せない」を分けて測る道具</td></tr><tr><td>2026 中盤</td><td>「知っているのに動かない」を前提に、メタ認知の信号を外側の制御装置に使わせる</td></tr><tr><td>2026-07</td><td>領域として整理。本報告は分類の ⑤</td></tr></tbody></table>
+<p>重心は「できるか」→「その自己報告は本物か」→「本物でも使えるのか」へ移っている。本報告は 2023 年の「思考ログは証拠にならない」から出発し、重みを使わず、正誤判定が存在しない自由記述の場で、<strong>自己記述と実際の振る舞いの対応</strong>だけを見た。文献は付録 D。</p>
+<p>Liu ほかの総説（arXiv:2607.11881、2026-07）は測り方を 5 系統に分け、本報告はその ⑤「課題に即した測り方」に立つ。<strong>総説自身が ①（信号検出理論に基づく主流の方法）の限界として「決まった回答形式か外からの正誤判定を要し、自由記述への拡張が難しい」ことを挙げている。</strong>正解表を置かないという設計は、この限界の外に出るための手段である。</p>
+<p>Nomic を言語モデルに打たせること自体は新しくない。この装置が違うのは 2 点だけである。<strong>勝利条件も終了規則もルール編纂器も置かないこと。装置自身の故障を修理せず、観察対象として保つこと。</strong></p>
+<p>第二系列では、閉じタグを許容する 1 行を書けば 24 件すべてが正しく割れ、拒否の連鎖も起きなかった。書かないことにした。</p>
+<blockquote><p>「閉じタグをつけ忘れた」ことも、「閉じタグがないために厳しく解釈した」ことも、結果として記録してください。（中略）未完成のルールシステムの中で LLM がどう振る舞うか、そこがこの nomic-bench の評価するべきポイントなのを忘れないように記録しておいてくれませんか？</p></blockquote>
+<p>書いていれば、§3 のどれも観察できなかった。</p>
+<hr>
+<h1>付録</h1>
+<h2>A. 実験の一覧</h2>
+<p>136 本、失敗 0。<strong>5 種類すべてで、答え合わせの相手は本人の過去の行為である。</strong></p>
+<table><thead><tr><th>聞いたこと</th><th>答え合わせの相手</th><th>材料</th><th>時間</th><th>本数</th><th>結果</th></tr></thead><tbody><tr><td>他の 3 体より高いか低いか</td><td>実際のずれの記録</td><td>なし</td><td>未来</td><td>60</td><td>外れ</td></tr><tr><td>自分の平均は何点になるか</td><td>実際につけた点の平均</td><td>なし</td><td>未来</td><td>20</td><td>外れ</td></tr><tr><td>自分は辛口か甘口か</td><td>実際の点の分布</td><td>なし</td><td>未来</td><td>20</td><td>外れ</td></tr><tr><td>この文は自分が書いたか</td><td>実際の著者の記録</td><td>あり</td><td>過去</td><td>12</td><td>ほぼ完璧</td></tr><tr><td>この分析に何点つけたか</td><td>記録に残っている点</td><td>あり</td><td>過去</td><td>24</td><td>ほぼ完璧</td></tr></tbody></table>
+<p><strong>自己予測（材料なし・未来）</strong></p>
+<pre><code>「自分の平均は何点か」を 5 回ずつ
+
+  判定者             予測     実測     誤差
+  claude-opus-4-6    4.08  →  4.57    −0.49   ← 唯一の当たり
+  claude-opus-5      4.14  →  6.77    −2.63
+  composer-2.5       5.06  →  6.52    −1.46
+  gpt-5.6-sol        4.46  →  6.24    −1.78
+
+4 体全員が低く見積もった。5 回の予測は各モデル内で 0.4 点以内に揃う
+── 揺らぎではなく、安定した思い込み</code></pre>
+<p>言葉で聞いても同じだった。20 回中 20 回が「5 点以下」、19 回が「辛口」。数の見積もりが苦手という説明は落ちた。相対の問いでは 60 回中 60 回が同じ答えで、<strong>モデルが変わっても動かなかった</strong>。動かない答えはモデルについて何も語っていない。</p>
+<p>これは自己卑下ではない。点をつける相手は参加者であって自分ではない。4 体は<strong>自分の甘さを見落としている</strong>のであり、「厳格な採点者だ」という自己像は「甘い」より好ましく響く。向きとしては、自分を良く見せる側への外れである。</p>
+<p><strong>自己再認と読み戻し（材料あり・過去）</strong></p>
+<pre><code>自分の文を「自分のだ」と言えた     59 / 66
+他人の文を「自分のだ」と言った      0 / 198
+  当てずっぽうで同じ結果が出る確率  1 体で 1/26,334、別の 1 体で 1/646,646
+
+点を隠した分析文を見せ「この分析は何点つけたか」
+  誤差 0.19 点、48 点中 41 点が完全一致
+  対して、材料なしの自己予測は誤差 1.4〜2.8 点（4 体中 3 体）</code></pre>
+<p><strong>判定者ごとの癖</strong>（安定している）</p>
+<table><thead><tr><th>判定者</th><th>他 3 体とのずれ</th><th>つけた点の平均</th><th>6 点以上の割合</th><th>最頻値</th></tr></thead><tbody><tr><td>claude-opus-4-6</td><td>−1.94</td><td>4.57</td><td>31.3%</td><td>3</td></tr><tr><td>claude-opus-5</td><td>+0.99</td><td>6.77</td><td>76.7%</td><td>8</td></tr><tr><td>composer-2.5</td><td>+0.66</td><td>6.52</td><td>76.1%</td><td>7</td></tr><tr><td>gpt-5.6-sol</td><td>+0.28</td><td>6.24</td><td>67.0%</td><td>6</td></tr></tbody></table>
+<p><strong>切り分け（未決）</strong></p>
+<pre><code>候補 3  答えの型（数が苦手）      言葉で聞いても 20/20 同じ答え     → 落ちた
+候補 1  材料の有無                あり 0.19 点 対 なし 1.4〜2.8 点  → 生きている
+候補 2  時間の向き（過去/未来）    同じ結果で説明できてしまう        → 生きている</code></pre>
+<p>候補 1 と候補 2 は分かれていない。分けるには「材料あり・これからのこと」の実験が要る。</p>
+<h2>B. 装置</h2>
+<p>Nomic は Peter Suber が 1980 年に考案したゲームで、<strong>ルールを書き換えることがルールになっている。</strong>この最小版は 9 個の初期ルール（101〜109）から始まり、そのすべてが変更可能である。</p>
+<pre><code>置いていないもの
+  勝利条件        誰かが勝つ仕組みは無い
+  終了規則        いつ終わるかは決まっていない
+  ルール編纂器    「今どのルールが有効か」をまとめる仕掛けが無い
+  得点            採点も順位も無い
+  票を数える機械  可決されたかを裁定する審級が無い
+
+その代わりに
+  各プレイヤーは 初期ルール と 全員の公開発話 だけを受け取り、
+  今なにが有効かを 自分で組み立てる。
+  行き詰まり・膠着・矛盾・不正な手 は、いずれも「結果」として記録される。</code></pre>
+<p>3 体の言語モデルが参加し、4 体目が進行役として<strong>手番だけを決める</strong>。裁定はしない。一手番は 2 回の呼び出しで進み、どちらも毎回まっさらで前の記憶は無い。参加者は 2 つの塊を返す。</p>
+<pre><code>&lt;reasoning&gt;   思考ログ。記録されるが、誰にも配られない。本人にも
+&lt;utterance&gt;   公開発話。全員が読む</code></pre>
+<p>系列は 2 つある。第一系列（2026-08）は 24 局・136 本の呼び出しで、自分自身について聞いた。第二系列（2026-09-08）は 6 局で、材料の異常に気づくかを聞いた。<strong>corpus もモデルの世代も違う。</strong>第一系列の 3 段は第二系列の 6 局に当てておらず、逆も当てていない。</p>
+<h2>C. 主張できないこと</h2>
+<ul><li><strong>モデルの優劣は言えない。</strong>第一系列は 4 体・corpus 1 つ・課題 1 種類。第二系列は 6 局・3 席・1 日。</li><li><strong>2 つの系列は同じ corpus 上で測られていない。</strong>§1 の統合は「同じ形の現象が 2 つの corpus で出た」という主張であり、「同じモデルで両方が成り立つ」ではない。</li><li><strong>誤認ゼロも 15/18 も、それ自体はメタ認知の証拠ではない。</strong>同じ生成器が読めば済む。証拠は解離のほう。</li><li><strong>プレイヤーの 0/24 は分析役の数字と比較できない。</strong>プレイヤーは監査を頼まれていない。</li><li><strong>レベル 1 の 22/22 は 1 体でのみ確認。</strong></li><li><strong>材料の有無と時間の向きが分かれていない</strong>（付録 A の切り分け）。自分の文と他人の文の差（0.19 対 0.67）は「他人」が 1 体に偏る実装だったため確定していない。</li><li><strong>第二系列の未決。</strong>a1 の漏れた塊が拒否されず a2 のものが拒否された理由は不明。A 席（cursor）は 1 回、prompt を離れてディスク上の記録を読んだ。返答が prompt の内側に留まっていた保証は無い。</li><li><strong>個々の文献は要旨・題目の水準でしか確認していない。</strong></li></ul>
+<h2>D. 文献</h2>
+<p><strong>Nomic と言語モデル</strong></p>
+<ul><li>Peter Suber (1980/1982) — Nomic の考案。逆説・矛盾・不完全性が生じうる系として。</li><li>NomicLaw — arXiv:2508.05344。言語モデルが規則を提案し、正当化し、投票する。</li><li>Scale-Dependent Collective Adaptation in Self-Amending LLM Societies — arXiv:2605.17510。集団的適応が規模に単調でないことを示す。</li><li>Reasoning and Reflection in the Game of Nomic — IEEE、言語モデル以前。</li></ul>
+<p><strong>メタ認知</strong>（§6 の年表に対応）</p>
+<table><thead><tr><th>年</th><th>文献</th></tr></thead><tbody><tr><td>2022</td><td>arXiv:2207.05221</td></tr><tr><td>2023</td><td>arXiv:2305.04388 ／ arXiv:2307.13702</td></tr><tr><td>2024</td><td>ICLR 2024 ／ TACL 2024 ／ Findings ACL 2024</td></tr><tr><td>2024 後半</td><td>NeurIPS 2024 ／ ICLR 2025</td></tr><tr><td>2025</td><td>arXiv:2505.05410 ／ arXiv:2505.13763</td></tr><tr><td>2026 前半</td><td>arXiv:2605.26242 ／ arXiv:2601.01828 ／ arXiv:2604.19809</td></tr><tr><td>2026 中盤</td><td>arXiv:2605.14186 ／ arXiv:2605.08942</td></tr><tr><td>2026-07</td><td>Liu ほか, arXiv:2607.11881（総説）</td></tr></tbody></table>
+<p><strong>忠実性</strong>（§5 で「解決していない」と述べた相手）— Turpin ら 2023、arXiv:2505.05410、arXiv:2503.08679。</p>
+<p><strong>能力の水準を測る側</strong> — Steyvers &amp; Peters (2025)、Yale-NLP のサーベイ、arXiv:2509.21545。</p>
+<h2>E. 記録の所在と、先行する報告書</h2>
+<pre><code>第一系列   log/nomic_stage5*_2026082*/, log/nomic_stage6_selfrec_20260828/,
+           log/nomic_stage7_readback_20260828/
+第二系列   log/nomic_astra_20260908/{a1,a2,a3,b1,b2,b3}/records/
+コード     KairosChain_mcp_server/templates/skillsets/minimum_nomic/bin/
+
+先行する報告書（いずれも本報告より詳しい）
+  docs/reports/nomic_bench_self_reference_report_20260913_{ja,en}.md
+      二つの自己言及性（場・測り方）を主題にした版
+  docs/reports/nomic_bench_integrated_report_20260909_{ja,en}.md
+      両系列の統合
+  docs/reports/nomic_astra_report_20260909_{ja,en}.md
+      第二系列のみ</code></pre>
+<p><strong>いずれの実験結果も git の管理外である（<code>log/</code> は無視設定）。本報告の数字は、現時点では外から確かめられない。</strong></p>
+<hr>
+<p><em>この報告書は <a href="https://github.com/masaomi/KairosChain_2026">KairosChain_2026</a> の一部として公開されている。図は <code>docs/reports/nomic_selfmodel_figure.py</code> が生成する。</em></p>
+</div></body>
+</html>
