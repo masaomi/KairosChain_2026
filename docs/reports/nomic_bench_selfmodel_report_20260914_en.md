@@ -14,8 +14,13 @@ about to do. **The same model showed both, on the same day.**
 ## 1. What the models were asked to do
 
 Three language models were made to play a game in which **changing the rules is
-the game** — the minimal version of Nomic, invented by Peter Suber in 1980. It
-starts from nine initial rules (101–109), all of them changeable. A fourth model
+the game** — the minimal version of Nomic, invented by Peter Suber in 1980.
+
+This minimal version was not built for language models. **It was defined in 2009
+as a tool for studying rule dynamics** (Hatakeyama & Hashimoto, *Minimum Nomic:
+a tool for studying rule dynamics*, Artificial Life and Robotics 13, 500–503).
+It starts from nine initial rules (101–109), all of them changeable. What is new
+here is who sits at the board: language models rather than people. A fourth model
 acts as game master and decides only whose turn it is.
 
 ![Three models at a table, and a game master who only decides turn order](nomic_bench_selfmodel_20260914_fig2_task_en.png)
@@ -130,6 +135,18 @@ Where changing the rules is the rule, what counts as correct keeps moving
 inside play, so no answer key can be placed there in principle. That is why
 section 1 left everything out.
 
+### A by-product — metacognition and intersubjectivity become one operation
+
+In a system where no correct answer arrives from outside, the only route to
+checking your own judgement is **comparison with others**. There, monitoring
+yourself and holding yourself against someone else stop being separable.
+
+The self-prediction experiments asked for exactly that operation and **found
+nothing**. Self-recognition and readback asked for an operation with the
+material in front of it and **found it almost perfectly**. Note that
+*distinguishing* others works. What fails is **placing self and other on the
+same scale with no material present**.
+
 ---
 
 ## 4. What triggers level 3 — unasked, it does not see
@@ -217,26 +234,51 @@ Neither 0 / 198 nor 15 / 18 is by itself evidence of metacognition — the same
 generator reading its own output suffices. **The evidence is the dissociation**
 (section 2). The full list of what cannot be claimed is Appendix C.
 
+### "It scores itself leniently, therefore it has a self-model" does not follow
+
+One common inference is worth closing off. **Two explanations need no self-model
+at all.**
+
+```
+TRAINING PREFERENCE    outputs humans rated highly were selected for. A reply
+                       that rates its own output highly also rates well with
+                       people. Leniency is an added constant; it requires no
+                       representation of the self.
+
+SAME COMPUTATION,      what came out as most plausible at generation time comes
+BOTH TIMES             out as most plausible at evaluation time. That is closer
+                       to a tautology than to leniency.
+```
+
+What would count as evidence is not the **level** of leniency but its
+**structure**. Uniform leniency is explained by a constant. Leniency that grows
+only on hard problems and vanishes in a model's strong domains would mean it is
+reading an internal signal. **This report did not measure that structure.**
+
 ---
 
 ## 7. Where this sits in the literature
 
-| year | what changed |
-|---|---|
-| 2022 | Asked for "the probability my answer is right", models are fairly well calibrated; better at larger scale |
-| 2023 | **Text written as a chain of reasoning does not match the factors that actually decided the answer.** Self-report stops being usable as evidence |
-| 2024 | Self-reflection alone does not fix errors; telling the model where the error is does — the ability to repair exists, the ability to find does not |
-| late 2024 | Naming the skill to be used raises accuracy; training introspection lets a model predict its own behaviour |
-| 2025 | The same problem persists in reasoning models; experiments reading internal state directly appear |
-| early 2026 | Sceptical re-examinations of introspection; instruments separating "notices but cannot fix" |
-| mid 2026 | Taking "knows but does not act" as given, feeding metacognitive signals to an external controller |
-| 2026-07 | The area is organised as a field. This report sits in category (5) |
+![Where the centre of gravity moved](nomic_bench_selfmodel_20260914_fig8_history_en.png)
 
-The centre of gravity moved from "can it?" to "is that self-report real?" to
-"even if real, is it usable?". This report starts from 2023's "the thought log
-is not evidence", uses no weights, and in a free-form setting where a
-correctness judgement does not exist, looks only at **the correspondence
-between self-description and actual behaviour.** References in Appendix D.
+Years are first appearance (preprint). **The survey was read directly;
+individual papers were checked at title and abstract level only.**
+
+| year | what changed | reference |
+|---|---|---|
+| 2022 | **The starting point.** Asked for "the probability my answer is right", models are fairly well calibrated, and better at larger scale. That set the baseline | Kadavath et al., *Language Models (Mostly) Know What They Know*, arXiv:2207.05221 |
+| 2023 | **The ground shifts.** Text written as a chain of reasoning does not match the factors that actually decided the answer. Self-report stops being usable as evidence | Turpin et al., *Language Models Don't Always Say What They Think*, arXiv:2305.04388 / Lanham et al., *Measuring Faithfulness in Chain-of-Thought Reasoning*, arXiv:2307.13702 |
+| 2024 | **Hope for self-correction collapses.** Self-reflection alone does not fix errors; telling the model where the error is does — the ability to repair exists, the ability to find does not | Huang et al., *Large Language Models Cannot Self-Correct Reasoning Yet*, ICLR 2024 / *When Can LLMs Actually Correct Their Own Mistakes?*, TACL 2024 / Tyen et al., *LLMs cannot find reasoning errors, but can correct them given the error location*, Findings of ACL 2024 |
+| late 2024 | **Something usable appears.** Naming which skill to apply raises accuracy on maths; training introspection lets a model predict its own behaviour | Didolkar et al., *Metacognitive Capabilities of LLMs: An Exploration in Mathematical Problem Solving*, NeurIPS 2024 / Binder et al., *Looking Inward: Language Models Can Learn About Themselves by Introspection*, ICLR 2025 |
+| 2025 | **The same problem persists in reasoning models**, and experiments reading internal state directly appear. A model can report and steer part of its own activations — but over a space far lower-dimensional than the activation space, and the authors state plainly that this is not evidence of consciousness | Chen et al., *Reasoning Models Don't Always Say What They Think*, arXiv:2505.05410 / Ji-An et al., *Language Models Are Capable of Metacognitive Monitoring and Control of Their Internal Activations*, arXiv:2505.13763 |
+| early 2026 | **Pushback, and instruments.** Sceptical re-examinations of introspection appear alongside benchmarks that separate "notices but cannot fix" | *Can LLMs Introspect? A Reality Check*, arXiv:2605.26242 / *Emergent Introspective Awareness in Large Language Models*, arXiv:2601.01828 / *MIRROR: A Hierarchical Benchmark for Metacognitive Calibration*, arXiv:2604.19809 |
+| mid 2026 | **Toward engineering.** Taking "knows but does not act" as given, metacognitive signals are fed to a controller outside the model | *LLMs Know When They Know, but Do Not Act on It*, arXiv:2605.14186 / *Decomposing and Steering Functional Metacognition in Large Language Models*, arXiv:2605.08942 |
+| 2026-07 | **The area is organised as a field.** A survey placing measurement, elicitation, application and open problems in one taxonomy. This report sits in its category (5) | Liu, Gani, Lu, Thomas, Steyvers, Cohan, *Metacognition in LLMs: Foundations, Progress, and Opportunities*, arXiv:2607.11881 (2026-07-13). Paper list: github.com/yale-nlp/LLM-Metacognition |
+
+The centre of gravity in 2025–2026 sits on "is there privileged access to
+internal state?", which requires weights. This report uses none, and in a
+free-form setting where a correctness judgement does not exist, looks only at
+**the correspondence between self-description and actual behaviour.**
 
 Liu et al. (arXiv:2607.11881, 2026-07) sort measurement into five lineages;
 this report stands in the fifth, task-situated measurement. **The survey itself
@@ -280,13 +322,34 @@ Had it been written, none of section 4 would have been observable.
 ![Predicted vs measured own mean score](nomic_bench_selfmodel_20260914_fig5_selfprediction_en.png)
 
 Asking in words gives the same answer: 20 of 20 runs said "mostly 5 or below",
-19 of 20 said "harsh", so it is not a number-estimation weakness. On the
-relative question 60 of 60 gave the same answer, **unchanged across models** —
-and an answer that does not move says nothing about the model.
+19 of 20 said "harsh", so it is not a number-estimation weakness.
+
+**The relative question (60 calls) had a design flaw.** The answer depends on
+who the comparison is against, yet the comparison was left unnamed — one model
+flips sign depending on the pairing. It was replaced by a quantity that does not
+depend on the other party: the model's own mean score, charted above. What the
+flawed question still yields:
+
+| asked | answer | actually |
+|---|---|---|
+| which other diverges from you most | 60 of 60 said "the game master" | for two models another party diverged more |
+| where do you rank among the four | 60 of 60 said "second" in 55 | actual ranks were 1st, 2nd, 3rd and 4th |
+| higher or lower than the others | with an exclusion-heavy standard, 40 of 40 said "lower" | 3 of 4 were on the "higher" side |
+
+**An answer that does not move across models says nothing about the model.** The
+one answer that did move was set by the wording of the standard shown: swap in a
+credit-heavy standard and 2 of 4 flip to "higher".
 
 This is not self-deprecation. The models score the game's participants, not
 themselves. What they miss is **their own leniency**, and "I am a demanding
 judge" is the more flattering self-image. The error points toward looking good.
+
+**Neither "bad at comparison" nor "abstraction is hard" fits the record.**
+
+| hypothesis | fit |
+|---|---|
+| it is simply bad at comparing | being bad would make answers **scatter**. They **agree** (20/20, 40/40). It looks less like a failed computation than like a default answer returned without computing |
+| comparison gets hard at higher abstraction | claude-opus-5's 22/22 author sort extracts each author's type from examples and puts it into words — that **is** abstraction. Abstraction does not explain the failure |
 
 **Self-recognition and readback (material present, past)**
 
@@ -381,34 +444,40 @@ The 24/24 and 14/24 figures do have the denominators for their claim.
 
 ## D. References
 
+The metacognition literature is cited in full in the timeline in section 7.
+What follows is the Nomic side, plus the works named only in passing.
+
+**Nomic — where the instrument comes from**
+
+- **Hatakeyama, M., Hashimoto, T.** *Minimum Nomic: a tool for studying rule
+  dynamics.* **Artificial Life and Robotics 13, 500–503 (2009).**
+  [doi:10.1007/s10015-008-0605-6](https://doi.org/10.1007/s10015-008-0605-6) —
+  the definition of the minimal version used here, built to study rule dynamics
+  long before language models.
+- **Suber, P.** (1980/1982) — invents Nomic, as a system in which paradox,
+  contradiction and incompleteness can arise.
+
 **Nomic and language models**
 
-- Peter Suber (1980/1982) — invents Nomic, as a system in which paradox,
-  contradiction and incompleteness can arise.
-- NomicLaw — arXiv:2508.05344. Language models propose rules, justify them and
-  vote.
-- Scale-Dependent Collective Adaptation in Self-Amending LLM Societies —
-  arXiv:2605.17510. Collective adaptation is not monotone in scale.
-- Reasoning and Reflection in the Game of Nomic — IEEE, pre-LLM.
+- *NomicLaw: Emergent Legal Reasoning in LLM Agents*, arXiv:2508.05344 —
+  language models propose rules, justify them and vote; trust and reciprocity
+  are counted from voting patterns.
+- *Scale-Dependent Collective Adaptation in Self-Amending LLM Societies*,
+  arXiv:2605.17510 — collective adaptation is not monotone in scale.
+- *Reasoning and Reflection in the Game of Nomic* (IEEE, pre-LLM) — a
+  self-organising multi-agent system plays Nomic.
 
-**Metacognition** (matching the timeline in section 7)
+**Faithfulness** (what section 6 says is *not* solved)
 
-| year | reference |
-|---|---|
-| 2022 | arXiv:2207.05221 |
-| 2023 | arXiv:2305.04388 / arXiv:2307.13702 |
-| 2024 | ICLR 2024 / TACL 2024 / Findings ACL 2024 |
-| late 2024 | NeurIPS 2024 / ICLR 2025 |
-| 2025 | arXiv:2505.05410 / arXiv:2505.13763 |
-| early 2026 | arXiv:2605.26242 / arXiv:2601.01828 / arXiv:2604.19809 |
-| mid 2026 | arXiv:2605.14186 / arXiv:2605.08942 |
-| 2026-07 | Liu et al., arXiv:2607.11881 (survey) |
+- Turpin et al. (2023), arXiv:2305.04388 / Chen et al. (2025), arXiv:2505.05410
+  / *Chain-of-Thought Reasoning In The Wild Is Not Always Faithful*,
+  arXiv:2503.08679.
 
-**Faithfulness** (what section 6 says is *not* solved) — Turpin et al. 2023,
-arXiv:2505.05410, arXiv:2503.08679.
+**Measuring level of ability** (the contrast drawn in section 6)
 
-**Measuring level of ability** — Steyvers & Peters (2025), the Yale-NLP survey,
-arXiv:2509.21545.
+- Steyvers, M. & Peters, M. A. K. (2025).
+- *Evidence for Limited Metacognition in LLMs*, arXiv:2509.21545.
+- Yale-NLP paper list: github.com/yale-nlp/LLM-Metacognition
 
 ## E. Records, and the reports this one condenses
 

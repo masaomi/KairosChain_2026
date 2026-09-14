@@ -12,6 +12,7 @@ fig4  what the first move of each game did
 fig5  predicted vs measured own mean score
 fig6  the three levels of self-model, and the verdict on each
 fig7  naming the anomaly: unasked vs asked
+fig8  the arc of metacognition research, and where this sits
 
 Usage:  python3 docs/reports/nomic_selfmodel_figure.py
 Writes: docs/reports/nomic_bench_selfmodel_20260914_<fig>_{ja,en}.{svg,png}
@@ -561,9 +562,64 @@ def fig7(lang):
 
 
 # --------------------------------------------------------------------------
+def fig8(lang):
+    """The arc of LLM-metacognition research, and where this report sits."""
+    f = Fig(1400, 720, lang)
+    t = f.t
+    f.T(60, 60, t("メタ認知研究の重心は、どこへ移ったか",
+                  "Where the centre of gravity moved"), 30, INK, "700")
+
+    stations = [
+        ("2022", t(["自分の正誤が", "わかるか"],
+                   ["does it know", "when it is right"])),
+        ("2023", t(["思考ログは", "本当の理由か"],
+                   ["is the thought log", "the real reason"])),
+        ("2024", t(["自分で直せるか", "（→ ほぼ無理）"],
+                   ["can it fix itself", "(mostly not)"])),
+        ("2025", t(["内部状態への特権的", "接続はあるか"],
+                   ["privileged access to", "its own internals?"])),
+        ("2026", t(["知っていても動かない,", "の測定"],
+                   ["knows but does not act,", "measured"])),
+    ]
+    x0, dx, AY = 150, 268, 250
+    f.P(f"M{x0-70} {AY} L{x0 + dx*4 + 90} {AY}", LINE, 3)
+    for i, (yr, lines) in enumerate(stations):
+        x = x0 + i * dx
+        f.b.append(f'<circle cx="{x}" cy="{AY}" r="13" fill="{BLUE}"/>')
+        f.T(x, AY - 34, yr, 26, BLUE, "700", anchor="middle", mono=True)
+        f.T(x, AY + 48, lines[0], 21, INK, "600", anchor="middle")
+        f.T(x, AY + 76, lines[1], 21, INK, "600", anchor="middle")
+
+    f.R(60, 372, 1280, 84, PANEL, rx=10, stroke=LINE, sw=2)
+    f.T(84, 422, t("「できるか」 → 「その自己報告は本物か」 → "
+                   "「本物でも使えるのか」",
+                   "&#8220;can it?&#8221; &#8594; &#8220;is that self-report "
+                   "real?&#8221; &#8594; &#8220;even if real, is it "
+                   "usable?&#8221;"), 26, INK, "700")
+
+    f.R(60, 484, 1280, 192, GREEN_BG, rx=10)
+    f.T(84, 528, t("本報告の位置", "WHERE THIS REPORT SITS"), 22, GREEN, "700",
+        spacing="2.5")
+    f.T(84, 570, t("2023 年の「思考ログは証拠にならない」から出発する。"
+                   "重みは使わない。",
+                   "It starts from 2023&#8217;s &#8220;the thought log is not "
+                   "evidence&#8221;, and uses no weights."), 22, INK, "600")
+    f.T(84, 606, t("正誤判定が存在しない自由記述の場で、"
+                   "自己記述と実際の振る舞いの対応だけを見る。",
+                   "In a free-form setting where a correctness judgement does "
+                   "not exist, it looks only at self-description"), 20, GREY)
+    f.T(84, 640, t("総説が主流の方法の限界として挙げた"
+                   "「自由記述への拡張が難しい」の、ちょうど裏側にあたる。",
+                   "against measured behaviour &#8212; the far side of the "
+                   "limit the survey names for the mainstream method."),
+        20, GREY)
+    return f
+
+
+# --------------------------------------------------------------------------
 FIGS = {"figure": fig1, "fig2_task": fig2, "fig3_metaeval": fig3,
         "fig4_firstmove": fig4, "fig5_selfprediction": fig5,
-        "fig6_levels": fig6, "fig7_asked": fig7}
+        "fig6_levels": fig6, "fig7_asked": fig7, "fig8_history": fig8}
 
 
 def main():
