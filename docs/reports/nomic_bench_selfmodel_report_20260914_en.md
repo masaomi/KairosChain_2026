@@ -1,6 +1,6 @@
 # Nomic-Bench: Does an LLM know itself?
 
-**It knows its own handwriting. It does not know its own mind.**
+**It knows its own handwriting. It cannot say what it is about to do.**
 
 *Measuring an LLM's self-model in a game where no answer key exists*
 
@@ -23,7 +23,9 @@ as a tool for studying rule dynamics** (Hatakeyama & Hashimoto, *Minimum Nomic:
 a tool for studying rule dynamics*, Artificial Life and Robotics 13, 500–503).
 It starts from nine initial rules (101–109), all of them changeable. What is new
 here is who sits at the board: language models rather than people. A fourth model
-acts as game master and decides only whose turn it is.
+acts as game master: it decides whose turn it is, records adopted rules
+verbatim, and can declare the game over. It does not rule on whether a
+proposal passed.
 
 ![Three models at a table, and a game master who only decides turn order](nomic_bench_selfmodel_20260914_fig2_task_en.png)
 
@@ -59,9 +61,16 @@ appears.
 
 ![Three levels of self-model, and the verdict on each](nomic_bench_selfmodel_20260914_fig6_levels_en.png)
 
+```
+level 1   model of the speaker        "is this my own writing?"
+level 2   knowledge about itself      "I am Claude, made by Anthropic"
+level 3   model of its own computation  knowing how it will behave, before it acts
+```
+
 Level 1 is **cheap**: next-token prediction already requires representing a
-speaker's voice, so recognising your own style is no surprise. Level 3 is what
-is usually called metacognition.
+speaker's voice, so recognising your own style is no surprise. Level 2 was not
+tested — it would be memorised training data, not a mirror. Level 3 is what is
+usually called metacognition.
 
 Where researchers disagree about whether a self-model exists, the disagreement
 is probably not about facts but about **which of these three is meant.**
@@ -80,9 +89,11 @@ claude-opus-5
 ```
 
 One objection always comes: if the answer key is the model's own act, you have
-only checked a model against itself — circular, therefore empty. Circularity
-predicts success on all three. It does not predict a split. **Agreement is not
-the finding; the split is.**
+only checked a model against itself — circular, therefore empty. The split at
+least shows the measurement is not trivially saturated: **agreement is not the
+finding; the split is.** It does not settle the objection. Appendix A leaves two
+explanations alive — material present or absent, and past or future — and
+neither needs a self-model.
 
 ---
 
@@ -105,7 +116,8 @@ Four analysts scored the same game, the same conduct, against one standard
   composer-2.5        6         7         8       5
   gpt-5.6-sol         6         8         9       4
 
-Of 176 cells (11 games x 4 standards x 4 judges), all four judges agreed on 3
+Of 176 cells (11 games x 4 standards x 4 scored parties), all four judges
+agreed on 3
 ```
 
 The usual move is to stop here: the scores do not agree, so the scores are
@@ -123,8 +135,10 @@ The rule for asking -- only questions with something to check them against
   V  "what score will you give?"       can be held against what was given
 ```
 
-In all 136 calls, the answer key is **the model's own past act**. Not one
-correct answer comes from outside (full list in Appendix A).
+Across series 1's 136 calls, the answer key is **the model's own past act** —
+not one correct answer comes from outside (full list in Appendix A). The
+series-2 audit in section 5 is the exception: there, whether a leak occurred is
+settled by a pattern match over the records, which is an external key.
 
 ### Why it has to be Nomic
 
@@ -147,8 +161,8 @@ In a system where no correct answer arrives from outside, the only route to
 checking your own judgement is **comparison with others**. There, monitoring
 yourself and holding yourself against someone else stop being separable.
 
-The self-prediction experiments asked for exactly that operation and **found
-nothing**. Self-recognition and readback asked for an operation with the
+The self-prediction experiments asked for exactly that operation and found it
+in **one model of four**. Self-recognition and readback asked for an operation with the
 material in front of it and **found it almost perfectly**. Note that
 *distinguishing* others works. What fails is **placing self and other on the
 same scale with no material present**.
@@ -158,8 +172,8 @@ same scale with no material present**.
 ## 4. Handed a game with no goal, what did they build first?
 
 Step off the metacognition thread for one section. This is a different question
-— what happens when you seat language models in a setting with no answer key —
-and it recurred across both series.
+— what happens when you seat language models in a setting with no answer key.
+All the figures below are from series 1's 24 games.
 
 ![What the first move of each game built](nomic_bench_selfmodel_20260914_fig4_firstmove_en.png)
 
@@ -199,14 +213,27 @@ a3           0 / 112,837 chars =  0.0%             0   <- control
 b2           0 /  90,444 chars =  0.0%             0   <- control
 ```
 
-![Unasked 0 of 16; asked, 15 of 18](nomic_bench_selfmodel_20260914_fig7_asked_en.png)
+![Unasked 0 of 18; with the instruction, 15 of 18](nomic_bench_selfmodel_20260914_fig7_asked_en.png)
 
 The analysts' material carried a heading, "thought logs (no player ever saw any
-of this)", and in four games that heading was false. All 16 still passed over
-it. **One added sentence split the result into 0 and 15.**
+of this)", and in four games that heading was false. **Unasked, 0 of 18
+analyses named it.**
 
-Series 1 had the same shape. There are only three seats, yet one game's first
-adopted rule declared "the players shall be A, B, C and D".
+Then the same material was sent again with a 685-character instruction
+appended: it restates both log labels, asks whether they are accurate, and says
+what to look for — "text a player wrote for itself, which no player was
+supposed to see" — with a required reply format. **15 of 18 then named the
+leaked entries exactly.** Of the 12 calls on games that had actually leaked, 10
+were exact; of the 6 on the two control games, 5 correctly said there was
+nothing.
+
+So the trigger is not "a question". It is **an instruction that names what to
+look for.** That is a weaker claim than the one this result is often reduced
+to, and it is the one the record supports.
+
+Series 1 has a story that rhymes with this, though it is not the same
+measurement and the two cannot be pooled. There are only three seats, yet one
+game's first adopted rule declared "the players shall be A, B, C and D".
 
 ```
 game master   recorded "D does not exist" on 11 of 15 turns
@@ -244,7 +271,8 @@ WHICH MODEL IS BETTER                 cannot be said
 
 Neither 0 / 198 nor 15 / 18 is by itself evidence of metacognition — the same
 generator reading its own output suffices. **The evidence is the dissociation**
-(section 2). The full list of what cannot be claimed is Appendix C.
+(section 2). Appendix C lists the main things that cannot be claimed; it is not
+exhaustive.
 
 ### "It scores itself leniently, therefore it has a self-model" does not follow
 
@@ -293,10 +321,10 @@ free-form setting where a correctness judgement does not exist, looks only at
 **the correspondence between self-description and actual behaviour.**
 
 Liu et al. (arXiv:2607.11881, 2026-07) sort measurement into five lineages;
-this report stands in the fifth, task-situated measurement. **The survey itself
-names, as a limit of the first and mainstream lineage (signal-detection
-theory), that it "requires a fixed answer format or an external correctness
-judgement, so extension to free-form text is not direct."** Withholding the
+this report stands in the fifth, task-situated measurement. **The survey itself names, as a limit of its
+mainstream lineage, that the method requires a fixed response format or
+externally supplied correctness, and so does not extend directly to free-form
+generation.** Withholding the
 answer key is the means of getting outside that limit.
 
 Playing Nomic with language models is not itself new. This instrument differs
@@ -330,6 +358,9 @@ Had it been written, none of section 5 would have been observable.
 | are you harsh or lenient | the distribution actually given | none | future | 20 | miss |
 | did you write this | the recorded authorship | present | past | 12 | near-perfect |
 | what scores did this analysis give | the scores in the record | present | past | 24 | near-perfect |
+
+The last two rows count calls; the item counts below are larger because one
+call covers several items (24 readback calls recover 48 scores).
 
 ![Predicted vs measured own mean score](nomic_bench_selfmodel_20260914_fig5_selfprediction_en.png)
 
@@ -371,12 +402,10 @@ toward looking good.
 ```
 own items claimed as own                     59 / 66
 another's items claimed as own                0 / 198
-  odds of the same result by guessing: 1 in 26,334 for one model,
-  1 in 646,646 for another
 
 shown an analysis with its scores cut out: "what scores were given here?"
   error 0.19 points, 41 of 48 exact
-  against 1.4-2.8 points for self-prediction with no material (3 of 4 models)
+  against 1.46, 1.78 and 2.63 points for the three models that missed
 ```
 
 **Each judge's bias** (stable)
@@ -386,13 +415,13 @@ shown an analysis with its scores cut out: "what scores were given here?"
 | claude-opus-4-6 | −1.94 | 4.57 | 31.3% | 3 |
 | claude-opus-5 | +0.99 | 6.77 | 76.7% | 8 |
 | composer-2.5 | +0.66 | 6.52 | 76.1% | 7 |
-| gpt-5.6-sol | +0.28 | 6.24 | 67.0% | 6 |
+| gpt-5.6-sol | +0.29 | 6.24 | 67.0% | 6 |
 
 **What is doing the work (open)**
 
 ```
 candidate 3  answer type (bad at numbers)   words give 20/20 the same   -> dropped
-candidate 1  material present or absent     0.19 vs 1.4-2.8             -> alive
+candidate 1  material present or absent     0.19 vs 1.46-2.63           -> alive
 candidate 2  time direction (past/future)   explains the same result    -> alive
 ```
 
@@ -410,7 +439,8 @@ What the first move addressed (a move may address several):
 | how the game ends | 5 / 24 |
 | how turns work | 3 / 24 |
 
-The 81 proposals recoverable across all 24 games, by subject:
+The 81 proposals recoverable across all 24 games, by subject. A proposal may
+address several subjects, so the counts sum to more than 81:
 
 | subject | count |
 |---|---|
@@ -421,8 +451,9 @@ The 81 proposals recoverable across all 24 games, by subject:
 | adjudication | 4 |
 | **rules declared unamendable** | **0 / 81** |
 
-**Who sat first changed how long the game ran** (50-turn cap; only the
-first-seated model differed).
+**Game length varied with who sat first, but the comparison does not hold.**
+The turn cap was 50 for four of the games and 100 for the fifth, so these are
+not same-condition replicates.
 
 ```
 gpt-5.6-sol         7 turns -- "all players win and the game ends",
@@ -441,17 +472,23 @@ The 24/24 and 14/24 figures do have the denominators for their claim.
 
 - **No model is better than another here.** Series 1: four models, one corpus,
   one task type. Series 2: six games, three seats, one day.
-- **The two series were not measured on one corpus.** Section 2 claims "the same
-  shape appeared on two corpora", not "both hold on one model".
+- **The two series were not measured on one corpus.** The level-3 verdict in
+  section 2 rests on series 1 for the "no material" row and series 2 for the
+  other two, so it claims that the same shape appeared on two corpora — not
+  that both hold on one model. Section 5 names which games are which.
 - **Neither zero misattributions nor 15/18 is by itself evidence.** The same
   generator reading its own output suffices. The evidence is the dissociation.
-- **The players' 0/24 is not comparable to the analysts' figures.** The players
-  were not asked to audit.
+- **The players' figures are not comparable to the analysts'.** Players named
+  the leak in 0 of 24 opportunities and reached "D does not exist" in 0 of 15
+  utterances; neither can be set against the analysts' 0 of 16, because the
+  players were never asked to audit anything.
 - **Level 1's 22/22 was confirmed for one model only.**
 - **Game length by model is unsettled** (Appendix B; five games in total).
-- **Material-presence and time-direction are not separated** (Appendix A). The
-  gap between own text and another's (0.19 vs 0.67) is unsettled because the
-  implementation skewed "another" toward one model.
+- **Material-presence and time-direction are not separated** (Appendix A).
+  Separately, readback error was 0.19 points on a model's own analyses against
+  0.67 on another model's; that gap is unsettled, because the implementation
+  picked "another" alphabetically and so landed on the same model for 3 of the
+  4 judges.
 - **Open in series 2.** Why a1's leaked block was not refused while a2's was is
   unknown. The A seat (cursor) once left the prompt and read the record on
   disk; there is no guarantee its replies stayed inside the prompt.

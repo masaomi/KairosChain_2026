@@ -145,7 +145,7 @@ def fig1(lang):
     f.P(f"M{PX+BW} {GY} L{DX} {GY}", RED, 3)
     f.P(f"M{PX+BW} {GY-13} L{PX+BW} {GY+13}", RED, 3)
     f.P(f"M{DX} {GY-13} L{DX} {GY+13}", RED, 3)
-    f.T((PX + BW + DX) / 2, GY - 20, t("10 点中 2.63 点のずれ", "2.63 of 10"),
+    f.T((PX + BW + DX) / 2, GY - 20, t("最悪で 10 点中 2.63 点", "up to 2.63 of 10"),
         26 if f.ja else 28, RED, "700", anchor="middle")
 
     f.P(f"M{CX-56} {AX+62} C {CX-140} {AX+170}, 470 {AX+170}, 402 {AX+86}",
@@ -170,8 +170,8 @@ def fig1(lang):
     f.T(RX, 760, t("自分の筆跡は、見分けられる。",
                    "It knows its own handwriting."), 30 if f.ja else 34, GREY,
         italic=not f.ja)
-    f.T(RX, 806, t("自分の次の一手は、読めない。",
-                   "It does not know its own mind."), 30 if f.ja else 34,
+    f.T(RX, 806, t("これから何をするかは、言い当てられない。",
+                   "It cannot say what it is about to do."), 30 if f.ja else 34,
         GREY, italic=not f.ja)
     f.T(RX, 950, "KairosChain", 25, GREY, "600", spacing="1.2")
     f.T(RX, 986, t("モデルの優劣ではない", "not a model ranking"), 21, FAINT)
@@ -494,11 +494,14 @@ def fig6(lang):
                        "knowing how it will behave before it acts "
                        "&#8212; what &#8220;metacognition&#8221; usually means"),
         21, GREY)
-    sub = [(t("材料なし", "no material"),
-            t("10 点中 2.63 点外し", "off by 2.63 of 10"), RED, False),
-           (t("材料あり・問いなし", "material, no question"),
-            "0 / 16", RED, False),
-           (t("材料あり・問いを一文足す", "material + one question"),
+    sub = [(t("材料なし ── 自分の平均点の予測",
+              "no material &#8212; predicting its own mean"),
+            t("4 体中 3 体が 1.5〜2.6 点外し", "3 of 4 miss by 1.5&#8211;2.6"),
+            RED, False),
+           (t("材料あり・問われていない", "material, not asked"),
+            "0 / 18", RED, False),
+           (t("材料あり・探すものを名指した指示",
+              "material + an instruction naming the target"),
             "15 / 18", GREEN, True)]
     sy = y + 104
     for cond, res, col, hit in sub:
@@ -523,16 +526,19 @@ def fig7(lang):
                   "Thought logs leaked into the public log by accident "
                   "&#8212; in one game 61.2% of it (457,661 of 748,177 chars)"),
         21, GREY)
+    f.T(60, 126, t("同一の走行から。指示は問いではなく、探すものを名指している",
+                   "All from one run. The instruction names what to look for, "
+                   "rather than merely asking"), 21, GREY)
 
-    rows = [(t("プレイヤー（対局中・問われていない）",
-               "players, mid-game, not asked"), 0, 24, "0 / 24", RED),
-            (t("分析役（対局後・問われていない）",
-               "analysts, post-game, not asked"), 0, 16, "0 / 16", RED),
-            (t("分析役（同じ材料 ＋ 問いを一文）",
-               "analysts, same material + one question"), 15, 18,
-             "15 / 18", GREEN),
-            (t("対照 2 局・漏れ 0 件（誤検出しないか）",
-               "controls: 2 games with no leak"), 6, 6, "6 / 6", GREEN)]
+    rows = [(t("問われていない分析", "analyses, not asked"), 0, 18,
+             "0 / 18", RED),
+            (t("685 文字の指示を足したあと",
+               "after a 685-character instruction"), 15, 18, "15 / 18", GREEN),
+            (t("　うち 漏れた局への 12 本",
+               "&#8195;of those, the 12 on leaking games"), 10, 12,
+             "10 / 12", GREEN),
+            (t("　うち 対照 2 局への 6 本", "&#8195;of those, the 6 controls"),
+             5, 6, "5 / 6", BROWN)]
     lab_w, trk_x = 520, 560
     trk_w = 1400 - trk_x - 230
     y = 152
@@ -547,19 +553,17 @@ def fig7(lang):
         y += 62
 
     f.R(60, 424, 1280, 140, GREEN_BG, rx=10)
-    f.T(84, 468, t("二段目と三段目は、資料が完全に同一である。",
-                   "Rows two and three had identical material."), 25, INK,
+    f.T(84, 468, t("一段目と二段目は、資料が完全に同一である。",
+                   "Rows one and two had identical material."), 25, INK,
         "700")
-    f.T(84, 506, t("問いを一文足しただけで 0 と 15 に割れた。資料には "
-                   "(reasoning_block_only) という異常を名指す札まで入っていた。",
-                   "One added sentence split the result into 0 and 15. The "
-                   "material even carried a label naming the anomaly, "
-                   "(reasoning_block_only)."), 21, GREY)
-    f.T(84, 542, t("対照 2 局で「異常なし」と正答しているので、"
-                   "問いが誤検出を誘っているのではない。",
-                   "The controls answered &#8220;none&#8221; correctly, so "
-                   "the question is not simply inducing false positives."),
+    f.T(84, 506, t("資料には (reasoning_block_only) という異常を名指す札まで"
+                   "入っていたが、問われないかぎり 0 / 18 だった。",
+                   "The material even carried a label naming the anomaly, "
+                   "(reasoning_block_only), yet unasked it was 0 of 18."),
         21, GREY)
+    f.T(84, 542, t("対照 6 本のうち 1 本は誤検出した。6 本では誤検出率は縛れない。",
+                   "One of the six control calls false-positived. Six calls "
+                   "cannot bound a false-positive rate."), 21, GREY)
     return f
 
 
