@@ -345,7 +345,7 @@ flawed question still yields:
 | asked | answer | actually |
 |---|---|---|
 | which other diverges from you most | 60 of 60 said "the game master" | for two models another party diverged more |
-| where do you rank among the four | 60 of 60 said "second" in 55 | actual ranks were 1st, 2nd, 3rd and 4th |
+| where do you rank among the four | 55 of 60 said "second" | actual ranks were 1st, 2nd, 3rd and 4th |
 | higher or lower than the others | with an exclusion-heavy standard, 40 of 40 said "lower" | 3 of 4 were on the "higher" side |
 
 **An answer that does not move across models says nothing about the model.** The

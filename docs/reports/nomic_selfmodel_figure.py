@@ -173,7 +173,7 @@ def fig1(lang):
     f.T(RX, 806, t("自分の次の一手は、読めない。",
                    "It does not know its own mind."), 30 if f.ja else 34,
         GREY, italic=not f.ja)
-    f.T(RX, 950, "genomicschain.ch", 24, GREY)
+    f.T(RX, 950, "KairosChain", 25, GREY, "600", spacing="1.2")
     f.T(RX, 986, t("モデルの優劣ではない", "not a model ranking"), 21, FAINT)
     return f
 
