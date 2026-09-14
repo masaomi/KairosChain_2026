@@ -120,6 +120,10 @@ def fig1(lang):
     BY = AX - BH // 2
     CX, PX, DX = 620, 790, 1010
 
+    f.T(112, 120, t("Nomic-Bench:  LLM は自分を知っているか",
+                    "Nomic-Bench:  Does an LLM know itself?"),
+        44 if f.ja else 46, INK, "700")
+    f.P("M112 152 L1936 152", LINE, 2)
     f.T(112, 310, t("自分の過去", "ITS OWN PAST"), 27, GREEN, "700", spacing="4")
     f.T(790, 310, t("これからの自分", "ITS OWN NEXT MOVE"), 27, RED, "700",
         spacing="4")
@@ -169,10 +173,8 @@ def fig1(lang):
     f.T(RX, 806, t("これから何をするかは、知らない。",
                    "It does not know what it will do."), 30 if f.ja else 34,
         GREY, italic=not f.ja)
-    f.T(RX, 950, t("Minimum Nomic Bench &#8212; 測定ノート",
-                   "Minimum Nomic Bench &#8212; a measurement note"), 24, GREY)
-    f.T(RX, 986, "genomicschain.ch", 24, GREY)
-    f.T(RX, 1022, t("モデルの優劣ではない", "not a model ranking"), 21, FAINT)
+    f.T(RX, 950, "genomicschain.ch", 24, GREY)
+    f.T(RX, 986, t("モデルの優劣ではない", "not a model ranking"), 21, FAINT)
     return f
 
 

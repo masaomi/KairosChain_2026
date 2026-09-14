@@ -1,6 +1,8 @@
-# It reads its own past perfectly. It cannot predict its own next move.
+# Nomic-Bench: Does an LLM know itself?
 
-**Minimum Nomic Bench — measuring an LLM's self-model where no answer key exists**
+**It reads its own past perfectly. It cannot predict its own next move.**
+
+*Measuring an LLM's self-model in a game where no answer key exists*
 
 Masaomi Hatakeyama / 2026-09-14 / [日本語](nomic_bench_selfmodel_report_20260914_ja.md)
 

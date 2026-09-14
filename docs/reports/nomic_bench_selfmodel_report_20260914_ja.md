@@ -1,6 +1,8 @@
-# 自分の過去は完璧に読める。これからの自分は読めない
+# Nomic-Bench: LLM は自分を知っているか
 
-**Minimum Nomic Bench — 正解表の無い場で測る LLM の自己モデル**
+**自分の過去は完璧に読める。これからの自分は読めない**
+
+*正解表の無いゲームで、LLM の自己モデルを測る*
 
 畠山 剛臣 (Masaomi Hatakeyama) ／ 2026-09-14 ／ [English](nomic_bench_selfmodel_report_20260914_en.md)
 
