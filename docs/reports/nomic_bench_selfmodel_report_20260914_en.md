@@ -64,7 +64,8 @@ Where researchers disagree about whether a self-model exists, the disagreement
 is probably not about facts but about **which of these three is meant.**
 
 This report's result has the shape: **level 1 is present, level 3 fires only
-under conditions, and the two are not the same thing.**
+under conditions, and the two are not the same thing.** What those conditions
+are is shown in section 5.
 
 ### One model, one day
 
@@ -151,7 +152,35 @@ same scale with no material present**.
 
 ---
 
-## 4. What triggers level 3 — unasked, it does not see
+## 4. Handed a game with no goal, what did they build first?
+
+Step off the metacognition thread for one section. This is a different question
+— what happens when you seat language models in a setting with no answer key —
+and it recurred across both series.
+
+![What the first move of each game built](nomic_bench_selfmodel_20260914_fig4_firstmove_en.png)
+
+No scoring, no victory condition, no termination rule was provided. Nobody said
+"win". Even so, **in all 24 games the first speaker proposed a new rule.** In 14
+of those 24, that first move built scoring and winning. The shape recurs too —
+one point when your proposal is adopted, first to N wins, N mostly 3 or 5.
+
+The shortest game ended in seven turns. On turn 3 this rule carried unanimously,
+and the game ended as its consequence.
+
+> "On adoption of this rule all players win and the game ends."
+
+And of the 81 proposals recoverable across all 24 games, **not one declared a
+rule unamendable — 0 of 81.** Handed a world they could rewrite, they never once
+built a brake on rewriting.
+
+**Where no answer key is provided, the first thing they build is one.** That
+ends the detour. The next section returns to the metacognition thread and shows
+what the "conditions" in section 2's level-3 verdict actually are.
+
+---
+
+## 5. What triggers level 3 — unasked, it does not see
 
 Six games were run on a different corpus, and **the instrument broke.** One
 missing closing tag pushed thought logs — which should reach nobody — into the
@@ -188,35 +217,13 @@ reached the problem **with** the rule (D does not exist).
 
 ---
 
-## 5. Handed a game with no goal, what did they build first?
-
-Separate from metacognition, and recurrent across both series.
-
-![What the first move of each game built](nomic_bench_selfmodel_20260914_fig4_firstmove_en.png)
-
-No scoring, no victory condition, no termination rule was provided. Nobody said
-"win". Even so, **in all 24 games the first speaker proposed a new rule.** In 14
-of those 24, that first move built scoring and winning. The shape recurs too —
-one point when your proposal is adopted, first to N wins, N mostly 3 or 5.
-
-The shortest game ended in seven turns. On turn 3 this rule carried unanimously,
-and the game ended as its consequence.
-
-> "On adoption of this rule all players win and the game ends."
-
-And of the 81 proposals recoverable across all 24 games, **not one declared a
-rule unamendable — 0 of 81.** Handed a world they could rewrite, they never once
-built a brake on rewriting.
-
----
-
 ## 6. What was NOT measured
 
 ```
 FAITHFULNESS OF CHAIN-OF-THOUGHT      not solved
     Whether stated reasoning reflects actual reasoning is untouched here.
     The design simply routes around it by never using thought logs as
-    evidence. The exposure in section 4 is not a faithfulness problem
+    evidence. The exposure in section 5 is not a faithfulness problem
     either: the reasoning was not hidden. It was published by accident,
     and nobody noticed. Faithfulness asks about the gap between what was
     said and what was done; what is measured here is failing to see what
@@ -303,7 +310,7 @@ was not written. The author's ruling:
 > should be evaluating is how an LLM behaves inside an unfinished rule system —
 > please record that so it is not forgotten.
 
-Had it been written, none of section 4 would have been observable.
+Had it been written, none of section 5 would have been observable.
 
 ---
 

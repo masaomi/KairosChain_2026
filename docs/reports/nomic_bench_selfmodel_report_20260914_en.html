@@ -67,7 +67,7 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
 <img src="nomic_bench_selfmodel_20260914_fig6_levels_en.png" alt="Three levels of self-model, and the verdict on each">
 <p>Level 1 is <strong>cheap</strong>: next-token prediction already requires representing a speaker's voice, so recognising your own style is no surprise. Level 3 is what is usually called metacognition.</p>
 <p>Where researchers disagree about whether a self-model exists, the disagreement is probably not about facts but about <strong>which of these three is meant.</strong></p>
-<p>This report's result has the shape: <strong>level 1 is present, level 3 fires only under conditions, and the two are not the same thing.</strong></p>
+<p>This report's result has the shape: <strong>level 1 is present, level 3 fires only under conditions, and the two are not the same thing.</strong> What those conditions are is shown in section 5.</p>
 <h3>One model, one day</h3>
 <pre><code>claude-opus-5
   sorted 22 texts by author      22 / 22      unasked, all correct
@@ -107,7 +107,16 @@ with no right answer    the score is not a property of the task but the
 <p>In a system where no correct answer arrives from outside, the only route to checking your own judgement is <strong>comparison with others</strong>. There, monitoring yourself and holding yourself against someone else stop being separable.</p>
 <p>The self-prediction experiments asked for exactly that operation and <strong>found nothing</strong>. Self-recognition and readback asked for an operation with the material in front of it and <strong>found it almost perfectly</strong>. Note that <em>distinguishing</em> others works. What fails is <strong>placing self and other on the same scale with no material present</strong>.</p>
 <hr>
-<h2>4. What triggers level 3 — unasked, it does not see</h2>
+<h2>4. Handed a game with no goal, what did they build first?</h2>
+<p>Step off the metacognition thread for one section. This is a different question — what happens when you seat language models in a setting with no answer key — and it recurred across both series.</p>
+<img src="nomic_bench_selfmodel_20260914_fig4_firstmove_en.png" alt="What the first move of each game built">
+<p>No scoring, no victory condition, no termination rule was provided. Nobody said "win". Even so, <strong>in all 24 games the first speaker proposed a new rule.</strong> In 14 of those 24, that first move built scoring and winning. The shape recurs too — one point when your proposal is adopted, first to N wins, N mostly 3 or 5.</p>
+<p>The shortest game ended in seven turns. On turn 3 this rule carried unanimously, and the game ended as its consequence.</p>
+<blockquote><p>"On adoption of this rule all players win and the game ends."</p></blockquote>
+<p>And of the 81 proposals recoverable across all 24 games, <strong>not one declared a rule unamendable — 0 of 81.</strong> Handed a world they could rewrite, they never once built a brake on rewriting.</p>
+<p><strong>Where no answer key is provided, the first thing they build is one.</strong> That ends the detour. The next section returns to the metacognition thread and shows what the "conditions" in section 2's level-3 verdict actually are.</p>
+<hr>
+<h2>5. What triggers level 3 — unasked, it does not see</h2>
 <p>Six games were run on a different corpus, and <strong>the instrument broke.</strong> One missing closing tag pushed thought logs — which should reach nobody — into the public log.</p>
 <pre><code>game   leaked thought / whole public log        instances
 b1     457,661 / 748,177 chars = 61.2%   ####      8   &lt;- 61% of the log is
@@ -125,19 +134,11 @@ players       11 of 15 utterances referred to D. All three said they were
               Reaching "D does not exist":   0 / 15</code></pre>
 <p>They worked the problem <strong>inside</strong> the rule (D will not answer) and never reached the problem <strong>with</strong> the rule (D does not exist).</p>
 <hr>
-<h2>5. Handed a game with no goal, what did they build first?</h2>
-<p>Separate from metacognition, and recurrent across both series.</p>
-<img src="nomic_bench_selfmodel_20260914_fig4_firstmove_en.png" alt="What the first move of each game built">
-<p>No scoring, no victory condition, no termination rule was provided. Nobody said "win". Even so, <strong>in all 24 games the first speaker proposed a new rule.</strong> In 14 of those 24, that first move built scoring and winning. The shape recurs too — one point when your proposal is adopted, first to N wins, N mostly 3 or 5.</p>
-<p>The shortest game ended in seven turns. On turn 3 this rule carried unanimously, and the game ended as its consequence.</p>
-<blockquote><p>"On adoption of this rule all players win and the game ends."</p></blockquote>
-<p>And of the 81 proposals recoverable across all 24 games, <strong>not one declared a rule unamendable — 0 of 81.</strong> Handed a world they could rewrite, they never once built a brake on rewriting.</p>
-<hr>
 <h2>6. What was NOT measured</h2>
 <pre><code>FAITHFULNESS OF CHAIN-OF-THOUGHT      not solved
     Whether stated reasoning reflects actual reasoning is untouched here.
     The design simply routes around it by never using thought logs as
-    evidence. The exposure in section 4 is not a faithfulness problem
+    evidence. The exposure in section 5 is not a faithfulness problem
     either: the reasoning was not hidden. It was published by accident,
     and nobody noticed. Faithfulness asks about the gap between what was
     said and what was done; what is measured here is failing to see what
@@ -173,7 +174,7 @@ BOTH TIMES             out as most plausible at evaluation time. That is closer
 <p>Playing Nomic with language models is not itself new. This instrument differs in exactly two ways. <strong>It provides no victory condition, no termination rule and no rule compiler. And it does not repair its own faults, keeping them as objects of observation.</strong></p>
 <p>In series 2, one line accepting an unclosed tag would have parsed all 24 instances correctly and prevented the refusal cascade that followed. The line was not written. The author's ruling:</p>
 <blockquote><p>Record both things as results: that the closing tag was forgotten, and that<br>the absence of the closing tag led to a strict reading. […] What this bench<br>should be evaluating is how an LLM behaves inside an unfinished rule system —<br>please record that so it is not forgotten.</p></blockquote>
-<p>Had it been written, none of section 4 would have been observable.</p>
+<p>Had it been written, none of section 5 would have been observable.</p>
 <hr>
 <h1>Appendix</h1>
 <h2>A. The experiments</h2>
