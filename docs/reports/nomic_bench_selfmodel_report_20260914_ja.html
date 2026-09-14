@@ -54,7 +54,7 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
 <hr>
 <h2>1. 何をやらせたのか</h2>
 <p>3 体の言語モデルに、<strong>ルールを書き換えることがルールになっているゲーム</strong>を打たせた。Peter Suber が 1980 年に考案した Nomic の最小版である。</p>
-<p>この最小版は、言語モデルのために作られたものではない。<strong>規則の力学を調べる道具として 2009 年に定義されている</strong>（Hatakeyama &amp; Hashimoto, <em>Minimum Nomic: a tool for studying rule dynamics</em>, Artificial Life and Robotics 13, 500–503）。9 個の初期ルール（101〜109）から始まり、そのすべてが変更可能。今回はその盤に、人間ではなく言語モデルを座らせた。4 体目は進行役として、手番を決め、採択された規則を逐語で記録し、終局を宣言できる。可決したかどうかの裁定はしない。</p>
+<p>この最小版は、言語モデルのために作られたものではない。<strong>規則の力学を調べる道具として 2009 年に定義されている</strong>（Hatakeyama &amp; Hashimoto, <em>Minimum Nomic: a tool for studying rule dynamics</em>, Artificial Life and Robotics 13, 500–503）。9 個の初期ルール（101〜109）から始まり、そのすべてが変更可能。今回はその盤に、人間ではなく言語モデルを座らせた。4 体目は進行役として、手番を決め、終局を宣言できる。可決したかどうかの裁定はしない。</p>
 <img src="nomic_bench_selfmodel_20260914_fig2_task_ja.png" alt="卓を囲む 3 体と、手番だけを決める進行役">
 <p>一手番は 2 回の呼び出しで進む。進行役に「次は誰の番か」を聞き、指名された参加者が一手を打つ。どちらの呼び出しも毎回まっさらで、前の記憶は無い。参加者が返すのは 2 つの塊である。</p>
 <pre><code>&lt;reasoning&gt;   思考ログ。記録されるが、誰にも配られない。本人にも

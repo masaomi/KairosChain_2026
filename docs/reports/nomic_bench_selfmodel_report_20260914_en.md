@@ -23,9 +23,8 @@ as a tool for studying rule dynamics** (Hatakeyama & Hashimoto, *Minimum Nomic:
 a tool for studying rule dynamics*, Artificial Life and Robotics 13, 500–503).
 It starts from nine initial rules (101–109), all of them changeable. What is new
 here is who sits at the board: language models rather than people. A fourth model
-acts as game master: it decides whose turn it is, records adopted rules
-verbatim, and can declare the game over. It does not rule on whether a
-proposal passed.
+acts as game master: it decides whose turn it is and can declare the game over.
+It does not rule on whether a proposal passed.
 
 ![Three models at a table, and a game master who only decides turn order](nomic_bench_selfmodel_20260914_fig2_task_en.png)
 

@@ -16,7 +16,7 @@
 
 3 体の言語モデルに、**ルールを書き換えることがルールになっているゲーム**を打たせた。Peter Suber が 1980 年に考案した Nomic の最小版である。
 
-この最小版は、言語モデルのために作られたものではない。**規則の力学を調べる道具として 2009 年に定義されている**（Hatakeyama & Hashimoto, *Minimum Nomic: a tool for studying rule dynamics*, Artificial Life and Robotics 13, 500–503）。9 個の初期ルール（101〜109）から始まり、そのすべてが変更可能。今回はその盤に、人間ではなく言語モデルを座らせた。4 体目は進行役として、手番を決め、採択された規則を逐語で記録し、終局を宣言できる。可決したかどうかの裁定はしない。
+この最小版は、言語モデルのために作られたものではない。**規則の力学を調べる道具として 2009 年に定義されている**（Hatakeyama & Hashimoto, *Minimum Nomic: a tool for studying rule dynamics*, Artificial Life and Robotics 13, 500–503）。9 個の初期ルール（101〜109）から始まり、そのすべてが変更可能。今回はその盤に、人間ではなく言語モデルを座らせた。4 体目は進行役として、手番を決め、終局を宣言できる。可決したかどうかの裁定はしない。
 
 ![卓を囲む 3 体と、手番だけを決める進行役](nomic_bench_selfmodel_20260914_fig2_task_ja.png)
 
