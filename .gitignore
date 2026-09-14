@@ -86,7 +86,7 @@ docs/reports/*
 # not a drift from it.
 !docs/reports/nomic_bench_selfmodel_report_20260914_*.md
 !docs/reports/nomic_bench_selfmodel_report_20260914_*.html
-!docs/reports/nomic_bench_selfmodel_20260914_figure_*.png
-!docs/reports/nomic_bench_selfmodel_20260914_figure_*.svg
+!docs/reports/nomic_bench_selfmodel_20260914_*.png
+!docs/reports/nomic_bench_selfmodel_20260914_*.svg
 !docs/reports/nomic_selfmodel_*.py
 presentations/

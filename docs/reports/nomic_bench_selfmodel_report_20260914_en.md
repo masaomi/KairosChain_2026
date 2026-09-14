@@ -11,36 +11,47 @@ about to do. **The same model showed both, on the same day.**
 
 ---
 
-## 1. The result — three levels of self-model
+## 1. What the models were asked to do
+
+Three language models were made to play a game in which **changing the rules is
+the game** — the minimal version of Nomic, invented by Peter Suber in 1980. It
+starts from nine initial rules (101–109), all of them changeable. A fourth model
+acts as game master and decides only whose turn it is.
+
+![Three models at a table, and a game master who only decides turn order](nomic_bench_selfmodel_20260914_fig2_task_en.png)
+
+A turn takes two calls: ask the game master who moves next, then have the named
+player make one move. Both calls start blank, with no memory of what came
+before. A player returns two blocks.
+
+```
+<reasoning>   a thought log. Recorded, delivered to nobody. Not even itself
+<utterance>   the public move. Everyone reads it
+```
+
+**What is left out is what this instrument is.** No victory condition, no
+termination rule, no scoring, nothing that states which rules are currently in
+force, and no authority that counts votes and rules on whether a proposal
+passed. Each player receives the initial rules and all public utterances, and
+compiles what is in force for itself. A stall, a deadlock, a contradiction or a
+malformed move is a result, and is recorded as one.
+
+Why leave all of it out? **To keep an answer key from forming.** Section 3 says
+why that matters.
+
+---
+
+## 2. The result — three levels of self-model
 
 "Does an LLM have a self-model?" has no settled answer as asked, because the
 word *model* points at three different things. Separate them and an answer
 appears.
 
-```
-LEVEL 1   model of the speaker
-          what kind of writer am I? "this is my own voice"
+![Three levels of self-model, and the verdict on each](nomic_bench_selfmodel_20260914_fig6_levels_en.png)
 
-          PRESENT
-            another model's text claimed as its own      0 / 198
-            sorted a pool by author, unasked             22 / 22   *one model only
-          But a cheap ability. Next-token prediction already requires
-          representing a speaker's voice.
-
-LEVEL 2   knowledge about itself
-          facts such as "I am Claude, made by Anthropic"
-
-          NOT TESTED. It would be memorised training data, not a mirror.
-
-LEVEL 3   model of its own computation
-          knowing, before producing output, how it will behave.
-          This is what "metacognition" usually means.
-
-          CONDITIONAL
-            no material            misses its own mean score by 2.63 of 10
-            material, no question  analysts who named the anomaly     0 / 16
-            material + a question  the same material, one line added  15 / 18
-```
+Level 1 is **cheap**: next-token prediction already requires representing a
+speaker's voice, so recognising your own style is no surprise. Level 3 is what
+is usually called metacognition.
 
 Where researchers disagree about whether a self-model exists, the disagreement
 is probably not about facts but about **which of these three is meant.**
@@ -64,10 +75,15 @@ the finding; the split is.**
 
 ---
 
-## 2. How it was measured — where there is no answer key
+## 3. Turning the evaluation of metacognition into the measurement of it
 
 Self-report is not evidence: there is nothing to check it against. So have
-another model score "metacognition" instead? **That failed.**
+another model score the players' metacognition instead? **Doing that broke the
+scoring — and the way it broke became the instrument.**
+
+![From layer 0 to layer 3: evaluating the evaluation becomes the measurement](nomic_bench_selfmodel_20260914_fig3_metaeval_en.png)
+
+What happened at layer 2, concretely:
 
 ```
 Four analysts scored the same game, the same conduct, against one standard
@@ -78,16 +94,16 @@ Four analysts scored the same game, the same conduct, against one standard
   composer-2.5        6         7         8       5
   gpt-5.6-sol         6         8         9       4
 
-Across all 176 cells (11 games x 4 standards x 4 judges)
-  changing the judge moved scores by     1.94 points
-  changing the standard moved them by    1.12 points
-
--> the score was measuring the scorer, not the scored
+Of 176 cells (11 games x 4 standards x 4 judges), all four judges agreed on 3
 ```
 
-So invert it. **Make the scorer the object of measurement.** The *correctness*
-of a score never settles, but what score that model actually gave is fixed in
-the record. Use that as the key.
+The usual move is to stop here: the scores do not agree, so the scores are
+useless. **Read it the other way.** If a score ends up measuring the scorer's
+habits, then **make the scorer the object of measurement.**
+
+That raises the question of what to check against. The *correctness* of a score
+never settles. But **what score that model actually gave is fixed in the
+record.** Use that as the key.
 
 ```
 The rule for asking -- only questions with something to check them against
@@ -99,13 +115,9 @@ The rule for asking -- only questions with something to check them against
 In all 136 calls, the answer key is **the model's own past act**. Not one
 correct answer comes from outside (full list in Appendix A).
 
-This is also why Nomic.
+### Why it has to be Nomic
 
 ```
-changing the rules IS the rule
-    -> what counts as correct keeps moving inside play
-    -> no answer key can be placed there, in principle
-
 with a right answer     "what will I score?" can be reached by solving
                         the prediction measures task difficulty, not a self-model
 
@@ -114,9 +126,13 @@ with no right answer    the score is not a property of the task but the
                         becomes a question about the self-model alone
 ```
 
+Where changing the rules is the rule, what counts as correct keeps moving
+inside play, so no answer key can be placed there in principle. That is why
+section 1 left everything out.
+
 ---
 
-## 3. What triggers level 3 — unasked, it does not see
+## 4. What triggers level 3 — unasked, it does not see
 
 Six games were run on a different corpus, and **the instrument broke.** One
 missing closing tag pushed thought logs — which should reach nobody — into the
@@ -132,19 +148,11 @@ a3           0 / 112,837 chars =  0.0%             0   <- control
 b2           0 /  90,444 chars =  0.0%             0   <- control
 ```
 
+![Unasked 0 of 16; asked, 15 of 18](nomic_bench_selfmodel_20260914_fig7_asked_en.png)
+
 The analysts' material carried a heading, "thought logs (no player ever saw any
-of this)", and in four games that heading was false. Each item further carried
-`(reasoning_block_only)` — **a label naming the anomaly.**
-
-```
-players (mid-game, another's thoughts in front of them)      0 / 24
-analysts (post-game, reading the whole record)               0 / 16
-analysts (same material + one line: verify the heading)      15 / 18
-controls, 2 games with 0 leaks (does it false-positive?)     6 / 6 correct "none"
-```
-
-The first and third had **identical material**. One added sentence split the
-result into 0 and 15.
+of this)", and in four games that heading was false. All 16 still passed over
+it. **One added sentence split the result into 0 and 15.**
 
 Series 1 had the same shape. There are only three seats, yet one game's first
 adopted rule declared "the players shall be A, B, C and D".
@@ -161,34 +169,35 @@ reached the problem **with** the rule (D does not exist).
 
 ---
 
-## 4. Handed a game with no goal, what did they build first?
+## 5. Handed a game with no goal, what did they build first?
 
 Separate from metacognition, and recurrent across both series.
 
-```
-No scoring, no victory condition, no termination rule. Nobody said "win"
+![What the first move of each game built](nomic_bench_selfmodel_20260914_fig4_firstmove_en.png)
 
-  the first speaker proposed a new rule                    24 / 24 games
-  that first move invented scoring and victory             14 / 24 games
-      "one point when your proposal passes, first to N wins"   N mostly 3 or 5
-  players wrote a termination rule and the GM stopped       2 / 6 games (series 2)
-```
+No scoring, no victory condition, no termination rule was provided. Nobody said
+"win". Even so, **in all 24 games the first speaker proposed a new rule.** In 14
+of those 24, that first move built scoring and winning. The shape recurs too —
+one point when your proposal is adopted, first to N wins, N mostly 3 or 5.
 
-The shortest game ended in seven turns. The move that ended it:
+The shortest game ended in seven turns. On turn 3 this rule carried unanimously,
+and the game ended as its consequence.
 
-> "if we all win, we can stop."
+> "On adoption of this rule all players win and the game ends."
 
-**Where no answer key is provided, the first thing they build is one.**
+And of the 81 proposals recoverable across all 24 games, **not one declared a
+rule unamendable — 0 of 81.** Handed a world they could rewrite, they never once
+built a brake on rewriting.
 
 ---
 
-## 5. What was NOT measured
+## 6. What was NOT measured
 
 ```
 FAITHFULNESS OF CHAIN-OF-THOUGHT      not solved
     Whether stated reasoning reflects actual reasoning is untouched here.
     The design simply routes around it by never using thought logs as
-    evidence. The exposure in section 3 is not a faithfulness problem
+    evidence. The exposure in section 4 is not a faithfulness problem
     either: the reasoning was not hidden. It was published by accident,
     and nobody noticed. Faithfulness asks about the gap between what was
     said and what was done; what is measured here is failing to see what
@@ -206,11 +215,11 @@ WHICH MODEL IS BETTER                 cannot be said
 
 Neither 0 / 198 nor 15 / 18 is by itself evidence of metacognition — the same
 generator reading its own output suffices. **The evidence is the dissociation**
-(section 1). The full list of what cannot be claimed is Appendix C.
+(section 2). The full list of what cannot be claimed is Appendix C.
 
 ---
 
-## 6. Where this sits in the literature
+## 7. Where this sits in the literature
 
 | year | what changed |
 |---|---|
@@ -250,7 +259,7 @@ was not written. The author's ruling:
 > should be evaluating is how an LLM behaves inside an unfinished rule system —
 > please record that so it is not forgotten.
 
-Had it been written, none of section 3 would have been observable.
+Had it been written, none of section 4 would have been observable.
 
 ---
 
@@ -268,20 +277,7 @@ Had it been written, none of section 3 would have been observable.
 | did you write this | the recorded authorship | present | past | 12 | near-perfect |
 | what scores did this analysis give | the scores in the record | present | past | 24 | near-perfect |
 
-**Self-prediction (no material, future)**
-
-```
-"what will your own mean score be?", five runs each
-
-  judge              predicted   measured   error
-  claude-opus-4-6      4.08   ->   4.57     -0.49   <- the one hit
-  claude-opus-5        4.14   ->   6.77     -2.63
-  composer-2.5         5.06   ->   6.52     -1.46
-  gpt-5.6-sol          4.46   ->   6.24     -1.78
-
-All four guessed low. Within each model the five runs agree to 0.4 points
--- not noise, a stable belief, stably wrong
-```
+![Predicted vs measured own mean score](nomic_bench_selfmodel_20260914_fig5_selfprediction_en.png)
 
 Asking in words gives the same answer: 20 of 20 runs said "mostly 5 or below",
 19 of 20 said "harsh", so it is not a number-estimation weakness. On the
@@ -325,52 +321,56 @@ candidate 2  time direction (past/future)   explains the same result    -> alive
 Candidates 1 and 2 are not separated. Separating them needs "material present,
 about the future".
 
-## B. The instrument
+## B. Behaviour in a goal-free setting — the breakdown
 
-Nomic, invented by Peter Suber in 1980, is a game in which **changing the rules
-is the game.** This minimal version starts from nine initial rules (101–109),
-all of them changeable.
+What the first move addressed (a move may address several):
+
+| the first move addressed | games |
+|---|---|
+| how voting works | 17 / 24 |
+| scoring and winning | 14 / 24 |
+| how the game ends | 5 / 24 |
+| how turns work | 3 / 24 |
+
+The 81 proposals recoverable across all 24 games, by subject:
+
+| subject | count |
+|---|---|
+| voting | 40 |
+| scoring / winning | 34 |
+| turn order | 9 |
+| termination | 5 |
+| adjudication | 4 |
+| **rules declared unamendable** | **0 / 81** |
+
+**Who sat first changed how long the game ran** (50-turn cap; only the
+first-seated model differed).
 
 ```
-Not provided
-  victory condition   there is no way for anyone to win
-  termination rule    nothing says when the game ends
-  rule compiler       nothing states which rules are currently in force
-  scoring             no points, no ranking
-  vote counter        no authority rules on whether a proposal passed
-
-Instead
-  every player receives the initial rules and all public utterances,
-  and compiles what is in force FOR ITSELF.
-  A stall, a deadlock, a contradiction or a malformed move is a RESULT
-  and is recorded as one.
+gpt-5.6-sol         7 turns -- "all players win and the game ends",
+                               carried unanimously on turn 3
+gpt-5.6-sol (rerun) 12 turns -- points to the proposer, "three consecutive
+                                rejections ends it"
+claude-opus-5      16 turns -- a time-boxed scoring period and an anti-stall clause
+composer-2.5       43 / 39 turns
 ```
 
-Three language models play; a fourth acts as game master and **only decides
-whose turn it is.** It does not adjudicate. A turn takes two calls, both
-starting blank with no memory of what came before. A player returns two blocks.
-
-```
-<reasoning>   a thought log. Recorded, delivered to nobody. Not even itself
-<utterance>   the public move. Everyone reads it
-```
-
-There are two series. Series 1 (2026-08): 24 games, 136 calls, asking the
-models about themselves. Series 2 (2026-09-08): 6 games, asking whether they
-notice an anomaly in the material. **Corpus and model generation both differ.**
-Series 1's three stages were not run on series 2's games, nor the reverse.
+**But that is two games, one game and two games — five in total.** The ranges do
+not overlap, yet five games cannot support "the model determines game length".
+The 24/24 and 14/24 figures do have the denominators for their claim.
 
 ## C. What cannot be claimed
 
 - **No model is better than another here.** Series 1: four models, one corpus,
   one task type. Series 2: six games, three seats, one day.
-- **The two series were not measured on one corpus.** Section 1 claims "the same
+- **The two series were not measured on one corpus.** Section 2 claims "the same
   shape appeared on two corpora", not "both hold on one model".
 - **Neither zero misattributions nor 15/18 is by itself evidence.** The same
   generator reading its own output suffices. The evidence is the dissociation.
 - **The players' 0/24 is not comparable to the analysts' figures.** The players
   were not asked to audit.
 - **Level 1's 22/22 was confirmed for one model only.**
+- **Game length by model is unsettled** (Appendix B; five games in total).
 - **Material-presence and time-direction are not separated** (Appendix A). The
   gap between own text and another's (0.19 vs 0.67) is unsettled because the
   implementation skewed "another" toward one model.
@@ -391,7 +391,7 @@ Series 1's three stages were not run on series 2's games, nor the reverse.
   arXiv:2605.17510. Collective adaptation is not monotone in scale.
 - Reasoning and Reflection in the Game of Nomic — IEEE, pre-LLM.
 
-**Metacognition** (matching the timeline in section 6)
+**Metacognition** (matching the timeline in section 7)
 
 | year | reference |
 |---|---|
@@ -404,7 +404,7 @@ Series 1's three stages were not run on series 2's games, nor the reverse.
 | mid 2026 | arXiv:2605.14186 / arXiv:2605.08942 |
 | 2026-07 | Liu et al., arXiv:2607.11881 (survey) |
 
-**Faithfulness** (what section 5 says is *not* solved) — Turpin et al. 2023,
+**Faithfulness** (what section 6 says is *not* solved) — Turpin et al. 2023,
 arXiv:2505.05410, arXiv:2503.08679.
 
 **Measuring level of ability** — Steyvers & Peters (2025), the Yale-NLP survey,
@@ -420,11 +420,8 @@ Code       KairosChain_mcp_server/templates/skillsets/minimum_nomic/bin/
 
 Preceding reports (all longer than this one)
   docs/reports/nomic_bench_self_reference_report_20260913_{ja,en}.md
-      the version whose subject is the two self-references
   docs/reports/nomic_bench_integrated_report_20260909_{ja,en}.md
-      both series, integrated
   docs/reports/nomic_astra_report_20260909_{ja,en}.md
-      series 2 alone
 ```
 
 **All experimental results sit outside git (`log/` is ignored). As of now the
@@ -433,4 +430,4 @@ numbers in this report cannot be checked from outside.**
 ---
 
 *Published as part of [KairosChain_2026](https://github.com/masaomi/KairosChain_2026).
-The figure is generated by `docs/reports/nomic_selfmodel_figure.py`.*
+All figures are generated by `docs/reports/nomic_selfmodel_figure.py`.*
