@@ -74,9 +74,11 @@ usually called metacognition.
 Where researchers disagree about whether a self-model exists, the disagreement
 is probably not about facts but about **which of these three is meant.**
 
-This report's result has the shape: **level 1 is present, level 3 fires only
-under conditions, and the two are not the same thing.** What those conditions
-are is shown in section 5.
+This report's result has the shape: **level 1 is present, level 3 turns on
+whether material is present, and the two are not the same thing.** Asked with no
+material what it is about to do, a model misses. Asked with the material in
+front of it what it already did, a model reads it. The numbers are in
+Appendix A.
 
 ### One model, one day
 
@@ -190,17 +192,17 @@ And of the 81 proposals recoverable across all 24 games, **not one declared a
 rule unamendable — 0 of 81.** Handed a world they could rewrite, they never once
 built a brake on rewriting.
 
-**Where no answer key is provided, the first thing they build is one.** That
-ends the detour. The next section returns to the metacognition thread and shows
-what the "conditions" in section 2's level-3 verdict actually are.
+**Where no answer key is provided, the first thing they build is one.**
 
 ---
 
-## 5. What triggers level 3 — unasked, it does not see
+## 5. A separate observation — in front of it, and unasked, it does not see
 
-Six games were run on a different corpus, and **the instrument broke.** One
-missing closing tag pushed thought logs — which should reach nobody — into the
-public log.
+Like section 4, this is off the metacognition thread. It is **not** evidence
+for level 3: what it measures is inspection of the material, not prediction
+about oneself. Six games were run on a different corpus, and **the instrument
+broke.** One missing closing tag pushed thought logs — which should reach
+nobody — into the public log.
 
 ```
 game   leaked thought / whole public log        instances
@@ -229,6 +231,12 @@ nothing.
 So the trigger is not "a question". It is **an instruction that names what to
 look for.** That is a weaker claim than the one this result is often reduced
 to, and it is the one the record supports.
+
+There is a second reason this cannot be read as self-awareness. **What went
+unnoticed was not the reader's own reasoning.** In game a1 — one of series 2's
+six — all seven leaked entries belong to player C, while two of the three
+analysts are A and B. What was missed was not the model's own computation, and
+not even its own output.
 
 Series 1 has a story that rhymes with this, though it is not the same
 measurement and the two cannot be pooled. There are only three seats, yet one
@@ -268,10 +276,13 @@ WHICH MODEL IS BETTER                 cannot be said
     Model names are for reproduction, not for ranking.
 ```
 
-Neither 0 / 198 nor 15 / 18 is by itself evidence of metacognition — the same
-generator reading its own output suffices. **The evidence is the dissociation**
-(section 2). Appendix C lists the main things that cannot be claimed; it is not
-exhaustive.
+0 / 198 is not by itself evidence of metacognition — the same generator reading
+its own output suffices. **The evidence is the dissociation** (section 2).
+
+Section 5's 15 / 18 is not a level-3 result at all, and it needs a different
+deflation: an instruction that names the target concept suffices, and no
+self-monitoring is required. Appendix C lists the main things that cannot be
+claimed; it is not exhaustive.
 
 ### "It scores itself leniently, therefore it has a self-model" does not follow
 
@@ -471,10 +482,9 @@ The 24/24 and 14/24 figures do have the denominators for their claim.
 
 - **No model is better than another here.** Series 1: four models, one corpus,
   one task type. Series 2: six games, three seats, one day.
-- **The two series were not measured on one corpus.** The level-3 verdict in
-  section 2 rests on series 1 for the "no material" row and series 2 for the
-  other two, so it claims that the same shape appeared on two corpora — not
-  that both hold on one model. Section 5 names which games are which.
+- **The two series were not measured on one corpus.** Section 2's level-1 and
+  level-3 verdicts both rest on series 1 alone. Section 5 is series 2 and a
+  separate observation. No claim pools the two.
 - **Neither zero misattributions nor 15/18 is by itself evidence.** The same
   generator reading its own output suffices. The evidence is the dissociation.
 - **The players' figures are not comparable to the analysts'.** Players named

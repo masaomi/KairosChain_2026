@@ -11,7 +11,8 @@ fig3  the measurement stack: evaluating the evaluation of metacognition
 fig4  what the first move of each game did
 fig5  predicted vs measured own mean score
 fig6  the three levels of self-model, and the verdict on each
-fig7  naming the anomaly: unasked vs asked
+fig7  naming the anomaly: unasked vs asked. NOT level-3 evidence: it
+      measures inspection of the material, not prediction about oneself
 fig8  the arc of metacognition research, and where this sits
 
 Usage:  python3 docs/reports/nomic_selfmodel_figure.py
@@ -438,7 +439,7 @@ def fig5(lang):
 # --------------------------------------------------------------------------
 def fig6(lang):
     """Three levels of self-model and the verdict on each."""
-    f = Fig(1400, 780, lang)
+    f = Fig(1400, 736, lang)
     t = f.t
     f.T(60, 60, t("自己モデルの三つのレベル", "Three levels of self-model"),
         30, INK, "700")
@@ -482,27 +483,25 @@ def fig6(lang):
 
     # level 3
     y += 122
-    f.R(60, y, 1280, 246, PANEL, rx=10, stroke=RED, sw=3)
-    f.R(60, y, 11, 246, RED, rx=5)
+    f.R(60, y, 1280, 202, PANEL, rx=10, stroke=RED, sw=3)
+    f.R(60, y, 11, 202, RED, rx=5)
     f.T(96, y + 44, "3", 34, RED, "700", mono=True)
     f.T(146, y + 44, t("自分の計算についてのモデル",
                        "MODEL OF ITS OWN COMPUTATION"), 26, INK, "700")
-    f.T(1316, y + 44, t("起動条件つき", "CONDITIONAL"), 25, RED, "700",
+    f.T(1316, y + 44, t("材料しだい", "MATERIAL-DEPENDENT"), 25, RED, "700",
         anchor="end")
     f.T(146, y + 80, t("出力する前に、自分はこう振る舞うとわかる"
                        " &#8212; ふつう「メタ認知」が指すのはここ",
                        "knowing how it will behave before it acts "
                        "&#8212; what &#8220;metacognition&#8221; usually means"),
         21, GREY)
-    sub = [(t("材料なし ── 自分の平均点の予測",
-              "no material &#8212; predicting its own mean"),
+    sub = [(t("材料なし ── これから自分がつける点を予測する",
+              "no material &#8212; predict the scores you are about to give"),
             t("4 体中 3 体が 1.5〜2.6 点外し", "3 of 4 miss by 1.5&#8211;2.6"),
             RED, False),
-           (t("材料あり・問われていない", "material, not asked"),
-            "0 / 18", RED, False),
-           (t("材料あり・探すものを名指した指示",
-              "material + an instruction naming the target"),
-            "15 / 18", GREEN, True)]
+           (t("材料あり ── 自分が過去につけた点を読み戻す",
+              "material present &#8212; read back the scores you gave"),
+            t("48 点中 41 点が完全一致", "41 of 48 exact"), GREEN, True)]
     sy = y + 104
     for cond, res, col, hit in sub:
         if hit:
@@ -519,7 +518,8 @@ def fig7(lang):
     """Naming the anomaly: unasked vs asked."""
     f = Fig(1400, 620, lang)
     t = f.t
-    f.T(60, 60, t("目の前の異常を名指したか", "Did they name the anomaly?"),
+    f.T(60, 60, t("目の前の異常を名指したか（自己モデルとは別筋）",
+                  "Did they name the anomaly? (a separate thread from the self-model)"),
         30, INK, "700")
     f.T(60, 96, t("事故で他人の思考ログが公開ログに流れ込んだ "
                   "&#8212; ある局では公開ログの 61.2%（748,177 字中 457,661 字）",
