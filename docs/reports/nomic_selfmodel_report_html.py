@@ -62,7 +62,12 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
 
 
 def inline(s):
+    # The Japanese edition uses literal <strong> tags, because CommonMark only
+    # opens ** at a word boundary and Japanese has none — see the 2026-09-15
+    # fix. Protect that one tag from escaping; everything else is still escaped.
+    s = s.replace("<strong>", "\x00S\x00").replace("</strong>", "\x00E\x00")
     s = html.escape(s, quote=False)
+    s = s.replace("\x00S\x00", "<strong>").replace("\x00E\x00", "</strong>")
     s = re.sub(r'`([^`]+)`', r'<code>\1</code>', s)
     s = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', s)
     s = re.sub(r'\*([^*]+)\*', r'<em>\1</em>', s)
