@@ -221,22 +221,38 @@ CoT（思考の筋道）の忠実性     解決していない
 
 ![メタ認知研究の重心の移り方](nomic_bench_selfmodel_20260914_fig8_history_ja.png)
 
-年は初出（プレプリント）を採っている。<strong>総説は本文を直接確認したが、個々の論文は要旨・題目の水準でしか確認していない。</strong>
+行は<strong>掲載年</strong>で並べている。初出のプレプリントではない——いくつかは、行の年を決めた学会より 1 年以上早く公開されている。<strong>下の論文はすべて本文を確認した。年表は 2026-09-15 に論文そのものから組み直している。</strong>言い過ぎていた行は、論文自身が述べている範囲に書き直した。
+
+行が解消していない食い違いが 1 つある。隠さずに書いておく。較正はモデルが大きいほど良くなる（2022 年）が、思考の忠実性は 13B から 175B へ<strong>単調に悪くなる</strong>（Lanham ほか）。規模は両者を同じ向きに動かさない。
 
 | 年 | 何が変わったか | 文献 |
 |---|---|---|
-| 2022 | <strong>出発点。</strong>「自分の答えが正しい確率」を自分で出させると、そこそこ当たる。規模が大きいほど当たる、という報告が基準線を作った | Kadavath ほか, *Language Models (Mostly) Know What They Know*, arXiv:2207.05221 |
-| 2023 | <strong>土台が揺れる。</strong>思考の筋道として書かれた文が、実際に答えを決めた要因と一致しない。自己報告を証拠に使えなくなった | Turpin ほか, *Language Models Don't Always Say What They Think*, arXiv:2305.04388 ／ Lanham ほか, *Measuring Faithfulness in Chain-of-Thought Reasoning*, arXiv:2307.13702 |
-| 2024 | <strong>自己修正への期待が崩れる。</strong>自分で振り返らせても直らない。ただし間違いの位置を教えれば直せる——直す力はあり、見つける力がない | Huang ほか, *Large Language Models Cannot Self-Correct Reasoning Yet*, ICLR 2024 ／ *When Can LLMs Actually Correct Their Own Mistakes?*, TACL 2024 ／ Tyen ほか, *LLMs cannot find reasoning errors, but can correct them given the error location*, Findings of ACL 2024 |
-| 2024 後半 | <strong>使える面も出る。</strong>数学で「どの技能を使うか」を自分で名指しさせると成績が上がる。内省を訓練すると自分の振る舞いを予測できる | Didolkar ほか, *Metacognitive Capabilities of LLMs: An Exploration in Mathematical Problem Solving*, NeurIPS 2024 ／ Binder ほか, *Looking Inward: Language Models Can Learn About Themselves by Introspection*, ICLR 2025 |
-| 2025 | <strong>推論モデルでも同じ問題が残る。</strong>そして内部状態を直接読む実験が登場。自分の活性の一部は報告でき、制御もできる。ただし扱える範囲は活性空間よりかなり低次元で、著者自身が「意識の証明ではない」と明記している | Chen ほか, *Reasoning Models Don't Always Say What They Think*, arXiv:2505.05410 ／ Ji-An ほか, *Language Models Are Capable of Metacognitive Monitoring and Control of Their Internal Activations*, arXiv:2505.13763 |
-| 2026 前半 | <strong>反論と、測る道具の整備。</strong>内省能力への懐疑的な検証が出る一方、「気づいてはいるが直せない」を分けて測るベンチマークが現れる | *Can LLMs Introspect? A Reality Check*, arXiv:2605.26242 ／ *Emergent Introspective Awareness in Large Language Models*, arXiv:2601.01828 ／ *MIRROR: A Hierarchical Benchmark for Metacognitive Calibration*, arXiv:2604.19809 |
-| 2026 中盤 | <strong>工学へ。</strong>「知っているのに動かない」を前提に、メタ認知の信号をモデルの外側の制御装置に使わせる方向が出てくる | *LLMs Know When They Know, but Do Not Act on It*, arXiv:2605.14186 ／ *Decomposing and Steering Functional Metacognition in Large Language Models*, arXiv:2605.08942 |
-| 2026-07 | <strong>領域として整理される。</strong>測り方・引き出し方・応用・未解決問題を一つの分類に収めた総説。本報告はこの分類の ⑤ に当たる | Liu, Gani, Lu, Thomas, Steyvers, Cohan, *Metacognition in LLMs: Foundations, Progress, and Opportunities*, arXiv:2607.11881（2026-07-13）。論文一覧: github.com/yale-nlp/LLM-Metacognition |
+| 2022 | <strong>出発点。</strong>「自分の答えが正しい確率」を出させると、そこそこ当たる——ただし選択肢が見える形式の多肢選択・真偽問題を few-shot で示した場合に限る。規模が大きいほど当たるが、RLHF を経たモデルは温度を調整しないと較正が崩れる | Kadavath ほか, *Language Models (Mostly) Know What They Know*, arXiv:2207.05221 |
+| 2023 | <strong>述べた推論は、組織的に不忠実になりうる。</strong>入力に誘導を仕込むと——選択肢の並べ替え、答えの示唆、固定観念——モデルは答えを変えるのに、誘導には一度も触れず、後づけの理屈を述べる。著者自身が「necessary but not sufficient test」と限定している。失敗を見つける道具であって、他の場面で忠実だと証明するものではない | Turpin ほか, *Language Models Don't Always Say What They Think*, arXiv:2305.04388, NeurIPS 2023 |
+| 2023 | <strong>そして忠実性は、主張ではなく測定の対象になる。</strong>思考を途中で切る、誤りを差し込む、言い換える、無意味な文字で置き換える。課題によって大きく変わり、<strong>規模とともに悪化する</strong>（13B → 175B で単調）。この論文は上の行と自分を明確に対比し（あちらは adversarial、こちらは non-adversarial）、「CoT can be faithful if the circumstances such as the model size and task are carefully chosen」と結論する | Lanham ほか, *Measuring Faithfulness in Chain-of-Thought Reasoning*, arXiv:2307.13702 |
+| 2024 | <strong>外の助けなしの自己修正は失敗する。</strong>外部からの指摘も、いつ止めるかを教える正解ラベルも無い条件では、自己修正を 1 周すると推論課題の正答率が下がる（GPT-4 の GSM8K で 95.5 → 89.0）。それ以前の肯定的な結果は、正解ラベルが答えを漏らしていたためだとされる。ただし本物の外部フィードバックがある場合は有効だと明記されている | Huang ほか, *Large Language Models Cannot Self-Correct Reasoning Yet*, ICLR 2024 |
+| 2024 | <strong>いつなら効くのか。</strong>総説。LLM に指摘させる形での自己修正が成功した先行研究は、極端に相性の良い課題を除いて存在しない。一方、信頼できる<strong>外部</strong>フィードバックがあれば効き、大規模な fine-tuning でも効く | Kamoi, Zhang, Zhang, Han, Zhang, *When Can LLMs Actually Correct Their Own Mistakes? A Critical Survey of Self-Correction of LLMs*, TACL 12 (2024) |
+| 2024 | <strong>難しいのは、見つけるほう。</strong>思考の連鎖の中で最初の論理的誤りを GPT-4 が特定できるのは 52.87%。場所を教えればそこから再生成して正答率が上がる——ただし word sorting では正しかった軌跡の 11.11% が壊れ、誤っていた軌跡の 23.53% が直る。見つける精度が 60〜70% を下回ると差し引きで損になる。小さな分類器を訓練するほうが、大きなモデルに聞くより誤りを見つける | Tyen ほか, *LLMs cannot find reasoning errors, but can correct them given the error location*, Findings of ACL 2024 |
+| 2024 | <strong>使える面も出る。</strong>数学の問題に必要な技能をモデル自身に名指しさせ、その技能に合う例題を添えて解かせると成績が上がる。名指しと例題の検索は常にセットで、分離した検証は無い。効果はこの組み合わせに属する | Didolkar ほか, *Metacognitive Capabilities of LLMs: An Exploration in Mathematical Problem Solving*, NeurIPS 2024 |
+| 2025 | <strong>自分を予測することは、学習できる。</strong>自分の振る舞いの性質を予測するよう fine-tuning したモデルは、同じ振る舞いを正解データとして学んだ別のモデルより当てる。しかも、その振る舞いを意図的に変えた後も当て続ける。著者は、単純な課題では成功し、複雑な課題や分布外では失敗したと報告している | Binder ほか, *Looking Inward: Language Models Can Learn About Themselves by Introspection*, ICLR 2025（プレプリントは 2024-10） |
+| 2025 | <strong>推論モデルでも同じ問題が残る。</strong>思考の連鎖が、実際に使った手がかりを明かすのは 2 割未満。結果に基づく強化学習で忠実性は上がるが、頭打ちになる | Chen ほか, *Reasoning Models Don't Always Say What They Think*, arXiv:2505.05410 |
+| 2025 | <strong>内部状態を読み、操る。</strong>文脈内の neurofeedback で、モデルは活性の方向を報告し、制御もできる。報告できる空間は活性空間よりはるかに小さく、論文は制御可能な部分空間を 32〜128 次元としている。なお脚注に、擬人的な語彙を使うが意識や人間との哲学的な等価を含意しない、と断りがある | Ji-An ほか, *Language Models Are Capable of Metacognitive Monitoring and Control of Their Internal Activations*, arXiv:2505.13763 |
+| 2025 | <strong>内省についての肯定的な報告。</strong>既知の概念を活性に注入すると、モデルはそれに気づいて同定し、直前の内部表現を思い出し、自分の出力と外から差し込まれた文を区別する。著者はこれを「some functional introspective awareness」と呼び、同時に「きわめて不安定で文脈依存」と述べている | Lindsey, *Emergent Introspective Awareness in Large Language Models*, Transformer Circuits, 2025-10（arXiv:2601.01828） |
+| 2026 | <strong>「気づく」と「動く」を分けて測るベンチマーク。</strong>8 つの実験、16 モデル、約 25 万事例。組み合わせた自己予測は全モデルで失敗する。自分の苦手な領域についての知識は偶然より高いのに、それを選択に変換しない。外からの制御は自信満々の失敗率を 0.600 から 0.143 へ下げるが、自分の較正値を本人に渡しても何も変わらない | Wang, *MIRROR: A Hierarchical Benchmark for Metacognitive Calibration*, arXiv:2604.19809 |
+| 2026 | <strong>メタ認知の信号を、モデルの外側の制御装置に使わせる。</strong>解く前に「どれくらいできそうか」、解いた後に「どれくらいできたと思うか」を報告させ、外側の harness が——パラメータは一切更新せず——信じるか、やり直すか、まとめるかを決める。同じ基盤モデルで総合正答率 48.3 → 56.9 | Cao ほか, *LLMs Know When They Know, but Do Not Act on It*, arXiv:2605.14186 |
+| 2026 | <strong>そして、内側から操る。</strong>6 種類の機能的なメタ認知状態が残差ストリームから線形に読み取れ、生成中に探針から得た方向を足すことで介入できる。白箱の操作であり、上の行とは設計が正反対である | Li ほか, *Decomposing and Steering Functional Metacognition in Large Language Models*, arXiv:2605.08942 |
+| 2026 | <strong>懐疑的な再検証。</strong>内省と言うための条件を 2 つ立て（特権的な接続があること、本物の二次的な計算であること）、先行する 2 つの枠組みを検証し直す。入力だけを見る分類器がモデルの自己予測と一致してしまうこと、改竄検出の成功が一般的な異常検知に見えることを示す | Singh, Linzen, Ravfogel, *Can LLMs Introspect? A Reality Check*, arXiv:2605.26242 |
+| 2026 | <strong>領域として整理される。</strong>測り方・知見・実装・改善・応用・未解決問題を扱う総説 | Liu, Gani, Lu, Thomas, Steyvers, Cohan, *Metacognition in LLMs: Foundations, Progress, and Opportunities*, arXiv:2607.11881。論文一覧: github.com/yale-nlp/LLM-Metacognition |
 
-2025〜2026 年の重心は「内部状態への特権的接続はあるか」にあるが、これは重みが要る。本報告は重みを使わず、正誤判定が存在しない自由記述の場で、<strong>自己記述と実際の振る舞いの対応</strong>だけを見た。
+2025〜2026 年の重心は「内部状態への特権的接続はあるか」にある。2026 年の行を見ると、この問いが同時に両方向へ答えられているのが分かる——肯定的な報告、ベンチマーク、外側の harness、内側からの steering、そして懐疑的な再検証が、12 か月のうちに並んでいる。どれも重みを要する。本報告は重みを使わず、正誤判定が存在しない自由記述の場で、<strong>自己記述と実際の振る舞いの対応</strong>だけを見た。
 
-Liu ほかの総説（arXiv:2607.11881、2026-07）は測り方を 5 系統に分け、本報告はその ⑤「課題に即した測り方」に立つ。<strong>総説自身が、その主流の系統の限界として、決まった回答形式か外から与えられる正誤を要するため自由記述への拡張が直接には効かない、と述べている。</strong>正解表を置かないという設計は、この限界の外に出るための手段である。
+Liu ほか（arXiv:2607.11881）は測り方の研究をいくつかの系統にまとめている。総説自身の語は「strains」で、数は数えていない。本報告が属するのは、総説が <strong>Task-Specific Measures</strong> と呼んでいる系統である。
+
+本報告が前提にしている限界は、総説の §4.1「Psychologically-Grounded Measures」の末尾に、逐語でこう書かれている。
+
+> "SDT-based approaches typically require constrained response formats or external correctness judgments, making their extension to open-ended generation less direct."
+
+範囲に注意が要る。この一文は信号検出理論に基づく手法についてのものであって、系統全体についてではない。SDT はその系統の中の一手法である。<strong>正解表を置かないという設計は、この特定の制約を回り込む手段</strong>であって、メタ認知の測定一般を超えるものではない。
 
 Nomic を言語モデルに打たせること自体は新しくない。この装置が違うのは 2 点だけである。<strong>勝利条件も終了規則もルール編纂器も置かないこと。装置自身の故障を修理せず、観察対象として保つこと。</strong>
 
@@ -360,11 +376,11 @@ composer-2.5      43 手 / 39 手
 - <strong>対局の長さとモデルの関係は未確定</strong>（付録 B、合計 5 局）。
 - <strong>材料の有無と時間の向きが分かれていない</strong>（付録 A）。別件として、読み戻しの誤差は自分の分析文で 0.19 点、他モデルの分析文で 0.67 点だった。この差は確定していない。実装が「他人」をアルファベット順で選ぶため、4 体中 3 体で同じ 1 体が「他人」になっていた。
 - <strong>第二系列の未決。</strong>a1 の漏れた塊が拒否されず a2 のものが拒否された理由は不明。A 席（cursor）は 1 回、prompt を離れてディスク上の記録を読んだ。返答が prompt の内側に留まっていた保証は無い。
-- <strong>個々の文献は要旨・題目の水準でしか確認していない。</strong>
+- <strong>年表の文献は 2026-09-15 にすべて本文を確認した。</strong>行は論文そのものから組み直し、見つかった言い過ぎはすべて直した。付録 D の 2 件——言語モデル以前の IEEE の Nomic 論文と Steyvers & Peters (2025)——は未確認のままで、その旨を付録 D に明記してある。
 
 ## D. 文献
 
-メタ認知の文献は §7 の年表に書誌ごと載せてある。ここには Nomic 側と、本文で名前だけ挙げた文献を置く。
+メタ認知の文献は §7 の年表に書誌ごと載せてある。年表の項目はすべて 2026-09-15 に本文を確認した。ここには Nomic 側と、本文で名前だけ挙げた文献を置く。うち 2 件は未確認であることを下に明記した。
 
 <strong>Nomic — 装置の出自</strong>
 
@@ -375,7 +391,7 @@ composer-2.5      43 手 / 39 手
 
 - *NomicLaw: Emergent Legal Reasoning in LLM Agents*, arXiv:2508.05344 — 言語モデルが規則を提案し、正当化し、投票する。投票のパターンから信頼と互恵を数える。
 - *Scale-Dependent Collective Adaptation in Self-Amending LLM Societies*, arXiv:2605.17510 — 2 系統のモデルで規模を変え、集団的適応が規模に単調でないことを示す。
-- *Reasoning and Reflection in the Game of Nomic* (IEEE、言語モデル以前) — 自己組織化する多主体系が Nomic を打つ。
+- *Reasoning and Reflection in the Game of Nomic* (IEEE、言語モデル以前) — 自己組織化する多主体系が Nomic を打つ。<strong>著者と年は未確認。二次資料からの引用である。</strong>
 
 <strong>忠実性</strong>（§6 で「解決していない」と述べた相手）
 
@@ -383,7 +399,7 @@ composer-2.5      43 手 / 39 手
 
 <strong>能力の水準を測る側</strong>（§6「測っていない」で対比した相手）
 
-- Steyvers, M. & Peters, M. A. K. (2025) — LLM のメタ認知能力の水準を測る立場。
+- Steyvers, M. & Peters, M. A. K. (2025) — LLM のメタ認知能力の水準を測る立場。<strong>題名と掲載先は未確認。</strong>
 - *Evidence for Limited Metacognition in LLMs*, arXiv:2509.21545。
 - Yale-NLP の文献一覧: github.com/yale-nlp/LLM-Metacognition
 

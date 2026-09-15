@@ -614,10 +614,10 @@ def fig8(lang):
                    "自己記述と実際の振る舞いの対応だけを見る。",
                    "In a free-form setting where a correctness judgement does "
                    "not exist, it looks only at self-description"), 20, GREY)
-    f.T(84, 640, t("総説が主流の方法の限界として挙げた"
-                   "「自由記述への拡張が難しい」の、ちょうど裏側にあたる。",
+    f.T(84, 640, t("総説が SDT 系の手法について挙げた"
+                   "「自由記述への拡張が直接には効かない」の、裏側にあたる。",
                    "against measured behaviour &#8212; the far side of the "
-                   "limit the survey names for the mainstream method."),
+                   "limit the survey names for SDT-based approaches."),
         20, GREY)
     return f
 

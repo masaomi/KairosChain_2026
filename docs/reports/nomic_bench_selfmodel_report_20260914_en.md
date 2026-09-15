@@ -311,31 +311,59 @@ reading an internal signal. **This report did not measure that structure.**
 
 ![Where the centre of gravity moved](nomic_bench_selfmodel_20260914_fig8_history_en.png)
 
-Years are first appearance (preprint). **The survey was read directly;
-individual papers were checked at title and abstract level only.**
+Rows are keyed to **publication year**, not to first preprint appearance —
+several of these circulated as preprints a year or more before the venue that
+dates the row. **Every paper below was read; the timeline was rebuilt from the
+papers themselves on 2026-09-15.** Where a row's wording used to overstate a
+paper, the paper's own scope is now given.
+
+One tension the rows do not resolve, and should not be smoothed over:
+calibration improves with model size (2022), while chain-of-thought faithfulness
+gets *monotonically worse* from 13B to 175B (Lanham et al.). Scale does not move
+the two in the same direction.
 
 | year | what changed | reference |
 |---|---|---|
-| 2022 | **The starting point.** Asked for "the probability my answer is right", models are fairly well calibrated, and better at larger scale. That set the baseline | Kadavath et al., *Language Models (Mostly) Know What They Know*, arXiv:2207.05221 |
-| 2023 | **The ground shifts.** Text written as a chain of reasoning does not match the factors that actually decided the answer. Self-report stops being usable as evidence | Turpin et al., *Language Models Don't Always Say What They Think*, arXiv:2305.04388 / Lanham et al., *Measuring Faithfulness in Chain-of-Thought Reasoning*, arXiv:2307.13702 |
-| 2024 | **Hope for self-correction collapses.** Self-reflection alone does not fix errors; telling the model where the error is does — the ability to repair exists, the ability to find does not | Huang et al., *Large Language Models Cannot Self-Correct Reasoning Yet*, ICLR 2024 / *When Can LLMs Actually Correct Their Own Mistakes?*, TACL 2024 / Tyen et al., *LLMs cannot find reasoning errors, but can correct them given the error location*, Findings of ACL 2024 |
-| late 2024 | **Something usable appears.** Naming which skill to apply raises accuracy on maths; training introspection lets a model predict its own behaviour | Didolkar et al., *Metacognitive Capabilities of LLMs: An Exploration in Mathematical Problem Solving*, NeurIPS 2024 / Binder et al., *Looking Inward: Language Models Can Learn About Themselves by Introspection*, ICLR 2025 |
-| 2025 | **The same problem persists in reasoning models**, and experiments reading internal state directly appear. A model can report and steer part of its own activations — but over a space far lower-dimensional than the activation space, and the authors state plainly that this is not evidence of consciousness | Chen et al., *Reasoning Models Don't Always Say What They Think*, arXiv:2505.05410 / Ji-An et al., *Language Models Are Capable of Metacognitive Monitoring and Control of Their Internal Activations*, arXiv:2505.13763 |
-| early 2026 | **Pushback, and instruments.** Sceptical re-examinations of introspection appear alongside benchmarks that separate "notices but cannot fix" | *Can LLMs Introspect? A Reality Check*, arXiv:2605.26242 / *Emergent Introspective Awareness in Large Language Models*, arXiv:2601.01828 / *MIRROR: A Hierarchical Benchmark for Metacognitive Calibration*, arXiv:2604.19809 |
-| mid 2026 | **Toward engineering.** Taking "knows but does not act" as given, metacognitive signals are fed to a controller outside the model | *LLMs Know When They Know, but Do Not Act on It*, arXiv:2605.14186 / *Decomposing and Steering Functional Metacognition in Large Language Models*, arXiv:2605.08942 |
-| 2026-07 | **The area is organised as a field.** A survey placing measurement, elicitation, application and open problems in one taxonomy. This report sits in its category (5) | Liu, Gani, Lu, Thomas, Steyvers, Cohan, *Metacognition in LLMs: Foundations, Progress, and Opportunities*, arXiv:2607.11881 (2026-07-13). Paper list: github.com/yale-nlp/LLM-Metacognition |
+| 2022 | **The starting point.** Asked for "the probability my answer is right", models are fairly well calibrated — but only on multiple-choice and true/false items with the options visible, shown few-shot. Calibration improves with model size; RLHF-tuned policies lose it unless the temperature is adjusted | Kadavath et al., *Language Models (Mostly) Know What They Know*, arXiv:2207.05221 |
+| 2023 | **Stated reasoning can be systematically unfaithful.** Add a biasing feature to the input — reordered options, a suggested answer, a stereotype — and models shift answers without ever mentioning the bias, rationalising instead. The authors call this "a necessary but not sufficient test": it identifies failures, it does not prove faithfulness elsewhere | Turpin et al., *Language Models Don't Always Say What They Think*, arXiv:2305.04388, NeurIPS 2023 |
+| 2023 | **And faithfulness can be measured rather than asserted** — by truncating the reasoning, inserting mistakes, paraphrasing, or replacing it with filler. It varies enormously by task, and it shows **inverse scaling**: worse from 13B to 175B. This paper explicitly contrasts its non-adversarial setting with the one above, concluding that "CoT can be faithful if the circumstances such as the model size and task are carefully chosen" | Lanham et al., *Measuring Faithfulness in Chain-of-Thought Reasoning*, arXiv:2307.13702 |
+| 2024 | **Self-correction without outside help fails.** With no external feedback and no oracle telling it when to stop, a round of self-correction lowers accuracy on reasoning tasks (GPT-4 on GSM8K, 95.5 to 89.0). Earlier positive results are traced to oracle labels leaking the answer. The paper exempts the working case: real external feedback helps | Huang et al., *Large Language Models Cannot Self-Correct Reasoning Yet*, ICLR 2024 |
+| 2024 | **When it works, and why.** A survey finding that no prior work shows self-correction from prompted-LLM feedback outside exceptionally suited tasks, that reliable *external* feedback does work, and that large-scale fine-tuning enables it | Kamoi, Zhang, Zhang, Han & Zhang, *When Can LLMs Actually Correct Their Own Mistakes? A Critical Survey of Self-Correction of LLMs*, TACL 12 (2024) |
+| 2024 | **Finding the error is the hard half.** GPT-4 locates the first logical error in a chain of thought with 52.87% accuracy. Given the location, regenerating from that step raises downstream accuracy — though on word sorting 11.11% of already-correct traces break while 23.53% of wrong ones are fixed, and below roughly 60–70% finding accuracy the trade goes negative. A small trained classifier finds errors better than prompting a large model | Tyen et al., *LLMs cannot find reasoning errors, but can correct them given the error location*, Findings of ACL 2024 |
+| 2024 | **Something usable.** Having the model name the skill a maths problem needs, then prompting it with exemplars matched to that skill, raises accuracy. Naming and retrieval are never separated, so the gain belongs to the pair | Didolkar et al., *Metacognitive Capabilities of LLMs: An Exploration in Mathematical Problem Solving*, NeurIPS 2024 |
+| 2025 | **A model can learn to predict itself.** Fine-tuned to predict properties of its own behaviour, a model beats a different model trained on its ground-truth behaviour — and keeps predicting correctly after its behaviour is deliberately changed. The authors report success on simple tasks and failure on complex or out-of-distribution ones | Binder et al., *Looking Inward: Language Models Can Learn About Themselves by Introspection*, ICLR 2025 (preprint Oct 2024) |
+| 2025 | **The same problem persists in reasoning models.** Chains of thought reveal hints the model actually used less than 20% of the time; outcome-based reinforcement learning improves faithfulness, then plateaus | Chen et al., *Reasoning Models Don't Always Say What They Think*, arXiv:2505.05410 |
+| 2025 | **Internal state, read and steered.** In-context neurofeedback lets models report and steer activation directions. The reportable space is far smaller than the activation space — the paper puts the controllable subspace between 32 and 128 dimensions — and a footnote states that its anthropomorphic vocabulary implies neither consciousness nor philosophical equivalence with humans | Ji-An et al., *Language Models Are Capable of Metacognitive Monitoring and Control of Their Internal Activations*, arXiv:2505.13763 |
+| 2025 | **A positive finding on introspection.** Injecting a known concept into a model's activations, it can notice and identify it, recall a prior internal representation, and tell its own output from a prefill — "some functional introspective awareness", which the author calls highly unreliable and context-dependent | Lindsey, *Emergent Introspective Awareness in Large Language Models*, Transformer Circuits, Oct 2025 (arXiv:2601.01828) |
+| 2026 | **A benchmark separating "notices" from "acts".** Eight experiments, 16 models, about 250,000 instances. Compositional self-prediction fails across the board; models show above-chance knowledge of their own weak domains but do not convert it into choosing differently. External control cuts the confident-failure rate from 0.600 to 0.143, while handing models their own calibration scores changes nothing | Wang, *MIRROR: A Hierarchical Benchmark for Metacognitive Calibration*, arXiv:2604.19809 |
+| 2026 | **Metacognitive signals used by a controller outside the model.** A model reports how well it expects to do before solving and how well it thinks it did after; an external harness — no parameter updates — decides whether to trust, retry, or aggregate. Pooled accuracy 48.3 to 56.9 on a fixed base model | Cao et al., *LLMs Know When They Know, but Do Not Act on It*, arXiv:2605.14186 |
+| 2026 | **And by steering inside it.** Six functional metacognitive states are linearly decodable from the residual stream and can be intervened on during generation by adding a probe-derived direction — white-box, and the architectural opposite of the row above | Li et al., *Decomposing and Steering Functional Metacognition in Large Language Models*, arXiv:2605.08942 |
+| 2026 | **Sceptical re-examination.** Sets two conditions for a claim of introspection — privileged access, and genuine second-order computation — and re-examines two earlier paradigms, finding that input-only classifiers match the models' self-predictions and that tamper-detection success looks like generic anomaly detection | Singh, Linzen & Ravfogel, *Can LLMs Introspect? A Reality Check*, arXiv:2605.26242 |
+| 2026 | **The area is organised as a field.** A survey covering measurement, findings, implementation, improvement, applications and open questions | Liu, Gani, Lu, Thomas, Steyvers & Cohan, *Metacognition in LLMs: Foundations, Progress, and Opportunities*, arXiv:2607.11881. Paper list: github.com/yale-nlp/LLM-Metacognition |
 
 The centre of gravity in 2025–2026 sits on "is there privileged access to
-internal state?", which requires weights. This report uses none, and in a
-free-form setting where a correctness judgement does not exist, looks only at
-**the correspondence between self-description and actual behaviour.**
+internal state?", and the 2026 rows show that question being answered in both
+directions at once — a positive finding, a benchmark, an external harness, an
+internal steering method, and a sceptical re-examination, inside twelve months.
+All of them need the weights. This report uses none, and in a free-form setting
+where a correctness judgement does not exist, looks only at **the correspondence
+between self-description and actual behaviour.**
 
-Liu et al. (arXiv:2607.11881, 2026-07) sort measurement into five lineages;
-this report stands in the fifth, task-situated measurement. **The survey itself names, as a limit of its
-mainstream lineage, that the method requires a fixed response format or
-externally supplied correctness, and so does not extend directly to free-form
-generation.** Withholding the
-answer key is the means of getting outside that limit.
+Liu et al. (arXiv:2607.11881) group measurement work into several families —
+the survey's own word is "strains", and it does not number them. The one this
+report falls into is the family the survey calls **Task-Specific Measures**.
+
+The limitation this report is built against is the survey's, stated verbatim in
+§4.1 under *Psychologically-Grounded Measures*:
+
+> "SDT-based approaches typically require constrained response formats or
+> external correctness judgments, making their extension to open-ended
+> generation less direct."
+
+Note the scope: that sentence is about signal-detection-theory approaches
+specifically, which are one paradigm inside that family, not the family as a
+whole. **Withholding the answer key is a way around that particular
+constraint** — not around measurement of metacognition in general.
 
 Playing Nomic with language models is not itself new. This instrument differs
 in exactly two ways. **It provides no victory condition, no termination rule
@@ -501,12 +529,16 @@ The 24/24 and 14/24 figures do have the denominators for their claim.
 - **Open in series 2.** Why a1's leaked block was not refused while a2's was is
   unknown. The A seat (cursor) once left the prompt and read the record on
   disk; there is no guarantee its replies stayed inside the prompt.
-- **Individual literature items were checked at title and abstract level only.**
+- **The timeline's papers were read in full on 2026-09-15**; the rows were
+  rebuilt from them, and every overstatement found was corrected. Two items in
+  Appendix D — the pre-LLM IEEE Nomic paper and Steyvers & Peters (2025) — are
+  still unconfirmed and are flagged there.
 
 ## D. References
 
-The metacognition literature is cited in full in the timeline in section 7.
-What follows is the Nomic side, plus the works named only in passing.
+The metacognition literature is cited in the timeline in section 7, where every
+entry was read in full on 2026-09-15. What follows is the Nomic side, plus the
+works named only in passing — two of which are flagged below as unconfirmed.
 
 **Nomic — where the instrument comes from**
 
@@ -526,7 +558,8 @@ What follows is the Nomic side, plus the works named only in passing.
 - *Scale-Dependent Collective Adaptation in Self-Amending LLM Societies*,
   arXiv:2605.17510 — collective adaptation is not monotone in scale.
 - *Reasoning and Reflection in the Game of Nomic* (IEEE, pre-LLM) — a
-  self-organising multi-agent system plays Nomic.
+  self-organising multi-agent system plays Nomic. **Authors and year not
+  confirmed; cited from a secondary source.**
 
 **Faithfulness** (what section 6 says is *not* solved)
 
@@ -536,7 +569,7 @@ What follows is the Nomic side, plus the works named only in passing.
 
 **Measuring level of ability** (the contrast drawn in section 6)
 
-- Steyvers, M. & Peters, M. A. K. (2025).
+- Steyvers, M. & Peters, M. A. K. (2025). **Title and venue not confirmed.**
 - *Evidence for Limited Metacognition in LLMs*, arXiv:2509.21545.
 - Yale-NLP paper list: github.com/yale-nlp/LLM-Metacognition
 
