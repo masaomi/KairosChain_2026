@@ -4,6 +4,62 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.86.0] - 2026-09-21
+
+### Changed — multi-LLM review: a per-round check for which review you are in
+
+Templates only: L1 `multi_llm_review_workflow` 3.13.0 → 3.14.0. No library code,
+no config.
+
+**The rule.** § Step -1 gains rule 7: classify each round's findings by CATEGORY,
+not only by the (a)/(b)/(c) severity that rule 1 and § Convergence Rules already
+require. Structural gaps ("this cannot work") and fix correctness ("the fix is
+wrong") are design-review categories; missing wiring ("this does not work") is an
+implementation-review category. When a design loop's findings have moved to the
+implementation category, the design review is over — freeze, hand the rest to the
+implementation queue, and do not dispatch another round.
+
+**Why it is new.** The content is not new; the *step* is. `multi_llm_reviewer_
+evaluation` § Bug Category Differentiation Across Rounds and this document's
+§ Convergence Curve have both described the progression for months, as
+observations. Nothing told an orchestrator to perform the check each round, so a
+loop could run eight rounds without anyone asking which review it was in.
+
+**The loop that paid for it.** GenomicsChain service (2.5) provenance anchoring,
+2026-09-20/21, 8 rounds, orchestrator Opus 5. Rounds 1–4 exhausted the
+design-category findings — the record contract, the verifier's readability, the
+proof TTL, the packaging. Rounds 5–8 then spent four rounds on a single
+implementation-category class (a malformed bundle outgrading an honest one, in
+the adapter's reading of broken input) and produced +102 lines of design against
++271 of code and +397 of tests, while the reviewed artifact grew 56 KB → 180 KB.
+
+Two things about that are worth keeping. First, the orchestrator's (a)/(b)/(c)
+trend table looked healthy the whole time — blocking rows 15 → 12 → 8 → 7 → 7 →
+9 → 10 → 6, density 26.7 → 3.3 per 100 KB — because the findings *were*
+narrowing. Severity and category are different axes, and only one of them was
+being read. Second, the surface grew because rule 2 was being broken: the code
+sat under an `APPENDIX (advisory only — findings against these never block)`
+header, the seats honoured it (round 8's codex labelled two of its three findings
+"Advisory under the appendix rule") and the orchestrator treated them as blocking
+anyway. Rule 2 exists to collapse the claim surface; a surface that grows every
+round is the tell that it is not being kept.
+
+The loop ended on the operator's observation, not on any recorded signal: *the
+adapter is an implementation problem, and a design review that runs tests has
+stopped being a design review.*
+
+**Also recorded in § Experimental Data**, because the same loop dropped them: the
+≤5 fixes-per-round cap (rule 3) ran at 7/6/6/6, the pre-flight falsifier (rule 4)
+was skipped for three consecutive rounds, the per-round
+`reviewer_evaluation_observation_<reviewer>_<date>` records (§ L2 Save Points)
+were never written, and no seat was asked for a closure verdict on its own
+prior-round P0s (§ Convergence Rules). A loop that drops five of this document's
+rules at once is not a loop that ran out of rules to follow.
+
+Records (GenomicsChain_SkillSets): L2 `decision_design_frozen_prov_anchoring_20260921`,
+`reviewer_evaluation_observation_prov_anchoring_loop_20260921`, and the round
+records `review_r5_…` through `review_r8_prov_anchoring_v0_1_9_20260921`.
+
 ## [3.85.0] - 2026-09-06
 
 ### Changed — multi-LLM review: high effort by default, gpt-6-astra seats, gpt-5.5 retires

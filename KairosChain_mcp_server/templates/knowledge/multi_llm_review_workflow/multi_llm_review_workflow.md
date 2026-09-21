@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.13.0"
+version: "3.14.0"
 tags:
   - workflow
   - review
@@ -69,6 +69,42 @@ write a review spec and declare it frozen for the round:
 6. **Reference originals by path + sha256; do not transcribe.** Reviewers
    read the repository; the artifact carries the manifest. Transcription
    errors are undetectable and 100KB+ pastes rot.
+7. **Check which review you are in, every round — category, not severity.**
+   Classify each round's findings by CATEGORY against
+   `multi_llm_reviewer_evaluation` § Bug Category Differentiation Across
+   Rounds, in addition to the (a)/(b)/(c) severity classification rule 1 and
+   § Convergence Rules already require. Structural gaps ("this cannot work")
+   and fix correctness ("the fix is wrong") are design-review categories;
+   missing wiring ("this does not work") is an implementation-review
+   category. **When a design loop's findings have moved to the implementation
+   category, the design review is over**: freeze the design, hand the
+   remaining findings to the implementation queue, and do not dispatch
+   another round. Severity and category are different axes — a trend of
+   narrowing (a)/(b) findings says the loop is healthy, and says nothing
+   about whether it is still reviewing the design.
+
+   Two cheap tells that a design loop has crossed over, both readable
+   without any new instrumentation: the round's output is mostly code and
+   tests rather than design text, and the claim surface is growing instead
+   of collapsing (rule 2 exists to collapse it; if it is growing, rule 2 is
+   being broken somewhere).
+
+   Evidence — GenomicsChain service (2.5) provenance anchoring, 2026-09-20/21,
+   8 rounds, orchestrator Opus 5. Rounds 5–8 found exactly one class, a
+   malformed bundle outgrading an honest one, entirely in the adapter's
+   reading of broken input: the implementation category. Those four rounds
+   produced +102 lines of design against +271 of code and +397 of tests, and
+   the artifact grew 56 KB → 180 KB. Rule 2 was broken throughout — the code
+   sat under an APPENDIX header reading "advisory only, never block", the
+   seats obeyed it (round 8's codex marked two of its three findings
+   "Advisory under the appendix rule") and the orchestrator treated those
+   findings as blocking anyway. The orchestrator ran the (a)/(b)/(c) trend
+   table every round and it looked healthy, because the findings WERE
+   narrowing; what it never asked was which review the categories described.
+   The operator stopped the loop by naming the category shift directly — the
+   adapter is an implementation problem, and a design review that runs tests
+   has stopped being a design review. Records: L2
+   `decision_design_frozen_prov_anchoring_20260921`.
 
 Corollaries observed in the same loop: fix the *class*, and fix every copy —
 a corrected lib comment whose refuted twin survives in a test file costs a
@@ -1825,5 +1861,31 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   by (a)+(b) exhaustion without ever reaching it. Every ratio in this document
   is a reference figure.
 
+- Step -1 rule 7 added, the per-round category check (v3.14.0, 2026-09-21,
+  operator instruction). The rule the loop below needed already existed as an
+  observation — `multi_llm_reviewer_evaluation` § Bug Category Differentiation
+  and this document's § Convergence Curve both describe the progression — but
+  neither was a step anyone was told to perform each round, so eight rounds ran
+  without it. GenomicsChain service (2.5) provenance anchoring: R1–R4 exhausted
+  the design-category findings (record contract, verifier readability, proof
+  TTL, packaging); R5–R8 then spent four rounds on one implementation-category
+  class, produced +102 design lines against +271 code and +397 test lines, and
+  grew the artifact 56 KB → 180 KB while rule 2 was being broken. The
+  orchestrator's own trend table showed healthy narrowing the whole time, which
+  is the point: severity narrowed while the category had already changed.
+  The loop closed on the operator's observation, not on any recorded signal.
+  Also recorded, because the same loop dropped them: the ≤5 fixes-per-round cap
+  (rule 3) went to 7/6/6/6, the pre-flight falsifier (rule 4) was skipped for
+  three consecutive rounds, per-round
+  `reviewer_evaluation_observation_<reviewer>_<date>` records (§ L2 Save Points)
+  were never written, and no seat was asked for a closure verdict on its own
+  prior-round P0s (§ Convergence Rules). A loop that drops five of this
+  document's rules at once is not a loop that ran out of rules to follow.
+  Records: L2 `decision_design_frozen_prov_anchoring_20260921`,
+  `review_r5_prov_anchoring_v0_1_5_20260921` .. `review_r8_prov_anchoring_v0_1_9_20260921`,
+  report `docs/reports/prov_anchoring_mlr_status_20260921/report.html` (GenomicsChain_SkillSets)
+
 **Key insight**: Design reviews and implementation reviews find
-**categorically different bugs**. Both phases are necessary.
+**categorically different bugs**. Both phases are necessary. The corollary that
+cost eight rounds to learn: **which of the two you are in is readable from the
+findings' category, and has to be read every round** (§ Step -1 rule 7).
