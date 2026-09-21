@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.8.0"
+version: "3.14.0"
 tags:
   - workflow
   - review
@@ -53,7 +53,9 @@ write a review spec and declare it frozen for the round:
 3. **Cap fixes per round (≤5)** and write one line per fix: *what this fix
    newly claims* (values pinned, ranges narrowed, failure visibility
    changed). A fix that cannot state its new claims is doing more than the
-   finding asked.
+   finding asked. A round that moves its instrument records that it moved it
+   (§ Prompt Generation Rules). That is a recording duty; unlike the cap
+   above, it bounds nothing.
 4. **Pre-flight falsifier.** Before dispatch, one agent whose only job is to
    refute every factual claim in the spec and artifact — especially numbers
    and "X does not exist" claims. In this loop it caught real errors before
@@ -67,6 +69,42 @@ write a review spec and declare it frozen for the round:
 6. **Reference originals by path + sha256; do not transcribe.** Reviewers
    read the repository; the artifact carries the manifest. Transcription
    errors are undetectable and 100KB+ pastes rot.
+7. **Check which review you are in, every round — category, not severity.**
+   Classify each round's findings by CATEGORY against
+   `multi_llm_reviewer_evaluation` § Bug Category Differentiation Across
+   Rounds, in addition to the (a)/(b)/(c) severity classification rule 1 and
+   § Convergence Rules already require. Structural gaps ("this cannot work")
+   and fix correctness ("the fix is wrong") are design-review categories;
+   missing wiring ("this does not work") is an implementation-review
+   category. **When a design loop's findings have moved to the implementation
+   category, the design review is over**: freeze the design, hand the
+   remaining findings to the implementation queue, and do not dispatch
+   another round. Severity and category are different axes — a trend of
+   narrowing (a)/(b) findings says the loop is healthy, and says nothing
+   about whether it is still reviewing the design.
+
+   Two cheap tells that a design loop has crossed over, both readable
+   without any new instrumentation: the round's output is mostly code and
+   tests rather than design text, and the claim surface is growing instead
+   of collapsing (rule 2 exists to collapse it; if it is growing, rule 2 is
+   being broken somewhere).
+
+   Evidence — GenomicsChain service (2.5) provenance anchoring, 2026-09-20/21,
+   8 rounds, orchestrator Opus 5. Rounds 5–8 found exactly one class, a
+   malformed bundle outgrading an honest one, entirely in the adapter's
+   reading of broken input: the implementation category. Those four rounds
+   produced +102 lines of design against +271 of code and +397 of tests, and
+   the artifact grew 56 KB → 180 KB. Rule 2 was broken throughout — the code
+   sat under an APPENDIX header reading "advisory only, never block", the
+   seats obeyed it (round 8's codex marked two of its three findings
+   "Advisory under the appendix rule") and the orchestrator treated those
+   findings as blocking anyway. The orchestrator ran the (a)/(b)/(c) trend
+   table every round and it looked healthy, because the findings WERE
+   narrowing; what it never asked was which review the categories described.
+   The operator stopped the loop by naming the category shift directly — the
+   adapter is an implementation problem, and a design review that runs tests
+   has stopped being a design review. Records: L2
+   `decision_design_frozen_prov_anchoring_20260921`.
 
 Corollaries observed in the same loop: fix the *class*, and fix every copy —
 a corrected lib comment whose refuted twin survives in a test file costs a
@@ -87,6 +125,72 @@ Skipping Step 0 leads to misreading reviewer output — in particular, treating
 Codex (c)-class value-divergent REJECTs as blocking, which causes review loops to
 fail to converge. The cross-reference exists in `related:` frontmatter; this step
 makes it an explicit pre-condition rather than an implicit hint.
+
+## Step 0.1 — Measured seat characteristics (corpus 2026-08-03 .. 2026-09-03)
+
+Qualitative per-model profiles stay in `multi_llm_reviewer_evaluation`. What
+follows is the counted complement: seat behaviour as it actually occurred, so
+seat selection is a lookup rather than a recollection. A **seat** is one
+reviewer slot in one run.
+
+Corpus: 138 completed runs in the local run store, 556 seat observations, 5286
+findings (P0 1473 / P1 560 / P2 2994 / P3 259). Run types: design 54,
+implementation 60, document 24. Extraction script `log/mlr_extract/extract.py`
+lives in the development repository and does not ship; re-run it to refresh
+these numbers.
+
+| Seat | Runs | APPROVE rate design / impl / doc | Median wall s | Median output chars | (c) share, labelled only |
+|---|---|---|---|---|---|
+| `claude_cli_opus4.6` | 134 | 64% (31/48) / 71% (27/38) / 86% (20/23) | 54 | 4,536 | 70% (19/27) |
+| `cursor_composer2.5` | 138 | 13% (7/51) / 48% (24/50) / 25% (6/24) | 133 | 3,795 | 100% (2/2) |
+| `codex_gpt5.6-sol` (retired 2026-09-05) | 138 | 1% (1/54) / 11% (7/60) / 4% (1/24) | 113 | 2,038 | 3% (5/140) |
+| `claude_team_opus-5` (persona) | 131 | 0% (0/51) / 12% (7/56) / 0% (0/22) | not measured per seat | 11,512 | 27% (374/1362) |
+
+The codex row is a profile of **gpt-5.6-sol**, which left the roster on
+2026-09-05 when gpt-6-astra replaced it. Nothing in that row transfers to the
+new occupant: the seat's identity here is the model, not the slot. Until a
+comparable corpus accumulates for `codex_gpt6-astra`, read the codex row as
+history and treat the new seat as uncalibrated. The same caution applies to
+every row from 2026-09-05 onward for a second reason — the corpus was gathered
+with reviewers at medium effort, and reviewers now run at high (see § Thinking
+Effort Configuration), so post-swap rounds are not directly comparable to it.
+
+Selection consequences, each tied to the number above it:
+
+- **A `codex` APPROVE carries the most information and an `opus4.6` APPROVE the
+  least.** Codex approves 1 design review in 54 and pairs that with the lowest
+  advisory rate in the corpus (5 of 140 labelled findings). Opus4.6 approves 20
+  document reviews in 23 while 19 of its 27 labelled findings are advisory. Seat
+  both, read them differently: the `3/4 APPROVE` threshold is met, in practice,
+  with opus4.6's vote already inside it, so the live question is whether two of
+  the remaining three agree. (That threshold is a reference figure, not a gate —
+  see § Convergence Rules.)
+- **Volume anti-correlates with signal.** The persona seat raises 3,249 of the
+  5,286 findings (61%) and 27% of its labelled ones are advisory. Seat personas
+  when breadth is wanted; do not seat them to obtain a verdict.
+- **Design draws roughly seven times the P0 of implementation** — median 14 P0
+  per design-medium run against 2 per implementation-high run. Budget rounds
+  accordingly; a design round returning two P0 is anomalous, not clean.
+- **Dropping a seat does not shorten the round.** Seats run concurrently, so
+  wall-clock is the slowest seat (median 179 s per run against 300–400 s summed
+  across seats). Removing the 54 s seat saves nothing.
+- **Loops do not converge on their own.** Of 29 artifacts reviewed more than
+  once, the last round was REVISE in 26 and APPROVE in 3; rounds per loop median
+  3, maximum 12. P0 counts are not monotone: `chain_history_erasure_fix` ran
+  25, 25, 21, 14, **38**, 29, 26, 13 across rounds 1–8, and
+  `ruby_association_grant_2026_application_ja` returned APPROVE at round 8 with
+  3 P0 and then 23 P0 at round 9. Treat a single APPROVE as an observation, not
+  as a close — § Convergence Rules already requires the operator's declaration.
+
+Two limits of this corpus, both open:
+
+- **Findings are not deduplicated across seats.** `cited_by` had exactly one
+  entry in 5,286 of 5,286 findings, so agreement between seats is not derivable
+  from the store, and the (c) shares above are per-seat rates rather than
+  contested classifications.
+- **(a)/(b)/(c) labels are present on 1,622 of 5,286 findings (31%)**, and
+  `cursor` labelled 2 of its 730. Classification is applied unevenly by the
+  seats, so the shares are computed over labelled findings only.
 
 ## Step 0.25 — Unknowns Pass (pre-draft, qualifying reviews only)
 
@@ -397,10 +501,18 @@ they disagree, the config is right and this section is stale.
       which under the default "delegate" strategy is taken by your persona team
       rather than spawned — so when you are Opus 5, Opus 4.6 is the only Claude
       CLI subprocess
-- [ ] Codex models: gpt-5.6-sol AND gpt-5.5 (both, not either/or), each with -m
+- [ ] Codex model: gpt-6-astra, with -m. One codex slot since gpt-5.5 was
+      retired 2026-09-05 — do not add a second codex entry expecting the old
+      cross-generation pairing
 - [ ] Cursor model: composer-2.5, passed explicitly as --model composer-2.5
-- [ ] Total reviewer count: 5 (or 4 after orchestrator exclusion from subprocess)
-- [ ] Convergence rule: 3/5 APPROVE (full) or 3/4 APPROVE (after exclusion)
+- [ ] Effort: high on every seat that has an effort control — `--effort high`
+      for Claude CLI, `-c model_reasoning_effort=high` for codex. Cursor has no
+      effort control and takes no flag
+- [ ] Total reviewer count: 4 (or 3 after orchestrator exclusion from subprocess)
+- [ ] Closing condition: new (a)+(b) P0 = 0, with carryover P0s counted
+      separately and a closure verdict on each. The APPROVE ratio the tool
+      reports (3/4 full roster, 2/3 after exclusion) is a reference value,
+      not the condition — see § Convergence Rules
 ```
 
 **Every slot names its model on the command line (INV-E5).** A reviewer launched
@@ -418,7 +530,7 @@ Path B refuses such a slot outright; on Path A nothing refuses it but you.
 |---------|-----------------|----------------|
 | Launch a reviewer without an explicit model flag | Always pass `--model` / `-m`. A slot with no flag takes the CLI's user-editable default | "The default is the one we want" — it was, until someone changed it outside this repo |
 | Exclude orchestrator model from Agent Team Personas | Agent Team uses orchestrator model — they provide persona diversity, not epistemic diversity | LLM misreads "do not assign yourself as a reviewer" as applying to Agent Team; it applies only to subprocess CLI |
-| Run only Codex GPT-5.6-sol, skip 5.5 | Run both — cross-generation entries catch different things (5.5 found §5 schema contradiction in Phase 2 Case A that no other reviewer caught) | Cost-saving heuristic; roster has both for a reason |
+| Run only Codex GPT-6-astra, skip 5.5 | Run both — cross-generation entries catch different things (5.5 found §5 schema contradiction in Phase 2 Case A that no other reviewer caught) | Cost-saving heuristic; roster has both for a reason |
 | Use a smaller/cheaper model as Agent Team substitute | Use the orchestrator's own model with different personas | Confusing "model diversity" with "persona diversity" — Agent Team is the latter |
 | Run 3 reviewers instead of the configured roster | Use the full roster from config | Ad-hoc "3 is enough" reasoning; the roster size is empirical |
 | Count a reply that carries only a verdict | Drop it from the denominator, and say why | A bare "APPROVE" looks like agreement and raises the bar for everyone else without contributing (see § Substance and the denominator) |
@@ -498,8 +610,57 @@ The user always has the final say.
     `open-question` or `defect` in the round's L2 record
     If no (a)/(b) blocking findings → proceed to next phase
     If any (a)/(b) finding          → repeat from [2] with revised artifact
+    (the revision obeys § Revision Discipline below)
     (c) findings are recorded as advisory; non-blocking
 ```
+
+## Revision Discipline (between rounds)
+
+> Evidence base: 35 recorded runs across 8 threads, 2026-08-03 → 08-06
+> (tokens in `.kairos/multi_llm_review/pending/`), two of which ran to
+> convergence. Same validation caveat as Step -1: a strong regularity in one
+> instance's logs, not yet reproduced elsewhere. Analysis record: L2
+> `mlr_p0_inflation_analysis_and_opus46_no_verdict_diagnosis_20260806`.
+
+The strongest predictor of round N+1's raw P0 count in those logs is whether
+the round-N revision **added mechanism** to the artifact — not the artifact's
+size, not reviewer strictness:
+
+- chain_history_erasure v0.5 added two invariants and a recount section
+  (draft 9.3k → 19.1k chars): raw P0 went 13 → 38, and 17 of the 38 targeted
+  the added or rewritten sections. v0.8, similar in size (18.6k) but authored
+  under an explicit "no new mechanism" rule, closed at 13 with one external
+  slot finding zero P0s.
+- mlr_evidence_fix R1's fix added four unrequested defensive mechanisms; R2
+  returned 41 findings, nearly all of them defects inside the additions. All
+  four mechanisms were later removed, each for a measured reason.
+- Deletions never generated findings: chain erasure v0.7 deleted three
+  mechanisms — zero new P0s against the deletions, confirmed in writing by
+  three slots.
+- Each thread converged within 1–2 rounds of switching to subtractive
+  revisions; neither converged while revisions were additive.
+
+Rules:
+
+1. **A revision closes findings by deletion, correction, or naming — never by
+   default-adding.** New mechanisms, invariants, sections, or defensive
+   layers do not enter a revision unprompted. If a finding appears to require
+   new mechanism, put the question to the operator ("finding X seems to need
+   mechanism Y — add, defer to backlog, or drop?") before drafting it in.
+   Explanatory prose is a lighter form of the same risk: a sentence added
+   only to justify a retreat became the sole blocking finding of the round
+   that followed it (mlr_evidence R6 — "adding an explanation creates a new
+   claim").
+2. **Prefer a revision author that is not the model whose additions are under
+   review.** This extends the existing separation principle — the deciding
+   context never authors what judges it — from verification to revision.
+   Opus 5 has a measured additive propensity (scope-broadening; the v0.5
+   explosion above), but the model is the pressure, not the cause: Fable 5
+   also added-and-broke (v0.6's fsync/realpath additions, v0.7's predicate 4
+   — a fatal genesis-rejecting defect) until the subtractive rule was
+   imposed, and Opus 5 converged mlr_evidence once its revisions became
+   subtractive (retreat + removal). Combine both levers: the subtractive
+   rule always, a different-model reviser when available.
 
 ## Review Types
 
@@ -510,6 +671,13 @@ The user always has the final say.
 | Fix plan review | Completeness, correctness, prioritization | Fix plan with proposed code | After review findings |
 | Document review | Accuracy, completeness, consistency | Document text | Grant applications, papers |
 | Final/convergence review | All prior findings resolved, no new issues | Resolution matrix + revised artifact | Before merge |
+
+**A review answers at the phase of its target and does not descend.** Design
+review and Document review read code only to refute a factual claim the
+artifact makes about an existing system, and write none. Implementation review
+is where fixes are written, and is also where a green suite is not evidence
+until its tests have been shown to fail — a mutation pass whose sites the
+code's author chose measures the author's attention, not the suite.
 
 ## LLM Role Differentiation
 
@@ -531,7 +699,7 @@ The rule applies **after** orchestrator classifies each finding as (a)/(b)/(c) p
 findings count toward the thresholds below; (c) findings are recorded as advisory
 and never block.
 
-- **3/5 APPROVE** full roster, or **3/4 APPROVE** after orchestrator exclusion ("exclude" strategy only — the default "delegate" strategy keeps 5 voters via collect) (no (a)/(b) REJECT) = proceed to next step
+- **3/4 APPROVE** full roster, or **2/3 APPROVE** after orchestrator exclusion ("exclude" strategy only — the default "delegate" strategy keeps 4 voters via collect) (no (a)/(b) REJECT) = proceed to next step
 - **Any (a) or (b) REJECT or FAIL** = revise and re-review
 - **(c)-only REJECT** = record as advisory, non-blocking
 - **Unanimous APPROVE** (no (a)/(b)) = highest confidence, proceed
@@ -548,6 +716,27 @@ and philosophy-aligned finding has been answered is converged whether or not the
 numerator moved. Do not treat a reached ratio as sufficient on its own either:
 check what the approving replies actually said before counting them.
 
+**Count carryover and new (a)/(b) P0s separately; the machine-side signal of
+convergence is "new P0 = 0", not the APPROVE ratio.** Require each **seat** to
+state a closure verdict on its own prior-round P0s — closed / open /
+half-closed, with grounds. **Who labels a finding new versus carryover is
+undecided.** The seat-side answer — each seat labelling against its own prior
+findings — was written into this section on 2026-08-22 and removed the same day:
+a seat sees only its own priors, so a finding one seat raises after another seat
+raised it is new to that seat and carryover to the round, and a seat added or
+returning mid-thread has no priors at all, making every finding it raises new by
+construction. Until this is answered, the orchestrator makes the call, knowing
+that it is the context whose artifact the call converges. This format is
+validated live (chain erasure
+R6–R8) and is what makes the carryover/new split computable. A round whose
+(a)+(b) findings are all carryover with closure verdicts, and whose revision
+drew zero new P0s (observed without exception when the revision was
+subtractive — see § Revision Discipline), is a freeze candidate for the
+operator regardless of the numerator. Neither of the two 2026-08 threads
+ever reached its APPROVE ratio; both closed by (a)+(b) exhaustion + operator
+freeze declaration — the intended close described above, now with a
+measurable trigger.
+
 **Escalating raises the bar.** The rule is a ratio over the observers that
 counted, so adding reserve observers with `escalate: true` raises the number of
 agreements required. That is the intended cost of a wider panel, not a defect —
@@ -561,7 +750,7 @@ For normative detail and the underlying classification, see
 | Agreement | Meaning | Action |
 |-----------|---------|--------|
 | **N/N** (unanimous) | Architectural-level gap | Must fix |
-| **Majority** (e.g. 3/5, 3/4) | Implementation-level issue | Should fix |
+| **Majority** (e.g. 3/4, 2/3) | Implementation-level issue | Should fix |
 | **1/N only** | Specialty-specific insight | Do NOT ignore — often the most novel finding |
 
 1/N findings are not "minority opinions to discard." They represent unique expertise.
@@ -661,7 +850,7 @@ outside this repository — see the incident recorded in § Pre-flight checklist
 
 | Tool | Command | Prompt Input | Output Collection | Model |
 |------|---------|-------------|-------------------|-------|
-| **Codex** | `codex exec -m <model>` | stdin pipe: `cat prompt.md \| codex exec -m <model> -` | `-o /path/output.md` | gpt-5.6-sol + gpt-5.5 (both roster entries, `-m` per entry) |
+| **Codex** | `codex exec -m <model> -c model_reasoning_effort=high` | stdin pipe: `cat prompt.md \| codex exec -m <model> -` | `-o /path/output.md` | gpt-6-astra — one slot since gpt-5.5 was retired 2026-09-05 |
 | **Cursor Agent** | `agent -p --model composer-2.5` | File reference (stdin NOT supported) | stdout redirect: `> output.md` | composer-2.5, passed explicitly — never relying on the CLI default |
 | **Claude Code** | Agent tool (internal) | Direct prompt string | Write to workspace file | Orchestrator model, or the declared `persona_model` when personas run elsewhere |
 | **Claude CLI (4.6)** | `claude -p --model claude-opus-4-6` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-4-6` | stdout redirect: `> output.md` | Opus 4.6 — the calibrated anchor, deliberately not a frontier model |
@@ -684,11 +873,27 @@ Based on cross-evaluation experiment (7 models × 4 tasks + Nomic, 518 CLI calls
 |------|-------|-------------|-----------|
 | **Primary (orchestrator)** | session default | (default) | Sufficient for integration, dialogue, judgment |
 | **Reviewer: Agent Team** | = orchestrator, or the declared `persona_model` | (default) | Personas inherit whichever model actually runs them |
-| **Reviewer: Claude CLI** | Opus 4.6, plus any frontier roster slot the orchestrator is not | (default; config `effort: medium`) | Evaluator quality is effort-independent (low≈high: 8.35 vs 8.16) — per 2026-04-29 policy reviewers stay at default |
+| **Reviewer: Claude CLI** | Opus 4.6, plus any frontier roster slot the orchestrator is not | `--effort high` (config `effort: high`) | Operator instruction 2026-09-05; supersedes the 2026-04-29 default-effort policy — see the note below the table |
 | **Coding sub-agent** | Opus 5 | `--effort xhigh` | Published starting point for coding/agentic work; not measured here (see note) |
 | **Design sub-agent** | Opus 5 | `--effort high` | Published starting point for intelligence-sensitive work; not measured here (see note) |
-| **Codex** | GPT-5.6-sol / GPT-5.5 | (no flag) | Fixed effort |
-| **Cursor Agent** | Composer-2.5 | (no flag) | Fixed effort |
+| **Codex** | GPT-6-astra / GPT-5.5 | `-c model_reasoning_effort=high` | Same operator instruction. The earlier "(no flag) / fixed effort" entry was wrong: codex_adapter has always emitted this flag when the roster set `effort` |
+| **Cursor Agent** | Composer-2.5 | (no flag) | Genuinely has no effort control — cursor_adapter builds no such flag, so an `effort:` key on a cursor roster entry is recorded and never sent |
+
+Effort policy (2026-09-05, operator instruction). Every reviewer that HAS an
+effort control runs at **high**, at every complexity level, and the `effort_map`
+in `config/multi_llm_review.yml` is a constant rather than a function of
+complexity. `high` is deliberate rather than maximal: it is the ceiling the two
+providers share (Claude CLI accepts low/medium/high/xhigh/max, codex accepts
+minimal/low/medium/high), so it is the highest setting at which the roster stays
+comparable across providers.
+
+This supersedes the 2026-04-29 policy that kept reviewers at each CLI's default.
+That policy rested on one measurement — low vs high scoring 8.35 vs 8.16 in
+cross-evaluation — taken on the Opus 4.6 / 4.7 generation, on none of the models
+in the current roster. It was not re-measured, so it is superseded by judgement,
+not by a counter-measurement, and a later measurement could reinstate it. The
+cost side is measured: on one identical one-line prompt, gpt-6-astra spent 8,274
+tokens at high against 3,150 at its default (2026-09-05).
 
 Note (2026-07-25): the effort experiment data is from the Opus 4.6/4.7
 generation. Opus 5 and Fable 5 effort sensitivity is not yet calibrated;
@@ -785,13 +990,13 @@ multi_llm_review(
 **Dispatcher behavior** (config: `exclude_orchestrator_model: true`, default `true`):
 - If `orchestrator_model` matches a roster entry's `model`, that entry is skipped.
 - `min_quorum` and `convergence_rule` apply to the remaining reviewers.
-- 5-reviewer roster → 4 reviewers; `convergence_rule_after_exclusion: "3/4 APPROVE"`
+- 4-reviewer roster → 3 reviewers; `convergence_rule_after_exclusion: "2/3 APPROVE"`
   (from config) replaces the full-roster rule. This reduced count applies to the
   "exclude" strategy only. The "subprocess" strategy keeps the full roster (the
   matching entry runs as a fresh CLI process instead of being skipped). Under the
   default "delegate" strategy, the matching entry is dropped at dispatch but
-  re-added at collect as the persona-team entry, so the voter count returns to 5
-  and the full-roster rule (3/5 APPROVE) applies.
+  re-added at collect as the persona-team entry, so the voter count returns to 4
+  and the full-roster rule (3/4 APPROVE) applies.
 - **At most one roster entry leaves for matching the caller.** This is only
   visible on a roster carrying three or more entries on the orchestrator's own
   model: the first is taken over by the persona team, the second leaves as the
@@ -1027,6 +1232,26 @@ exclude it would be to exclude every honest terse approval with it. When a round
 reaches its ratio, read what the approving replies actually said before treating
 the ratio as convergence. That judgement is the human's and no rule replaces it.
 
+#### A no_verdict streak is a seat-environment signal, not a dead reviewer
+
+Before treating a slot as dead, read its `raw_text_excerpt` / `stated_text`
+in the pending record. Diagnosed live (2026-08-06, `claude_cli_opus4.6`,
+four consecutive no_verdict exclusions across one implementation-review
+thread): the CLI itself was healthy throughout. The subprocess seat runs
+sandboxed — no tools, empty working directory — so on **implementation**
+artifacts that cite file paths, the model attempted to read code before
+judging: two rounds opened with pseudo-tool-call markup, one opened with
+"the repository is not accessible" and stated its verdict header only
+further down, where the positional rule correctly refuses it. The same
+seat, in the same period, complied on **design** artifacts (verdict on
+line 1, counted every round). Remedies, in order: state in the subprocess
+prompt that the seat has no file access and must review the artifact text
+alone, marking unverifiable claims `[INFERRED]` (the grounding_rules block
+already licenses this); keep prompt rule #6 (full artifact inline) honest
+for implementation reviews; only then consider `--add-dir` with read-only
+tools, accepting CLAUDE.md contamination. A streak that survives those
+remedies is a real outage.
+
 #### Async/Parallel Collect Timing — Iron Rule
 
 When `delegation.parallel.default: true` (the v3.x default), Call 1 returns
@@ -1107,12 +1332,47 @@ Every review prompt MUST include these 7 items:
 1. **Output filename table** — so each reviewer knows where to save
 2. **Auto-execution commands** — ready-to-run CLI per reviewer
 3. **Review instructions** — what to focus on, what NOT to re-review
-4. **Review history** (R2+) — table of previous rounds and findings
+4. **Prior findings to verify** (R2+) — the findings the revision addresses,
+   so the reviewer can judge each closed / open / half-closed. Findings only:
+   no per-reviewer verdict history, no finding counts, no round tallies
+   (see § Reviewer incentive rule)
 5. **Context** — architecture summary for reviewers unfamiliar with codebase
 6. **Full artifact content inline** — reviewers may not have file access
 7. **Severity ratings + output format** — structured template for review output
 
 All prompt content MUST be in **English** for consistent parsing across LLM tools.
+
+**A round that changes its instrument records the change.** The instrument is
+whatever bounds what the round can find: what a seat is told to look for, how
+much of the artifact it is given, and which seats answer. Some of a prompt
+varies by construction — the artifact itself, the prior findings a round asks a
+seat to verdict — and that is not the instrument. When a round moves the
+instrument, it says so on the record, in one line, naming what moved and why.
+
+This is a recording duty, not a prohibition. An orchestrator may narrow a
+seat's criteria mid-thread, cut the scope, or convene a different panel; each
+of those is a documented remedy for something. What it may not do is move the
+instrument and then read the resulting change in finding counts as a property
+of the artifact.
+
+### Reviewer incentive rule
+
+**Never tell a reviewer — subprocess or persona — that its finding count is
+compared across rounds, which round this is, or what verdicts were given
+before.** A reviewer told its count is watched treats the count as the
+deliverable, and that selects for finding-*production* over finding-*weight*
+(observed 2026-08-06: an orchestrator wrote "your finding count is compared
+across rounds" into persona prompts during the project_orientation_report
+loop; of the round's 7 P0s, 3 were factually correct findings that cost
+nobody anything). Convergence — carryover vs new, (a)+(b) exhaustion, the
+ratio — is measured by the orchestrator from the record, after the replies
+are in. The reviewer receives the artifact, the review criteria, and the
+prior findings it must verify. Nothing else about the loop's state.
+
+What this rule does NOT forbid: passing prior findings for closure
+verification (rule #4 — that is content, not score-keeping), and the
+carryover/new split in § Convergence Rules (that is orchestrator-side
+bookkeeping the reviewer never sees).
 
 ### XML Block Structure for Review Prompts
 
@@ -1140,7 +1400,8 @@ For each finding:
 - **What can go wrong**: concrete failure scenario
 - **Why this is vulnerable**: code path or design gap
 - **Likely impact**: data loss, security breach, silent corruption, etc.
-- **Recommended fix**: specific change (not "consider improving")
+- **Recommended fix**: specific, never "consider improving" — the change where
+  this review writes changes, the claim that does not hold where it does not.
 </structured_output_contract>
 
 <grounding_rules>
@@ -1204,16 +1465,16 @@ Step 2: Detect environment, and check the roster against config
   - Read the roster from config/multi_llm_review.yml — do NOT read CLI defaults
     and treat them as the roster. Detection only tells you whether a default has
     drifted; the model each slot runs is named on the command line.
-  - Report: "Auto mode: Codex (gpt-5.6-sol, gpt-5.5), Cursor (composer-2.5),
+  - Report: "Auto mode: Codex (gpt-6-astra), Cursor (composer-2.5),
     Claude Team (orchestrator model), Claude CLI (opus-4.6)"
 
-Step 3: Execute the configured roster in parallel (currently 5 slots, one of
+Step 3: Execute the configured roster in parallel (currently 4 slots, one of
         which is your own persona team)
-  - Bash(background): cat prompt.md | codex exec -m gpt-5.5 -C workspace -o log/review_codex_gpt5.5.md -
-  - Bash(background): cat prompt.md | codex exec -m gpt-5.6-sol -C workspace -o log/review_codex_gpt5.6-sol.md -
+  - Bash(background): cat prompt.md | codex exec -m gpt-6-astra -c model_reasoning_effort=high -C workspace -o log/review_codex_gpt6-astra.md -
   - Bash(background): agent -p --trust --model composer-2.5 "Read prompt and review..." > log/review_cursor.md
+    (no effort flag — Cursor has no effort control)
   - Agent(background): Claude Team (orchestrator model, e.g. Opus 5) → write to log/review_claude_team_opus5.md
-  - Bash(background): cat prompt.md | claude -p --model claude-opus-4-6 > log/review_claude_opus4.6.md 2>log/review_claude_opus4.6.stderr.log
+  - Bash(background): cat prompt.md | claude -p --model claude-opus-4-6 --effort high > log/review_claude_opus4.6.md 2>log/review_claude_opus4.6.stderr.log
     (add a line per further Claude roster slot you are not; with the 2026-07-26
      roster an Opus 5 orchestrator has none, so opus-4.6 is the only one)
 
@@ -1253,7 +1514,7 @@ log/{artifact}_review{N}_consensus_{date}.md       # Consensus analysis
 ```
 
 LLM identifiers: `claude_cli_opus5`, `claude_cli_opus4.6`,
-`codex_gpt5.6-sol`, `codex_gpt5.5`, `cursor_composer2.5`, `cursor_gpt5.4`,
+`codex_gpt6-astra`, `cursor_composer2.5`, `cursor_gpt5.4`,
 `cursor_premium`. The delegated slot is reported as `claude_team_<model>`
 (e.g. `claude_team_claude-opus-5`), assembled at collect time — the roster's
 own labels stay CLI-neutral because either frontier entry can take either path.
@@ -1261,7 +1522,11 @@ own labels stay CLI-neutral because either frontier entry can take either path.
 `claude_cli_opus4.7`, `cursor_composer2`; retired 2026-07-23: `codex_gpt5.4`;
 retired 2026-07-25: `claude_cli_opus4.8`, `claude_team_fable5`;
 retired 2026-07-26: `claude_cli_fable5` — five consecutive non-substantive
-returns, 85-128 characters in 5-7 seconds, no findings and no verdict text)
+returns, 85-128 characters in 5-7 seconds, no findings and no verdict text;
+retired 2026-09-05: `codex_gpt5.6-sol`, replaced by `codex_gpt6-astra`, and
+`codex_gpt5.5`, not replaced. Runs recorded under a retired identifier keep it —
+the label names the model that answered, so renaming old records would attribute
+one model's findings to another)
 
 ## Internal Agent Team Review
 
@@ -1432,5 +1697,195 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   fence markers, character classes, digit ranges, word boundaries — and 18 of
   27 survived. Mutate the inside of a pattern, not only the pattern.
 
+- Revision discipline, new-P0 convergence signal, and no_verdict seat
+  diagnosis (v3.9.0, 2026-08-06): cross-thread analysis of 35 recorded runs
+  (8 threads, 2026-08-03 → 08-06) established that raw P0 growth tracks
+  additive revisions, not reviewer severity — every mechanism a revision
+  added became the next round's battleground, deletions drew zero new P0s
+  in every measured case, and both threads that converged did so within
+  1–2 rounds of switching to subtractive revisions (one under a Fable 5
+  reviser, one under the same Opus 5 orchestrator that had produced the
+  additive explosion). New § Revision Discipline encodes the subtractive
+  rule and the reviser-separation preference. § Convergence Rules gains the
+  carryover/new P0 split, with "new (a)+(b) P0 = 0" as the machine-side
+  freeze-candidate signal — neither thread ever reached its APPROVE ratio;
+  both closed by (a)+(b) exhaustion + operator freeze. § Substance and the
+  denominator gains the seat-environment diagnosis: `claude_cli_opus4.6`'s
+  four-round no_verdict streak was the sandboxed seat colliding with
+  implementation artifacts (pseudo-tool-calls, "repository not accessible"
+  preamble), not a dead reviewer — the same seat counted every round on
+  design artifacts in the same period. Analysis record: L2
+  `mlr_p0_inflation_analysis_and_opus46_no_verdict_diagnosis_20260806`
+
+- Reviewer incentive rule and the finding weight axis (v3.10.0, 2026-08-06):
+  § Prompt Generation Rules gains the Reviewer incentive rule — reviewer
+  prompts never mention finding counts, round numbers, or prior verdicts;
+  convergence is measured orchestrator-side from the record, and prior
+  findings are passed for closure verification only (rule #4 reworded
+  accordingly, from "review history table" to "prior findings to verify").
+  Motivating observation: an orchestrator told personas their counts were
+  compared across rounds, and 3 of the round's 7 P0s were factually correct
+  findings that cost nobody anything. In the same change the SkillSet
+  (0.10.0) adds the weight axis mechanically: the prompt contract requires a
+  `[consequence: who is harmed, and how]` clause on every P0, and
+  aggregation records a P0 without one at P2, keeping the stated severity
+  and the demotion reason beside it (`severity_stated` /
+  `severity_demoted: consequence_missing`). Presence is checked
+  mechanically; whether a stated consequence is real or trivial stays the
+  orchestrator's call, per the (a)/(b)/(c) discipline. Handoff record: L2
+  `handoff_mlr_finding_weight_axis_and_reviewer_incentive_20260806`
+
+- The Path A pre-flight checklist states the closing condition, not the ratio
+  (v3.10.1, 2026-08-17): the checklist line read "Convergence rule: 3/5 APPROVE
+  (full) or 3/4 APPROVE (after exclusion)" while § Convergence Rules, 200 lines
+  further down in a 1578-line file, states that the machine-side signal is
+  "new (a)+(b) P0 = 0" and the ratio is auxiliary. The checklist is what is read
+  before dispatch, so the ratio was the operative rule in practice regardless of
+  what the prose said. The line now leads with the closing condition and keeps
+  the two ratios beside it as reference values. No rule changed; the order in
+  which a reader meets them did. Operator observation, 2026-08-17: attention
+  failed to land on the P0 criterion round after round.
+
+- The round dashboard ships with this entry, and its gate states the closing
+  condition (v3.10.2, 2026-08-17): `scripts/render_dashboard.rb` reads a round
+  summary as JSON on stdin, fills `assets/review_dashboard.html`, and writes a
+  self-contained page — the worked example `resource_render` names in its own
+  description and default output derivation (`render_dashboard.rb` →
+  `dashboard.html`). Both files had existed only on one instance, so a fresh
+  install had a tool whose documented example pointed at absent files, and an
+  upgrade of this entry deleted them: the update decision hashes
+  `multi_llm_review_workflow.md` alone, and the apply step replaces the whole
+  entry directory, so anything under `assets/` or `scripts/` that the
+  distribution does not carry is removed without appearing in the report. The
+  input shape is assembled by hand and is not the review tool's payload:
+  `{artifact, rounds:[{round, reviewers:[{id, label, pool: blocking|advisory,
+  verdict, findings:[{class: a|b|c, text, severity}]}]}]}`. Findings may carry
+  `carryover: true`, meaning raised in an earlier round and still open; an
+  absent flag means new. The gate reports a **freeze candidate** when new
+  (a)+(b) is zero, and shows the vote tally as a reference value beside it. It
+  previously required every blocking-pool seat to APPROVE *and* the round's
+  whole (a)+(b) count to be zero, which is unreachable in the state both
+  2026-08 threads actually closed in — driven through the real renderer, a round
+  with zero new and one carryover (a) at 1 of 2 seats approving reports
+  "GATE NOT PASSED" under the old rule and "FREEZE CANDIDATE" under this one.
+
+- Three norms, subtractively (v3.11.0, 2026-08-22): the operator named three
+  recurring failures — an orchestrator issuing different criteria each round,
+  the APPROVE ratio operating as the close condition, and design reviews
+  descending into code — and asked for mutation experiments to be bounded. Four
+  rules were written and reviewed; one was withdrawn in the same version and two
+  of the survivors are narrower than they were drafted, so what ships is three
+  norms and one recorded open question. **§ Prompt Generation Rules** gains a
+  recording duty on the round's instrument — what a seat is told to look for,
+  how much of the artifact it is given, and which seats answer. It bounds
+  nothing: narrowing criteria, cutting scope and convening a different panel are
+  each a documented remedy for something. What it forbids is moving the
+  instrument and then reading the resulting change in counts as a property of
+  the artifact. It was drafted around criteria alone, which left scope and panel
+  composition — two channels that move the count just as well — outside it.
+  **§ Review Types** gains the phase rule as an invariant with no branches: a
+  review answers at the phase of its target and does not descend. Two enumerated
+  sentences were drafted with it and are not here. "An implementation-phase
+  finding that reopens the design belongs to the backlog" collided with this
+  document's own "any (a) or (b) REJECT or FAIL = revise and re-review" over
+  exactly the design-implementation seam it calls the most valuable layer, and
+  pre-answered the operator question § Revision Discipline rule 1 requires. "Fix
+  plan and Final/convergence reviews inherit the phase of the artifact they
+  check" gave those two reviews nothing to inherit, since no phase is assigned to
+  a fix plan anywhere. The output contract at `<structured_output_contract>`
+  drops "consider improving" without enumerating review types, because the
+  enumerated form left this document's own knowledge/documentation-update review
+  unassigned. **The mutation norm** is one sentence inside the phase rule and
+  assigns no party: a green suite is not evidence until its tests have been shown
+  to fail, and a pass whose sites the code's author chose measures the author's
+  attention, not the suite. It was drafted as a seventh item in Step -1 with the
+  duty "whoever chooses the sites is not whoever wrote the code", and no party in
+  this document can discharge that — before dispatch the only actor is the
+  orchestrator, which § Roles makes the same context as the implementer, and the
+  seats are sandboxed read-only and cannot execute anything. Stated as a property
+  of evidence rather than a duty on someone, it holds wherever a mutation result
+  is read. The bound the operator asked for is not here and the omission is open,
+  not settled: the recorded decision is to accumulate three runs and then judge.
+  **Withdrawn in this version**: a rule making each seat label its own findings
+  new or carryover. A seat sees only its own priors, so a finding one seat raises
+  after another raised it is new to that seat and carryover to the round, and a
+  seat added or returning mid-thread has no priors at all. § Convergence Rules
+  now records that who makes the label is undecided and that the orchestrator
+  makes it meanwhile, which is the biased judge the withdrawn rule was written to
+  replace. A fifth proposed rule, an exception for self-referential reviews, was
+  dropped before this version was written, after four reviewer contexts —
+  occupying two of that round's three counted seats — shot it on three
+  independent grounds. Design history: three review rounds on the proposal
+  (closed by operator declaration, not convergence), then one round on the
+  applied text, which returned one APPROVE of four seats and eighteen blocking
+  findings — every rule above is narrower for it. What kept being shot across all
+  four rounds was the change's account of itself, not the rules it proposed.
+  Records: L2 `handoff_mlr_l1_norms_revision_three_rounds_and_switch_to_implementation_20260821`
+  and L2 `mlr_v3_11_0_applied_review_r1_and_subtractive_revision_20260822`
+- Effort raised to high, and gpt-6-astra replaces gpt-5.6-sol (v3.13.0,
+  2026-09-05, operator instruction). Two changes with one config edit. **Effort**:
+  every seat that has an effort control now runs at high at every complexity
+  level, so `effort_map` is a constant rather than a function of complexity —
+  Claude CLI gets `--effort high`, codex gets `-c model_reasoning_effort=high`,
+  Cursor gets nothing because cursor_adapter builds no effort flag and a value
+  set for it would be recorded and never sent. `high` rather than `xhigh`/`max`
+  because it is the ceiling the two providers share, and a roster split across
+  incomparable settings is worth less than a lower common one. This supersedes
+  the 2026-04-29 default-effort policy, which rested on a single low-vs-high
+  measurement (8.35 vs 8.16) taken on the Opus 4.6 / 4.7 generation — none of
+  the models now in the roster. No counter-measurement was taken, so the
+  supersession is a judgement and a later measurement could reverse it. Cost is
+  measured and rises: gpt-6-astra spent 8,274 tokens at high against 3,150 at
+  its default on one identical one-line prompt. **Roster**: `codex_gpt6-astra`
+  replaces `codex_gpt5.6-sol`, verified before the swap through the flags
+  codex_adapter actually builds. **gpt-5.5 retired in the same edit**, not
+  replaced: it had been the calibrated cross-generation anchor, but it had been
+  commented out of the instance roster since 2026-07-30 "for round R10 only" and
+  never restored, so the anchor role had already lapsed for five weeks and the
+  retirement only names the state. Codex therefore holds ONE slot, and it is
+  uncalibrated — there is no longer a calibrated codex seat to read a new one
+  against. Roster 5 → 4, so `convergence_rule` moves 3/5 → 3/4 and
+  `convergence_rule_after_exclusion` 3/4 → 2/3, both on the same ceil(N × 0.6)
+  basis. Three calibration warnings follow and none is optional: the 138-run
+  seat profile in § Reviewer selection is gpt-5.6-sol's and does not transfer to
+  the new occupant; the whole of that corpus was gathered at medium effort, so
+  rounds from 2026-09-05 onward are not directly comparable to any of it; and
+  the corpus was gathered on a 5-seat roster, so per-round finding counts shift
+  for a third, independent reason. Record (a)/(b)/(c) breakdowns per round in
+  `multi_llm_reviewer_evaluation` until a profile for the new seat accumulates.
+  Recorded because it was got wrong in the session that made the change: the
+  new ratio was first reported to the operator as "3 of 4 seats must APPROVE",
+  as though it were a gate. It is not. § Convergence Rules has said since v3.5
+  that the ratio is neither the only nor the primary close, `Consensus.compute`
+  returns it under the name `reference_verdict`, and both 2026-08 threads closed
+  by (a)+(b) exhaustion without ever reaching it. Every ratio in this document
+  is a reference figure.
+
+- Step -1 rule 7 added, the per-round category check (v3.14.0, 2026-09-21,
+  operator instruction). The rule the loop below needed already existed as an
+  observation — `multi_llm_reviewer_evaluation` § Bug Category Differentiation
+  and this document's § Convergence Curve both describe the progression — but
+  neither was a step anyone was told to perform each round, so eight rounds ran
+  without it. GenomicsChain service (2.5) provenance anchoring: R1–R4 exhausted
+  the design-category findings (record contract, verifier readability, proof
+  TTL, packaging); R5–R8 then spent four rounds on one implementation-category
+  class, produced +102 design lines against +271 code and +397 test lines, and
+  grew the artifact 56 KB → 180 KB while rule 2 was being broken. The
+  orchestrator's own trend table showed healthy narrowing the whole time, which
+  is the point: severity narrowed while the category had already changed.
+  The loop closed on the operator's observation, not on any recorded signal.
+  Also recorded, because the same loop dropped them: the ≤5 fixes-per-round cap
+  (rule 3) went to 7/6/6/6, the pre-flight falsifier (rule 4) was skipped for
+  three consecutive rounds, per-round
+  `reviewer_evaluation_observation_<reviewer>_<date>` records (§ L2 Save Points)
+  were never written, and no seat was asked for a closure verdict on its own
+  prior-round P0s (§ Convergence Rules). A loop that drops five of this
+  document's rules at once is not a loop that ran out of rules to follow.
+  Records: L2 `decision_design_frozen_prov_anchoring_20260921`,
+  `review_r5_prov_anchoring_v0_1_5_20260921` .. `review_r8_prov_anchoring_v0_1_9_20260921`,
+  report `docs/reports/prov_anchoring_mlr_status_20260921/report.html` (GenomicsChain_SkillSets)
+
 **Key insight**: Design reviews and implementation reviews find
-**categorically different bugs**. Both phases are necessary.
+**categorically different bugs**. Both phases are necessary. The corollary that
+cost eight rounds to learn: **which of the two you are in is readable from the
+findings' category, and has to be read every round** (§ Step -1 rule 7).
