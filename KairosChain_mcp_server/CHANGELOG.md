@@ -4,6 +4,58 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.87.0] - 2026-09-24
+
+### Added — `model_provenance` SkillSet: which model actually answered
+
+Claude Code re-runs a request on another model when a safety classifier flags it
+(from Opus 5.5 and the Fable models: biology → Opus 5, cyber → Opus 4.8) and the
+session then stays on that model. The operator is told once in the main session and
+not at all for subagents, and the model that took over reads the same system prompt
+naming the model it replaced, so its account of itself cannot be trusted. Observed
+on 2026-09-24: an audit subagent answered 90 of 102 records on `claude-opus-5`, with
+nothing in its output saying so.
+
+`model_provenance` is hooks only (no MCP tools, no core change). It derives the
+answering model from what the harness recorded — per-response `message.model` and
+the transcript's `fallback` marker — never from what a model says:
+
+- **PostModelSwitch** records every model change; on `source: "auto"` it tells the
+  model which model it now is.
+- **SubagentStop** records the subagent's latest run. A run starts only at a message
+  from the coordinator or a peer; Skill bodies (`turnCompanion` records) and the
+  agent's own task notifications are not resumes.
+- **Stop** reads every finished response not yet reported — main transcript and every
+  subagent transcript, recursively — and shows one `[model_provenance] …` line per
+  affected transcript, including transcripts it could not read and subagents still
+  running. All observer state commits in one rename after the report is composed.
+
+The transcript reader lives in `hooks/`; `lib/` exposes only the append-only
+observation store. The projected command guards itself when neither
+`KAIROS_DATA_DIR` nor `CLAUDE_PROJECT_DIR` is set (silent under Codex, a visible
+non-blocking error elsewhere). Install: `kairos-chain skillset install
+<gem>/templates/skillsets/model_provenance`, then re-project. Design:
+`docs/model_provenance/`.
+
+### Changed — `multi_llm_review` 0.11.0: persona seats can record the observed model
+
+`orchestrator_reviews[]` entries take an optional `agent_id` (the id the Agent tool
+returned for that persona's subagent). When any persona carries one, collect
+resolves it through `model_provenance`'s store and the seat records
+`model_source`, `model_observed`, `model_divergence` and `binding:
+caller_declared`, with each persona's observation in its `persona_rows` entry. A
+persona is divergent when any observed response came from a model other than the
+declared persona model; the seat is observed only when every persona's observation
+is complete. Without any `agent_id` the record is exactly as before.
+
+### Changed — review roster: Opus 5 → Opus 5.5, Fable 5 → Fable 5.1
+
+The rotating frontier slot is `claude-opus-5-5` (label `claude_cli_opus5.5`) and
+the reserve slot `claude-fable-5-1`. Opus 5.5 is the one model that runs at medium
+when effort is omitted, so the explicit `high` in `effort_map` is what keeps it at
+high. L1 `multi_llm_review_workflow` 3.14.0 → 3.15.0: prescriptive text only;
+measurements and history that name Opus 5 or Fable 5 stay as written.
+
 ## [3.86.0] - 2026-09-21
 
 ### Changed — multi-LLM review: a per-round check for which review you are in
