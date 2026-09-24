@@ -4,7 +4,7 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [3.87.1] - 2026-09-24
 
 ### Changed — shipped subagents name their model and effort in full
 
