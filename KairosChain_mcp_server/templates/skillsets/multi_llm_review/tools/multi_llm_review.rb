@@ -148,8 +148,8 @@ module KairosMcp
                 persona_model: {
                   type: %w[string null],
                   description: 'Model the caller will actually run its persona team on, ' \
-                    'when that differs from the caller itself (e.g. a Fable 5 session ' \
-                    'spawning Opus 5 personas). The roster slot matching this model is ' \
+                    'when that differs from the caller itself (e.g. a Fable 5.1 session ' \
+                    'spawning Opus 5.5 personas). The roster slot matching this model is ' \
                     'occupied by the persona result instead of being dispatched. ' \
                     'Omit when the persona runs on the calling model — the ' \
                     'orchestrator_model declaration then stands in this position. ' \
@@ -189,7 +189,7 @@ module KairosMcp
                 orchestrator_model: {
                   type: %w[string null],
                   description: 'Self-referential model identifier of the calling orchestrator ' \
-                    '(e.g., "claude-opus-5"). Pass the bare ID — strip any context ' \
+                    '(e.g., "claude-opus-5-5"). Pass the bare ID — strip any context ' \
                     'suffix such as "[1m]", which the roster comparison rejects. ' \
                     'Used by exclude/delegate strategies to ' \
                     'identify the roster entry corresponding to the caller. Claude Code ' \

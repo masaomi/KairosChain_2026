@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'verdict_vocabulary'
+require_relative 'provenance_binding'
 
 module KairosMcp
   module SkillSets
@@ -55,7 +56,11 @@ module KairosMcp
         # @param orchestrator_reviews [Array<Hash>] each: {persona, verdict, findings, reasoning}
         # @param orchestrator_model [String]
         # @return [Hash] reviewer entry with :status, :verdict, :raw_text, :role_label, :provider, :model
-        def assemble(orchestrator_reviews, orchestrator_model)
+        # `observations` (model_provenance design v0.3 INV-7): one per review,
+        # from ProvenanceBinding.resolve, or nil when the caller bound no
+        # persona — in which case the entry is exactly what it was before
+        # bindings existed.
+        def assemble(orchestrator_reviews, orchestrator_model, observations: nil)
           validate_orchestrator_model!(orchestrator_model)
           validate!(orchestrator_reviews)
 
@@ -93,7 +98,7 @@ module KairosMcp
 
           raw_text = build_raw_text(orchestrator_reviews, combined)
 
-          {
+          entry = {
             role_label: role_label_for(orchestrator_model),
             provider: 'claude_code',
             model: orchestrator_model,
@@ -139,6 +144,22 @@ module KairosMcp
             error: nil,
             status: :success
           }
+          apply_observations(entry, orchestrator_reviews, orchestrator_model, observations)
+        end
+
+        # INV-7. The binding is the caller's declaration, so the row says so;
+        # the models come from the harness-side record. `synthetic` stays true:
+        # the seat is still assembled here from submitted rows, and an
+        # observation of who answered does not make it a dispatched observer.
+        def apply_observations(entry, reviews, declared, observations)
+          return entry unless observations.is_a?(Array) && observations.size == reviews.size
+
+          states = observations.map { |o| ProvenanceBinding.persona_state(o, declared) }
+          seat = ProvenanceBinding.seat_state(states)
+          entry[:persona_rows] = entry[:persona_rows].each_with_index.map do |row, i|
+            row.merge('model_observation' => ProvenanceBinding.row_view(states[i]))
+          end
+          entry.merge(seat).merge(binding: 'caller_declared')
         end
 
         def persona_says_something?(review)

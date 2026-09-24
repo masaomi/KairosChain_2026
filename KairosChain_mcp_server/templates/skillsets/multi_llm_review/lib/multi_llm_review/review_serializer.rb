@@ -90,6 +90,8 @@ module KairosMcp
             # accepted persona body (name + stated verdict).
             'verdict_derivation' => review[:verdict_derivation],
             'persona_rows' => review[:persona_rows],
+            # model_provenance INV-7: present only when the caller bound personas.
+            'binding' => review[:binding],
             # INV-E4: why the denominator moved belongs beside the row, not
             # only in the composition. Carried, never defaulted — the reason is
             # decided where the SKIP is decided, and a default here states a

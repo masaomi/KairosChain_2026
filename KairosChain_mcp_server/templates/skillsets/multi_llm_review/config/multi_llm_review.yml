@@ -13,7 +13,7 @@
 # 2026-08 review threads closed that way without ever reaching their ratio. See
 # L1 multi_llm_review_workflow § Convergence Rules.
 #
-# Roster has 4 reviewers (claude_cli_opus5, claude_cli_opus4.6,
+# Roster has 4 reviewers (claude_cli_opus5.5, claude_cli_opus4.6,
 # codex_gpt6-astra, cursor_composer2.5).
 # Rules are ratio-based (parser interprets "N/M" as N/M fraction applied
 # to successful count), so the literal numerator/denominator is
@@ -22,7 +22,7 @@ convergence_rule: "3/4 APPROVE"  # ceil(4 * 0.6) = 3 of the 4-reviewer roster
 min_quorum: 2                    # minimum successful reviews for any verdict
 
 # Self-referential orchestrator exclusion.
-# When the caller passes orchestrator_model (e.g. "claude-opus-5"), any
+# When the caller passes orchestrator_model (e.g. "claude-opus-5-5"), any
 # roster entry with that exact model is dropped before dispatch — the
 # orchestrator should not review its own output.
 # Under the "exclude" strategy, when at least one entry is excluded,
@@ -117,6 +117,9 @@ max_concurrent: 2                 # semaphore limit (2 for laptop, 4 for CI)
 # recording an effort the run never used.
 reviewers:
   # Rotating orchestrator slots (Opus 5 / Fable 5, 2026-07-25).
+  # 2026-09-24, operator instruction: the Opus slot moves from Opus 5 to
+  # Opus 5.5, which is now Claude Code's default orchestrator. Nothing else
+  # about the slot changes — 5.5 takes the seat Opus 5 held, on the same path.
   # Both frontier Claude models sit in the roster. Whichever one is the
   # session orchestrator matches orchestrator_model and, under the default
   # "delegate" strategy, is replaced by that orchestrator's own persona
@@ -127,18 +130,19 @@ reviewers:
   # either path; the delegated slot is relabelled claude_team_<model> by
   # PersonaAssembly at collect time.
   - provider: claude_code
-    model: claude-opus-5
+    model: claude-opus-5-5
     effort: high
-    role_label: claude_cli_opus5
+    role_label: claude_cli_opus5.5
 
   # Fable 5 retired from the roster 2026-07-26 after five consecutive
   # non-substantive returns (85-128 characters in 5-7 seconds, each an
   # opening sentence with no findings and no verdict text). The slot was
   # not producing a review, so it lowered the achievable numerator without
   # contributing signal. To restore, re-add an entry with model
-  # claude-fable-5 and widen convergence_rule back to a 6-reviewer basis.
+  # claude-fable-5-1 (Fable 5's successor; Fable 5 itself is not the one to
+  # bring back) and widen convergence_rule back to a 6-reviewer basis.
   # Consequence of the removal: the Claude CLI side is opus4.6 only when the
-  # orchestrator is opus5, since the orchestrator's own slot is delegated to
+  # orchestrator is opus5.5, since the orchestrator's own slot is delegated to
   # the persona team rather than spawned as a subprocess.
 
   # Opus 4.6 stays for its documented complementary bias
@@ -154,9 +158,10 @@ reviewers:
   # systematizing register passes to the direct successor). To restore,
   # re-add an entry with model claude-opus-4-8 and widen the convergence
   # rules to 4/7 (3/5 -> 4/6 after exclusion).
-  # Opus 5's reviewer bias profile is not yet calibrated — record
+  # Opus 5.5's reviewer bias profile is not yet calibrated — record
   # (a)/(b)/(c) breakdowns per round (see multi_llm_reviewer_evaluation)
-  # until a profile accumulates.
+  # until a profile accumulates. The persona-seat figures recorded before
+  # 2026-09-24 were produced by Opus 5 and are its history, not a 5.5 profile.
 
   # GPT-6-astra added 2026-09-05 at the operator's instruction, replacing
   # gpt-5.6-sol (which had held this slot since 2026-07-23, itself replacing
@@ -235,7 +240,8 @@ reviewers:
 # The container is provider-neutral on purpose. Its first intended occupant
 # (Fable 5) depends on a subscription that may end, and the point of writing
 # it as a container rather than as a place for one model is that the design
-# survives that. To retire the container, delete these lines; a caller that
+# survives that. The occupant moved from Fable 5 to Fable 5.1 on 2026-09-24
+# (operator instruction: keep the reserve on the current Fable). To retire the container, delete these lines; a caller that
 # still passes escalate: true then simply gets the roster.
 #
 # Adding an observer raises the required agreement, because the convergence
@@ -249,12 +255,13 @@ reviewers:
 # comment claimed the substance rule handled it; that was false, and it was
 # false in the direction that invites restoring the occupant. Whether the slot
 # contributes anything remains unproven — try one round and read the output
-# before relying on it.
+# before relying on it. Fable 5.1 has not yet run in this slot, so that
+# applies to it in full.
 escalation_reviewers:
   - provider: claude_code
-    model: claude-fable-5
+    model: claude-fable-5-1
     effort: high
-    role_label: claude_cli_fable5
+    role_label: claude_cli_fable5.1
 
 # INV-E2 (substance) has no setting here on purpose. A reply counts as a review
 # when anything remains once its verdict is removed, and that is the whole rule.
@@ -282,6 +289,13 @@ escalation_reviewers:
 # operator's judgement rather than on a counter-measurement. Cost rises:
 # gpt-6-astra spent 8,274 tokens at high vs 3,150 at its default on the same
 # one-line prompt (measured 2026-09-05).
+#
+# Opus 5.5 note (2026-09-24): Opus 5.5 is the one model that runs at medium
+# when effort is omitted (every other model defaults to high), so the explicit
+# high here is what keeps the 5.5 slot at high. Level names do not mean the
+# same amount of thinking across models — Anthropic reports 5.5 at medium
+# matching Opus 5 at high — so "every seat at high" is equal settings, not
+# equal thinking.
 #
 # `cursor` deliberately has no key at any level. cursor_adapter builds no effort
 # flag, so a value here would be recorded and never sent.

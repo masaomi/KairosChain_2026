@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.14.0"
+version: "3.15.0"
 tags:
   - workflow
   - review
@@ -497,9 +497,9 @@ they disagree, the config is right and this section is stale.
 - [ ] Agent Team Personas model: = orchestrator model (NOT a different model),
       unless you are running personas on a different model on purpose — then
       it is whatever you declare as persona_model (see § Persona execution model)
-- [ ] Subprocess CLI model: Opus 4.6. The other Claude roster slot is Opus 5,
+- [ ] Subprocess CLI model: Opus 4.6. The other Claude roster slot is Opus 5.5,
       which under the default "delegate" strategy is taken by your persona team
-      rather than spawned — so when you are Opus 5, Opus 4.6 is the only Claude
+      rather than spawned — so when you are Opus 5.5, Opus 4.6 is the only Claude
       CLI subprocess
 - [ ] Codex model: gpt-6-astra, with -m. One codex slot since gpt-5.5 was
       retired 2026-09-05 — do not add a second codex entry expecting the old
@@ -854,16 +854,17 @@ outside this repository — see the incident recorded in § Pre-flight checklist
 | **Cursor Agent** | `agent -p --model composer-2.5` | File reference (stdin NOT supported) | stdout redirect: `> output.md` | composer-2.5, passed explicitly — never relying on the CLI default |
 | **Claude Code** | Agent tool (internal) | Direct prompt string | Write to workspace file | Orchestrator model, or the declared `persona_model` when personas run elsewhere |
 | **Claude CLI (4.6)** | `claude -p --model claude-opus-4-6` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-4-6` | stdout redirect: `> output.md` | Opus 4.6 — the calibrated anchor, deliberately not a frontier model |
-| **Claude CLI (frontier)** | `claude -p --model claude-opus-5` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-5` | stdout redirect: `> output.md` | Runs only when Opus 5 is *not* the orchestrator; when it is, that slot is taken by the persona team |
+| **Claude CLI (frontier)** | `claude -p --model claude-opus-5-5` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-5-5` | stdout redirect: `> output.md` | Runs only when Opus 5.5 is *not* the orchestrator; when it is, that slot is taken by the persona team |
 
 `--bare` must NOT be passed (established 2026-07-23): it skips credential
 loading and the subprocess fails with "Not logged in". The project-instruction
 bias it was meant to suppress is handled by `review_context: independent`
 instead.
 
-Fable 5 appears in no row above. It was retired from the roster on 2026-07-26
-after five consecutive non-substantive returns, and now sits in the reserve
-container — see § Reserve observers (escalation).
+Fable appears in no row above. Fable 5 was retired from the roster on 2026-07-26
+after five consecutive non-substantive returns; the reserve container now holds
+its successor, Fable 5.1 (since 2026-09-24) — see § Reserve observers
+(escalation).
 
 ### Thinking Effort Configuration (validated 2026-04-20)
 
@@ -871,11 +872,11 @@ Based on cross-evaluation experiment (7 models × 4 tasks + Nomic, 518 CLI calls
 
 | Role | Model | Effort Flag | Rationale |
 |------|-------|-------------|-----------|
-| **Primary (orchestrator)** | session default | (default) | Sufficient for integration, dialogue, judgment |
-| **Reviewer: Agent Team** | = orchestrator, or the declared `persona_model` | (default) | Personas inherit whichever model actually runs them |
+| **Primary (orchestrator)** | session default | Claude Code's own setting | Not set by this config — record the level actually in effect (see the 2026-09-24 note) |
+| **Reviewer: Agent Team** | = orchestrator, or the declared `persona_model` | the session's level, unless the persona's agent file sets `effort:` | Personas inherit whichever model — and effort — actually runs them |
 | **Reviewer: Claude CLI** | Opus 4.6, plus any frontier roster slot the orchestrator is not | `--effort high` (config `effort: high`) | Operator instruction 2026-09-05; supersedes the 2026-04-29 default-effort policy — see the note below the table |
-| **Coding sub-agent** | Opus 5 | `--effort xhigh` | Published starting point for coding/agentic work; not measured here (see note) |
-| **Design sub-agent** | Opus 5 | `--effort high` | Published starting point for intelligence-sensitive work; not measured here (see note) |
+| **Coding sub-agent** | Opus 5.5 | `--effort high` | Operator default for KairosChain (2026-09-24); not measured here (see note) |
+| **Design sub-agent** | Opus 5.5 | `--effort high` | Operator default for KairosChain (2026-09-24); not measured here (see note) |
 | **Codex** | GPT-6-astra / GPT-5.5 | `-c model_reasoning_effort=high` | Same operator instruction. The earlier "(no flag) / fixed effort" entry was wrong: codex_adapter has always emitted this flag when the roster set `effort` |
 | **Cursor Agent** | Composer-2.5 | (no flag) | Genuinely has no effort control — cursor_adapter builds no such flag, so an `effort:` key on a cursor roster entry is recorded and never sent |
 
@@ -906,6 +907,20 @@ a starting point to sweep down from, not a validated setting. Separately, the
 **sub-author** role for self-referential passages stays Opus 4.6: it is chosen
 for its ambiguity-preserving bias, not for capability, so a frontier successor
 does not replace it.
+
+Note (2026-09-24): the frontier rows moved from Opus 5 to Opus 5.5 (operator
+instruction — 5.5 is now Claude Code's default orchestrator and takes over
+every seat Opus 5 held), and both sub-agent rows are set to `high`, the
+operator's default effort for KairosChain. Two facts about 5.5 matter when
+reading any effort in this document. It is the one model that runs at
+**medium** when effort is omitted (every other model defaults to high), so
+every seat that should run at high has to say so. And level names do not mean
+the same amount of thinking across models — Anthropic reports 5.5 at medium
+matching Opus 5 at high — so equal settings across seats are not equal
+thinking. The orchestrator and a persona team run at the Claude Code session's
+level (the Agent tool has no effort parameter; an agent file's `effort:` line
+overrides it), so a session at xhigh puts the persona seat at xhigh while the
+CLI seats run at high. Record both levels in the round.
 
 Key findings:
 - **Opus 4.6** high effort improves Evaluator/Strategy (+0.43/+0.200 Nomic), not Response
@@ -944,11 +959,11 @@ record no longer claims a model that did not answer.
 **Rule**: When invoking `multi_llm_review` (or running this workflow manually), the
 orchestrating LLM MUST pass its own model identifier as `orchestrator_model`.
 
-**Rationale**: The reviewer roster contains more than one Claude entry (Opus 5
-and Opus 4.6 as of 2026-07-26). A frontier slot sits in the roster on purpose:
+**Rationale**: The reviewer roster contains more than one Claude entry (Opus 5.5
+and Opus 4.6 as of 2026-09-24; Opus 5 held the frontier entry from 2026-07-26). A frontier slot sits in the roster on purpose:
 when it is the current session model it matches `orchestrator_model` and becomes
 the persona-team slot; when it is not, it is dispatched as a `claude -p`
-subprocess. With the current two-entry Claude side, an Opus 5 orchestrator leaves
+subprocess. With the current two-entry Claude side, an Opus 5.5 orchestrator leaves
 Opus 4.6 as the only Claude CLI subprocess. No per-orchestrator config branch is
 needed either way.
 To avoid the orchestrator reviewing its
@@ -960,7 +975,7 @@ composition adapts automatically.
 
 **Why "argument-passing" not "file-introspection"**:
 - The orchestrator's model identity lives in *its own context* (system prompt
-  declares e.g. "You are powered by Fable 5"). No external file or env var is
+  declares e.g. "You are powered by Fable 5.1"). No external file or env var is
   authoritative — `/model` switches change context immediately.
 - MCP protocol does not transmit caller-model info; only the orchestrator can
   truthfully report its own identity. This is genuine self-reference: the system
@@ -972,8 +987,8 @@ composition adapts automatically.
 **How orchestrator obtains its model ID**:
 - Claude Code sessions: read the system prompt line "You are powered by the
   model named ... The exact model ID is ...". Use the exact ID as stated,
-  whatever its form (e.g. `claude-opus-5`, `claude-fable-5`). Strip any context
-  suffix — `claude-opus-5[1m]` is passed as `claude-opus-5`, since the roster
+  whatever its form (e.g. `claude-opus-5-5`, `claude-fable-5-1`). Strip any context
+  suffix — `claude-opus-5-5[1m]` is passed as `claude-opus-5-5`, since the roster
   matches on the bare model ID.
 - Other hosts: use whatever introspection the host provides; if none, pass
   `null` and accept that no exclusion happens.
@@ -983,7 +998,7 @@ composition adapts automatically.
 multi_llm_review(
   artifact_path: "log/design.md",
   review_type: "design",
-  orchestrator_model: "claude-opus-5"    # MUST be set by caller; bare ID, no [1m] suffix
+  orchestrator_model: "claude-opus-5-5"  # MUST be set by caller; bare ID, no [1m] suffix
 )
 ```
 
@@ -1002,7 +1017,7 @@ multi_llm_review(
   model: the first is taken over by the persona team, the second leaves as the
   caller's own, and any beyond that run — as fresh external processes on that
   model, which is what the "subprocess" strategy buys deliberately. On the
-  current roster (one Opus 5 entry) the question does not arise. Settled
+  current roster (one Opus 5.5 entry) the question does not arise. Settled
   2026-07-27: the invariant fixes a count for the persona clause and states none
   for this one, and the shipped behaviour follows the text rather than widening
   it. A caller who wants a same-model slot to run anyway asks for it with
@@ -1045,6 +1060,18 @@ cross-model subprocess reviewers give epistemic diversity. The two are complemen
   performance/api-design; doc → ontologist/skeptic/integration)
 - Collect persona results: each as `{persona, verdict (APPROVE|REVISE|REJECT),
   reasoning, findings: [{severity, issue}, ...]}`
+- Bind each persona to its subagent: add `agent_id` — the id the Agent tool
+  returned for that persona's subagent — to its entry. With the model_provenance
+  SkillSet installed, the seat then records the model the harness observed
+  answering, not only the declared one: a safety-classifier fallback inside a
+  persona (Opus 5.5 → Opus 5 on biology, → Opus 4.8 on cyber) otherwise leaves
+  one model's findings recorded under another's name. The binding is your
+  declaration and is recorded as such; a persona without one, or whose id
+  resolves to no record, is recorded as unobserved with its cause.
+- Call collect after the personas' task-notifications, not on their
+  hand-backs: the hand-back reaches you 1.2–13.6 s before the subagent's final
+  record (10 of 10 observed, 2026-09-24), and a persona collected before its
+  record exists is recorded as unobserved.
 
 **Call 2**: `multi_llm_review_collect(collect_token, orchestrator_reviews: [...])`
 - Persona Assembly: any REJECT → REJECT; else any REVISE → REVISE; else APPROVE
@@ -1079,8 +1106,8 @@ the caller.
 
 ```
 multi_llm_review(
-  orchestrator_model: "claude-fable-5",   # who is calling
-  persona_model:      "claude-opus-5",    # who the personas actually run on
+  orchestrator_model: "claude-fable-5-1", # who is calling
+  persona_model:      "claude-opus-5-5",  # who the personas actually run on
   ...
 )
 ```
@@ -1123,8 +1150,9 @@ Points worth knowing before using it:
 - Reserve entries obey INV-E5 exactly like roster entries: they name their
   provider and model, and inherit no CLI default.
 
-As of 2026-07-26 the container holds Fable 5, which was retired from the roster
-after five consecutive non-substantive returns.
+As of 2026-09-24 the container holds Fable 5.1. Its predecessor Fable 5 held it
+from 2026-07-26, after being retired from the roster for five consecutive
+non-substantive returns; Fable 5.1 has not yet run in this slot.
 
 ### Substance and the denominator
 
@@ -1321,7 +1349,7 @@ readable until GC. Read them directly and synthesize manually, then re-run
   before, silently swapping the model behind an unchanged role label
 - **Codex workspace**: `-C /path/to/workspace` to set working directory
 - **Claude Agent paths**: Write within workspace (e.g., `log/`), not `/tmp`
-- **Claude CLI (Opus 4.6 / any non-orchestrator frontier slot)**: `claude -p --model claude-opus-4-6` (likewise `claude-opus-5`) runs as external process. Uses stdin pipe (like Codex). Do NOT pass `--bare` — it skips credential loading and the subprocess dies with "Not logged in" (established 2026-07-23). Project-instruction bias is suppressed via `review_context: independent`, not via `--bare`
+- **Claude CLI (Opus 4.6 / any non-orchestrator frontier slot)**: `claude -p --model claude-opus-4-6` (likewise `claude-opus-5-5`) runs as external process. Uses stdin pipe (like Codex). Do NOT pass `--bare` — it skips credential loading and the subprocess dies with "Not logged in" (established 2026-07-23). Project-instruction bias is suppressed via `review_context: independent`, not via `--bare`
 - **Claude CLI parallelism**: Agent tool (internal, orchestrator model) + Bash `claude -p` (external, Opus 4.6 and any other Claude roster slot the orchestrator is not) run truly in parallel as separate processes
 - **Claude CLI file access**: a plain `claude -p` review subprocess should not need file access. Ensure the review prompt includes all artifact content inline (rule #6). Use `--add-dir` + `--allowedTools "Read,Glob,Grep"` if file access is genuinely needed, and accept that CLAUDE.md is loaded (the old `--bare` workaround is unusable — see above)
 
@@ -1473,10 +1501,10 @@ Step 3: Execute the configured roster in parallel (currently 4 slots, one of
   - Bash(background): cat prompt.md | codex exec -m gpt-6-astra -c model_reasoning_effort=high -C workspace -o log/review_codex_gpt6-astra.md -
   - Bash(background): agent -p --trust --model composer-2.5 "Read prompt and review..." > log/review_cursor.md
     (no effort flag — Cursor has no effort control)
-  - Agent(background): Claude Team (orchestrator model, e.g. Opus 5) → write to log/review_claude_team_opus5.md
+  - Agent(background): Claude Team (orchestrator model, e.g. Opus 5.5) → write to log/review_claude_team_opus5.5.md
   - Bash(background): cat prompt.md | claude -p --model claude-opus-4-6 --effort high > log/review_claude_opus4.6.md 2>log/review_claude_opus4.6.stderr.log
-    (add a line per further Claude roster slot you are not; with the 2026-07-26
-     roster an Opus 5 orchestrator has none, so opus-4.6 is the only one)
+    (add a line per further Claude roster slot you are not; with the 2026-09-24
+     roster an Opus 5.5 orchestrator has none, so opus-4.6 is the only one)
 
 Step 4: Collect and validate
   - Wait for all to complete (background task notifications)
@@ -1513,10 +1541,10 @@ log/{artifact}_review{N}_{llm_id}_{date}.md       # Individual reviews
 log/{artifact}_review{N}_consensus_{date}.md       # Consensus analysis
 ```
 
-LLM identifiers: `claude_cli_opus5`, `claude_cli_opus4.6`,
+LLM identifiers: `claude_cli_opus5.5`, `claude_cli_opus4.6`,
 `codex_gpt6-astra`, `cursor_composer2.5`, `cursor_gpt5.4`,
 `cursor_premium`. The delegated slot is reported as `claude_team_<model>`
-(e.g. `claude_team_claude-opus-5`), assembled at collect time — the roster's
+(e.g. `claude_team_claude-opus-5-5`), assembled at collect time — the roster's
 own labels stay CLI-neutral because either frontier entry can take either path.
 (legacy, pre-2026-06-10: `claude_opus4.6`, `claude_team_opus4.6`, `claude_team_opus4.7`,
 `claude_cli_opus4.7`, `cursor_composer2`; retired 2026-07-23: `codex_gpt5.4`;
@@ -1524,7 +1552,8 @@ retired 2026-07-25: `claude_cli_opus4.8`, `claude_team_fable5`;
 retired 2026-07-26: `claude_cli_fable5` — five consecutive non-substantive
 returns, 85-128 characters in 5-7 seconds, no findings and no verdict text;
 retired 2026-09-05: `codex_gpt5.6-sol`, replaced by `codex_gpt6-astra`, and
-`codex_gpt5.5`, not replaced. Runs recorded under a retired identifier keep it —
+`codex_gpt5.5`, not replaced; retired 2026-09-24: `claude_cli_opus5`, succeeded in
+the same slot by `claude_cli_opus5.5`. Runs recorded under a retired identifier keep it —
 the label names the model that answered, so renaming old records would attribute
 one model's findings to another)
 
@@ -1884,6 +1913,40 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   Records: L2 `decision_design_frozen_prov_anchoring_20260921`,
   `review_r5_prov_anchoring_v0_1_5_20260921` .. `review_r8_prov_anchoring_v0_1_9_20260921`,
   report `docs/reports/prov_anchoring_mlr_status_20260921/report.html` (GenomicsChain_SkillSets)
+
+- Persona seats can record the observed model (v3.15.0, 2026-09-24, operator
+  instruction). `orchestrator_reviews[]` entries take an optional `agent_id`;
+  when any is supplied, collect resolves each through the model_provenance
+  SkillSet's observation store and the seat carries `model_source`,
+  `model_observed`, `model_divergence` and `binding: caller_declared`, with
+  each persona's observation in its `persona_rows` entry. A persona is
+  divergent when any observed response came from a model other than the
+  declared persona model; the seat takes the most severe state (divergent >
+  unobserved > matching) and is observed only when every persona's observation
+  is complete. Without any `agent_id` the record is exactly as before. Why:
+  Claude Code re-runs a flagged request on a fallback model and stays there,
+  silently for subagents — observed twice on 2026-09-24 (62 and 208 responses,
+  56 and 148 of them on Opus 5 after the switch). Design:
+  `docs/model_provenance/design_v0.3.md`.
+
+- Opus 5 → Opus 5.5 and Fable 5 → Fable 5.1 (v3.14.1, 2026-09-24, operator
+  instruction). Opus 5.5 is now Claude Code's default orchestrator, so it takes
+  over every seat Opus 5 held and nothing else about the roster changes: still
+  4 seats (Opus 5.5 as orchestrator and persona team, Opus 4.6 CLI, codex
+  gpt-6-astra, cursor composer-2.5), still `high` on every seat with an effort
+  control. The frontier slot's label becomes `claude_cli_opus5.5`; the reserve
+  container's occupant becomes Fable 5.1 (`claude_cli_fable5.1`). Only text
+  that prescribes current behaviour was changed. Measurements, seat profiles and
+  history that name Opus 5 or Fable 5 stay as written, because they are facts
+  about those models — in particular the `claude_team_opus-5` persona row in
+  § Step 0.1 is Opus 5's record, not a profile for 5.5. Why the
+  config's orchestrator slot had to move and not merely be documented: the slot
+  is matched to `orchestrator_model` by exact string, so a 5.5 orchestrator
+  against a `claude-opus-5` slot took over nothing — its persona team joined as
+  a fifth observer and the Opus 5 slot still ran as a CLI subprocess (found in
+  the 2026-09-24 Opus 5.5 guidance audit). Effort: see the 2026-09-24 note under
+  § Thinking Effort Configuration, including that the persona seat follows the
+  session's level while CLI seats follow the config.
 
 **Key insight**: Design reviews and implementation reviews find
 **categorically different bugs**. Both phases are necessary. The corollary that

@@ -1,0 +1,58 @@
+{
+  "_comment": [
+    "model_provenance: observe which model actually answered (design v0.3, docs/model_provenance/).",
+    "",
+    "Three events, one script. None of them can block: the script never exits 2, never returns",
+    "decision/continue fields, and never returns additionalContext on Stop or SubagentStop. On",
+    "failure it prints nothing to stdout, writes the cause to stderr and exits 1, which Claude Code",
+    "shows as a non-blocking hook error.",
+    "",
+    "Invoked as `ruby <data dir>/...` like project_manager's SessionStart hook, so projection prints",
+    "one non-standard-command warning per event (three). A kairos-* bin in the gem would silence",
+    "them but is a core change; rejected for v0.1 in the design.",
+    "",
+    "timeout 20: the script bounds its own work at 8 s and a flush wait at 1.5 s.",
+    "",
+    "The command guards itself before ruby runs: with neither KAIROS_DATA_DIR nor",
+    "CLAUDE_PROJECT_DIR set the script path would resolve to /.kairos and ruby would",
+    "fail before the script's own host check. Under Codex (a variable whose NAME starts",
+    "with CODEX; checked by ruby, the same test the script uses, so a CODEX line inside",
+    "another variable's value cannot pass for one) it exits 0 silently; anywhere else",
+    "it says why and exits 1, non-blocking."
+  ],
+  "hooks": {
+    "PostModelSwitch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"${KAIROS_DATA_DIR}${CLAUDE_PROJECT_DIR}\" ] || { ruby -e 'exit(ENV.keys.any? { |k| k.start_with?(\"CODEX\") } ? 0 : 1)' && exit 0; echo 'model_provenance: neither KAIROS_DATA_DIR nor CLAUDE_PROJECT_DIR is set; not observing' >&2; exit 1; }; ruby \"${KAIROS_DATA_DIR:-$CLAUDE_PROJECT_DIR/.kairos}/skillsets/model_provenance/hooks/observer.rb\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"${KAIROS_DATA_DIR}${CLAUDE_PROJECT_DIR}\" ] || { ruby -e 'exit(ENV.keys.any? { |k| k.start_with?(\"CODEX\") } ? 0 : 1)' && exit 0; echo 'model_provenance: neither KAIROS_DATA_DIR nor CLAUDE_PROJECT_DIR is set; not observing' >&2; exit 1; }; ruby \"${KAIROS_DATA_DIR:-$CLAUDE_PROJECT_DIR/.kairos}/skillsets/model_provenance/hooks/observer.rb\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"${KAIROS_DATA_DIR}${CLAUDE_PROJECT_DIR}\" ] || { ruby -e 'exit(ENV.keys.any? { |k| k.start_with?(\"CODEX\") } ? 0 : 1)' && exit 0; echo 'model_provenance: neither KAIROS_DATA_DIR nor CLAUDE_PROJECT_DIR is set; not observing' >&2; exit 1; }; ruby \"${KAIROS_DATA_DIR:-$CLAUDE_PROJECT_DIR/.kairos}/skillsets/model_provenance/hooks/observer.rb\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}

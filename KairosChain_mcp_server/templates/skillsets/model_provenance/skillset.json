@@ -1,0 +1,18 @@
+{
+    "name": "model_provenance",
+    "version": "0.1.0",
+    "description": "Records which model actually answered each response in a Claude Code session, from what the harness wrote down rather than from any model's account of itself. Claude Code re-runs a request on another model when a safety classifier flags it and then stays on that model; nobody is told response by response, and a subagent's switch is not shown at all. Three hooks (plugin/hooks.json): PostModelSwitch records every model change and, on an automatic one, tells the model which model it now is; SubagentStop observes the subagent's latest run and appends an observation record; Stop reads every finished response not yet reported, in the main transcript and every subagent transcript, and shows the operator one line per affected transcript — including transcripts it could not observe and subagents still running. The transcript reader lives in hooks/ and is loaded only by the hook script; lib/ exposes only the append-only observation store, which multi_llm_review reads to record the observed model of a persona seat bound to its subagent. Never blocks or alters a turn: on failure it exits 1 with the cause on stderr. Design: docs/model_provenance/design_v0.3.md (KairosChain repository).",
+    "author": "Masaomi Hatakeyama",
+    "layer": "L1",
+    "depends_on": [],
+    "provides": [
+        "model_provenance",
+        "fallback_observation"
+    ],
+    "tool_classes": [],
+    "config_files": [],
+    "knowledge_dirs": [],
+    "plugin": {
+        "hooks": "plugin/hooks.json"
+    }
+}

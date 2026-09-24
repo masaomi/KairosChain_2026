@@ -67,13 +67,25 @@ module KairosMcp
                   description: "Persona team review results (#{PersonaAssembly::MIN_PERSONAS}-" \
                     "#{PersonaAssembly::MAX_PERSONAS} entries). Each: " \
                     '{persona: string, verdict: APPROVE|REVISE|REJECT, ' \
-                    'findings: [{severity, issue}, ...], reasoning: string}',
+                    'findings: [{severity, issue}, ...], reasoning: string, ' \
+                    'agent_id: string (optional)}',
                   items: {
                     type: 'object',
                     properties: {
                       persona: { type: 'string' },
                       verdict: { type: 'string', enum: %w[APPROVE REVISE REJECT] },
                       reasoning: { type: 'string' },
+                      agent_id: {
+                        type: 'string',
+                        description: 'Optional. The agent id the Agent tool returned for the subagent ' \
+                          'that ran this persona. When any persona carries one, the seat records ' \
+                          'the model the harness observed answering (model_provenance SkillSet) ' \
+                          'instead of only the declared one; a persona without one, or whose id ' \
+                          'resolves to no record, is recorded as unobserved with its cause. The ' \
+                          'binding is your declaration and is recorded as such. Collect after the ' \
+                          "personas' task-notifications, not on their hand-backs, or the last " \
+                          'persona is usually still unrecorded.'
+                      },
                       findings: {
                         type: 'array',
                         items: { type: 'object' }
@@ -252,7 +264,11 @@ module KairosMcp
               # itself. Older tokens carry no such declaration, so the caller
               # model stands in — the same fallback INV-P2 states.
               orchestrator_entry = PersonaAssembly.assemble(
-                reviews, state['persona_model'] || state['orchestrator_model']
+                reviews, state['persona_model'] || state['orchestrator_model'],
+                # model_provenance INV-7: nil unless a persona is bound, and
+                # never raises — a binding that cannot be resolved becomes an
+                # unobserved persona, not a refused submission.
+                observations: ProvenanceBinding.resolve(reviews)
               )
             rescue ArgumentError => e
               # INV-R1/R4: the refusal is an event on the accepting side, and
@@ -664,6 +680,11 @@ module KairosMcp
             payload['include_raw_text_effective'] =
               payload['reviews'].is_a?(Array) &&
               payload['reviews'].any? { |r| r.is_a?(Hash) && r.key?('raw_text') }
+            if Array(arguments['orchestrator_reviews']).any? { |r| ProvenanceBinding.bound?(r) }
+              payload['bindings_not_read_on_replay'] =
+                'this token was already collected; persona bindings are read once, at the first ' \
+                'collect, and the cached record is replayed unchanged.'
+            end
             if (arguments['include_raw_text'] == true) && !payload['include_raw_text_effective']
               payload['include_raw_text_refused'] =
                 'this token was already collected without the full replies; the cached record ' \
