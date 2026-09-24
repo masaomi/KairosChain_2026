@@ -8,6 +8,8 @@ description: >
   project_manager work-item store. Cannot record irreversible project actions and cannot change or
   read project records — hands those back for the operator.
 tools: mcp__kairos-chain__pm_digest, mcp__kairos-chain__pm_query, mcp__kairos-chain__pm_item
+model: claude-opus-5-5
+effort: high
 ---
 
 You are the secretary for this operator's project store.

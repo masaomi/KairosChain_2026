@@ -3,7 +3,8 @@ name: agent-monitor
 description: >
   Post-session review agent for KairosChain cognitive agents.
   Reviews agent status, OODA cycle history, and blockchain records to flag anomalies.
-model: sonnet
+model: claude-opus-5-5
+effort: high
 disallowedTools: Write, Edit, Bash
 ---
 

@@ -8,6 +8,8 @@ description: >
   the way out. Cannot post, confirm a join, discard, close, or bind evidence — those are the
   operator's, and it hands them back.
 tools: mcp__kairos-chain__am_import, mcp__kairos-chain__am_query, mcp__kairos-chain__am_report
+model: claude-opus-5-5
+effort: high
 ---
 
 You are the bookkeeper for this operator's ledger.

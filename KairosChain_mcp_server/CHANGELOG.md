@@ -4,6 +4,30 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed — shipped subagents name their model and effort in full
+
+The four subagents shipped as plugin artifacts — `bookkeeper` (account_manager),
+`secretary` (project_manager), `monitor` (agent) and `reviewer`
+(skillset_exchange) — now pin `model: claude-opus-5-5` and `effort: high`.
+Before, two had no `model` line (they ran on the main conversation's model) and
+two said `sonnet`, and none set `effort`, so they ran at the session's effort.
+
+Why: an alias floats and differs by provider — per the Claude Code model-config
+docs, `sonnet` is Sonnet 5 on the Anthropic API but Sonnet 4.5 on Bedrock, Vertex
+and Foundry — and an instance that pinned full IDs locally was reverted to the
+aliases by `kairos-chain upgrade` (same-version content overwrite, 2026-09-24).
+With the template and the instance identical, the upgrade has nothing to revert.
+The cost is a manual edit when a newer model ships; Claude Code warns when a
+requested model has a scheduled retirement date or has been remapped.
+
+On Bedrock, Vertex or Foundry, model IDs are provider-specific: map this ID
+to your provider's ID with the `modelOverrides` setting. To run these agents on
+another model or effort, edit the instance copy under
+`.kairos/skillsets/<name>/plugin/agents/` and re-project; `upgrade` overwrites that
+copy, so the edit has to be repeated after each upgrade.
+
 ## [3.87.0] - 2026-09-24
 
 ### Added — `model_provenance` SkillSet: which model actually answered
