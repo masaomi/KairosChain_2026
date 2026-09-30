@@ -4,6 +4,53 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.88.0] - 2026-09-30
+
+### Added — `multi_llm_review` 0.11.1: an artifact named by path and sha256
+
+`multi_llm_review` takes an optional `artifact_sha256`, and `artifact_content`
+is no longer required. When `artifact_content` is empty, the tool reads
+`artifact_path` inside its working directory and refuses unless the bytes hash
+to the pin; a path outside the working directory, a file that is not a regular
+file, a file that changes between the check and the read, and non-UTF-8 content
+are refused, all before any seat is dispatched. When `artifact_content` is
+carried together with a pin, the content must hash to the pin. Callers that pass
+`artifact_content` without a pin are unaffected.
+
+Why: the agent SkillSet's DECIDE phase writes tool arguments itself, within an
+output budget, and `autoexec_run` passes them as written. On 2026-09-30 a
+101,549-byte artifact reached the plan as a placeholder string, and approving
+the plan would have sent the placeholder to every seat. With the pin, the plan
+names the file and its hash, and the plan's own hash binds the content.
+
+Claude Code keeps a connected server's tool schema until the session restarts,
+so a client started before the upgrade still sees `artifact_content` as required.
+
+### Changed — Opus 4.6 retired from the review roster; Sonnet 5.5 takes its seat
+
+Operator decision, 2026-09-30: Opus 4.6 is retired from every role it held —
+the Claude CLI review seat and the sub-author role for self-referential
+passages — and Sonnet 5.5 at effort high takes both. The roster entry becomes
+`claude-sonnet-5-5` / `claude_cli_sonnet5.5`; the roster is still four seats.
+
+This is the operator's decision, not a like-for-like succession. Opus 4.6 held
+both roles for a documented bias profile (ambiguity-preserving,
+self-reference-friendly); Sonnet 5.5 is uncalibrated, with two review rounds on
+2026-09-30 and nothing else, so no bias rationale is written for it.
+
+- L1 `multi_llm_review_workflow` 3.15.0 → 3.15.1 and
+  `multi_llm_reviewer_evaluation` 1.6 → 1.7: text a reader follows as current
+  procedure now names Sonnet 5.5. Measurements, seat profiles, dated
+  diagnoses and changelog entries that name Opus 4.6 stay as written, because
+  they are facts about that model. The dev-repo copies of these two entries and
+  of `design_to_implementation_workflow` had drifted behind the shipped ones
+  (1.5 and 1.1 against 1.6 and 1.2) and are synced.
+- The agent SkillSet's plugin `SKILL.md` names Sonnet 5.5 as the sub-author.
+
+Upgrading: `kairos-chain upgrade` never overwrites an instance's
+`config/multi_llm_review.yml`, so an instance keeps Opus 4.6 until its own
+roster entry is edited. The config's comment on the entry says how.
+
 ## [3.87.1] - 2026-09-24
 
 ### Changed — shipped subagents name their model and effort in full
