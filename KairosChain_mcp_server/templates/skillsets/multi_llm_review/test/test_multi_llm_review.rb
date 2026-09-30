@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'minitest/autorun'
+require 'minitest/mock'
 require 'json'
 require_relative '../lib/multi_llm_review/consensus'
 require_relative '../lib/multi_llm_review/observer_set'
@@ -1154,6 +1155,75 @@ module KairosMcp
         # exclude drops it) are in test_observer_set.rb, where they are stated
         # against the observer set rather than against a helper that only saw
         # half of it.
+
+        # An agent plan names the artifact by path + sha256 instead of
+        # carrying it; the tool reads exactly those bytes or refuses.
+        def test_pinned_artifact_is_read_only_when_it_matches_its_pin
+          File.write('artifact.md', "reviewed text\n")
+          pin = Digest::SHA256.hexdigest("reviewed text\n")
+
+          assert_equal ["reviewed text\n", nil], @tool.send(:read_pinned_artifact, 'artifact.md', pin)
+          assert_match(/not the pinned/, @tool.send(:read_pinned_artifact, 'artifact.md', 'f' * 64)[1])
+          assert_match(/inside/, @tool.send(:read_pinned_artifact, '/etc/hosts', pin)[1])
+          refused = JSON.parse(@tool.call({ 'artifact_name' => 'a', 'review_type' => 'design',
+                                            'artifact_path' => 'artifact.md' }).first[:text])
+          assert_match(/artifact_sha256 are both given/, refused['error'])
+        end
+
+        # A pin binds whatever is reviewed. Carried text that does not hash to
+        # it is refused before roster resolution (a plan can write a
+        # placeholder beside the pin); carried text that does, and the file's
+        # own bytes, go on to be reviewed.
+        def test_pin_binds_carried_content_as_well_as_the_file
+          seen = nil
+          @tool.define_singleton_method(:resolve_reviewers) do |args, _config|
+            seen = args['artifact_content']
+            raise ObserverSet::RosterError, 'stopped before dispatch'
+          end
+          File.write('artifact.md', "reviewed text\n")
+          pin = Digest::SHA256.hexdigest("reviewed text\n")
+          base = { 'artifact_name' => 'a', 'review_type' => 'design', 'artifact_path' => 'artifact.md' }
+
+          refused = JSON.parse(@tool.call(base.merge('artifact_content' => '<<see artifact_path>>',
+                                                     'artifact_sha256' => pin)).first[:text])
+          assert_match(/does not hash to artifact_sha256/, refused['error'])
+          assert_nil seen, 'a refused call must not reach roster resolution'
+
+          @tool.call(base.merge('artifact_content' => "reviewed text\n", 'artifact_sha256' => " #{pin.upcase} "))
+          assert_equal "reviewed text\n", seen
+
+          seen = nil
+          @tool.call(base.merge('artifact_sha256' => pin))
+          assert_equal "reviewed text\n", seen, 'the file bytes become the reviewed content'
+        end
+
+        # The read is confined to a regular file inside the working directory,
+        # and to the file the checked path named when it was opened.
+        def test_pinned_read_refuses_escapes_non_files_and_a_swap
+          outside = Dir.mktmpdir('mlr-outside-')
+          File.write(File.join(outside, 'secret.md'), "secret\n")
+          secret_pin = Digest::SHA256.hexdigest("secret\n")
+          File.symlink(File.join(outside, 'secret.md'), 'link.md')
+          assert_match(/inside/, @tool.send(:read_pinned_artifact, 'link.md', secret_pin)[1])
+
+          Dir.mkdir('adir')
+          File.mkfifo('afifo')
+          assert_match(/not a regular file/, @tool.send(:read_pinned_artifact, 'adir', secret_pin)[1])
+          assert_match(/not a regular file/, @tool.send(:read_pinned_artifact, 'afifo', secret_pin)[1])
+          assert_match(/unreadable/, @tool.send(:read_pinned_artifact, "a\0b", secret_pin)[1])
+
+          # A swap between open and re-check shows up as a different inode
+          # behind the checked path.
+          File.write('artifact.md', "reviewed text\n")
+          pin = Digest::SHA256.hexdigest("reviewed text\n")
+          elsewhere = File.stat(File.join(outside, 'secret.md'))
+          File.stub(:stat, elsewhere) do
+            assert_match(/changed while/, @tool.send(:read_pinned_artifact, 'artifact.md', pin)[1])
+          end
+          assert_equal ["reviewed text\n", nil], @tool.send(:read_pinned_artifact, 'artifact.md', pin)
+        ensure
+          FileUtils.rm_rf(outside) if outside
+        end
 
         def test_delegate_response_writes_pending_state
           subprocess_results = [

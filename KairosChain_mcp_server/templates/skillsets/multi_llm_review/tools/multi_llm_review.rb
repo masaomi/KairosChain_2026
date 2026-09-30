@@ -80,7 +80,18 @@ module KairosMcp
               properties: {
                 artifact_content: {
                   type: 'string',
-                  description: 'Full text of the artifact to review'
+                  description: 'Omit when artifact_path + artifact_sha256 name the file; ' \
+                    'otherwise the full text of the artifact to review. If a pin is ' \
+                    'also given, this text must hash to it or the call is refused.'
+                },
+                artifact_sha256: {
+                  type: 'string',
+                  description: 'Pin: sha256 of the bytes to review. With artifact_path and ' \
+                    'no artifact_content the tool reads the file at artifact_path (a ' \
+                    'regular file inside its working directory) and refuses unless the ' \
+                    'bytes hash to this value; with artifact_content, that text must ' \
+                    'hash to it. For callers that cannot carry the text, such as an ' \
+                    'agent plan.'
                 },
                 artifact_name: {
                   type: 'string',
@@ -92,7 +103,9 @@ module KairosMcp
                     'Required for any roster slot configured with ' \
                     'artifact_delivery: by_reference — those slots receive this path ' \
                     'plus a sha256 computed over artifact_content instead of the ' \
-                    'inlined body. Slots delivered inline ignore it.'
+                    'inlined body. Slots delivered inline ignore it, except that ' \
+                    'with artifact_sha256 and no artifact_content it is the file ' \
+                    'the tool reads for every slot.'
                 },
                 review_spec: {
                   type: 'object',
@@ -240,7 +253,7 @@ module KairosMcp
                     'assembly, and no other copy exists anywhere.'
                 }
               },
-              required: %w[artifact_content artifact_name review_type]
+              required: %w[artifact_name review_type]
             }
           end
 
@@ -263,6 +276,26 @@ module KairosMcp
                            'canonical in config and cannot be replaced per call. ' \
                            'To add observers for a hard artifact, set escalate: true ' \
                            '(config key: escalation_reviewers).'
+              }))
+            end
+
+            # A caller that cannot carry the text names it by path and sha256.
+            # An agent plan is why: its tool arguments are written by a model
+            # within an output budget, and a large artifact reached the seats
+            # as a placeholder string (2026-09-30). A pin binds whatever is
+            # reviewed, so carried text that does not hash to it is refused
+            # too — a plan can write a placeholder beside the pin.
+            pin = arguments['artifact_sha256'].to_s.strip.downcase
+            if arguments['artifact_content'].to_s.empty?
+              content, error = read_pinned_artifact(arguments['artifact_path'], pin)
+              return text_content(JSON.generate({ 'status' => 'error', 'error' => error })) if error
+
+              arguments = arguments.merge('artifact_content' => content)
+            elsif !pin.empty? && Digest::SHA256.hexdigest(arguments['artifact_content'].to_s) != pin
+              return text_content(JSON.generate({
+                'status' => 'error',
+                'error' => 'artifact_content does not hash to artifact_sha256. Omit ' \
+                           'artifact_content to have the tool read artifact_path, or drop the pin.'
               }))
             end
 
@@ -624,6 +657,46 @@ module KairosMcp
           end
 
           private
+
+          # Reads only inside the working directory (the root pin_resolver
+          # uses) and only bytes that hash to the caller's pin, so the plan
+          # that named the file, not the file's later state, decides what is
+          # reviewed. Returns [text, nil] or [nil, error].
+          def read_pinned_artifact(path, sha256)
+            if path.to_s.strip.empty? || sha256.to_s.strip.empty?
+              return [nil, 'artifact_content is required, unless artifact_path and artifact_sha256 are both given']
+            end
+
+            root = File.realpath(Dir.pwd)
+            full = File.realpath(File.expand_path(path.to_s, root))
+            return [nil, "artifact_path must lie inside #{root}"] unless full.start_with?("#{root}/")
+
+            # One handle, opened without blocking (a FIFO would otherwise hang
+            # the call) and read only if it is a regular file. Afterwards the
+            # checked path must still resolve to the file that handle opened,
+            # so a symlink swapped in between the check and the read cannot
+            # pull bytes from outside the root.
+            bytes = nil
+            opened = File.open(full, File::RDONLY | File::NONBLOCK, binmode: true) do |f|
+              st = f.stat
+              bytes = f.read if st.file?
+              st
+            end
+            return [nil, 'artifact_path is not a regular file'] unless opened.file?
+
+            now = File.stat(full)
+            unless File.realpath(full) == full && [now.dev, now.ino] == [opened.dev, opened.ino]
+              return [nil, 'artifact_path changed while it was being read']
+            end
+
+            actual = Digest::SHA256.hexdigest(bytes)
+            return [nil, "artifact_path hashes to #{actual}, not the pinned #{sha256}"] unless actual == sha256.to_s.strip.downcase
+
+            text = bytes.force_encoding(Encoding::UTF_8)
+            text.valid_encoding? ? [text, nil] : [nil, 'artifact_path is not valid UTF-8']
+          rescue SystemCallError, ArgumentError => e
+            [nil, "artifact_path unreadable: #{e.message}"]
+          end
 
           # Phase 1.5 — articulate which fallback_chain path actually ran.
           # Returns Hash with path_taken/tier_actually_used/target_harness/acknowledgment.
