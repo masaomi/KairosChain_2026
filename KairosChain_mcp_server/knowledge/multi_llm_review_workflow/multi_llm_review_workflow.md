@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.15.0"
+version: "3.15.1"
 tags:
   - workflow
   - review
@@ -141,7 +141,7 @@ these numbers.
 
 | Seat | Runs | APPROVE rate design / impl / doc | Median wall s | Median output chars | (c) share, labelled only |
 |---|---|---|---|---|---|
-| `claude_cli_opus4.6` | 134 | 64% (31/48) / 71% (27/38) / 86% (20/23) | 54 | 4,536 | 70% (19/27) |
+| `claude_cli_opus4.6` (retired 2026-09-30) | 134 | 64% (31/48) / 71% (27/38) / 86% (20/23) | 54 | 4,536 | 70% (19/27) |
 | `cursor_composer2.5` | 138 | 13% (7/51) / 48% (24/50) / 25% (6/24) | 133 | 3,795 | 100% (2/2) |
 | `codex_gpt5.6-sol` (retired 2026-09-05) | 138 | 1% (1/54) / 11% (7/60) / 4% (1/24) | 113 | 2,038 | 3% (5/140) |
 | `claude_team_opus-5` (persona) | 131 | 0% (0/51) / 12% (7/56) / 0% (0/22) | not measured per seat | 11,512 | 27% (374/1362) |
@@ -155,16 +155,24 @@ every row from 2026-09-05 onward for a second reason — the corpus was gathered
 with reviewers at medium effort, and reviewers now run at high (see § Thinking
 Effort Configuration), so post-swap rounds are not directly comparable to it.
 
+The opus4.6 row is likewise history. Opus 4.6 was retired on 2026-09-30
+(operator decision) and `claude_cli_sonnet5.5` — Sonnet 5.5 at effort high —
+took the seat. Sonnet 5.5 had held it for two rounds by then and has no
+profile, so nothing in the opus4.6 row, including its lenient approval rate,
+may be read as a description of the new occupant.
+
 Selection consequences, each tied to the number above it:
 
-- **A `codex` APPROVE carries the most information and an `opus4.6` APPROVE the
-  least.** Codex approves 1 design review in 54 and pairs that with the lowest
-  advisory rate in the corpus (5 of 140 labelled findings). Opus4.6 approves 20
-  document reviews in 23 while 19 of its 27 labelled findings are advisory. Seat
-  both, read them differently: the `3/4 APPROVE` threshold is met, in practice,
-  with opus4.6's vote already inside it, so the live question is whether two of
-  the remaining three agree. (That threshold is a reference figure, not a gate —
-  see § Convergence Rules.)
+- **In this corpus a `codex` APPROVE carried the most information and an
+  `opus4.6` APPROVE the least.** Codex approved 1 design review in 54 and paired
+  that with the lowest advisory rate in the corpus (5 of 140 labelled
+  findings). Opus4.6 approved 20 document reviews in 23 while 19 of its 27
+  labelled findings were advisory, so the `3/4 APPROVE` threshold was met, in
+  practice, with opus4.6's vote already inside it. Both seats have since
+  changed occupant (codex 2026-09-05, opus4.6 2026-09-30), and neither
+  successor is calibrated: until they are, do not assume which seat casts the
+  lenient vote — read each APPROVE for what it says. (That threshold is a
+  reference figure, not a gate — see § Convergence Rules.)
 - **Volume anti-correlates with signal.** The persona seat raises 3,249 of the
   5,286 findings (61%) and 27% of its labelled ones are advisory. Seat personas
   when breadth is wanted; do not seat them to obtain a verdict.
@@ -497,10 +505,11 @@ they disagree, the config is right and this section is stale.
 - [ ] Agent Team Personas model: = orchestrator model (NOT a different model),
       unless you are running personas on a different model on purpose — then
       it is whatever you declare as persona_model (see § Persona execution model)
-- [ ] Subprocess CLI model: Opus 4.6. The other Claude roster slot is Opus 5.5,
-      which under the default "delegate" strategy is taken by your persona team
-      rather than spawned — so when you are Opus 5.5, Opus 4.6 is the only Claude
-      CLI subprocess
+- [ ] Subprocess CLI model: Sonnet 5.5 (`claude-sonnet-5-5`; Opus 4.6 held this
+      slot until its retirement on 2026-09-30). The other Claude roster slot is
+      Opus 5.5, which under the default "delegate" strategy is taken by your
+      persona team rather than spawned — so when you are Opus 5.5, Sonnet 5.5 is
+      the only Claude CLI subprocess
 - [ ] Codex model: gpt-6-astra, with -m. One codex slot since gpt-5.5 was
       retired 2026-09-05 — do not add a second codex entry expecting the old
       cross-generation pairing
@@ -853,8 +862,8 @@ outside this repository — see the incident recorded in § Pre-flight checklist
 | **Codex** | `codex exec -m <model> -c model_reasoning_effort=high` | stdin pipe: `cat prompt.md \| codex exec -m <model> -` | `-o /path/output.md` | gpt-6-astra — one slot since gpt-5.5 was retired 2026-09-05 |
 | **Cursor Agent** | `agent -p --model composer-2.5` | File reference (stdin NOT supported) | stdout redirect: `> output.md` | composer-2.5, passed explicitly — never relying on the CLI default |
 | **Claude Code** | Agent tool (internal) | Direct prompt string | Write to workspace file | Orchestrator model, or the declared `persona_model` when personas run elsewhere |
-| **Claude CLI (4.6)** | `claude -p --model claude-opus-4-6` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-4-6` | stdout redirect: `> output.md` | Opus 4.6 — the calibrated anchor, deliberately not a frontier model |
-| **Claude CLI (frontier)** | `claude -p --model claude-opus-5-5` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-5-5` | stdout redirect: `> output.md` | Runs only when Opus 5.5 is *not* the orchestrator; when it is, that slot is taken by the persona team |
+| **Claude CLI (Sonnet 5.5)** | `claude -p --model claude-sonnet-5-5 --effort high` | stdin pipe: `cat prompt.md \| claude -p --model claude-sonnet-5-5 --effort high` | stdout redirect: `> output.md` | Sonnet 5.5 — took Opus 4.6's slot on 2026-09-30 by operator decision; uncalibrated |
+| **Claude CLI (frontier)** | `claude -p --model claude-opus-5-5 --effort high` | stdin pipe: `cat prompt.md \| claude -p --model claude-opus-5-5 --effort high` | stdout redirect: `> output.md` | Runs only when Opus 5.5 is *not* the orchestrator; when it is, that slot is taken by the persona team |
 
 `--bare` must NOT be passed (established 2026-07-23): it skips credential
 loading and the subprocess fails with "Not logged in". The project-instruction
@@ -874,7 +883,7 @@ Based on cross-evaluation experiment (7 models × 4 tasks + Nomic, 518 CLI calls
 |------|-------|-------------|-----------|
 | **Primary (orchestrator)** | session default | Claude Code's own setting | Not set by this config — record the level actually in effect (see the 2026-09-24 note) |
 | **Reviewer: Agent Team** | = orchestrator, or the declared `persona_model` | the session's level, unless the persona's agent file sets `effort:` | Personas inherit whichever model — and effort — actually runs them |
-| **Reviewer: Claude CLI** | Opus 4.6, plus any frontier roster slot the orchestrator is not | `--effort high` (config `effort: high`) | Operator instruction 2026-09-05; supersedes the 2026-04-29 default-effort policy — see the note below the table |
+| **Reviewer: Claude CLI** | Sonnet 5.5, plus any frontier roster slot the orchestrator is not | `--effort high` (config `effort: high`) | Operator instruction 2026-09-05; supersedes the 2026-04-29 default-effort policy — see the note below the table |
 | **Coding sub-agent** | Opus 5.5 | `--effort high` | Operator default for KairosChain (2026-09-24); not measured here (see note) |
 | **Design sub-agent** | Opus 5.5 | `--effort high` | Operator default for KairosChain (2026-09-24); not measured here (see note) |
 | **Codex** | GPT-6-astra / GPT-5.5 | `-c model_reasoning_effort=high` | Same operator instruction. The earlier "(no flag) / fixed effort" entry was wrong: codex_adapter has always emitted this flag when the roster set `effort` |
@@ -904,9 +913,19 @@ Note (2026-07-26): the coding / design sub-agent rows moved from Opus 4.7
 (retired 2026-06-10) to Opus 5. Their effort values are Anthropic's published
 starting points for Opus 5, not measurements from this project — treat them as
 a starting point to sweep down from, not a validated setting. Separately, the
-**sub-author** role for self-referential passages stays Opus 4.6: it is chosen
+**sub-author** role for self-referential passages stayed Opus 4.6: it was chosen
 for its ambiguity-preserving bias, not for capability, so a frontier successor
-does not replace it.
+did not replace it. (Superseded 2026-09-30 — see the next note.)
+
+Note (2026-09-30): Opus 4.6 is retired everywhere, the **sub-author** role
+included, by operator decision; Sonnet 5.5 (`claude-sonnet-5-5`, effort high)
+takes it. This is not a like-for-like succession. The reason Opus 4.6 held the
+role was a documented bias profile, and Sonnet 5.5 has none — it had held the
+review seat for two rounds when the decision was made, and nothing else. So the
+sub-author choice rests on the operator's decision alone: do not cite an
+ambiguity-preserving or other bias rationale for Sonnet 5.5 until a measurement
+supports one, and record its sub-author outputs so a profile can accumulate in
+`multi_llm_reviewer_evaluation`.
 
 Note (2026-09-24): the frontier rows moved from Opus 5 to Opus 5.5 (operator
 instruction — 5.5 is now Claude Code's default orchestrator and takes over
@@ -960,11 +979,12 @@ record no longer claims a model that did not answer.
 orchestrating LLM MUST pass its own model identifier as `orchestrator_model`.
 
 **Rationale**: The reviewer roster contains more than one Claude entry (Opus 5.5
-and Opus 4.6 as of 2026-09-24; Opus 5 held the frontier entry from 2026-07-26). A frontier slot sits in the roster on purpose:
+and Sonnet 5.5 as of 2026-09-30; Opus 4.6 held the second entry until then, and
+Opus 5 held the frontier entry from 2026-07-26). A frontier slot sits in the roster on purpose:
 when it is the current session model it matches `orchestrator_model` and becomes
 the persona-team slot; when it is not, it is dispatched as a `claude -p`
 subprocess. With the current two-entry Claude side, an Opus 5.5 orchestrator leaves
-Opus 4.6 as the only Claude CLI subprocess. No per-orchestrator config branch is
+Sonnet 5.5 as the only Claude CLI subprocess. No per-orchestrator config branch is
 needed either way.
 To avoid the orchestrator reviewing its
 own output (no independent signal), the dispatcher excludes or delegates the
@@ -1025,7 +1045,7 @@ multi_llm_review(
 - If `orchestrator_model` is `null` or unmatched, full roster runs (back-compat).
 
 **Manual-mode equivalent**: When orchestrating by hand, do not assign yourself
-as a subprocess reviewer. Run the Claude CLI subprocess reviewers (Opus 4.6, plus
+as a subprocess reviewer. Run the Claude CLI subprocess reviewers (Sonnet 5.5, plus
 any frontier roster slot you are not); if your own model matches one of them,
 skip that entry and use the after-exclusion convergence rule.
 
@@ -1040,7 +1060,7 @@ artifact, use `escalate: true` — see § Reserve observers below.
 The `delegate` strategy lets the orchestrator perform persona-based "Agent Team"
 review in its own context — preserving inherited project context that a fresh
 `claude -p` subprocess loses. Subprocess reviewers (codex, cursor, Claude CLI
-Opus 4.6 and the non-orchestrator frontier model) remain single-LLM.
+Sonnet 5.5 and the non-orchestrator frontier model) remain single-LLM.
 
 **Why**: The orchestrator already holds the artifact in context with full project
 awareness. Re-shipping it to a sandboxed subprocess discards that context. Same-
@@ -1349,8 +1369,8 @@ readable until GC. Read them directly and synthesize manually, then re-run
   before, silently swapping the model behind an unchanged role label
 - **Codex workspace**: `-C /path/to/workspace` to set working directory
 - **Claude Agent paths**: Write within workspace (e.g., `log/`), not `/tmp`
-- **Claude CLI (Opus 4.6 / any non-orchestrator frontier slot)**: `claude -p --model claude-opus-4-6` (likewise `claude-opus-5-5`) runs as external process. Uses stdin pipe (like Codex). Do NOT pass `--bare` — it skips credential loading and the subprocess dies with "Not logged in" (established 2026-07-23). Project-instruction bias is suppressed via `review_context: independent`, not via `--bare`
-- **Claude CLI parallelism**: Agent tool (internal, orchestrator model) + Bash `claude -p` (external, Opus 4.6 and any other Claude roster slot the orchestrator is not) run truly in parallel as separate processes
+- **Claude CLI (Sonnet 5.5 / any non-orchestrator frontier slot)**: `claude -p --model claude-sonnet-5-5` (likewise `claude-opus-5-5`) runs as external process. Uses stdin pipe (like Codex). Do NOT pass `--bare` — it skips credential loading and the subprocess dies with "Not logged in" (established 2026-07-23). Project-instruction bias is suppressed via `review_context: independent`, not via `--bare`
+- **Claude CLI parallelism**: Agent tool (internal, orchestrator model) + Bash `claude -p` (external, Sonnet 5.5 and any other Claude roster slot the orchestrator is not) run truly in parallel as separate processes
 - **Claude CLI file access**: a plain `claude -p` review subprocess should not need file access. Ensure the review prompt includes all artifact content inline (rule #6). Use `--add-dir` + `--allowedTools "Read,Glob,Grep"` if file access is genuinely needed, and accept that CLAUDE.md is loaded (the old `--bare` workaround is unusable — see above)
 
 ## Prompt Generation Rules
@@ -1494,7 +1514,7 @@ Step 2: Detect environment, and check the roster against config
     and treat them as the roster. Detection only tells you whether a default has
     drifted; the model each slot runs is named on the command line.
   - Report: "Auto mode: Codex (gpt-6-astra), Cursor (composer-2.5),
-    Claude Team (orchestrator model), Claude CLI (opus-4.6)"
+    Claude Team (orchestrator model), Claude CLI (sonnet-5.5)"
 
 Step 3: Execute the configured roster in parallel (currently 4 slots, one of
         which is your own persona team)
@@ -1502,9 +1522,9 @@ Step 3: Execute the configured roster in parallel (currently 4 slots, one of
   - Bash(background): agent -p --trust --model composer-2.5 "Read prompt and review..." > log/review_cursor.md
     (no effort flag — Cursor has no effort control)
   - Agent(background): Claude Team (orchestrator model, e.g. Opus 5.5) → write to log/review_claude_team_opus5.5.md
-  - Bash(background): cat prompt.md | claude -p --model claude-opus-4-6 --effort high > log/review_claude_opus4.6.md 2>log/review_claude_opus4.6.stderr.log
-    (add a line per further Claude roster slot you are not; with the 2026-09-24
-     roster an Opus 5.5 orchestrator has none, so opus-4.6 is the only one)
+  - Bash(background): cat prompt.md | claude -p --model claude-sonnet-5-5 --effort high > log/review_claude_sonnet5.5.md 2>log/review_claude_sonnet5.5.stderr.log
+    (add a line per further Claude roster slot you are not; with the 2026-09-30
+     roster an Opus 5.5 orchestrator has none, so sonnet-5.5 is the only one)
 
 Step 4: Collect and validate
   - Wait for all to complete (background task notifications)
@@ -1541,7 +1561,7 @@ log/{artifact}_review{N}_{llm_id}_{date}.md       # Individual reviews
 log/{artifact}_review{N}_consensus_{date}.md       # Consensus analysis
 ```
 
-LLM identifiers: `claude_cli_opus5.5`, `claude_cli_opus4.6`,
+LLM identifiers: `claude_cli_opus5.5`, `claude_cli_sonnet5.5`,
 `codex_gpt6-astra`, `cursor_composer2.5`, `cursor_gpt5.4`,
 `cursor_premium`. The delegated slot is reported as `claude_team_<model>`
 (e.g. `claude_team_claude-opus-5-5`), assembled at collect time — the roster's
@@ -1553,7 +1573,8 @@ retired 2026-07-26: `claude_cli_fable5` — five consecutive non-substantive
 returns, 85-128 characters in 5-7 seconds, no findings and no verdict text;
 retired 2026-09-05: `codex_gpt5.6-sol`, replaced by `codex_gpt6-astra`, and
 `codex_gpt5.5`, not replaced; retired 2026-09-24: `claude_cli_opus5`, succeeded in
-the same slot by `claude_cli_opus5.5`. Runs recorded under a retired identifier keep it —
+the same slot by `claude_cli_opus5.5`; retired 2026-09-30: `claude_cli_opus4.6`,
+succeeded in the same slot by `claude_cli_sonnet5.5`. Runs recorded under a retired identifier keep it —
 the label names the model that answered, so renaming old records would attribute
 one model's findings to another)
 
@@ -1947,6 +1968,30 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   the 2026-09-24 Opus 5.5 guidance audit). Effort: see the 2026-09-24 note under
   § Thinking Effort Configuration, including that the persona seat follows the
   session's level while CLI seats follow the config.
+
+- Opus 4.6 retired → Sonnet 5.5 (v3.15.1, 2026-09-30, operator decision:
+  「全部Opus4.6は引退させて、Sonnet5.5に置き換えて下さい」). Opus 4.6 leaves every
+  role it held — the Claude CLI review seat and the sub-author role — and
+  Sonnet 5.5 at effort high takes both. The seat's label becomes
+  `claude_cli_sonnet5.5`; nothing else about the roster changes (still 4 seats:
+  Opus 5.5 as orchestrator and persona team, Sonnet 5.5 CLI, codex gpt-6-astra,
+  cursor composer-2.5). Only text that prescribes current behaviour was
+  rewritten; two dated passages were annotated rather than rewritten — the
+  Step 0.1 row label gains "(retired 2026-09-30)" with its numbers untouched,
+  and the 2026-07-26 sub-author note is put in the past tense and pointed at
+  the note that supersedes it. The two Claude CLI rows of the Tool Matrix
+  also gain `--effort high`, which they had lacked while the table below them
+  required it. The `claude_cli_opus4.6` row in § Step 0.1, the effort measurements
+  taken on the Opus 4.6 / 4.7 generation, the 2026-08-06 no_verdict diagnosis
+  and every earlier changelog entry stay as written, because they are facts
+  about Opus 4.6. Recorded as the operator's decision rather than as a
+  succession: Opus 4.6 was kept in both roles for a documented bias profile
+  (ambiguity-preserving, self-reference-friendly), while Sonnet 5.5 is
+  uncalibrated — two review rounds on 2026-09-30 and nothing else — so no bias
+  rationale is written for it. Config: `multi_llm_review` 0.11.1 roster entry
+  `claude-sonnet-5-5`; the entry's comment says how to restore Opus 4.6.
+  Upgrading does not rewrite an instance's own `config/multi_llm_review.yml`,
+  so an existing instance keeps Opus 4.6 until that entry is edited by hand.
 
 **Key insight**: Design reviews and implementation reviews find
 **categorically different bugs**. Both phases are necessary. The corollary that

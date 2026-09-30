@@ -1,7 +1,7 @@
 ---
 name: multi_llm_reviewer_evaluation
 description: "Multi-LLM reviewer performance evaluation — strengths, weaknesses, value-system biases, and recommended workflows. Based on 185+ reviews (Phase 1, 2026-02 to 03) + Phase 2 Case A 4-round Codex bias study (2026-05-04)."
-version: "1.6"
+version: "1.7"
 tags:
   - multi-llm
   - review
@@ -46,6 +46,11 @@ Based on 185+ review files across KairosChain development (2026-02-24 to 2026-03
 > Claude CLI Opus 4.7: not yet ranked. Pending evaluation data (added 2026-04-19).
 
 ## Per-Reviewer Profiles
+
+> Opus 4.6 was retired on 2026-09-30 (operator decision); Sonnet 5.5 took its
+> review seat (`claude_cli_sonnet5.5`) and the sub-author role. The Opus 4.6
+> profiles below are that model's record and do not describe Sonnet 5.5, which
+> had no profile when the decision was made — two review rounds, and nothing else.
 
 ### Claude Opus 4.6 (Primary Designer)
 
@@ -285,6 +290,14 @@ Normative statement and the carryover/new split: L1 `multi_llm_review_workflow`
 
 > Note: Workflows updated for 4-reviewer default (Opus 4.7 added 2026-04-19). Opus 4.7 profile is provisional pending evaluation data.
 
+> Roster note (2026-09-30): the model lines below are the 2026-04-19
+> recommendation (last edited 2026-05-26) and are history, not a roster to launch. Every Claude and
+> Codex model they name has since retired — Opus 4.7 on 2026-06-10, GPT-5.4 on
+> 2026-07-23, Opus 4.6 on 2026-09-30. The roster in use lives in
+> `multi_llm_review/config/multi_llm_review.yml` and nowhere else. What still
+> reads from the lines below is the emphasis per phase, which the Strength
+> Matrix above supports.
+
 ```
 Design phase:       Claude Opus 4.6 + Claude CLI Opus 4.7 + Codex GPT-5.4 + Composer-2.5
 Implementation:     Codex GPT-5.4 + Composer-2.5 + Claude Opus 4.6 + Claude CLI Opus 4.7
@@ -353,6 +366,15 @@ which is decidable by the orchestrator and resistant to value-divergence stallin
 
 ## Changelog
 
+- **v1.7 (2026-09-30)**: Opus 4.6 retired by operator decision; Sonnet 5.5
+  takes its review seat and the sub-author role. Two notes added, nothing
+  deleted: § Per-Reviewer Profiles says the Opus 4.6 profiles are that model's
+  record and that Sonnet 5.5 has none, and § Recommended Workflow says its model
+  lines are the 2026-04-19 recommendation — every Claude and Codex model in them
+  is now retired — with the roster living only in the config. The statistics,
+  Strength Matrix, Cost-Benefit and One-Line Summary rows for Opus 4.6 stay:
+  they are measurements of Opus 4.6. No profile is written for Sonnet 5.5,
+  because no measurement supports one yet.
 - **v1.6 (2026-09-06)**: § Convergence Rule (Updated) rewritten. It had stated
   `3/4 APPROVE = proceed to next step` and `4/4 APPROVE = merge-ready` with no
   note that the ratio is a reference value — while L1 `multi_llm_review_workflow`

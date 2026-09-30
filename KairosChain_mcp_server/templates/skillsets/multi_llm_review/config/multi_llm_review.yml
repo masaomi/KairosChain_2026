@@ -13,7 +13,7 @@
 # 2026-08 review threads closed that way without ever reaching their ratio. See
 # L1 multi_llm_review_workflow § Convergence Rules.
 #
-# Roster has 4 reviewers (claude_cli_opus5.5, claude_cli_opus4.6,
+# Roster has 4 reviewers (claude_cli_opus5.5, claude_cli_sonnet5.5,
 # codex_gpt6-astra, cursor_composer2.5).
 # Rules are ratio-based (parser interprets "N/M" as N/M fraction applied
 # to successful count), so the literal numerator/denominator is
@@ -125,7 +125,7 @@ reviewers:
   # "delegate" strategy, is replaced by that orchestrator's own persona
   # Agent Team review; the other is dispatched as a `claude -p` subprocess.
   # So the Claude side is always {orchestrator persona} + {other frontier
-  # model via CLI} + {Opus 4.6 via CLI} — no config branching needed.
+  # model via CLI} + {Sonnet 5.5 via CLI} — no config branching needed.
   # role_labels are provider-neutral because either entry can end up on
   # either path; the delegated slot is relabelled claude_team_<model> by
   # PersonaAssembly at collect time.
@@ -141,17 +141,19 @@ reviewers:
   # contributing signal. To restore, re-add an entry with model
   # claude-fable-5-1 (Fable 5's successor; Fable 5 itself is not the one to
   # bring back) and widen convergence_rule back to a 6-reviewer basis.
-  # Consequence of the removal: the Claude CLI side is opus4.6 only when the
+  # Consequence of the removal: the Claude CLI side is sonnet5.5 only when the
   # orchestrator is opus5.5, since the orchestrator's own slot is delegated to
   # the persona team rather than spawned as a subprocess.
 
-  # Opus 4.6 stays for its documented complementary bias
-  # (ambiguity-preserving, self-reference-friendly) — it is the calibrated
-  # anchor on the Claude side, deliberately not a frontier model.
+  # Opus 4.6 retired 2026-09-30 (operator instruction); Sonnet 5.5 at effort
+  # high takes the seat. Opus 4.6 had been kept as the calibrated, deliberately
+  # non-frontier anchor on the Claude side. Sonnet 5.5 had held the seat for
+  # two rounds when it was chosen and is otherwise uncalibrated. To restore, set
+  # this entry back to model claude-opus-4-6 and role_label claude_cli_opus4.6.
   - provider: claude_code
-    model: claude-opus-4-6
+    model: claude-sonnet-5-5
     effort: high
-    role_label: claude_cli_opus4.6
+    role_label: claude_cli_sonnet5.5
 
   # Opus 4.8 retired 2026-07-25 when Opus 5 entered the roster (same
   # succession logic that retired 4.7 on 2026-06-10: the strictness /

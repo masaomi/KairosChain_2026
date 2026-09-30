@@ -31,7 +31,7 @@ which spawns external LLMs as subprocesses via adapter classes:
 
 | Adapter | Subprocess command | Use case |
 |---------|-------------------|----------|
-| `ClaudeCodeAdapter` | `claude -p --output-format json` | Sub-author (4.6), persona reviewers |
+| `ClaudeCodeAdapter` | `claude -p --output-format json` | Sub-author (Sonnet 5.5), persona reviewers |
 | `CodexAdapter` | `codex exec --sandbox read-only` | Codex review |
 | `CursorAdapter` | `agent -p` | Cursor review |
 | `AnthropicAdapter` | Direct API (no subprocess) | Anthropic API calls |
