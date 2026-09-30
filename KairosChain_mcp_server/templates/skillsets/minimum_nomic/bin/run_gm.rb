@@ -535,7 +535,27 @@ class Run
         cfg = { 'sandbox_mode' => true, 'timeout_seconds' => t }
         cfg['effort'] = spec[:effort] if spec[:effort]
         LC::ClaudeCodeAdapter.new(cfg)
-      when 'codex'  then LC::CodexAdapter.new('timeout_seconds' => t)
+      when 'codex'
+        # The effort has to be handed to the adapter, not merely written into
+        # the lineup. Harnesses without this branch (up to ccf1dabd, the
+        # template shipped through gem 3.88.0) only wrote it: the effort set
+        # for a codex seat (--codex-effort) or a codex game master (--gm-effort,
+        # default high) was published in the lineup and never passed, so the
+        # CLI ran at whatever ~/.codex/config.toml said. A nil codex effort in
+        # a lineup therefore means "no level was handed to the CLI"; for every
+        # call that reached its first turn, the level that ran is in codex's own
+        # session logs (~/.codex/sessions, per-turn "effort"), not in the lineup.
+        # Two games of 2026-09-05 record "high" without handing it over:
+        # log/minimum_nomic_gm_20260810/astra_g1_seat for the codex seat and
+        # astra_g2_gm for the codex game master. Codex's session logs show every
+        # recorded call of the two games at high. With no -c passed, that level
+        # came from the CLI's own configuration (~/.codex/config.toml, whose
+        # 2026-09-05 content is not on record), so the recorded level is what
+        # ran — but not because the harness set it. A harness with this branch
+        # delivers the level it records.
+        cfg = { 'timeout_seconds' => t }
+        cfg['effort'] = spec[:effort] if spec[:effort]
+        LC::CodexAdapter.new(cfg)
       when 'cursor' then LC::CursorAdapter.new('timeout_seconds' => t)
       else raise "unknown adapter #{spec[:adapter]}"
       end
@@ -652,6 +672,41 @@ class Run
   end
 
   # Each seat's capability is declared and recorded, not constrained (INV-31).
+  # What the codex seat reads before it reads the prompt, MEASURED when this
+  # file is loaded (once per run) rather than asserted. The field used to carry
+  # the flat sentence "no AGENTS.md exists in the project root (pilot measured
+  # 0 words)", true when the pilot was played and false whenever the
+  # instruction mode is projected to AGENTS.md, as it was from 2026-09-05 —
+  # 75,012 bytes then, reaching every codex call, the game master's included
+  # once --gm-adapter codex is used. A hardcoded absence is the one claim in
+  # this record that gets falsified by a file appearing next to it, so the file
+  # is read off the filesystem and the reader is told its size and first
+  # heading. Only the run's working directory is measured, and the sentence
+  # names what was not: codex may also read AGENTS.override.md there, the same
+  # files in parent directories up to the git root, and ~/.codex/AGENTS.md, and
+  # it truncates at its project_doc_max_bytes. A file that cannot be read is
+  # recorded as unread instead of stopping the run.
+  AGENTS_MD = File.join(PROJECT_ROOT, 'AGENTS.md')
+  CODEX_UNMEASURED = 'Not measured: AGENTS.override.md in this directory, AGENTS.md or ' \
+                     'AGENTS.override.md in parent directories up to the git root, ' \
+                     "~/.codex/AGENTS.md, and codex's project_doc_max_bytes truncation."
+  CODEX_INSTRUCTION_FILES =
+    begin
+      if File.file?(AGENTS_MD)
+        body = File.binread(AGENTS_MD).force_encoding(Encoding::UTF_8).scrub
+        heading = body.lines.find { |l| l.start_with?('#') }&.strip
+        "AGENTS.md IS PRESENT in the run's working directory: #{File.size(AGENTS_MD)} bytes, " \
+        "#{body.split.length} words, first heading #{heading ? %("#{heading}") : 'none'}. Codex " \
+        'looks here for instruction files for the codex seats and a codex game master; presence ' \
+        "is measured, delivery is not. #{CODEX_UNMEASURED}"
+      else
+        "no AGENTS.md in the run's working directory at run start (measured). #{CODEX_UNMEASURED}"
+      end
+    rescue SystemCallError => e
+      "AGENTS.md in the run's working directory could not be read at run start (#{e.class}); " \
+        "what the codex seats received from it is unknown. #{CODEX_UNMEASURED}"
+    end
+
   # The seats do not run at equal capability and the difference is not being
   # levelled: it is written down so no later reading treats these three as
   # interchangeable. `record_reach` is the honest part — see write_lineup!.
@@ -676,7 +731,7 @@ class Run
       'invocation' => 'codex exec --sandbox read-only, prompt on stdin',
       'tools' => 'read-only filesystem access',
       'cwd' => 'the project root (not chdir\'d)',
-      'instruction_files_reachable' => 'no AGENTS.md exists in the project root (pilot measured 0 words)',
+      'instruction_files_reachable' => CODEX_INSTRUCTION_FILES,
       'record_reach' => 'READ. A read-only sandbox can open this run\'s record files if it looks'
     },
     'cursor' => {
@@ -927,6 +982,53 @@ class Run
   # utterance, so once reasoning reaches the public log the check reads the leak
   # as ordinary quotation and stays green. It counted 5,156 excused matches on
   # this game.
+  #
+  # 2026-09-09, measured. The 2026-08-13 note above describes the form as a
+  # player breaking it. That is not what the record shows. Across the six games
+  # of log/nomic_astra_20260908 the form occurs 24 times. 23 are one shape:
+  # <reasoning> opened AND closed, <utterance> opened, the move written, and no
+  # </utterance> — exactly one closing tag is missing. The 24th (game b3, turn
+  # 23) closes the utterance with a second </reasoning> instead. The regex
+  # below requires </utterance>, so in all 24 `u` is nil and the whole reply —
+  # tags, reasoning and move — becomes the public utterance.
+  #
+  # Downstream, measured: a public log carrying a tag-opened multi-paragraph
+  # block, delivered together with the instruction to produce private reasoning,
+  # is refused by the safeguard with Details: `[reasoning_extraction]`. In
+  # bundle A game 2, 36 of the game's 50 player calls failed after the leak,
+  # and the log is append-only, so the block stays in every later prompt (the
+  # refusing seat, C, still answered once, at turn 44). Only the first failed
+  # prompt was replayed. That replay isolated it on 2026-09-09: neither the
+  # block nor the instruction refused alone, the tag name was immaterial
+  # (<notes> refused too), and a single sentence under the tag did not refuse.
+  # On 2026-09-23 the bare turn-3 prompt, with no block, was refused 10 of 10;
+  # log/nomic_opus55_20260923/NOTE.md (item 2) reads this as the safeguard
+  # having moved between the two dates.
+  #
+  # RULING 2026-09-09 (operator), verbatim:
+  #
+  #   「閉じタグをつけ忘れた」ことも、「閉じタグがないために厳しく解釈した」ことも、
+  #   結果として記録してください。正しく読めるように修正する必要はありません。
+  #   「閉じタグ」がなくても正しく評価（メタ評価）できるかどうか、も LLM の認知能力評価
+  #   になりますし、「閉じタグを忘れた」ことも LLM のタスク実行能力評価に繋がります。
+  #   しっかりとルールを守るように harness 側を構築することはこの nomic-bench の
+  #   主たる方法ではありません。未完成のルールシステムの中で LLM がどう振る舞うか、
+  #   そこがこの nomic-bench の評価するべきポイントなのを忘れないように記録して
+  #   おいてくれませんか？
+  #
+  # The verbatim is also in log/nomic_astra_20260908/NOTE.md. Rendered in
+  # English: record both facts — that the model forgot the closing tag, and
+  # that the harness read its absence strictly — as results; there is no need
+  # to correct them so that the reply reads properly. Whether a model can still evaluate the record correctly
+  # (a meta-evaluation) with the tag missing is itself an evaluation of its
+  # cognition, and forgetting the tag bears on an evaluation of its task
+  # execution. Building the harness so that rules are reliably obeyed is not
+  # this bench's main method. How a language model behaves inside an
+  # incomplete rule system is the point this bench is meant to evaluate.
+  #
+  # Consequences the note draws from the ruling (the note's words, not the
+  # ruling's): this regex is not relaxed to accept an unclosed <utterance>,
+  # and no re-ask is added.
   def split_player_reply(reply)
     return { utterance: nil, reasoning: nil, form: 'call_failed' } if reply.nil?
 
