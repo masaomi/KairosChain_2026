@@ -4,6 +4,69 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.88.2] - 2026-10-06
+
+### Security — agent: the act and its LLM bodies stay inside their gates
+
+A design review of approval delegation found several ways for the agent to get
+around the gates it runs inside: the tool blacklist, the risk budget and the
+guard. Each was confirmed in code; none was observed in use. Four review rounds
+followed. **The act route is still deny-based. Do not run the agent unattended
+until an act-route allow-list lands** (next version, designed with approval
+delegation).
+
+**No LLM body launched for the agent carries tools in the project root.**
+- **Agent phases.** ORIENT, DECIDE, REFLECT and the persona reviews launched
+  `claude -p` in the project root. It read the project's instruction files and
+  inherited its permission rules (on one instance, `Bash(*)`, `Write` and
+  `Edit`). Every agent LLM call is now sandboxed.
+- **llm_call steps in the act.** The driver forces `sandbox_mode` on them. A
+  step whose provider carries tools (codex, cursor, codex_mcp), or any provider
+  outside claude_code / anthropic / openai / bedrock, is refused before the
+  act. This includes the instance's default provider when the step names
+  none, and the default provider used by `write_section`.
+- **`write_section`.** Its section writer now always calls the LLM sandboxed.
+- **multi_llm_review cursor seat.** It ran `agent -p` (every tool, write and
+  shell included) in the server's working directory. It now runs
+  `agent -p --trust --mode plan` (read-only) in an empty directory made for
+  each call. Cursor reviews therefore see only the artifact.
+
+**An act does not touch what constrains the agent or its operator.**
+- **Protected locations.** A step whose path arguments, at any depth and
+  whatever the tool, reach a protected location is refused before ACT. The
+  protected locations are:
+  - the KairosChain stores (`.kairos`: config, sessions, L1, the instruction
+    mode, the chain, the keys);
+  - `.claude` and `.codex`;
+  - `.mcp.json`, `CLAUDE.md` and `AGENTS.md`;
+  - anything outside the project (`$HOME` and `/` never count as the
+    project).
+- **How paths are judged.** Paths are resolved against the step's own root
+  arguments and against the tools' default roots, so a decoy root cannot move
+  the check. `..` segments, unresolvable paths and dangling symlinks are
+  refused. A symlink is judged by its target.
+- **Recording.** The refusal is recorded on the chain (`agent_act_refused`,
+  with the rule that fired) whether or not the guard is on.
+- **Record-store writers** (`chain_record`, attestation and state commits) are
+  now refused on the act route with the guard off as well. The record judges
+  the act, so the act may not write it.
+- **Configuration writers** (`llm_configure`, `mode_hooks_add` /
+  `mode_hooks_project`, `plugin_project`), `hermes_*` and `multi_llm_review*`
+  are refused on the act route. All of these are also hidden from DECIDE's
+  tool catalog, and DECIDE's norms name the rule.
+- **Instances whose `safety.yml` sets no `safe_root`.** The file tools resolve
+  relative paths inside the stores there, so the act refuses them. The refusal
+  says to set `safe_root`.
+
+**Not covered yet.**
+- `.git/hooks` and `.git/config`, `.cursor*`, `.gemini`,
+  `.github/copilot-instructions.md`, `.envrc` and `.vscode/tasks.json` are not
+  in the protected set.
+- A path-less tool not named above is not stopped (the allow-list will).
+- `agent_execute` remains unregistered.
+- In an operator's own multi_llm_review runs, the codex seat can still read
+  the repository.
+
 ## [3.88.1] - 2026-10-06
 
 ### Fixed — agent guard: the verdict reaches the record
