@@ -4,6 +4,45 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.88.1] - 2026-10-06
+
+### Fixed — agent guard: the verdict reaches the record
+
+Found in a guarded trial on 3.88.0. The guard judged correctly, but its
+judgment never reached the record: the chain held only autoexec's "execution
+complete" for an act the guard had failed, progress said `completed`, and the
+FAIL survived only in a mutable session file.
+
+- **The verdict is chain-recorded.** Right after judging, before any halt
+  checkpoint and before any merge, the driver records `kind:
+  agent_guard_verdict`: the verdict, the pinned spec hash, the failed checks,
+  the planned route, and the act's error if it had one.
+- **A verdict the chain does not take stops the loop.** Whatever the verdict,
+  nothing merges and the cycle halts for the operator. The halt reason names
+  the lost verdict and its reason, why the record failed, and whether the act
+  already took effect (in-process) or stays quarantined (confined). Responses
+  and the progress `guard_record` carry `verdict_recorded: false` and
+  `lost_verdict`. On a backend whose chain cannot be appended to (sqlite and
+  postgresql do not declare a ledger path), every guarded cycle now halts
+  this way instead of running unrecorded.
+- **Progress and responses follow the verdict.** A failed verdict is recorded
+  and reported as `failed`, not `completed`; REFLECT is shown the verdict, and
+  the next cycle's executor context says the cycle failed. Manual responses
+  carry `guard` (verdict, failed checks) and `act_error`. The manual risk-resume
+  path reports a guard halt as `guard_halt`, not `ok`. Autonomous responses
+  carry the halt reason and, per cycle, `guard_verdict`, `guard_reason` and
+  `verdict_recorded`; steps set aside for a person are still listed when a
+  cycle halts. A result carrying only an error is no longer reported as
+  `completed`.
+
+Not fixed here: the confined route still cannot run. `agent_execute` is not
+registered by the agent SkillSet, so a plan naming a file tool fails at ACT
+(with the guard on, that FAIL is now recorded), and a file acceptance check
+cannot PASS in this version. Wiring it is separate work.
+
+Also ships `minimum_nomic`'s `bin/run_gm.rb` instance-local changes (a11d103),
+so `system_upgrade` stops reverting them.
+
 ## [3.88.0] - 2026-09-30
 
 ### Added — `multi_llm_review` 0.11.1: an artifact named by path and sha256
