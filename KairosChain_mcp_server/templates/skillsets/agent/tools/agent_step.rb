@@ -527,23 +527,53 @@ module KairosMcp
             # is not an act at all — it must checkpoint WITHOUT running REFLECT,
             # recording a cycle, or consuming a mandate cycle. Short-circuit here.
             if act_result.is_a?(Hash) && act_result['guard_halt']
+              halt = act_result['guard_verdict'] ||
+                     verdict_const.halt_verdict(act_result['error'].to_s)
+              block = record_guard_verdict(session, decision_payload, act_result, halt)
+              return guard_halt_result(session, act_result, halt, verdict_block: block) if block
+
               return guard_halt_result(session, act_result,
-                                       act_result['guard_verdict'] ||
-                                       verdict_const.halt_verdict(act_result['error'].to_s))
+                                       unrecorded_verdict_halt(halt, act_result),
+                                       verdict_recorded: false, lost_verdict: halt['verdict'])
             end
 
             # Guard track (AGT-3): the mechanical verdict decides cycle success
             # from driver-observed evidence, before and above REFLECT. On HALT or
             # FAIL the cycle is not a success no matter what REFLECT later says.
             guard_verdict = guard_judge(session, act_result)
+
+            # The verdict goes on the chain before anything acts on it — before
+            # the halt checkpoint and before the merge. Without this the chain
+            # held only autoexec's "execution complete" for an act the verdict
+            # had FAILed, and the FAIL survived only in a mutable session file
+            # (observed 2026-10-06 in a guarded trial).
+            verdict_block = guard_verdict && record_guard_verdict(session, decision_payload,
+                                                                  act_result, guard_verdict)
+
+            # A verdict the chain did not take stops the loop for the operator,
+            # whatever the verdict was. Nothing merges, so no change reaches the
+            # live tree without the record that licenses it. Counting the act as
+            # failed instead would invite the next cycle to redo effects that an
+            # in-process act has already applied, and a FAIL would otherwise
+            # keep cycling with its record missing — the original defect again.
+            if guard_verdict && verdict_block.nil?
+              return guard_halt_result(session, act_result, unrecorded_verdict_halt(guard_verdict, act_result),
+                                       verdict_recorded: false, lost_verdict: guard_verdict['verdict'])
+            end
             if guard_verdict && guard_verdict['verdict'] == verdict_const::HALT
-              return guard_halt_result(session, act_result, guard_verdict)
+              return guard_halt_result(session, act_result, guard_verdict, verdict_block: verdict_block)
             end
 
             # AGT-1 return path: a PASS delegated act's results reach the live
             # tree only now, through the driver's verdict-gated merge. A FAIL
             # verdict leaves the scratch area unmerged (quarantined).
-            merge_guard_pass(session, act_result, guard_verdict)
+            if guard_verdict && guard_verdict['verdict'] == verdict_const::PASS
+              merge_guard_pass(session, act_result, guard_verdict)
+            end
+
+            # REFLECT reads the act result; without this it would see only the
+            # executor's own "completed" for an act the verdict failed.
+            act_result['guard_verdict_summary'] = guard_verdict_summary(guard_verdict) if guard_verdict
 
             session.update_state('reflecting')
             reflect_loop = CognitiveLoop.new(self, session)
@@ -572,10 +602,11 @@ module KairosMcp
             record_agent_cycle(session, decision_payload, act_result, reflect_result,
                                force_evaluation: forced)
 
-            act_summary = act_result['summary'] || act_result['error'] || 'completed'
+            act_summary = reported_act_summary(act_result, guard_failed)
             decision_summary = decision_payload['summary'] || ''
             session.save_progress(reflect_result, session.cycle_number + 1, act_summary, decision_summary,
-                                  guard_record: build_guard_record(act_result, guard_verdict))
+                                  guard_record: build_guard_record(act_result, guard_verdict,
+                                                                   verdict_block: verdict_block))
 
             session.increment_cycle
             session.save
@@ -589,9 +620,90 @@ module KairosMcp
 
             result = { act: act_result, reflect: reflect_result, cycle: session.cycle_number,
                        act_error: act_result['error'], act_succeeded: act_succeeded,
-                       llm_calls: reflect_loop.total_calls }
+                       act_summary: act_summary, llm_calls: reflect_loop.total_calls }
             result[:guard_verdict] = guard_verdict if guard_verdict
             result
+          end
+
+          # What the record and every response call this act. A failing guard
+          # verdict outranks the executor's own summary: an executor reporting
+          # "completed" for an act the verdict failed is the very case the guard
+          # exists to catch. This string is also what the next cycle's executor
+          # is told about this one (build_agent_execute_context), so a false
+          # "completed" here would mislead the next cycle, not only the reader.
+          def reported_act_summary(act_result, guard_failed)
+            return 'failed' if guard_failed
+
+            act_result['summary'] || act_result['error'] || 'completed'
+          end
+
+          # The summary a response shows for a cycle result. Prefers the one the
+          # driver recorded; a guard halt result carries 'guard_halt'. A result
+          # that carries only an error is not reported as 'completed'.
+          def response_act_summary(result)
+            result[:act_summary] || result.dig(:act, 'summary') ||
+              (result[:act_error] ? 'failed' : 'completed')
+          end
+
+          # What a response shows the operator about the guard for one cycle.
+          # nil when the guard was off.
+          def guard_verdict_summary(guard_verdict)
+            return nil unless guard_verdict.is_a?(Hash)
+
+            {
+              'verdict' => guard_verdict['verdict'],
+              'failed_checks' => failed_guard_checks(guard_verdict).map { |c| c['type'] },
+              'reason' => guard_verdict['reason'].to_s[0, 200]
+            }
+          end
+
+          # The halt that replaces a verdict the chain did not take. Constant
+          # verdict keys are kept. The reason says which verdict was lost and
+          # why it was given, why the record failed, and what already happened
+          # to the act — an operator reading "nothing was merged" for an
+          # in-process act whose effects have landed would redo it.
+          def unrecorded_verdict_halt(guard_verdict, act_result)
+            act = act_result.is_a?(Hash) ? act_result : {}
+            scratch = act['scratch_dir'] || act.dig('execution', 'scratch_dir')
+            effects = if act['guard_halt']
+                        'the act did not run'
+                      elsif scratch
+                        'the confined results stay quarantined, not merged'
+                      else
+                        'the in-process act already took effect; do not re-run it blindly'
+                      end
+            cause = @guard_record_error || 'unknown'
+            {
+              'verdict' => ::KairosMcp::SkillSets::Agent::Verdict::HALT,
+              'checks' => guard_verdict['checks'] || [],
+              'spec_sha256' => guard_verdict['spec_sha256'],
+              'reason' => "guard verdict #{guard_verdict['verdict']} (#{guard_verdict['reason'].to_s[0, 160]}) " \
+                          "could not be recorded on the chain (#{cause[0, 200]}); #{effects}. " \
+                          'The loop stopped for the operator.'
+            }
+          end
+
+          def guard_halt_warning(result)
+            reason = result[:act_error].to_s[0, 300]
+            note = result[:verdict_recorded] == false ? ' [verdict not recorded on the chain]' : ''
+            "guard_halt: human review required — #{reason}#{note}"
+          end
+
+          # The response for a cycle that ended in a guard halt. Shared by the
+          # manual approve path and the manual risk-resume path, so neither can
+          # present a halt as an ordinary 'ok'.
+          def guard_halt_response(session, result)
+            gv = result[:guard_verdict] || {}
+            resp = {
+              'status' => 'guard_halt', 'session_id' => session.session_id,
+              'state' => 'checkpoint',
+              'act_summary' => 'guard_halt',
+              'guard_reason' => gv['reason'] || result[:act_error],
+              'guard_verdict' => gv,
+              'verdict_recorded' => result[:verdict_recorded] == true
+            }
+            resp['permission_advisory'] = session.permission_advisory if session.permission_advisory
+            resp
           end
 
           # Slice 2 NB-2 (R1 F7): the per-cycle constitutive record naming which
@@ -599,7 +711,10 @@ module KairosMcp
           # spec hash, plus substrate identity. Empty for the CLI substrate
           # (no staged closure) beyond the substrate label. Returns {} when
           # there is nothing to record so save_progress omits the field.
-          def build_guard_record(act_result, guard_verdict)
+          # The verdict itself and the chain block holding it are part of the
+          # record too: the spec hash alone said what was asked, not what was found.
+          def build_guard_record(act_result, guard_verdict, verdict_block: nil, verdict_recorded: nil,
+                                 lost_verdict: nil)
             return {} unless act_result.is_a?(Hash)
 
             execution = act_result['execution'] || {}
@@ -610,22 +725,94 @@ module KairosMcp
             rec['substrate'] = substrate if substrate
             rec['closure_sha256'] = closure_sha if closure_sha
             rec['spec_sha256'] = spec_sha if spec_sha
+            if guard_verdict.is_a?(Hash)
+              rec['verdict'] = guard_verdict['verdict']
+              failed = failed_guard_checks(guard_verdict)
+              rec['failed_checks'] = failed.map { |c| c['type'] } unless failed.empty?
+              rec['verdict_chain_block'] = verdict_block if verdict_block
+              rec['verdict_recorded'] = verdict_recorded.nil? ? !verdict_block.nil? : verdict_recorded
+              rec['lost_verdict'] = lost_verdict if lost_verdict
+            end
             rec
+          end
+
+          def failed_guard_checks(guard_verdict)
+            Array(guard_verdict['checks']).reject do |c|
+              c['result'] == ::KairosMcp::SkillSets::Agent::Verdict::PASS
+            end
+          end
+
+          # Guard verdict -> chain (Proposition 5). Driver-authored, written on
+          # the driver's own context: the ACT context denies chain_record by
+          # design (admission.rb), and the act is not the one judging itself.
+          # Returns { 'index', 'hash' } of the block, or nil when the write did
+          # not land — success is read from chain_record's own confirmation,
+          # never assumed.
+          def record_guard_verdict(session, decision_payload, act_result, guard_verdict)
+            act = act_result.is_a?(Hash) ? act_result : {}
+            execution = act['execution'].is_a?(Hash) ? act['execution'] : {}
+            # Check details name files by their absolute scratch path; the chain
+            # keeps the workspace-relative part, not a temporary directory.
+            scratch = act['scratch_dir'] || execution['scratch_dir']
+            relative = ->(d) { scratch ? d.to_s.sub("#{scratch}/", '') : d.to_s }
+            @guard_record_error = nil
+            # The route the plan asked for; whether the act ran there is told
+            # by act_error (an unreachable executor fails before running).
+            planned = requires_file_operations?(decision_payload && decision_payload['task_json']) ? 'confined' : 'in_process'
+            record = {
+              'kind' => 'agent_guard_verdict',
+              'session_id' => session.session_id,
+              'mandate_id' => session.mandate_id,
+              'cycle' => session.cycle_number + 1,
+              'planned_route' => planned,
+              'verdict' => guard_verdict['verdict'],
+              'spec_sha256' => guard_verdict['spec_sha256'],
+              'reason' => guard_verdict['reason'].to_s[0, 200],
+              'failed_checks' => failed_guard_checks(guard_verdict).map { |c|
+                { 'type' => c['type'], 'detail' => relative.call(c['detail'])[0, 160] }
+              },
+              'recorded_at' => Time.now.utc.iso8601
+            }
+            substrate = act['substrate'] || execution['substrate']
+            closure = act['closure_sha256'] || execution['closure_sha256']
+            record['substrate'] = substrate if substrate
+            record['closure_sha256'] = closure if closure
+            record['act_error'] = relative.call(act['error'])[0, 200] if act['error']
+
+            out = invoke_tool('chain_record', { 'logs' => [JSON.generate(record)] })
+            text = Array(out).map { |b| b[:text] || b['text'] }.compact.join
+            m = text.match(/Block #(\d+) recorded successfully\.\s*Hash: (\h+)/)
+            unless m
+              @guard_record_error = "chain_record replied: #{text[0, 160]}"
+              log_agent(:warn, 'guard_verdict_unrecorded', session, detail: text[0, 160])
+              return nil
+            end
+            { 'index' => m[1].to_i, 'hash' => m[2] }
+          rescue StandardError => e
+            @guard_record_error = "#{e.class}: #{e.message}"
+            log_agent(:warn, 'guard_verdict_unrecorded', session, error: e.message)
+            nil
           end
 
           # AGT-6: build the checkpoint result for a guard halt without running
           # REFLECT, recording a cycle, or consuming a mandate cycle. The human
           # sees the halt reason, never a false "completed".
-          def guard_halt_result(session, act_result, guard_verdict)
+          def guard_halt_result(session, act_result, guard_verdict, verdict_block: nil, verdict_recorded: nil,
+                                lost_verdict: nil)
+            recorded = verdict_recorded.nil? ? !verdict_block.nil? : verdict_recorded
             session.update_state('checkpoint')
             session.save_progress({ 'confidence' => 0.0, 'guard_verdict' => guard_verdict },
                                   session.cycle_number + 1,
                                   "guard halt: #{guard_verdict['reason']}", '',
-                                  guard_record: build_guard_record(act_result, guard_verdict))
+                                  guard_record: build_guard_record(act_result, guard_verdict,
+                                                                   verdict_block: verdict_block,
+                                                                   verdict_recorded: recorded,
+                                                                   lost_verdict: lost_verdict))
             session.save
             log_agent(:warn, 'guard_halt', session, reason: guard_verdict['reason'].to_s[0..120])
             { act: act_result, reflect: { 'confidence' => 0.0 }, cycle: session.cycle_number,
               act_error: guard_verdict['reason'], act_succeeded: false, guard_halt: true,
+              act_summary: 'guard_halt', verdict_recorded: recorded,
               guard_verdict: guard_verdict, llm_calls: 0 }
           end
 
@@ -727,25 +914,16 @@ module KairosMcp
             # cycle increment); the manual-mode response must not paper over it
             # with the act_summary fallback below (guard_halt_result's stated
             # contract: "the human sees the halt reason, never a false completed").
-            if result[:guard_halt]
-              gv = result[:guard_verdict] || {}
-              halt_response = {
-                'status' => 'guard_halt', 'session_id' => session.session_id,
-                'state' => 'checkpoint',
-                'act_summary' => 'guard_halt',
-                'guard_reason' => gv['reason'] || result[:act_error],
-                'guard_verdict' => gv
-              }
-              halt_response['permission_advisory'] = session.permission_advisory if session.permission_advisory
-              return text_content(JSON.generate(halt_response))
-            end
+            return text_content(JSON.generate(guard_halt_response(session, result))) if result[:guard_halt]
 
             response = {
               'status' => 'ok', 'session_id' => session.session_id,
               'state' => 'checkpoint',
-              'act_summary' => result.dig(:act, 'summary') || 'completed',
+              'act_summary' => response_act_summary(result),
               'reflect' => result[:reflect]
             }
+            response['act_error'] = result[:act_error] if result[:act_error]
+            response['guard'] = guard_verdict_summary(result[:guard_verdict]) if result[:guard_verdict]
             response['permission_advisory'] = session.permission_advisory if session.permission_advisory
             text_content(JSON.generate(response))
           end
@@ -1041,8 +1219,12 @@ module KairosMcp
                 if ar_result[:guard_halt]
                   session.update_state('checkpoint')
                   session.save
+                  # Steps the plan set aside for a person are still owed to the
+                  # operator when the cycle halts after an in-process act.
+                  deferred = Array(ar_result.dig(:act, 'deferred'))
                   return finalize_autonomous(session, results, checkpoint: true,
-                                             warning: 'guard_halt: human review required')
+                                             warning: guard_halt_warning(ar_result),
+                                             deferred: deferred.empty? ? nil : deferred)
                 end
                 # Everything that could run has run. What is left needs the
                 # operator: the steps the plan marked for a person, and the
@@ -1156,10 +1338,14 @@ module KairosMcp
               'error' => error,
               'warning' => warning,
               'cycle_results' => cycle_results.map { |r|
-                { 'cycle' => r[:cycle],
-                  'act_summary' => r.dig(:act, 'summary') || 'completed',
-                  'confidence' => clamp_confidence(r.dig(:reflect, 'confidence')),
-                  'remaining_count' => Array(r.dig(:reflect, 'remaining')).size }
+                row = { 'cycle' => r[:cycle],
+                        'act_summary' => response_act_summary(r),
+                        'confidence' => clamp_confidence(r.dig(:reflect, 'confidence')),
+                        'remaining_count' => Array(r.dig(:reflect, 'remaining')).size }
+                row['guard_verdict'] = r[:guard_verdict]['verdict'] if r[:guard_verdict].is_a?(Hash)
+                row['guard_reason'] = r[:act_error] if r[:guard_halt]
+                row['verdict_recorded'] = false if r[:verdict_recorded] == false
+                row
               }
             }
             reports = surface_reports(session)
@@ -1276,8 +1462,10 @@ module KairosMcp
               if ar_result[:guard_halt]
                 session.update_state('checkpoint')
                 session.save
+                deferred = Array(ar_result.dig(:act, 'deferred'))
                 return finalize_autonomous(session, [ar_result], checkpoint: true,
-                                           warning: 'guard_halt: human review required')
+                                           warning: guard_halt_warning(ar_result),
+                                           deferred: deferred.empty? ? nil : deferred)
               end
               if ar_result[:act_error]
                 session.update_state('paused_error')
@@ -1294,12 +1482,17 @@ module KairosMcp
               result = run_act_reflect_internal(session)
               session.update_state('checkpoint')
               session.save
-              text_content(JSON.generate({
+              return text_content(JSON.generate(guard_halt_response(session, result))) if result[:guard_halt]
+
+              response = {
                 'status' => 'ok', 'session_id' => session.session_id,
                 'state' => 'checkpoint',
-                'act_summary' => result.dig(:act, 'summary') || 'completed',
+                'act_summary' => response_act_summary(result),
                 'reflect' => result[:reflect]
-              }))
+              }
+              response['act_error'] = result[:act_error] if result[:act_error]
+              response['guard'] = guard_verdict_summary(result[:guard_verdict]) if result[:guard_verdict]
+              text_content(JSON.generate(response))
             end
           end
 
