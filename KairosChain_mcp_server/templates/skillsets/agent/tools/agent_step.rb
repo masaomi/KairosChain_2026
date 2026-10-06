@@ -2,6 +2,7 @@
 
 require 'json'
 require 'digest'
+require 'yaml'
 require_relative '../lib/agent'
 
 module KairosMcp
@@ -836,6 +837,121 @@ module KairosMcp
             act_result['summary'] = 'failed'
           end
 
+          # Protected directories and the roots a tool may resolve a relative
+          # path against, for the pre-ACT protected-path check. The roots
+          # include the tools' own defaults (@safety's workspace and safe
+          # roots — the latter is the data dir when safety.yml sets none), so
+          # a relative path is judged where the tool would actually write it.
+          def stores_dir_for_admission
+            if defined?(KairosMcp) && KairosMcp.respond_to?(:data_dir) && KairosMcp.data_dir
+              return KairosMcp.data_dir
+            end
+            File.join(Dir.pwd, '.kairos')
+          end
+
+          def protected_dirs_for_admission
+            root = project_root_for_merge
+            [stores_dir_for_admission, File.join(root, '.claude'), File.join(root, '.codex')]
+          end
+
+          def workspace_roots_for_admission
+            safety_roots = %i[workspace_root safe_root].filter_map do |m|
+              @safety.respond_to?(m) ? @safety.public_send(m) : nil
+            rescue StandardError
+              nil
+            end
+            (safety_roots + [ENV['KAIROS_WORKSPACE'], Dir.pwd, project_root_for_merge]).compact.map(&:to_s).uniq
+          end
+
+          # Arguments forced on steps that launch an LLM body. Returns
+          # [copy, rewritten_step_ids]; the recorded decision is left as the
+          # plan's author wrote it.
+          LAUNCHER_ARGS = {
+            'llm_call' => { 'sandbox_mode' => true }
+          }.freeze
+
+          def confine_launcher_steps(task_json)
+            return [task_json, []] unless task_json.is_a?(Hash) && task_json['steps'].is_a?(Array)
+
+            copy = JSON.parse(JSON.generate(task_json))
+            rewritten = []
+            copy['steps'].each do |step|
+              forced = step.is_a?(Hash) ? LAUNCHER_ARGS[step['tool_name'].to_s] : nil
+              next unless forced
+
+              step['tool_arguments'] = (step['tool_arguments'].is_a?(Hash) ? step['tool_arguments'] : {}).merge(forced)
+              rewritten << step['step_id'].to_s
+            end
+            [copy, rewritten]
+          end
+
+          # Where an act may touch anything at all: the project (and an
+          # explicitly configured workspace). The home directory or the
+          # filesystem root never counts as a project (a global install whose
+          # data dir is ~/.kairos would otherwise allow ~/.zshrc and ~/.ssh);
+          # with no project left, nothing is allowed and the act is refused.
+          def allowed_roots_for_admission
+            home = begin
+              Dir.home
+            rescue StandardError
+              nil
+            end
+            too_broad = [home, '/'].compact.map { |d| ::KairosMcp::SkillSets::Agent::Admission.safe_canonical(d) }
+            [project_root_for_merge, ENV['KAIROS_WORKSPACE']].compact.map(&:to_s).reject(&:empty?)
+              .reject { |d| too_broad.include?(::KairosMcp::SkillSets::Agent::Admission.safe_canonical(d)) }
+          end
+
+          # The instance's default llm_call provider, read from llm_client's
+          # config; nil when unreadable (steps without a safe override are then
+          # refused).
+          # Read the way llm_call reads it (llm_call.rb load_config): Symbol
+          # permitted, and 'anthropic' when the file does not exist.
+          def configured_llm_provider
+            path = File.join(stores_dir_for_admission, 'skillsets', 'llm_client', 'config', 'llm_client.yml')
+            return 'anthropic' unless File.exist?(path)
+
+            (YAML.safe_load(File.read(path), permitted_classes: [Symbol]) || {})['provider']&.to_s
+          rescue StandardError
+            nil
+          end
+
+          # When the file tools' own root is inside the stores (safety.yml sets
+          # no safe_root), every relative path lands there and is refused; say so.
+          def stores_root_hint
+            stores = ::KairosMcp::SkillSets::Agent::Admission.safe_canonical(stores_dir_for_admission).downcase
+            inside = workspace_roots_for_admission.any? do |r|
+              c = ::KairosMcp::SkillSets::Agent::Admission.safe_canonical(r).downcase
+              c == stores || c.start_with?("#{stores}/")
+            end
+            inside ? ' (this instance resolves tool paths inside the KairosChain stores: set safe_root in safety.yml)' : ''
+          rescue StandardError
+            ''
+          end
+
+          # A refused act is a security-relevant event: record it on the chain
+          # (driver context) whether or not the guard is on. Non-blocking —
+          # the refusal stands even if the record does not land.
+          def record_act_refusal(session, violations)
+            record = {
+              'kind' => 'agent_act_refused',
+              'session_id' => session.session_id,
+              'mandate_id' => session.mandate_id,
+              'cycle' => session.cycle_number + 1,
+              'reason' => violations.map { |v| v['rule'] }.compact.uniq,
+              'steps' => violations.first(10).map { |v|
+                { 'step_id' => v['step_id'].to_s[0, 40], 'tool_name' => v['tool_name'].to_s[0, 60], 'rule' => v['rule'] }
+              },
+              'recorded_at' => Time.now.utc.iso8601
+            }
+            out = invoke_tool('chain_record', { 'logs' => [JSON.generate(record)] })
+            text = Array(out).map { |b| b[:text] || b['text'] }.compact.join
+            unless text.match?(/Block #\d+ recorded successfully/)
+              log_agent(:warn, 'act_refusal_unrecorded', session, detail: text[0, 160])
+            end
+          rescue StandardError => e
+            log_agent(:warn, 'act_refusal_unrecorded', session, error: e.message)
+          end
+
           def project_root_for_merge
             if defined?(KairosMcp) && KairosMcp.respond_to?(:data_dir)
               root = File.dirname(KairosMcp.data_dir)
@@ -1634,13 +1750,49 @@ module KairosMcp
             admission_denied = guard_admission_blacklist(session)
             return admission_denied if admission_denied.is_a?(Hash) # guard halt
 
+            # What constrains the agent or its operator is off limits to the act,
+            # with or without the guard: a plan whose path arguments reach the
+            # stores, the harness configuration or the instruction files is
+            # refused before it runs (Admission::PROTECTED_*). This binds path
+            # arguments only; store writers that carry content rather than a
+            # path (context_save, operator_report, ...) remain the act's tools
+            # by design.
+            admission = ::KairosMcp::SkillSets::Agent::Admission
+            violations = admission.protected_path_violations(decision_payload['task_json'],
+                                                             protected_dirs_for_admission,
+                                                             workspace_roots_for_admission,
+                                                             allowed_roots_for_admission) +
+                         admission.unsafe_llm_steps(decision_payload['task_json'], configured_llm_provider)
+            unless violations.empty?
+              listed = violations.map { |v| "#{v['step_id']} #{v['tool_name']} [#{v['rule']}]" }.join('; ')
+              log_agent(:warn, 'act_protected_path_refused', session, steps: listed[0, 200])
+              record_act_refusal(session, violations)
+              return { 'error' => 'ACT refused before execution: the plan names a protected location ' \
+                                  '(KairosChain stores, harness configuration, instruction files), a ' \
+                                  'path outside the project, or an llm_call provider that carries tools, ' \
+                                  "in #{listed[0, 240]}#{stores_root_hint}",
+                       'summary' => 'failed', 'protected_path_refused' => violations }
+            end
+
+            # Denied on the act route whether or not the guard is on: record-store
+            # writers (the record judges the act, so the act may not write it)
+            # and configuration writers (they rewrite what governs every later
+            # call without naming a path, or launch an external agent body).
             act_ctx = session.invocation_context.derive(
               blacklist_remove: %w[autoexec_plan autoexec_run],
-              blacklist_add: admission_denied
+              blacklist_add: (admission::RECORD_STORE_TOOLS + admission::ACT_CONFIG_WRITERS + admission_denied).uniq
             )
 
+            # LLM bodies the act launches run without tools in the project root:
+            # llm_call steps are sandboxed (providers that carry tools were
+            # refused above; multi_llm_review is denied on the act context). The
+            # executed plan is a copy; the rewritten step ids are logged so the
+            # recorded decision and the executed plan hash can be reconciled.
+            task_json, rewritten = confine_launcher_steps(decision_payload['task_json'])
+            log_agent(:info, 'act_launcher_steps_confined', session, steps: rewritten.join(',')) unless rewritten.empty?
+
             plan_result = invoke_tool('autoexec_plan', {
-              'task_json' => JSON.generate(decision_payload['task_json'])
+              'task_json' => JSON.generate(task_json)
             }, context: act_ctx)
 
             plan_parsed = JSON.parse(plan_result.map { |b| b[:text] || b['text'] }.compact.join)
@@ -2795,7 +2947,12 @@ module KairosMcp
             "arguments, so a body written as an instruction — assemble this, summarize " \
             "that — is delivered to the operator verbatim as the report. When the " \
             "deliverable depends on outputs of steps in this plan, deliver it in the " \
-            "next cycle, written from what those steps actually returned."
+            "next cycle, written from what those steps actually returned.\n" \
+            "  (h) Some places are never the act's to touch, in any argument of any step: " \
+            "the KairosChain stores (.kairos), .claude, .codex, .mcp.json, CLAUDE.md, AGENTS.md, " \
+            "and anything outside the project. A plan naming one is refused before it runs. " \
+            "Configuration tools (llm_configure, mode_hooks_*, plugin_project), multi_llm_review and " \
+            "llm_call providers that carry tools (codex, cursor) are not the act's either."
           end
 
           def reflect_system_prompt
@@ -2982,6 +3139,11 @@ module KairosMcp
             ctx = session&.invocation_context
             tools = @registry.list_tools
             tools = tools.reject { |t| ctx && !ctx.allowed?(t[:name]) } if ctx
+            # The act route always refuses record-store writers; offering them
+            # to the planner would only produce plans that fail at dispatch.
+            adm = ::KairosMcp::SkillSets::Agent::Admission
+            act_denied = adm::RECORD_STORE_TOOLS + adm::ACT_CONFIG_WRITERS
+            tools = tools.reject { |t| act_denied.any? { |pat| File.fnmatch(pat, t[:name].to_s) } }
 
             tools.map { |t|
               format_tool_entry(t)

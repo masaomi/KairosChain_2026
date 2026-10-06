@@ -128,10 +128,15 @@ module KairosMcp
             'role' => 'user',
             'content' => build_user_prompt(section_name, instructions, context_text, max_words, language)
           }]
+          # A section writer only produces text from what it is given. Sandboxed
+          # so a claude_code provider does not launch `claude -p` in the project
+          # root with the project's instruction files and permission rules —
+          # where instructions inside the section request could run commands.
           llm_args = {
             'messages' => messages,
             'system' => system_prompt,
-            'max_tokens' => resolve_max_tokens(max_words, context_text)
+            'max_tokens' => resolve_max_tokens(max_words, context_text),
+            'sandbox_mode' => true
           }
           # Forward InvocationContext via dispatch-level context: keyword only.
           result = @caller.invoke_tool('llm_call', llm_args, context: invocation_context)

@@ -2,6 +2,8 @@
 
 require 'json'
 require 'securerandom'
+require 'tmpdir'
+require 'fileutils'
 require_relative 'adapter'
 require_relative 'safe_subprocess'
 
@@ -14,12 +16,19 @@ module KairosMcp
       class CursorAdapter < Adapter
         DEFAULT_TIMEOUT = 180
 
+        # `agent -p` has every tool, write and shell included, and runs in its
+        # working directory. Launched from the MCP server it ran in the project
+        # root, so a prompt could have it edit or execute there. A seat here
+        # only answers: read-only plan mode, in an empty directory made for
+        # the call (--trust only skips the trust prompt for that empty dir).
+        BASE_ARGS = ['agent', '-p', '--trust', '--mode', 'plan'].freeze
+
         def call(messages:, system: nil, tools: nil, model: nil,
                  max_tokens: nil, temperature: nil, output_schema: nil)
           prompt = build_prompt(messages, system, tools, output_schema)
           timeout_seconds = @config&.dig('timeout_seconds') || DEFAULT_TIMEOUT
 
-          args = ['agent', '-p']
+          args = BASE_ARGS.dup
 
           # Multi-model support: pass --model to `agent -p` when caller specified
           # a model. Backward compat: nil/empty → no flag → cursor's default
@@ -30,13 +39,19 @@ module KairosMcp
             args << '--model' << model.to_s
           end
 
-          stdout, stderr, status = SafeSubprocess.safe_capture(
-            args,
-            stdin_data: prompt,
-            timeout_seconds: timeout_seconds,
-            env: {},
-            dispatch_id: @config&.dig('dispatch_id')
-          )
+          workdir = Dir.mktmpdir('kairos_cursor_')
+          stdout, stderr, status = begin
+            SafeSubprocess.safe_capture(
+              args,
+              stdin_data: prompt,
+              timeout_seconds: timeout_seconds,
+              env: {},
+              dispatch_id: @config&.dig('dispatch_id'),
+              chdir: workdir
+            )
+          ensure
+            FileUtils.remove_entry(workdir, true)
+          end
 
           unless status && status.success?
             msg = strip_ansi(stderr)[0..200]

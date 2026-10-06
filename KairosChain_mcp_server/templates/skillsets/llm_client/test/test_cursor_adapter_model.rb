@@ -39,7 +39,7 @@ module KairosMcp
           stub_capture_recording_args
           begin
             @adapter.call(messages: [{ 'role' => 'user', 'content' => 'hi' }], model: nil)
-            assert_equal ['agent', '-p'], @captured_args
+            assert_equal CursorAdapter::BASE_ARGS, @captured_args
             refute_includes @captured_args, '--model'
           ensure
             restore_capture
@@ -50,7 +50,7 @@ module KairosMcp
           stub_capture_recording_args
           begin
             @adapter.call(messages: [{ 'role' => 'user', 'content' => 'hi' }])
-            assert_equal ['agent', '-p'], @captured_args
+            assert_equal CursorAdapter::BASE_ARGS, @captured_args
           ensure
             restore_capture
           end
@@ -60,7 +60,7 @@ module KairosMcp
           stub_capture_recording_args
           begin
             @adapter.call(messages: [{ 'role' => 'user', 'content' => 'hi' }], model: '')
-            assert_equal ['agent', '-p'], @captured_args
+            assert_equal CursorAdapter::BASE_ARGS, @captured_args
           ensure
             restore_capture
           end
@@ -80,7 +80,7 @@ module KairosMcp
           stub_capture_recording_args
           begin
             @adapter.call(messages: [{ 'role' => 'user', 'content' => 'hi' }], model: 'gpt-5.4-high')
-            assert_equal ['agent', '-p', '--model', 'gpt-5.4-high'], @captured_args
+            assert_equal CursorAdapter::BASE_ARGS + ['--model', 'gpt-5.4-high'], @captured_args
           ensure
             restore_capture
           end

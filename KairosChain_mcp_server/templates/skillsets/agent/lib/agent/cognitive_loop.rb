@@ -160,6 +160,15 @@ module KairosMcp
         # switch provider, compress, disable thinking).
         # Falls back to legacy auth_error-only handling when disabled.
         def call_llm_with_fallback(arguments)
+          # Every agent phase reasons; none acts. The agent's tools run through
+          # this loop's own tool_use handling, under the session's blacklist.
+          # Without sandbox_mode a claude_code provider launches `claude -p`
+          # in the project root, where it reads the project's instruction
+          # files and inherits its permission rules (a project allowing Bash
+          # or Write let a planning call run commands outside every gate).
+          # The retry and fallback paths reuse these arguments, so they are
+          # sandboxed too.
+          arguments = arguments.merge('sandbox_mode' => true)
           llm_result = @caller.invoke_tool('llm_call', arguments,
                                             context: @session.invocation_context)
           parsed = JSON.parse(llm_result.map { |b| b[:text] || b['text'] }.compact.join)

@@ -48,8 +48,15 @@ the agent to write design drafts to `docs/drafts/` or other project paths.
 
 ### MCP Tool Access
 
-All KairosChain MCP tools (`context_save`, `multi_llm_review`, `chain_record`,
-`knowledge_get`, etc.) are available via `invoke_tool` in the Act phase.
+KairosChain MCP tools (`context_save`, `knowledge_get`, etc.) are available via
+`invoke_tool` in the Act phase, except what the act route always refuses:
+record-store writers such as `chain_record` (the record judges the act, so the
+act may not write it); configuration writers (`llm_configure`, `mode_hooks_*`,
+`plugin_project`), `hermes_*` and `multi_llm_review*`; `llm_call` with a provider
+that carries tools (codex, cursor); and any step whose path arguments reach the
+KairosChain stores, `.claude/`, `.codex/`, `.mcp.json`, `CLAUDE.md`, `AGENTS.md`
+or anywhere outside the project. LLM calls made by the agent or its act run
+sandboxed. The act route is still deny-based: do not run the agent unattended.
 
 ## Sub-Agents
 
