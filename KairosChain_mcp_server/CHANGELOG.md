@@ -4,6 +4,60 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.91.0] - 2026-10-07
+
+### Added — agent: a shadow judge beside the operator (approval delegation, phase 1)
+
+At the points the new delegation table covers, a fresh model answers the
+operator's question beside the operator, and the two answers are compared
+later. **In this phase the judge's answer changes nothing**: every point still
+waits for you.
+
+- **The delegation table** (`lib/agent/delegation_table.yml`) names two
+  points: plan approval in a manual session (`plan_proposed`) and the
+  scheduled checkpoint (`cycle_checkpoint`). Every row is `shadow`; the loader
+  refuses a table with any other mode or with an `mlr` approver. Like the
+  act-route table it is in force only by your terminal ruling, which also pins
+  the instruction mode the judge reads; editing that mode takes the table out
+  of force until you rule again:
+
+      ruby .kairos/skillsets/agent/bin/agent_rule.rb activate --table delegation
+
+  With no ruling, behaviour is as before.
+- **Which points are judged**: only when the act route classifies every step of
+  the plan, no step is marked for a person, nothing touches L0, and the goal is
+  unchanged since the run started. Rows and precedents are chosen only by
+  signals the driver observes from the plan's structure — never by the plan's
+  summary wording or its own risk labels.
+- **The judge** is a separate process (`bin/agent_shadow_judge.rb`) started
+  once the session has stopped at the point; nothing waits for it. It asks
+  `claude-opus-5-5` at effort `xhigh` through `llm_call` (`claude -p`,
+  sandboxed, no fallback provider) with the plan, the driver's signals, the
+  goal, your instruction mode and up to five of your earlier terminal answers
+  at the same kind of stop. Anything but a clear answer from that model counts
+  as "hand back to the operator".
+- **Sealed, then shown**: the verdict goes on the chain as a salted commitment
+  (`agent_shadow_seal`) and is shown only after your answer at that point has
+  committed — in that `agent_step` response and in `agent_status` under
+  `shadow`. Before then `agent_status` says only `judging`, `sealed` or
+  `failed`. The verdict file sits in the session directory; reading it before
+  you answer defeats the comparison.
+- **Counting**: `agent_rule.rb shadow` counts agreement only for answers you
+  typed at the terminal whose seal came first, approve and non-approve apart.
+- Each judged point is one Opus call at `xhigh`.
+
+### Changed — agent: a run with a failed act is not the scheduled checkpoint
+
+An autonomous run now stops as `cycle_checkpoint` only when every act of the
+run succeeded — including an act resumed after a risk pause. A run in which an
+act failed without an act error (a step failed or was denied, the guard failed
+it) stops as `act_failed`, as a failed manual-mode act already did.
+
+### Fixed — agent: a torn read of the chain no longer empties the act-route table
+
+The table loaders retry a read that overlaps a chain append, as the answer
+reader already did.
+
 ## [3.90.0] - 2026-10-07
 
 ### Added — agent: every answer is a ruling on the chain, and an answer typed at a terminal binds
