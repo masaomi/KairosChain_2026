@@ -59,7 +59,10 @@ module KairosMcp
                 'goal_name' => session.goal_name,
                 'state' => session.state,
                 'cycle_number' => session.cycle_number,
-                'anchor' => gate.current_anchor(session)
+                'anchor' => gate.current_anchor(session),
+                # Why the session is waiting (design v0.3 §4); 'unspecified'
+                # for a stop that predates the record or did not name itself.
+                'stop' => session.stop || { 'kind' => session.stop_kind }
               }
               # Slice A-2: surface the delegation handle so a fresh driver
               # learns about an in-flight or finished delegated step from

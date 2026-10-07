@@ -55,7 +55,12 @@ module KairosMcp
                 },
                 feedback: {
                   type: 'string',
-                  description: 'Feedback for "revise" action (optional)'
+                  description: 'Feedback for "revise" action (optional). Where the operator answered ' \
+                               'revise at the terminal, omit it to carry the feedback typed there.'
+                },
+                rationale: {
+                  type: 'string',
+                  description: 'Why this answer (optional). Kept off the chain; the ruling carries its sha256.'
                 },
                 anchor: {
                   type: 'string',
@@ -149,7 +154,10 @@ module KairosMcp
             # caller-supplied anchor that is stale (or already consumed by a
             # different judgment) is rejected/replayed here rather than
             # silently delegated against the current state.
-            action_key = replay_action_key(arguments['action'], arguments, arguments['feedback'])
+            # The key the worker will commit under: a revise answered at the
+            # terminal carries that feedback, so the handle is keyed on it too.
+            _answer, feedback = resolve_answer(session, gate, arguments['action'], arguments, arguments['feedback'])
+            action_key = replay_action_key(arguments['action'], arguments, feedback)
             if arguments['anchor'] && arguments['anchor'] != gate.current_anchor(session)
               disp = gate.check(arguments['anchor'], action_key, session)
               case disp['disposition']
@@ -166,8 +174,9 @@ module KairosMcp
 
             recorded = {
               'action' => arguments['action'],
-              'feedback' => arguments['feedback'],
-              'resolution' => arguments['resolution']
+              'feedback' => feedback,
+              'resolution' => arguments['resolution'],
+              'rationale' => arguments['rationale']
             }.compact
             # open_handle injects the issue-anchor into the worker args so the
             # re-entry is always anchored (INV-A3), dedups by (anchor,
@@ -242,6 +251,12 @@ module KairosMcp
               }))
             end
 
+            # INV-D8: where the operator answered at the terminal, this answer
+            # must be that answer (a stop always proceeds). Looked up before the
+            # replay key, because a revise sent without feedback carries the
+            # feedback typed at the terminal.
+            answer, feedback = resolve_answer(session, gate, action, arguments, feedback)
+
             # Replay identity is the judgment's full content, not just its
             # verb: an adjudicate re-issued with a different resolution, or a
             # revise with different feedback, is a different judgment and must
@@ -261,9 +276,12 @@ module KairosMcp
                 'next_move' => gate.next_move(session)
               }))
             end
+            return answer_refused(session, gate, answer) unless answer['ok']
 
             @gate = gate
             @anchor_at_issue = gate.current_anchor(session)
+            answer = answer.merge('point' => answer_point(session, gate), 'rationale' => arguments['rationale'],
+                                  'feedback' => feedback)
 
             result = case action
                      when 'stop' then handle_stop(session)
@@ -274,10 +292,120 @@ module KairosMcp
                      else error_result("Unknown action: #{action}")
                      end
 
-            commit_advance(gate, session, action, action_key, result)
+            commit_advance(gate, session, action, action_key, result, answer: answer)
           ensure
             @gate = nil
             @anchor_at_issue = nil
+          end
+
+          # [answer, feedback]: the terminal answer at the anchor this call
+          # targets, reconciled with this call (INV-D8), and the feedback a
+          # revise runs with. Both the inline and the delegated path key the
+          # advance on this feedback.
+          def resolve_answer(session, gate, action, arguments, feedback)
+            current = gate.current_anchor(session)
+            target = arguments['anchor'].to_s.empty? ? current : arguments['anchor']
+            answer = reconcile_answer(session, target, action, arguments, feedback, check_plan: target == current)
+            feedback = answer['feedback'] if answer['ok']
+            # What DECIDE is given when a revise names no feedback; the ruling
+            # records this text's digest, not an empty one.
+            feedback = 'Please revise the plan.' if action == 'revise' && feedback.to_s.empty?
+            [answer, feedback]
+          end
+
+          # The terminal answer at the anchor this call targets, reconciled with
+          # this call (INV-D8). A chain that cannot be read, or an answer that
+          # cannot be checked for any other reason, leaves unknown whether the
+          # operator answered here, so only a stop proceeds (INV-P: what the
+          # driver did not observe goes back to the operator). Reading is not
+          # recording: INV-D4's never-blocked clause is about a failed write.
+          # A stop is never refused, whatever fails here.
+          def reconcile_answer(session, anchor, action, arguments, feedback, check_plan: true)
+            ar = ::KairosMcp::SkillSets::Agent::AnswerRuling
+            records, error = ar.chain_records
+            return unchecked_answer(action, feedback, "the chain could not be read (#{error[0, 120]})") if error
+
+            attestation = ar.attestation_at(records, session.session_id, anchor)
+            answer = ar.reconcile(attestation, action: action, resolution: arguments['resolution'], feedback: feedback,
+                                               plan_sha256: ar.plan_sha256(session.load_decision),
+                                               texts: -> { ar.texts_at(session.guard_dir, anchor) },
+                                               check_plan: check_plan)
+            prior = ar.prior_ruling_at(records, session.session_id, anchor)
+            answer['prior_ruling_block'] = prior['block'] if prior
+            answer
+          rescue StandardError => e
+            unchecked_answer(action, feedback, "the terminal answer could not be checked (#{e.class}: #{e.message[0, 100]})")
+          end
+
+          def unchecked_answer(action, feedback, why)
+            return { 'ok' => true, 'feedback' => feedback, 'read_error' => why } if action == 'stop'
+
+            { 'ok' => false, 'read_error' => why,
+              'reason' => "#{why}, so whether the operator answered at the terminal is unknown; only stop " \
+                          'proceeds until it can be checked (a chain store other than the file ledger is never ' \
+                          'read, so there the agent answers only stop)' }
+          end
+
+          def answer_refused(session, gate, answer)
+            att = answer['attestation'] || {}
+            text_content(JSON.generate({
+              'status' => 'answer_refused', 'session_id' => session.session_id, 'state' => session.state,
+              'reason' => answer['reason'],
+              'attested' => { 'decision' => att['decision'], 'resolution' => att['resolution'],
+                              'block' => att['block'], 'anchor' => att['anchor'] }.compact,
+              'hint' => answer['read_error'] ? 'repair the chain, or stop' : 'the operator answered at the terminal: send that answer, or stop',
+              'next_move' => gate.next_move(session)
+            }))
+          end
+
+          # What the answer was given to: the stop, and the plan when a plan is
+          # its subject. Signals are the driver's own, on the plan as the act
+          # route would run it (INV-P); never DECIDE's complexity hint.
+          def answer_point(session, gate)
+            ar = ::KairosMcp::SkillSets::Agent::AnswerRuling
+            point = { 'state' => session.state, 'cycle' => session.cycle_number, 'stop' => session.stop_kind }
+            return point unless ar::PLAN_STATES.include?(gate.effective_state(session))
+
+            decision = session.load_decision
+            return point unless decision.is_a?(Hash) && decision['task_json'].is_a?(Hash)
+
+            point['plan_sha256'] = ar.plan_sha256(decision)
+            task, set_aside = classified_task(session, decision['task_json'])
+            point['signals'] = assess_decision_complexity(decision.merge('task_json' => task))[:signals]
+            point['set_aside'] = set_aside.size
+            point
+          rescue StandardError
+            point
+          end
+
+          def answer_tables
+            eff = act_classification
+            { 'act_classification' => eff['status'] == 'in_force' ? eff['sha256'] : nil, 'delegation' => nil }
+          rescue StandardError
+            { 'act_classification' => nil, 'delegation' => nil }
+          end
+
+          # The ruling for the advance being committed (INV-D4). Never raises:
+          # the advance has already happened, and its answer must commit.
+          def record_answer(session, action, action_key, answer, anchor)
+            ar = ::KairosMcp::SkillSets::Agent::AnswerRuling
+            rec = ar.ruling(session_id: session.session_id, mandate_id: session.mandate_id,
+                            anchor: anchor, point: answer['point'], action: action, action_key: action_key,
+                            tables: answer_tables, answer: answer, feedback: answer['feedback'],
+                            rationale: answer['rationale'])
+            unless answer['attestation']
+              begin
+                ar.save_texts(session.guard_dir, anchor: anchor, source: 'caller',
+                                                 feedback: action == 'revise' ? answer['feedback'] : nil,
+                                                 rationale: answer['rationale'])
+              rescue StandardError => e
+                log_agent(:warn, 'answer_texts_unsaved', session, error: e.message)
+              end
+            end
+            ar.record(self, rec)
+          rescue StandardError => e
+            { 'recorded' => false, 'error' => "#{e.class}: #{e.message[0, 160]}",
+              'note' => 'the answer proceeded; this point does not count as evidence for delegation' }
           end
 
           def replay_action_key(action, arguments, feedback)
@@ -291,7 +419,7 @@ module KairosMcp
           # Commits a completed advance to the gate log (INV-A2/A3): the
           # response the caller sees and the record a retry replays are the
           # same object.
-          def commit_advance(gate, session, action, action_key, result)
+          def commit_advance(gate, session, action, action_key, result, answer: nil)
             outcome = begin
               JSON.parse(result[0][:text])
             rescue StandardError
@@ -313,6 +441,10 @@ module KairosMcp
 
             ref = persisted || session
             outcome['anchor'] = "#{gate.seq + 1}:#{ref.state}:#{ref.cycle_number}"
+            outcome['stop'] = ref.stop if ref.stop
+            # The ruling is written before the commit so the outcome a retry
+            # replays carries it, and a replay never writes a second one.
+            outcome['ruling'] = record_answer(ref, action, action_key, answer, @anchor_at_issue) if answer
             gate.commit(@anchor_at_issue, action_key, outcome)
             # A stop issued over an unresolved side effect must not erase the
             # unresolved record: the intent file stays as the audit trace of
@@ -345,7 +477,7 @@ module KairosMcp
               # point.
               session.update_state('proposed')
               session.save
-              run_act_reflect(session)
+              run_act_reflect(session, clean_stop: 'adjudicated')
             when 'already_done'
               # The intent is closed only after this adjudication commits
               # (commit_advance), never before it is durably recorded.
@@ -356,7 +488,7 @@ module KairosMcp
                 (session.load_decision || {})['summary'] || ''
               )
               session.increment_cycle
-              session.update_state('checkpoint')
+              session.update_state('checkpoint', stop: 'adjudicated', detail: 'already_done')
               session.save
               text_content(JSON.generate({
                 'status' => 'ok', 'session_id' => session.session_id,
@@ -378,7 +510,7 @@ module KairosMcp
             # silently discarded (INV-A3).
             intent = @gate&.unresolved_intent
             payload['unresolved_intent_at_stop'] = intent if intent
-            session.update_state('terminated')
+            session.update_state('terminated', stop: 'terminated', detail: 'user_stop')
             session.save
             log_agent(:info, 'session_stopped', session, reason: 'user_stop')
             text_content(JSON.generate(payload))
@@ -427,7 +559,7 @@ module KairosMcp
             )
 
             session.increment_cycle
-            session.update_state('checkpoint')
+            session.update_state('checkpoint', stop: 'cycle_skipped', detail: skip_reason)
             session.save
             text_content(JSON.generate({
               'status' => 'ok', 'session_id' => session.session_id,
@@ -495,7 +627,7 @@ module KairosMcp
               }))
             end
 
-            session.update_state('proposed')
+            session.update_state('proposed', stop: 'plan_proposed')
             session.save
             text_content(JSON.generate({
               'status' => 'ok', 'session_id' => session.session_id,
@@ -816,7 +948,7 @@ module KairosMcp
           def guard_halt_result(session, act_result, guard_verdict, verdict_block: nil, verdict_recorded: nil,
                                 lost_verdict: nil)
             recorded = verdict_recorded.nil? ? !verdict_block.nil? : verdict_recorded
-            session.update_state('checkpoint')
+            session.update_state('checkpoint', stop: 'guard_halt')
             session.save_progress({ 'confidence' => 0.0, 'guard_verdict' => guard_verdict },
                                   session.cycle_number + 1,
                                   "guard halt: #{guard_verdict['reason']}", '',
@@ -1020,7 +1152,9 @@ module KairosMcp
           end
 
           # Manual mode wrapper: pure format converter
-          def run_act_reflect(session)
+          # clean_stop names the stop of a clean act when it is not the scheduled
+          # checkpoint (adjudicate reattempt).
+          def run_act_reflect(session, clean_stop: nil)
             decision_payload = load_last_decision(session)
             return error_result("No decision payload found") unless decision_payload
 
@@ -1028,7 +1162,7 @@ module KairosMcp
             mandate = ::Autonomos::Mandate.load(session.mandate_id)
             if ::Autonomos::Mandate.risk_exceeds_budget?(proposal, mandate[:risk_budget])
               ::Autonomos::Mandate.update_status(session.mandate_id, 'paused_risk_exceeded')
-              session.update_state('paused_risk')
+              session.update_state('paused_risk', stop: 'risk_exceeded')
               session.save
               return text_content(JSON.generate({
                 'status' => 'paused', 'reason' => 'risk_exceeded',
@@ -1037,7 +1171,8 @@ module KairosMcp
             end
 
             result = run_act_reflect_internal(session)
-            session.update_state('checkpoint')
+            kind = manual_act_stop(session, result, clean: clean_stop)
+            session.update_state('checkpoint', stop: kind, detail: kind == clean_stop ? 'reattempt' : nil)
             session.save
 
             # AGT-6: a guard halt must surface as a halt, not a false "completed".
@@ -1058,6 +1193,20 @@ module KairosMcp
             add_operator_handoff(response, result)
             response['permission_advisory'] = session.permission_advisory if session.permission_advisory
             text_content(JSON.generate(response))
+          end
+
+          # Why an act run through the manual wrapper stops (design v0.3 §4).
+          # Only a manual-mode act that succeeded and left nothing to the
+          # operator is the scheduled end-of-cycle stop. In an autonomous
+          # session this wrapper runs only on adjudication, which is never
+          # the scheduled stop (that is Gate 8's alone).
+          def manual_act_stop(session, result, clean: nil)
+            return 'guard_halt' if result[:guard_halt]
+            return 'awaiting_operator' unless Array(result.dig(:act, 'deferred')).empty?
+            return 'human_cognition_halt' if result.dig(:act, 'human_halt')
+            return 'act_failed' if result[:act_error] || result[:act_succeeded] != true
+
+            clean || (session.autonomous? ? 'adjudicated' : 'cycle_checkpoint')
           end
 
           # ---- AUTONOMOUS LOOP ----
@@ -1099,7 +1248,7 @@ module KairosMcp
                   ::Autonomos::Mandate.save(session.mandate_id, mandate)
                   session.update_state('checkpoint')
                   session.save
-                  return finalize_autonomous(session, results, checkpoint: true,
+                  return finalize_autonomous(session, results, checkpoint: true, stop: 'goal_drift',
                                              warning: 'goal_content_changed')
                 end
 
@@ -1174,7 +1323,7 @@ module KairosMcp
                     end
                     session.update_state('checkpoint')
                     session.save
-                    return finalize_autonomous(session, results, checkpoint: true,
+                    return finalize_autonomous(session, results, checkpoint: true, stop: 'l0_escalation',
                                                warning: 'l0_requires_external_review',
                                                multi_llm_prompt: multi_llm_prompt)
                   end
@@ -1284,14 +1433,14 @@ module KairosMcp
                       when 'REJECT'
                         session.update_state('checkpoint')
                         session.save
-                        return finalize_autonomous(session, results, checkpoint: true,
+                        return finalize_autonomous(session, results, checkpoint: true, stop: 'review_rejected',
                                                    warning: 'review_rejected', review: review)
                       else # REVISE or parse fallback
                         review_retries += 1
                         if review_retries > max_retries
                           session.update_state('checkpoint')
                           session.save
-                          return finalize_autonomous(session, results, checkpoint: true,
+                          return finalize_autonomous(session, results, checkpoint: true, stop: 'review_max_retries',
                                                      warning: 'review_max_retries', review: review)
                         end
 
@@ -1392,7 +1541,8 @@ module KairosMcp
                   ::Autonomos::Mandate.save(session.mandate_id, mandate)
                   session.update_state('checkpoint')
                   session.save
-                  return finalize_autonomous(session, results, checkpoint: true)
+                  # The only stop that asks just "continue?" (INV-D3).
+                  return finalize_autonomous(session, results, checkpoint: true, stop: 'cycle_checkpoint')
                 end
               end
 
@@ -1420,7 +1570,7 @@ module KairosMcp
               # Steps the plan set aside for a person are still owed to the
               # operator when the cycle halts after an in-process act.
               deferred = Array(ar_result.dig(:act, 'deferred'))
-              return finalize_autonomous(session, results, checkpoint: true,
+              return finalize_autonomous(session, results, checkpoint: true, stop: 'guard_halt',
                                          warning: guard_halt_warning(ar_result),
                                          deferred: deferred.empty? ? nil : deferred)
             end
@@ -1434,7 +1584,8 @@ module KairosMcp
               session.save
               # An act error, if the cycle had one, travels with the list.
               return finalize_autonomous(
-                session, results, checkpoint: true, deferred: deferred, error: ar_result[:act_error],
+                session, results, checkpoint: true, stop: 'awaiting_operator', deferred: deferred,
+                error: ar_result[:act_error],
                 warning: "awaiting_operator: #{deferred.size} step(s) still need you"
               )
             end
@@ -1445,7 +1596,7 @@ module KairosMcp
               session.update_state('checkpoint')
               session.save
               return finalize_autonomous(
-                session, results, checkpoint: true,
+                session, results, checkpoint: true, stop: 'human_cognition_halt',
                 warning: "human_cognition_halt at step #{halt_at}: " \
                          "#{ar_result.dig(:act, 'resume_hint')}"
               )
@@ -1460,9 +1611,16 @@ module KairosMcp
             nil
           end
 
+          # stop: why the run returned to the operator, named by the gate that
+          # stopped it (design v0.3 §4). A termination, a pause code and a bare
+          # phase error name themselves; a checkpoint must say which it is, or
+          # it reads as 'unspecified'.
           def finalize_autonomous(session, cycle_results, terminated: nil, paused: nil,
                                   checkpoint: nil, error: nil, warning: nil,
-                                  review: nil, multi_llm_prompt: nil, deferred: nil)
+                                  review: nil, multi_llm_prompt: nil, deferred: nil, stop: nil)
+            # Always written, so a stop never inherits the reason of an earlier one.
+            kind = stop || (terminated && 'terminated') || paused || (error && 'phase_error')
+            session.update_state(session.state, stop: kind, detail: terminated || warning || error&.to_s)
             session.save
 
             reason = terminated || paused || warning || (error ? 'error' : 'checkpoint')
@@ -1618,7 +1776,7 @@ module KairosMcp
             else
               # Manual mode: resume at ACT+REFLECT for the existing proposal
               result = run_act_reflect_internal(session)
-              session.update_state('checkpoint')
+              session.update_state('checkpoint', stop: manual_act_stop(session, result))
               session.save
               return text_content(JSON.generate(guard_halt_response(session, result))) if result[:guard_halt]
 
@@ -1652,7 +1810,7 @@ module KairosMcp
             # We only record the skip in mandate.
             observation = run_observe_for_next_cycle(session)
             session.save_observation(observation)
-            session.update_state('observed')
+            session.update_state('observed', stop: 'cycle_observed')
             session.save
 
             if session.autonomous?
@@ -2100,7 +2258,7 @@ module KairosMcp
             term_reason = ::Autonomos::Mandate.check_termination(mandate)
             if term_reason
               ::Autonomos::Mandate.update_status(session.mandate_id, 'terminated')
-              session.update_state('terminated')
+              session.update_state('terminated', stop: 'terminated', detail: term_reason)
               session.save
               return text_content(JSON.generate({
                 'status' => 'terminated', 'reason' => term_reason,
@@ -2111,7 +2269,7 @@ module KairosMcp
             # Re-observe and continue to next cycle
             observation = run_observe_for_next_cycle(session)
             session.save_observation(observation)
-            session.update_state('observed')
+            session.update_state('observed', stop: 'cycle_observed')
             session.save
 
             text_content(JSON.generate({
@@ -2152,6 +2310,7 @@ module KairosMcp
             return error_with_state(session, 'proposed', decide_result) if decide_result['error']
 
             session.save_decision(decide_result['decision_payload'])
+            session.update_state('proposed', stop: 'plan_proposed')
             session.save
             text_content(JSON.generate({
               'status' => 'ok', 'session_id' => session.session_id,
@@ -2178,7 +2337,7 @@ module KairosMcp
               mandate[:status] = 'terminated'
               mandate[:recent_gap_descriptions] = recent_gaps_updated
               ::Autonomos::Mandate.save(session.mandate_id, mandate)
-              session.update_state('terminated')
+              session.update_state('terminated', stop: 'terminated', detail: 'loop_detected')
               session.save
               return true
             end
@@ -3372,7 +3531,7 @@ module KairosMcp
           end
 
           def error_with_state(session, revert_state, result)
-            session.update_state(revert_state)
+            session.update_state(revert_state, stop: 'phase_error', detail: result['error'])
             session.save
             text_content(JSON.generate({
               'status' => 'error', 'session_id' => session.session_id,

@@ -2,6 +2,7 @@
 
 require 'json'
 require_relative '../lib/agent'
+require_relative 'agent_step'
 
 module KairosMcp
   module SkillSets
@@ -36,6 +37,10 @@ module KairosMcp
                 session_id: {
                   type: 'string',
                   description: 'Session ID to stop'
+                },
+                rationale: {
+                  type: 'string',
+                  description: 'Why stop (optional). Kept off the chain; the ruling carries its sha256.'
                 }
               },
               required: ['session_id']
@@ -69,8 +74,14 @@ module KairosMcp
               previous_state = fresh.state
               anchor_at_issue = gate.current_anchor(fresh)
               intent = gate.unresolved_intent(cleanup: true)
+              # The same point an agent_step stop records: the stop, and the plan
+              # with the driver's signals when a plan is the subject (INV-D4).
+              # A stop always proceeds, even over a different answer the
+              # operator typed at the terminal (the ruling names that answer),
+              # and whatever fails while the ruling is prepared.
+              point, tables, answer = prepare_stop_ruling(fresh, gate, session_id, anchor_at_issue)
 
-              fresh.update_state('terminated')
+              fresh.update_state('terminated', stop: 'terminated', detail: 'agent_stop')
               fresh.save
 
               # Update mandate status
@@ -90,6 +101,8 @@ module KairosMcp
               # the intent file is kept as its audit trace (INV-A3).
               outcome['unresolved_intent_at_stop'] = intent if intent
               outcome['anchor'] = "#{gate.seq + 1}:terminated:#{fresh.cycle_number}"
+              outcome['stop'] = fresh.stop
+              outcome['ruling'] = record_stop_ruling(fresh, anchor_at_issue, point, tables, answer, arguments['rationale'])
               gate.commit(anchor_at_issue, 'stop', outcome)
               text_content(JSON.generate(outcome))
             end
@@ -104,6 +117,46 @@ module KairosMcp
             result
           rescue StandardError => e
             text_content(JSON.generate({ 'status' => 'error', 'error' => e.message }))
+          end
+
+          private
+
+          def prepare_stop_ruling(fresh, gate, session_id, anchor)
+            step_tool = AgentStep.new(@safety, registry: @registry)
+            point = step_tool.send(:answer_point, fresh, gate)
+            tables = step_tool.send(:answer_tables)
+            ar = AnswerRuling
+            records, read_error = ar.chain_records
+            answer = if read_error
+                       { 'read_error' => read_error }
+                     else
+                       ar.reconcile(ar.attestation_at(records, session_id, anchor), action: 'stop')
+                         .merge('prior_ruling_block' => ar.prior_ruling_at(records, session_id, anchor)&.dig('block'))
+                         .compact
+                     end
+            [point, tables, answer]
+          rescue StandardError => e
+            [{ 'state' => fresh.state, 'cycle' => fresh.cycle_number, 'stop' => fresh.stop_kind },
+             { 'act_classification' => nil, 'delegation' => nil },
+             { 'read_error' => "ruling preparation failed: #{e.class}: #{e.message[0, 100]}" }]
+          end
+
+          # The ruling for this stop (design v0.3, INV-D4).
+          def record_stop_ruling(session, anchor, point, tables, answer, rationale)
+            ar = AnswerRuling
+            unless answer['attestation']
+              begin
+                ar.save_texts(session.guard_dir, anchor: anchor, source: 'caller', rationale: rationale)
+              rescue StandardError
+                nil
+              end
+            end
+            rec = ar.ruling(session_id: session.session_id, mandate_id: session.mandate_id, anchor: anchor,
+                            point: point, action: 'stop', action_key: 'stop', tables: tables,
+                            answer: answer, rationale: rationale)
+            ar.record(self, rec)
+          rescue StandardError => e
+            { 'recorded' => false, 'error' => "#{e.class}: #{e.message[0, 160]}" }
           end
         end
       end

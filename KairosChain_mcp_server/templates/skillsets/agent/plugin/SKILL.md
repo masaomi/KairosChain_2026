@@ -81,6 +81,37 @@ arguments reach the KairosChain stores, `.claude/`, `.codex/`, `.git/`,
 the agent or its act run sandboxed. Do not run the agent unattended until the
 approval-delegation work is complete.
 
+### Answers are rulings
+
+Every answer that advances a session — through `agent_step` or `agent_stop` —
+is recorded on the chain as a ruling (`agent_answer`): why the session was
+waiting (`stop`), the plan's SHA-256 when a plan was the subject, and whether
+the answer was attested. Every response and `agent_status` carry the session's
+current `stop`. An answer sent through MCP is recorded as the caller's,
+unattested. To answer as yourself, answer at a terminal first:
+
+    ruby .kairos/skillsets/agent/bin/agent_rule.rb answer SESSION_ID
+
+It shows why the session stopped and the whole plan (every argument, the file
+it is kept in, and its SHA-256), asks for your answer, an optional reason and a
+nonce, and records the answer bound to that point and that plan. If the session
+moved on while you typed, nothing is recorded. The answer then sent through
+`agent_step` there must be the same one, or it is refused (`answer_refused`); a
+stop always goes through. After a revise at the terminal, send `revise` without
+feedback and the feedback you typed is used. Feedback and reasons stay off the
+chain; the ruling carries their SHA-256. A ruling that fails to record never
+blocks the answer; the response says so under `ruling`.
+
+If the MCP server runs in another directory than the project holding the data
+dir (it was started with `--data-dir` pointing at another project's `.kairos`),
+pass `--project-dir <the server's directory>` so the session is found there and
+the answer is recorded on the chain the server reads.
+
+While the chain cannot be read, whether you answered at the terminal cannot be
+checked, so every answer but a stop is refused until it reads again. A chain
+store other than the file ledger (sqlite, postgresql) is never read here, so on
+those the agent can only be stopped.
+
 ## Sub-Agents
 
 ### `/kairos-chain:agent-monitor`

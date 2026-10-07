@@ -8,7 +8,7 @@ module KairosMcp
     module Agent
       class Session
         attr_reader :session_id, :mandate_id, :goal_name, :invocation_context,
-                    :state, :cycle_number, :config, :autonomous
+                    :state, :cycle_number, :config, :autonomous, :stop
         attr_accessor :permission_advisory
 
         def initialize(session_id:, mandate_id:, goal_name:, invocation_context:, config:,
@@ -61,8 +61,22 @@ module KairosMcp
           File.open(snapshots_path, 'a') { |f| f.puts(JSON.generate(snapshot)) }
         end
 
-        def update_state(new_state)
+        # Every state change replaces the stop reason, so a reason never
+        # outlives the transition that set it (design v0.3 §4 stop record).
+        # A stop reached without one reads as 'unspecified', which nothing
+        # downstream treats as the scheduled checkpoint.
+        def update_state(new_state, stop: nil, detail: nil)
           @state = new_state
+          @stop = stop && stop_record(stop, detail)
+        end
+
+        # Names why the session is waiting, on a state already set.
+        def stop_at(kind, detail = nil)
+          @stop = stop_record(kind, detail)
+        end
+
+        def stop_kind
+          @stop.is_a?(Hash) ? @stop['kind'] : 'unspecified'
         end
 
         def increment_cycle
@@ -136,7 +150,7 @@ module KairosMcp
           data = {
             session_id: @session_id, mandate_id: @mandate_id,
             goal_name: @goal_name, state: @state, cycle_number: @cycle_number,
-            config: @config, autonomous: @autonomous,
+            config: @config, autonomous: @autonomous, stop: @stop,
             invocation_context: @invocation_context.to_h
           }
           atomic_write(state_path, JSON.pretty_generate(data))
@@ -165,6 +179,7 @@ module KairosMcp
           )
           session.instance_variable_set(:@state, data['state'])
           session.instance_variable_set(:@cycle_number, data['cycle_number'] || 0)
+          session.instance_variable_set(:@stop, data['stop'].is_a?(Hash) ? data['stop'] : nil)
           session
         end
 
@@ -213,6 +228,12 @@ module KairosMcp
         # INV-A2 (interruption resilience Slice A): no partial-write window.
         # A resumed driver must observe a persisted record in full or not at
         # all; tmp-write + rename makes each single-file commit atomic.
+        def stop_record(kind, detail)
+          rec = { 'kind' => kind.to_s, 'cycle' => @cycle_number }
+          rec['detail'] = detail.to_s[0, 200] if detail && !detail.to_s.empty?
+          rec
+        end
+
         def atomic_write(path, content)
           tmp = "#{path}.tmp.#{Process.pid}"
           File.write(tmp, content)

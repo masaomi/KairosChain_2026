@@ -147,7 +147,7 @@ module KairosMcp
             observation = pre_obs
 
             session.save_observation(observation)
-            session.update_state('observed')
+            session.update_state('observed', stop: 'session_started')
             session.save
 
             result = {

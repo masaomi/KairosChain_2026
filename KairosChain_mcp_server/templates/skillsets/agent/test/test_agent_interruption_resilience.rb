@@ -272,7 +272,7 @@ begin
     end
 
     # Stub the ACT re-entry used by adjudicate reattempt.
-    def run_act_reflect(session)
+    def run_act_reflect(session, **)
       @act_reflect_runs += 1
       @gate&.open_intent(@anchor_at_issue, { 'summary' => 'reattempt' })
       session.increment_cycle

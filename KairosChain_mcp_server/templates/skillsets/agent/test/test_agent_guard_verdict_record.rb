@@ -234,6 +234,9 @@ AC.rulings_source = lambda {
   [[{ 'kind' => AC::RULING_KIND, 'table' => AC::TABLE_ID, 'action' => 'activate',
       'sha256' => AC.sha256_of(AC::BASE_PATH), 'attested' => true }], nil]
 }
+# Answer rulings read the same chain, which this file fakes without a read
+# side: no operator answered at a terminal here.
+KairosMcp::SkillSets::Agent::AnswerRuling.records_source = -> { [[], nil] }
 
 ACCEPTANCE = {
   'acceptance' => [

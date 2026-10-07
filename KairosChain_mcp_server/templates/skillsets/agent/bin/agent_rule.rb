@@ -1,17 +1,24 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 #
-# The operator's terminal ruling on the agent's act-route allow-list
-# (design v0.3, INV-A2 / INV-D8).
+# The operator's terminal rulings for the agent (design v0.3, INV-A2 / INV-D8):
+# the act-route allow-list, and answers at a stopped session.
 #
 #   ruby .kairos/skillsets/agent/bin/agent_rule.rb activate   # rule the current table into force
 #   ruby .kairos/skillsets/agent/bin/agent_rule.rb withdraw   # take it out of force
 #   ruby .kairos/skillsets/agent/bin/agent_rule.rb status     # show what is in force (records nothing)
+#   ruby .kairos/skillsets/agent/bin/agent_rule.rb answer SESSION_ID
+#                         # answer a stopped session; the MCP answer there must then match
 #
-# Options: --data-dir DIR   the instance data dir whose chain is written
-#                           (default: the .kairos this script is installed in)
+# Options: --data-dir DIR     the instance data dir whose chain is written
+#                             (default: the .kairos this script is installed in)
+#          --project-dir DIR  answer only: the directory the MCP server runs in,
+#                             whose .kairos/storage holds its agent sessions
+#                             (default: the directory holding the data dir).
+#                             Needed when the server runs with --data-dir
+#                             pointing at another project's .kairos.
 #
-# activate and withdraw read a nonce typed back at /dev/tty and refuse to run
+# activate, withdraw and answer read a nonce typed back at /dev/tty and refuse to run
 # without a terminal. That keeps an MCP call from producing a ruling through
 # this path. It does not prove a person typed: any process that can start
 # programs can open a pseudo-terminal, read the nonce and type it back (shown
@@ -21,8 +28,10 @@
 
 require 'json'
 
-action = ARGV.find { |a| %w[activate withdraw status].include?(a) }
-abort 'usage: agent_rule.rb activate|withdraw|status [--data-dir DIR]' unless action
+action = ARGV.find { |a| %w[activate withdraw status answer].include?(a) }
+abort 'usage: agent_rule.rb activate|withdraw|status|answer SESSION_ID [--data-dir DIR]' unless action
+session_id = action == 'answer' ? ARGV[ARGV.index('answer') + 1].to_s : nil
+abort 'usage: agent_rule.rb answer SESSION_ID [--data-dir DIR]' if session_id&.then { |s| s.empty? || s.start_with?('-') }
 
 idx = ARGV.index('--data-dir')
 data_dir = idx ? File.expand_path(ARGV[idx + 1].to_s) : File.expand_path('../../..', __dir__)
@@ -45,6 +54,27 @@ ac = KairosMcp::SkillSets::Agent::ActClassification
 path = ac::BASE_PATH
 
 puts "Data dir: #{data_dir}"
+if action == 'answer'
+  require 'kairos_mcp/invocation_context'
+  require File.join(lib, 'agent', 'session')
+  require File.join(lib, 'agent', 'advance_gate')
+  require File.join(lib, 'agent', 'answer_ruling')
+  # The server keeps agent sessions under <its working directory>/.kairos/storage
+  # (Session.storage_path without Autonomos loaded), and its chain under its
+  # data dir. The two can differ; the answer is read from the first and
+  # recorded on the second, the chain the server reads.
+  pidx = ARGV.index('--project-dir')
+  abort 'usage: agent_rule.rb answer SESSION_ID --project-dir DIR' if pidx && ARGV[pidx + 1].to_s.then { |v| v.empty? || v.start_with?('-') }
+  project_dir = pidx ? File.expand_path(ARGV[pidx + 1].to_s) : File.dirname(data_dir)
+  abort "no project dir at #{project_dir}" unless File.directory?(project_dir)
+  Dir.chdir(project_dir)
+  session = KairosMcp::SkillSets::Agent::Session.load(session_id)
+  unless session
+    abort "no agent session #{session_id} under #{File.join(Dir.pwd, '.kairos', 'storage', 'agent_sessions')} " \
+          '(if the MCP server runs in another directory, pass --project-dir)'
+  end
+  puts "Sessions from: #{project_dir}"
+end
 if action == 'status'
   eff = ac.load_effective(path: path)
   puts "Table #{ac::TABLE_ID}: #{eff['status']}"
@@ -62,7 +92,14 @@ rescue StandardError => e
 end
 
 begin
-  result = ac.interactive_rule(action: action, tty_in: tty, tty_out: tty, path: path)
+  result = if action == 'answer'
+             KairosMcp::SkillSets::Agent::AnswerRuling.interactive_answer(
+               session: session, gate: KairosMcp::SkillSets::Agent::AdvanceGate.new(session.guard_dir),
+               tty_in: tty, tty_out: tty, reload: -> { KairosMcp::SkillSets::Agent::Session.load(session_id) }
+             )
+           else
+             ac.interactive_rule(action: action, tty_in: tty, tty_out: tty, path: path)
+           end
 ensure
   tty.close
 end
