@@ -46,17 +46,40 @@ loop with blockchain recording of each step.
 `SafeFileWrite` and `SafeFileEdit` are available via `invoke_tool`, enabling
 the agent to write design drafts to `docs/drafts/` or other project paths.
 
-### MCP Tool Access
+### MCP Tool Access — the act route is an allow-list
 
-KairosChain MCP tools (`context_save`, `knowledge_get`, etc.) are available via
-`invoke_tool` in the Act phase, except what the act route always refuses:
-record-store writers such as `chain_record` (the record judges the act, so the
-act may not write it); configuration writers (`llm_configure`, `mode_hooks_*`,
-`plugin_project`), `hermes_*` and `multi_llm_review*`; `llm_call` with a provider
-that carries tools (codex, cursor); and any step whose path arguments reach the
-KairosChain stores, `.claude/`, `.codex/`, `.mcp.json`, `CLAUDE.md`, `AGENTS.md`
-or anywhere outside the project. LLM calls made by the agent or its act run
-sandboxed. The act route is still deny-based: do not run the agent unattended.
+A step runs in the Act phase only if its tool is in the act-route table
+(`lib/agent/act_classification.yml`: read-only tools, `context_save`,
+`operator_report`, sandboxed `llm_call`, and `safe_file_write` / `safe_file_edit`
+/ `safe_file_copy`). Every other step is set aside, with its dependents, and
+returned to the operator at the end of the cycle as `awaiting_operator`.
+
+Work-tree writes are allowed by place: a `safe_file_*` write runs only when
+every location it names lands inside the table's `write_roots` (shipped:
+`docs/drafts`) with one of its `write_extensions` (`.md`, `.txt`). Any other
+write is set aside. With the guard on, every work-tree write is set aside,
+because the confined route is not wired.
+
+A withdrawal takes effect at the next `agent_step` call, not part-way through
+a running call; it is not an emergency stop (use `agent_stop`).
+
+The table is in force only while the operator's latest terminal ruling names
+the sha256 of its bytes. A fresh install, an upgrade that changes the table, or
+a withdrawal leaves the act route running nothing; every response says so under
+`classification`. Rule it into force yourself, in a terminal (the tool refuses
+to run without one):
+
+    ruby .kairos/skillsets/agent/bin/agent_rule.rb status
+    ruby .kairos/skillsets/agent/bin/agent_rule.rb activate
+
+The file route (`agent_execute`) is closed until it is wired confined. Behind
+the table, the 3.88.2 refusals stay: record-store and configuration writers,
+`llm_call` with a provider that carries tools, and any step whose path
+arguments reach the KairosChain stores, `.claude/`, `.codex/`, `.git/`,
+`.github/`, `.vscode/`, `.cursor/`, `.gemini/`, `.mcp.json`, `.envrc`,
+`CLAUDE.md`, `AGENTS.md`, or anywhere outside the project. LLM calls made by
+the agent or its act run sandboxed. Do not run the agent unattended until the
+approval-delegation work is complete.
 
 ## Sub-Agents
 

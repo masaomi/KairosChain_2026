@@ -276,12 +276,21 @@ assert("risk_exceeds_budget terminates session") do
   result = start_tool.call({ 'goal_name' => 'risk_test', 'risk_budget' => 'low' })
   session_id = JSON.parse(result[0][:text])['session_id']
 
+  # The act-route table in force (design v0.3): an unclassified step is set
+  # aside rather than paused, so the risk gate is exercised on a classified
+  # tool the plan labels high (the label raises, never lowers).
+  ac = KairosMcp::SkillSets::Agent::ActClassification
+  ac.rulings_source = lambda {
+    [[{ 'kind' => ac::RULING_KIND, 'table' => ac::TABLE_ID, 'action' => 'activate',
+        'sha256' => ac.sha256_of(ac::BASE_PATH), 'attested' => true }], nil]
+  }
+
   # Create a decision with high risk steps
   high_risk_decision = JSON.generate({
     'summary' => 'risky plan',
     'task_json' => {
       'task_id' => 'risk_001', 'meta' => { 'description' => 'risky', 'risk_default' => 'high' },
-      'steps' => [{ 'step_id' => 's1', 'action' => 'danger', 'tool_name' => 'knowledge_update',
+      'steps' => [{ 'step_id' => 's1', 'action' => 'danger', 'tool_name' => 'knowledge_get',
                      'tool_arguments' => {}, 'risk' => 'high', 'depends_on' => [],
                      'requires_human_cognition' => false }]
     }

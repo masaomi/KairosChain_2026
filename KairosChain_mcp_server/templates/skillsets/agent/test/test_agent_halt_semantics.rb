@@ -173,6 +173,14 @@ end
 
 REGISTRY = build_registry
 STEP_TOOL = REGISTRY.instance_variable_get(:@tools)['agent_step']
+# The act-route table in force (design v0.3), so the knowledge_get steps below
+# run as before rather than being set aside. Only where rulings are read from
+# is replaced.
+AC = KairosMcp::SkillSets::Agent::ActClassification
+AC.rulings_source = lambda {
+  [[{ 'kind' => AC::RULING_KIND, 'table' => AC::TABLE_ID, 'action' => 'activate',
+      'sha256' => AC.sha256_of(AC::BASE_PATH), 'attested' => true }], nil]
+}
 
 # A plan whose steps route to autoexec (no file tools) and whose third step
 # declares it needs a person — the shape that produced the observed halt.

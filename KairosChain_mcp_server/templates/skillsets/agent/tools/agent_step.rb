@@ -93,6 +93,9 @@ module KairosMcp
             session_id = arguments['session_id']
             action = arguments['action']
             feedback = arguments['feedback']
+            # The act-route table is read once per call: a ruling takes effect at
+            # the next call, never part-way through a run (INV-D5).
+            @act_classification = nil
 
             session = Session.load(session_id)
             return error_result("Session not found: #{session_id}") unless session
@@ -703,8 +706,20 @@ module KairosMcp
               'guard_verdict' => gv,
               'verdict_recorded' => result[:verdict_recorded] == true
             }
+            add_operator_handoff(resp, result)
             resp['permission_advisory'] = session.permission_advisory if session.permission_advisory
             resp
+          end
+
+          # Every manual-mode response to an act carries the steps set aside for
+          # the operator and the state of the act-route table (INV-A1, INV-A2).
+          # One helper, called by every response path, so no path can drop them.
+          def add_operator_handoff(response, result)
+            deferred = Array(result.dig(:act, 'deferred'))
+            response['awaiting_operator'] = deferred unless deferred.empty?
+            classification = result.dig(:act, 'classification')
+            response['classification'] = classification if classification
+            response
           end
 
           # Slice 2 NB-2 (R1 F7): the per-cycle constitutive record naming which
@@ -759,7 +774,7 @@ module KairosMcp
             @guard_record_error = nil
             # The route the plan asked for; whether the act ran there is told
             # by act_error (an unreachable executor fails before running).
-            planned = requires_file_operations?(decision_payload && decision_payload['task_json']) ? 'confined' : 'in_process'
+            planned = 'in_process' # the file route is closed (design v0.3 INV-A1)
             record = {
               'kind' => 'agent_guard_verdict',
               'session_id' => session.session_id,
@@ -1009,7 +1024,7 @@ module KairosMcp
             decision_payload = load_last_decision(session)
             return error_result("No decision payload found") unless decision_payload
 
-            proposal = MandateAdapter.to_mandate_proposal(decision_payload)
+            proposal = risk_proposal(session, decision_payload)
             mandate = ::Autonomos::Mandate.load(session.mandate_id)
             if ::Autonomos::Mandate.risk_exceeds_budget?(proposal, mandate[:risk_budget])
               ::Autonomos::Mandate.update_status(session.mandate_id, 'paused_risk_exceeded')
@@ -1040,6 +1055,7 @@ module KairosMcp
             }
             response['act_error'] = result[:act_error] if result[:act_error]
             response['guard'] = guard_verdict_summary(result[:guard_verdict]) if result[:guard_verdict]
+            add_operator_handoff(response, result)
             response['permission_advisory'] = session.permission_advisory if session.permission_advisory
             text_content(JSON.generate(response))
           end
@@ -1125,7 +1141,7 @@ module KairosMcp
 
                 # Gate 5: Risk budget (after loop detection, existing order)
                 decision_payload = session.load_decision
-                proposal = MandateAdapter.to_mandate_proposal(decision_payload)
+                proposal = risk_proposal(session, decision_payload)
                 if ::Autonomos::Mandate.risk_exceeds_budget?(proposal, mandate[:risk_budget])
                   mandate[:status] = 'paused_risk_exceeded'
                   ::Autonomos::Mandate.save(session.mandate_id, mandate)
@@ -1224,7 +1240,7 @@ module KairosMcp
                       end
 
                       # Re-check risk budget on revised plan
-                      proposal = MandateAdapter.to_mandate_proposal(decision_payload)
+                      proposal = risk_proposal(session, decision_payload)
                       if ::Autonomos::Mandate.risk_exceeds_budget?(proposal, mandate[:risk_budget])
                         mandate[:status] = 'paused_risk_exceeded'
                         ::Autonomos::Mandate.save(session.mandate_id, mandate)
@@ -1305,7 +1321,7 @@ module KairosMcp
                         end
 
                         # Re-check risk budget on revised plan
-                        proposal = MandateAdapter.to_mandate_proposal(decision_payload)
+                        proposal = risk_proposal(session, decision_payload)
                         if ::Autonomos::Mandate.risk_exceeds_budget?(proposal, mandate[:risk_budget])
                           mandate[:status] = 'paused_risk_exceeded'
                           ::Autonomos::Mandate.save(session.mandate_id, mandate)
@@ -1329,50 +1345,11 @@ module KairosMcp
                 ar_result = run_act_reflect_internal(session)
                 total_llm_calls += ar_result[:llm_calls] || 0
                 results << ar_result
-                # Guard track (AGT-6): a guard halt is a checkpoint, not an
-                # ordinary act failure — checked before act_error so it stops the
-                # loop for human review rather than a paused_error retry.
-                if ar_result[:guard_halt]
-                  session.update_state('checkpoint')
-                  session.save
-                  # Steps the plan set aside for a person are still owed to the
-                  # operator when the cycle halts after an in-process act.
-                  deferred = Array(ar_result.dig(:act, 'deferred'))
-                  return finalize_autonomous(session, results, checkpoint: true,
-                                             warning: guard_halt_warning(ar_result),
-                                             deferred: deferred.empty? ? nil : deferred)
-                end
-                # Everything that could run has run. What is left needs the
-                # operator: the steps the plan marked for a person, and the
-                # steps downstream of those. Hand over one list at the end of
-                # the cycle rather than stopping dead at the first mark.
-                deferred = Array(ar_result.dig(:act, 'deferred'))
-                unless deferred.empty?
-                  session.update_state('checkpoint')
-                  session.save
-                  return finalize_autonomous(
-                    session, results, checkpoint: true, deferred: deferred,
-                    warning: "awaiting_operator: #{deferred.size} step(s) still need you"
-                  )
-                end
-                # Kept for callers that did not ask to defer. Under defer this
-                # fires only if a mark slipped past — worth knowing about.
-                if ar_result.dig(:act, 'human_halt')
-                  halt_at = ar_result.dig(:act, 'halted_at')
-                  session.update_state('checkpoint')
-                  session.save
-                  return finalize_autonomous(
-                    session, results, checkpoint: true,
-                    warning: "human_cognition_halt at step #{halt_at}: " \
-                             "#{ar_result.dig(:act, 'resume_hint')}"
-                  )
-                end
-                if ar_result[:act_error]
-                  session.update_state('paused_error')
-                  session.save
-                  return finalize_autonomous(session, results, paused: 'act_failed',
-                                             error: ar_result[:act_error])
-                end
+                # The stops every autonomous act shares (guard halt, set-aside
+                # steps, a human-cognition halt, act failure) live in one method,
+                # so the risk-resume path stops on them exactly as the loop does.
+                act_stop = autonomous_act_stop(session, ar_result, results)
+                return act_stop if act_stop
 
                 # Gate 6: Post-ACT termination (record_cycle may have incremented errors)
                 mandate = ::Autonomos::Mandate.reload(session.mandate_id)
@@ -1428,6 +1405,61 @@ module KairosMcp
             error_result("Session locked: #{e.message}")
           end
 
+          # Post-act stops shared by the autonomous loop and the risk-resume
+          # path. Returns the finalized response, or nil to continue. Before
+          # this was one method, the resume path ran the act without the
+          # set-aside check and cycled on past work it had handed to the
+          # operator (implementation review, 2026-10-06).
+          def autonomous_act_stop(session, ar_result, results)
+            # Guard track (AGT-6): a guard halt is a checkpoint, not an
+            # ordinary act failure — checked before act_error so it stops the
+            # loop for human review rather than a paused_error retry.
+            if ar_result[:guard_halt]
+              session.update_state('checkpoint')
+              session.save
+              # Steps the plan set aside for a person are still owed to the
+              # operator when the cycle halts after an in-process act.
+              deferred = Array(ar_result.dig(:act, 'deferred'))
+              return finalize_autonomous(session, results, checkpoint: true,
+                                         warning: guard_halt_warning(ar_result),
+                                         deferred: deferred.empty? ? nil : deferred)
+            end
+            # Everything that could run has run. What is left needs the
+            # operator: the steps the plan marked for a person, and the
+            # steps downstream of those. Hand over one list at the end of
+            # the cycle rather than stopping dead at the first mark.
+            deferred = Array(ar_result.dig(:act, 'deferred'))
+            unless deferred.empty?
+              session.update_state('checkpoint')
+              session.save
+              # An act error, if the cycle had one, travels with the list.
+              return finalize_autonomous(
+                session, results, checkpoint: true, deferred: deferred, error: ar_result[:act_error],
+                warning: "awaiting_operator: #{deferred.size} step(s) still need you"
+              )
+            end
+            # Kept for callers that did not ask to defer. Under defer this
+            # fires only if a mark slipped past — worth knowing about.
+            if ar_result.dig(:act, 'human_halt')
+              halt_at = ar_result.dig(:act, 'halted_at')
+              session.update_state('checkpoint')
+              session.save
+              return finalize_autonomous(
+                session, results, checkpoint: true,
+                warning: "human_cognition_halt at step #{halt_at}: " \
+                         "#{ar_result.dig(:act, 'resume_hint')}"
+              )
+            end
+            if ar_result[:act_error]
+              session.update_state('paused_error')
+              session.save
+              return finalize_autonomous(session, results, paused: 'act_failed',
+                                         error: ar_result[:act_error])
+            end
+
+            nil
+          end
+
           def finalize_autonomous(session, cycle_results, terminated: nil, paused: nil,
                                   checkpoint: nil, error: nil, warning: nil,
                                   review: nil, multi_llm_prompt: nil, deferred: nil)
@@ -1461,6 +1493,8 @@ module KairosMcp
                 row['guard_verdict'] = r[:guard_verdict]['verdict'] if r[:guard_verdict].is_a?(Hash)
                 row['guard_reason'] = r[:act_error] if r[:guard_halt]
                 row['verdict_recorded'] = false if r[:verdict_recorded] == false
+                classification = r.dig(:act, 'classification')
+                row['classification'] = classification if classification
                 row
               }
             }
@@ -1557,7 +1591,7 @@ module KairosMcp
             decision_payload = session.load_decision
             return error_result("No decision to re-check") unless decision_payload
 
-            proposal = MandateAdapter.to_mandate_proposal(decision_payload)
+            proposal = risk_proposal(session, decision_payload)
             if ::Autonomos::Mandate.risk_exceeds_budget?(proposal, mandate[:risk_budget])
               return text_content(JSON.generate({
                 'status' => 'still_paused', 'reason' => 'risk_still_exceeded',
@@ -1575,20 +1609,8 @@ module KairosMcp
               # In autonomous mode, run ACT+REFLECT for the paused proposal,
               # then continue the autonomous loop from next cycle.
               ar_result = run_act_reflect_internal(session)
-              if ar_result[:guard_halt]
-                session.update_state('checkpoint')
-                session.save
-                deferred = Array(ar_result.dig(:act, 'deferred'))
-                return finalize_autonomous(session, [ar_result], checkpoint: true,
-                                           warning: guard_halt_warning(ar_result),
-                                           deferred: deferred.empty? ? nil : deferred)
-              end
-              if ar_result[:act_error]
-                session.update_state('paused_error')
-                session.save
-                return finalize_autonomous(session, [ar_result], paused: 'act_failed',
-                                           error: ar_result[:act_error])
-              end
+              act_stop = autonomous_act_stop(session, ar_result, [ar_result])
+              return act_stop if act_stop
               # Continue to next cycle in autonomous loop
               session.update_state('observed')
               session.save
@@ -1608,6 +1630,7 @@ module KairosMcp
               }
               response['act_error'] = result[:act_error] if result[:act_error]
               response['guard'] = guard_verdict_summary(result[:guard_verdict]) if result[:guard_verdict]
+              add_operator_handoff(response, result)
               text_content(JSON.generate(response))
             end
           end
@@ -1647,20 +1670,58 @@ module KairosMcp
             task_json = decision_payload['task_json']
             observe_norms(session, task_json)
 
-            # Route: file operations → agent_execute; MCP tools → autoexec
-            if requires_file_operations?(task_json)
-              run_act_via_agent_execute(session, decision_payload)
-            else
-              run_act_via_autoexec(session, decision_payload)
-            end
+            # One route. The file route (agent_execute) reads steps as prose, so
+            # it honours no mark, no deny-list and no protected-path check; it
+            # stays closed until it is wired confined (design v0.3 INV-A1). Its
+            # tools can never be classified, so a plan naming them runs here
+            # with those steps set aside for the operator.
+            run_act_via_autoexec(session, decision_payload)
           rescue StandardError => e
             { 'error' => "ACT failed: #{e.message}" }
           end
 
-          # The route decision and the risk gate's human-mark exemption must be
-          # taken from one definition. MandateAdapter owns it; this delegates.
-          def requires_file_operations?(task_json)
-            MandateAdapter.routes_to_subcontractor?(task_json)
+          # The act-route allow-list as in force (INV-A2): read from the table
+          # file and the chain once per agent_step call, so a ruling made
+          # between runs takes effect at the next call and nothing within a run
+          # changes it.
+          def act_classification
+            @act_classification ||= ::KairosMcp::SkillSets::Agent::ActClassification.load_effective
+          end
+
+          # The plan as the driver will run it: unclassified steps marked for the
+          # operator, classified steps at their resolved risk. The risk gate and
+          # the act read this same copy, so the exemption a marked step earns at
+          # the gate is the deferral it gets at execution.
+          def classified_task(session, task_json, effective = act_classification)
+            adm = ::KairosMcp::SkillSets::Agent::Admission
+            roots = workspace_roots_for_admission
+            project_root = project_root_for_merge
+            write_scope = lambda do |step|
+              adm.within_write_scope?(step['tool_arguments'], effective['write_roots'], effective['write_extensions'],
+                                      roots, project_root: project_root, name_prefix: effective['write_name_prefix'])
+            end
+            ::KairosMcp::SkillSets::Agent::ActClassification.apply(
+              task_json, effective, guard: session.guard_enabled?, write_scope: write_scope
+            )
+          end
+
+          def risk_proposal(session, decision_payload)
+            task, = classified_task(session, decision_payload['task_json'])
+            MandateAdapter.to_mandate_proposal(decision_payload.merge('task_json' => task),
+                                               resolved_risk: true)
+          end
+
+          # What a response says about the table, so a table that is not in
+          # force is seen, not only logged.
+          def classification_summary(effective, set_aside)
+            out = { 'status' => effective['status'], 'set_aside' => set_aside.size }
+            out['sha256'] = effective['sha256'] if effective['sha256']
+            out['detail'] = effective['detail'] if effective['detail']
+            unless effective['status'] == 'in_force'
+              out['remedy'] = 'the act route runs nothing until the operator rules the table into force: ' \
+                              'ruby .kairos/skillsets/agent/bin/agent_rule.rb activate (in a terminal)'
+            end
+            out
           end
 
           # Count the two standing norms a machine can check, on the plan about
@@ -1788,7 +1849,17 @@ module KairosMcp
             # refused above; multi_llm_review is denied on the act context). The
             # executed plan is a copy; the rewritten step ids are logged so the
             # recorded decision and the executed plan hash can be reconciled.
-            task_json, rewritten = confine_launcher_steps(decision_payload['task_json'])
+            # The allow-list (INV-A1): steps whose tool the table in force does
+            # not classify are marked for the operator on the executed copy;
+            # autoexec defers them and their dependents to the end of the cycle.
+            effective = act_classification
+            task_json, set_aside = classified_task(session, decision_payload['task_json'], effective)
+            unless set_aside.empty?
+              log_agent(:info, 'act_steps_set_aside', session, table: effective['status'],
+                        steps: set_aside.map { |s| "#{s['step_id']} #{s['tool_name']}" }.join('; ')[0, 200])
+            end
+
+            task_json, rewritten = confine_launcher_steps(task_json)
             log_agent(:info, 'act_launcher_steps_confined', session, steps: rewritten.join(',')) unless rewritten.empty?
 
             plan_result = invoke_tool('autoexec_plan', {
@@ -1822,17 +1893,48 @@ module KairosMcp
             # internal_execute mode hard-coded above.
             halted_at = run_parsed['halted_at']
             deferred = Array(run_parsed['deferred'])
+            # The summary is autoexec's own account of the run, as before.
             summary = if halted_at then 'halted'
                       elsif !deferred.empty? then 'deferred'
                       elsif run_parsed['outcome']&.end_with?('_complete') then 'completed'
                       else 'failed'
                       end
+            # The operator's list is not. autoexec lists only the marked steps it
+            # reached; when an earlier step stops the run, a marked step after it
+            # is never visited. So the list adds every step the driver handed over
+            # marked that autoexec did not report — except the step the run halted
+            # at, which is reported as the halt.
+            # Their dependents follow them, as autoexec's own deferral would have
+            # listed them (blocked_by_deferred).
+            # The closure starts from every set-aside step, those autoexec
+            # reported as well as those it never reached: a dependent of either
+            # is owed to the operator.
+            reported_ids = deferred.map { |d| d.is_a?(Hash) ? d['step_id'] : nil }.compact
+            reported = (reported_ids + [halted_at]).compact
+            steps = Array(task_json['steps']).select { |st| st.is_a?(Hash) && st['step_id'] }
+            unreached = steps.select { |st| st['requires_human_cognition'] == true && !reported.include?(st['step_id']) }
+            added = reported_ids + unreached.map { |st| st['step_id'] }
+            loop do
+              more = steps.select do |st|
+                !reported.include?(st['step_id']) && !added.include?(st['step_id']) &&
+                  (Array(st['depends_on']) & added).any?
+              end
+              break if more.empty?
+
+              added.concat(more.map { |st| st['step_id'] })
+              unreached.concat(more)
+            end
+            deferred += unreached.map do |st|
+              { 'step_id' => st['step_id'], 'tool_name' => st['tool_name'],
+                'status' => st['requires_human_cognition'] == true ? 'not_reached' : 'blocked_by_not_reached' }
+            end
 
             result = {
               'task_id' => task_id,
               'plan_hash' => plan_hash,
               'execution' => run_parsed,
-              'summary' => summary
+              'summary' => summary,
+              'classification' => classification_summary(effective, set_aside)
             }
             unless deferred.empty?
               result['deferred'] = deferred
@@ -2040,6 +2142,7 @@ module KairosMcp
             messages = [
               { 'role' => 'user', 'content' =>
                 "## Available Tools\n#{catalog}\n\n" \
+            "#{act_route_brief}" \
                 "Previous plan:\n#{prior_json}\n\n" \
                 "This plan was rejected. Feedback: #{feedback}\n\n" \
                 "Please revise the plan and output a new decision_payload as JSON. " \
@@ -2122,11 +2225,16 @@ module KairosMcp
               ::Autonomos::Ooda::COMPLEX_KEYWORDS
             )
             signals << 'l0_change' if steps.any? { |s| L0_TOOLS.include?(s['tool_name']) }
-            signals << 'core_files' if steps.any? { |s|
-              path = s.dig('tool_arguments', 'file_path').to_s
+            # Location arguments are read by the names the act-route table gives
+            # each tool: the safe_file_* tools say 'path' (copy: 'source' and
+            # 'destination'), and reading 'file_path' alone missed them all.
+            ac = ::KairosMcp::SkillSets::Agent::ActClassification
+            effective = act_classification
+            locations = steps.map { |s| s.is_a?(Hash) ? ac.location_values(s, effective) : [] }
+            signals << 'core_files' if locations.flatten.any? { |path|
               path.include?('/lib/') && path.include?('kairos')
             }
-            file_paths = steps.filter_map { |s| s.dig('tool_arguments', 'file_path') }.uniq
+            file_paths = locations.flatten.uniq
             signals << 'multi_file' if file_paths.size > 3
             signals << 'state_mutation' if steps.any? { |s| STATE_MUTATION_TOOLS.include?(s['tool_name']) }
 
@@ -3019,6 +3127,26 @@ module KairosMcp
             "\"signals\": [\"reason1\"]}. Assess complexity based on risk, step count, " \
             "architectural scope, and L0 framework changes. " \
             "Use ONLY tools listed above."
+          end
+
+          # What the act route will actually run, from the table in force, so
+          # the planner does not write steps that can only be handed back.
+          def act_route_brief
+            eff = act_classification
+            unless eff['status'] == 'in_force'
+              return "## What the act route runs\nNo act-route table is in force (#{eff['status']}): " \
+                     "every step will be handed to the operator, not run.\n\n"
+            end
+
+            prefix = eff['write_name_prefix']
+            "## What the act route runs\n" \
+              "Only these tools run: #{eff['tools'].keys.sort.join(', ')}. Any other step is handed to the " \
+              "operator instead of running; if you need one, keep it and set requires_human_cognition.\n" \
+              "A file write (safe_file_write / safe_file_edit / safe_file_copy) runs only when every path " \
+              "it names is a plain relative path under #{eff['write_roots'].join(' or ')}/, with a file " \
+              "name starting #{prefix} and ending #{eff['write_extensions'].join(' or ')} " \
+              "(e.g. #{eff['write_roots'].first}/#{prefix}notes#{eff['write_extensions'].first}), and no " \
+              "workspace_root argument. Any name starting with '.' is refused for every step.\n\n"
           end
 
           # Bounded, and says so when it cuts: a goal is a document and an

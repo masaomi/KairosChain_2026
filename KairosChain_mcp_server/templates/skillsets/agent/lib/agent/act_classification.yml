@@ -1,0 +1,54 @@
+# Act-route classification — the agent's allow-list (design v0.3, INV-A1).
+#
+# A step runs on the act route only if its tool is listed here. Every other
+# step is set aside for the operator at the end of the cycle.
+#
+# This is the base table shipped with the gem. It lives beside the code, not
+# under config/, because upgrade never overwrites an operator's config/ file:
+# a shipped change here must reach the instance. It is in force only while the
+# latest attested operator ruling names the sha256 of its exact bytes, so an
+# upgrade that changes it leaves the act route empty until the operator rules
+# again, at a terminal:
+#
+#   ruby .kairos/skillsets/agent/bin/agent_rule.rb activate
+#
+# effect: read_only | session_record | llm_sandboxed | reversible_local
+#   reversible_local is a work-tree write. It runs only when every location
+#   the step names lands inside write_roots with one of write_extensions;
+#   any other write is set aside. Under the guard it is always set aside,
+#   because the confined route is not wired.
+# locations: the arguments that name the file a step reads or writes (the
+#   complexity signals read them; the protected-path check matches every
+#   location-like argument by name and does not depend on this list).
+#
+# write_roots / write_extensions / write_name_prefix: where work-tree writes
+# may land, relative to the project. Writes are allowed by place rather than
+# refused by place: naming every location a tool executes (git hooks, editor
+# add-ons, CI) did not close. Inside the place, a file must be named with the
+# prefix, carry one of the extensions, and sit under no hidden ('.') name,
+# because other agent tools load instruction files such as CLAUDE.local.md or
+# GEMINI.md from subdirectories, and none loads draft_*.
+write_roots:
+  - docs/drafts
+write_extensions: [.md, .txt]
+write_name_prefix: draft_
+
+tools:
+  resource_read:   { effect: read_only }
+  resource_list:   { effect: read_only }
+  knowledge_get:   { effect: read_only }
+  knowledge_list:  { effect: read_only }
+  skills_list:     { effect: read_only }
+  skills_get:      { effect: read_only }
+  document_status: { effect: read_only }
+  chain_status:    { effect: read_only }
+  chain_verify:    { effect: read_only }
+  chain_history:   { effect: read_only }
+  safe_file_read:  { effect: read_only, locations: [path] }
+  safe_file_list:  { effect: read_only, locations: [path] }
+  context_save:    { effect: session_record }
+  operator_report: { effect: session_record }
+  llm_call:        { effect: llm_sandboxed }
+  safe_file_write: { effect: reversible_local, locations: [path] }
+  safe_file_edit:  { effect: reversible_local, locations: [path] }
+  safe_file_copy:  { effect: reversible_local, locations: [source, destination] }

@@ -62,8 +62,23 @@ module KairosMcp
         # .codex; .mcp.json) and the instruction files every agent body reads
         # (CLAUDE.md, AGENTS.md). Checked by destination, not by tool name, so
         # a tool that was not anticipated is covered by its arguments.
-        PROTECTED_SEGMENTS = %w[.kairos .claude .codex].freeze
-        PROTECTED_BASENAMES = %w[claude.md agents.md .mcp.json].freeze
+        #
+        # Also protected: what git and the operator's development tools execute
+        # or load as configuration (design v0.3 §6.5). A hook written into
+        # .git/hooks, or core.hooksPath set in .git/config, runs as the operator
+        # on the next git command, including a plain `git status` — which would
+        # hand the act the operator's shell. The same holds for CI workflows
+        # (.github), editor tasks (.vscode), other agents' rules (.cursor,
+        # .gemini, .cursorrules) and direnv (.envrc).
+        #
+        # And private keys: a keys/ directory anywhere, the usual private-key
+        # file names and extensions. The base table classifies safe_file_read,
+        # and a key read in one step could leave through an API llm_call in the
+        # next (keys/mmp_keypair.pem sits at this project's root).
+        PROTECTED_SEGMENTS = %w[.kairos .claude .codex .git .github .vscode .cursor .gemini keys].freeze
+        PROTECTED_BASENAMES = %w[claude.md agents.md .mcp.json .envrc .cursorrules .cursorignore
+                                 id_rsa id_dsa id_ecdsa id_ed25519].freeze
+        PROTECTED_EXTENSIONS = %w[.pem .key .p12 .pfx].freeze
 
         # Argument names that carry a filesystem location, matched by word
         # (split on '_' / '-') so 'profile' or 'output_format' is not a path.
@@ -146,7 +161,11 @@ module KairosMcp
             next [{ 'step_id' => step['step_id'], 'tool_name' => step['tool_name'], 'path' => '(no root)',
                     'rule' => 'unresolvable' }] if candidate_roots.empty? && !pairs.empty?
             pairs.filter_map do |_key, raw|
-              rule = if protected_name?(raw) then 'protected'
+              # A leading '~' is read as the home directory by File.expand_path
+              # but kept as a literal directory name by the tools (File.join), so
+              # the check and the write would disagree about where it lands.
+              rule = if raw.start_with?('~') then 'tilde'
+                     elsif protected_name?(raw) then 'protected'
                      elsif raw.split(%r{[/\\]}).include?('..') then 'dotdot'
                      else candidate_roots.lazy.map { |root| touch_rule(raw, root, protected, allowed) }.find(&:itself)
                      end
@@ -199,11 +218,83 @@ module KairosMcp
           end
         end
 
+        # True when a work-tree write is inside its allowed place (design v0.3
+        # §6.5 as ruled 2026-10-06). The accepted input is deliberately narrow,
+        # so that this check and the tool read the path the same way: every
+        # location argument must be a plain relative path, written as
+        # '<write root>/.../<name>', with no root argument beside it. Then:
+        #   - no segment below the root may start with '.' (no hidden files or
+        #     directories, where agent tools keep rules), as written and as
+        #     resolved;
+        #   - the file name must start with name_prefix and carry one of
+        #     extensions, as written and as resolved (no agent tool loads
+        #     'draft_*' as instructions; a link named .md is not a document);
+        #   - resolved with symlinks followed against every default root a tool
+        #     may use, the path must land strictly inside the same write root.
+        # A leading '/', '~' or '\', a backslash, an empty, '.' or '..' segment,
+        # a NUL or other control character, a root argument, or anything that
+        # cannot be resolved makes the step not inside. Never raises.
+        def within_write_scope?(args, write_roots, extensions, roots, project_root:, name_prefix: nil)
+          return false unless args.is_a?(Hash)
+
+          pairs = path_pairs(args)
+          root_args, files = pairs.partition { |k, _| (key_tokens(k) & ROOT_TOKENS).any? }
+          return false if files.empty? || !root_args.empty?
+
+          exts = Array(extensions).map(&:downcase)
+          candidates = Array(roots).compact.map(&:to_s).reject(&:empty?)
+          rels = Array(write_roots).map(&:to_s)
+          return false if rels.empty? || exts.empty? || candidates.empty?
+
+          name_ok = lambda do |name|
+            exts.include?(File.extname(name).downcase) && (name_prefix.nil? || name.start_with?(name_prefix))
+          end
+
+          files.all? do |_key, raw|
+            next false if raw.match?(/[[:cntrl:]\\]/) || raw.start_with?('/', '~')
+
+            segments = raw.split('/', -1)
+            next false if segments.any? { |p| p.empty? || p == '.' || p == '..' }
+
+            rel = rels.find { |r| raw.start_with?("#{r}/") }
+            next false unless rel
+
+            below = raw.delete_prefix("#{rel}/").split('/')
+            next false if below.empty? || below.any? { |p| p.start_with?('.') } || !name_ok.call(below.last)
+
+            dir = canonical(File.expand_path(rel, project_root))
+            candidates.all? do |root|
+              full = canonical(File.expand_path(raw, root))
+              next false unless full.start_with?("#{dir}/")
+
+              resolved = full.delete_prefix("#{dir}/").split('/')
+              !resolved.empty? && resolved.none? { |p| p.start_with?('.') } && name_ok.call(resolved.last)
+            rescue StandardError
+              false
+            end
+          rescue StandardError
+            false
+          end
+        rescue StandardError
+          false
+        end
+
         # A protected segment or file name anywhere in the path refuses it,
         # whatever root the tool resolves against.
         def protected_name?(raw)
+          # A control character (NUL included) is refused outright: no real
+          # location needs one, and File.extname raises on NUL.
+          return true if raw.to_s.match?(/[[:cntrl:]]/)
+
           parts = raw.split(%r{[/\\]}).map(&:downcase)
-          parts.any? { |p| PROTECTED_SEGMENTS.include?(p) } || PROTECTED_BASENAMES.include?(parts.last)
+          # No hidden name, anywhere, for any step (operator ruling 2026-10-06):
+          # dotfiles and dot-directories are where secrets (.env, .ssh, .aws,
+          # .netrc) and tool configuration live, and naming them one by one did
+          # not close. '.' and '..' are not names; '..' is refused on its own.
+          return true if parts.any? { |p| p.start_with?('.') && p != '.' && p != '..' }
+
+          parts.any? { |p| PROTECTED_SEGMENTS.include?(p) } || PROTECTED_BASENAMES.include?(parts.last) ||
+            PROTECTED_EXTENSIONS.include?(File.extname(parts.last.to_s))
         end
 
         # True when the path, resolved against root, lands in a protected

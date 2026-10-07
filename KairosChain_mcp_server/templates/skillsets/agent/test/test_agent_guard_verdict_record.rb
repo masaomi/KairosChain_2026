@@ -14,10 +14,9 @@
 # target directory, the storage underneath chain_record (never the real
 # chain), and agent_execute.
 #
-# agent_execute is injected into the registry here. In a real server it is not
-# registered (skillset.json tool_classes does not list it), so the confined
-# route is not reachable yet; wiring it is separate work. The confined probes
-# below test the driver's verdict/record/merge ordering, not that route.
+# agent_execute is injected into the registry here, and the driver must still
+# never call it: the file route is closed until it is wired confined (design
+# v0.3 INV-A1). The confined PASS-and-merge probes return with that wiring.
 # Usage: ruby test_agent_guard_verdict_record.rb
 
 $LOAD_PATH.unshift File.expand_path('../../lib', __dir__)
@@ -150,8 +149,12 @@ class MockAutoexecPlan < KairosMcp::Tools::BaseTool
   def description = 'mock'
   def input_schema = { type: 'object', properties: {} }
 
+  @@last = nil
+  def self.last = @@last
+
   def call(arguments)
     task_json = JSON.parse(arguments['task_json'])
+    @@last = task_json
     text_content(JSON.generate({ 'status' => 'ok', 'task_id' => task_json['task_id'],
                                  'plan_hash' => Digest::SHA256.hexdigest(arguments['task_json'])[0..15],
                                  'steps' => task_json['steps']&.length || 0 }))
@@ -179,7 +182,11 @@ class MockAgentExecute < KairosMcp::Tools::BaseTool
   def description = 'mock'
   def input_schema = { type: 'object', properties: {} }
 
+  @@calls = 0
+  def self.calls = @@calls
+
   def call(_arguments)
+    @@calls += 1
     scratch = Dir.mktmpdir('agent_act_', TMPDIR)
     FileUtils.mkdir_p(File.join(scratch, 'out'))
     File.write(File.join(scratch, 'out', 'note.md'), @@content)
@@ -220,6 +227,13 @@ STEP_TOOL = REGISTRY.instance_variable_get(:@tools)['agent_step']
 # A PASS merges into the live tree; point that at a scratch project, never the repo.
 STEP_TOOL.define_singleton_method(:project_root_for_merge) { PROJECT_ROOT }
 MERGED = File.join(PROJECT_ROOT, 'out', 'note.md')
+# The act-route table in force (design v0.3). Only where rulings are read from
+# is replaced; the table file and the loader are the real ones.
+AC = KairosMcp::SkillSets::Agent::ActClassification
+AC.rulings_source = lambda {
+  [[{ 'kind' => AC::RULING_KIND, 'table' => AC::TABLE_ID, 'action' => 'activate',
+      'sha256' => AC.sha256_of(AC::BASE_PATH), 'attested' => true }], nil]
+}
 
 ACCEPTANCE = {
   'acceptance' => [
@@ -316,44 +330,24 @@ assert('the next cycle is told the previous cycle failed') do
   STEP_TOOL.send(:build_agent_execute_context, Session.load(sid5)).include?('Cycle 1: failed')
 end
 
-section 'Confined PASS: the verdict is recorded first, then the file is merged'
+section 'The file route is closed: a file_write plan is set aside, never delegated'
 
 reset_chain!
 FileUtils.rm_rf(File.join(PROJECT_ROOT, 'out'))
-merged_at_record_time = nil
-FakeChainStore.on_add = ->(_logs) { merged_at_record_time = File.exist?(MERGED) }
+calls_before = MockAgentExecute.calls
 sid6, = start_proposed(WRITE_PLAN)
 r6 = act(sid6)
 rec6 = verdict_records.last
-assert('the PASS verdict is written to the chain') { rec6 && rec6['verdict'] == Verdict::PASS }
-assert('the chain record names the planned route as confined') { rec6 && rec6['planned_route'] == 'confined' }
-assert('nothing had been merged when the verdict was recorded') { merged_at_record_time == false }
-assert('the file reached the project tree after the record') { File.read(MERGED).include?('fe66272') }
-assert("the response reports 'completed' with a PASS verdict") do
-  r6['act_summary'] == 'completed' && r6.dig('guard', 'verdict') == Verdict::PASS
+assert('agent_execute is never called') { MockAgentExecute.calls == calls_before }
+assert('the verdict is still written to the chain, naming the route as in_process') do
+  rec6 && rec6['planned_route'] == 'in_process'
 end
-
-section 'A PASS the chain does not take: halt for the operator, nothing merged'
-
-reset_chain!
-FileUtils.rm_rf(File.join(PROJECT_ROOT, 'out'))
-sid7, = start_proposed(WRITE_PLAN)
-FakeChainStore.raise_with = RuntimeError.new('storage unavailable')
-r7 = act(sid7)
-FakeChainStore.raise_with = nil
-assert('nothing was merged into the project tree') { !File.exist?(MERGED) }
-assert('the response is a guard halt, not success and not a plain failure') { r7['status'] == 'guard_halt' }
-assert('the response says the verdict was not recorded') { r7['verdict_recorded'] == false }
-assert('the halt reason names the lost verdict, the cause, and that results stay quarantined') do
-  reason = r7['guard_reason'].to_s
-  reason.include?("verdict #{Verdict::PASS} (") && reason.include?('RuntimeError: storage unavailable') &&
-    reason.include?('quarantined')
-end
-prog7 = Session.load(sid7).load_progress.last
-assert('progress records the halt, that the verdict was not recorded, and which verdict was lost') do
-  prog7['act_summary'].start_with?('guard halt') && prog7.dig('guard_record', 'verdict_recorded') == false &&
-    prog7.dig('guard_record', 'lost_verdict') == Verdict::PASS
-end
+assert('nothing reached the project tree') { !File.exist?(MERGED) }
+# (This harness does not chdir into the project, so the in-process route also
+# refuses the relative path as outside it; test_agent_allowlist.rb shows the
+# file step set aside on an ordinary plan.)
+assert('the in-process route did not run the file step') { r6['act_error'].to_s.include?('ACT refused before execution') }
+assert('the response reports the act as failed under the guard') { r6['act_summary'] == 'failed' }
 
 section 'A FAIL the chain does not take also halts (it must not cycle on silently)'
 
@@ -396,7 +390,8 @@ end
 section 'Manual risk-resume path: a guard halt is reported as a halt, not as ok'
 
 reset_chain!
-risky = decision('knowledge_update', { 'name' => 'x', 'content' => 'y' })
+# A classified read the plan labels medium: the label raises its risk.
+risky = decision('knowledge_get', { 'name' => 'x' }).sub('"risk":"low"', '"risk":"medium"')
 sid11, = start_proposed(risky)
 paused = act(sid11)
 assert('a medium-risk plan under a low budget pauses first') { paused['state'] == 'paused_risk' }

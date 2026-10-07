@@ -228,7 +228,17 @@ module Autonomos
       # Resolve a step's risk deterministically: the tool map wins for known tools
       # (both raising and lowering the model's label), otherwise the model-assigned
       # risk is used, defaulting to 'low'.
+      #
+      # A caller that has already resolved the risk against its own table (the
+      # agent's act-route allow-list: table risk, raised but never lowered by
+      # the plan's label) passes it as resolved_risk, and that value stands.
+      # Read under the symbol key only: the adapter builds that key itself,
+      # while a string key could arrive inside a plan's own step and lower
+      # the tool map's risk.
       def effective_risk(step)
+        resolved = step[:resolved_risk]
+        return resolved if resolved
+
         tool = step[:tool_name] || step['tool_name']
         TOOL_RISK[tool] || step[:risk] || 'low'
       end

@@ -130,31 +130,39 @@ class TestMarkedStepExemption < Minitest::Test
   end
 end
 
-# --- 2: the subcontractor route gets no exemption ----------------------------
-class TestSubcontractorRouteHasNoExemption < Minitest::Test
-  # format_steps_as_instructions never reads the mark, so a marked delete
-  # would be handed to the subcontractor as prose. The plan must stay refused.
-  def test_marked_delete_beside_unmarked_file_write_is_refused
+# --- 2: one route, so the declaration always holds ------------------------
+# The file route (agent_execute) formatted steps as prose and never read a
+# mark, so its plans got no exemption. It is closed (design v0.3 INV-A1):
+# every plan runs in-process, where autoexec defers a marked step, and the
+# act-route table can never classify a file-route tool.
+class TestOneRouteDeclaration < Minitest::Test
+  def test_a_plan_naming_file_route_tools_still_declares_enforcement
     p = Adapter.to_mandate_proposal(
       payload([step('safe_file_delete', risk: 'high', marked: true, id: 's1'),
                step('file_write', id: 's2')])
     )
-    assert_equal false, p[:autoexec_task][:enforce_human_marks]
-    assert Mandate.risk_exceeds_budget?(p, 'low')
-    assert Mandate.risk_exceeds_budget?(p, 'medium')
+    assert_equal true, p[:autoexec_task][:enforce_human_marks]
   end
 
-  def test_route_predicate_matches_every_file_tool_name
-    %w[Edit Write Read Bash file_edit file_write file_read].each do |tool|
-      assert Adapter.routes_to_subcontractor?({ 'steps' => [step(tool)] }),
-             "#{tool} should route to the subcontractor"
-    end
-    refute Adapter.routes_to_subcontractor?({ 'steps' => [step('safe_file_read')] })
-  end
-
-  def test_missing_task_json_is_not_a_subcontractor_route
-    refute Adapter.routes_to_subcontractor?(nil)
+  def test_missing_task_json_declares_enforcement
     assert_equal true, Adapter.to_mandate_proposal({ 'summary' => 's' })[:autoexec_task][:enforce_human_marks]
+  end
+
+  def test_no_file_route_tool_can_be_classified
+    ac = KairosMcp::SkillSets::Agent::ActClassification
+    Adapter::FILE_TOOL_NAMES.each do |tool|
+      _, error = ac.parse_table("tools:\n  #{tool}: { effect: read_only }\n")
+      refute_nil error, "#{tool} must not be classifiable"
+    end
+  end
+
+  # The agent passes risk already resolved against its table; the gate takes
+  # it as given, so the plan's higher label is not lowered by TOOL_RISK.
+  def test_resolved_risk_stands_against_the_tool_map
+    p = Adapter.to_mandate_proposal(payload([step('knowledge_get', risk: 'high')]), resolved_risk: true)
+    assert Mandate.risk_exceeds_budget?(p, 'medium')
+    p2 = Adapter.to_mandate_proposal(payload([step('knowledge_get', risk: 'high')]))
+    refute Mandate.risk_exceeds_budget?(p2, 'medium')
   end
 end
 
