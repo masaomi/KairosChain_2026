@@ -112,6 +112,38 @@ checked, so every answer but a stop is refused until it reads again. A chain
 store other than the file ledger (sqlite, postgresql) is never read here, so on
 those the agent can only be stopped.
 
+### A shadow judge beside you (phase 1)
+
+An autonomous run stops at `cycle_checkpoint` only when every act of the run
+succeeded; a run with a failed act stops as `act_failed`.
+
+The delegation table (`lib/agent/delegation_table.yml`) names the points where
+a judge answers beside you: plan approval in a manual session
+(`plan_proposed`) and the scheduled checkpoint (`cycle_checkpoint`). Every row
+is shadow: the judge's verdict changes nothing. Like the act-route table it is
+in force only by your terminal ruling, which also pins the instruction mode the
+judge reads; editing that mode takes the table out of force until you rule
+again:
+
+    ruby .kairos/skillsets/agent/bin/agent_rule.rb activate --table delegation
+
+At a covered point whose plan the act route classifies whole, with no step
+marked for a person, no L0 change and the goal unchanged since the run started,
+the driver starts a separate process (`claude -p`, `claude-opus-5-5`, effort
+`xhigh`, no fallback) and returns at once; nothing waits for it. Its verdict is
+sealed on the chain as a salted commitment (`agent_shadow_seal`) and shown only
+after your answer at that point has committed — in the response of an
+`agent_step` answer and in `agent_status`, under `shadow` (an `agent_stop`
+response does not carry it). Before then `agent_status` says only `judging`,
+`sealed` or `failed`. The verdict file sits in the session directory; reading
+it before you answer defeats the comparison.
+
+    ruby .kairos/skillsets/agent/bin/agent_rule.rb shadow
+
+counts agreement from the chain: only answers you typed at the terminal whose
+seal came first, approve and non-approve apart. Each judged point is one
+Opus call at `xhigh`.
+
 ## Sub-Agents
 
 ### `/kairos-chain:agent-monitor`

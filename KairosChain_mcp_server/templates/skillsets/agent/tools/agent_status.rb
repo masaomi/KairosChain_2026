@@ -64,6 +64,14 @@ module KairosMcp
                 # for a stop that predates the record or did not name itself.
                 'stop' => session.stop || { 'kind' => session.stop_kind }
               }
+              # The shadow judge (INV-D7): what it decided only at points whose
+              # answer has committed; at the current point, only that it runs.
+              shadow = begin
+                ShadowJudge.status(session.guard_dir, payload['anchor'], gate)
+              rescue StandardError
+                nil
+              end
+              payload['shadow'] = shadow if shadow
               # Slice A-2: surface the delegation handle so a fresh driver
               # learns about an in-flight or finished delegated step from
               # persisted state alone.

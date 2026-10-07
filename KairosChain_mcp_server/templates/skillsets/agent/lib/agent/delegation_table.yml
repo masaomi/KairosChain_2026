@@ -1,0 +1,40 @@
+# The agent's delegation table (design v0.3, INV-A2 / INV-D2 / INV-D3).
+#
+# Which approval points a delegate judges beside the operator. Phase 1 has
+# one approver kind (judge: a fresh claude-opus-5-5 at effort xhigh, spawned
+# by the driver) and one mode (shadow: the verdict is sealed before the
+# operator answers, disclosed after, and changes nothing). A table naming any
+# other mode or approver is refused whole.
+#
+# In force only while the latest attested ruling for table 'delegation' names
+# this file's sha256 and pins the sha256 of every file under judge_reads:
+#
+#   ruby .kairos/skillsets/agent/bin/agent_rule.rb activate --table delegation
+#
+# A point is judged only if the driver's floor allows it as well (no step the
+# act route does not classify, none marked for a person, no L0 change, the
+# goal unchanged since the run started, and so on). A row can only narrow
+# that floor, never widen it.
+version: 1
+
+# What the judge reads besides the point itself. instruction_mode is the
+# body of the active instruction mode, as the server resolves it.
+judge_reads:
+  - instruction_mode
+
+# Earlier answers the operator typed at the terminal, at the same stop and
+# with the same driver signals, newest first.
+precedents:
+  max: 5
+
+rows:
+  - id: manual_plan_approval
+    point: plan_proposed
+    signals_absent: [l0_change, core_files]
+    approver: judge
+    mode: shadow
+  - id: cycle_checkpoint
+    point: cycle_checkpoint
+    signals_absent: [l0_change, core_files]
+    approver: judge
+    mode: shadow

@@ -92,16 +92,30 @@ module KairosMcp
         end
 
         # [rulings, nil] from the instance chain, or [[], reason] when the
-        # chain cannot be read (which empties the table).
+        # chain cannot be read (which empties the table). The ledger is
+        # rewritten in place on every append, and the shadow judge appends
+        # from its own process at any moment, so a read is retried before a
+        # torn one empties the table (as AnswerRuling.chain_records).
+        READ_ATTEMPTS = 3
+
         def chain_rulings
           return ActClassification.rulings_source.call if ActClassification.rulings_source
 
           require 'kairos_mcp/kairos_chain/chain'
-          chain = ::KairosMcp::KairosChain::Chain.new
-          state = chain.load_state
-          return [[], "chain #{state}"] unless %i[readable absent].include?(state)
+          reason = nil
+          READ_ATTEMPTS.times do |i|
+            sleep(0.05 * i) if i.positive?
+            begin
+              chain = ::KairosMcp::KairosChain::Chain.new
+              state = chain.load_state
+              return [rulings_from_blocks(chain.chain), nil] if %i[readable absent].include?(state)
 
-          [rulings_from_blocks(chain.chain), nil]
+              reason = "chain #{state}"
+            rescue StandardError => e
+              reason = "chain unreadable: #{e.class}: #{e.message[0, 120]}"
+            end
+          end
+          [[], reason]
         rescue StandardError, ScriptError => e
           [[], "chain unreadable: #{e.class}: #{e.message[0, 120]}"]
         end

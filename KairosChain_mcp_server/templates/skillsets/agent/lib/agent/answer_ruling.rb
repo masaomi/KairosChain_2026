@@ -35,6 +35,9 @@ module KairosMcp
       module AnswerRuling
         KIND = 'agent_answer'
         ATTESTATION_KIND = 'agent_answer_attestation'
+        # The shadow judge's sealed verdict at a point (ShadowJudge), read
+        # beside the answers it is counted against.
+        SEAL_KIND = 'agent_shadow_seal'
         TEXTS_FILE = 'answer_texts.jsonl'
 
         # Why a session is waiting. Written with the state change that stops it
@@ -68,14 +71,15 @@ module KairosMcp
           task.nil? ? nil : Digest::SHA256.hexdigest(JSON.generate(task))
         end
 
-        # Answer records in chain order, each with the index of its block.
+        # Answer and seal records in chain order, each with the index of its
+        # block.
         def records_from_blocks(blocks)
           Array(blocks).flat_map do |block|
             data = block.respond_to?(:data) ? block.data : (block['data'] || block[:data])
             index = block.respond_to?(:index) ? block.index : (block['index'] || block[:index])
             Array(data).filter_map do |entry|
               rec = entry.is_a?(String) ? (JSON.parse(entry) rescue nil) : entry
-              next unless rec.is_a?(Hash) && [KIND, ATTESTATION_KIND].include?(rec['kind'])
+              next unless rec.is_a?(Hash) && [KIND, ATTESTATION_KIND, SEAL_KIND].include?(rec['kind'])
 
               rec.merge('block' => index)
             end

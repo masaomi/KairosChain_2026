@@ -132,7 +132,8 @@ module KairosMcp
                 'hint' => 'another advance is in flight; read agent_status and re-issue its next_move when it settles'
               )))
             end
-            result
+            # Outside the advance lock, after the commit (INV-D7).
+            with_shadow(result, session.session_id)
           rescue StandardError => e
             text_content(JSON.generate({
               'status' => 'error', 'error' => "#{e.class}: #{e.message}"
@@ -380,9 +381,179 @@ module KairosMcp
 
           def answer_tables
             eff = act_classification
-            { 'act_classification' => eff['status'] == 'in_force' ? eff['sha256'] : nil, 'delegation' => nil }
+            dl = ::KairosMcp::SkillSets::Agent::Delegation.load_effective
+            { 'act_classification' => eff['status'] == 'in_force' ? eff['sha256'] : nil,
+              'delegation' => dl['status'] == 'in_force' ? dl['sha256'] : nil }
           rescue StandardError
             { 'act_classification' => nil, 'delegation' => nil }
+          end
+
+          # ---- the shadow judge (design v0.3 INV-D1 / INV-D3 / INV-D7) ----
+
+          # Runs after an advance committed and the advance lock was released.
+          # The verdict sealed at the point this advance answered is disclosed,
+          # and the point the session now waits at gets a judge if the
+          # delegation table covers it and the floor allows it. Only a 'shadow'
+          # field is added; any failure here returns the response as committed.
+          def with_shadow(result, session_id)
+            outcome = JSON.parse(result[0][:text])
+            return result unless outcome.is_a?(Hash) && outcome['anchor'] && !outcome['replayed']
+
+            shadow = shadow_after_commit(session_id, outcome)
+            return result unless shadow
+
+            text_content(JSON.generate(outcome.merge('shadow' => shadow)))
+          rescue StandardError
+            result
+          end
+
+          def shadow_after_commit(session_id, outcome)
+            session = Session.load(session_id)
+            return nil unless session
+
+            sj = ::KairosMcp::SkillSets::Agent::ShadowJudge
+            gate = AdvanceGate.new(session.guard_dir)
+            out = {}
+            if outcome['answered_anchor']
+              told = sj.disclosure(session.guard_dir, outcome['answered_anchor'], gate)
+              out['answered_point'] = told if told
+            end
+            begun = shadow_begin(session, gate, outcome['anchor'])
+            out['this_point'] = begun if begun
+            out.empty? ? nil : out
+          end
+
+          # nil when there is nothing to say: the stop is not a point, the
+          # delegation table was never ruled into force or was withdrawn
+          # (INV-D2: behaviour as before), or the session has moved on.
+          def shadow_begin(session, gate, anchor)
+            sj = ::KairosMcp::SkillSets::Agent::ShadowJudge
+            dl = ::KairosMcp::SkillSets::Agent::Delegation
+            point = sj.point_of(session)
+            return nil unless point && gate.current_anchor(session) == anchor
+
+            table = dl.load_effective
+            return nil if %w[no_ruling withdrawn].include?(table['status'])
+            unless table['status'] == 'in_force'
+              return { 'judge' => 'not_started', 'reasons' => ["the delegation table is #{table['status']}"],
+                       'detail' => table['detail'],
+                       'remedy' => 'rule it again in a terminal: ruby .kairos/skillsets/agent/bin/agent_rule.rb ' \
+                                   'activate --table delegation' }.compact
+            end
+
+            # A plan the driver cannot read through (any shape its classifier
+            # or signals do not expect) is a reason not to judge, said in the
+            # response, not an exception lost in with_shadow.
+            packet, reasons = begin
+              shadow_packet(session, gate, table, point, anchor)
+            rescue StandardError => e
+              [nil, ["the point could not be prepared for a judge (#{e.class}: #{e.message[0, 120]})"]]
+            end
+            return { 'judge' => 'not_started', 'reasons' => reasons } unless reasons.empty?
+
+            # The packet describes this point only if the session is still at it
+            # (a fresh gate: the first one's sequence is memoized).
+            now = Session.load(session.session_id)
+            return nil unless now && AdvanceGate.new(session.guard_dir).current_anchor(now) == anchor
+
+            sj.spawn(session.guard_dir, packet, env: shadow_env)
+          end
+
+          # [packet, []] or [nil, reasons]. Everything in the packet is
+          # something the driver observed (INV-D1); the plan's prose travels
+          # only inside the plan, as material under review. The classification
+          # table is read here, not through the per-call memo, which another
+          # call on this tool object can reset (prerequisite 4).
+          def shadow_packet(session, gate, table, point, anchor)
+            ac = ::KairosMcp::SkillSets::Agent::ActClassification
+            ar = ::KairosMcp::SkillSets::Agent::AnswerRuling
+            sj = ::KairosMcp::SkillSets::Agent::ShadowJudge
+            dl = ::KairosMcp::SkillSets::Agent::Delegation
+            decision = session.load_decision
+            task = decision.is_a?(Hash) && decision['task_json'].is_a?(Hash) ? decision['task_json'] : nil
+            # The floor's structural checks come first: a plan whose steps are
+            # not all steps is refused for that, not lost to a classifier that
+            # cannot read it.
+            well_formed = task && task['steps'].is_a?(Array) && task['steps'].all?(Hash)
+            act = ac.load_effective
+            classified, set_aside = well_formed ? classified_task(session, task, act) : [nil, []]
+            all_signals = classified ? assess_decision_complexity(decision.merge('task_json' => classified))[:signals] : []
+            signals = sj.observed(all_signals)
+            goal = shadow_goal(session)
+            reasons = sj.floor(act_status: act['status'], task: task, set_aside: set_aside.size, signals: all_signals,
+                               intent: gate.unresolved_intent, goal_matches: !goal.nil?)
+            row = dl.match(table, point, signals)
+            reasons << "no row covers #{point} with signals [#{signals.join(', ')}]" unless row
+            return [nil, reasons] unless reasons.empty?
+
+            records, records_error = ar.chain_records
+            reason = lambda do |sid, anc, sha|
+              next nil unless sid.to_s.match?(/\A[\w-]+\z/)
+
+              dir = File.join(Session.storage_path('agent_sessions'), sid.to_s)
+              next nil unless File.directory?(dir)
+
+              ar.texts_at(dir, anc).map { |t| t['rationale'] }.find { |r| r && ar.sha256(r) == sha }
+            end
+            precedents = sj.precedents(records, point: point, signals: signals, max: table['precedents_max'],
+                                                exclude: [session.session_id, anchor], reason: reason)
+            # The table's effect and risk per step, and apart from them the
+            # plan's own label (INV-P: declared, not observed).
+            classification = classified['steps'].each_with_index.map do |st, i|
+              row_ = act['tools'][st['tool_name'].to_s] || {}
+              { 'step_id' => st['step_id'], 'tool_name' => st['tool_name'], 'effect' => row_['effect'],
+                'table_risk' => row_['risk'], 'declared_risk' => task['steps'][i]['risk'] }
+            end
+            packet = {
+              'packet_version' => 1, 'session_id' => session.session_id, 'anchor' => anchor, 'point' => point,
+              'mode' => session.autonomous? ? 'autonomous' : 'manual', 'cycle' => session.cycle_number,
+              'row' => row['id'],
+              'tables' => { 'delegation' => table['sha256'], 'act_classification' => act['sha256'] },
+              'reads' => table['reads'].map { |p| p.slice('name', 'path', 'sha256') },
+              'judge' => dl::JUDGE, 'goal' => goal,
+              'plan' => { 'sha256' => ar.plan_sha256(decision), 'task' => task, 'summary' => decision['summary'],
+                          'classification' => classification },
+              'signals' => signals, 'declared_signals' => all_signals - signals, 'precedents' => precedents,
+              'built_at' => Time.now.utc.iso8601
+            }
+            packet['precedents_unavailable'] = records_error.to_s[0, 160] if records_error
+            if point == 'cycle_checkpoint'
+              packet['cycles'] = session.load_progress(max_entries: 10).reject { |e| e['type'] }.last(5).map do |e|
+                { 'cycle' => e['cycle'], 'act_summary' => e['act_summary'],
+                  'guard_verdict' => e.dig('guard_record', 'verdict') }.compact
+              end
+            end
+            [packet, []]
+          end
+
+          # The goal as pinned at run start, or nil when its content no longer
+          # matches the pin or cannot be read. Fails closed, unlike
+          # goal_drifted?, which fails open so a read error cannot stop a run.
+          def shadow_goal(session)
+            mandate = ::Autonomos::Mandate.load(session.mandate_id)
+            pin = mandate && mandate[:goal_hash].to_s
+            return nil if pin.nil? || pin.empty?
+
+            text = load_goal_content(session.goal_name) || session.goal_name
+            return nil unless Digest::SHA256.hexdigest(text)[0..15] == pin
+
+            { 'name' => session.goal_name, 'pin' => pin, 'content' => text }
+          rescue StandardError
+            nil
+          end
+
+          # What the judge's process needs to resolve the same server code,
+          # data dir and project as this one (as StepDelegation#spawn_worker).
+          def shadow_env
+            feature = $LOADED_FEATURES.grep(%r{/kairos_mcp/tool_registry\.rb\z}).first ||
+                      $LOADED_FEATURES.grep(%r{/kairos_mcp/tools/base_tool\.rb\z}).first
+            data_dir = begin
+              ::KairosMcp.data_dir
+            rescue StandardError
+              nil
+            end
+            { 'KAIROS_PROJECT_ROOT' => Dir.pwd, 'KAIROS_SERVER_LIB' => feature && File.expand_path('../..', feature),
+              'KAIROS_DATA_DIR' => data_dir, 'BUNDLE_GEMFILE' => ENV['BUNDLE_GEMFILE'] }
           end
 
           # The ruling for the advance being committed (INV-D4). Never raises:
@@ -441,6 +612,7 @@ module KairosMcp
 
             ref = persisted || session
             outcome['anchor'] = "#{gate.seq + 1}:#{ref.state}:#{ref.cycle_number}"
+            outcome['answered_anchor'] = @anchor_at_issue
             outcome['stop'] = ref.stop if ref.stop
             # The ruling is written before the commit so the outcome a retry
             # replays carries it, and a replay never writes a second one.
@@ -1211,7 +1383,9 @@ module KairosMcp
 
           # ---- AUTONOMOUS LOOP ----
 
-          def run_autonomous_loop(session)
+          # carried: acts this call already ran before the loop (the risk
+          # resume), counted as acts of this run.
+          def run_autonomous_loop(session, carried: [])
             auto_cfg = session.config['autonomous'] || {}
             max_total_llm = auto_cfg['max_total_llm_calls'] || 60
             # nil or 0 means no wall-clock bound. It never interrupted a running
@@ -1226,7 +1400,7 @@ module KairosMcp
 
             start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
             total_llm_calls = 0
-            results = []
+            results = carried.dup
 
             ::Autonomos::Mandate.with_lock(session.mandate_id) do |mandate|
               while session.cycle_number < (mandate[:max_cycles] || 3)
@@ -1541,7 +1715,17 @@ module KairosMcp
                   ::Autonomos::Mandate.save(session.mandate_id, mandate)
                   session.update_state('checkpoint')
                   session.save
-                  # The only stop that asks just "continue?" (INV-D3).
+                  # The only stop that asks just "continue?" (INV-D3) — and only
+                  # when every act of this run succeeded. An act can fail without
+                  # an act error (a step failed or was denied, the guard failed
+                  # it) and the loop still reaches this gate; that stop is named
+                  # act_failed, as a manual-mode act that failed is (operator
+                  # ruling 2026-10-07).
+                  failed = results.find { |r| r[:act_succeeded] != true }
+                  if failed
+                    return finalize_autonomous(session, results, checkpoint: true, stop: 'act_failed',
+                                               warning: "act_failed: cycle #{failed[:cycle]} did not succeed")
+                  end
                   return finalize_autonomous(session, results, checkpoint: true, stop: 'cycle_checkpoint')
                 end
               end
@@ -1769,10 +1953,12 @@ module KairosMcp
               ar_result = run_act_reflect_internal(session)
               act_stop = autonomous_act_stop(session, ar_result, [ar_result])
               return act_stop if act_stop
-              # Continue to next cycle in autonomous loop
+              # Continue to next cycle in autonomous loop. The resumed act is
+              # one of this run's acts: Gate 8 reads it, and the response
+              # reports it.
               session.update_state('observed')
               session.save
-              run_autonomous_loop(session)
+              run_autonomous_loop(session, carried: [ar_result])
             else
               # Manual mode: resume at ACT+REFLECT for the existing proposal
               result = run_act_reflect_internal(session)
