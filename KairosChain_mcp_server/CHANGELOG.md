@@ -4,6 +4,48 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.90.0] - 2026-10-07
+
+### Added — agent: every answer is a ruling on the chain, and an answer typed at a terminal binds
+
+Until now the gate log kept which answer advanced a session, but not who gave
+it, why, or what it was given to. **Every answer that advances an agent session
+is now recorded on the chain as a ruling** (`agent_answer`) — through
+`agent_step` (approve, revise, skip, stop, adjudicate) and `agent_stop` alike.
+
+- **What a ruling holds**: the point it answered (state, cycle, and why the
+  session was waiting), the plan's SHA-256 and the driver's own signals when a
+  plan was the subject, the act-route table in force, the decision, and whether
+  it was attested. A replayed retry writes none. A ruling that fails to record
+  never blocks the answer; the response says so under `ruling`. Reasons
+  (`rationale`, new optional argument) and revise feedback stay off the chain;
+  the ruling carries their SHA-256.
+- **Answer as yourself, at a terminal**:
+
+      ruby .kairos/skillsets/agent/bin/agent_rule.rb answer SESSION_ID
+
+  It shows why the session stopped and the whole plan (every argument, escaped,
+  and the file it is kept in), asks for your answer, an optional reason and a
+  nonce, and records the answer bound to that point and that plan. The answer
+  then sent through `agent_step` there must be the same one, or it is refused
+  (`answer_refused`); **a stop always goes through**. After a revise at the
+  terminal, send `revise` without feedback and your text is used. Pass
+  `--project-dir` when the MCP server runs in another directory than the
+  project holding its data dir. An answer sent only through MCP is recorded as
+  the caller's, unattested.
+- **Every waiting session says why it stopped** (`stop` in every response and in
+  `agent_status`). `cycle_checkpoint` means only the scheduled end-of-cycle
+  stop (Gate 8, or a manual act that succeeded and left nothing over); failed
+  acts, set-aside steps, guard halts, adjudications, risk pauses and the rest
+  name themselves.
+- **While the chain cannot be read, every answer but a stop is refused**,
+  because whether you answered at the terminal cannot be checked. On chain
+  stores other than the file ledger (sqlite, postgresql) the agent can only be
+  stopped.
+
+No action is needed after upgrading. Approval delegation (the shadow judge) is
+not part of this release; do not run the agent unattended.
+
 ## [3.89.0] - 2026-10-07
 
 ### Security — agent: the act route runs from an allow-list
