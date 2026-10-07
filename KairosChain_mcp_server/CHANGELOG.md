@@ -4,6 +4,53 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.89.0] - 2026-10-07
+
+### Security — agent: the act route runs from an allow-list
+
+The 3.88.x act route refused tools by name, and every review round found
+another tool, route or path nobody had named. **The act route now runs a step
+only if the act-route table classifies its tool.** Every other step is set
+aside — with the steps that depend on it — and handed to the operator as
+`awaiting_operator` at the end of the cycle, in manual and autonomous mode.
+
+**After upgrading, the act route runs nothing until you rule the table into
+force, at a terminal:**
+
+    ruby .kairos/skillsets/agent/bin/agent_rule.rb status
+    ruby .kairos/skillsets/agent/bin/agent_rule.rb activate
+
+`activate` shows the tools and asks you to type back a nonce; it refuses to run
+without a terminal. The ruling goes on the chain. The table
+(`agent/lib/agent/act_classification.yml`) is in force only while the latest
+ruling names the SHA-256 of its exact bytes, so an upgrade that changes it, a
+`withdraw`, or an edit empties the act route again until you rule. Every agent
+response says under `classification` whether the table is in force.
+
+- **Base table**: read-only tools, `context_save`, `operator_report`,
+  sandboxed `llm_call`, and `safe_file_write` / `safe_file_edit` /
+  `safe_file_copy`.
+- **Work-tree writes are allowed by place**: a plain relative path under
+  `docs/drafts/`, a file named `draft_*` ending `.md` or `.txt`, no hidden
+  segment and no `workspace_root` argument — checked as written and as
+  resolved. Any other write is set aside. With the guard on, every work-tree
+  write is set aside.
+- **No step may name a hidden (dot) path, a leading `~`, a control character,
+  `keys/` or a private-key file** (`.pem`, `.key`, `.p12`, `.pfx`, `id_rsa`, …),
+  reads included; `.git`, `.github`, `.vscode`, `.cursor`, `.gemini` and
+  `.envrc` join the protected locations.
+- **The file route (`agent_execute`) is no longer taken.** Its tools cannot be
+  classified.
+- **Risk**: the risk gate and the act read the same classified plan. A step's
+  risk is the table's, raised (never lowered) by the plan's own label or
+  `risk_default`; an unknown label counts as high.
+- DECIDE is told which tools run and where writes may land.
+
+Still open: secret files with visible names (e.g. `credentials.json`) are
+readable by `safe_file_read`; a read-place allow-list needs per-instance table
+extensions and comes later. Do not run the agent unattended until approval
+delegation lands.
+
 ## [3.88.2] - 2026-10-06
 
 ### Security — agent: the act and its LLM bodies stay inside their gates
