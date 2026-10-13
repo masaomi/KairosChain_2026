@@ -134,7 +134,15 @@ AR.records_source = -> { [AR.records_from_blocks(MEM.blocks), nil] }
 # What the judge reads in place of the instance's instruction mode.
 MODE_FILE = File.join(TMPDIR, 'mode.md')
 File.write(MODE_FILE, "# Test mode\nPrefer small reversible steps.\n")
-DL.read_resolver = ->(name) { name == 'instruction_mode' ? [MODE_FILE, nil] : [nil, 'unknown'] }
+# The judgment precedents: nothing adopted yet, so nothing at this path.
+PRECEDENTS_FILE = File.join(TMPDIR, 'knowledge', 'agent_judgment_precedents', 'agent_judgment_precedents.md')
+DL.read_resolver = lambda do |name|
+  case name
+  when 'instruction_mode' then [MODE_FILE, nil]
+  when 'judgment_precedents' then [PRECEDENTS_FILE, nil]
+  else [nil, 'unknown']
+  end
+end
 
 # The judge's process is replaced by a recorder: it appends the packet path
 # to SPAWN_LOG and sleeps SHADOW_SLEEP seconds.
@@ -147,6 +155,24 @@ RB
 ENV['SHADOW_SPAWN_LOG'] = SPAWN_LOG
 ENV['SHADOW_SLEEP'] = '0'
 ENV['KAIROS_AGENT_SHADOW_CMD'] = "#{RbConfig.ruby} #{FAKE_JUDGE}"
+
+# The distiller's process is replaced the same way: each start appends a line.
+DISTILL_LOG = File.join(TMPDIR, 'distill_spawned.log')
+FAKE_DISTILL = File.join(TMPDIR, 'fake_distill.rb')
+File.write(FAKE_DISTILL, "File.open(ENV['DISTILL_SPAWN_LOG'], 'a') { |f| f.puts 'distill' }\n")
+ENV['DISTILL_SPAWN_LOG'] = DISTILL_LOG
+ENV['KAIROS_AGENT_DISTILL_CMD'] = "#{RbConfig.ruby} #{FAKE_DISTILL}"
+
+def distills = File.exist?(DISTILL_LOG) ? File.readlines(DISTILL_LOG).size : 0
+
+def wait_distills(count)
+  50.times do
+    return true if distills >= count
+
+    sleep 0.1
+  end
+  false
+end
 
 def spawned
   File.exist?(SPAWN_LOG) ? File.readlines(SPAWN_LOG, chomp: true) : []
@@ -408,10 +434,10 @@ end
 section '2. The delegation table: shadow judge rows only, in force only by a ruling that pins its reads'
 
 base, base_err = DL.parse_table(File.binread(DL::BASE_PATH))
-assert('the shipped table parses: two shadow rows, the instruction mode, five precedents') do
+assert('the shipped table parses: two shadow rows, the instruction mode and the precedents entry, five precedents') do
   base_err.nil? && base['rows'].map { |r| r['point'] } == %w[plan_proposed cycle_checkpoint] &&
     base['rows'].all? { |r| r['mode'] == 'shadow' && r['approver'] == 'judge' } &&
-    base['judge_reads'] == ['instruction_mode'] && base['precedents_max'] == 5
+    base['judge_reads'] == %w[instruction_mode judgment_precedents] && base['precedents_max'] == 5
 end
 
 def refused(yaml)
@@ -466,7 +492,10 @@ assert('the ruling shows the rows, the judge and the pinned reads, and records t
   ruled['recorded'] && shown.string.include?('manual_plan_approval') && shown.string.include?('claude-opus-5-5') &&
     shown.string.include?(MODE_FILE) && shown.string.include?(mode_sha) &&
     ruled['record']['table'] == 'delegation' && ruled['record']['sha256'] == DL_SHA &&
-    ruled['record']['reads'] == [{ 'name' => 'instruction_mode', 'path' => MODE_FILE, 'sha256' => mode_sha }]
+    shown.string.include?('absent: nothing adopted yet') &&
+    ruled['record']['reads'] == [{ 'name' => 'instruction_mode', 'path' => MODE_FILE, 'sha256' => mode_sha },
+                                 { 'name' => 'judgment_precedents', 'path' => PRECEDENTS_FILE, 'sha256' => nil,
+                                   'absent' => true }]
 end
 assert('the ruled table is in force with its pins') do
   e = DL.load_effective
@@ -607,6 +636,174 @@ end
 SJ.judge_and_seal(packet_path(sid, anchor_cp), llm: fake_llm('approve'), chain: MEM)
 assert('once sealed, the late verdict is disclosed for that answered point') do
   status!(sid).dig('shadow', 'answered_points').any? { |d| d['anchor'] == anchor_cp && d['decision'] == 'approve' }
+end
+
+section '3b. The driver files what each answer covered; a reasoned terminal answer starts the distiller'
+
+PF = KairosMcp::SkillSets::Agent::PointFacts
+facts_dir = Session.load(sid).guard_dir
+filed = PF.entries(facts_dir)
+filed_answers = filed.select { |e| e['kind'] == 'answer' }
+filed_plans = filed.select { |e| e['kind'] == 'plan' }
+kg_effect = AC.load_effective['tools'].dig('knowledge_get', 'effect')
+one_step = { 'steps' => [{ 'tool' => 'knowledge_get', 'effect' => kg_effect }], 'unclassified' => 0,
+             'marked_for_person' => 0, 'step_count' => 1 }
+assert('the plan answer covers the plan it was given to') do
+  first = filed_answers.find { |e| e['anchor'] == anchor }
+  kg_effect && first && first['point'] == 'plan_proposed' && first['plans'].size == 1 &&
+    first['plans'][0]['plan_sha256'] == AR.plan_sha256(decision) && first['plans'][0]['facts'] == one_step &&
+    first['plans'][0]['act_table_sha256'] == TABLE_SHA
+end
+# The approve runs the act inside the advance, and the ruling is written when
+# the advance commits: the act files the plan first, and the plan answer then
+# gathers it as the plan it was given to, once.
+assert('the act filed the plan it ran once, and the plan answer that ran it covers it once') do
+  first = filed_answers.find { |e| e['anchor'] == anchor }
+  filed_plans.size == 1 && filed_plans[0]['plan_sha256'] == AR.plan_sha256(decision) &&
+    filed.map { |e| e['kind'] } == %w[plan answer answer] && first['plans'].size == 1
+end
+assert('the checkpoint answer covers that plan once, not twice') do
+  cp = filed_answers.find { |e| e['anchor'] == anchor_cp }
+  cp && cp['point'] == 'cycle_checkpoint' && cp['plans'].map { |p| p['plan_sha256'] } == [AR.plan_sha256(decision)]
+end
+point_rulings = AR.records_from_blocks(MEM.blocks).select do |x|
+  x['kind'] == AR::KIND && x['session_id'] == sid && DL::POINTS.include?(x['stop'])
+end
+assert('each ruling at a point names the filed line it rests on, and only rulings at a point do') do
+  point_rulings.size == 2 &&
+    point_rulings.all? { |x| x['facts_sha256'] && x['facts_sha256'] == PF.answer_facts(facts_dir, x['anchor'])[1] } &&
+    AR.records_from_blocks(MEM.blocks).none? { |x| x['kind'] == AR::KIND && !DL::POINTS.include?(x['stop']) && x['facts_sha256'] }
+end
+assert('the two reasoned terminal answers at points started the distiller twice') { wait_distills(2) && distills == 2 }
+
+sid_mixed, = proposed!(MIXED)
+terminal_answer!(sid_mixed, %w[stop not-that])
+step!(sid_mixed, 'stop')
+mixed_text = File.read(File.join(Session.load(sid_mixed).guard_dir, PF::FILE))
+mixed_answer = PF.entries(Session.load(sid_mixed).guard_dir).find { |e| e['kind'] == 'answer' }
+assert('a step the table did not classify is filed as a count, its name nowhere') do
+  !mixed_text.include?('knowledge_update') && mixed_answer['plans'][0]['facts']['unclassified'] == 1 &&
+    mixed_answer['plans'][0]['facts']['steps'].map { |x| x['tool'] } == ['knowledge_get']
+end
+assert('a reasoned stop at the plan starts the distiller too') { wait_distills(3) && distills == 3 }
+
+sid_quiet, = proposed!(CLEAN)
+terminal_answer!(sid_quiet, ['stop', ''])
+step!(sid_quiet, 'stop')
+sid_caller, = proposed!(CLEAN)
+step!(sid_caller, 'stop', rationale: 'the caller says so')
+sleep 0.5
+assert('an answer without a reason, or not typed at the terminal, starts nothing') { distills == 3 }
+
+# Autonomous: an approve at the checkpoint runs the next cycle inside the same
+# advance. That cycle's plan is the next answer's, never this one's (review R1).
+sid_auto = start!(autonomous: true, max_cycles: 4)
+plan_one = plan([step('s1', 'knowledge_get', { 'name' => 'auto_one' })], summary: 'autonomous cycle one')
+plan_two = plan([step('s1', 'knowledge_get', { 'name' => 'auto_two' })], summary: 'autonomous cycle two')
+MockLlmCall.clear!
+MockLlmCall.queue({ 'content' => 'orient', 'tool_use' => nil, 'stop_reason' => 'end_turn' })
+MockLlmCall.queue({ 'content' => plan_one, 'tool_use' => nil, 'stop_reason' => 'end_turn' })
+reflect!
+r_one = step!(sid_auto, 'approve')
+dec_one = Session.load(sid_auto).load_decision
+anchor_one = anchor_of(sid_auto)
+terminal_answer!(sid_auto, %w[approve carry-on])
+MockLlmCall.queue({ 'content' => 'orient', 'tool_use' => nil, 'stop_reason' => 'end_turn' })
+MockLlmCall.queue({ 'content' => plan_two, 'tool_use' => nil, 'stop_reason' => 'end_turn' })
+reflect!
+r_two = step!(sid_auto, 'approve')
+dec_two = Session.load(sid_auto).load_decision
+anchor_two = anchor_of(sid_auto)
+terminal_answer!(sid_auto, %w[stop enough])
+step!(sid_auto, 'stop')
+auto_dir = Session.load(sid_auto).guard_dir
+covered = ->(anc) { (PF.answer_facts(auto_dir, anc) || [{}])[0]['plans'].to_a.map { |p| p['plan_sha256'] } }
+assert('an autonomous checkpoint approve covers the cycle it was given, not the cycle it started') do
+  r_one['state'] == 'checkpoint' && r_two['state'] == 'checkpoint' &&
+    AR.plan_sha256(dec_one) != AR.plan_sha256(dec_two) &&
+    covered.call(anchor_one) == [AR.plan_sha256(dec_one)] && covered.call(anchor_two) == [AR.plan_sha256(dec_two)]
+end
+
+# A point that had a plan whose facts could not be computed files nothing, and
+# its ruling names no facts: it reaches the distiller as having none.
+sid_nofacts, = proposed!(CLEAN)
+anchor_nofacts = anchor_of(sid_nofacts)
+PF.singleton_class.alias_method(:facts_for_kept, :facts_for)
+PF.define_singleton_method(:facts_for) { |*_| raise 'facts unavailable' }
+begin
+  terminal_answer!(sid_nofacts, %w[stop no-facts])
+  step!(sid_nofacts, 'stop')
+ensure
+  PF.singleton_class.alias_method(:facts_for, :facts_for_kept)
+end
+nofacts_ruling = AR.records_from_blocks(MEM.blocks).reverse.find do |x|
+  x['kind'] == AR::KIND && x['session_id'] == sid_nofacts && x['anchor'] == anchor_nofacts
+end
+assert('a point whose facts could not be computed is filed as having none') do
+  line = PF.answer_facts(Session.load(sid_nofacts).guard_dir, anchor_nofacts)
+  nofacts_ruling && !nofacts_ruling.key?('facts_sha256') && line && line[0]['plans'].nil? &&
+    line[0]['through'].is_a?(Integer)
+end
+
+# An autonomous run with a checkpoint every second cycle: each answer covers
+# exactly the cycles it was shown, and none it started (review R1, closure).
+def auto_cycle!(name)
+  MockLlmCall.queue({ 'content' => 'orient', 'tool_use' => nil, 'stop_reason' => 'end_turn' })
+  MockLlmCall.queue({ 'content' => plan([step('s1', 'knowledge_get', { 'name' => name })], summary: name),
+                      'tool_use' => nil, 'stop_reason' => 'end_turn' })
+  reflect!
+end
+
+def auto_plans(sid)
+  PF.entries(Session.load(sid).guard_dir).select { |e| e['kind'] == 'plan' }.map { |e| e['plan_sha256'] }
+end
+
+sid_two = JSON.parse(START_TOOL.call({ 'goal_name' => "shadow_#{SecureRandom.hex(3)}", 'risk_budget' => 'medium',
+                                       'autonomous' => true, 'max_cycles' => 6,
+                                       'checkpoint_every' => 2 })[0][:text])['session_id']
+MockLlmCall.clear!
+auto_cycle!('read the alpha index')
+auto_cycle!('read the beta index')
+step!(sid_two, 'approve')
+anchor_c2 = anchor_of(sid_two)
+first_two = auto_plans(sid_two)
+auto_cycle!('read the gamma index')
+auto_cycle!('read the delta index')
+step!(sid_two, 'approve')
+anchor_c4 = anchor_of(sid_two)
+next_two = auto_plans(sid_two) - first_two
+step!(sid_two, 'stop')
+two_dir = Session.load(sid_two).guard_dir
+covered_two = ->(anc) { (PF.answer_facts(two_dir, anc) || [{}])[0]['plans'].to_a.map { |p| p['plan_sha256'] } }
+assert('with a checkpoint every two cycles, each answer covers exactly its own two cycles') do
+  first_two.size == 2 && next_two.size == 2 && covered_two.call(anchor_c2) == first_two &&
+    covered_two.call(anchor_c4) == next_two
+end
+
+# An answer whose facts cannot be computed still closes its window: the next
+# answer does not take its plans.
+sid_gap = start!(autonomous: true, max_cycles: 4)
+MockLlmCall.clear!
+auto_cycle!('read the first ledger')
+step!(sid_gap, 'approve')
+anchor_g1 = anchor_of(sid_gap)
+fails = [true]
+PF.singleton_class.alias_method(:facts_for_kept, :facts_for)
+PF.define_singleton_method(:facts_for) { |*a| fails.shift ? raise('facts unavailable') : facts_for_kept(*a) }
+begin
+  auto_cycle!('read the second ledger')
+  step!(sid_gap, 'approve')
+ensure
+  PF.singleton_class.alias_method(:facts_for, :facts_for_kept)
+end
+anchor_g2 = anchor_of(sid_gap)
+gap_plans = auto_plans(sid_gap)
+step!(sid_gap, 'stop')
+gap_dir = Session.load(sid_gap).guard_dir
+assert("an answer without facts closes its window, so the next answer takes only its own cycle") do
+  g1 = PF.answer_facts(gap_dir, anchor_g1)
+  g2 = PF.answer_facts(gap_dir, anchor_g2)
+  gap_plans.size == 2 && g1 && g1[0]['plans'].nil? && g2 && g2[0]['plans'].map { |p| p['plan_sha256'] } == [gap_plans[1]]
 end
 
 section '4. The floor: what the driver did not observe is not judged'

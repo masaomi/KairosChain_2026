@@ -19,8 +19,12 @@ version: 1
 
 # What the judge reads besides the point itself. instruction_mode is the
 # body of the active instruction mode, as the server resolves it.
+# judgment_precedents is the instance L1 entry agent_judgment_precedents,
+# which only an adoption writes (agent_rule.rb adopt). Until the first
+# adoption nothing is there, and a ruling pins it as absent.
 judge_reads:
   - instruction_mode
+  - judgment_precedents
 
 # Earlier answers the operator typed at the terminal, at the same stop and
 # with the same driver signals, newest first.

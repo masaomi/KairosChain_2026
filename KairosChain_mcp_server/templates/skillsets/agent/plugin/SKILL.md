@@ -142,7 +142,32 @@ it before you answer defeats the comparison.
 
 counts agreement from the chain: only answers you typed at the terminal whose
 seal came first, approve and non-approve apart. Each judged point is one
-Opus call at `xhigh`.
+Opus call at `xhigh`. Counts are kept apart for each version of what shaped the
+judge (both tables, what it read, its own prompt): a new adoption or a mode edit
+starts a new count.
+
+### Judgment precedents (distilled from your answers)
+
+The judge also reads `judgment_precedents`, the instance L1 entry
+`agent_judgment_precedents`, once you have adopted one; until then it is pinned
+as absent. When an answer you typed at the terminal at either point carries a
+reason, and ten such answers have arrived since the last draft, a separate
+process (`claude-opus-5-5`, `xhigh`) drafts the entry again from all your
+attested answers, their reasons and the facts the driver recorded at each answer
+(tool names only where the act-route table classified the step). It never reads
+the agent's text, the judge's verdicts or an earlier entry, only your edits to
+earlier drafts. A draft changes nothing until you adopt it:
+
+    ruby .kairos/skillsets/agent/bin/agent_rule.rb status    # drafts waiting, the count, the last run
+    # edit .kairos/storage/agent_distill/drafts/<stamp>.edit.md, then
+    ruby .kairos/skillsets/agent/bin/agent_rule.rb adopt     # shows your changes, asks for the nonce
+    ruby .kairos/skillsets/agent/bin/agent_rule.rb distill   # draft now, whatever the count
+
+Adoption checks the draft against the chain record its process wrote, refuses
+while any session is mid-run, and records one delegation ruling that pins the
+new entry. Any other ruling of the table refuses while the entry differs from
+its last pin. Reasons you type may be distilled into this entry, which the agent
+can read.
 
 ## Sub-Agents
 

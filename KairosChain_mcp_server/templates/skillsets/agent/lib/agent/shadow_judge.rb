@@ -203,9 +203,26 @@ module KairosMcp
             the operator's terminal. An answer typed there means the operator answered after a display of the point;
             it does not prove the operator inspected every argument of that plan.
 
+            "judgment_precedents", when present, generalizes many of the operator's earlier answers. A separate model
+            drafted it from those answers and their reasons only; the operator read it, may have edited it, and
+            adopted it at the terminal. Each situation states how often the operator gave each answer and which
+            answers it rests on. It describes situations coarsely, by tools and their effects, so a plan can resemble
+            a situation without being the same: weigh it as evidence of how the operator decides, below the instance
+            constitution, and never as a reason to approve what the material under review does not support.
+
             When the material does not let you decide, escalate. Reply with exactly one JSON object and nothing else:
             {"decision": "approve" | "revise" | "escalate", "rationale": "<one paragraph>"}
           SYS
+        end
+
+        # Bumped when user_prompt changes how it presents the point; the digest
+        # below covers the system prompt and the questions as written.
+        PROMPT_VERSION = 2
+
+        # What, besides its inputs, shapes the judge's answer (design v0.2
+        # INV-K5): carried on every seal, so agreement is counted per prompt.
+        def prompt_sha256
+          Digest::SHA256.hexdigest(JSON.generate([PROMPT_VERSION, system_prompt, POINT_QUESTION]))
         end
 
         def fenced(value)
@@ -275,7 +292,14 @@ module KairosMcp
         # [[{ 'name', 'path', 'text' }], nil] or [nil, status]: the files the
         # packet pins, read once each and checked against the pin.
         def read_material(pins)
-          material = Array(pins).map do |pin|
+          material = Array(pins).filter_map do |pin|
+            # Pinned absent: still nothing there, so no material; anything
+            # there now is bytes nobody ruled on.
+            if pin['absent'] == true || pin['sha256'].nil?
+              return [nil, 'material_changed'] if File.exist?(pin['path']) || File.symlink?(pin['path'])
+
+              next nil
+            end
             raw = File.binread(pin['path'])
             return [nil, 'material_changed'] unless Digest::SHA256.hexdigest(raw) == pin['sha256']
 
@@ -351,6 +375,7 @@ module KairosMcp
             'judge_status' => verdict['status'], 'provider' => judge['provider'],
             'requested_model' => judge['model'], 'observed_model' => verdict['observed_model'],
             'requested_effort' => judge['effort'], 'commitment' => commitment,
+            'judge_prompt_sha256' => prompt_sha256,
             'sealed_at' => Time.now.utc.iso8601
           }
           block = chain.add_block([JSON.generate(record)])
@@ -451,6 +476,36 @@ module KairosMcp
         # plan is the one ruled on, and the body matches its commitment.
         # verdict_dir: a callable (session_id, anchor) -> the shadow directory.
         def agreement(records, verdict_dir:)
+          pairs, tally = evidence_pairs(records, verdict_dir: verdict_dir)
+          summarize(pairs, tally)
+        end
+
+        # What shaped a sealed verdict besides the point itself (design v0.2
+        # INV-K5): both tables, what the judge read, and its own prompt. A seal
+        # written before 3.92.0 has no prompt digest and is its own version.
+        def version_key(seal)
+          reads = Array(seal['reads']).select { |p| p.is_a?(Hash) }
+                                      .map { |p| "#{p['name']}:#{p['sha256'] || 'absent'}" }.sort
+          { 'delegation' => seal.dig('tables', 'delegation'), 'act_classification' => seal.dig('tables', 'act_classification'),
+            'reads' => reads, 'judge_prompt' => seal['judge_prompt_sha256'] }
+        end
+
+        # Agreement counted apart for each version of what shaped the judge,
+        # newest first. Points with no seal belong to no version and are
+        # counted once, under 'not_counted'.
+        def agreement_by_version(records, verdict_dir:)
+          pairs, tally = evidence_pairs(records, verdict_dir: verdict_dir)
+          versions = pairs.group_by { |p| p['version'] }.map do |key, group|
+            blocks = group.map { |p| p['seal_block'] }
+            { 'version' => key, 'first_seal' => blocks.min, 'last_seal' => blocks.max,
+              'summary' => summarize(group, {}) }
+          end
+          { 'versions' => versions.sort_by { |v| -v['last_seal'].to_i }, 'not_counted' => tally.sort.to_h }
+        end
+
+        # [pairs, tally]: the evidence pairs of agreement, each with the seal's
+        # version, and the count of points left out by reason.
+        def evidence_pairs(records, verdict_dir:)
           seals = {}
           Array(records).each do |r|
             next unless r['kind'] == SEAL_KIND
@@ -481,9 +536,10 @@ module KairosMcp
               next
             end
             pairs << { 'session_id' => r['session_id'], 'anchor' => r['anchor'], 'point' => r['stop'],
-                       'operator' => HUMAN_TO_JUDGE[r['decision']], 'judge' => body['decision'] }
+                       'operator' => HUMAN_TO_JUDGE[r['decision']], 'judge' => body['decision'],
+                       'version' => version_key(seal), 'seal_block' => seal['block'] }
           end
-          summarize(pairs, tally)
+          [pairs, tally]
         end
 
         # Agreement on approve and on everything else, counted apart, beside

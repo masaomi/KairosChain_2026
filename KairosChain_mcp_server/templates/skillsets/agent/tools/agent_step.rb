@@ -365,6 +365,14 @@ module KairosMcp
           def answer_point(session, gate)
             ar = ::KairosMcp::SkillSets::Agent::AnswerRuling
             point = { 'state' => session.state, 'cycle' => session.cycle_number, 'stop' => session.stop_kind }
+            # Where this answer's window of plans ends: here, before the handler
+            # runs. An approve at an autonomous checkpoint runs the next cycles
+            # inside this same advance; their plans are the next answer's.
+            point['facts_through'] = begin
+              ::KairosMcp::SkillSets::Agent::PointFacts.line_count(session.guard_dir)
+            rescue StandardError
+              nil
+            end
             return point unless ar::PLAN_STATES.include?(gate.effective_state(session))
 
             decision = session.load_decision
@@ -374,6 +382,14 @@ module KairosMcp
             task, set_aside = classified_task(session, decision['task_json'])
             point['signals'] = assess_decision_complexity(decision.merge('task_json' => task))[:signals]
             point['set_aside'] = set_aside.size
+            # The facts of the plan this answer is given to (INV-K1). Kept off
+            # the ruling, which copies named fields only; record_answer files
+            # them in the session's point facts.
+            point['current_facts'] = begin
+              plan_facts(session, decision, act_classification)
+            rescue StandardError
+              nil
+            end
             point
           rescue StandardError
             point
@@ -399,12 +415,39 @@ module KairosMcp
             outcome = JSON.parse(result[0][:text])
             return result unless outcome.is_a?(Hash) && outcome['anchor'] && !outcome['replayed']
 
+            start_distill_if_due(outcome['ruling'])
             shadow = shadow_after_commit(session_id, outcome)
             return result unless shadow
 
             text_content(JSON.generate(outcome.merge('shadow' => shadow)))
           rescue StandardError
             result
+          end
+
+          # Distillation design v0.2 INV-K4: an attested, reasoned answer at a
+          # delegable point may complete the count for a draft. Here the driver
+          # only starts the worker; counting, the one-draft lock and the
+          # table's status are the worker's, off the response path. Nothing is
+          # reported and nothing raises.
+          def start_distill_if_due(ruling)
+            return unless ruling.is_a?(Hash) && ruling['recorded'] == true && ruling['reasoned'] == true &&
+                          ruling['attestation'] == 'terminal_nonce' &&
+                          ::KairosMcp::SkillSets::Agent::Delegation::POINTS.include?(ruling['stop'])
+
+            argv = if ENV['KAIROS_AGENT_DISTILL_CMD']
+                     require 'shellwords'
+                     Shellwords.split(ENV['KAIROS_AGENT_DISTILL_CMD'])
+                   else
+                     [RbConfig.ruby, File.expand_path('../bin/agent_distill.rb', __dir__)]
+                   end
+            dir = Session.storage_path('agent_distill')
+            FileUtils.mkdir_p(dir)
+            log = File.join(dir, 'distill.log')
+            pid = Process.spawn(shadow_env.compact, *argv, chdir: Dir.pwd, in: :close, out: [log, 'a'],
+                                                           err: [log, 'a'], close_others: true, pgroup: true)
+            Process.detach(pid)
+          rescue StandardError, NotImplementedError
+            nil
           end
 
           def shadow_after_commit(session_id, outcome)
@@ -509,7 +552,7 @@ module KairosMcp
               'mode' => session.autonomous? ? 'autonomous' : 'manual', 'cycle' => session.cycle_number,
               'row' => row['id'],
               'tables' => { 'delegation' => table['sha256'], 'act_classification' => act['sha256'] },
-              'reads' => table['reads'].map { |p| p.slice('name', 'path', 'sha256') },
+              'reads' => table['reads'].map { |p| dl.pin_record(p) },
               'judge' => dl::JUDGE, 'goal' => goal,
               'plan' => { 'sha256' => ar.plan_sha256(decision), 'task' => task, 'summary' => decision['summary'],
                           'classification' => classification },
@@ -564,6 +607,8 @@ module KairosMcp
                             anchor: anchor, point: answer['point'], action: action, action_key: action_key,
                             tables: answer_tables, answer: answer, feedback: answer['feedback'],
                             rationale: answer['rationale'])
+            facts_sha = record_point_facts(session, answer['point'], anchor)
+            rec['facts_sha256'] = facts_sha if facts_sha
             unless answer['attestation']
               begin
                 ar.save_texts(session.guard_dir, anchor: anchor, source: 'caller',
@@ -577,6 +622,31 @@ module KairosMcp
           rescue StandardError => e
             { 'recorded' => false, 'error' => "#{e.class}: #{e.message[0, 160]}",
               'note' => 'the answer proceeded; this point does not count as evidence for delegation' }
+          end
+
+          # At a delegable point, files what this answer covers: every plan
+          # since the last answer and the plan it was given to. Returns the
+          # sha256 of the filed line, which the ruling names, or nil. Never
+          # raises; a point without filed facts reaches the distiller marked
+          # as having none (INV-K1).
+          def record_point_facts(session, point, anchor)
+            return nil unless point.is_a?(Hash) &&
+                              ::KairosMcp::SkillSets::Agent::Delegation::POINTS.include?(point['stop'])
+
+            # A point whose plan facts or window boundary could not be observed
+            # files a line with no facts, so its window still closes and its
+            # plans are no other answer's; the ruling names no facts.
+            unavailable = (point['plan_sha256'] && point['current_facts'].nil?) ||
+                          !point['facts_through'].is_a?(Integer)
+            sha = ::KairosMcp::SkillSets::Agent::PointFacts.record_answer(
+              session.guard_dir, anchor: anchor, point: point['stop'], cycle: point['cycle'],
+                                 current: unavailable ? nil : point['current_facts'],
+                                 through: point['facts_through'], unavailable: unavailable
+            )
+            unavailable ? nil : sha
+          rescue StandardError => e
+            log_agent(:warn, 'point_facts_unrecorded', session, error: e.message[0, 160])
+            nil
           end
 
           def replay_action_key(action, arguments, feedback)
@@ -2037,16 +2107,56 @@ module KairosMcp
           # the act read this same copy, so the exemption a marked step earns at
           # the gate is the deferral it gets at execution.
           def classified_task(session, task_json, effective = act_classification)
+            ::KairosMcp::SkillSets::Agent::ActClassification.apply(
+              task_json, effective, guard: session.guard_enabled?, write_scope: write_scope_for(effective)
+            )
+          end
+
+          def write_scope_for(effective)
             adm = ::KairosMcp::SkillSets::Agent::Admission
             roots = workspace_roots_for_admission
             project_root = project_root_for_merge
-            write_scope = lambda do |step|
+            lambda do |step|
               adm.within_write_scope?(step['tool_arguments'], effective['write_roots'], effective['write_extensions'],
                                       roots, project_root: project_root, name_prefix: effective['write_name_prefix'])
             end
-            ::KairosMcp::SkillSets::Agent::ActClassification.apply(
-              task_json, effective, guard: session.guard_enabled?, write_scope: write_scope
+          end
+
+          # The row the table in force gives each step, or nil where it gives
+          # none: the same per-step reading classified_task applies.
+          def step_rows(session, task_json, effective)
+            ac = ::KairosMcp::SkillSets::Agent::ActClassification
+            scope = write_scope_for(effective)
+            steps = task_json.is_a?(Hash) && task_json['steps'].is_a?(Array) ? task_json['steps'] : []
+            steps.map { |st| ac.row_for(st, effective, guard: session.guard_enabled?, write_scope: scope) }
+          end
+
+          # The observed facts of a plan (distillation design v0.2 INV-K1):
+          # tool names and effects only where the table classified the step,
+          # counts elsewhere. nil when there is no plan.
+          def plan_facts(session, decision, effective)
+            task = decision.is_a?(Hash) ? decision['task_json'] : nil
+            return nil unless task.is_a?(Hash)
+
+            { 'cycle' => session.cycle_number,
+              'plan_sha256' => ::KairosMcp::SkillSets::Agent::AnswerRuling.plan_sha256(decision),
+              'act_table_sha256' => effective['status'] == 'in_force' ? effective['sha256'] : nil,
+              'facts' => ::KairosMcp::SkillSets::Agent::PointFacts.facts_for(task, step_rows(session, task, effective)) }
+          end
+
+          # Every plan that reaches the act is kept, so an answer at a later
+          # checkpoint covers the plans of all the cycles before it. Never
+          # raises: an observation is not a condition of the act.
+          def record_plan_facts(session, decision_payload, effective)
+            current = plan_facts(session, decision_payload, effective)
+            return unless current
+
+            ::KairosMcp::SkillSets::Agent::PointFacts.append_plan(
+              session.guard_dir, cycle: current['cycle'], plan_sha256: current['plan_sha256'],
+                                 act_table_sha256: current['act_table_sha256'], facts: current['facts']
             )
+          rescue StandardError => e
+            log_agent(:warn, 'point_facts_unrecorded', session, error: e.message[0, 160])
           end
 
           def risk_proposal(session, decision_payload)
@@ -2148,6 +2258,10 @@ module KairosMcp
           end
 
           def run_act_via_autoexec(session, decision_payload)
+            # The plan is recorded before anything can refuse it: an answer at
+            # the checkpoint covers a refused plan as much as a run one.
+            record_plan_facts(session, decision_payload, act_classification)
+
             # Guard track (AGT-5): the in-process act route runs under the
             # mandate's declared layer surface. Denied store/live-tree writers
             # are blacklisted on the ACT context, so a call is refused at

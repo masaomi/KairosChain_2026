@@ -202,7 +202,12 @@ module KairosMcp
           out = tool.invoke_tool('chain_record', { 'logs' => [JSON.generate(rec)] })
           text = Array(out).map { |b| b[:text] || b['text'] }.compact.join
           m = text.match(/Block #(\d+) recorded successfully\./)
-          return { 'recorded' => true, 'block' => m[1].to_i, 'attestation' => rec['attestation'] } if m
+          # stop and reasoned let the driver decide, without reading the chain
+          # again, whether this answer counts toward the next draft.
+          if m
+            return { 'recorded' => true, 'block' => m[1].to_i, 'attestation' => rec['attestation'],
+                     'stop' => rec['stop'], 'reasoned' => !rec['rationale_sha256'].to_s.empty? }
+          end
 
           { 'recorded' => false, 'error' => "chain_record replied: #{text[0, 160]}",
             'note' => 'the answer proceeded; this point does not count as evidence for delegation' }
@@ -406,7 +411,8 @@ module KairosMcp
               return { 'recorded' => false, 'reason' => 'empty_feedback' }
             end
           end
-          tty_out.print 'Reason (optional, one line, kept off the chain): '
+          tty_out.print 'Reason (optional, one line; kept off the chain, but it may be distilled into the agent ' \
+                        'judgment precedents, an L1 entry the agent can read): '
           tty_out.flush
           rationale = tty_in.gets.to_s.strip
 

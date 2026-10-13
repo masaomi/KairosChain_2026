@@ -44,7 +44,14 @@ module KairosMcp
         MATCHABLE_SIGNALS = OBSERVED_SIGNALS
 
         # What a table may give the judge to read, by symbolic name.
-        READABLE = %w[instruction_mode].freeze
+        # judgment_precedents is the instance L1 entry the operator adopts from
+        # the distiller's drafts (distillation design v0.2); until the first
+        # adoption nothing exists at its path, and a ruling pins it as absent.
+        READABLE = %w[instruction_mode judgment_precedents].freeze
+
+        # The only read that may be absent: the entry starts life that way.
+        ABSENT_ALLOWED = %w[judgment_precedents].freeze
+        PRECEDENTS_ENTRY = 'agent_judgment_precedents'
 
         TOP_KEYS = %w[version judge_reads precedents rows].freeze
         ROW_KEYS = %w[id point signals_absent approver mode].freeze
@@ -133,6 +140,7 @@ module KairosMcp
         # of the active mode (Protocol#load_instructions).
         def resolve_read(name)
           return Delegation.read_resolver.call(name) if Delegation.read_resolver
+          return [precedents_path, nil] if name == 'judgment_precedents'
           return [nil, "#{name} cannot be read"] unless name == 'instruction_mode'
 
           require 'kairos_mcp/skills_config'
@@ -152,12 +160,24 @@ module KairosMcp
           [nil, "#{e.class}: #{e.message[0, 120]}"]
         end
 
+        # The instance L1 entry the operator adopts (never a gem-shipped one).
+        def precedents_path
+          File.join(::KairosMcp.knowledge_dir, PRECEDENTS_ENTRY, "#{PRECEDENTS_ENTRY}.md")
+        end
+
         # [[{ 'name', 'path', 'bytes', 'sha256' }], nil] or [nil, reason]. One
-        # read per file: the hash is of the bytes counted.
+        # read per file: the hash is of the bytes counted. A read that may be
+        # absent and has nothing at its path, not even a dangling link, is
+        # pinned { 'absent' => true, 'sha256' => nil }. Only that is absence:
+        # a file that exists but cannot be read is an error, never absent.
         def read_pins(names)
           pins = names.map do |name|
             path, error = resolve_read(name)
             return [nil, "#{name}: #{error}"] if error
+
+            if ABSENT_ALLOWED.include?(name) && !File.exist?(path) && !File.symlink?(path)
+              next { 'name' => name, 'path' => path, 'bytes' => 0, 'sha256' => nil, 'absent' => true }
+            end
 
             raw = File.binread(path)
             { 'name' => name, 'path' => path, 'bytes' => raw.bytesize, 'sha256' => Digest::SHA256.hexdigest(raw) }
@@ -167,16 +187,54 @@ module KairosMcp
           [nil, "#{e.class}: #{e.message[0, 120]}"]
         end
 
-        # Names whose path or bytes differ from the ruling's pins, or that one
-        # side has and the other does not.
+        # Names whose path, bytes or absence differ from the ruling's pins, or
+        # that one side has and the other does not.
         def changed_reads(pins, ruled)
           ruled = Array(ruled).select { |r| r.is_a?(Hash) }
           names = (pins.map { |p| p['name'] } + ruled.map { |r| r['name'] }).uniq
           names.reject do |n|
             now = pins.find { |p| p['name'] == n }
             then_ = ruled.find { |r| r['name'] == n }
-            now && then_ && now['path'] == then_['path'] && now['sha256'] == then_['sha256']
+            now && then_ && same_pin?(now, then_)
           end
+        end
+
+        def same_pin?(a, b)
+          a['path'] == b['path'] && same_bytes?(a, b)
+        end
+
+        def same_bytes?(a, b)
+          a['sha256'] == b['sha256'] && (a['absent'] == true) == (b['absent'] == true)
+        end
+
+        # The pin the latest attested activation gave a read, or nil. A
+        # withdrawal pins nothing, so the pin a read had survives it: ruling
+        # the table back into force may keep the bytes last adopted.
+        def ruled_pin(rulings, name)
+          latest = Array(rulings).select do |r|
+            r['table'] == TABLE_ID && r['attested'] == true && r['action'] == 'activate'
+          end.last
+          return nil unless latest
+
+          Array(latest['reads']).find { |r| r.is_a?(Hash) && r['name'] == name }
+        end
+
+        # Why a ruling other than an adoption may not pin these reads, or nil
+        # (design v0.2 INV-K3). The precedents entry may keep the pin it had,
+        # or be pinned absent where it never had one; any other bytes come in
+        # only through an adoption, which checks them against the distiller's
+        # recorded draft.
+        def precedents_repin_refusal(pins, rulings)
+          now = pins.find { |p| p['name'] == 'judgment_precedents' }
+          return nil unless now
+
+          # Bytes, not path: an instance moved or reached through another
+          # spelling of its data dir re-pins the same entry at its new path.
+          before = ruled_pin(rulings, 'judgment_precedents')
+          return nil if before ? same_bytes?(now, before) : now['absent'] == true
+
+          "the judgment precedents at #{now['path']} are not the bytes last pinned; only an adoption pins " \
+            'new precedents: ruby .kairos/skillsets/agent/bin/agent_rule.rb adopt'
         end
 
         # The effective table: { 'status', 'sha256', 'rows', 'judge_reads',
@@ -234,7 +292,7 @@ module KairosMcp
         # As ActClassification.interactive_rule, for this table: shows the
         # rows and what the judge will read, asks for the nonce, and records a
         # ruling that names the table's sha256 and pins every read.
-        def interactive_rule(action:, tty_in:, tty_out:, path: BASE_PATH, chain: nil,
+        def interactive_rule(action:, tty_in:, tty_out:, path: BASE_PATH, chain: nil, rulings: nil,
                              nonce_value: ::KairosMcp::SkillSets::Agent::ActClassification.nonce)
           raise ArgumentError, "action must be activate or withdraw, not #{action.inspect}" unless %w[activate withdraw].include?(action)
 
@@ -249,6 +307,18 @@ module KairosMcp
               tty_out.puts "Refused: #{path} cannot be ruled into force (#{error})."
               return { 'recorded' => false, 'reason' => 'invalid', 'detail' => error }
             end
+            if pins.any? { |p| p['name'] == 'judgment_precedents' }
+              rulings, rulings_error = ::KairosMcp::SkillSets::Agent::ActClassification.chain_rulings if rulings.nil?
+              if rulings_error
+                tty_out.puts "Refused: the chain could not be read (#{rulings_error}), so the precedents' last pin is unknown."
+                return { 'recorded' => false, 'reason' => 'chain_unreadable', 'detail' => rulings_error }
+              end
+              refusal = precedents_repin_refusal(pins, rulings)
+              if refusal
+                tty_out.puts "Refused: #{refusal}."
+                return { 'recorded' => false, 'reason' => 'precedents_changed', 'detail' => refusal }
+              end
+            end
             tty_out.puts "Table:  #{TABLE_ID}"
             tty_out.puts "File:   #{path}"
             tty_out.puts "sha256: #{sha}"
@@ -260,7 +330,10 @@ module KairosMcp
               tty_out.puts "  #{row['id'].ljust(22)} at #{row['point']}#{absent}"
             end
             tty_out.puts 'The judge reads (pinned by this ruling; a change takes the table out of force):'
-            pins.each { |p| tty_out.puts "  #{p['name']}: #{p['path']} (#{p['bytes']} bytes, sha256 #{p['sha256']})" }
+            pins.each do |p|
+              tty_out.puts(p['absent'] ? "  #{p['name']}: #{p['path']} (absent: nothing adopted yet)" :
+                                         "  #{p['name']}: #{p['path']} (#{p['bytes']} bytes, sha256 #{p['sha256']})")
+            end
             tty_out.puts "and up to #{table['precedents_max']} of your earlier terminal answers at the same stop " \
                          'with the same signals.'
           else
@@ -277,7 +350,7 @@ module KairosMcp
           record = { 'kind' => ::KairosMcp::SkillSets::Agent::ActClassification::RULING_KIND, 'table' => TABLE_ID,
                      'action' => action, 'sha256' => sha, 'attested' => true, 'attestation' => 'terminal_nonce',
                      'ruled_at' => Time.now.utc.iso8601 }
-          record['reads'] = pins.map { |p| p.slice('name', 'path', 'sha256') } if pins
+          record['reads'] = pins.map { |p| pin_record(p) } if pins
           chain ||= begin
             require 'kairos_mcp/kairos_chain/chain'
             ::KairosMcp::KairosChain::Chain.new
@@ -285,6 +358,13 @@ module KairosMcp
           block = chain.add_block([JSON.generate(record)])
           tty_out.puts "Recorded as block ##{block.index}."
           { 'recorded' => true, 'block_index' => block.index, 'record' => record }
+        end
+
+        # A pin as a ruling records it.
+        def pin_record(pin)
+          out = pin.slice('name', 'path', 'sha256')
+          out['absent'] = true if pin['absent']
+          out
         end
       end
     end
