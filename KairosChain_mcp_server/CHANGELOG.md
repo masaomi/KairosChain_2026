@@ -4,6 +4,59 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [3.92.0] - 2026-10-13
+
+### Added — agent: judgment precedents the shadow judge reads, distilled from your answers
+
+The shadow judge is a fresh model at every point, so it does not improve with
+use. It can now also read an instance L1 entry, `agent_judgment_precedents`,
+that generalizes your terminal answers and their reasons. The entry is drafted
+by a separate model and reaches the judge only after you adopt it at the
+terminal. **The judge's answer still changes nothing**; every row stays
+`shadow`.
+
+- **What the driver records**: when an answer at either point commits, the
+  plans it covered are filed in the session (`point_facts.jsonl`), fixed at
+  the moment you answered (an approve at an autonomous checkpoint never
+  covers the cycles it starts): each step's tool name and effect where the
+  act-route table classified it, counts elsewhere. A step the table does not classify is never named. The ruling
+  carries the digest of the filed line.
+- **Drafting**: after ten new answers you typed at the terminal with a reason,
+  a separate process (`bin/agent_distill.rb`, `claude-opus-5-5` at `xhigh`
+  through `llm_call`, sandboxed) drafts the entry again from all your attested
+  answers, their terminal reasons, the filed facts and your edits to earlier
+  drafts. It never reads the agent's text, the judge's verdicts or an earlier
+  entry. Every statement names the answers it rests on, all at one point,
+  and its count and that point's totals are computed by code. It runs only while the delegation table is in force, one
+  at a time, off the answer path; a failure waits for ten more answers. The
+  draft is recorded on the chain (`agent_distill_draft`).
+- **Adoption**: edit the draft's `.edit.md` copy under
+  `.kairos/storage/agent_distill/drafts/`, then
+  `ruby .kairos/skillsets/agent/bin/agent_rule.rb adopt`. It checks the draft
+  against its chain record, refuses while any session is mid-run (checked
+  again after you confirm), shows your changes and the difference from the
+  entry in force, asks for the nonce, and records one delegation ruling that
+  pins exactly the bytes adopted; on any failure or interrupt the previous
+  entry is put back. When the entry has left its pin (an interrupted
+  adoption, a hand edit), adoption is also the way back. `agent_rule.rb
+  distill` drafts now, whatever the count; `agent_rule.rb status` shows the
+  count, the last run and waiting drafts.
+- **Only adoption pins new precedents**: any other ruling of the delegation
+  table refuses while the entry differs from its last pin.
+- **Counting per version**: `agent_rule.rb shadow` reports agreement apart for
+  each combination of the two tables, what the judge read and the judge's own
+  prompt (now carried on every seal as `judge_prompt_sha256`). A new adoption
+  or an instruction-mode edit starts a new count.
+- The terminal's reason prompt now says that reasons may be distilled into
+  this entry, which the agent can read.
+
+**After upgrading, rule the delegation table again** where it was in force:
+the shipped table now names `judgment_precedents`, so the judge stops (hash
+mismatch) until you run
+`ruby .kairos/skillsets/agent/bin/agent_rule.rb activate --table delegation`,
+which pins the entry as absent. An instance with no delegation ruling is
+unaffected and drafts nothing.
+
 ## [3.91.0] - 2026-10-07
 
 ### Added — agent: a shadow judge beside the operator (approval delegation, phase 1)
