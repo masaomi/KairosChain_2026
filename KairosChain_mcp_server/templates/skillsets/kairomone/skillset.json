@@ -1,6 +1,6 @@
 {
   "name": "kairomone",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "min_core_version": "3.92.0",
   "description": "Kairomone: a single-owner companion that grows through owned L1/L2 and a bounded, evidence-backed growth protocol, driven by the host assistant over MCP. Portable companion settings, bounded retrieval and consent-gated zero-XP chat summaries. No L0 changes or built-in LLM/scheduler.",
   "author": "Kairomone contributors",
@@ -15,6 +15,7 @@
     "derived_progression",
     "explicit_professions",
     "bounded_evidence_growth",
+    "owner_l0_rebaseline",
     "companion_settings",
     "bounded_chat_context",
     "consented_chat_memory"

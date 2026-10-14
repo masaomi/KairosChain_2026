@@ -340,9 +340,22 @@ module Kairomone
     end
 
     def verify_l0!
-      expected = @instance.profile.fetch('host_l0_baseline')
+      expected = @instance.effective_l0_baseline[:baseline]
       current = @instance.send(:l0_fingerprints)
       raise Error, 'L0 baseline unavailable or changed; automatic growth refused' if expected.empty? || current != expected
+    end
+
+    # The ruling's entry under the growth lock: lease expiry is applied first,
+    # and a live claim refuses, so the baseline never changes inside a cycle.
+    def record_rebaseline(expected_previous:, expected_next:, reason:)
+      locked do
+        state = read_state
+        if state
+          expire!(state)
+          raise Error, 'A growth claim is active; re-baseline after it commits, fails or expires' if state['active_claim']
+        end
+        @instance.send(:append_rebaseline, expected_previous: expected_previous, expected_next: expected_next, reason: reason)
+      end
     end
 
     def expire!(state)

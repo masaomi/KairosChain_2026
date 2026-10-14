@@ -15,12 +15,13 @@ require 'kairos_mcp/skills_config'
 require_relative 'kairomone/paths'
 require_relative 'kairomone/instance'
 require_relative 'kairomone/backup'
+require_relative 'kairomone/baseline'
 require_relative 'kairomone/progression'
 require_relative 'kairomone/autonomy'
 require_relative 'kairomone/companion'
 
 module Kairomone
-  VERSION = '0.4.0'
+  VERSION = '0.5.0'
   PACKAGE_ROOT = File.expand_path('..', __dir__)
   class Error < StandardError; end
 end

@@ -176,13 +176,26 @@ module Kairomone
                  'The chain check is local consistency, not independent authenticity. L2 observations are not chain-recorded.']
       details << 'L1/ledger correspondence is incomplete: content is missing or has no matching current canonical ledger hash.' if pending.positive?
       l0 = l0_fingerprints
-      expected = result[:profile]['host_l0_baseline']
-      l0_state = (expected.empty? || l0.empty?) ? 'unavailable' : (expected.all? { |path, hash| l0[path] == hash } ? 'unchanged' : 'changed')
+      begin
+        effective = effective_l0_baseline(ledger)
+        expected, baseline_source = effective[:baseline], effective[:source]
+        # 'unchanged' is exactly what growth commit accepts (same files, same
+        # hashes); 'changed' is what an owner ruling can fix; 'unavailable' is
+        # what it cannot (no host L0 present, or no derivable baseline).
+        l0_state = l0.empty? ? 'unavailable' : (l0 == expected ? 'unchanged' : 'changed')
+      rescue Error => e
+        expected, baseline_source, l0_state = nil, nil, 'unavailable'
+        details << e.message
+      end
       details << "Host L0 fingerprint comparison: #{l0_state}. Scope: skills/kairos.rb and skills/kairos.md only; no L0 contents are copied or modified."
+      if l0_state == 'changed'
+        details << 'Growth is refused until the owner accepts the current host L0 in their own terminal, in the project folder: ' \
+                   'ruby .kairos/skillsets/kairomone/scripts/kairomone.rb l0 rebaseline --reason "WHY". An assistant never runs it.'
+      end
       result[:integrity] = { state: ledger.load_state.to_s, valid: ledger.valid? && pending.zero?,
                              block_count: ledger.chain.length, latest_hash: ledger.latest_block&.hash,
                              pending_count: pending, details: details,
-                             host_l0: { state: l0_state, scope: L0_FILES, baseline: expected, current: l0 } }
+                             host_l0: { state: l0_state, scope: L0_FILES, baseline: expected, current: l0, baseline_source: baseline_source } }
       result[:autonomy] = autonomy.status
       result[:progression] = progression_status
       result[:profession] = profession_status(progression: result[:progression])

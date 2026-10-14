@@ -15,7 +15,7 @@ end
 
 options = {}
 parser = OptionParser.new do |p|
-  p.banner = 'Usage: kairomone.rb init|status|observe|growth status|configure|request|claim|heartbeat|commit|fail|stop|profession list|select|knowledge create|get|list|backup create|verify|restore|restore-new [options]'
+  p.banner = 'Usage: kairomone.rb init|status|observe|growth status|configure|request|claim|heartbeat|commit|fail|stop|profession list|select|knowledge create|get|list|backup create|verify|restore|restore-new|l0 rebaseline [options]'
   p.on('--json-stdin', 'Read companion arguments as bounded JSON, never shell text') { options[:json_stdin] = true }
   p.on('--dot-id ID') { |v| options[:dot_id] = v }
   p.on('--name NAME') { |v| options[:display_name] = v }
@@ -50,7 +50,7 @@ begin
     text
   end
   command = ARGV.shift
-  subcommand = ARGV.shift if %w[knowledge backup profession growth companion].include?(command)
+  subcommand = ARGV.shift if %w[knowledge backup profession growth companion l0].include?(command)
   parser.parse!(ARGV)
   raise Kairomone::Error, "Unexpected arguments: #{ARGV.join(' ')}" unless ARGV.empty?
   if options[:restored_id] && command != 'status'
@@ -98,6 +98,19 @@ begin
            when ['backup', 'verify'] then store.verify_backup(file: options[:file])
            when ['backup', 'restore'] then store.restore_backup(file: options[:file], target_id: options[:target_id])
            when ['backup', 'restore-new'] then store.restore_new(file: options[:file], dot_id: options[:dot_id])
+           when ['l0', 'rebaseline']
+             # The ruling reads its nonce back at the terminal and refuses without
+             # one, so no MCP call reaches it. This is a path, not proof of a person.
+             tty = begin
+               File.open('/dev/tty', 'r+')
+             rescue SystemCallError => e
+               raise Kairomone::Error, "l0 rebaseline needs a terminal (/dev/tty: #{e.class}). Run it yourself in a terminal, in the project folder."
+             end
+             begin
+               store.rebaseline_l0_interactive(tty_in: tty, tty_out: tty, reason: options.fetch(:reason, Kairomone::Instance::DEFAULT_REBASELINE_REASON))
+             ensure
+               tty.close
+             end
            else raise Kairomone::Error, parser.to_s
            end
   puts JSON.pretty_generate(result)

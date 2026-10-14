@@ -76,8 +76,11 @@ content and has no chain attestation.
 
 No tool changes host L0, instruction mode, host knowledge or host ledger.
 Initialization fingerprints only the existing host `skills/kairos.rb` and
-`skills/kairos.md`. The status calls those two fingerprints unchanged, changed,
-or unavailable; it does not claim to audit all L0/governance files. Their contents
+`skills/kairos.md`. The status compares them with the baseline in force and calls
+the result unchanged (identical files and hashes), changed, or unavailable; it
+does not claim to audit all L0/governance files. Only the owner replaces the
+baseline, with a terminal ruling recorded on the dedicated ledger
+(`scripts/kairomone.rb l0 rebaseline`; see `docs/bounded-growth.md`). Their contents
 are never included in an owned backup. Host layer-disable and layer-lock settings
 are honored on new L1/L2 writes.
 
@@ -132,6 +135,7 @@ For a portable recovery that becomes the new active instance:
 This refuses any existing active path, including an empty or unrecognized one.
 It preserves the original host and inbox archive. It never copies L0 contents,
 changes instruction mode or imports authority from restored knowledge. The
-original two-file L0 fingerprint baseline is retained. A different or absent host
-L0 is reported as changed or unavailable and must be reviewed by the operator
-before use. Current host layer governance still controls new L1/L2 writes.
+baseline in force is retained, including every re-baseline ruling on the restored
+ledger. A different or absent host L0 is reported as changed or unavailable and
+must be reviewed by the operator before use; growth resumes only after the
+owner's terminal ruling accepts the new host L0. Current host layer governance still controls new L1/L2 writes.

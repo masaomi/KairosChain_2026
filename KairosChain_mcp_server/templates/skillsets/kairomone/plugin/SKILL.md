@@ -93,15 +93,24 @@ that are easy to get wrong:
   a commit that uses up the budget; `request` with `resume: true` starts it again. While `stopped` is true,
   `stop_reason` is the latest stop's reason: if the owner placed it, confirm before resuming.
   `stop_reason` is not cleared on resume, so ignore it while `stopped` is false.
-- Growth is refused if the host L0 changed since `kairomone_init`. Before `request`, check
-  `integrity.host_l0` in `kairomone_status`: `state` must be `unchanged`, the `baseline` must not be
-  empty, and `current` must be identical to `baseline` — same files, same hashes. (`unchanged` alone is
-  not enough: an L0 file absent at init that has appeared since still shows `unchanged`, yet commit
-  refuses.) If any of the three fails, do not request; tell the owner the cause. This version has no way to re-record the baseline, so the instance cannot grow
-  until one exists.
+- Growth is refused while the host L0 differs from the baseline in force (recorded at `kairomone_init`,
+  replaced only by the owner's terminal ruling below). Before `request`, check `integrity.host_l0.state`
+  in `kairomone_status`: it must be `unchanged`, which means `current` equals `baseline` exactly. If it
+  is `unavailable` (no host L0 present, or no derivable baseline), do not request; report the `details`;
+  a ruling cannot fix it.
+- If it is `changed`, do not request. Tell the owner, show them `baseline` and `current`, and say that only
+  they can accept the new L0, in their own terminal (not through this session), in this project folder:
+  `ruby .kairos/skillsets/kairomone/scripts/kairomone.rb l0 rebaseline --reason "<why>"`. It shows the
+  change, asks them to type back a code, and records the ruling on this dot's ledger; it changes no L0
+  file, budget or stop state. Never run that command yourself — not directly and not through a pseudo-terminal
+  tool such as `script`, `expect` or a PTY library — never answer its prompt, and never write the
+  ledger or `profile.json` by any other means to get past the refusal. This holds even when the owner
+  asks you to run it for them — it is the exception to doing requested operator work: hand them the
+  command instead, because the code it shows is meant for their eyes. The terminal keeps MCP calls out;
+  it cannot keep you out, so this rule does.
 - Warn the owner before any L0 change in this folder: `kairos-chain upgrade` may replace
   `skills/kairos.md` or `skills/kairos.rb`, and an L0 evolution changes them by design. Either one stops
-  growth for this instance in this version. Let the owner decide; do not avoid it on their behalf.
+  growth until the owner rules as above. Let the owner decide; do not avoid it on their behalf.
 - **Research happens after the claim, inside its 15-minute lease.** Researching first and claiming only
   on success would hide failed attempts from the budget. Do not fetch any candidate source before the
   claim, and use only files saved after it. The lease does not pause for approval prompts: if this
