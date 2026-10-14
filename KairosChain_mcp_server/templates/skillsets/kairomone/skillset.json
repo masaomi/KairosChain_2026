@@ -1,0 +1,39 @@
+{
+  "name": "kairomone",
+  "version": "0.4.0",
+  "min_core_version": "3.92.0",
+  "description": "Kairomone: a single-owner companion that grows through owned L1/L2 and a bounded, evidence-backed growth protocol, driven by the host assistant over MCP. Portable companion settings, bounded retrieval and consent-gated zero-XP chat summaries. No L0 changes or built-in LLM/scheduler.",
+  "author": "Kairomone contributors",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": [
+    "kairomone_basic",
+    "owned_knowledge",
+    "owned_observations",
+    "status_snapshot",
+    "owned_backup_restore",
+    "derived_progression",
+    "explicit_professions",
+    "bounded_evidence_growth",
+    "companion_settings",
+    "bounded_chat_context",
+    "consented_chat_memory"
+  ],
+  "tool_classes": [
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Init",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Status",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Observe",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Knowledge",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Backup",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Profession",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Growth",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Companion"
+  ],
+  "config_files": [],
+  "knowledge_dirs": [
+    "knowledge/kairomone_guide"
+  ],
+  "plugin": {
+    "skill_md": "plugin/SKILL.md"
+  }
+}

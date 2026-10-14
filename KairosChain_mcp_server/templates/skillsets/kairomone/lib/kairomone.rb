@@ -1,0 +1,26 @@
+# frozen_string_literal: true
+
+require 'json'
+require 'time'
+require 'date'
+require 'digest'
+require 'securerandom'
+require 'fileutils'
+require 'base64'
+require 'kairos_mcp'
+require 'kairos_mcp/knowledge_provider'
+require 'kairos_mcp/context_manager'
+require 'kairos_mcp/storage/file_backend'
+require 'kairos_mcp/skills_config'
+require_relative 'kairomone/paths'
+require_relative 'kairomone/instance'
+require_relative 'kairomone/backup'
+require_relative 'kairomone/progression'
+require_relative 'kairomone/autonomy'
+require_relative 'kairomone/companion'
+
+module Kairomone
+  VERSION = '0.4.0'
+  PACKAGE_ROOT = File.expand_path('..', __dir__)
+  class Error < StandardError; end
+end
