@@ -4,6 +4,17 @@ All notable changes to the `kairos-chain` gem will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added — llm_client 0.2.2: `llm_call` reports the model ID it asked for
+
+The success payload gains `requested_model` (the per-call `model` override, else
+the configured `model`) beside `model` (what the provider answered with). On
+Bedrock the two differ — `eu.anthropic.claude-sonnet-5-5` is sent and
+`claude-sonnet-5-5` comes back — and only the first names the inference profile,
+and with it the region. gc_tier1_assess records it in a report's
+`assessor_stack.llm.model_requested`. Additive; no field changed or removed.
+
 ## [3.92.0] - 2026-10-13
 
 ### Added — agent: judgment precedents the shadow judge reads, distilled from your answers

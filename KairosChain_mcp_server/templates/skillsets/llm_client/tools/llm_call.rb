@@ -201,6 +201,11 @@ module KairosMcp
               'provider' => actual_provider,
               'requested_provider' => requested_provider,
               'model' => actual_model,
+              # The ID the adapter was asked to use, beside the name the provider
+              # answered with: on Bedrock these differ (eu.anthropic.claude-sonnet-5-5
+              # vs claude-sonnet-5-5), and only the first names the inference
+              # profile, and so the region. Callers recording provenance need both.
+              'requested_model' => model || config['model'],
               'response' => raw_response,
               'usage' => usage,
               'snapshot' => build_snapshot(
