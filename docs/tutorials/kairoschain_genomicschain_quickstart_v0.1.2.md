@@ -1,7 +1,7 @@
 ---
 name: kairoschain_genomicschain_quickstart
 description: "Use when setting up KairosChain for Claude Code on a new machine or project, choosing and projecting an instruction mode, using KairosChain day to day (L2 notes, L1 knowledge, tidy-up, multi-LLM review), or installing and upgrading the GenomicsChain SkillSets. Commands, the order they must run in, and the pitfalls that fail silently."
-version: "0.1.1"
+version: "0.1.2"
 layer: L1
 tags: [setup, quickstart, kairoschain, genomicschain, claude-code, mcp, instruction-mode, skillset, tips]
 ---
@@ -10,12 +10,47 @@ tags: [setup, quickstart, kairoschain, genomicschain, claude-code, mcp, instruct
 
 Written for kairos-chain 3.93.0. Check your version with `kairos-chain --version`.
 
+## 0. Install Ruby (if `ruby -v` shows less than 3.3)
+
+The Ruby an OS ships is often too old (macOS 14 ships 2.6.10, and installing gems into it needs sudo).
+Install a separate Ruby with rbenv, the same way on macOS and Linux. We suggest **Ruby 3.4.11**, the
+latest release of the 3.x line; this guide was checked on 3.4.10. Ruby 4.x has not been tested with
+kairos-chain.
+
+```sh
+# macOS (needs the Xcode Command Line Tools and Homebrew; default shell zsh)
+brew install rbenv ruby-build          # already installed? brew upgrade ruby-build
+echo 'eval "$(rbenv init - zsh)"' >> $HOME/.zshrc
+
+# Ubuntu / Debian (default shell bash)
+sudo apt install -y git build-essential libssl-dev libyaml-dev zlib1g-dev libffi-dev libreadline-dev
+git clone https://github.com/rbenv/rbenv.git $HOME/.rbenv
+git clone https://github.com/rbenv/ruby-build.git $HOME/.rbenv/plugins/ruby-build
+# already cloned? git -C $HOME/.rbenv/plugins/ruby-build pull
+echo 'eval "$($HOME/.rbenv/bin/rbenv init - bash)"' >> $HOME/.bashrc
+
+# Both
+exec $SHELL -l                         # reload the shell so rbenv is active
+rbenv install -l | grep '^3\.4'        # 3.4.11 must be listed; if not, update ruby-build (above)
+rbenv install 3.4.11                   # builds Ruby from source: takes several minutes
+rbenv global 3.4.11
+ruby -v                                # ruby 3.4.11 ...
+```
+
+- Do this before a hands-on session; the build is the slowest step of the whole setup.
+- rbenv switches Ruby per folder when a `.ruby-version` file is present. In a project pinned to
+  another Ruby, `kairos-chain` is not found unless the gem is installed under that Ruby too.
+- Start Claude Code from a shell where rbenv is loaded: `.mcp.json` runs `kairos-chain` from that
+  shell's `PATH`.
+- Linux: the apt package of rbenv is often too old to know recent Ruby releases; the git install above
+  avoids that.
+
 ## 1. Install KairosChain
 
-Requirements: **Ruby 3.3 or newer** (the gem declares `required_ruby_version >= 3.3`; on Ruby 3.2
-`gem install` falls back to an old release without the modes used below), Claude Code
+Requirements: **Ruby 3.3 or newer** (§ 0; the gem declares `required_ruby_version >= 3.3`; on
+Ruby 3.2 `gem install` falls back to an old release without the modes used below), Claude Code
 (`claude --version`). The gem's executables must be on the `PATH` of the shell Claude Code starts
-(with Homebrew Ruby, add its gem `bin` directory).
+(rbenv does this through its shims once it is loaded in the shell).
 
 ```sh
 gem install kairos-chain
