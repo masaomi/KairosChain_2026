@@ -2,6 +2,7 @@
 
 require 'digest'
 require 'fileutils'
+require 'json'
 require_relative 'base_tool'
 require_relative '../skills_config'
 require_relative '../action_log'
@@ -10,7 +11,8 @@ module KairosMcp
   module Tools
     class InstructionsUpdate < BaseTool
       # Protected built-in files that cannot be deleted
-      PROTECTED_FILES = %w[kairos.md kairos_quickguide.md kairos_tutorial.md researcher.md].freeze
+      PROTECTED_FILES = %w[kairos.md kairos_quickguide.md kairos_tutorial.md researcher.md
+                           proactive_tutorial.md].freeze
       # Reserved mode names that map to built-in behavior
       RESERVED_MODES = %w[developer user tutorial none].freeze
 
@@ -373,13 +375,36 @@ module KairosMcp
           "**Previous**: `#{prev_mode}`\n" \
           "**New**: `#{mode_name}`\n\n" \
           "Recorded to blockchain (full recording, L0_law level).\n" \
-          "New instructions take effect on next MCP client connection."
+          "New instructions take effect on next MCP client connection." \
+          "#{stale_projection_notice(mode_name)}"
         )
       rescue StandardError => e
         text_content("❌ Failed: #{e.message}")
       end
 
       # --- helpers ---
+
+      # A body projected into CLAUDE.md for another mode keeps reaching the
+      # model next to the new one until it is re-projected. Same manifest test
+      # as Protocol#instruction_mode_projected?.
+      def stale_projection_notice(mode_name)
+        manifest_path = File.join(KairosMcp.data_dir, 'instruction_mode_manifest.json')
+        return '' unless File.exist?(manifest_path)
+
+        data = JSON.parse(File.read(manifest_path))
+        projected = data['mode_name']
+        return '' unless data['region_present'] && projected && projected != mode_name
+
+        fix, effect = if mode_name == 'none'
+                        ['kairos-chain mode remove', 'which keeps reaching the model although the mode is now none']
+                      else
+                        ['kairos-chain mode project', 'which keeps reaching the model alongside the new mode']
+                      end
+        "\n\n⚠️ This project's CLAUDE.md still imports the projected `#{projected}` body, #{effect}. " \
+          "Run `#{fix}` from the project root, then restart Claude Code."
+      rescue StandardError
+        ''
+      end
 
       def instructions_path(mode_name)
         File.join(KairosMcp.skills_dir, "#{mode_name}.md")
