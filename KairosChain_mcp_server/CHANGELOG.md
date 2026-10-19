@@ -6,6 +6,8 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.93.0] - 2026-10-19
+
 ### Added — `proactive_tutorial`, an opt-in mode that suggests KairosChain's own workflow
 
 Claude Code passes only the head of an MCP server's instructions to the model
