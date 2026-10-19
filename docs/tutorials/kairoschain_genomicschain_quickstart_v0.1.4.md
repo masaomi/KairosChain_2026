@@ -1,7 +1,7 @@
 ---
 name: kairoschain_genomicschain_quickstart
 description: "Use when setting up KairosChain for Claude Code on a new machine or project, choosing and projecting an instruction mode, using KairosChain day to day (L2 notes, L1 knowledge, tidy-up, multi-LLM review), or installing and upgrading the GenomicsChain SkillSets. Commands, the order they must run in, and the pitfalls that fail silently."
-version: "0.1.3"
+version: "0.1.4"
 layer: L1
 tags: [setup, quickstart, kairoschain, genomicschain, claude-code, mcp, instruction-mode, skillset, tips]
 ---
@@ -23,7 +23,7 @@ brew install rbenv ruby-build          # already installed? brew upgrade ruby-bu
 echo 'eval "$(rbenv init - zsh)"' >> $HOME/.zshrc
 
 # Ubuntu / Debian (default shell bash)
-sudo apt install -y git build-essential libssl-dev libyaml-dev zlib1g-dev libffi-dev libreadline-dev
+sudo apt update && sudo apt install -y git curl build-essential libssl-dev libyaml-dev zlib1g-dev libffi-dev libreadline-dev
 git clone https://github.com/rbenv/rbenv.git $HOME/.rbenv
 git clone https://github.com/rbenv/ruby-build.git $HOME/.rbenv/plugins/ruby-build
 # already cloned? git -C $HOME/.rbenv/plugins/ruby-build pull
