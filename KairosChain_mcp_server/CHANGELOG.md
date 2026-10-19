@@ -26,6 +26,46 @@ into CLAUDE.md, the `tutorial` mode's "Proactive Tool Usage" section (line 82 of
   body projected for a different mode, and names the command that fixes it
   (`kairos-chain mode project`, or `kairos-chain mode remove` for `none`).
 
+### Fixed — projected hooks run against the data directory they were projected from
+
+A project whose `.mcp.json` starts kairos-chain with another project's data
+directory (`--data-dir /…/KairosChain_2026/.kairos` in GenomicsChain_2025; 16
+projects on the reporting machine point at that one directory) got the shared
+directory's SkillSet hooks projected into its own `.claude/settings.json`. Each
+hook resolved its script as `${KAIROS_DATA_DIR:-$CLAUDE_PROJECT_DIR/.kairos}/…`
+with `KAIROS_DATA_DIR` unset, so it looked in the wrong project:
+model_provenance failed with `LoadError` on every Stop, SubagentStop and model
+switch (46 times across two sessions, 2026-10-06 and 10-18) and observed
+nothing; project_manager's session-start report failed the same way. A harness
+tells a hook where the project is, never where the data directory is.
+
+- When the data directory is not `<project root>/.kairos`, PluginProjector now
+  prefixes every projected hook command with the pair it projected from:
+  `export KAIROS_DATA_DIR=<dir> KAIROS_PROJECT_ROOT=<root>;`, shell-escaped.
+  The project root goes with it because `kairos-plugin-project` otherwise falls
+  back to the data dir's parent — the other project — when the hook's working
+  directory is not a plausible root. The two are always set together: the
+  agent SkillSet hands children both as a pair, and half a pair cross-wires a
+  re-projection. The default layout is projected exactly as before, and
+  hand-written hooks are never touched.
+- Plugin mode is left as declared: `hooks/hooks.json` is distributable, and a
+  data directory on the projecting machine means nothing on the consumer's.
+- `system_upgrade` and `kairos-chain upgrade` re-projected without `data_dir:`,
+  so in a project sharing a data directory they wrote the hooks as if it were
+  local and dropped the fix until the next server start; both now pass it.
+- The Codex host's `--host` rewrite now applies only to what follows the pinned
+  prefix, so a data-directory or project path containing `kairos-plugin-project`
+  or `--host` is never rewritten.
+- No SkillSet changes: model_provenance and project_manager keep their bare
+  `ruby` commands, which run under whatever Ruby the project selects. A gem
+  executable would not: under rbenv a project pinned to another Ruby (two of the
+  16 above run 3.3.7 / 3.3.10) cannot find it.
+
+To pick this up, install this gem under the Ruby each project's MCP server runs
+on — for most projects the usual one; for a project whose `.ruby-version` or
+`.mcp.json` command selects another Ruby, that Ruby too — then restart the
+project's session so projection runs again.
+
 ### Added — llm_client 0.2.2: `llm_call` reports the model ID it asked for
 
 The success payload gains `requested_model` (the per-call `model` override, else

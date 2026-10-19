@@ -187,7 +187,9 @@ when 'skillset'
           require 'kairos_mcp/plugin_projector'
           project_root = KairosMcp.project_root
           mode = KairosMcp.projection_mode
-          projector = KairosMcp::PluginProjector.new(project_root, mode: mode)
+          # data_dir: see system_upgrade.rb — the projector must know where the
+          # SkillSets live, or a shared data dir is projected as if it were local.
+          projector = KairosMcp::PluginProjector.new(project_root, mode: mode, data_dir: KairosMcp.data_dir)
           enabled = manager.enabled_skillsets
           knowledge = KairosMcp.collect_knowledge_entries
           if projector.project_if_changed!(enabled, knowledge_entries: knowledge)

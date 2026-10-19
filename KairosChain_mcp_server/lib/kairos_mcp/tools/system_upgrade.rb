@@ -375,7 +375,10 @@ module KairosMcp
             require_relative '../skillset_manager'
             project_root = KairosMcp.project_root
             mode = KairosMcp.projection_mode
-            projector = KairosMcp::PluginProjector.new(project_root, mode: mode)
+            # data_dir must be the one the SkillSets come from: without it the
+            # projector assumes <project_root>/.kairos and, in a project sharing
+            # another's data dir, writes hooks that look in the wrong place.
+            projector = KairosMcp::PluginProjector.new(project_root, mode: mode, data_dir: KairosMcp.data_dir)
             mgr = KairosMcp::SkillSetManager.new
             enabled = mgr.enabled_skillsets
             knowledge = KairosMcp.collect_knowledge_entries

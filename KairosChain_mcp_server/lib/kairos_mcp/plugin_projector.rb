@@ -6,6 +6,7 @@ require 'fileutils'
 require 'tempfile'
 require 'time'
 require 'pathname'
+require 'shellwords'
 require_relative 'path_containment'
 
 module KairosMcp
@@ -335,6 +336,7 @@ module KairosMcp
       end
 
       project_knowledge_meta_skill!(knowledge_entries, current_outputs) unless reuse_skills
+      pin_data_dir_in_hook_commands!(merged_hooks)
       write_merged_hooks!(merged_hooks, current_outputs)
       write_host_mcp_config!(current_outputs)
       cleanup_stale!(previous_manifest, current_outputs)
@@ -704,6 +706,57 @@ module KairosMcp
       warn "[PluginProjector] ERROR: #{hooks_file} has invalid JSON: #{e.message}"
     end
 
+    # A projected hook runs with the project root as its only location (the
+    # harness exports CLAUDE_PROJECT_DIR, and runs hooks there); it has no way
+    # to learn the data directory. When the data directory is not
+    # <project_root>/.kairos — a project whose .mcp.json starts kairos-chain
+    # with another project's data dir — every projected command is prefixed
+    # with the pair this projection used. KAIROS_DATA_DIR is what
+    # KairosMcp.resolve_data_dir and the ${KAIROS_DATA_DIR:-...} form read
+    # first; KAIROS_PROJECT_ROOT goes with it because kairos-plugin-project
+    # otherwise falls back to File.dirname(data dir) — the other project —
+    # when the hook's cwd is not a plausible root. The two are always set as
+    # a pair: half a pair cross-wires a re-projection.
+    #
+    # The default layout is projected as written. Clearing an inherited
+    # KAIROS_DATA_DIR there was tried and withdrawn (review R2, 2026-10-19):
+    # the agent SkillSet hands children both variables as a pair, and hosts
+    # without CLAUDE_PROJECT_DIR (Codex) have only the inherited variable.
+    #
+    # Plugin mode is left alone: hooks/hooks.json is a distributable artifact,
+    # and the data directory is the consumer's to resolve, not this machine's.
+    # Hand-written settings.json hooks never enter merged_hooks.
+    def pin_data_dir_in_hook_commands!(merged_hooks)
+      prefix = hook_command_prefix
+      return if prefix.empty?
+
+      merged_hooks.fetch('hooks', {}).each_value do |handlers|
+        next unless handlers.is_a?(Array)
+        handlers.each do |h|
+          next unless h.is_a?(Hash)
+          targets = h['hooks'].is_a?(Array) ? h['hooks'] : [h]
+          targets.each do |inner|
+            next unless inner.is_a?(Hash) && inner['command'].is_a?(String)
+            inner['command'] = prefix + inner['command']
+          end
+        end
+      end
+    end
+
+    # The prefix pin_data_dir_in_hook_commands! puts in front of every
+    # projected command; empty when nothing is pinned. Host rewrites use it to
+    # leave the pinned paths alone.
+    def hook_command_prefix
+      return '' if @mode == :plugin || !data_dir_relocated?
+
+      "export KAIROS_DATA_DIR=#{Shellwords.escape(File.expand_path(@data_dir))} " \
+        "KAIROS_PROJECT_ROOT=#{Shellwords.escape(File.expand_path(@project_root))}; "
+    end
+
+    def data_dir_relocated?
+      canonicalize(@data_dir) != canonicalize(File.join(@project_root, '.kairos'))
+    end
+
     # MCP connection config delivery is owned by the profile (INV-H4). Only
     # meaningful in :project mode (plugin mode has no consumer project root to
     # write connection config into).
@@ -750,14 +803,19 @@ module KairosMcp
     # Deep-copies so the shared merged_hooks (used by other hosts) is not mutated.
     def rewrite_hook_commands_for_host(merged_hooks)
       copy = JSON.parse(JSON.generate(merged_hooks))
+      pinned = hook_command_prefix
       copy.fetch('hooks', {}).each_value do |handlers|
         next unless handlers.is_a?(Array)
         handlers.each do |h|
           Array(h['hooks']).each do |inner|
             cmd = inner['command']
-            next unless cmd.is_a?(String) && cmd.include?('kairos-plugin-project') && !cmd.include?('--host')
+            next unless cmd.is_a?(String)
+            # Rewrite only what follows the pinned prefix: the prefix holds
+            # paths, and a path may contain this name or '--host'.
+            head, body = !pinned.empty? && cmd.start_with?(pinned) ? [pinned, cmd[pinned.size..]] : ['', cmd]
+            next unless body.include?('kairos-plugin-project') && !body.include?('--host')
             # Insert right after the binary token so compound commands (a && b) stay correct.
-            inner['command'] = cmd.sub('kairos-plugin-project', "kairos-plugin-project --host #{@host.key}")
+            inner['command'] = head + body.sub('kairos-plugin-project', "kairos-plugin-project --host #{@host.key}")
           end
         end
       end
