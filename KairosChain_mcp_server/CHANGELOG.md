@@ -6,6 +6,26 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — `proactive_tutorial`, an opt-in mode that suggests KairosChain's own workflow
+
+Claude Code passes only the head of an MCP server's instructions to the model
+(4,096 characters by default, 2,048 in older builds). Until a mode is projected
+into CLAUDE.md, the `tutorial` mode's "Proactive Tool Usage" section (line 82 of
+309) never reaches the model.
+
+- New shipped mode `proactive_tutorial`. Its first section, which fits inside
+  the 2,048-character cap after the first-run hint, has the model offer to save
+  L2 contexts, promote L1 knowledge, tidy up (`dream_scan`, `skills_audit`),
+  run multi-LLM review on hard-to-undo changes, point at installed skills, and
+  draft a project mode once L1 shows a theme (or, in the first session, the
+  project has docs). Writes happen only after the user says yes. Switch with
+  `instructions_update(command: "set_mode", mode_name: "proactive_tutorial")`;
+  the default stays `tutorial`. Existing instances receive the file on the next
+  `system_upgrade`.
+- `instructions_update set_mode` now warns when CLAUDE.md still imports a mode
+  body projected for a different mode, and names the command that fixes it
+  (`kairos-chain mode project`, or `kairos-chain mode remove` for `none`).
+
 ### Added — llm_client 0.2.2: `llm_call` reports the model ID it asked for
 
 The success payload gains `requested_model` (the per-call `model` override, else
