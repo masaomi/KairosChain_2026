@@ -1,6 +1,7 @@
 require_relative 'base_tool'
 require_relative '../version_manager'
 require_relative '../action_log'
+require_relative '../safe_evolver'
 
 module KairosMcp
   module Tools
@@ -57,7 +58,15 @@ module KairosMcp
             },
             reason: {
               type: 'string',
-              description: 'Reason for creating snapshot (for snapshot command)'
+              description: 'Reason for the snapshot or the rollback (snapshot and rollback commands)'
+            },
+            approved: {
+              type: 'boolean',
+              description: 'Human approval for rollback. Without it nothing is written and a pending proposal is returned.'
+            },
+            proposal_id: {
+              type: 'string',
+              description: 'Id of the pending restore proposal to apply. Given, the approval binds that proposal and the version argument is ignored.'
             }
           }
         }
@@ -91,12 +100,91 @@ module KairosMcp
 
         when 'rollback'
           version = arguments['version']
-          return text_content("Error: version filename is required") unless version
-          
+          proposal_id = arguments['proposal_id']
+          unless version || proposal_id
+            return text_content("Error: version filename or proposal_id is required")
+          end
+
           begin
-            VersionManager.rollback(version)
-            ActionLog.record(action: 'rollback_performed', details: { version: version })
-            text_content("Rollback successful. Restored to: #{version}")
+            if proposal_id
+              # F2b: apply the proposal that was displayed, so the approval binds
+              # the (base, result) pair the operator actually saw. Building a
+              # fresh proposal here would let the approval land on a different
+              # change than the one it was given for.
+              stored = L0ProposalStore.load(proposal_id)
+              return text_content("Error: proposal #{proposal_id} not found") unless stored
+
+              kind = stored[:kind] || stored['kind']
+              unless kind.to_s == 'restore'
+                return text_content("Error: proposal #{proposal_id} has kind #{kind}, not restore")
+              end
+
+              prop = {
+                success: true,
+                proposal_id: proposal_id,
+                base: stored[:base] || stored['base'],
+                result: stored[:result] || stored['result']
+              }
+
+              # The displayed pair only binds while its base still describes the
+              # current content. If the definition moved on, the proposal is
+              # stale and applying it would write a result nobody approved.
+              current_base = Digest::SHA256.hexdigest(File.read(KairosMcp.dsl_path))
+              if prop[:base] != current_base
+                return text_content(
+                  "Error: proposal #{proposal_id} is stale. It was built against base " \
+                  "#{prop[:base]} but the current content hashes to #{current_base}. " \
+                  "Create a new proposal."
+                )
+              end
+            else
+              prop = SafeEvolver.propose_restore(version: version, reason: arguments['reason'])
+            end
+
+            if !prop[:success]
+              text_content("Rollback refused: #{prop[:error]}")
+            else
+              # Everything shown or logged below describes the stored proposal,
+              # the thing the approval binds -- never the caller's `version`,
+              # which on the proposal_id path may name a different snapshot.
+              proposal = L0ProposalStore.load(prop[:proposal_id]) || {}
+              snapshot = proposal['snapshot']
+              label = snapshot ? "snapshot #{snapshot}" : "proposal #{prop[:proposal_id]}"
+              note = if proposal_id && version && version != snapshot
+                       "Note: version #{version} was given, but proposal #{proposal_id} restores " \
+                         "#{snapshot || 'an unnamed snapshot'}; the version argument is ignored."
+                     end
+
+              res = SafeEvolver.apply(proposal_id: prop[:proposal_id], approved: arguments['approved'] || false)
+
+              if res[:pending]
+                # Summarise the change so the approval is an informed one. A diff
+                # failure must not swallow the pending message.
+                diff_summary = begin
+                  # Line counts, stored content vs current: restoring brings back
+                  # the stored content's distinct lines and drops the current ones.
+                  restored_lines = proposal.fetch('content').lines
+                  current_lines = File.read(KairosMcp.dsl_path).lines
+                  "+#{(restored_lines - current_lines).size} / -#{(current_lines - restored_lines).size} lines"
+                rescue => e
+                  "diff unavailable: #{e.message}"
+                end
+
+                text_content([
+                  note,
+                  "Rollback requires approval. Nothing was written.",
+                  "Proposal: #{prop[:proposal_id]} (#{label})",
+                  "#{prop[:base][0, 12]} -> #{prop[:result][0, 12]} (#{diff_summary})",
+                  "Re-run with proposal_id=#{prop[:proposal_id]} and approved=true to apply."
+                ].compact.join("\n"))
+              elsif res[:success]
+                ActionLog.record(action: 'rollback_performed',
+                                 details: { proposal_id: prop[:proposal_id], result: prop[:result], snapshot: snapshot })
+                text_content([note, "Rollback successful. L0 now holds the content of hash #{prop[:result]} (#{label})."].compact.join("\n"))
+              else
+                text_content([note, "Rollback failed: #{res[:error]}"].compact.join("\n"))
+              end
+            end
           rescue => e
             text_content("Rollback failed: #{e.message}")
           end
