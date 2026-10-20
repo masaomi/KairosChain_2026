@@ -6,6 +6,32 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.94.0] - 2026-10-20
+
+### Added — L0 changes proposed for later approval, L0 restores on the record, L1 body history
+
+- **L0 proposals.** `skills_evolve` keeps a pending L0 change as (base, result,
+  content) without evaluating it; `command: "pending"` lists the proposals and
+  `apply` takes a `proposal_id`. Applying writes exactly the stored bytes under
+  an exclusive lock, only while the base is still the L0 in force and the
+  content hashes to its result. A failed load, an interrupt or a killed thread
+  never leaves an unrecorded L0 on disk.
+- **L0 restore on the record.** `skills_rollback` restores a snapshot only if
+  its hash appears in a transition recorded on the chain. Without
+  `approved: true` it writes nothing and returns a pending proposal; with
+  `proposal_id` the approval applies exactly the proposal that was shown.
+- **L1 body history.** `knowledge_update` gains `history`, `restore` and
+  `erase_body` (the last is irreversible and needs `approved: true`). Bodies
+  are kept by content address from a recorded activation point, and restore and
+  erasure decide from the chain whether their record landed.
+
+### Changed — read before upgrading
+
+- `VersionManager.rollback` is removed; nothing shipped calls it. Code that
+  called it should use `skills_rollback` with a `proposal_id`.
+- `chain_import` never overwrites an existing chain: it is refused when the
+  target already holds chain data. Import into a new data directory instead.
+
 ## [3.93.0] - 2026-10-19
 
 ### Added — `proactive_tutorial`, an opt-in mode that suggests KairosChain's own workflow
