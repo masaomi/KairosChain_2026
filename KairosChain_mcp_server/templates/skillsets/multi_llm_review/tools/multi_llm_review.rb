@@ -45,26 +45,31 @@ module KairosMcp
 
           # Phase 1.5 — Capability Boundary canonical example.
           # multi_llm_review depends on:
-          #   - subprocess CLIs (claude_cli, codex_cli, cursor_cli) for advisory reviewers
-          #   - harness-specific Agent tool (Claude Code) for the persona unanimity gate
-          # The persona Agent path IS the blocking gate (Anthropic unanimity doctrine);
-          # subprocess advisory degrades gracefully but the gate path is harness_specific.
+          #   - subprocess CLIs (claude_cli, codex_cli, cursor_cli) for the seats
+          #   - the calling host's sub-agents for the persona team (Claude Code's
+          #     Agent tool, Codex's multi-agent, …). Which host ran the personas
+          #     is the caller's declaration (orchestrator_host, INV-H4); nothing
+          #     here observes it.
           def harness_requirement
             {
               tier: :harness_assisted,
               requires_externals: %i[claude_cli codex_cli cursor_cli],
               requires_harness_features: [
                 {
-                  feature: :agent_tool,
-                  target_harness: :claude_code,
-                  used_for: 'persona unanimity gate (Anthropic doctrine, blocking gate)',
-                  degrades_to: 'direct API persona invocation (Phase 2+ candidate)'
+                  feature: :sub_agents,
+                  target_harness: :caller_host,
+                  used_for: 'persona team: separate sub-agents of the calling host ' \
+                            '(Claude Code Agent tool, Codex multi-agent, …)',
+                  degrades_to: 'no persona seat; the review counts its subprocess seats only'
                 }
               ],
               fallback_chain: [
                 { path: 'claude_code_agent_personas', tier: :harness_specific,
                   target_harness: :claude_code,
                   condition: 'running under Claude Code with Agent tool available' },
+                { path: 'host_sub_agent_personas', tier: :harness_specific,
+                  target_harness: :caller_host,
+                  condition: 'another host declared with orchestrator_host runs the personas as its own sub-agents' },
                 { path: 'direct_api_personas', tier: :harness_assisted,
                   condition: 'API credentials configured for direct LLM calls' },
                 { path: 'manual_suggestion', tier: :core,
@@ -205,18 +210,27 @@ module KairosMcp
                     '(e.g., "claude-opus-5-5"). Pass the bare ID — strip any context ' \
                     'suffix such as "[1m]", which the roster comparison rejects. ' \
                     'Used by exclude/delegate strategies to ' \
-                    'identify the roster entry corresponding to the caller. Claude Code ' \
-                    'orchestrators should read the model ID from their own system prompt.'
+                    'identify the roster entry corresponding to the caller. Read it from ' \
+                    'what your host states about you (Claude Code: the system prompt).'
+                },
+                orchestrator_host: {
+                  type: %w[string null],
+                  description: 'The host the caller runs in: claude_code, codex_cli, cursor, or other ' \
+                    '(core\'s Capability names). It names the persona seat: claude_code or nothing ' \
+                    'gives claude_team_<model>, as every earlier record has; codex_cli gives ' \
+                    'codex_team_<model>, cursor cursor_team_<model>, other other_team_<model>. ' \
+                    'Recorded as a declaration beside the server\'s own detection of its host.'
                 },
                 orchestrator_strategy: {
                   type: 'string',
                   enum: %w[exclude subprocess delegate],
                   description: 'How to handle the orchestrator-matching reviewer. ' \
                     '"delegate" (default): two-call protocol — subprocess reviewers run ' \
-                    'in a detached worker (parallel with orchestrator persona Agent Team), ' \
+                    'in a detached worker (parallel with the caller\'s persona team), ' \
                     'then results are submitted via multi_llm_review_collect. ' \
                     '"exclude": drop the matching reviewer entirely (legacy default). ' \
-                    '"subprocess": treat like any other reviewer (spawn fresh claude -p). ' \
+                    '"subprocess": treat like any other reviewer (the matching slot runs as ' \
+                    'a fresh process on its own CLI). ' \
                     'Config key: default_orchestrator_strategy in multi_llm_review.yml.',
                   default: 'delegate'
                 },
@@ -338,6 +352,17 @@ module KairosMcp
             persona_model = arguments['persona_model']
             escalate = arguments['escalate'] ? true : false
 
+            # INV-H4: the declared host, from a closed vocabulary.
+            orchestrator_host = arguments['orchestrator_host']
+            orchestrator_host = nil if orchestrator_host.to_s.strip.empty?
+            if orchestrator_host && !PersonaAssembly::HOSTS.include?(orchestrator_host)
+              return text_content(JSON.generate({
+                'status' => 'error',
+                'error' => "orchestrator_host must be one of #{PersonaAssembly::HOSTS.join(', ')}"
+              }))
+            end
+            host_detected = detect_host
+
             # The two legacy strategies keep their published meanings.
             # "subprocess" buys a fresh context on the caller's own model: the
             # slot runs, and no persona is convened unless one was declared
@@ -373,7 +398,8 @@ module KairosMcp
                 persona_model: persona_model,
                 orchestrator_model: orchestrator_model,
                 separate_context: separate_context,
-                convene_persona: convene_persona
+                convene_persona: convene_persona,
+                persona_host: orchestrator_host
               )
             rescue ObserverSet::RosterError => e
               return text_content(JSON.generate({
@@ -525,6 +551,7 @@ module KairosMcp
                 reviewers: reviewers, messages: messages, system_prompt: system_prompt,
                 arguments: arguments, config: config,
                 orchestrator_model: orchestrator_model, observers: observers,
+                orchestrator_host: orchestrator_host, host_detected: host_detected,
                 convergence_rule: convergence_rule, min_quorum: min_quorum,
                 review_round: review_round, complexity: complexity,
                 review_context: review_context,
@@ -552,6 +579,8 @@ module KairosMcp
                 config: config,
                 orchestrator_model: orchestrator_model,
                 observers: observers,
+                orchestrator_host: orchestrator_host,
+                host_detected: host_detected,
                 convergence_rule: convergence_rule,
                 min_quorum: min_quorum,
                 review_round: review_round,
@@ -574,14 +603,7 @@ module KairosMcp
             sanitized_findings = Sanitizer.bound_findings_for_record(findings_string_keys)
             # The excerpt is unconditional; the full reply is opt-in.
             include_raw_text = arguments['include_raw_text'] == true
-            feedback_text =
-              case consensus[:reference_verdict]
-              when 'APPROVE' then nil
-              when 'INSUFFICIENT'
-                FeedbackFormatter.build_insufficient(consensus[:vote_tally][:reason] || 'quorum not met')
-              else
-                FeedbackFormatter.build(sanitized_findings)
-              end
+            feedback_text = FeedbackFormatter.for_result(consensus, sanitized_findings, feedback_context)
 
             payload = {
               'status' => 'ok',
@@ -603,9 +625,11 @@ module KairosMcp
               'llm_calls' => raw_results.count { |r| r[:status] == :success },
               'orchestrator_model' => orchestrator_model,
               'orchestrator_strategy' => strategy,
+              'orchestrator_host' => orchestrator_host || 'undeclared',
               'excluded_reviewers' => observers.excluded.size,
               'run_token' => run_token
             }
+            payload['host_detected'] = host_detected if host_detected
             # Omitted when not declared, rather than nulled: an absent spec is
             # a fact the record shows by silence.
             payload['review_spec'] = review_spec if review_spec
@@ -952,7 +976,8 @@ module KairosMcp
           # via multi_llm_review_collect.
           def delegate_response(token:, review_spec:, raw_results:, arguments:, config:,
                                 orchestrator_model:, observers:, convergence_rule:,
-                                min_quorum:, review_round:, complexity:)
+                                min_quorum:, review_round:, complexity:,
+                                orchestrator_host: nil, host_detected: nil)
             # Validate the model that will actually stand in the persona
             # position — which is the persona declaration when there is one,
             # and the caller's own declaration otherwise. Validating the caller
@@ -991,6 +1016,9 @@ module KairosMcp
                 'subprocess_failures' => raw_results.map { |r|
                   {
                     'role_label' => r[:role_label],
+                    # INV-H1: the cause the transport established, as the
+                    # record would carry it.
+                    'reason' => Consensus.transport_reason(r),
                     'error_class' => (r[:error].is_a?(Hash) ? r[:error]['type'] || r[:error][:type] : nil),
                     'error_message' => (r[:error].is_a?(Hash) ? r[:error]['message'] || r[:error][:message] : r[:error].to_s),
                     'elapsed_seconds' => r[:elapsed_seconds]
@@ -1029,6 +1057,10 @@ module KairosMcp
                                            config['default_orchestrator_strategy'] || 'delegate',
                 'persona_model' => observers.persona[:model],
                 'persona_independent' => observers.persona[:independent],
+                # INV-H4: the declared host names the persona seat at collect;
+                # the server's own detection is taken here, at dispatch.
+                'orchestrator_host' => orchestrator_host,
+                'host_detected' => host_detected,
                 'excluded_slots' => observers.excluded.map { |e| hash_to_string_keys(e) },
                 'escalation' => escalation_record(observers),
                 'convergence_rule' => convergence_rule,
@@ -1056,11 +1088,9 @@ module KairosMcp
               'status' => 'delegation_pending',
               'collect_token' => token,
               'delegation' => {
-                'instruction' => 'Run persona-based review using your Agent tool. ' \
-                  "Convene #{PersonaAssembly::RECOMMENDED_MIN_PERSONAS}-#{PersonaAssembly::MAX_PERSONAS} " \
-                  'personas appropriate to the artifact and review_type. ' \
-                  'Submit findings via multi_llm_review_collect with the collect_token below. ' \
-                  'A smaller submission than convened is accepted; the shortfall is recorded.',
+                'instruction' => persona_instruction(
+                  'Submit findings via multi_llm_review_collect with the collect_token below.'
+                ),
                 'review_type' => arguments['review_type'],
                 'persona_count_min' => PersonaAssembly::MIN_PERSONAS,
                 'persona_count_recommended_min' => PersonaAssembly::RECOMMENDED_MIN_PERSONAS,
@@ -1083,7 +1113,8 @@ module KairosMcp
                                       arguments:, config:, orchestrator_model:, observers:,
                                       convergence_rule:, min_quorum:, review_round:,
                                       complexity:, review_context:,
-                                      max_concurrent:, timeout_secs:, parallel_cfg:)
+                                      max_concurrent:, timeout_secs:, parallel_cfg:,
+                                      orchestrator_host: nil, host_detected: nil)
             begin
               PersonaAssembly.validate_orchestrator_model!(observers.persona[:model])
             rescue ArgumentError => e
@@ -1156,6 +1187,8 @@ module KairosMcp
                                            config['default_orchestrator_strategy'] || 'delegate',
                 'persona_model' => observers.persona[:model],
                 'persona_independent' => observers.persona[:independent],
+                'orchestrator_host' => orchestrator_host,
+                'host_detected' => host_detected,
                 'excluded_slots' => observers.excluded.map { |e| hash_to_string_keys(e) },
                 'escalation' => escalation_record(observers),
                 'convergence_rule' => convergence_rule,
@@ -1208,11 +1241,9 @@ module KairosMcp
               'collect_token' => token,
               'parallel' => true,
               'delegation' => {
-                'instruction' => 'Run persona-based review using your Agent tool. ' \
-                  "Convene #{PersonaAssembly::RECOMMENDED_MIN_PERSONAS}-#{PersonaAssembly::MAX_PERSONAS} " \
-                  'personas appropriate to the artifact and review_type. ' \
-                  'Then call multi_llm_review_wait, then multi_llm_review_collect. ' \
-                  'A smaller submission than convened is accepted; the shortfall is recorded.',
+                'instruction' => persona_instruction(
+                  'Then call multi_llm_review_wait, then multi_llm_review_collect.'
+                ),
                 'review_type' => arguments['review_type'],
                 'persona_count_min' => PersonaAssembly::MIN_PERSONAS,
                 'persona_count_recommended_min' => PersonaAssembly::RECOMMENDED_MIN_PERSONAS,
@@ -1230,10 +1261,48 @@ module KairosMcp
                 'tool' => 'multi_llm_review_wait',
                 'args' => { 'collect_token' => token, 'max_wait_seconds' => 600 },
                 'purpose' => 'Phase 1.5: block until subprocess reviewers complete. Call ' \
-                  'AFTER spawning persona Agent reviews, BEFORE multi_llm_review_collect. ' \
+                  'AFTER starting the persona reviews, BEFORE multi_llm_review_collect. ' \
                   'Optional but strongly recommended for deterministic recovery hints.'
               }
             }))
+          end
+
+          # INV-H4: names no single host's tool. Separate sub-agents are an
+          # obligation on the caller that nothing here can observe, so the
+          # record presents the persona seat as a declaration (INV-P1) either way.
+          def persona_instruction(next_step)
+            'Run the persona review as separate sub-agents of your host (for example ' \
+              "Claude Code's Agent tool or Codex's multi-agent). " \
+              "Convene #{PersonaAssembly::RECOMMENDED_MIN_PERSONAS}-#{PersonaAssembly::MAX_PERSONAS} " \
+              'personas appropriate to the artifact and review_type. ' \
+              "#{next_step} " \
+              'A smaller submission than convened is accepted; the shortfall is recorded. ' \
+              'The persona seat is recorded as your declaration, not as an observation.'
+          end
+
+          # The server's own detection of its host, taken at dispatch: computed
+          # once per process from the environment the server inherited, so it
+          # describes the server, not necessarily this caller (INV-H4).
+          def detect_host
+            cap = KairosMcp::Capability if defined?(KairosMcp::Capability)
+            return nil unless cap.respond_to?(:detect_harness)
+
+            d = cap.detect_harness
+            {
+              'active_harness' => d[:active_harness].to_s,
+              'detection_method' => d[:detection_method].to_s,
+              'confidence' => d[:confidence].to_s,
+              'source' => 'server_detection'
+            }
+          rescue StandardError
+            nil
+          end
+
+          # Where an INSUFFICIENT action points: the PATH the seats' spawns
+          # searched (SafeSubprocess passes the server's PATH through) and the
+          # working directory the codex seat ran in.
+          def feedback_context
+            { path: ENV['PATH'].to_s, cwd: Dir.pwd }
           end
 
           # Convert a Dispatcher review hash to JSON-safe form for pending state.

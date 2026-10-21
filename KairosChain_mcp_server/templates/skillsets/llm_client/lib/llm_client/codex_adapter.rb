@@ -4,6 +4,7 @@ require 'json'
 require 'securerandom'
 require_relative 'adapter'
 require_relative 'safe_subprocess'
+require_relative 'cli_failure'
 
 module KairosMcp
   module SkillSets
@@ -46,7 +47,9 @@ module KairosMcp
           unless status && status.success?
             raise ApiError.new(
               "codex exec exited with status #{status&.exitstatus}: #{strip_ansi(stderr)[0..200]}",
-              provider: 'codex', retryable: false
+              provider: 'codex', retryable: false,
+              code: CliFailure.codex_refusal_code(stderr) ||
+                    CliFailure.login_code(:codex, dispatch_id: @config&.dig('dispatch_id'))
             )
           end
 
@@ -54,12 +57,12 @@ module KairosMcp
         rescue Timeout::Error
           raise ApiError.new(
             "codex exec timed out after #{timeout_seconds}s",
-            provider: 'codex', retryable: true
+            provider: 'codex', retryable: true, code: CliFailure::CLI_TIMEOUT
           )
         rescue Errno::ENOENT
           raise ApiError.new(
             "codex CLI not found. Install: https://github.com/openai/codex",
-            provider: 'codex', retryable: false
+            provider: 'codex', retryable: false, code: CliFailure.missing_code('codex')
           )
         rescue ApiError
           raise

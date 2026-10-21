@@ -819,7 +819,7 @@ module KairosMcp
           assert_equal 'ok', out['status']
           assert_equal 'APPROVE', out['reference_verdict']
           refute out.key?('verdict'), 'the conclusion column must be gone'
-          assert_equal 2, out['verdict_schema_version']
+          assert_equal 3, out["verdict_schema_version"]
         end
 
         # INV-R4: the marker is written at dispatch, the completed record

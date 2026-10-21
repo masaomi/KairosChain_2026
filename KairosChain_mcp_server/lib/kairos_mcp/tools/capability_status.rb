@@ -152,7 +152,9 @@ module KairosMcp
 
         externals.each do |ext|
           present = Capability.cli_in_path?(ext)
-          entry = { available: present }
+          # The binary searched for, so a reader can tell which file was
+          # missing (claude_cli is the `claude` binary, and so on).
+          entry = { available: present, binary: Capability.binary_for(ext) }
           entry[:reason] = 'not found in PATH' unless present
           if present && probe_versions
             ver = Capability.cli_version(ext)

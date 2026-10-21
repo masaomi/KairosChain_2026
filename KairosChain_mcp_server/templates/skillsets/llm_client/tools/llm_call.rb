@@ -244,7 +244,7 @@ module KairosMcp
                 'retryable' => e.retryable,
                 'rate_limited' => e.rate_limited,
                 'suggested_backoff_seconds' => e.suggested_backoff
-              }
+              }.tap { |err| err['code'] = e.code if e.code }
             }))
           rescue StandardError => e
             text_content(JSON.generate({

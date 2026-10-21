@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.16.0"
+version: "3.17.0"
 tags:
   - workflow
   - review
@@ -24,7 +24,7 @@ and integrated. The user (or primary LLM) acts as orchestrator.
 
 This skill covers:
 - **WHAT/WHEN**: When to use multi-LLM review, review types, convergence criteria
-- **HOW**: CLI commands, prompt generation, auto/manual execution, consensus analysis
+- **HOW**: CLI commands, prompt generation, Path A (manual) and Path B (MCP) execution, consensus analysis
 
 For **WHO** (which LLM is good at what), see: `multi_llm_reviewer_evaluation`
 For **development lifecycle** (design → implement → verify), see: `design_to_implementation_workflow`
@@ -861,20 +861,87 @@ Save to L2 context at these moments:
 
 # Execution
 
-## Auto Mode vs Manual Mode
+## Execution Environment
 
-### Mode Detection
+### Reduced rosters and non-Claude hosts
 
-```bash
-which codex 2>/dev/null && echo "codex: available" || echo "codex: NOT FOUND"
-which agent 2>/dev/null && echo "agent: available" || echo "agent: NOT FOUND"
-which claude 2>/dev/null && echo "claude: available" || echo "claude: NOT FOUND"
+The roster is whatever `config/multi_llm_review.yml` names (Path B), and the tool
+never drops a seat because its CLI is missing. Every seat runs only on its own
+provider (no fallback to another). A seat that cannot run fails, leaves the count,
+and is recorded with the cause its transport established — never with a cause read
+out of text the CLI printed, because codex prints the prompt and the files it read:
+
+| Reason | What happened | What restores the seat |
+|---|---|---|
+| `cli_missing` | the CLI's binary is not on the PATH the server searched | install it, or put its directory on that PATH (the result shows it) |
+| `cli_unauthenticated` | the CLI, asked after the failure, said it is not logged in | log in with that CLI (`codex login`, `agent login`, `claude` then `/login`); the seat reads the login under HOME |
+| `workspace_refused` | codex refused the server's working directory (no git repository, not trusted) | make that directory (named in the result) lie inside a git repository; how a host sets the server's directory is the host's |
+| `cli_timeout` | the CLI call's own timer (llm_client `timeout_seconds`) fired | raise llm_client's and multi_llm_review's `timeout_seconds` together |
+| `dispatch_timeout` | the dispatch window (multi_llm_review `timeout_seconds`) closed with the seat still running or still queued; with both at 600 s this fires first | as for `cli_timeout`; `collect_deadline_seconds` (1800 shipped) bounds how far that helps |
+| `transport` | anything else; the seat's error message says what was seen | read the seat's row (an API-key seat whose key is unset lands here) |
+
+Asking a failed CLI whether it is logged in costs one status command after the
+failure (its own 10 s timer; up to about 19 s with the kill grace and reader joins),
+and every other llm_client caller sees the same pause after a failed CLI call. It is
+never run when the dispatcher itself ended the call.
+
+Whenever a seat did not count, or the counted seats are not known to come from two
+different makers, the result carries one roster line, on APPROVE too:
+
+```
+Roster: 2 of 4 seats counted (1 caller-declared) — not counted: cli_missing: codex_gpt6-astra, cursor_composer2.5; maker diversity not established.
 ```
 
-- All three available → Auto mode (the configured roster, currently 5 reviewers)
-- Codex + Agent only → Auto mode (legacy, reduced roster — apply "Legacy 3-reviewer mode: 2/3 APPROVE" from Convergence Rules)
-- Any of codex/agent missing → Manual mode
-- User override: `mode: manual` or `mode: auto`
+A counted seat's maker is observed (the seat reported its model), configured (the
+roster pins the model and the seat ran on its own provider — this holds while the
+CLI's own configuration does not route that name to another maker), or
+caller-declared (a persona seat that was not observed). Only the first two
+establish diversity. Two kinds of round always carry the line: an `exclude` round
+whose caller names a slot (that slot does not count), and an agent SkillSet round
+(it submits no personas). None of this changes the verdict or the quorum
+(`min_quorum`, 2 shipped). An INSUFFICIENT result also says how many seats counted
+and how many were needed, that a seat can be added in config, and the restoring
+action for each reason in the table above.
+
+**Claude Code without codex or cursor.** Nothing to configure. The persona team and
+the Sonnet seat count, APPROVE is reachable, and every result says "2 of 4 seats
+counted … maker diversity not established".
+
+**A host other than Claude Code.** Pass `orchestrator_host` (`codex_cli`, `cursor`
+or `other`; `claude_code` or nothing keeps `claude_team_<model>`), and the persona
+seat is recorded as `codex_team_<model>` and so on, beside the server's own
+detection of its host. Run the personas as separate sub-agents of your host (Codex:
+multi-agent). Nothing in the system can observe that, so the persona seat is always
+recorded as your declaration. A Codex session can still run the `claude` seats:
+Codex's sandbox does not confine kairos-chain's MCP server.
+
+**A machine with only the codex CLI.** One seat can answer, below the quorum, so
+every review is INSUFFICIENT until a second codex seat is added on another model —
+the commented recipe in `config/multi_llm_review.yml`. Upgrades never rewrite an
+instance's config, so an existing instance adds it by hand: a slot naming
+`provider`, `model` and `role_label`, on a model the roster does not already name.
+With orchestrator_model `gpt-6-astra` and a `gpt-6-sol` seat:
+
+| Strategy | Counted seats | What it costs |
+|---|---|---|
+| `delegate` (default) | 2: `gpt-6-sol` and your persona team | the persona seat rests on your declaration |
+| `subprocess`, no `persona_model` | 2: `gpt-6-astra` and `gpt-6-sol`, both fresh processes | one call that returns only when every seat has finished; your own slot runs only if your model names one |
+| `exclude` | 1: your slot leaves (`exclude_orchestrator_model: true`, shipped) | below the quorum |
+
+**A host with a per-call time limit** (Codex: `tool_timeout_sec` per MCP server;
+documented default 60 s, not verified here). A `subprocess` review is one call that
+lasts as long as the slowest seat, so first raise the limit for kairos-chain above
+both configured `timeout_seconds`, with a margin. A cut single-phase call leaves its
+record only in the run's `completed.json`. On the delegate path the first call
+returns at once, but waiting in short calls is no substitute: three consecutive
+`still_pending` replies from `multi_llm_review_wait` end in `crashed` /
+`wait_exhausted` while the worker is still healthy. Raise the host's limit instead.
+`multi_llm_review_collect` waits at most `collect_max_wait_seconds` (420 shipped)
+before reaping a live worker, so call collect after wait has said `ready`.
+
+**Path A (manual Bash).** Run `which codex`, `which agent`, `which claude`; leave
+out the line of a CLI that is not found, and read the result by the same rules: the
+quorum stays 2, and the report says which seats did not count and why.
 
 ### CLI Tool Matrix (tested 2026-03-28; model flags made mandatory 2026-07-27)
 
@@ -1069,7 +1136,7 @@ multi_llm_review(
   `orchestrator_strategy: "subprocess"`.
 - If `orchestrator_model` is `null` or unmatched, full roster runs (back-compat).
 
-**Manual-mode equivalent**: When orchestrating by hand, do not assign yourself
+**Path A equivalent**: When orchestrating by hand, do not assign yourself
 as a subprocess reviewer. Run the Claude CLI subprocess reviewers (Sonnet 5.5, plus
 any frontier roster slot you are not); if your own model matches one of them,
 skip that entry and use the after-exclusion convergence rule.
@@ -1094,19 +1161,21 @@ cross-model subprocess reviewers give epistemic diversity. The two are complemen
 
 **Call 1**: `multi_llm_review(orchestrator_strategy: "delegate", orchestrator_model: "...")`
 - SkillSet drops the orchestrator-matching reviewer from dispatch
-- Subprocess reviewers run synchronously (no background threads)
-- Subprocess results persisted to `.kairos/multi_llm_review/pending/<uuid>.json`
+- Subprocess reviewers run in a detached worker (default `parallel: true`), or
+  synchronously with `parallel: false`
+- Subprocess results persisted under `.kairos/multi_llm_review/pending/<token>/`
 - Returns `status: "delegation_pending"`, `collect_token`, `persona_count_min/max`
 
 **Orchestrator's obligation** (between calls):
 - Recognize the `delegation_pending` status
-- Spawn 2-4 parallel `Agent` tool calls with self-chosen personas appropriate to
+- Run 2-4 personas as separate sub-agents of your host (Claude Code: parallel
+  `Agent` tool calls; Codex: multi-agent), self-chosen and appropriate to
   the artifact (e.g. design → architect/security/operability; code → correctness/
   performance/api-design; doc → ontologist/skeptic/integration)
 - Collect persona results: each as `{persona, verdict (APPROVE|REVISE|REJECT),
   reasoning, findings: [{severity, issue}, ...]}`
-- Bind each persona to its subagent: add `agent_id` — the id the Agent tool
-  returned for that persona's subagent — to its entry. With the model_provenance
+- Bind each persona to its subagent (Claude Code): add `agent_id` — the id the
+  Agent tool returned for that persona's subagent — to its entry. With the model_provenance
   SkillSet installed, the seat then records the model the harness observed
   answering, not only the declared one: a safety-classifier fallback inside a
   persona (Opus 5.5 → Opus 5 on biology, → Opus 4.8 on cyber) otherwise leaves
@@ -1120,7 +1189,8 @@ cross-model subprocess reviewers give epistemic diversity. The two are complemen
 
 **Call 2**: `multi_llm_review_collect(collect_token, orchestrator_reviews: [...])`
 - Persona Assembly: any REJECT → REJECT; else any REVISE → REVISE; else APPROVE
-- Assembled into one synthetic reviewer entry `claude_team_<orchestrator_model>`
+- Assembled into one synthetic reviewer entry `<host>_team_<model>`
+  (`claude_team_` for `orchestrator_host` claude_code or none; § Reduced rosters)
 - Combined with persisted subprocess results, run Consensus, return final verdict
 - Idempotent: repeated calls with the same token return the cached result
 
@@ -1128,9 +1198,12 @@ cross-model subprocess reviewers give epistemic diversity. The two are complemen
 - `expired_or_unknown_token`: orchestrator missed `must_collect_by` deadline
   (default 1800s since v3.23.2; was 600s), or token never existed. The pending
   review is gone; call `multi_llm_review` again from scratch.
-- `error: invalid orchestrator_reviews`: persona count outside 2-4 or missing
-  required fields. Fix and retry collect with the same token.
-- All-subprocess-failed at Call 1: returns error immediately; no token issued.
+- `error: invalid orchestrator_reviews`: more than 4 personas, or missing
+  required fields. Fix and retry collect with the same token. 0–4 are accepted;
+  fewer than convened is recorded as a shortfall.
+- All subprocess seats failed at Call 1: with `parallel: false` it returns an
+  error at once and issues no token; on the default parallel path the failures
+  surface at collect, as INSUFFICIENT with each seat's reason.
 
 **Default**: `orchestrator_strategy` defaults to `"delegate"` (config key
 `default_orchestrator_strategy`). `"exclude"` remains available as the legacy
@@ -1554,7 +1627,8 @@ Step 3: Execute the configured roster in parallel (currently 4 slots, one of
 Step 4: Collect and validate
   - Wait for all to complete (background task notifications)
   - Verify each output file exists and contains structured review
-  - Failed tool → offer manual fallback
+  - Failed tool → record it as not counted, with its cause (§ Reduced rosters
+    and non-Claude hosts)
 
 Step 5: Consensus analysis
   - Read all review files
@@ -1571,10 +1645,11 @@ Step 6: Report to user
 
 | Error | Detection | Recovery |
 |-------|-----------|----------|
-| CLI not found | `which` non-zero | Manual mode fallback |
-| Auth expired | Non-zero exit, auth error | Prompt re-login |
-| Timeout (>5 min) | Background task timeout | Kill, report partial, retry |
-| Empty output | Missing verdict | Report failure, manual retry |
+| CLI not found | `cli_missing` (Path A: `which` non-zero) | Install, or fix the server's PATH |
+| Not logged in | `cli_unauthenticated` | Log in with that CLI |
+| codex refuses the directory | `workspace_refused` | Run from inside a git repository |
+| Timeout | `cli_timeout` / `dispatch_timeout` | Raise both `timeout_seconds`; mind `collect_deadline_seconds` |
+| Empty output | `no_verdict` / `insubstantial` | Report failure, retry |
 | Trust prompt | Agent hangs | `--trust` flag |
 | Usage limit | "usage limit" in output | Alternate tool fallback |
 
@@ -2027,6 +2102,20 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   in their own words. Pointers were appended to INV-U2, INV-U4, INV-U5, the
   Step 0.25 guard-track sentence and § Convergence Rules. Source: design
   `log/agent_skillset_rebuild_design_v0.5.1_20261020.md` §2 and its delta v0.6.6.
+
+- Reduced rosters and non-Claude hosts (v3.17.0, 2026-10-21, operator request:
+  「MLRのdefaultがclaude codeでない場合の処理について…修正しようと思います」,
+  rulings 1–9 in L2 `decision_mlr_non_claude_host_four_rulings_20261021`).
+  § Auto Mode vs Manual Mode, which sent a missing CLI to a "Manual mode" it never
+  described and counted 5 reviewers, is replaced by § Execution Environment /
+  Reduced rosters and non-Claude hosts: what each failure cause means and what
+  restores the seat, the roster line results now carry, what a Claude-only,
+  non-Claude-host or codex-only setup counts under each strategy, and a host's
+  per-call limit. The delegation protocol now names sub-agents of any host,
+  `<host>_team_<model>`, the 0–4 persona range and where an all-failed Call 1
+  surfaces; the Error Handling table maps the new reason tokens. Ships with
+  multi_llm_review 0.12.0 and llm_client 0.4.0. Design
+  `log/mlr_non_claude_host_design_v0.3.3_20261021.md`, frozen after four rounds.
 
 **Key insight**: Design reviews and implementation reviews find
 **categorically different bugs**. Both phases are necessary. The corollary that

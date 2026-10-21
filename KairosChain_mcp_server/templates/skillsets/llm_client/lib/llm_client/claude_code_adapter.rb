@@ -5,6 +5,7 @@ require 'fileutils'
 require 'securerandom'
 require_relative 'adapter'
 require_relative 'safe_subprocess'
+require_relative 'cli_failure'
 
 module KairosMcp
   module SkillSets
@@ -79,9 +80,14 @@ module KairosMcp
           )
 
           unless status && status.success?
+            # A logged-out claude writes nothing to stderr; its cause is only in
+            # the JSON result on stdout. The message is left as it was (its
+            # excerpt feeds ErrorTaxonomy); the cause comes from asking the CLI.
             raise ApiError.new(
               "Claude Code exited with status #{status&.exitstatus}: #{stderr[0..200]}",
-              provider: 'claude_code', retryable: false
+              provider: 'claude_code', retryable: false,
+              code: CliFailure.login_code(:claude, env: spawn_env,
+                                                   dispatch_id: @config&.dig('dispatch_id'))
             )
           end
 
@@ -94,12 +100,12 @@ module KairosMcp
         rescue Timeout::Error
           raise ApiError.new(
             "Claude Code timed out after #{timeout_seconds}s",
-            provider: 'claude_code', retryable: true
+            provider: 'claude_code', retryable: true, code: CliFailure::CLI_TIMEOUT
           )
         rescue Errno::ENOENT
           raise ApiError.new(
             "Claude Code CLI not found. Install: https://docs.anthropic.com/en/docs/claude-code",
-            provider: 'claude_code', retryable: false
+            provider: 'claude_code', retryable: false, code: CliFailure.missing_code('claude')
           )
         rescue ApiError
           raise

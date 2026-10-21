@@ -6,6 +6,7 @@ require 'tmpdir'
 require 'fileutils'
 require_relative 'adapter'
 require_relative 'safe_subprocess'
+require_relative 'cli_failure'
 
 module KairosMcp
   module SkillSets
@@ -65,7 +66,8 @@ module KairosMcp
                         msg.downcase.include?('temporary')
             raise ApiError.new(
               "cursor agent exited with status #{status&.exitstatus}: #{msg}",
-              provider: 'cursor', retryable: transient
+              provider: 'cursor', retryable: transient,
+              code: CliFailure.login_code(:cursor, dispatch_id: @config&.dig('dispatch_id'))
             )
           end
 
@@ -73,12 +75,12 @@ module KairosMcp
         rescue Timeout::Error
           raise ApiError.new(
             "cursor agent timed out after #{timeout_seconds}s",
-            provider: 'cursor', retryable: true
+            provider: 'cursor', retryable: true, code: CliFailure::CLI_TIMEOUT
           )
         rescue Errno::ENOENT
           raise ApiError.new(
             "cursor agent CLI not found. Install Cursor Agent CLI.",
-            provider: 'cursor', retryable: false
+            provider: 'cursor', retryable: false, code: CliFailure.missing_code(BASE_ARGS.first)
           )
         rescue ApiError
           raise

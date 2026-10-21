@@ -3,6 +3,7 @@
 require 'json'
 require_relative 'verdict_vocabulary'
 require_relative 'sanitizer'
+require_relative 'roster_health'
 
 module KairosMcp
   module SkillSets
@@ -60,6 +61,11 @@ module KairosMcp
         # reason of its own. Distinct from `transport`, which asserts a call
         # was attempted and failed.
         SKIP_REASON_NOT_DISPATCHED = 'not_dispatched'
+        # INV-H1: causes the transport established for a failed CLI seat
+        # (llm_client CliFailure::CODES). Carried through as the reason when the
+        # error says so; any other :error stays `transport`, which therefore
+        # narrows from "any :error" to "an :error not otherwise classified".
+        CLI_FAILURE_REASONS = %w[cli_missing cli_unauthenticated workspace_refused cli_timeout].freeze
 
         # Verdicts a submission may state for itself, bypassing text parsing.
         # v0.7 INV-R1: SKIP is not in the vocabulary — no word is special. A
@@ -175,6 +181,7 @@ module KairosMcp
           non_divergent = successful.reject { |p| p[:model_divergence] }
 
           findings = aggregate_findings(parsed)
+          composition = denominator_composition(parsed, excluded_slots, escalation)
           {
             reference_verdict: overall,
             vote_tally: {
@@ -205,9 +212,9 @@ module KairosMcp
               # lost a slot to transport failure from one that lost it to an
               # empty reply or to the caller declining to review itself, and
               # the per-round ratios stop being comparable.
-              denominator_composition: denominator_composition(
-                parsed, excluded_slots, escalation
-              )
+              denominator_composition: composition,
+              # INV-H2: the roster's state, derived from the composition above.
+              roster_health: RosterHealth.build(composition[:observers])
             },
             reviews: parsed,
             aggregated_findings: cap_findings(findings)
@@ -348,11 +355,20 @@ module KairosMcp
         DECLARED_REASON_RE = /\A[a-z][a-z0-9_]{0,39}\z/
 
         def self.transport_reason(review)
-          return SKIP_REASON_TRANSPORT unless review[:status] == :skip
+          return cli_failure_reason(review) unless review[:status] == :skip
 
           err = review[:error]
           declared = (err['message'] if err.is_a?(Hash)).to_s.strip
           DECLARED_REASON_RE.match?(declared) ? declared : SKIP_REASON_NOT_DISPATCHED
+        end
+
+        # INV-H1: an :error row names the cause its transport established in
+        # error['code'], and only a code from the closed vocabulary is carried;
+        # nothing here reads the message, which can hold text the CLI echoed.
+        def self.cli_failure_reason(review)
+          err = review[:error]
+          code = (err['code'] || err[:code] if err.is_a?(Hash)).to_s
+          CLI_FAILURE_REASONS.include?(code) ? code : SKIP_REASON_TRANSPORT
         end
 
 
