@@ -48,13 +48,18 @@ module KairosMcp
       end
 
       class ApiError < StandardError
-        attr_reader :provider, :retryable, :rate_limited, :suggested_backoff
+        # `code` is the cause the raising adapter established for itself, one of
+        # CliFailure::CODES, or nil when it established none. It is carried
+        # beside the message and never folded into it (cli_failure.rb).
+        attr_reader :provider, :retryable, :rate_limited, :suggested_backoff, :code
 
-        def initialize(message, provider: nil, retryable: false, rate_limited: false, suggested_backoff: nil)
+        def initialize(message, provider: nil, retryable: false, rate_limited: false,
+                       suggested_backoff: nil, code: nil)
           @provider = provider
           @retryable = retryable
           @rate_limited = rate_limited
           @suggested_backoff = suggested_backoff
+          @code = code
           super(message)
         end
       end
