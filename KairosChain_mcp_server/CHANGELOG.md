@@ -38,6 +38,8 @@ and its delta `log/agent_skillset_rebuild_design_v0.6.3_20261020.md`.
 - Removed: the in-server OODA loop, act-route table and terminal rulings, shadow judge, distillation,
   native body, `agent_execute`, `agent_step`, `agent_wait`, `operator_report`, the `agent-monitor` subagent.
 - `agent` is no longer installed automatically in new instances (it needs a policy and projects hooks).
+  An installed 0.x agent becomes 1.0 on upgrade. 1.0 needs `multi_llm_review` and `llm_client` >= 0.3.0 in
+  the same instance; upgrade does not install a missing one (`kairos-chain skillset install multi_llm_review`).
 
 ### Added — `removed_files` in `skillset.json`; `system_upgrade` archives them
 
