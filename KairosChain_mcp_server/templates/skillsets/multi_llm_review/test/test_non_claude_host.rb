@@ -263,8 +263,8 @@ module KairosMcp
           text = F.for_result(consensus('INSUFFICIENT', health, successful: 1), [], { path: long_path, cwd: '/w' })
           assert_operator text.size, :<=, 4000
           assert_match(/^Roster: 1 of 5 seats counted/, text)
-          assert_equal 1, text.scan('/opt/some/very/long/toolchain/bin:/opt').size.clamp(0, 1)
           assert_equal 1, text.scan('PATH the server searched:').size, 'the PATH is shown once'
+          assert_equal 1, text.scan(long_path).size, 'and in full, once'
           %w[a b c d].each { |l| assert_includes text, "seat_#{l}: cli_missing" }
         end
 
