@@ -89,12 +89,14 @@ module KairosMcp
       dest = File.join(@skillsets_dir, temp_skillset.name)
       if File.directory?(dest)
         if force
-          # Preserve user config files before replacing
+          # Preserve user config files (subdirectories included) before replacing
           config_dir = File.join(dest, 'config')
           saved_configs = {}
           if File.directory?(config_dir)
-            Dir.glob(File.join(config_dir, '*')).each do |f|
-              saved_configs[File.basename(f)] = File.read(f)
+            Dir.glob(File.join(config_dir, '**', '*')).each do |f|
+              next unless File.file?(f)
+
+              saved_configs[f.sub("#{config_dir}/", '')] = File.read(f)
             end
           end
 
@@ -103,12 +105,13 @@ module KairosMcp
           # Copy new version
           FileUtils.cp_r(source_path, dest)
 
-          # Restore user configs
-          unless saved_configs.empty?
-            FileUtils.mkdir_p(File.join(dest, 'config'))
-            saved_configs.each do |name, content|
-              File.write(File.join(dest, 'config', name), content)
-            end
+          # Restore user configs, except those the new version retired
+          retired = temp_skillset.removed_files.select { |r| r.start_with?('config/') }.map { |r| r.sub('config/', '') }
+          saved_configs.reject! { |rel, _| retired.include?(rel) }
+          saved_configs.each do |rel, content|
+            path = File.join(dest, 'config', rel)
+            FileUtils.mkdir_p(File.dirname(path))
+            File.write(path, content)
           end
         else
           raise ArgumentError, "SkillSet '#{temp_skillset.name}' already installed at #{dest}. Use --force to reinstall."
@@ -154,14 +157,16 @@ module KairosMcp
         template_ver = Gem::Version.new(template_ss.version)
 
         changed_files = diff_files(template_path, installed.path)
+        removals = template_ss.removed_files.select { |rel| File.exist?(File.join(installed.path, rel)) }
 
-        if template_ver > installed_ver || changed_files.any?
+        if template_ver > installed_ver || changed_files.any? || removals.any?
           results << {
             name: installed.name,
             installed_version: installed.version,
             available_version: template_ss.version,
             version_bump: template_ver > installed_ver,
             changed_files: changed_files,
+            removed_files: removals,
             new_skillset: false
           }
         end
@@ -194,7 +199,7 @@ module KairosMcp
     # Others (multiuser, service_grant, hestia, mmp, skillset_exchange, mcp_client)
     # require PostgreSQL or networking and must be installed explicitly.
     CORE_SKILLSETS = %w[
-      plugin_projector agent llm_client autoexec autonomos
+      plugin_projector llm_client autoexec autonomos
       skillset_creator knowledge_creator introspection dream
       document_authoring synoptis
     ].freeze
@@ -223,7 +228,8 @@ module KairosMcp
           # Install new SkillSet from template
           result = install(template_path)
           results << { name: info[:name], from: nil, to: info[:available_version],
-                       action: 'installed', files_updated: 0 }
+                       action: 'installed', files_updated: 0,
+                       warnings: user_level_conflicts(Skillset.new(File.join(@skillsets_dir, info[:name]))) }.reject { |_, v| v == [] }
         else
           # Upgrade existing: copy changed files
           dest = File.join(@skillsets_dir, info[:name])
@@ -233,11 +239,13 @@ module KairosMcp
             FileUtils.mkdir_p(File.dirname(dst))
             FileUtils.cp(src, dst) if File.exist?(src)
           end
+          archived = archive_removed_files(info[:name], dest, Array(info[:removed_files]))
 
           installed = Skillset.new(dest)
           record_skillset_event(installed, 'upgrade')
           results << { name: info[:name], from: info[:installed_version], to: info[:available_version],
-                       action: 'upgraded', files_updated: info[:changed_files].size }
+                       action: 'upgraded', files_updated: info[:changed_files].size, files_archived: archived.size,
+                       warnings: user_level_conflicts(installed) }.reject { |_, v| v == [] }
         end
       end
 
@@ -445,7 +453,44 @@ module KairosMcp
       all_skillsets.find { |ss| ss.name == name.to_s }
     end
 
+    # The user-level leftovers a SkillSet declares that are present now, as
+    # warnings with the command that moves them aside (a timestamped backup,
+    # so a second move never overwrites the first).
+    def user_level_conflicts(skillset)
+      skillset.user_level_conflicts.filter_map do |c|
+        path = File.expand_path(c['path'])
+        next unless File.exist?(path)
+        next if c['pattern'] && !File.read(path, encoding: 'UTF-8').match?(Regexp.new(c['pattern']))
+
+        backup = File.expand_path("~/.claude/#{skillset.name}_previous_version_backup/#{Time.now.strftime('%Y%m%d_%H%M%S')}")
+        "#{path}: #{c['note'] || 'left by an earlier version'} (move it aside: mkdir -p #{backup} && mv #{path} #{backup}/)"
+      end
+    rescue StandardError
+      []
+    end
+
     private
+
+    # Move files a release dropped out of the installed copy, into
+    # storage/skillset_removed/<name>/<time>/ (kept, not deleted, so the
+    # operator can read back what the upgrade took out). Paths are checked to
+    # stay inside the installed SkillSet.
+    def archive_removed_files(name, dest, rels)
+      return [] if rels.empty?
+
+      root = File.realpath(dest)
+      stamp = Time.now.utc.strftime('%Y%m%dT%H%M%SZ')
+      archive = File.join(KairosMcp.storage_dir, 'skillset_removed', name.to_s, stamp)
+      rels.filter_map do |rel|
+        src = File.join(root, rel)
+        next unless File.exist?(src) && File.expand_path(src).start_with?("#{root}/")
+
+        to = File.join(archive, rel)
+        FileUtils.mkdir_p(File.dirname(to))
+        FileUtils.mv(src, to)
+        rel
+      end
+    end
 
     # Compare files between template and installed SkillSet
     def diff_files(template_path, installed_path)

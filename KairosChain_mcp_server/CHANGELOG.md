@@ -6,6 +6,75 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.95.0] - 2026-10-21
+
+### Changed — the `agent` SkillSet is rebuilt (1.0): long runs in the host session, a stand-in instead of terminal approvals
+
+The 0.x agent could not carry the operator's ordinary request (design → design review → implement →
+implementation review): its act route wrote only `docs/drafts/draft_*`, could not reach multi-LLM review or
+tests, and counted only terminal-attested answers (0 counted pairs). Design:
+`log/agent_skillset_rebuild_design_v0.5.1_20261020.md` (five review rounds, frozen as the author's proposal)
+and its delta `log/agent_skillset_rebuild_design_v0.6.3_20261020.md`.
+
+- The host session (Claude Code) is the only body. The SkillSet supplies a plan from a Ruby-DSL template, a
+  stand-in (isolated `claude -p --safe-mode --tools ""`, Opus 5.5) that answers decision points from the
+  operator's own words and the instruction mode, a guard (host hooks: `PreToolUse` on every tool, fail-closed)
+  that lets through only what the run created or its worktree and branch hold, a hash-chained journal, and a
+  report check. Six tools: `agent_start`, `agent_status`, `agent_advance`, `agent_items`, `agent_finish`,
+  `agent_stop`.
+- Runs need an adopted policy (the operator's mandate, `config/policies/*.rb`), adopted by the operator's own
+  typed words naming its digest; the adoption is recorded on the chain.
+- Templates: `dev_cycle`, `impl_cycle`, `design_only`, `doc_cycle` (a document kept in git, revised in place,
+  optional build check), `survey` (versioned survey files from local sources), `general`.
+- A review closes only when no (a)/(b) P0 is open. Each review may take the policy's `review_rounds`
+  (10), counted for that review alone; at the cap it waits for the operator, who grants more rounds or
+  freezes it. Revisions follow L1 multi_llm_review_workflow § Revision
+  Discipline: each round says which new P0s the actor's last addition drew, and the next step is to undo it.
+  Design reviews stay at the design level; implementation-only findings are deferred to the implementation
+  review and are operator items at once.
+- Every run ends with a layered-deck report (`report_kit/`, the kit of L1 `layered_visual_pitch_deck`).
+- `bin/agent_harvest.rb` harvests the operator's own answers from host transcripts (hook output, peer
+  messages and pasted host output excluded).
+- Removed: the in-server OODA loop, act-route table and terminal rulings, shadow judge, distillation,
+  native body, `agent_execute`, `agent_step`, `agent_wait`, `operator_report`, the `agent-monitor` subagent.
+- `agent` is no longer installed automatically in new instances (it needs a policy and projects hooks).
+
+### Added — `removed_files` in `skillset.json`; `system_upgrade` archives them
+
+`upgrade_apply` copied changed files and never deleted one, so a SkillSet that dropped files left them to be
+loaded. A template may now list `removed_files`; upgrade moves each from the installed copy to
+`storage/skillset_removed/<name>/<time>/`, and a forced reinstall no longer restores a retired config file.
+
+### Added — `llm_call` options `no_fallback` and `isolated`
+
+`no_fallback` makes an authentication failure on the configured provider a failure instead of a silent switch
+to `claude_code`. `isolated` (claude_code) runs `claude -p --safe-mode --tools ""` in an empty directory, so
+no CLAUDE.md, skills, plugins, hooks, memory or MCP servers reach the call. An isolated call's payload carries
+`isolation` (`safe_mode`, `tools`, `cwd`, as `claude -p` was spawned); llm_client is 0.3.0. The agent's
+stand-in refuses any reply without that evidence (and refuses to call an llm_client too old to isolate), and the
+agent SkillSet declares `llm_client >= 0.3.0`; upgrade both together.
+
+### Added — `user_level_conflicts` in `skillset.json`; install and upgrade report them
+
+A SkillSet may list files an earlier version left at user level that it cannot remove itself (e.g. a personal
+skill that shadows the project's). `install`, `upgrade_apply`, `system_upgrade` and `kairos-chain skillset
+install/upgrade` print the ones present as warnings, with a command that moves them to a timestamped backup.
+agent 1.0 lists the 0.x personal skill `~/.claude/skills/agent/SKILL.md` and `~/.claude/agents/agent-monitor.md`.
+
+### Changed — the shipped agent policy needs a new adoption
+
+`masa_2026_10_20.rb` sets `review_rounds` to 10 rounds for each review (counted apart, no longer shared by a
+run's reviews) and drops the lookup consent comment (runs never look things up on the web). Its digest
+changed: adopt it with `adopt policy masa_2026_10_20 8846b67e`.
+
+### Changed — L1 `multi_llm_review_workflow` 3.16.0 and `design_to_implementation_workflow` 1.3
+
+A new entry-level clause, § Provisional delegation under a mandate: under a pinned, journaled operator policy a
+named delegate — never the context whose work is judged — answers reserved judgments provisionally, and nothing
+resolves, closes, freezes or demotes beyond the run until the operator confirms it in their own words. Pointers
+from INV-U2, INV-U4, INV-U5, Step 0.25 and § Convergence Rules, and from the merge criteria of
+`design_to_implementation_workflow`. An instance's own L1 copy is not rewritten by upgrade.
+
 ## [3.93.0] - 2026-10-19
 
 ### Added — `proactive_tutorial`, an opt-in mode that suggests KairosChain's own workflow

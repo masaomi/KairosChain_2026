@@ -100,6 +100,19 @@ module KairosMcp
                     'codex: minimal/low/medium/high. ' \
                     'Ignored by providers that do not support it.'
                 },
+                no_fallback: {
+                  type: 'boolean',
+                  description: 'Fail instead of falling back to claude_code when the configured ' \
+                    'provider raises an authentication error. For callers that fixed their provider ' \
+                    'before dispatch (the agent SkillSet).'
+                },
+                isolated: {
+                  type: 'boolean',
+                  description: 'claude_code only: run `claude -p` in safe mode with no tools, so no ' \
+                    'CLAUDE.md, skills, plugins, hooks, memory or MCP servers reach the call. ' \
+                    'Inputs are exactly the prompt. The success payload carries isolation ' \
+                    '(safe_mode, tools, cwd) as the call was spawned.'
+                },
                 backend: {
                   type: 'string',
                   description: 'Provider transport backend. codex: "cli" (default, `codex exec`) ' \
@@ -140,6 +153,7 @@ module KairosMcp
             config['sandbox_mode'] = true if arguments['sandbox_mode']
             config['effort'] = arguments['effort'] if arguments['effort']
             config['backend'] = arguments['backend'] if arguments['backend']
+            config['isolated'] = true if arguments['isolated']
 
             actual_provider = config['provider']
             adapter = build_adapter(config)
@@ -172,8 +186,9 @@ module KairosMcp
                 output_schema: output_schema
               )
             rescue AuthError => e
-              # P4 fix: auto-fallback to claude_code adapter when API key is missing
-              if config['provider'] != 'claude_code'
+              # P4 fix: auto-fallback to claude_code adapter when API key is missing,
+              # unless the caller fixed its provider before dispatch (no_fallback).
+              if config['provider'] != 'claude_code' && !arguments['no_fallback']
                 warn "[llm_call] AuthError from #{config['provider']}, falling back to claude_code: #{e.message}"
                 actual_provider = 'claude_code'
                 adapter = ClaudeCodeAdapter.new(config)
@@ -206,6 +221,9 @@ module KairosMcp
               # vs claude-sonnet-5-5), and only the first names the inference
               # profile, and so the region. Callers recording provenance need both.
               'requested_model' => model || config['model'],
+              # How an isolated call was spawned (claude_code only), so a caller
+              # that asked for isolation can refuse a reply that ran without it.
+              'isolation' => raw_response['isolation'],
               'response' => raw_response,
               'usage' => usage,
               'snapshot' => build_snapshot(

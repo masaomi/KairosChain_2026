@@ -1,7 +1,7 @@
 ---
 name: design_to_implementation_workflow
 description: "Full-lifecycle workflow for complex features: design review, self-review, implementation review, and final merge gate. Derived from Service Grant + Attestation Nudge experiments."
-version: "1.2"
+version: "1.3"
 tags:
   - workflow
   - implementation
@@ -157,6 +157,9 @@ Claude Persona Assembly (4 personas):
 - NOT for intermediate rounds (diminishing returns)
 
 **Merge criteria**: new (a)+(b) P0 = 0, with the freeze declared by the operator.
+Inside an agent run a review closes provisionally (`multi_llm_review_workflow`
+§ Provisional delegation under a mandate) and only the operator freezes one; the
+operator's word at merge settles the merge and confirms only the closures it names.
 A Codex APPROVE is the strongest *reference* signal (see
 `multi_llm_reviewer_evaluation`), and it is not a gate: Codex went 24 of 24
 reviews without reaching APPROVE on one design loop, so a merge waiting on it

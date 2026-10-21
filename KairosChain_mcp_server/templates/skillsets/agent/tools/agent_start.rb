@@ -1,9 +1,6 @@
 # frozen_string_literal: true
 
-require 'securerandom'
-require 'yaml'
-require 'time'
-require 'digest'
+require 'json'
 require_relative '../lib/agent'
 
 module KairosMcp
@@ -16,9 +13,7 @@ module KairosMcp
           end
 
           def description
-            'Start a new agent session. Creates a mandate, runs OBSERVE, ' \
-              'and returns the observation. The session pauses at [observed] state ' \
-              'waiting for agent_step(approve) to proceed.'
+            "Start an agent run (a long, autonomous development run in this session) from a plan template, or take up a run without a report (resume). Needs an adopted policy (the operator's mandate) and the agent hooks live in this session; the session binds to the run at once. Templates: dev_cycle (design → design review → implement → implementation review → report), impl_cycle (implement → implementation review → report, for a settled design), design_only."
           end
 
           def category
@@ -26,238 +21,36 @@ module KairosMcp
           end
 
           def usecase_tags
-            %w[agent start session ooda autonomous]
+            %w[agent run autonomous]
           end
 
           def related_tools
-            %w[agent_step agent_status agent_stop]
+            %w[agent_start agent_status agent_advance agent_items agent_finish agent_stop]
           end
 
           def input_schema
             {
               type: 'object',
               properties: {
-                goal_name: {
-                  type: 'string',
-                  description: 'Name of the goal. Create it with context_save (L2) first. ' \
-                    'L1 knowledge is only for reusable goal templates. ' \
-                    'The agent searches L2 contexts first, then falls back to L1.'
-                },
-                max_cycles: {
-                  type: 'integer',
-                  description: 'Cap on OODA cycles (1-10). Omit for unlimited, which is ' \
-                               'the ordinary case: the loop runs until it finishes, errs ' \
-                               'out, detects repetition, or exhausts the LLM call budget, ' \
-                               'and returns to you every checkpoint_every cycles for the ' \
-                               'decision on whether to continue.'
-                },
-                checkpoint_every: {
-                  type: 'integer',
-                  description: 'Pause for human checkpoint every N cycles (1-3, default: 1)'
-                },
-                risk_budget: {
-                  type: 'string',
-                  description: 'Maximum risk level: "low" or "medium" (default: "low")'
-                },
-                autonomous: {
-                  type: 'boolean',
-                  description: 'Enable autonomous mode (default: false). ' \
-                    'Session starts at [observed] regardless. ' \
-                    'Autonomous loop begins on first agent_step(approve).'
-                },
-                guard: {
-                  type: 'object',
-                  description: 'Guard track (design v0.3.1): mandate acceptance material pinned ' \
-                    'before the loop runs. Keys: acceptance (array of mechanical checks), ' \
-                    'layer_surface (declared governance-store surfaces), act_individuation (rule). ' \
-                    'Required when guard.enabled; the spec is content-addressed at session start ' \
-                    'so the deciding context never authors what judges it.'
-                }
+                goal: { type: 'string', description: "What the run is for, in the operator's words where possible." },
+                template: { type: 'string', description: 'dev_cycle (default: design → review → implement → review), impl_cycle (design settled), design_only, doc_cycle (write or revise a document kept in git, in place on the run branch), survey (survey a theme into versioned files), or general (any other work: output_glob, or committed work).' },
+                design_glob: { type: 'string', description: 'Where design versions go in the main checkout, e.g. log/foo_design_v*.md (each version a new file).' },
+                output_glob: { type: 'string', description: 'survey, general: where versions of the output go in the main checkout, e.g. log/foo_survey_v*.md (each version a new file).' },
+                tests: { type: 'string', description: 'Test directory or glob in the repository (required for dev_cycle, impl_cycle; optional for general). A directory pins every file under it from the base commit; a glob pins only what it matches. Test files are re-run by the SkillSet.' },
+                test_command: { type: 'string', description: 'With tests: a test runner (ruby, bundle, rake, pytest, npm, go, cargo, make, … or a script the repository tracks), run without a shell with one test file appended (default: ruby -Ilib -Itest, or python3 -m pytest). Without tests (doc_cycle, general): a build run once from the worktree root (latexmk, pandoc, typst, quarto, make, or a tracked script).' },
+                review_as: { type: 'string', description: 'general: the review type (design, implementation or document; default document, implementation with tests).' },
+                target_repo: { type: 'string', description: "Repository the run works on (default: this session's project)." },
+                name: { type: 'string', description: 'Short run name.' },
+                resume: { type: 'string', description: 'Run id of a run without a report (its session gone or quiet, interrupted, or ended) to take up in this session.' }
               },
-              required: ['goal_name']
+              required: []
             }
           end
 
           def call(arguments)
-            goal_name = arguments['goal_name']
-            # nil means unlimited. Omitting it is now the ordinary case: the
-            # operator decides at each checkpoint whether there is more to do.
-            max_cycles = arguments['max_cycles']
-            checkpoint_every = arguments['checkpoint_every'] || 1
-            risk_budget = arguments['risk_budget'] || 'low'
-            autonomous = arguments['autonomous'] == true
-
-            # Pre-resolve goal content for content-based drift detection hash
-            pre_obs = run_observe(goal_name)
-            goal_content_for_hash = pre_obs['goal_content'] || goal_name
-            goal_hash = Digest::SHA256.hexdigest(goal_content_for_hash)[0..15]
-
-            mandate = ::Autonomos::Mandate.create(
-              goal_name: goal_name,
-              goal_hash: goal_hash,
-              max_cycles: max_cycles,
-              checkpoint_every: checkpoint_every,
-              risk_budget: risk_budget
-            )
-
-            # Build session invocation context from config blacklist
-            config = load_config
-
-            # Phase 12 §12: validate trigger_on against KNOWN_SIGNALS at session start.
-            # Fail-loud on typos; warn on configurations that silently disable the gate.
-            multi_cfg = config.dig('complexity_review', 'multi_llm_review') || {}
-            trigger_on = multi_cfg['trigger_on'] || []
-            begin
-              ::KairosMcp::SkillSets::Agent::TriggerValidator.validate!(trigger_on, multi_cfg: multi_cfg)
-            rescue ::KairosMcp::SkillSets::Agent::TriggerValidator::ConfigurationError => e
-              return text_content(JSON.generate(
-                'status' => 'error',
-                'error' => "agent.yml configuration error: #{e.message}"
-              ))
-            end
-
-            ctx = build_session_context(config, mandate[:mandate_id])
-
-            # Create session
-            session_id = "agent_#{Time.now.strftime('%Y%m%d_%H%M%S')}_#{SecureRandom.hex(3)}"
-            session = Session.new(
-              session_id: session_id,
-              mandate_id: mandate[:mandate_id],
-              goal_name: goal_name,
-              invocation_context: ctx,
-              config: config,
-              autonomous: autonomous
-            )
-
-            # Guard track (AGT-3/AGT-4/AGT-6): pin the acceptance spec BEFORE any
-            # cycle runs. Fail-closed — if the guard is enabled the mandate must
-            # carry checkable acceptance material, else the session does not start.
-            if session.guard_enabled?
-              begin
-                ::KairosMcp::SkillSets::Agent::Verdict.pin!(session.guard_dir, arguments['guard'])
-              rescue ::KairosMcp::SkillSets::Agent::Verdict::SpecError => e
-                return text_content(JSON.generate(
-                  'status' => 'guard_halt',
-                  'error' => "guard enabled but acceptance spec invalid: #{e.message}"
-                ))
-              end
-            end
-
-            # OBSERVE: reuse pre-resolved observation (avoids duplicate L2/L1 lookups)
-            observation = pre_obs
-
-            session.save_observation(observation)
-            session.update_state('observed', stop: 'session_started')
-            session.save
-
-            result = {
-              'status' => 'ok',
-              'session_id' => session_id,
-              'mandate_id' => mandate[:mandate_id],
-              'state' => 'observed',
-              'autonomous' => autonomous,
-              'observation' => observation
-            }
-
-            # Advisory: suggest permission mode for autonomous operation
-            result['permission_advisory'] = permission_advisory_message
-
-            text_content(JSON.generate(result))
-          rescue ArgumentError => e
-            text_content(JSON.generate({ 'status' => 'error', 'error' => e.message }))
+            text_content(JSON.generate(Boot.service(self).start(arguments)))
           rescue StandardError => e
-            text_content(JSON.generate({ 'status' => 'error', 'error' => "#{e.class}: #{e.message}" }))
-          end
-
-          private
-
-          def load_config
-            config_path = File.join(__dir__, '..', 'config', 'agent.yml')
-            if File.exist?(config_path)
-              YAML.safe_load(File.read(config_path)) || {}
-            else
-              { 'phases' => {}, 'tool_blacklist' => %w[agent_* autonomos_*] }
-            end
-          end
-
-          def build_session_context(config, mandate_id)
-            KairosMcp::InvocationContext.new(
-              blacklist: config['tool_blacklist'] || %w[agent_* autonomos_*],
-              mandate_id: mandate_id
-            )
-          end
-
-          def permission_advisory_message
-            <<~MSG.strip
-              This agent session will execute tools autonomously.
-              For smoother operation, consider adjusting your permission mode:
-
-              1. Normal (default) — ask for each command. Safest, but interrupts flow.
-              2. Auto-allow — pre-approved commands only. Balanced.
-                 Configure in .claude/settings.local.json permissions.allow array.
-              3. Auto-accept — allow everything. Fastest for trusted tasks.
-                 Run /permissions and select auto mode, or start with --dangerously-skip-permissions.
-
-              Recommendation: For implementation + multi-LLM review workflows, auto-allow
-              with ruby/codex/agent commands pre-approved provides the best balance.
-            MSG
-          end
-
-          def run_observe(goal_name)
-            # Gather observation data without LLM
-            observation = { 'goal_name' => goal_name, 'timestamp' => Time.now.iso8601 }
-
-            # Load environment data via Autonomos::Ooda
-            if defined?(::Autonomos::Ooda)
-              begin
-                helper = Class.new { include ::Autonomos::Ooda }.new
-                ooda_obs = helper.observe(goal_name)
-                observation.merge!(ooda_obs.transform_keys(&:to_s)) if ooda_obs.is_a?(Hash)
-              rescue StandardError => e
-                observation['ooda_error'] = e.message
-              end
-            end
-
-            # Load goal content from L2/L1 so Orient has context to analyze
-            begin
-              if defined?(::Autonomos::Ooda)
-                helper = Class.new { include ::Autonomos::Ooda }.new
-                goal = helper.load_goal(goal_name)
-              else
-                goal = load_goal_fallback(goal_name)
-              end
-              if goal && goal[:found]
-                observation['goal_content'] = goal[:content]
-                observation['goal_source'] = goal[:source].to_s
-              end
-            rescue StandardError => e
-              observation['goal_load_error'] = e.message
-            end
-
-            observation
-          end
-
-          def load_goal_fallback(goal_name)
-            # Direct L2/L1 lookup when Autonomos::Ooda is unavailable
-            if defined?(KairosMcp::ContextManager)
-              ctx_mgr = KairosMcp::ContextManager.new
-              ctx_mgr.list_sessions.each do |session|
-                entry = ctx_mgr.get_context(session[:session_id], goal_name)
-                if entry && entry.respond_to?(:content) && entry.content && !entry.content.strip.empty?
-                  return { content: entry.content, found: true, source: :l2 }
-                end
-              end
-            end
-            if defined?(KairosMcp::KnowledgeProvider)
-              provider = KairosMcp::KnowledgeProvider.new(nil)
-              result = provider.get(goal_name)
-              if result && result[:content] && !result[:content].strip.empty?
-                return { content: result[:content], found: true, source: :l1 }
-              end
-            end
-            { content: nil, found: false }
-          rescue StandardError
-            { content: nil, found: false }
+            text_content(JSON.generate('status' => 'error', 'error' => "#{e.class}: #{e.message[0, 300]}"))
           end
         end
       end

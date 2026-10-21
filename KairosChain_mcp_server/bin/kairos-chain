@@ -102,6 +102,7 @@ when 'skillset'
     result = manager.install(source, layer_override: layer_override, force: force)
     puts "Installed SkillSet '#{result[:name]}' v#{result[:version]} [#{result[:layer]}]"
     puts "Path: #{result[:path]}"
+    manager.user_level_conflicts(KairosMcp::Skillset.new(result[:path])).each { |w| puts "  [WARNING] #{w}" }
 
   when 'enable'
     name = ARGV.shift
@@ -162,6 +163,7 @@ when 'skillset'
       puts "## SkillSets"
       results.each do |r|
         puts "  [UPGRADED]  #{r[:name].ljust(22)} v#{r[:from]} -> v#{r[:to]} (#{r[:files_updated]} files)"
+        Array(r[:warnings]).each { |w| puts "    [WARNING] #{w}" }
       end
       checkable.reject { |ss| upgraded_names.include?(ss.name) }.each do |ss|
         puts "  [UNCHANGED] #{ss.name.ljust(22)} v#{ss.version}"

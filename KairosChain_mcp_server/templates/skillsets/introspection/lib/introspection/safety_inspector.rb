@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require 'digest'
+
+require 'json'
 require 'yaml'
 
 module KairosMcp
@@ -49,21 +52,32 @@ module KairosMcp
           }
         end
 
+        # agent 1.0 (design v0.5.1): the gates are the adopted policy (the
+        # operator's mandate) and the run guard's hooks, not agent.yml.
         def inspect_agent_gates
-          agent_config_path = File.join(::KairosMcp.skillsets_dir, 'agent', 'config', 'agent.yml')
-          if File.exist?(agent_config_path)
-            config = YAML.safe_load(File.read(agent_config_path)) || {}
-            autonomous = config['autonomous'] || {}
-            {
-              present: true,
-              max_cycles: autonomous['max_cycles'],
-              timeout: autonomous['timeout'],
-              max_llm_calls: autonomous['max_llm_calls'],
-              risk_budget: autonomous['risk_budget']
-            }
-          else
-            { present: false, status: 'agent_skillset_not_loaded' }
-          end
+          agent_dir = File.join(::KairosMcp.skillsets_dir, 'agent')
+          return { present: false, status: 'agent_skillset_not_installed' } unless File.directory?(agent_dir)
+
+          meta = JSON.parse(File.read(File.join(agent_dir, 'skillset.json'))) rescue {}
+          adoptions = File.join(::KairosMcp.storage_dir, 'agent', 'policy_adoptions.jsonl')
+          last = File.exist?(adoptions) ? (JSON.parse(File.readlines(adoptions).last.to_s) rescue nil) : nil
+          # Adopted only while a policy file's bytes still match the adopted
+          # digest (as agent_start requires); an edited file is not adopted.
+          digests = Dir.glob(File.join(agent_dir, 'config', 'policies', '*.rb')).map { |f| Digest::SHA256.file(f).hexdigest }
+          current = last && digests.include?(last['digest'].to_s)
+          {
+            present: true,
+            version: meta['version'],
+            adopted_policy: current ? "#{last['name']} #{last['digest'].to_s[0, 12]}" : nil,
+            adoption_stale: last && !current ? "#{last['name']} #{last['digest'].to_s[0, 12]} (file changed since adoption)" : nil,
+            run_guard_hooks: File.exist?(File.join(agent_dir, 'plugin', 'hooks.json')),
+            # 0.x files outside the instance that an upgrade does not remove; a
+            # personal skill named agent can shadow the project's 1.0 SKILL.md.
+            legacy_user_files: [File.expand_path('~/.claude/skills/agent/SKILL.md'),
+                                File.expand_path('~/.claude/agents/agent-monitor.md')]
+                               .select { |f| File.exist?(f) && File.read(f).match?(/OODA|agent_cycle|cognitive_loop|agent-monitor|0\.\d+\.\d+/) },
+            legacy_config_present: File.exist?(File.join(agent_dir, 'config', 'agent.yml'))
+          }
         rescue StandardError => e
           { present: false, error: e.message }
         end

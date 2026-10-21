@@ -1,27 +1,112 @@
 {
   "name": "agent",
-  "version": "0.1.0",
-  "description": "Governed autonomous OODA loop combining llm_client, autonomos, and autoexec into a cognitive agent. Observe-Orient-Decide-Act-Reflect with human checkpoints. External LLM invocation (claude -p, codex, cursor) available via llm_call adapter chain. File operations via SafeFileWrite/SafeFileEdit.",
+  "version": "1.0.0",
+  "description": "Long autonomous runs in the operator's own host session (Claude Code): design → design review → implement → implementation review → layered-deck report, with as few questions as possible. A stand-in (isolated claude -p, Opus 5.5) answers decision points from the operator's own words and the instruction mode; a guard (host hooks) lets through only what the run created or its worktree and branch hold, and queues everything else — governing material, shared files, anything that discloses, publishes, sends or commits the operator — as operator items. Every run ends with a report. Needs an adopted policy (the operator's mandate). Not for unattended operation.",
   "author": "Masaomi Hatakeyama",
   "layer": "L1",
-  "depends_on": ["llm_client", "autonomos", "autoexec"],
+  "depends_on": [
+    {
+      "name": "llm_client",
+      "version": ">= 0.3.0"
+    },
+    "multi_llm_review"
+  ],
   "provides": [
-    "agent_orchestration",
-    "autonomous_ooda"
+    "agent_runs",
+    "stand_in",
+    "run_guard"
   ],
   "tool_classes": [
     "KairosMcp::SkillSets::Agent::Tools::AgentStart",
-    "KairosMcp::SkillSets::Agent::Tools::AgentStep",
     "KairosMcp::SkillSets::Agent::Tools::AgentStatus",
-    "KairosMcp::SkillSets::Agent::Tools::AgentStop",
-    "KairosMcp::SkillSets::Agent::Tools::AgentWait",
-    "KairosMcp::SkillSets::Agent::Tools::OperatorReport"
+    "KairosMcp::SkillSets::Agent::Tools::AgentAdvance",
+    "KairosMcp::SkillSets::Agent::Tools::AgentItems",
+    "KairosMcp::SkillSets::Agent::Tools::AgentFinish",
+    "KairosMcp::SkillSets::Agent::Tools::AgentStop"
   ],
-  "config_files": ["config/agent.yml"],
-  "knowledge_dirs": ["knowledge/agent_guide"],
-  "min_core_version": "2.8.0",
+  "config_files": [
+    "config/policies/masa_2026_10_20.rb"
+  ],
+  "knowledge_dirs": [],
+  "min_core_version": "3.94.0",
   "plugin": {
     "skill_md": "plugin/SKILL.md",
-    "agents_dir": "plugin/agents"
-  }
+    "hooks": "plugin/hooks.json"
+  },
+  "removed_files": [
+    "bin/agent_distill.rb",
+    "bin/agent_rule.rb",
+    "bin/agent_shadow_judge.rb",
+    "bin/agent_step_worker.rb",
+    "config/agent.yml",
+    "lib/agent/act_classification.rb",
+    "lib/agent/act_classification.yml",
+    "lib/agent/admission.rb",
+    "lib/agent/adoption.rb",
+    "lib/agent/advance_gate.rb",
+    "lib/agent/answer_ruling.rb",
+    "lib/agent/cognitive_loop.rb",
+    "lib/agent/delegation.rb",
+    "lib/agent/delegation_table.yml",
+    "lib/agent/distill_run.rb",
+    "lib/agent/distiller.rb",
+    "lib/agent/distiller_prompt.rb",
+    "lib/agent/mandate_adapter.rb",
+    "lib/agent/mediator.rb",
+    "lib/agent/message_format.rb",
+    "lib/agent/native_body/main.rb",
+    "lib/agent/native_body/model_client.rb",
+    "lib/agent/native_body/spend_meter.rb",
+    "lib/agent/native_body/tool_layer.rb",
+    "lib/agent/point_facts.rb",
+    "lib/agent/review_hint.rb",
+    "lib/agent/session.rb",
+    "lib/agent/shadow_judge.rb",
+    "lib/agent/staging.rb",
+    "lib/agent/step_delegation.rb",
+    "lib/agent/trigger_validator.rb",
+    "lib/agent/verdict.rb",
+    "plugin/agents/monitor.md",
+    "test/test_agent_act_hardening.rb",
+    "test/test_agent_admission.rb",
+    "test/test_agent_allowlist.rb",
+    "test/test_agent_answer_rulings.rb",
+    "test/test_agent_capability_discovery.rb",
+    "test/test_agent_complexity_review.rb",
+    "test/test_agent_confinement.rb",
+    "test/test_agent_distillation.rb",
+    "test/test_agent_guard_integration.rb",
+    "test/test_agent_guard_verdict_record.rb",
+    "test/test_agent_halt_semantics.rb",
+    "test/test_agent_human_mark_gate.rb",
+    "test/test_agent_interruption_resilience.rb",
+    "test/test_agent_m1.rb",
+    "test/test_agent_m2.rb",
+    "test/test_agent_m3.rb",
+    "test/test_agent_m4.rb",
+    "test/test_agent_native_body.rb",
+    "test/test_agent_shadow_judge.rb",
+    "test/test_agent_verdict.rb",
+    "test/test_agent_worker_exit_and_review_parse.rb",
+    "test/test_agent_worker_process.rb",
+    "test/test_decide_prompt_contract.rb",
+    "test/test_review_hint.rb",
+    "tools/agent_execute.rb",
+    "tools/agent_step.rb",
+    "tools/agent_wait.rb",
+    "tools/operator_report.rb"
+  ],
+  "_removed_files_note": "0.x files an upgrade must take out of an installed copy (design v0.5.1 §5): system_upgrade archives each one under storage/skillset_removed/agent/<time>/ instead of leaving it to be loaded.",
+  "user_level_conflicts": [
+    {
+      "path": "~/.claude/skills/agent/SKILL.md",
+      "pattern": "OODA|agent_cycle|cognitive_loop|agent_step",
+      "note": "the 0.x personal skill named agent; a personal skill loads instead of the project's 1.0 SKILL.md"
+    },
+    {
+      "path": "~/.claude/agents/agent-monitor.md",
+      "pattern": "agent",
+      "note": "the 0.x agent-monitor subagent"
+    }
+  ]
 }

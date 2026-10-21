@@ -47,6 +47,7 @@ module KairosMcp
           args += ['--effort', effort.to_s] if effort && !effort.to_s.empty?
 
           sandbox_mode = @config&.dig('sandbox_mode')
+          isolated = @config&.dig('isolated')
           spawn_env = { '_auth_env_key' => 'ANTHROPIC_API_KEY' }
           spawn_chdir = nil
 
@@ -54,7 +55,15 @@ module KairosMcp
           # (prevents project-level CLAUDE.md contamination).
           # HOME is preserved so CLI OAuth auth (~/.claude/) works.
           # --mcp-config '{}' (always on) prevents MCP recursion.
-          if sandbox_mode
+          if isolated
+            # Isolated mode (agent SkillSet stand-in): safe mode disables
+            # CLAUDE.md, skills, plugins, hooks, memory and MCP servers while
+            # keeping subscription auth; an empty tool list leaves the model
+            # nothing to act with. The prompt is the whole input.
+            prepare_sandbox!
+            args += ['--safe-mode', '--tools', '']
+            spawn_chdir = SANDBOX_CWD
+          elsif sandbox_mode
             prepare_sandbox!
             args += ['--disallowedTools', '*']
             spawn_chdir = SANDBOX_CWD
@@ -76,7 +85,12 @@ module KairosMcp
             )
           end
 
-          parse_response(stdout, requested_model: effective_model)
+          response = parse_response(stdout, requested_model: effective_model)
+          # What the call ran under, read from the argv and directory it was
+          # spawned with: a caller that asked for isolation (the agent's
+          # stand-in) refuses a reply that does not carry this.
+          response['isolation'] = isolation_of(args, spawn_chdir) if isolated
+          response
         rescue Timeout::Error
           raise ApiError.new(
             "Claude Code timed out after #{timeout_seconds}s",
@@ -94,6 +108,11 @@ module KairosMcp
         end
 
         private
+
+        def isolation_of(args, chdir)
+          i = args.index('--tools')
+          { 'safe_mode' => args.include?('--safe-mode'), 'tools' => i && args[i + 1], 'cwd' => chdir }
+        end
 
         def prepare_sandbox!
           [SANDBOX_CWD, SANDBOX_HOME].each { |d| FileUtils.mkdir_p(d) }

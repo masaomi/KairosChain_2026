@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.15.1"
+version: "3.16.0"
 tags:
   - workflow
   - review
@@ -28,6 +28,21 @@ This skill covers:
 
 For **WHO** (which LLM is good at what), see: `multi_llm_reviewer_evaluation`
 For **development lifecycle** (design → implement → verify), see: `design_to_implementation_workflow`
+
+## Provisional delegation under a mandate
+
+This clause reaches every judgment that a norm pointing here reserves to a human, or gives to the context
+whose work it judges. Under a human-authored mandate — which may be a standing operator-owned policy,
+pinned by digest and journaled per run — a named delegate, never the context whose work the judgment
+concerns, may answer named classes of such judgments provisionally. Reversible work proceeds within the
+run on such an answer; the answer resolves, closes, freezes and demotes nothing beyond the run until the
+human confirms it in the human's own words. A review closed this way is provisionally closed and is
+reported as such; it is closed in the sense of § Convergence only on that confirmation.
+
+*Why:* runs of the agent SkillSet (1.0) are started by the operator and not answered during them; the
+operator's standing ruling of 2026-10-20 delegates reversible judgment to a stand-in that reads the
+operator's own words. Provisionality keeps what each pointing norm protects — the human's last word —
+without stopping the run at every judgment.
 
 ## Step -1 — Pre-declared review spec (loop hygiene)
 
@@ -271,6 +286,8 @@ still in its transient state blocks dispatch until re-triaged.
 orchestrator posing a question and answering it itself does not constitute
 resolution. (Same conceptual line as ACT-1 in L2 attestation — analogical,
 not a shared implementation: judgment-shaped decisions belong to the human.)
+Inside a run under a mandate, a delegate's answer in the interview is a provisional
+declaration, not a resolution (§ Provisional delegation under a mandate).
 
 **INV-U3 (constitutive recording).** The products of the pass — enumerated
 questions, human answers, declared Open Unknowns — are recorded to L2. A
@@ -300,7 +317,9 @@ advisory by default, subject to two bounds:
 
 Findings about the *integrity* of the design — internal contradiction,
 unrealizable invariant, an Open Unknown whose declared deferral is itself
-unsafe — remain (a)/(b) and block as before.
+unsafe — remain (a)/(b) and block as before. A provisional declaration made
+under a mandate carries no demotion power beyond its run until the human
+confirms it (§ Provisional delegation under a mandate).
 
 **INV-U5 (classification authority).** The judgment-shaped /
 non-judgment-shaped classification of an unknown is a human prerogative.
@@ -309,7 +328,9 @@ declining, or judging a question draft-answerable). Unattended, every
 surfaced unknown is judgment-shaped by default; only a human-authored
 mandate may pre-classify named categories as non-judgment-shaped for a given
 run. An orchestrator's self-classification has no force. (Fail-closed:
-unclassified ⇒ judgment-shaped ⇒ stop.)
+unclassified ⇒ judgment-shaped ⇒ stop.) A standing operator-owned policy,
+pinned and journaled per run, is a human-authored mandate (§ Provisional
+delegation under a mandate).
 
 ### Unattended execution (autonomous loops)
 
@@ -334,7 +355,9 @@ same pending question produce no new side effects and no forward motion —
 re-stopping is idempotent; forward motion requires a human answer. The
 mandate's expressive power, the ratification protocol, and the
 pending-question queue mechanism are owned by the Autonomous Growth Loop
-guard track (see the frozen design's §11 backlog).
+guard track (see the frozen design's §11 backlog). Mandates for unattended
+growth loops remain with the Autonomous Growth Loop guard track; operator-started
+agent runs use the policy form of § Provisional delegation under a mandate.
 
 ### Acceptance observation (selective survival)
 
@@ -744,7 +767,9 @@ subtractive — see § Revision Discipline), is a freeze candidate for the
 operator regardless of the numerator. Neither of the two 2026-08 threads
 ever reached its APPROVE ratio; both closed by (a)+(b) exhaustion + operator
 freeze declaration — the intended close described above, now with a
-measurable trigger.
+measurable trigger. Inside a run under a mandate, the labelling and the closure
+declaration are the delegate's, provisionally, and never the orchestrating
+context's when that context did the work (§ Provisional delegation under a mandate).
 
 **Escalating raises the bar.** The rule is a ratio over the observers that
 counted, so adding reserve observers with `escalate: true` raises the number of
@@ -1992,6 +2017,16 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   `claude-sonnet-5-5`; the entry's comment says how to restore Opus 4.6.
   Upgrading does not rewrite an instance's own `config/multi_llm_review.yml`,
   so an existing instance keeps Opus 4.6 until that entry is edited by hand.
+
+- Provisional delegation under a mandate (v3.16.0, 2026-10-21, operator
+  decision: 「基本1-9はそのように進めて下さい」, adopting the agent SkillSet
+  1.0 L1 clause drafts). A new entry-level clause after § Overview lets a
+  named delegate — never the context whose work is judged — answer reserved
+  judgments provisionally under a pinned, journaled operator policy; nothing
+  resolves, closes, freezes or demotes beyond the run until the human confirms
+  in their own words. Pointers were appended to INV-U2, INV-U4, INV-U5, the
+  Step 0.25 guard-track sentence and § Convergence Rules. Source: design
+  `log/agent_skillset_rebuild_design_v0.5.1_20261020.md` §2 and its delta v0.6.6.
 
 **Key insight**: Design reviews and implementation reviews find
 **categorically different bugs**. Both phases are necessary. The corollary that

@@ -87,6 +87,27 @@ module KairosMcp
       @metadata['config_files'] || []
     end
 
+    # Files a release takes out of an installed copy (relative paths). An
+    # upgrade copies changed files and never deletes; a SkillSet that drops
+    # files names them here so system_upgrade archives them instead of
+    # leaving them to be loaded (Skillset#load requires every tools/*.rb).
+    def removed_files
+      Array(@metadata['removed_files']).select do |rel|
+        rel.is_a?(String) && !rel.empty? && !rel.start_with?('/') && !rel.split('/').include?('..')
+      end
+    end
+
+    # Files outside the instance that an earlier version left at user level
+    # and that this version cannot remove itself (e.g. a personal skill that
+    # shadows the project's): each { "path": "~/...", "pattern": "regex",
+    # "note": "..." }. Upgrade reports the ones present; the operator moves
+    # them.
+    def user_level_conflicts
+      Array(@metadata['user_level_conflicts']).select do |c|
+        c.is_a?(Hash) && c['path'].is_a?(String) && c['path'].start_with?('~/') && !c['path'].split('/').include?('..')
+      end
+    end
+
     # Optional fail-closed activation hook: a fully-qualified class name
     # whose `activate_on_load!` runs at skillset-load time, independent of
     # whether any of the SkillSet's tools are instantiated. Used by

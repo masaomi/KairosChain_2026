@@ -1,0 +1,94 @@
+{
+  "_comment": [
+    "agent SkillSet 1.0 (design v0.5.1 §4): one script for every event. Inert unless the session is bound to a run,",
+    "except the guard-seen marker (PreToolUse, SessionStart), the session id for KairosChain's own agent tools, and the",
+    "operator's words that may adopt, confirm or correct something (UserPromptSubmit). PreToolUse fails closed only in a",
+    "bound session: there a guard that cannot decide refuses (onFailure block), and if the script or ruby is missing or",
+    "ruby fails (an rbenv version not installed) while this session's binding file exists the tool call is blocked",
+    "(exit 2); any other session goes on (exit 0). Other events exit 0 when the script is absent, so a removed SkillSet",
+    "never blocks ordinary sessions. Timeouts (3900 s) sit above two stand-in calls (llm_client timeout 600 s each,",
+    "raisable to 1800 s)."
+  ],
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "d=\"${KAIROS_DATA_DIR:-$CLAUDE_PROJECT_DIR/.kairos}\"; f=\"$d/skillsets/agent/hooks/agent_hook.rb\"; i=$(cat); if [ -f \"$f\" ] && command -v ruby >/dev/null 2>&1; then o=$(printf '%s\\n' \"$i\" | ruby \"$f\") && { [ -z \"$o\" ] || printf '%s\\n' \"$o\"; exit 0; }; fi; s=$(printf '%s\\n' \"$i\" | sed -n 's/\"session_id\"[[:space:]]*:[[:space:]]*\"\\([A-Za-z0-9_.-]*\\)\".*/\"\\1/p' | sed 's/.*\"//' | head -n 1); if [ -n \"$s\" ] && [ -f \"$d/storage/agent/bindings/$s\" ]; then echo \"agent guard unavailable in a session bound to a run ($d)\" >&2; exit 2; fi; exit 0",
+            "timeout": 3900,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"${KAIROS_DATA_DIR:-$CLAUDE_PROJECT_DIR/.kairos}/skillsets/agent/hooks/agent_hook.rb\"; [ -f \"$f\" ] || exit 0; ruby \"$f\"",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"${KAIROS_DATA_DIR:-$CLAUDE_PROJECT_DIR/.kairos}/skillsets/agent/hooks/agent_hook.rb\"; [ -f \"$f\" ] || exit 0; ruby \"$f\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"${KAIROS_DATA_DIR:-$CLAUDE_PROJECT_DIR/.kairos}/skillsets/agent/hooks/agent_hook.rb\"; [ -f \"$f\" ] || exit 0; ruby \"$f\"",
+            "timeout": 3900
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"${KAIROS_DATA_DIR:-$CLAUDE_PROJECT_DIR/.kairos}/skillsets/agent/hooks/agent_hook.rb\"; [ -f \"$f\" ] || exit 0; ruby \"$f\"",
+            "timeout": 3900
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"${KAIROS_DATA_DIR:-$CLAUDE_PROJECT_DIR/.kairos}/skillsets/agent/hooks/agent_hook.rb\"; [ -f \"$f\" ] || exit 0; ruby \"$f\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"${KAIROS_DATA_DIR:-$CLAUDE_PROJECT_DIR/.kairos}/skillsets/agent/hooks/agent_hook.rb\"; [ -f \"$f\" ] || exit 0; ruby \"$f\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

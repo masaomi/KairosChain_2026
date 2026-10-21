@@ -1,179 +1,146 @@
 ---
 name: agent
 description: >
-  Governed autonomous OODA loop for cognitive agents. Use when starting, stepping,
-  monitoring, or stopping agent sessions with human checkpoints and safety gates.
+  Run a long, autonomous task in this session with as few questions to the operator as possible, each review
+  run until no P0 is left, ending in a layered-deck report: a dev cycle (design → review → implement → review),
+  writing or revising a paper or other document, surveying a theme, or any other work a review can read.
+  Use when the operator asks for such a run, says "agent で", "お任せで", "最後まで進めて", or wants a task
+  carried through without being asked on the way. A stand-in answers decision points from the operator's own
+  past words; anything irreversible is queued for the operator, not done.
 ---
 
-# Agent — Cognitive OODA Loop
+# Agent runs (1.0)
 
-Manage autonomous agent sessions with observe-orient-decide-act-reflect cycles.
+Install in an instance (agent is not installed by default): `kairos-chain skillset install agent` (with its
+dependencies llm_client ≥ 0.3.0 and multi_llm_review), then `kairos-plugin-project` to project this skill and the
+run hooks into the project's `.claude`, then restart Claude Code. The operator adopts a policy (below) once.
 
-## Recommended Workflow
+You are the body of the run. You do the work with your ordinary tools. The SkillSet gives you the plan, answers
+your decision points through a stand-in, guards your effects through hooks, keeps the journal, and checks the
+report. You can carry a whole dev cycle, a document revision or a survey; do not tell the operator it cannot be done.
 
-### Standard (Human-in-the-Loop)
-1. `agent_start goal="..."` — create mandate, run OBSERVE
-2. Review observation, then `agent_step` — run ORIENT → DECIDE → ACT
-3. Review result, repeat `agent_step` or `agent_stop`
+## Start
 
-### Autonomous Mode
-1. `agent_start goal="..." autonomous=true` — start with auto-cycling
-2. Agent runs OODA cycles with 8 safety gates (mandate term, goal drift, budget, risk, etc.)
-3. `agent_status` — check progress at any time
-4. `agent_stop` — terminate when done or if paused
+1. `agent_status` (no arguments) shows the adopted policy and how many precedent records the stand-in has. If no
+   policy is adopted, `agent_start` refuses and shows the sentence the operator must type
+   (`adopt policy <name> <8 hex>`); after they type it, call `agent_items(action: "adopt_policy", policy: <name>)`.
+   Ask for this once; it is the only setup question.
+2. `agent_start(goal, template, …)`:
+   - `dev_cycle` — design → design review → implement → implementation review: `design_glob:
+     "log/<topic>_design_v*.md"`, `tests: "<test dir or glob in the repo>"`;
+   - `impl_cycle` — the design is settled (e.g. "handoff を読んで実装を続けて"): `tests` only;
+   - `design_only` — `design_glob` only;
+   - `doc_cycle` — write or revise a document kept in a git repository, in place on the run branch;
+     `test_command` may name a build (`latexmk -pdf main.tex`, `pandoc …`, `make`, a tracked script);
+   - `survey` — survey a theme into versioned files: `output_glob: "log/<topic>_survey_v*.md"`, from the
+     sources the run has locally (papers, notes, data in the repository); web lookup is refused in a run;
+   - `general` — any other work: `output_glob` for versioned files, or committed work on the run branch with
+     optional `tests`/`test_command`; `review_as` design, implementation or document.
+   A review closes when no (a)/(b) P0 is open. Each review may take the policy's
+   `review_rounds` (10 in `masa_2026_10_20`), counted for that review alone; at the cap it waits for the operator. The stand-in rules on the tests directory and
+   the test command against the operator's words at the first advance. `tests` as a directory pins everything under it from the base commit; as a glob it pins only the
+   files it matches. `test_command` names a test runner (ruby, bundle, rake, pytest, npm, go, cargo, make, …) or a
+   script the repository tracks; it runs without a shell, one test file appended (default: `ruby -Ilib -Itest` for
+   Ruby, `python3 -m pytest` for Python). A test file that already failed on the base commit does not block the run when the tests failing in
+   it now all failed there too (named minitest/pytest failures); otherwise, and for output that names no tests,
+   it waits on the operator (`accept_failing`). Build or test output belongs in a `.gitignore` committed on the
+   run branch: anything untracked refuses the next check and the review. The report lists them.
+   The run works on this session's project (the hooks tell the tool which); `target_repo` names another. Its
+   worktree starts from HEAD of the current branch: to continue an existing branch, check it out and commit first
+   (uncommitted changes in the main checkout are not in the worktree; agent_start says how many there are). The
+   session binds to the run at once. `agent_start` refuses where the agent hooks are not live: after installing or
+   upgrading the SkillSet restart Claude Code; a project whose KairosChain data directory lives elsewhere needs
+   `KAIROS_DATA_DIR` set for the hooks.
+3. Follow `next` in each response. The SessionStart and Stop hooks repeat it after compaction or at a turn end.
+4. A run whose session ended, or that ended without a report, is taken up with `agent_start(resume: <run_id>)`
+   in another session. A run whose session is still live is not taken from it; if it is taken after that session
+   went quiet, that session refuses further actions until the operator speaks there again.
 
-## Capabilities
+## The loop
 
-### External LLM Invocation (via `llm_call` adapter chain)
+- **Design phase:** write each design version as a new file matching `design_glob` in the main checkout with
+  the Write tool (never overwrite an existing file), then `agent_advance(run_id)`.
+- **Review phases:** `agent_advance` dispatches the round itself (do not call `multi_llm_review` yourself in a
+  run — it is refused) and, on the next call, collects it and returns the seats' findings labelled by the
+  stand-in. Answer the open P0s in a new version (a new file) or new commits, then advance again. A review
+  closes provisionally when a quorum of seats answered and every P0 is fixed, refuted with grounds, or (design
+  reviews) deferred to the implementation review; the only cap is the policy's rounds for each review.
+- **How to revise (L1 multi_llm_review_workflow § Revision Discipline):** answer a finding by deletion,
+  correction or naming. Do not add mechanism, sections or defensive layers unprompted; if a finding seems to
+  need one, ask (AskUserQuestion) before writing it — the stand-in answers. When `next` says new P0s were drawn
+  by your last addition, undo that addition first. When it says the open count has not fallen for two rounds,
+  change approach: prove or refute each open P0 by a test or a reproduction, undo additions, or split the work.
+  A design version stays at the design level (no code beyond interface names); review findings about how to
+  implement are deferred, not answered in the design.
+- **Check phases (implement, write, work):** work in the run's worktree and branch (`agent_status` names them) and commit there. Each
+  Bash call runs confined under `/bin/bash -c` and starts afresh: use absolute paths, or `cd <worktree> && …`
+  within one call; the operator's shell functions and newer bash features are not there. The
+  tests under `tests` were pinned from the base commit when the run started; changing or deleting a pinned test
+  goes to the stand-in, with the old and new text. `agent_advance` refuses uncommitted work, then re-runs the
+  tests itself on the committed state; the implementation review re-runs them if HEAD moved.
 
-The agent's OODA phases invoke `llm_call` (from the `llm_client` dependency)
-which spawns external LLMs as subprocesses via adapter classes:
+## Questions and decisions
 
-| Adapter | Subprocess command | Use case |
-|---------|-------------------|----------|
-| `ClaudeCodeAdapter` | `claude -p --output-format json` | Sub-author (Sonnet 5.5), persona reviewers |
-| `CodexAdapter` | `codex exec --sandbox read-only` | Codex review |
-| `CursorAdapter` | `agent -p` | Cursor review |
-| `AnthropicAdapter` | Direct API (no subprocess) | Anthropic API calls |
-| `OpenaiAdapter` | Direct API | OpenAI API calls |
+Ask as you normally would — AskUserQuestion, a plan approval, or a question at the end of your turn. In a run
+the stand-in answers, provisionally, from the operator's own words; questions only the operator can answer are
+queued as operator items and you continue with other work. If the operator speaks during the run, their words
+outrank the stand-in.
 
-The agent CAN orchestrate multi-LLM review, invoke sub-author processes,
-and leverage cross-provider reviewers — all from within the governed OODA
-loop with blockchain recording of each step.
+## The line
 
-### File Operations (via `external_tools` SkillSet)
+Inside: files the run created, its worktree and branch, its report directory and scratch area. Refused and
+queued as operator items: L0/L1, the instruction mode, policies, the precedent store and journal, `.claude`
+settings and hooks, instruction files (CLAUDE.md, AGENTS.md…), existing shared files, new hidden files in the
+main checkout, other git refs, push/publish/send, anything that discloses outside the configured review seats.
+The operator's own permission rules (deny and ask, in their settings) are refused and queued too: the operator is
+not answering during the run. A refusal is not a stop: continue with work that does not depend on it. The refused
+change is kept whole with its item, so the operator can apply it.
 
-`SafeFileWrite` and `SafeFileEdit` are available via `invoke_tool`, enabling
-the agent to write design drafts to `docs/drafts/` or other project paths.
+## Hazards
 
-### MCP Tool Access — the act route is an allow-list
+If you notice a key exposure, chain corruption, data loss, or wrong published output that has happened — or you
+are unsure — call `agent_items(run_id, action: "alert", text: ...)` at once. The stand-in rules on it; a fatal
+one present in the world, or one it cannot rule, ends the run. A defect in the work under review is a review
+finding, not a hazard.
 
-A step runs in the Act phase only if its tool is in the act-route table
-(`lib/agent/act_classification.yml`: read-only tools, `context_save`,
-`operator_report`, sandboxed `llm_call`, and `safe_file_write` / `safe_file_edit`
-/ `safe_file_copy`). Every other step is set aside, with its dependents, and
-returned to the operator at the end of the cycle as `awaiting_operator`.
+## Report (every run)
 
-Work-tree writes are allowed by place: a `safe_file_*` write runs only when
-every location it names lands inside the table's `write_roots` (shipped:
-`docs/drafts`) with one of its `write_extensions` (`.md`, `.txt`). Any other
-write is set aside. With the guard on, every work-tree write is set aside,
-because the confined route is not wired.
+When `next` says so, start a subagent (Agent tool, not a fork) to build the report. The subagent:
+1. calls `agent_status(run_id, report_material: true)`, which writes `log/agent_runs/<run_id>/material.json`
+   and answers with its path;
+2. runs `python3 <SkillSet>/report_kit/make_report_deck.py <dir>/material.json <dir>/deck.html` — the skeleton
+   of the layered deck (L1 `layered_visual_pitch_deck`): main slides = what the operator must act on first
+   (alerts, operator items with commands, provisional closures, novel or low-confidence decisions, pinned-test
+   changes, plan parameters the stand-in set), then what changed; details = evidence; appendix = every decision
+   D#, item I#, phase, effect, and what was not checked;
+3. may rewrite the main slides' wording in Japanese, keeping every id;
+4. runs `python3 <SkillSet>/report_kit/check.py <dir>/deck.html` until `issues=0` (if the browser cannot start
+   inside confinement, say so and leave the check to `agent_finish`).
+Then call `agent_finish(run_id)`. It refuses a deck that omits an id, that the acting context wrote last, or that
+the kit's check faults (reading the deck yourself is fine). `agent_stop` also ends in a report. Every provisional
+closure is an operator item, so the operator can confirm it or send it back by its id.
 
-A withdrawal takes effect at the next `agent_step` call, not part-way through
-a running call; it is not an emergency stop (use `agent_stop`).
+## After the run
 
-The table is in force only while the operator's latest terminal ruling names
-the sha256 of its bytes. A fresh install, an upgrade that changes the table, or
-a withdrawal leaves the act route running nothing; every response says so under
-`classification`. Rule it into force yourself, in a terminal (the tool refuses
-to run without one):
+Tell the operator where the deck is and list the operator items. The guard and journal stay after any ending
+until the operator's next typed words; if those come before the report is built, take the run up again with
+`agent_start(resume: <run_id>)` and finish it.
 
-    ruby .kairos/skillsets/agent/bin/agent_rule.rb status
-    ruby .kairos/skillsets/agent/bin/agent_rule.rb activate
+Corrections, confirmations and resolutions count only in the operator's own typed words naming the item (e.g.
+"D4 は違う、8 席で" or "D4は違う"), typed in a session bound to the run or naming the run id; record them with
+`agent_items(run_id, action: "correct" | "confirm" | "resolve", ref: "D4")`. What a phase waits on changes only
+with a decision you read in those words, and the words must say it: `decision: "freeze"` ends a review or check
+left open (its open P0s are carried), `"more_rounds", rounds: n` grants that review n more rounds,
+`"review_whole"` sends a diff above the size limit to
+review in one piece, `"accept_test_change"` accepts a pinned-test change the stand-in left to the operator,
+`"restore_test_command"` restores a test command the stand-in rejected, `"accept_failing"` lets a test that
+also fails on the base commit stay failing, `"send_back"` reopens a provisionally closed review and the phases
+after it. Words that name the run's own items keep its guard; other typed words after an ending release it. Without one, the item stays open. A run that ended only because it waited on that item — even one
+whose report is built — continues in the session that resolved it; its earlier report is kept beside the new one.
 
-The file route (`agent_execute`) is closed until it is wired confined. Behind
-the table, the 3.88.2 refusals stay: record-store and configuration writers,
-`llm_call` with a provider that carries tools, and any step whose path
-arguments reach the KairosChain stores, `.claude/`, `.codex/`, `.git/`,
-`.github/`, `.vscode/`, `.cursor/`, `.gemini/`, `.mcp.json`, `.envrc`,
-`CLAUDE.md`, `AGENTS.md`, or anywhere outside the project. LLM calls made by
-the agent or its act run sandboxed. Do not run the agent unattended until the
-approval-delegation work is complete.
-
-### Answers are rulings
-
-Every answer that advances a session — through `agent_step` or `agent_stop` —
-is recorded on the chain as a ruling (`agent_answer`): why the session was
-waiting (`stop`), the plan's SHA-256 when a plan was the subject, and whether
-the answer was attested. Every response and `agent_status` carry the session's
-current `stop`. An answer sent through MCP is recorded as the caller's,
-unattested. To answer as yourself, answer at a terminal first:
-
-    ruby .kairos/skillsets/agent/bin/agent_rule.rb answer SESSION_ID
-
-It shows why the session stopped and the whole plan (every argument, the file
-it is kept in, and its SHA-256), asks for your answer, an optional reason and a
-nonce, and records the answer bound to that point and that plan. If the session
-moved on while you typed, nothing is recorded. The answer then sent through
-`agent_step` there must be the same one, or it is refused (`answer_refused`); a
-stop always goes through. After a revise at the terminal, send `revise` without
-feedback and the feedback you typed is used. Feedback and reasons stay off the
-chain; the ruling carries their SHA-256. A ruling that fails to record never
-blocks the answer; the response says so under `ruling`.
-
-If the MCP server runs in another directory than the project holding the data
-dir (it was started with `--data-dir` pointing at another project's `.kairos`),
-pass `--project-dir <the server's directory>` so the session is found there and
-the answer is recorded on the chain the server reads.
-
-While the chain cannot be read, whether you answered at the terminal cannot be
-checked, so every answer but a stop is refused until it reads again. A chain
-store other than the file ledger (sqlite, postgresql) is never read here, so on
-those the agent can only be stopped.
-
-### A shadow judge beside you (phase 1)
-
-An autonomous run stops at `cycle_checkpoint` only when every act of the run
-succeeded; a run with a failed act stops as `act_failed`.
-
-The delegation table (`lib/agent/delegation_table.yml`) names the points where
-a judge answers beside you: plan approval in a manual session
-(`plan_proposed`) and the scheduled checkpoint (`cycle_checkpoint`). Every row
-is shadow: the judge's verdict changes nothing. Like the act-route table it is
-in force only by your terminal ruling, which also pins the instruction mode the
-judge reads; editing that mode takes the table out of force until you rule
-again:
-
-    ruby .kairos/skillsets/agent/bin/agent_rule.rb activate --table delegation
-
-At a covered point whose plan the act route classifies whole, with no step
-marked for a person, no L0 change and the goal unchanged since the run started,
-the driver starts a separate process (`claude -p`, `claude-opus-5-5`, effort
-`xhigh`, no fallback) and returns at once; nothing waits for it. Its verdict is
-sealed on the chain as a salted commitment (`agent_shadow_seal`) and shown only
-after your answer at that point has committed — in the response of an
-`agent_step` answer and in `agent_status`, under `shadow` (an `agent_stop`
-response does not carry it). Before then `agent_status` says only `judging`,
-`sealed` or `failed`. The verdict file sits in the session directory; reading
-it before you answer defeats the comparison.
-
-    ruby .kairos/skillsets/agent/bin/agent_rule.rb shadow
-
-counts agreement from the chain: only answers you typed at the terminal whose
-seal came first, approve and non-approve apart. Each judged point is one
-Opus call at `xhigh`. Counts are kept apart for each version of what shaped the
-judge (both tables, what it read, its own prompt): a new adoption or a mode edit
-starts a new count.
-
-### Judgment precedents (distilled from your answers)
-
-The judge also reads `judgment_precedents`, the instance L1 entry
-`agent_judgment_precedents`, once you have adopted one; until then it is pinned
-as absent. When an answer you typed at the terminal at either point carries a
-reason, and ten such answers have arrived since the last draft, a separate
-process (`claude-opus-5-5`, `xhigh`) drafts the entry again from all your
-attested answers, their reasons and the facts the driver recorded at each answer
-(tool names only where the act-route table classified the step). It never reads
-the agent's text, the judge's verdicts or an earlier entry, only your edits to
-earlier drafts. A draft changes nothing until you adopt it:
-
-    ruby .kairos/skillsets/agent/bin/agent_rule.rb status    # drafts waiting, the count, the last run
-    # edit .kairos/storage/agent_distill/drafts/<stamp>.edit.md, then
-    ruby .kairos/skillsets/agent/bin/agent_rule.rb adopt     # shows your changes, asks for the nonce
-    ruby .kairos/skillsets/agent/bin/agent_rule.rb distill   # draft now, whatever the count
-
-Adoption checks the draft against the chain record its process wrote, refuses
-while any session is mid-run, and records one delegation ruling that pins the
-new entry. Any other ruling of the table refuses while the entry differs from
-its last pin. Reasons you type may be distilled into this entry, which the agent
-can read.
-
-## Sub-Agents
-
-### `/kairos-chain:agent-monitor`
-Post-session review agent. Invokes `agent_status`, `autonomos_status`, and `chain_history`
-to summarize session progress and flag anomalies. Read-only — cannot modify state.
+The stand-in learns from the operator's words in transcripts. The operator keeps the precedent store filled with
+`ruby <SkillSet>/bin/agent_harvest.rb` (regularly: the host deletes transcripts after 30 days); the 2026-10-20
+snapshot is imported with `--import-snapshot <data dir>/storage/agent_precedent_snapshots`.
 
 ## Available Tools
 

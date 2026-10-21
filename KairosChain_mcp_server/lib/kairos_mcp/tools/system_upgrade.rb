@@ -361,6 +361,7 @@ module KairosMcp
                 actions[:skillsets_upgraded] = (actions[:skillsets_upgraded] || []) << r[:name]
                 output += "  [UPGRADED] #{r[:name]} v#{r[:from]} → v#{r[:to]} (#{r[:files_updated]} files)\n"
               end
+              Array(r[:warnings]).each { |w| output += "    [WARNING] #{w}\n" }
             end
           end
         rescue => e
@@ -487,6 +488,7 @@ module KairosMcp
           else
             output += "  [UPGRADED] #{r[:name]} v#{r[:from]} → v#{r[:to]} (#{r[:files_updated]} files)\n"
           end
+          Array(r[:warnings]).each { |w| output += "    [WARNING] #{w}\n" }
         end
         output += "\nNo L0 template changes needed.\n"
         output += "Restart the MCP server to load new SkillSet tools.\n"

@@ -64,7 +64,11 @@ module KairosMcp
               output_schema: output_schema
             )
           rescue AuthError => e
-            if config['provider'] != 'claude_code'
+            # A caller that fixed its provider before dispatch (args
+            # 'no_fallback') gets the failure, not an answer from another
+            # provider: a fallback would send the prompt somewhere the caller
+            # did not choose.
+            if config['provider'] != 'claude_code' && !args['no_fallback']
               warn "[CallRouter] AuthError from #{config['provider']}, falling back to claude_code: #{e.message}"
               require_relative 'claude_code_adapter'
               actual_provider = 'claude_code'
@@ -86,6 +90,7 @@ module KairosMcp
             'provider' => actual_provider,
             'requested_provider' => requested_provider,
             'model' => actual_model,
+            'isolation' => raw_response['isolation'],
             'response' => raw_response,
             'usage' => usage,
             'snapshot' => build_snapshot(
@@ -136,6 +141,7 @@ module KairosMcp
           c['sandbox_mode'] = true                  if args['sandbox_mode']
           c['effort']       = args['effort']        if args['effort']
           c['backend']      = args['backend']       if args['backend']
+          c['isolated']     = true                  if args['isolated']
           c
         end
 
