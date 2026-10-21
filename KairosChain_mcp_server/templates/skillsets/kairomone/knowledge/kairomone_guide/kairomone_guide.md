@@ -1,7 +1,7 @@
 ---
 name: kairomone_guide
 description: Operate Kairomone FreeTier basic safely through its dedicated canonical providers and explicit tools.
-version: '0.2.0'
+version: '0.3.0'
 layer: L1
 tags: [kairomone, basic, local]
 ---
@@ -139,3 +139,76 @@ baseline in force is retained, including every re-baseline ruling on the restore
 ledger. A different or absent host L0 is reported as changed or unavailable and
 must be reviewed by the operator before use; growth resumes only after the
 owner's terminal ruling accepts the new host L0. Current host layer governance still controls new L1/L2 writes.
+
+## Owner console
+
+Version 0.6 adds a page from which the owner talks to the dot, with each tool
+permission answered on the page. The owner starts it at a terminal, in the
+project folder:
+
+    ruby .kairos/skillsets/kairomone/scripts/kairomone_console.rb
+
+It needs WEBrick (`gem install webrick` if Ruby lacks it), `claude` on the PATH
+(or named by `--claude PATH` or by the `KAIROMONE_CONSOLE_CLAUDE` environment
+variable; the flag wins), and a `.mcp.json` naming exactly one server whose args are
+exactly `["--data-dir", "<absolute path>"]`, the shape `kairos-chain init` writes
+(the server reads other spellings and extra arguments in ways that can name another
+directory). It prints a one-time URL: open it in your
+browser. Enter prints a new URL and signs out the open page; Ctrl-C, or Stop on
+the page, ends the console. `--resume SESSION_ID` continues an earlier session
+(the terminal prints the id); earlier turns are not shown on the page.
+
+```
+browser page ── loopback HTTP, 127.0.0.1 only, one-time URL ──▶ console (Ruby, your terminal)
+                                                                  │ pipes; a watchdog in a session of its own
+                                                                  ▼
+                                                      claude -p ── kairomone_* tools ── .kairos/kairomone/
+```
+
+What the console holds to:
+
+- It writes nothing to the dot itself. The dot changes only through the
+  `kairomone_*` tools the supervised session calls. That session has Bash, Read,
+  Grep, Glob and ToolSearch and this project's `kairomone_*` tools, nothing else;
+  any other tool, a background shell and a backup restore are refused before
+  they run, in every mode.
+- It starts in the asking mode and accepts a message only after Claude Code
+  reports that mode (`default`). The page always shows Claude Code's own word
+  for the mode. Auto is chosen on the page; in auto, Claude Code's classifier
+  decides and nothing asks you.
+- Settings files are not read by the session, so no saved allow rule or default
+  mode applies; the deny and ask rules you saved for this folder still apply.
+  The console carries them from your user settings (`~/.claude/settings.json`,
+  or `$CLAUDE_CONFIG_DIR/settings.json` when that variable is set; it must then
+  be an absolute path) and from the project's `.claude/settings.json` and
+  `.claude/settings.local.json`.
+  Messages from other Claude sessions are refused, and Claude Code's automatic
+  memory is off for it.
+- Every page connection receives everything that happened in the session.
+  Nothing is allowed by timeout; pending requests are denied when the console
+  stops; a request the page did not answer is marked with Claude Code's stated
+  source.
+- When the console ends in any way, SIGKILL included, its watchdog ends every
+  process Claude Code started (TERM, then KILL after five seconds), except one
+  that has left their process session.
+- It starts only when the installed package matches the content recorded on the
+  host chain at install. Otherwise it names the reinstall command:
+  `kairos-chain skillset install kairomone --force --data-dir <dir>`. A package
+  whose path holds `* ? [ ] { }` or a backslash cannot be checked (KairosChain's
+  file listing reads them as a pattern), so the console refuses to start there.
+- It records child start, resume and exit, mode changes and who caused them, and
+  each permission answer with Claude Code's decision, in
+  `.kairos/run/kairomone_console.log`. The log holds no message text or tool
+  input. The terminal shows fixed-format lines only.
+
+What it does not protect (also stated on the page): the session keeps a shell,
+because a learning cycle fetches sources with `curl`. A shell runs with your
+macOS user rights. It can read browser data, change files you can change —
+including the dot's own files, bypassing its locks and ledger — and start a
+process that leaves the session (`setsid`, a daemonizing interpreter), which the
+watchdog cannot reach. In the asking mode such a command is asked about unless
+Claude Code classifies it as read-only; in auto nothing asks. The same shell can
+edit the console's program, which the start check detects at the next start
+unless the checking code was edited too. This is weaker than a terminal session,
+whose prompts are answered on a terminal the session cannot type into. The L0
+re-baseline ruling and backup restores stay at a terminal.

@@ -147,3 +147,23 @@ that are easy to get wrong:
   biases topics, never permissions.
 - `kairomone_backup(command: "create")` then `verify` with the returned basename. Backups are unencrypted
   and may contain private text; do not send them anywhere unless the owner asks.
+
+## The owner console
+
+The owner can talk to the dot from a page in their browser. They start it themselves at a terminal, in
+the project folder: `ruby .kairos/skillsets/kairomone/scripts/kairomone_console.rb`. It starts one Claude
+Code session for the page and prints a one-time URL; whoever opens that URL answers that session's
+permission prompts.
+
+- Never start the console yourself — not directly, not in the background, not through a pseudo-terminal —
+  and never open, copy or exchange its URL, its session secret or its log under `.kairos/run/`. Hand the
+  owner the command instead. As with the L0 ruling, the terminal keeps the URL away from the session it
+  controls; only this rule keeps it away from you.
+- If you are the session the console started (your turns come from the owner's page, and your only tools
+  are Bash, Read, Grep, Glob, ToolSearch and the `kairomone_*` tools), every rule above holds unchanged.
+  The owner answers each permission prompt on the page: a denial is their answer, so report it and do not
+  try another way. `kairomone_backup restore` and `restore_new` are refused here; restores are done in a
+  terminal session. Do not start anything that outlives your turn (`nohup`, `setsid`, background jobs):
+  the console ends everything in its session when it stops, and what leaves it is out of the owner's sight.
+- A quick request from the page is the owner's own message. It is not consent to `remember` and not an
+  approval of a summary; those still need the owner's explicit words.

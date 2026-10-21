@@ -1,0 +1,1045 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Kairomone コンソール</title>
+<style>
+:root{--paper:#f3f0e7;--card:#fffcf5;--ink:#253e31;--muted:#627064;--line:#d9dfcd;--moss:#465f3c;--pale:#e7eddb;--ochre:#7e602c;--rose:#8c4942;--radius:22px;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+*{box-sizing:border-box}
+html{background:var(--paper);color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic","Segoe UI",sans-serif;font-size:16px;line-height:1.6}
+body{margin:0}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+button:disabled{cursor:not-allowed;opacity:.45}
+button:focus-visible,textarea:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--ochre);outline-offset:3px}
+[hidden]{display:none!important}
+.sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.app{display:flex;flex-direction:column;height:100vh;height:100dvh}
+.top{flex:0 0 auto;display:flex;flex-wrap:wrap;align-items:center;gap:10px 22px;padding:14px 20px}
+.brand{display:flex;gap:10px;align-items:center;font-weight:760;letter-spacing:-.035em;font-size:21px}
+.brand svg{width:28px;height:28px;flex-shrink:0}
+.brand small{display:block;color:var(--muted);font-size:9px;letter-spacing:.17em;line-height:1.1;margin-top:2px}
+.identity{flex:1 1 300px;min-width:0}
+.identity h1{margin:0;font-size:18px;line-height:1.3;letter-spacing:-.02em;overflow-wrap:anywhere}
+.where{display:flex;flex-wrap:wrap;gap:0 16px;margin:2px 0 0;font-size:12px;color:var(--muted)}
+.where b{font-family:var(--mono);font-weight:500;color:var(--ink);overflow-wrap:anywhere}
+.badges{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.mode-badge{display:inline-flex;align-items:center;min-height:32px;padding:4px 13px;border-radius:99px;font-size:13px;font-weight:750;border:1px solid transparent;overflow-wrap:anywhere}
+.mode-badge.unknown{background:#edece3;color:var(--muted)}
+.mode-badge.asking{background:#e6eddd;color:#3a562b;border-color:#c5d0b6}
+.mode-badge.not-asking{background:#f5e4db;color:#7f3e36;border-color:#e0b9ab}
+.pill{display:inline-flex;padding:3px 10px;border-radius:99px;background:var(--card);border:1px solid var(--line);font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.pill.resumed{background:#f3e9ce;border-color:#e3cf9d;color:#725624;font-weight:650}
+.conn{font-size:12px;color:var(--muted)}
+.conn.retry,.conn.lost,.conn.ended{color:var(--rose);font-weight:650}
+.gate{flex:0 0 auto;margin:0 20px 14px;padding:14px 16px;background:#f5e4db;color:#7f3e36;border-radius:15px;font-size:14px}
+.layout{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:16px;padding:0 20px 20px}
+.convo{min-height:0;display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:auto}
+.mode-row{flex:0 0 auto;display:flex;flex-wrap:wrap;align-items:center;gap:0 16px;padding:4px 18px;border-bottom:1px solid var(--line);background:#f8f6ee}
+.switch{display:inline-flex;align-items:center;gap:9px;min-height:44px;font-size:14px;font-weight:700;cursor:pointer}
+.switch input{width:20px;height:20px;margin:0;accent-color:var(--rose);cursor:pointer}
+.mode-help{flex:1 1 300px;margin:0;font-size:12px;color:var(--muted)}
+.mode-detail,.mode-note{flex:1 1 100%;margin:0 0 4px;font-size:11px;color:var(--muted)}
+.mode-note{font-size:12px;color:#725624;font-weight:650}
+.log{flex:1 1 auto;min-height:120px;overflow-y:auto;list-style:none;margin:0;padding:18px 18px 8px}
+.log>li{margin:0 0 12px}
+.empty{color:var(--muted);font-size:13px;text-align:center;padding:30px 0}
+.msg{max-width:88%;padding:10px 15px 12px;border-radius:18px;border:1px solid var(--line)}
+.msg.owner{margin-left:auto;background:var(--pale);border-color:#d3dcc6}
+.msg.assistant{background:#fffefa}
+.who{display:flex;justify-content:space-between;gap:12px;margin:0 0 3px;font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--moss)}
+.at{font-weight:400;color:var(--muted);font-variant-numeric:tabular-nums;letter-spacing:0;white-space:nowrap}
+.body{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px}
+.tool{padding:10px 14px;border:1px dashed #c5d0b6;border-radius:16px;background:#f8f6ee;font-size:13px}
+.tool-head,.request-top{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+.tool-head .at,.request-top .at{margin-left:auto}
+.tool-name{min-width:0;font-family:var(--mono);font-size:12px;font-weight:650;overflow-wrap:anywhere}
+.badge{display:inline-flex;padding:1px 9px;border-radius:99px;font-size:11px;font-weight:750;white-space:nowrap;background:#edece3;color:var(--muted)}
+.badge.proposed{background:#f3e9ce;color:#725624}
+.badge.awaiting{background:var(--ochre);color:#fffcf5}
+.badge.good{background:#e6eddd;color:#3a562b}
+.badge.bad{background:#f5e4db;color:#7f3e36}
+.tool-note{margin:6px 0 0;font-size:12px;color:#725624}
+.label{margin:8px 0 0;font-size:11px;font-weight:700;letter-spacing:.05em;color:var(--muted)}
+pre{margin:4px 0 0;padding:9px 11px;background:#fffefa;border:1px solid #d5d8c9;border-radius:10px;font-family:var(--mono);font-size:12px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto}
+pre.cmd{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+pre.error-text{background:#fbf1ec;border-color:#e0b9ab}
+details{margin-top:6px}
+summary{cursor:pointer;padding:2px 0;font-size:12px;font-weight:650;color:var(--moss);overflow-wrap:anywhere}
+.decision{display:flex;flex-wrap:wrap;gap:2px 14px;margin:8px 0 0;font-size:12px}
+.by-page{margin:2px 0 0;font-size:12px;color:var(--moss)}
+.not-by-page{display:inline-block;margin:4px 0 0;padding:2px 9px;border-radius:8px;background:#f3e9ce;color:#5d4519;font-size:12px;font-weight:650}
+.line{display:flex;justify-content:center;align-items:baseline;gap:10px;font-size:12px;color:var(--muted);text-align:center}
+.line .text{min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.line.warn,.line.not-asking{color:#7f3e36;font-weight:650}
+.notice{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 13px;border-radius:12px;background:#f3e9ce;color:#5d4519;font-size:13px}
+.notice .text{min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.turn-end{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--muted)}
+.turn-end::before,.turn-end::after{content:"";flex:1;border-top:1px solid var(--line)}
+.turn-end.bad{color:#7f3e36}
+.alert{padding:11px 15px;border:1px solid #e0b9ab;border-radius:16px;background:#f5e4db;color:#7f3e36}
+.alert-title{display:flex;justify-content:space-between;gap:10px;margin:0 0 4px;font-size:13px;font-weight:750}
+.alert .caption{color:#7f3e36}
+.caption{margin:4px 0 0;font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.pending{flex:0 0 auto;max-height:40vh;overflow-y:auto;padding:12px 18px;border-top:2px solid var(--ochre);background:#f6efd9}
+.pending-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;margin:0 0 8px}
+.pending h2{margin:0;font-size:15px;color:#5d4519}
+.pending-help{margin:0;font-size:12px;color:#725624}
+.request{margin:0 0 10px;padding:13px 15px;background:var(--card);border:1px solid #d9c38c;border-radius:16px}
+.request-desc{margin:6px 0 0;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}
+.claim-note,.inexact-note{margin:8px 0 0;padding:8px 11px;border-radius:10px;background:#f3e9ce;color:#5d4519;font-size:13px}
+.actions,.buttons{display:flex;flex-wrap:wrap;gap:8px}
+.actions{margin-top:10px}
+.allow,.deny,.send,.ghost,.danger{min-height:44px;padding:8px 20px;border-radius:99px;font-size:14px;font-weight:700}
+.allow{background:var(--moss);color:#fffcf5;border:1px solid var(--moss)}
+.deny,.danger{background:var(--card);color:var(--rose);border:1px solid var(--rose)}
+.send{background:var(--ink);color:var(--card);border:1px solid var(--ink)}
+.ghost{background:var(--card);color:var(--ink);border:1px solid #c5d0b6}
+.request-msg{margin:6px 0 0;font-size:12px;color:#725624}
+.request-id{margin:4px 0 0;font-family:var(--mono);font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+.composer{flex:0 0 auto;padding:12px 18px 14px;border-top:1px solid var(--line);background:#fbf9f2}
+.quick{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+.quick button{min-height:44px;padding:6px 14px;border:1px solid var(--line);border-radius:99px;background:var(--card);font-size:13px;color:var(--moss)}
+textarea{display:block;width:100%;min-height:80px;max-height:36vh;resize:vertical;padding:10px 12px;border:1px solid #c5d0b6;border-radius:14px;background:#fffefa;font-size:15px;line-height:1.55}
+textarea:disabled{background:#efede4;color:var(--muted)}
+.composer-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px;margin-top:8px}
+.composer-text{flex:1 1 220px;min-width:0}
+.reason,.send-msg{margin:0;font-size:12px;color:var(--muted)}
+.send-msg{color:#725624}
+.hint{margin:6px 0 0;font-size:11px;color:var(--muted)}
+.side{min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:16px}
+.card{padding:20px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius)}
+.eyebrow{margin:0 0 4px;font-size:10px;font-weight:750;letter-spacing:.13em;color:var(--moss)}
+.status-top{display:grid;grid-template-columns:96px minmax(0,1fr);gap:12px;align-items:center}
+.creature{width:96px;height:auto}
+.status-top h2{margin:0;font-size:18px;line-height:1.3;overflow-wrap:anywhere}
+.warn-box{margin:12px 0 0;padding:10px 12px;border-radius:12px;background:#f5e4db;color:#7f3e36;font-size:13px;overflow-wrap:anywhere}
+.warn-box p{margin:0}
+.warn-box p+p{margin-top:4px}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;margin:14px 0 0;padding:12px 0 0;border-top:1px solid var(--line)}
+.facts div{min-width:0}
+.facts dt{font-size:11px;color:var(--muted)}
+.facts dd{margin:0;font-size:17px;font-weight:650;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.section{margin:16px 0 6px;font-size:11px;font-weight:750;letter-spacing:.07em;color:var(--moss)}
+.status-badge{display:inline-flex;padding:4px 10px;border-radius:99px;background:#edece3;font-size:12px;font-weight:650;overflow-wrap:anywhere}
+.status-badge.good{background:#e6eddd;color:#3a562b}
+.status-badge.warning{background:#f3e9ce;color:#725624}
+.status-badge.bad{background:#f5e4db;color:#7f3e36}
+.small-facts{display:flex;flex-wrap:wrap;gap:4px 18px;margin:8px 0 0;font-size:12px;color:var(--muted)}
+.small-facts dd{display:inline;margin:0 0 0 4px;color:var(--ink);font-weight:650;font-variant-numeric:tabular-nums}
+.small-facts dt{display:inline}
+.details-list{margin:6px 0 0;padding-left:18px;font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.details-list li+li{margin-top:4px}
+.paths{margin:14px 0 0;padding:12px 0 0;border-top:1px solid var(--line);font-size:12px}
+.paths dt{font-size:11px;color:var(--muted)}
+.paths dd{margin:0 0 6px;font-family:var(--mono);overflow-wrap:anywhere}
+.status-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px;font-size:12px;color:var(--muted)}
+.status-foot button{min-height:44px;padding:6px 16px;border:1px solid #c5d0b6;border-radius:99px;background:var(--card);font-size:13px}
+.notes h2{margin:0 0 6px;font-size:16px}
+.notes h3{margin:14px 0 4px;font-size:13px;color:var(--moss)}
+.notes p,.notes li{font-size:12.5px;color:#45583f}
+.notes p{margin:4px 0 0}
+.notes ul{margin:4px 0 0;padding-left:18px}
+.notes li+li{margin-top:6px}
+code{font-family:var(--mono);font-size:12px;overflow-wrap:anywhere}
+code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;border:1px solid #d5d8c9;border-radius:10px;white-space:pre-wrap;color:#364a30}
+.creature [data-part]{display:none}
+.creature[data-stage=sprout] [data-part=leaves],.creature[data-stage=grove] [data-part=leaves],.creature[data-stage=canopy] [data-part=leaves],.creature[data-stage=ancient] [data-part=leaves],.creature[data-stage=grove] [data-part=branches],.creature[data-stage=canopy] [data-part=branches],.creature[data-stage=ancient] [data-part=branches],.creature[data-stage=canopy] [data-part=crown],.creature[data-stage=ancient] [data-part=crown],.creature[data-stage=ancient] [data-part=stars]{display:inline}
+.creature[data-stage=seed] .moss-body{transform:translate(20px,34px) scale(.82)}
+.creature[data-stage=unknown]{opacity:.6}
+@media (max-width:960px),(max-height:640px){.app{height:auto;min-height:100vh}.convo{overflow:visible}.layout{grid-template-columns:minmax(0,1fr);padding:0 12px 16px}.log{max-height:62vh;min-height:220px}.pending{max-height:none}.side{overflow:visible}}
+@media (max-width:480px){.top{padding:12px}.gate{margin:0 12px 12px}.msg{max-width:100%}.card{padding:16px}}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 27C4 26 3 15 8 9c4 0 8 3 8 9 0-9 5-14 12-14 3 11-3 21-12 23Z" fill="#526943"/><path d="M15 27c1-8 4-13 10-19" fill="none" stroke="#f3f0e7" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <div>Kairomone<small>OWNER CONSOLE</small></div>
+    </div>
+    <div class="identity">
+      <h1 id="dot-name">Kairomone</h1>
+      <p class="where"><span>dot ID <b id="dot-id">未確認</b></span><span>データの場所 <b id="data-dir">未確認</b></span></p>
+    </div>
+    <div class="badges">
+      <span id="mode-badge" class="mode-badge unknown">モード: 不明</span>
+      <span id="session-info" class="pill" hidden></span>
+      <span id="conn" class="conn" role="status">接続していません</span>
+    </div>
+  </header>
+  <noscript><p class="gate">この画面には、ページに含まれる JavaScript が必要です。</p></noscript>
+  <p id="gate" class="gate" role="alert" hidden></p>
+  <div class="layout">
+    <section class="convo" aria-label="会話">
+      <div class="mode-row">
+        <label class="switch"><input type="checkbox" id="auto-switch" role="switch" disabled><span>確認なし（auto）</span></label>
+        <p class="mode-help">確認あり（default）では、Claude Code が「読むだけ」と判断した命令を除き、道具を使う前にここで問われます。auto では Claude Code の分類器が決め、あなたには何も問われません。</p>
+        <p id="mode-detail" class="mode-detail">まだ Claude Code からモードの報告がありません。</p>
+        <p id="mode-note" class="mode-note" role="status" hidden></p>
+      </div>
+      <ol id="log" class="log" role="log" aria-label="会話と道具の記録"><li id="log-empty" class="empty">まだ出来事はありません。</li></ol>
+      <section id="pending" class="pending" aria-labelledby="pending-title" hidden>
+        <div class="pending-head"><h2 id="pending-title">確認待ち <span id="pending-count"></span></h2><p class="pending-help">許可すると、ここに表示された入力のまま実行されます。答えるまで待ち続け、時間切れで許可されることはありません。</p></div>
+        <div id="pending-list"></div>
+      </section>
+      <section class="composer" aria-label="会話を送る">
+        <div class="quick" role="group" aria-label="よく使う依頼">
+          <button type="button" class="q" disabled>いまの状態を教えて</button>
+          <button type="button" class="q" disabled>最近覚えたことを見せて</button>
+          <button type="button" class="q" disabled>〈話題〉について 1 回学習して</button>
+          <button type="button" class="q" disabled>バックアップを取って、検証して</button>
+        </div>
+        <label for="message" class="sr">相棒への会話</label>
+        <textarea id="message" rows="3" placeholder="相棒への会話を書きます" disabled></textarea>
+        <div class="composer-row">
+          <div class="composer-text">
+            <p id="reason" class="reason" role="status">コンソールに接続しています…</p>
+            <p id="send-msg" class="send-msg" role="status" hidden></p>
+          </div>
+          <div class="buttons">
+            <button type="button" id="send" class="send" disabled>送信</button>
+            <button type="button" id="interrupt" class="ghost" disabled>中断</button>
+            <button type="button" id="stop" class="danger" disabled>停止</button>
+          </div>
+        </div>
+        <p class="hint">⌘ / Ctrl + Enter でも送れます。よく使う依頼のボタンは決まった文を入れるだけで、送るのはあなたです。</p>
+      </section>
+    </section>
+    <aside class="side" aria-label="相棒の状態と注意">
+      <section class="card" aria-labelledby="st-name">
+        <div class="status-top">
+          <svg id="creature" data-stage="unknown" class="creature" viewBox="0 0 260 220" role="img" aria-labelledby="creature-title"><title id="creature-title">小さな、オリジナルの苔の生きもの</title><ellipse cx="133" cy="190" rx="83" ry="12" fill="#ccd6bd"/><g data-part="leaves"><path d="M82 126c-18-29-11-58 8-73 4 25 26 34 32 62" fill="#829768"/><path d="M126 96c-13-31-2-60 20-73 3 22 20 36 9 61" fill="#566f45"/><path d="M142 97c6-27 34-42 60-32-11 21-29 34-53 41" fill="#9cad7e"/></g><g data-part="branches"><path d="M87 129Q31 110 43 69Q75 78 89 117M172 131Q226 111 225 77Q192 83 177 119" fill="#7c9463"/></g><g data-part="crown"><path d="M78 88Q51 52 87 42Q101 12 128 36Q161 7 183 36Q224 40 200 77Q151 113 78 88Z" fill="#708957"/><circle cx="91" cy="48" r="6" fill="#d4bc78"/><circle cx="179" cy="46" r="6" fill="#d4bc78"/></g><g class="moss-body"><path d="M78 114c-15 17-24 49-10 65 14 14 38 12 55 13 26 3 54 2 69-17 13-17 4-47-14-61-28-20-72-22-100 0Z" fill="#647c50"/><path d="M89 123c-9 15-15 36-5 48 13 16 62 23 85 6 18-14 12-34-1-45-21-19-57-23-79-9Z" fill="#abb991"/><ellipse cx="77" cy="181" rx="15" ry="9" fill="#526d43"/><ellipse cx="178" cy="185" rx="16" ry="8" fill="#526d43"/><path d="M77 133c-13-8-29 1-33 15 12 4 26 2 35-6" fill="#708957"/><path d="M186 142c13-7 24 0 27 14-11 6-21 3-28-6" fill="#708957"/><ellipse cx="106" cy="144" rx="4" ry="5" fill="#293f2c"/><ellipse cx="153" cy="147" rx="4" ry="5" fill="#293f2c"/><path d="M122 157c4 5 10 6 14 1" fill="none" stroke="#405338" stroke-width="3" stroke-linecap="round"/><ellipse cx="94" cy="157" rx="8" ry="4" fill="#c6b391"/><ellipse cx="165" cy="161" rx="8" ry="4" fill="#c6b391"/></g><g data-part="stars"><path d="m202 103 4-9 4 9 9 4-9 4-4 9-4-9-9-4Z" fill="#b0bb8a"/><circle cx="57" cy="88" r="4" fill="#b0bb8a"/><path d="m39 38 3-7 3 7 7 3-7 3-3 7-3-7-7-3Z" fill="#b29658"/></g></svg>
+          <div>
+            <p class="eyebrow">YOUR DOT</p>
+            <h2 id="st-name">Kairomone</h2>
+            <p id="st-stage" class="caption">成長段階は未確認</p>
+          </div>
+        </div>
+        <div id="st-warn" class="warn-box" role="alert" hidden></div>
+        <dl class="facts">
+          <div><dt>レベル（/ 999）</dt><dd id="st-level">—</dd></div>
+          <div><dt>合計 XP</dt><dd id="st-xp">—</dd></div>
+          <div><dt>保存された知識（L1）</dt><dd id="st-l1">—</dd></div>
+          <div><dt>保存された観察（L2）</dt><dd id="st-l2">—</dd></div>
+          <div><dt>職業</dt><dd id="st-profession">—</dd></div>
+          <div><dt>会話の記憶</dt><dd id="st-memory">—</dd></div>
+        </dl>
+        <p class="section">記録の整合性</p>
+        <div id="st-integrity" class="status-badge">未確認</div>
+        <dl class="small-facts"><div><dt>ブロック数</dt><dd id="st-blocks">—</dd></div><div><dt>保留中の記録</dt><dd id="st-pending">—</dd></div></dl>
+        <details><summary>検証の詳細</summary><ul id="st-details" class="details-list"><li>詳細情報はありません</li></ul></details>
+        <p class="section">ホストの L0</p>
+        <div id="st-l0" class="status-badge">未確認</div>
+        <p id="st-l0-hint" class="caption" hidden>学習は止まっています。変化を受け入れるかどうかは、あなたが端末で判断します（下の「端末でだけ行うこと」）。</p>
+        <p class="section">自律学習</p>
+        <div id="st-growth" class="status-badge">未確認</div>
+        <dl class="small-facts"><div><dt>使用済み</dt><dd id="st-used">—</dd></div><div><dt>上限</dt><dd id="st-max">—</dd></div><div><dt>残り</dt><dd id="st-remaining">—</dd></div></dl>
+        <dl class="paths">
+          <dt>dot ID</dt><dd id="st-dot-id">未確認</dd>
+          <dt>相棒の記録の場所</dt><dd id="st-root">未確認</dd>
+          <dt>データの場所</dt><dd id="st-data-dir">未確認</dd>
+        </dl>
+        <div class="status-foot"><span id="st-at" role="status">まだ読み込んでいません</span><button type="button" id="status-refresh" disabled>更新</button></div>
+      </section>
+      <section class="card notes" aria-labelledby="notes-title">
+        <h2 id="notes-title">この画面について</h2>
+        <h3>端末でだけ行うこと</h3>
+        <p>ホストの L0 が変わったとき、それを受け入れるかどうかは、あなた自身がこのプロジェクトのフォルダーの端末で判断します。Claude には実行させないでください。</p>
+        <code class="block">ruby .kairos/skillsets/kairomone/scripts/kairomone.rb l0 rebaseline --reason "…"</code>
+        <p>バックアップからの復元は、この画面からはどのモードでもできません。端末の Claude Code セッションで行ってください。</p>
+        <h3>この画面の弱さ</h3>
+        <ul>
+          <li>学習には <code>curl</code> が要るので、Claude はシェルを使えます。シェルはあなたと同じ権限で動き、相棒のファイル（<code>.kairos/kairomone/</code> の下）を書き換えることも、コンソールを止めても動き続けるプロセスを作ることもできます。相棒のファイルにシェルで触れないよう Claude を縛っているのは、Kairomone の決まり（<code>SKILL.md</code>）です。</li>
+          <li>確認ありでも、Claude Code が「読むだけ」と判断した命令は問われずに実行されます（実行したことはこの画面に出ます）。auto では何も問われません。</li>
+          <li>端末のセッションでは、許可の問いに答えるのは Claude が入力できない端末です。この画面はそれより弱い仕組みです。この画面の合言葉は Claude に渡していませんが、あなたと同じ権限で動くプロセスが探せば、読める可能性はあります。</li>
+        </ul>
+        <h3>この画面が書かないもの</h3>
+        <p>この画面は相棒の記録を自分では書きません。書き込むのは、Claude が Kairomone の道具を使うときだけです。</p>
+      </section>
+    </aside>
+  </div>
+</div>
+<script>
+(function () {
+  'use strict';
+  // Page side of the console contract. Every dynamic string reaches the DOM
+  // through textContent, and no permission answer or mode change is sent
+  // except from an owner's click.
+  var STORE_KEY = 'kairomone-console-session';
+  var TOKEN = /^[A-Za-z0-9_-]{16,512}$/;
+  var ASKING_WORD = 'default';
+  var MAX_TEXT_BYTES = 32 * 1024;
+  var POLL_ABORT_MS = 35000;
+  // A request card answers only after it has been on the page this long:
+  // when one request is answered, the next can appear under the pointer.
+  var ARM_MS = 400;
+  // kairomone_growth claim's own lease when the request names none
+  // (tools/kairomone_tools.rb); the standing rules name 900.
+  var DEFAULT_LEASE_SECONDS = 300;
+  var INEXACT_NOTE = 'この依頼の名前か入力には、そのままの形で表示できない値（UTF-8 でない文字、JSON で書けない数値など）があります。' +
+    '表示どおりの入力で許可することはできないため、拒否だけを選べます。';
+  var REASONS = {
+    connecting: 'コンソールに接続しています…',
+    mode_unconfirmed: '「確認あり」になったと Claude Code が報告するまで、会話は送れません。',
+    turn_in_progress: 'Claude が応答しています。終わると次の会話を送れます（「中断」で止められます）。',
+    stopped: 'コンソールは停止しています。',
+    memory_cap: 'この画面の記録が上限に達したため、新しい会話は受け付けません。続けるには、コンソールを起動し直してください。',
+    empty: '空の会話は送れません。',
+    too_long: '長すぎます（32 KiB まで）。',
+    child_exited: 'Claude Code は終了しています。',
+    no_session: 'この画面の接続は無効です。'
+  };
+  var GATES = {
+    missing: 'この画面を使うには、コンソールを起動したターミナルに表示された URL を開いてください（ターミナルで Enter を押すと、新しい URL が表示されます）。',
+    spent: 'この URL はもう使えません。URL は 1 回だけ、表示から 10 分以内に使えます。ターミナルで Enter を押して新しい URL を表示し、それを開いてください。',
+    lost: 'この画面の接続は無効になりました（新しい URL が発行されたか、コンソールが起動し直しました）。ターミナルで Enter を押して新しい URL を表示し、それを開いてください。',
+    unreachable: 'コンソールに接続できません。ターミナルでコンソールが動いているか確かめ、表示された URL を開いてください。',
+    ended: 'コンソールは停止しました。続けるには、ターミナルでコンソールを起動し直し、表示された URL を開いてください。'
+  };
+  var CONN = { idle: '接続していません', live: '接続中', retry: 'コンソールに再接続しています…', ended: 'コンソールは停止しました', lost: '接続は無効です' };
+  var MODE_SOURCES = { echo: '切り替えへの応答', status: '状態の報告', init: '応答の開始時の報告' };
+  var DECISION_SOURCES = { user_temporary: 'その 1 回だけの許可', user_reject: 'その 1 回の拒否', hook: 'コンソールのゲート', config: 'Claude Code の組み込みの決まり', user_permanent: '保存された規則' };
+  var STAGES = { seed: '種', sprout: '芽', grove: '若木', canopy: '樹冠', ancient: '古木' };
+  var AUTO_CONFIRM = '確認なし（auto）に切り替えますか？\n\n' +
+    'auto では、道具を使ってよいかを Claude Code の分類器が決めます。この画面からあなたに問うことはありません。シェルの命令も、問われずに実行されることがあります。\n\n' +
+    'コンソールが決めた道具以外は auto でも使えません。このフォルダーに保存された「禁止」の規則も効きます。\n\n' +
+    '確認ありに戻すには、このスイッチを切ります。';
+  var STOP_CONFIRM = 'コンソールを停止しますか？\n\n' +
+    '待っている確認の依頼はすべて拒否され、Claude Code は終了します。続けるには、ターミナルでコンソールを起動し直します。';
+
+  var state = {
+    session: null, lost: false, ended: false, stopping: false, polling: false, after: 0,
+    accepting: false, acceptReason: 'connecting', childExited: false, sending: false,
+    modeKnown: false, modeWord: null, modeSource: null, modeAt: null, modeRequest: null, modeBusy: false,
+    sessionId: null, resumed: false, name: 'Kairomone',
+    statusTimer: null, statusBusy: false, statusAgain: false
+  };
+  var tools = new Map();
+  var pending = new Map();
+
+  function $(id) { return document.getElementById(id); }
+  function has(table, key) { return typeof key === 'string' && Object.prototype.hasOwnProperty.call(table, key); }
+  function obj(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
+  function str(value, fallback) { return typeof value === 'string' && value.length ? value : (fallback === undefined ? '' : fallback); }
+  function count(value) { return Number.isSafeInteger(value) && value >= 0 ? String(value) : '—'; }
+  function json(value) {
+    try { var out = JSON.stringify(value, null, 2); return typeof out === 'string' ? out : String(value); } catch (_) { return String(value); }
+  }
+  function show(value) { return typeof value === 'string' ? value : (value === undefined || value === null ? '（なし）' : json(value)); }
+  function oneLine(value) {
+    var out;
+    try { out = JSON.stringify(value); } catch (_) { out = String(value); }
+    if (typeof out !== 'string') out = String(value);
+    var chars = Array.from(out);
+    return chars.length > 140 ? chars.slice(0, 140).join('') + '…' : out;
+  }
+  function bytes(value) { return new TextEncoder().encode(value).length; }
+  function clock(at) {
+    var date = new Date(at);
+    return isNaN(date.getTime()) ? String(at) : date.toLocaleTimeString('ja-JP', { hour12: false });
+  }
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+  function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+  function text(id, value) { $(id).textContent = value; }
+  function stamp(at) {
+    var node = el('time', 'at', typeof at === 'string' ? clock(at) : '');
+    if (typeof at === 'string') node.setAttribute('datetime', at);
+    return node;
+  }
+  function reasonText(reason) { return has(REASONS, reason) ? REASONS[reason] : '会話を受け付けていません（' + show(reason) + '）。'; }
+  function refusal(res) {
+    var data = obj(res.data), why = typeof data.reason === 'string' ? data.reason : data.error;
+    if (typeof why !== 'string' || !why) return '（' + res.status + '）';
+    return '（' + (has(REASONS, why) ? REASONS[why] : why) + '）';
+  }
+
+  function api(method, path, body, signal) {
+    if (!state.session) return Promise.reject(new Error('no session'));
+    var headers = { 'Accept': 'application/json', 'X-Kairomone-Session': state.session };
+    var init = { method: method, headers: headers, cache: 'no-store', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer' };
+    if (method === 'POST') { headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(body || {}); }
+    if (signal) init.signal = signal;
+    return fetch(path, init).then(function (res) {
+      return res.text().then(function (raw) {
+        var data = null;
+        try { data = raw ? JSON.parse(raw) : null; } catch (_) { data = null; }
+        if (res.status === 403) sessionLost();
+        return { status: res.status, ok: res.ok, data: data };
+      });
+    });
+  }
+
+  // The bootstrap leaves the address bar before it is sent, and is sent once.
+  function exchange(bootstrap) {
+    if (!TOKEN.test(bootstrap)) return Promise.resolve({ session: null, why: 'spent' });
+    return fetch('/session', {
+      method: 'POST', cache: 'no-store', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer',
+      headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-Kairomone-Bootstrap': bootstrap },
+      body: '{}'
+    }).then(function (res) {
+      if (!res.ok) return { session: null, why: 'spent' };
+      return res.json().then(function (data) {
+        var session = obj(data).session;
+        return typeof session === 'string' && TOKEN.test(session) ? { session: session } : { session: null, why: 'spent' };
+      }, function () { return { session: null, why: 'spent' }; });
+    }, function () { return { session: null, why: 'unreachable' }; });
+  }
+
+  function boot() {
+    bind();
+    renderMode();
+    setConn('idle');
+    refreshControls();
+    var raw = '';
+    if (location.hash) {
+      raw = location.hash.slice(1);
+      try { history.replaceState(null, '', location.pathname + location.search); } catch (_) { /* the URL is spent on first use anyway */ }
+    }
+    var stored = null;
+    try { stored = sessionStorage.getItem(STORE_KEY); } catch (_) { stored = null; }
+    var first = raw ? exchange(raw) : Promise.resolve({ session: null, why: 'missing' });
+    first.then(function (got) {
+      if (got.session) {
+        state.session = got.session;
+        try { sessionStorage.setItem(STORE_KEY, got.session); } catch (_) { /* this tab keeps it in memory */ }
+      } else if (typeof stored === 'string' && TOKEN.test(stored)) {
+        state.session = stored;
+      }
+      if (!state.session) { state.lost = true; showGate(got.why); setConn('lost'); refreshControls(); return; }
+      setConn('live');
+      refreshControls();
+      poll();
+      scheduleStatus(0);
+    });
+  }
+
+  function sessionLost() {
+    if (state.lost) return;
+    state.lost = true;
+    state.session = null;
+    try { sessionStorage.removeItem(STORE_KEY); } catch (_) { /* nothing stored */ }
+    showGate('lost');
+    setConn('lost');
+    refreshControls();
+  }
+  function showGate(key) { var node = $('gate'); node.textContent = GATES[key] || GATES.missing; node.hidden = false; }
+  function setConn(key) { var node = $('conn'); node.textContent = CONN[key]; node.className = 'conn ' + key; }
+  function live() { return !!state.session && !state.lost && !state.ended && !state.stopping; }
+
+  // Long poll from seq 0: every page connection replays the whole session.
+  function poll() {
+    if (state.polling) return;
+    state.polling = true;
+    var delay = 1000;
+    function next() {
+      if (state.lost || state.ended) { state.polling = false; return; }
+      var control = typeof AbortController === 'function' ? new AbortController() : null;
+      var timer = control ? setTimeout(function () { control.abort(); }, POLL_ABORT_MS) : null;
+      api('GET', '/events?after=' + state.after, null, control && control.signal).then(function (res) {
+        if (timer) clearTimeout(timer);
+        if (res.status === 403) { state.polling = false; return; }
+        var events = obj(res.data).events;
+        if (!res.ok || !Array.isArray(events)) throw new Error('events ' + res.status);
+        delay = 1000;
+        if (!state.stopping) setConn('live');
+        ingest(events);
+        setTimeout(next, events.length ? 0 : 250);
+      }).catch(function () {
+        if (timer) clearTimeout(timer);
+        if (state.lost) { state.polling = false; return; }
+        if (state.stopping || state.acceptReason === 'stopped') { state.polling = false; finishStopped(); return; }
+        setConn('retry');
+        setTimeout(next, delay);
+        delay = Math.min(delay * 2, 10000);
+      });
+    }
+    next();
+  }
+
+  function ingest(events) {
+    var log = $('log');
+    var stick = log.scrollHeight - log.scrollTop - log.clientHeight < 120;
+    var list = events.map(obj);
+    var unnumbered = list.filter(function (ev) { return !Number.isSafeInteger(ev.seq); }).length;
+    if (unnumbered) addLine('line warn', '通番のない出来事を ' + unnumbered + ' 件受け取りました（表示できません）。');
+    list.filter(function (ev) { return Number.isSafeInteger(ev.seq); }).sort(function (a, b) { return a.seq - b.seq; }).forEach(function (ev) {
+      if (ev.seq <= state.after) return;
+      if (ev.seq > state.after + 1) addLine('line warn', '通番 ' + (state.after + 1) + '〜' + (ev.seq - 1) + ' の出来事を受け取れていません。', ev.at);
+      state.after = ev.seq;
+      try { dispatch(ev); } catch (_) { addLine('line warn', '表示できなかった出来事があります: ' + oneLine(ev), ev.at); }
+    });
+    if (stick) log.scrollTop = log.scrollHeight;
+    refreshControls();
+  }
+
+  var HANDLERS = new Map([
+    ['child_started', handleChildStarted],
+    ['mode', handleMode],
+    ['accepting', handleAccepting],
+    ['owner_message', function (ev) { addMessage('owner', 'あなた', ev); }],
+    ['assistant_text', function (ev) { addMessage('assistant', '相棒（Claude Code）', ev); }],
+    ['tool_use', handleToolUse],
+    ['permission_request', handlePermissionRequest],
+    ['permission_answered', handlePermissionAnswered],
+    ['tool_result', handleToolResult],
+    ['foreign_turn', handleForeignTurn],
+    ['turn_end', handleTurnEnd],
+    ['mode_mismatch', handleModeMismatch],
+    ['child_exited', handleChildExited],
+    ['notice', function (ev) { addLine('notice', show(ev.text), ev.at); }]
+  ]);
+  function dispatch(ev) {
+    var handler = typeof ev.kind === 'string' ? HANDLERS.get(ev.kind) : undefined;
+    if (handler) handler(ev);
+    else addLine('line warn', '知らない種類の出来事: ' + oneLine(ev), ev.at);
+  }
+
+  function append(node) {
+    var empty = $('log-empty');
+    if (empty) empty.parentNode.removeChild(empty);
+    $('log').appendChild(node);
+  }
+  function addLine(cls, value, at) {
+    var li = el('li', cls);
+    li.appendChild(el('span', 'text', value));
+    li.appendChild(stamp(at));
+    append(li);
+    return li;
+  }
+  function addAlert(title, body, caption, at) {
+    var li = el('li', 'alert'), head = el('p', 'alert-title');
+    head.appendChild(el('span', '', title));
+    head.appendChild(stamp(at));
+    li.appendChild(head);
+    if (body !== null) li.appendChild(el('p', 'body', body));
+    if (caption) li.appendChild(el('p', 'caption', caption));
+    append(li);
+  }
+  function addMessage(kind, who, ev) {
+    var li = el('li', 'msg ' + kind), head = el('p', 'who');
+    head.appendChild(el('span', '', who));
+    head.appendChild(stamp(ev.at));
+    li.appendChild(head);
+    li.appendChild(el('p', 'body', show(ev.text)));
+    append(li);
+  }
+
+  function handleChildStarted(ev) {
+    state.childExited = false;
+    state.modeKnown = false; state.modeWord = null; state.modeSource = null; state.modeAt = null;
+    state.modeRequest = null; setModeNote('');
+    state.sessionId = str(ev.session_id) || null;
+    state.resumed = ev.resumed === true;
+    var node = $('session-info');
+    node.hidden = !state.sessionId && !state.resumed;
+    node.className = 'pill' + (state.resumed ? ' resumed' : '');
+    node.textContent = (state.resumed ? '再開 · ' : '') + 'セッション ID: ' + (state.sessionId || '不明');
+    addLine('line', state.resumed ?
+      'Claude Code を再開しました（セッション ID: ' + (state.sessionId || '不明') + '）。それまでの会話は Claude の文脈に残っていますが、この画面には表示されません。' :
+      'Claude Code を起動しました。', ev.at);
+    renderMode();
+    scheduleStatus(500);
+  }
+
+  // The badge shows the CLI's own word; only the measured asking word counts as asking.
+  function modeLabel(word) { return word === ASKING_WORD ? '確認あり（' + word + '）' : '確認なし（' + word + '）'; }
+  function handleMode(ev) {
+    var word = typeof ev.word === 'string' ? ev.word : show(ev.word);
+    var changed = !state.modeKnown || state.modeWord !== word;
+    state.modeKnown = true;
+    state.modeWord = word;
+    state.modeSource = ev.source;
+    state.modeAt = ev.at;
+    if (state.modeRequest && (ev.source === 'echo' || word === (state.modeRequest === 'auto' ? 'auto' : ASKING_WORD))) {
+      state.modeRequest = null;
+      setModeNote('');
+    }
+    if (changed) addLine('line ' + (word === ASKING_WORD ? 'asking' : 'not-asking'), 'モード: ' + modeLabel(word) + ' — ' + sourceLabel(ev.source), ev.at);
+    renderMode();
+  }
+  function sourceLabel(source) { return has(MODE_SOURCES, source) ? MODE_SOURCES[source] : '報告: ' + show(source); }
+  function renderMode() {
+    var badge = $('mode-badge');
+    if (!state.modeKnown) {
+      badge.className = 'mode-badge unknown';
+      badge.textContent = 'モード: 不明';
+      text('mode-detail', 'まだ Claude Code からモードの報告がありません。');
+    } else {
+      badge.className = 'mode-badge ' + (state.modeWord === ASKING_WORD ? 'asking' : 'not-asking');
+      badge.textContent = modeLabel(state.modeWord);
+      text('mode-detail', 'Claude Code の最新の報告: 「' + state.modeWord + '」（' + sourceLabel(state.modeSource) + (typeof state.modeAt === 'string' ? '、' + clock(state.modeAt) : '') + '）');
+    }
+    $('auto-switch').checked = state.modeRequest ? state.modeRequest === 'auto' : (state.modeKnown && state.modeWord !== ASKING_WORD);
+  }
+  function setModeNote(value) { var node = $('mode-note'); node.textContent = value; node.hidden = !value; }
+
+  function handleAccepting(ev) {
+    var was = state.accepting;
+    state.accepting = ev.value === true;
+    state.acceptReason = state.accepting ? null : (typeof ev.reason === 'string' && ev.reason ? ev.reason : show(ev.reason));
+    if (state.accepting && !was) setSendMsg('');
+  }
+
+  // A tool use stays a proposal until its result arrives with the CLI's decision.
+  function toolCard(id, name, at) {
+    var card = tools.get(id);
+    if (card) return card;
+    var li = el('li', 'tool'), head = el('div', 'tool-head');
+    card = { li: li, name: name, badge: el('span', 'badge proposed', '提案'), title: el('span', 'tool-name', name),
+             note: el('p', 'tool-note'), input: el('div', 'tool-input'), result: el('div', 'tool-result'),
+             resolved: false, awaiting: false, answer: '', noResult: false };
+    head.appendChild(card.badge);
+    head.appendChild(card.title);
+    head.appendChild(stamp(at));
+    card.note.hidden = true;
+    card.result.hidden = true;
+    li.appendChild(head);
+    li.appendChild(card.note);
+    li.appendChild(card.input);
+    li.appendChild(card.result);
+    tools.set(id, card);
+    append(li);
+    return card;
+  }
+  function setBadge(card, cls, value) { card.badge.className = 'badge ' + cls; card.badge.textContent = value; }
+  function renderNote(card) {
+    var parts = [];
+    if (card.awaiting) parts.push('下の「確認待ち」で、許可か拒否を選んでください。');
+    if (card.answer) parts.push('答え: ' + card.answer + '。' + (card.resolved ? '' : 'Claude Code の結果を待っています。'));
+    if (card.noResult && !card.resolved) parts.push('この応答の中では結果が届きませんでした。');
+    card.note.textContent = parts.join(' ');
+    card.note.hidden = !parts.length;
+  }
+  function inputView(name, input, open) {
+    var wrap = el('div', 'input-view'), fields = obj(input);
+    if (name === 'Bash' && typeof fields.command === 'string') {
+      wrap.appendChild(el('p', 'label', 'コマンド'));
+      wrap.appendChild(el('pre', 'cmd', fields.command));
+    }
+    var details = el('details');
+    details.open = !!open;
+    details.appendChild(el('summary', '', open || input === undefined ? '入力（JSON）' : '入力（JSON）: ' + oneLine(input)));
+    details.appendChild(el('pre', '', input === undefined ? '（入力なし）' : json(input)));
+    wrap.appendChild(details);
+    return wrap;
+  }
+  function handleToolUse(ev) {
+    var name = str(ev.name, '（名前なし）');
+    var card = toolCard(str(ev.tool_use_id) || 'tool-use:' + ev.seq, name, ev.at);
+    card.name = name;
+    card.title.textContent = name;
+    clear(card.input);
+    card.input.appendChild(inputView(name, ev.input, false));
+  }
+
+  function isGrowthClaim(ev) { return /(^|__)kairomone_growth$/.test(str(ev.tool_name)) && obj(ev.input).command === 'claim'; }
+  function duration(seconds) { return seconds % 60 === 0 ? seconds + ' 秒（' + seconds / 60 + ' 分）' : seconds + ' 秒'; }
+  function claimNote(input) {
+    var lease = obj(input).lease_seconds;
+    var note = '許可すると、学習の試行が 1 回使われます（失敗しても戻りません）。';
+    if (Number.isSafeInteger(lease) && lease > 0) note += 'この依頼のリースは ' + duration(lease) + 'です。';
+    else note += 'この依頼には lease_seconds の指定がないため、リースは道具の既定の ' + duration(DEFAULT_LEASE_SECONDS) + 'です（Kairomone の決まりでは 900 秒を指定します）。';
+    return note + 'リースは延長されないので、そのあいだに続く取得（curl など）の確認にすぐ答える必要があります。';
+  }
+  function requestCard(ev, id) {
+    var root = el('article', 'request'), top = el('div', 'request-top'), name = str(ev.tool_name, '（名前なし）');
+    top.appendChild(el('span', 'badge awaiting', '確認待ち'));
+    top.appendChild(el('strong', 'tool-name', name));
+    top.appendChild(stamp(ev.at));
+    root.appendChild(top);
+    if (str(ev.display_name) && ev.display_name !== ev.tool_name) root.appendChild(el('p', 'caption', '表示名: ' + ev.display_name));
+    if (str(ev.description)) root.appendChild(el('p', 'request-desc', ev.description));
+    if (isGrowthClaim(ev)) root.appendChild(el('p', 'claim-note', claimNote(ev.input)));
+    if (ev.exact === false) root.appendChild(el('p', 'inexact-note', INEXACT_NOTE));
+    root.appendChild(inputView(name, ev.input, true));
+    var actions = el('div', 'actions');
+    var box = { root: root, allow: el('button', 'allow', '許可する'), deny: el('button', 'deny', '拒否する'), msg: el('p', 'request-msg'),
+                busy: false, closed: false, noAllow: ev.exact === false, armedAt: performance.now() + ARM_MS };
+    box.allow.type = 'button';
+    box.deny.type = 'button';
+    box.allow.setAttribute('aria-label', '許可する: ' + name);
+    box.deny.setAttribute('aria-label', '拒否する: ' + name);
+    box.allow.addEventListener('click', function (event) { press(event, id, 'allow', box); });
+    box.deny.addEventListener('click', function (event) { press(event, id, 'deny', box); });
+    actions.appendChild(box.allow);
+    actions.appendChild(box.deny);
+    root.appendChild(actions);
+    box.msg.setAttribute('role', 'status');
+    box.msg.hidden = true;
+    root.appendChild(box.msg);
+    root.appendChild(el('p', 'request-id', '依頼 ID: ' + id));
+    setTimeout(function () { enableBox(box); }, ARM_MS + 20);
+    return box;
+  }
+  // Neither a click before the card is armed nor the later clicks of a
+  // double-click (detail 2 and up) answer a request.
+  function press(event, id, decision, box) {
+    if (event.detail > 1 || performance.now() < box.armedAt) return;
+    answer(id, decision, box);
+  }
+  function boxMessage(box, value) { box.msg.textContent = value; box.msg.hidden = !value; }
+  function enableBox(box) {
+    var on = !box.busy && !box.closed && live() && !state.childExited && performance.now() >= box.armedAt;
+    box.allow.disabled = !on || box.noAllow;
+    box.deny.disabled = !on;
+  }
+  function handlePermissionRequest(ev) {
+    var id = show(ev.request_id), name = str(ev.tool_name, '（名前なし）');
+    var card = toolCard(str(ev.tool_use_id) || 'request:' + id, name, ev.at);
+    if (!card.resolved) setBadge(card, 'awaiting', '確認待ち');
+    card.awaiting = true;
+    renderNote(card);
+    var old = pending.get(id);
+    if (old && old.box.root.parentNode) old.box.root.parentNode.removeChild(old.box.root);
+    var box = requestCard(ev, id);
+    pending.set(id, { box: box, card: card });
+    $('pending-list').appendChild(box.root);
+  }
+  function answer(id, decision, box) {
+    if (box.busy || box.closed || !live()) return;
+    box.busy = true;
+    enableBox(box);
+    boxMessage(box, decision === 'allow' ? '許可を送っています…' : '拒否を送っています…');
+    api('POST', '/permission/' + encodeURIComponent(id), { decision: decision }).then(function (res) {
+      box.busy = false;
+      if (res.status === 200) { box.closed = true; boxMessage(box, (decision === 'allow' ? '許可' : '拒否') + 'を送りました。反映を待っています。'); }
+      else if (res.status === 404) { box.closed = true; boxMessage(box, 'この依頼はもう待っていません。'); }
+      else if (res.status === 409 && obj(res.data).error === 'not_allowable') { box.noAllow = true; boxMessage(box, 'この依頼は表示どおりの入力で許可できません。拒否を選べます。'); }
+      else if (res.status === 409) { box.closed = true; boxMessage(box, 'この依頼にはすでに答えがあります。'); }
+      else if (res.status !== 403) boxMessage(box, '送れませんでした（' + res.status + '）。もう一度試せます。');
+      enableBox(box);
+    }, function () {
+      box.busy = false;
+      boxMessage(box, 'コンソールに届きませんでした。もう一度試せます。');
+      enableBox(box);
+    });
+  }
+  function handlePermissionAnswered(ev) {
+    var id = show(ev.request_id), entry = pending.get(id);
+    var what = (ev.decision === 'allow' ? '許可' : ev.decision === 'deny' ? '拒否' : show(ev.decision)) +
+      '（' + (ev.by === 'owner' ? 'あなたの答え' : ev.by === 'console_stop' ? 'コンソールの停止による' : show(ev.by)) + '）';
+    if (!entry) { addLine('line', '依頼 ' + id + ' への答え: ' + what, ev.at); return; }
+    pending.delete(id);
+    if (entry.box.root.parentNode) entry.box.root.parentNode.removeChild(entry.box.root);
+    entry.card.awaiting = false;
+    entry.card.answer = what;
+    if (!entry.card.resolved) setBadge(entry.card, 'proposed', '提案');
+    renderNote(entry.card);
+  }
+
+  function resultText(content) {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content) && content.length && content.every(function (block) { var b = obj(block); return b.type === 'text' && typeof b.text === 'string'; })) {
+      return content.map(function (block) { return block.text; }).join('\n');
+    }
+    return content === undefined || content === null ? '（内容なし）' : json(content);
+  }
+  function handleToolResult(ev) {
+    var card = tools.get(str(ev.tool_use_id)) || toolCard(str(ev.tool_use_id) || 'result:' + ev.seq, '（対応する提案が見当たらない結果）', ev.at);
+    var decision = ev.decision, source = ev.decision_source, failed = ev.is_error === true;
+    card.resolved = true;
+    if (decision === 'reject' || decision === 'deny') setBadge(card, 'bad', '拒否');
+    else if (failed) setBadge(card, 'bad', 'エラー');
+    else setBadge(card, 'good', '結果');
+    renderNote(card);
+    var view = card.result, line = el('p', 'decision');
+    clear(view);
+    line.appendChild(el('span', '', 'Claude Code の判断: ' + (decision === undefined || decision === null ? '記録なし' : show(decision))));
+    line.appendChild(el('span', '', '出所: ' + (source === undefined || source === null ? '記録なし' : show(source)) + (has(DECISION_SOURCES, source) ? '（' + DECISION_SOURCES[source] + '）' : '')));
+    view.appendChild(line);
+    view.appendChild(ev.decided_by_page === true ? el('p', 'by-page', 'この画面での答えです。') : el('p', 'not-by-page', 'この画面の判断ではありません。'));
+    var body = resultText(ev.content), title = failed ? 'エラーの内容' : '結果';
+    if (body.length > 1200 || body.split('\n').length > 24) {
+      var details = el('details');
+      details.appendChild(el('summary', '', title + '（' + body.length + ' 文字）'));
+      details.appendChild(el('pre', failed ? 'error-text' : '', body));
+      view.appendChild(details);
+    } else {
+      view.appendChild(el('p', 'label', title));
+      view.appendChild(el('pre', failed ? 'error-text' : '', body));
+    }
+    view.hidden = false;
+    if (/(^|__)kairomone_/.test(card.name)) scheduleStatus(800);
+  }
+
+  function handleForeignTurn(ev) {
+    addAlert('このコンソール以外から届いた会話です。コンソールは応答を中断しました。', show(ev.text),
+      ev.origin === undefined || ev.origin === null ? '出所の記載はありません。' : '出所: ' + show(ev.origin), ev.at);
+  }
+  function handleModeMismatch(ev) {
+    addAlert('モードが食い違ったため、コンソールは応答を中断しました。',
+      'コンソールが確認したモード: ' + show(ev.expected) + '\nClaude Code が報告したモード: ' + show(ev.reported), null, ev.at);
+  }
+  function handleTurnEnd(ev) {
+    var li = el('li', 'turn-end' + (ev.is_error === true ? ' bad' : ''));
+    var label = '応答の終わり';
+    if (str(ev.subtype) && ev.subtype !== 'success') label += '（' + ev.subtype + '）';
+    if (ev.is_error === true) label += ' · エラー';
+    li.appendChild(el('span', '', label));
+    li.appendChild(stamp(ev.at));
+    append(li);
+    tools.forEach(function (card) {
+      if (!card.resolved && !card.noResult) { card.noResult = true; renderNote(card); }
+    });
+    scheduleStatus(500);
+  }
+  function handleChildExited(ev) {
+    state.childExited = true;
+    if (ev.status === 0) addLine('line', 'Claude Code が終了しました（終了の状態: 0）。', ev.at);
+    else addAlert('Claude Code が終了しました。', null, '終了の状態: ' + show(ev.status), ev.at);
+    pending.forEach(function (entry) {
+      if (!entry.box.closed) { entry.box.closed = true; boxMessage(entry.box, 'Claude Code は終了しています。'); }
+    });
+  }
+
+  function refreshControls() {
+    var on = live(), open = on && !state.childExited && state.accepting;
+    $('message').disabled = !open;
+    $('send').disabled = !open || state.sending;
+    $('interrupt').disabled = !on || state.childExited;
+    $('stop').disabled = !on;
+    $('auto-switch').disabled = !on || state.childExited || !state.modeKnown || state.modeBusy;
+    $('status-refresh').disabled = !state.session || state.lost || state.ended;
+    document.querySelectorAll('button.q').forEach(function (button) { button.disabled = !open; });
+    var reason = '';
+    if (state.lost) reason = REASONS.no_session;
+    else if (!state.session) reason = REASONS.connecting;
+    else if (state.ended) reason = REASONS.stopped;
+    else if (state.childExited) reason = REASONS.child_exited;
+    else if (!state.accepting) reason = reasonText(state.acceptReason);
+    text('reason', reason);
+    $('reason').hidden = !reason;
+    pending.forEach(function (entry) { enableBox(entry.box); });
+    $('pending').hidden = pending.size === 0;
+    text('pending-count', pending.size ? '（' + pending.size + ' 件）' : '');
+    document.title = (pending.size ? '（確認待ち ' + pending.size + '）' : '') + state.name + ' · Kairomone コンソール';
+  }
+  function setSendMsg(value) { var node = $('send-msg'); node.textContent = value; node.hidden = !value; }
+
+  function send() {
+    if ($('send').disabled || state.sending) return;
+    var box = $('message'), value = box.value;
+    if (!value.trim()) { setSendMsg(REASONS.empty); return; }
+    if (bytes(value) > MAX_TEXT_BYTES) { setSendMsg(REASONS.too_long); return; }
+    state.sending = true;
+    setSendMsg('');
+    refreshControls();
+    api('POST', '/message', { text: value }).then(function (res) {
+      state.sending = false;
+      if (res.status === 202) { if (box.value === value) box.value = ''; }
+      else if (res.status === 409) setSendMsg('送れませんでした: ' + reasonText(obj(res.data).reason));
+      else if (res.status === 413) setSendMsg('大きすぎて送れません。');
+      else if (res.status !== 403) setSendMsg('送れませんでした（' + res.status + '）。');
+      refreshControls();
+    }, function () {
+      state.sending = false;
+      setSendMsg('コンソールに届きませんでした。もう一度試せます。');
+      refreshControls();
+    });
+  }
+  function interrupt() {
+    if (!live()) return;
+    api('POST', '/interrupt', {}).then(function (res) {
+      if (res.status === 202) setSendMsg('中断を送りました。');
+      else if (res.status !== 403) setSendMsg('中断できませんでした' + refusal(res) + '。');
+    }, function () { setSendMsg('コンソールに届きませんでした。'); });
+  }
+  function stop() {
+    if (!live() || !window.confirm(STOP_CONFIRM)) return;
+    state.stopping = true;
+    setSendMsg('停止を送っています…');
+    refreshControls();
+    api('POST', '/stop', {}).then(function (res) {
+      if (res.status === 202) { setSendMsg('停止を送りました。コンソールが終わるのを待っています…'); return; }
+      if (res.status === 403) return;
+      state.stopping = false;
+      setSendMsg('停止できませんでした' + refusal(res) + '。');
+      refreshControls();
+    }, function () { finishStopped(); });
+  }
+  function finishStopped() {
+    if (state.ended) return;
+    state.ended = true;
+    state.stopping = false;
+    pending.forEach(function (entry) { entry.box.closed = true; });
+    setConn('ended');
+    showGate('ended');
+    setSendMsg('');
+    refreshControls();
+  }
+
+  function toggleMode() {
+    if ($('auto-switch').checked) {
+      if (!window.confirm(AUTO_CONFIRM)) { renderMode(); return; }
+      requestMode('auto');
+    } else {
+      requestMode('ask');
+    }
+  }
+  // The badge never changes here: only the CLI's report, as a mode event, moves it.
+  function requestMode(mode) {
+    state.modeRequest = mode;
+    state.modeBusy = true;
+    setModeNote(mode === 'auto' ? '確認なし（auto）への切り替えを送っています…' : '確認ありへの切り替えを送っています…');
+    renderMode();
+    refreshControls();
+    api('POST', '/mode', { mode: mode }).then(function (res) {
+      state.modeBusy = false;
+      if (res.status === 202) {
+        if (state.modeRequest === mode) setModeNote('切り替えを送りました。表示は Claude Code の報告で変わります。');
+      } else {
+        state.modeRequest = null;
+        setModeNote(res.status === 403 ? '' : '切り替えられませんでした' + refusal(res) + '。');
+      }
+      renderMode();
+      refreshControls();
+    }, function () {
+      state.modeBusy = false;
+      state.modeRequest = null;
+      setModeNote('コンソールに届きませんでした。');
+      renderMode();
+      refreshControls();
+    });
+  }
+
+  function quick(value) {
+    var box = $('message'), current = box.value;
+    var untouched = !current.trim() || Array.prototype.some.call(document.querySelectorAll('button.q'), function (button) { return button.textContent === current; });
+    box.value = untouched ? value : current.replace(/\s+$/, '') + '\n' + value;
+    if (box.disabled) return;
+    box.focus();
+    var at = box.value.lastIndexOf('〈話題〉');
+    if (at >= 0) box.setSelectionRange(at, at + '〈話題〉'.length);
+    else box.setSelectionRange(box.value.length, box.value.length);
+  }
+
+  // Status follows instance.rb#status (schema version 1) and status.html's rules:
+  // unknown is never shown as zero; an integrity pass needs readable and valid.
+  function scheduleStatus(ms) {
+    if (state.statusTimer) clearTimeout(state.statusTimer);
+    state.statusTimer = setTimeout(loadStatus, ms);
+  }
+  function loadStatus() {
+    state.statusTimer = null;
+    if (!state.session || state.lost || state.ended) return;
+    if (state.statusBusy) { state.statusAgain = true; return; }
+    state.statusBusy = true;
+    text('st-at', '読み込んでいます…');
+    api('GET', '/status').then(function (res) {
+      if (res.status === 403) return;
+      if (!res.ok || !res.data || typeof res.data !== 'object' || Array.isArray(res.data)) throw new Error('status ' + res.status);
+      renderStatus(res.data);
+    }).catch(function () {
+      text('st-at', '状態を読み込めませんでした。');
+    }).then(function () {
+      state.statusBusy = false;
+      if (state.statusAgain) { state.statusAgain = false; scheduleStatus(0); }
+    });
+  }
+  function badge(id, label, cls) { var node = $(id); node.textContent = label; node.className = 'status-badge' + (cls ? ' ' + cls : ''); }
+  function list(id, values, fallback) {
+    var node = $(id), items = Array.isArray(values) ? values.filter(function (v) { return typeof v === 'string' && v.length; }) : [];
+    clear(node);
+    (items.length ? items.slice(0, 50) : [fallback]).forEach(function (value) { node.appendChild(el('li', '', value)); });
+  }
+  function renderStatus(payload) {
+    var data = payload.status, dir = str(payload.data_dir, '未確認');
+    var valid = !!data && typeof data === 'object' && !Array.isArray(data) && data.schema_version === 1;
+    var s = valid ? data : {}, profile = obj(s.profile), companion = obj(s.companion);
+    var name = str(companion.display_name, str(profile.display_name, 'Kairomone')), dotId = str(profile.dot_id, '未確認');
+    state.name = name;
+    text('dot-name', name); text('st-name', name);
+    text('dot-id', dotId); text('st-dot-id', dotId);
+    text('data-dir', dir); text('st-data-dir', dir);
+    text('st-root', str(obj(s.storage).data_root, '未確認'));
+    var problems = [];
+    if (typeof payload.error === 'string' && payload.error) problems.push('状態を読み取れませんでした: ' + payload.error);
+    if (!valid) problems.push('この状態のデータは読み取れません（形式が違います）。');
+    if (s.initialized === false) problems.push('相棒のプロフィールはまだ初期化されていません。');
+    if (typeof s.error === 'string' && s.error) problems.push('状態を一部しか確認できませんでした: ' + s.error);
+    var warn = $('st-warn');
+    clear(warn);
+    problems.forEach(function (problem) { warn.appendChild(el('p', '', problem)); });
+    warn.hidden = !problems.length;
+
+    var p = obj(s.progression);
+    var validLevel = Number.isSafeInteger(p.level) && p.level >= 1 && p.level <= 999 && p.level_cap === 999;
+    var stage = validLevel ? (p.level >= 500 ? 'ancient' : p.level >= 100 ? 'canopy' : p.level >= 20 ? 'grove' : p.level >= 5 ? 'sprout' : 'seed') : 'unknown';
+    $('creature').setAttribute('data-stage', stage);
+    text('st-stage', stage === 'unknown' ? '成長段階は未確認' : '姿: ' + STAGES[stage]);
+    text('creature-title', '小さな、オリジナルの苔の生きもの · ' + (stage === 'unknown' ? '成長段階は未確認' : STAGES[stage]));
+    text('st-level', validLevel ? String(p.level) : '—');
+    text('st-xp', count(p.total_xp));
+    var knowledge = obj(s.knowledge), observations = obj(s.observations);
+    text('st-l1', knowledge.available === true ? count(knowledge.count) : '—');
+    text('st-l2', observations.available === true ? count(observations.count) : '—');
+    text('st-profession', str(obj(s.profession).name, '未確認'));
+    text('st-memory', companion.memory_enabled === true ? 'オン' : companion.memory_enabled === false ? 'オフ' : '未確認');
+
+    var integrity = obj(s.integrity), label = '未確認', cls = '';
+    if (integrity.state === 'readable' && integrity.valid === true) { label = 'ローカルチェーンの検証に合格'; cls = 'good'; }
+    else if (integrity.state === 'corrupt' || (integrity.state === 'readable' && integrity.valid === false)) { label = '検証に不一致があります'; cls = 'bad'; }
+    else if (integrity.state === 'absent') { label = 'チェーンが見つかりません'; cls = 'warning'; }
+    else if (integrity.state === 'unreadable') { label = 'チェーンを読み取れません'; cls = 'warning'; }
+    else if (integrity.state === 'empty') { label = 'チェーンに記録がありません'; cls = 'warning'; }
+    badge('st-integrity', label, cls);
+    // Counts from a chain that was not read are placeholders, so they stay unknown.
+    var read = integrity.state === 'readable';
+    text('st-blocks', read ? count(integrity.block_count) : '—');
+    text('st-pending', read ? count(integrity.pending_count) : '—');
+    list('st-details', integrity.details, '詳細情報はありません');
+
+    var l0 = obj(integrity.host_l0).state;
+    if (l0 === 'unchanged') badge('st-l0', '変化なし', 'good');
+    else if (l0 === 'changed') badge('st-l0', '変化あり（学習は止まっています）', 'bad');
+    else if (l0 === 'unavailable') badge('st-l0', '確認できません', 'warning');
+    else badge('st-l0', '未確認', '');
+    $('st-l0-hint').hidden = l0 !== 'changed';
+
+    var g = obj(s.autonomy), configured = g.configured === true;
+    badge('st-growth', g.configured === false ? '未設定' : !configured ? '未確認' : g.stopped === true ? '停止中' :
+      g.active_claim && typeof g.active_claim === 'object' ? 'リースあり（学習中）' : g.queue && typeof g.queue === 'object' ? '待機中の依頼あり' : '待機中の依頼なし', '');
+    text('st-used', configured ? count(g.used_cycles) : '—');
+    text('st-max', configured ? count(g.max_cycles) : '—');
+    text('st-remaining', configured ? count(g.remaining_cycles) : '—');
+    text('st-at', '取得: ' + (typeof s.generated_at === 'string' ? clock(s.generated_at) : '不明'));
+    refreshControls();
+  }
+
+  function bind() {
+    $('send').addEventListener('click', send);
+    $('message').addEventListener('keydown', function (event) {
+      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); send(); }
+    });
+    $('interrupt').addEventListener('click', interrupt);
+    $('stop').addEventListener('click', stop);
+    $('auto-switch').addEventListener('change', toggleMode);
+    $('status-refresh').addEventListener('click', function () { scheduleStatus(0); });
+    document.querySelectorAll('button.q').forEach(function (button) {
+      button.addEventListener('click', function () { quick(button.textContent); });
+    });
+    // Opening a fresh URL in a tab that already shows the console changes
+    // only the fragment, which loads nothing: load the page again, so the
+    // fresh bootstrap is exchanged and leaves the address bar as on a first
+    // load, and the page is rebuilt for the new session.
+    window.addEventListener('hashchange', function () {
+      var raw = location.hash.slice(1);
+      if (TOKEN.test(raw)) { location.reload(); return; }
+      if (raw) { try { history.replaceState(null, '', location.pathname + location.search); } catch (_) { /* nothing to remove */ } }
+    });
+  }
+
+  boot();
+}());
+</script>
+</body>
+</html>
