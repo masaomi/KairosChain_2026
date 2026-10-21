@@ -30,7 +30,14 @@ module KairosMcp
         # transport diagnostics travel with the record. Readers tell old
         # records from new by this number; old records are not rewritten
         # (design §4, no retroactivity).
-        VERDICT_SCHEMA_VERSION = 2
+        #
+        # 3 = 0.12.0 (design log/mlr_non_claude_host_design_v0.3.3): vote_tally
+        # gains roster_health; the record gains host fields; and `transport`
+        # narrows from "any :error" to "an :error whose transport established no
+        # cause" — cli_missing, cli_unauthenticated, workspace_refused and
+        # cli_timeout now name the rest (INV-H1). A `transport` row in a schema-2
+        # record therefore means something wider than in a schema-3 one.
+        VERDICT_SCHEMA_VERSION = 3
 
         # @param artifact_content [String] sanitized at boundary; raw passthrough is caller responsibility
         # @param artifact_name [String]

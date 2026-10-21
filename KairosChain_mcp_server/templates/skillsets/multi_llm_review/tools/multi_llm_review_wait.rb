@@ -5,6 +5,7 @@ require 'time'
 require 'yaml'
 require_relative '../lib/multi_llm_review/pending_state'
 require_relative '../lib/multi_llm_review/wait_for_worker'
+require_relative '../lib/multi_llm_review/consensus'
 
 module KairosMcp
   module SkillSets
@@ -45,8 +46,8 @@ module KairosMcp
 
           def description
             'Phase 1.5 — block until subprocess reviewers complete for a delegated ' \
-              'multi_llm_review token. Optional but recommended: call after spawning ' \
-              'persona Agent reviews and before multi_llm_review_collect. Returns ' \
+              'multi_llm_review token. Optional but recommended: call after starting ' \
+              'the persona reviews and before multi_llm_review_collect. Returns ' \
               'a status enum with a next_action recovery hint for every status.'
           end
 
@@ -216,8 +217,9 @@ module KairosMcp
               reply('ready', token, elapsed,
                 subprocess_done: done,
                 subprocess_total: subprocess_total,
+                **seat_outcomes(outcome[:results]),
                 next_action: next_action_collect(token,
-                  'Subprocess reviewers complete. Submit your persona Agent findings to ' \
+                  'Subprocess reviewers complete. Submit your persona findings to ' \
                   'multi_llm_review_collect to compute the final consensus.'))
             when :crashed
               reset_streak(token)
@@ -275,8 +277,9 @@ module KairosMcp
             reply('ready', token, elapsed,
               subprocess_done: done,
               subprocess_total: subprocess_total_from(PendingState.load_state(token), token) || done,
+              **seat_outcomes(data && data['results']),
               next_action: next_action_collect(token,
-                'Subprocess reviewers complete. Submit your persona Agent findings to ' \
+                'Subprocess reviewers complete. Submit your persona findings to ' \
                 'multi_llm_review_collect to compute the final consensus.'))
           end
 
@@ -293,10 +296,28 @@ module KairosMcp
             }
             payload['subprocess_done']      = fields[:subprocess_done] if fields.key?(:subprocess_done)
             payload['subprocess_total']     = fields[:subprocess_total] if fields.key?(:subprocess_total)
+            payload['subprocess_answered']  = fields[:subprocess_answered] if fields.key?(:subprocess_answered)
+            payload['subprocess_failed']    = fields[:subprocess_failed] if fields.key?(:subprocess_failed)
             payload['crashed_reason']       = fields[:crashed_reason] if fields.key?(:crashed_reason)
             payload['still_pending_streak'] = fields[:still_pending_streak] if fields.key?(:still_pending_streak)
             payload['next_action']          = fields[:next_action] if fields.key?(:next_action)
             text_content(JSON.generate(payload))
+          end
+
+          # INV-H2: "done" counts seats that finished, failed ones included, so a
+          # ready reply also says how many answered and which failed, and why —
+          # the same reason the record will carry.
+          def seat_outcomes(results)
+            return {} unless results.is_a?(Array)
+
+            failed = results.reject { |r| r.is_a?(Hash) && r['status'].to_s == 'success' }.map do |r|
+              row = r.is_a?(Hash) ? r : {}
+              status = row['status'].to_s
+              reason = status.empty? ? Consensus::SKIP_REASON_TRANSPORT :
+                         Consensus.transport_reason(status: status.to_sym, error: row['error'])
+              { 'role_label' => row['role_label'], 'reason' => reason }
+            end
+            { subprocess_answered: results.size - failed.size, subprocess_failed: failed }
           end
 
           def subprocess_total_from(state, token)

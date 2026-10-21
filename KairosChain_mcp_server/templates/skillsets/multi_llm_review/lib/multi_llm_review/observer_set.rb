@@ -64,9 +64,13 @@ module KairosMcp
         #   even though a declaration is present. This is how a caller declines
         #   the INV-P2 fallback (the legacy "exclude" strategy): its slot still
         #   leaves the set, but nothing takes its place.
+        # @param persona_host [String, nil] the caller's declared host
+        #   (INV-H4); it names the persona seat, so the name-collision check
+        #   must use it too.
         def self.build(roster:, escalation: [], escalate: false,
                        persona_model: nil, orchestrator_model: nil,
-                       separate_context: false, convene_persona: true)
+                       separate_context: false, convene_persona: true,
+                       persona_host: nil)
           slots = normalize(roster)
           escalation_slots = escalate ? normalize(escalation) : []
 
@@ -98,7 +102,7 @@ module KairosMcp
           # the persona took over, or one dropped as the caller's own, still
           # appears in the composition under its name.
           if convened
-            persona_label = PersonaAssembly.role_label_for(effective_persona)
+            persona_label = PersonaAssembly.role_label_for(effective_persona, persona_host)
             if all.any? { |s| s[:role_label] == persona_label }
               raise RosterError,
                 "a reviewer slot is named #{persona_label}, which is the name " \
@@ -128,7 +132,7 @@ module KairosMcp
           dispatch = all.reject do |slot|
             if occupied && slot.equal?(occupied)
               excluded << exclusion(slot, REASON_PERSONA_OCCUPIED,
-                                    PersonaAssembly.role_label_for(effective_persona))
+                                    PersonaAssembly.role_label_for(effective_persona, persona_host))
               true
             elsif !caller_slot_taken && !separate_context &&
                   caller && slot[:model] == caller

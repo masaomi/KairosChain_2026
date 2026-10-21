@@ -89,7 +89,7 @@ module KairosMcp
         end
 
         def test_schema_version_constant
-          assert_equal 1, F::SCHEMA_VERSION
+          assert_equal 2, F::SCHEMA_VERSION
         end
       end
     end

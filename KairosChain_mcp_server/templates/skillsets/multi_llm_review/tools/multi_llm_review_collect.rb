@@ -19,7 +19,7 @@ module KairosMcp
         # Phase 2 of the orchestrator delegation protocol.
         #
         # Receives the orchestrator's persona team review (assembled in the
-        # caller's own context via Agent tool), merges it with the subprocess
+        # caller's host as sub-agents), merges it with the subprocess
         # reviewer results persisted by Phase 1, and runs Consensus to produce
         # the final verdict.
         #
@@ -77,7 +77,7 @@ module KairosMcp
                       reasoning: { type: 'string' },
                       agent_id: {
                         type: 'string',
-                        description: 'Optional. The agent id the Agent tool returned for the subagent ' \
+                        description: 'Optional. The agent id your host returned for the sub-agent ' \
                           'that ran this persona. When any persona carries one, the seat records ' \
                           'the model the harness observed answering (model_provenance SkillSet) ' \
                           'instead of only the declared one; a persona without one, or whose id ' \
@@ -268,7 +268,10 @@ module KairosMcp
                 # model_provenance INV-7: nil unless a persona is bound, and
                 # never raises — a binding that cannot be resolved becomes an
                 # unobserved persona, not a refused submission.
-                observations: ProvenanceBinding.resolve(reviews)
+                observations: ProvenanceBinding.resolve(reviews),
+                # INV-H4: the host declared at dispatch names the seat; tokens
+                # from before 0.12.0 carry none and keep claude_team_.
+                host: state['orchestrator_host']
               )
             rescue ArgumentError => e
               # INV-R1/R4: the refusal is an event on the accepting side, and
@@ -440,14 +443,9 @@ module KairosMcp
             # here. Either side asking is enough; neither overrides the other.
             include_raw_text = (arguments['include_raw_text'] == true) ||
                                (state['include_raw_text'] == true)
-            feedback_text =
-              case consensus[:reference_verdict]
-              when 'APPROVE' then nil
-              when 'INSUFFICIENT'
-                FeedbackFormatter.build_insufficient(consensus[:vote_tally][:reason] || 'quorum not met')
-              else
-                FeedbackFormatter.build(sanitized_findings)
-              end
+            feedback_text = FeedbackFormatter.for_result(
+              consensus, sanitized_findings, { path: ENV['PATH'].to_s, cwd: Dir.pwd }
+            )
 
             payload = {
               'status' => 'ok',
@@ -474,6 +472,10 @@ module KairosMcp
               # declaration makes possible.
               'orchestrator_strategy' => state['orchestrator_strategy'] || 'delegate',
               'persona_model' => state['persona_model'],
+              # INV-H4: the declaration (or that there was none) beside the
+              # server's own detection, taken at dispatch.
+              'persona_host' => state['orchestrator_host'] || 'undeclared',
+              'host_detected' => state['host_detected'],
               'run_token' => token
             }
             # The worker died and finished seats were recovered; the lost

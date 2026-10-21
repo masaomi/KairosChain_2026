@@ -232,6 +232,25 @@ reviewers:
   #   model: claude-sonnet-4-6
   #   role_label: cursor_sonnet4.6
 
+  # ----------------------------------------------------------------------
+  # Codex-only machine (0.12.0). With only the `codex` CLI, the roster above
+  # leaves one seat that can answer, below min_quorum (2), so every review ends
+  # INSUFFICIENT. A second codex seat on another model makes two:
+  # - provider: codex
+  #   model: gpt-6-sol
+  #   effort: high
+  #   role_label: codex_gpt6-sol
+  # What each strategy then counts, when the caller is a Codex host declaring
+  # orchestrator_model gpt-6-astra:
+  #   delegate   (default) — 2: gpt-6-sol and the host's own persona team,
+  #                          which is the caller's declaration, not an observation
+  #   subprocess (no persona_model) — 2: gpt-6-astra and gpt-6-sol, both run as
+  #                          fresh processes; one call that returns only when every
+  #                          seat has finished, so a host's per-call time limit must
+  #                          exceed both configured timeouts (see the L1 runbook)
+  #   exclude    — 1: the host's own slot leaves (exclude_orchestrator_model: true)
+  # ----------------------------------------------------------------------
+
 # Reserve observers (INV-E3).
 #
 # These are not part of the roster above. They join only when a caller passes

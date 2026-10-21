@@ -190,7 +190,11 @@ module KairosMcp
           args = {
             'messages' => per_seat_messages,
             'system' => system_prompt,
-            'provider_override' => provider
+            'provider_override' => provider,
+            # INV-H1 / ruling 7: a seat runs only on the provider its slot
+            # names. Without this, an AuthError on an API-key seat was re-run on
+            # claude_code under the seat's own name (call_router.rb, llm_call.rb).
+            'no_fallback' => true
           }
           args['model'] = model if model
 

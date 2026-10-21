@@ -49,8 +49,25 @@ module KairosMcp
         # where the persona entry is built, and read from here by ObserverSet —
         # which needs it before the entry exists, to refuse a roster that
         # already contains that name.
-        def role_label_for(model)
-          "claude_team_#{model}"
+        #
+        # INV-H4: the host the caller declared names the seat. Declaring
+        # claude_code, or declaring nothing, gives exactly the label and
+        # provider every record before 0.12.0 has; other hosts take core's
+        # names (Capability.detect_harness: claude_code, codex_cli, cursor) or
+        # `other`, and a provider token no dispatched seat uses.
+        HOSTS = %w[claude_code codex_cli cursor other].freeze
+        HOST_LABEL_PREFIX = {
+          'claude_code' => 'claude', 'codex_cli' => 'codex',
+          'cursor' => 'cursor', 'other' => 'other'
+        }.freeze
+
+        def role_label_for(model, host = nil)
+          "#{HOST_LABEL_PREFIX.fetch(host.to_s, 'claude')}_team_#{model}"
+        end
+
+        def provider_for(host = nil)
+          prefix = HOST_LABEL_PREFIX.fetch(host.to_s, 'claude')
+          prefix == 'claude' ? 'claude_code' : "#{prefix}_host"
         end
 
         # @param orchestrator_reviews [Array<Hash>] each: {persona, verdict, findings, reasoning}
@@ -60,7 +77,7 @@ module KairosMcp
         # from ProvenanceBinding.resolve, or nil when the caller bound no
         # persona — in which case the entry is exactly what it was before
         # bindings existed.
-        def assemble(orchestrator_reviews, orchestrator_model, observations: nil)
+        def assemble(orchestrator_reviews, orchestrator_model, observations: nil, host: nil)
           validate_orchestrator_model!(orchestrator_model)
           validate!(orchestrator_reviews)
 
@@ -73,8 +90,8 @@ module KairosMcp
           # (INV-R4). It leaves the denominator through the ordinary route.
           if orchestrator_reviews.empty?
             return {
-              role_label: role_label_for(orchestrator_model),
-              provider: 'claude_code',
+              role_label: role_label_for(orchestrator_model, host),
+              provider: provider_for(host),
               model: orchestrator_model,
               model_source: 'declared',
               synthetic: true,
@@ -99,8 +116,8 @@ module KairosMcp
           raw_text = build_raw_text(orchestrator_reviews, combined)
 
           entry = {
-            role_label: role_label_for(orchestrator_model),
-            provider: 'claude_code',
+            role_label: role_label_for(orchestrator_model, host),
+            provider: provider_for(host),
             model: orchestrator_model,
             # INV-P1. The persona runs in the caller's harness, where this
             # system cannot see it, so this name is what the caller said and
