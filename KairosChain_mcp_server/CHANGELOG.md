@@ -6,6 +6,55 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.96.0] - 2026-10-21
+
+### Changed — multi_llm_review says what the roster was when a result is read (multi_llm_review 0.12.0, llm_client 0.4.0)
+
+A seat whose reviewer CLI was missing, logged out or refused by codex used to leave the count as `transport`, and
+an APPROVE carried no feedback at all, so a review decided by two Anthropic seats read like one decided by four
+seats from three makers. A Codex host's persona team was recorded as Claude's.
+
+- A failed seat's reason is the cause its CLI adapter established: `cli_missing` (the binary is not on the PATH the
+  server searched), `cli_unauthenticated` (the CLI, asked after the failure with its own status command, says it
+  holds no credential), `workspace_refused` (codex refused a working directory outside a git repository) or
+  `cli_timeout`. Anything else stays `transport`, which now means an error with no established cause. Nothing the
+  CLI printed is read for this: codex prints the prompt and the files it read.
+- `vote_tally.roster_health` states the seats, how many counted, each seat that did not count with its reason, and
+  each counted seat's maker with where it comes from (observed, configured, or declared by the caller). When a seat
+  did not count or maker diversity is not established, `feedback_text` starts with one line, on APPROVE too:
+  `Roster: 2 of 4 seats counted (1 caller-declared) — not counted: cli_missing: codex_gpt6-astra, cursor_composer2.5; maker diversity not established.`
+- INSUFFICIENT says how many seats counted and how many were needed, that a seat can be added in config, and the
+  action that restores each lost seat where one exists. The tool advises no strategy.
+- Every seat is dispatched with `no_fallback`: an API-key seat whose key is unset fails on its own provider instead
+  of being re-run on claude_code under its own name.
+- New optional argument `orchestrator_host` (`claude_code`, `codex_cli`, `cursor`, `other`). `claude_code` or none
+  keeps `claude_team_<model>`; `codex_cli` records the persona seat as `codex_team_<model>` with provider
+  `codex_cli_host`. Records carry `orchestrator_host` and the server's own `host_detected`.
+- `multi_llm_review_wait` reports answered and failed seats separately.
+- The verdict and the quorum are unchanged. VERDICT_SCHEMA_VERSION 3, feedback_text_schema_version 2;
+  multi_llm_review's min_core_version is 3.24.9.
+- config gains a commented second codex seat for a machine with only the codex CLI. Upgrades never rewrite an
+  instance's config; add it by hand.
+- llm_client 0.4.0: `ApiError` carries the `code`, and `CallRouter` and `llm_call` return it as `error['code']`.
+  After a failed CLI call one status command runs (never when the dispatcher ended the call; at most about 19 s).
+  The error message and its ErrorTaxonomy type are unchanged, so every other llm_client caller sees only the added
+  key and that pause.
+
+Design: `log/mlr_non_claude_host_design_v0.3.3_20261021.md`, frozen after four review rounds; implementation
+reviewed in two (records `log/mlr_non_claude_host_*`).
+
+### Changed — L1 `multi_llm_review_workflow` 3.17.0
+
+§ Auto Mode vs Manual Mode sent a missing CLI to a "Manual mode" the runbook never described. It is replaced by
+§ Execution Environment / Reduced rosters and non-Claude hosts: what each failure reason means and what restores
+the seat, the roster line, what a Claude-only, a non-Claude-host and a codex-only setup count under each strategy,
+and how a host's per-call time limit meets a long review call.
+
+### Fixed — `capability_status` reported installed reviewer CLIs as missing
+
+It searched PATH for files named `claude_cli`, `codex_cli` and `cursor_cli`. It now probes the binaries the
+adapters spawn (`claude`, `codex`, `agent`), runs `--version` without a shell, and names the binary it searched for.
+
 ## [3.95.1] - 2026-10-21
 
 ### Changed — the agent SkillSet ships a sample policy, `default_2026_10_20`, instead of `masa_2026_10_20` (agent 1.0.1)
