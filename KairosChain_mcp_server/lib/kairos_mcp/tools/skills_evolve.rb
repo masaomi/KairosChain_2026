@@ -47,8 +47,8 @@ module KairosMcp
           properties: {
             command: {
               type: 'string',
-              description: 'Command: "propose", "apply", "add", or "reset"',
-              enum: ['propose', 'apply', 'add', 'reset']
+              description: 'Command: "propose", "apply", "add", "pending", or "reset"',
+              enum: ['propose', 'apply', 'add', 'pending', 'reset']
             },
             skill_id: {
               type: 'string',
@@ -65,6 +65,10 @@ module KairosMcp
             approved: {
               type: 'boolean',
               description: 'Set to true to approve the change (when human approval is required)'
+            },
+            proposal_id: {
+              type: 'string',
+              description: 'Id of a pending proposal to apply (list them with command "pending")'
             }
           }
         }
@@ -76,25 +80,45 @@ module KairosMcp
         definition = arguments['definition']
         reason = arguments['reason']
         approved = arguments['approved'] || false
+        proposal_id = arguments['proposal_id']
 
         case command
         when 'propose'
           return text_content("Error: skill_id and definition are required") unless skill_id && definition
-          
+
           result = SafeEvolver.propose(skill_id: skill_id, new_definition: definition, reason: reason)
           format_result(result, show_checks: true)
 
         when 'apply'
-          return text_content("Error: skill_id and definition are required") unless skill_id && definition
-          
-          result = SafeEvolver.apply(skill_id: skill_id, new_definition: definition, approved: approved)
+          unless proposal_id || (skill_id && definition)
+            return text_content("Error: proposal_id, or skill_id and definition, are required")
+          end
+
+          result = SafeEvolver.apply(
+            skill_id: skill_id,
+            new_definition: definition,
+            approved: approved,
+            proposal_id: proposal_id,
+            reason: reason
+          )
           format_result(result)
 
         when 'add'
           return text_content("Error: skill_id and definition are required") unless skill_id && definition
-          
-          result = SafeEvolver.add_skill(skill_id: skill_id, definition: definition, approved: approved)
+
+          result = SafeEvolver.add_skill(skill_id: skill_id, definition: definition, approved: approved, reason: reason)
           format_result(result)
+
+        when 'pending'
+          proposals = SafeEvolver.pending_proposals
+          if proposals.empty?
+            text_content("No pending L0 proposals.")
+          else
+            lines = proposals.map do |p|
+              "- #{p['id']}  #{p['kind']}  :#{p['skill_id']}  base=#{p['base'][0, 12]}  result=#{p['result'][0, 12]}  #{p['created_at']}"
+            end
+            text_content("Pending L0 proposals:\n\n#{lines.join("\n")}")
+          end
 
         when 'reset'
           SafeEvolver.reset_session!
@@ -113,9 +137,11 @@ module KairosMcp
         if result[:success]
           output = "✅ SUCCESS\n\n"
           output += "Message: #{result[:message]}\n" if result[:message]
+          output += "Proposal ID: #{result[:proposal_id]}\n" if result[:proposal_id]
         else
           output = "❌ FAILED\n\n"
           output += "Error: #{result[:error]}\n"
+          output += "Proposal ID: #{result[:proposal_id]}\n" if result[:proposal_id]
           output += "\nNote: This change requires human approval. Set approved=true to confirm.\n" if result[:pending]
         end
         

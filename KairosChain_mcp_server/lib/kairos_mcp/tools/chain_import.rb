@@ -13,7 +13,7 @@ module KairosMcp
       end
 
       def description
-        'Import data from files to SQLite database. WARNING: This will overwrite existing data. Requires approved=true and creates automatic backup before import.'
+        'Import data from files into a new SQLite database. Import never overwrites an existing chain: it is refused when the target database already holds chain data, and must be pointed at a new data directory instead. Requires approved=true and creates automatic backup before import.'
       end
 
       def category
@@ -56,7 +56,7 @@ module KairosMcp
             },
             approved: {
               type: 'boolean',
-              description: 'REQUIRED: Must be true to proceed. This confirms you understand data will be overwritten.'
+              description: 'REQUIRED: Must be true to proceed. This confirms you intend to run the import.'
             },
             skip_backup: {
               type: 'boolean',
@@ -92,6 +92,10 @@ module KairosMcp
         end
 
         require_relative '../storage/importer'
+
+        # D1: refuse first — a refused import makes no backup and writes nothing.
+        refusal = Storage::Importer.existing_chain_refusal(db_path)
+        return text_content("Import refused: #{refusal[:error]}") if refusal
 
         # Create backup before import (unless skipped)
         backup_path = nil
@@ -138,7 +142,15 @@ module KairosMcp
 
       def preview_import(source, db_path, input_dir)
         # Check what will be affected
+        require_relative '../storage/importer'
+
         existing_info = get_existing_info(db_path)
+        refusal = Storage::Importer.existing_chain_refusal(db_path)
+        verdict = if refusal
+                    "Import will be REFUSED: #{refusal[:error]}"
+                  else
+                    'No chain at the target: import will create a new database.'
+                  end
         source_info = get_source_info(source, input_dir)
 
         output = <<~OUTPUT
@@ -153,7 +165,7 @@ module KairosMcp
           Data to be imported:
           #{source_info}
 
-          ⚠️  WARNING: Import will OVERWRITE all existing data!
+          #{verdict}
 
           To proceed, call again with approved=true:
             chain_import source="#{source}" approved=true

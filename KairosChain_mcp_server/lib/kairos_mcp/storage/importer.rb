@@ -30,6 +30,10 @@ module KairosMcp
         # @param options [Hash] Import options
         # @return [Hash] Import results
         def import(input_dir:, db_path:, options: {})
+          # D1: refuse before anything is loaded or written.
+          refusal = existing_chain_refusal(db_path)
+          return refusal if refusal
+
           require 'sqlite3'
           require_relative 'sqlite_backend'
 
@@ -88,6 +92,10 @@ module KairosMcp
           storage_dir ||= KairosMcp.storage_dir
           knowledge_dir ||= KairosMcp.knowledge_dir
           skills_dir ||= KairosMcp.skills_dir
+          # D1: refuse before the destructive rm_f runs.
+          refusal = existing_chain_refusal(db_path)
+          return refusal if refusal
+
           require 'sqlite3'
           require_relative 'sqlite_backend'
 
@@ -133,6 +141,10 @@ module KairosMcp
         # @param blockchain_file [String] Path to blockchain.json
         # @return [Integer] Number of blocks imported
         def import_blockchain(db_path:, blockchain_file:)
+          # D1: no Hash channel here, so the refusal is raised.
+          refusal = existing_chain_refusal(db_path)
+          raise ArgumentError, refusal[:error] if refusal
+
           require 'sqlite3'
           require_relative 'sqlite_backend'
 
@@ -153,7 +165,45 @@ module KairosMcp
           import_action_logs(backend, action_log_file)
         end
 
+        # nil  => the target holds no chain; import may proceed.
+        # Hash => refusal; the caller must not touch the file.
+        def existing_chain_refusal(db_path)
+          return nil if db_path.nil?
+          return nil unless File.exist?(db_path)
+          return nil if File.size(db_path).zero?
+
+          count = count_existing_blocks(db_path)
+          return nil if count.zero?
+
+          refusal_payload("Target database already holds a chain (#{count} blocks). " \
+                          'Import never overwrites an existing chain; import into a new data directory.')
+        rescue LoadError, StandardError => e
+          # Fail closed: a count we cannot determine is treated as an existing chain.
+          refusal_payload("Cannot verify whether the target database already holds a chain " \
+                          "(#{e.class}: #{e.message}). " \
+                          'Import never overwrites an existing chain; import into a new data directory.')
+        end
+
         private
+
+        def refusal_payload(message)
+          { success: false, refused: true, error: message }
+        end
+
+        # Returns 0 when no blocks table exists yet; raises when the count cannot be read.
+        def count_existing_blocks(db_path)
+          require 'sqlite3'
+          db = SQLite3::Database.new(db_path.to_s, readonly: true)
+          begin
+            db.get_first_value('SELECT COUNT(*) FROM blocks').to_i
+          rescue StandardError => e
+            raise e unless e.message.to_s =~ /no such table/i
+
+            0
+          ensure
+            db&.close
+          end
+        end
 
         def import_blocks(backend, file_path)
           content = File.read(file_path)

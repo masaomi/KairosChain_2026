@@ -12,7 +12,9 @@ module KairosMcp
       end
 
       def description
-        'Create, update, or delete L1 knowledge skills. Changes are recorded with hash references to the blockchain. ' \
+        'Create, update, delete, or restore L1 knowledge skills; list the recorded history of an entry; ' \
+        'or erase a stored body (irreversible, needs approved: true). ' \
+        'Changes are recorded with hash references to the blockchain. ' \
         'Large content is supported (a ~40 KB update was verified over stdio on 2026-06-10; the earlier ~2 KB guidance ' \
         'generalized a single unreproduced nil-content incident). If content ever arrives as nil, the error message ' \
         'below explains recovery; no preemptive size limit applies.'
@@ -53,8 +55,16 @@ module KairosMcp
           properties: {
             command: {
               type: 'string',
-              description: 'Command: "create", "update", or "delete"',
-              enum: %w[create update delete]
+              description: 'Command: "create", "update", "delete", "history", "restore", or "erase_body"',
+              enum: %w[create update delete history restore erase_body]
+            },
+            content_hash: {
+              type: 'string',
+              description: 'Body content hash. Required for "restore" and "erase_body"'
+            },
+            approved: {
+              type: 'boolean',
+              description: 'Human approval. "erase_body" is irreversible and requires true'
             },
             name: {
               type: 'string',
@@ -100,6 +110,30 @@ module KairosMcp
           handle_update(provider, name, content, reason)
         when 'delete'
           handle_delete(provider, name, reason)
+        when 'history'
+          rows = provider.history(name)
+          lines = rows.map do |row|
+            parts = ["#{row[:index]}. #{row[:next_hash].to_s[0, 12]}",
+                     row[:action].to_s,
+                     "retrievable: #{row[:retrievable] ? 'yes' : 'no'}"]
+            # A body recorded before the store was active cannot be fetched back,
+            # only proved by its hash.
+            parts << 'provable by hash only' unless row[:recorded_while_active]
+            parts.join(' | ')
+          end
+          text = lines.empty? ? "No recorded history for '#{name}'" : "History for '#{name}':\n#{lines.join("\n")}"
+          [{ type: 'text', text: text }]
+        when 'restore'
+          result = provider.restore(name, arguments['content_hash'], reason: reason)
+          format_result(result, 'restored')
+        when 'erase_body'
+          # Irreversible: the body leaves the store for good, so demand the flag.
+          unless arguments['approved'] == true
+            return [{ type: 'text', text: 'erase_body requires approved: true (irreversible)' }]
+          end
+
+          result = provider.erase_body(name, arguments['content_hash'], reason: reason)
+          format_result(result, 'body erased')
         else
           text_content("Unknown command: #{command}")
         end
