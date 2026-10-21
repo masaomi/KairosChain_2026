@@ -626,10 +626,10 @@ module KairosMcp
               'orchestrator_model' => orchestrator_model,
               'orchestrator_strategy' => strategy,
               'orchestrator_host' => orchestrator_host || 'undeclared',
-              'host_detected' => host_detected,
               'excluded_reviewers' => observers.excluded.size,
               'run_token' => run_token
             }
+            payload['host_detected'] = host_detected if host_detected
             # Omitted when not declared, rather than nulled: an absent spec is
             # a fact the record shows by silence.
             payload['review_spec'] = review_spec if review_spec
@@ -1016,6 +1016,9 @@ module KairosMcp
                 'subprocess_failures' => raw_results.map { |r|
                   {
                     'role_label' => r[:role_label],
+                    # INV-H1: the cause the transport established, as the
+                    # record would carry it.
+                    'reason' => Consensus.transport_reason(r),
                     'error_class' => (r[:error].is_a?(Hash) ? r[:error]['type'] || r[:error][:type] : nil),
                     'error_message' => (r[:error].is_a?(Hash) ? r[:error]['message'] || r[:error][:message] : r[:error].to_s),
                     'elapsed_seconds' => r[:elapsed_seconds]

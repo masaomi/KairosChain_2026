@@ -474,10 +474,13 @@ module KairosMcp
               'persona_model' => state['persona_model'],
               # INV-H4: the declaration (or that there was none) beside the
               # server's own detection, taken at dispatch.
+              'orchestrator_host' => state['orchestrator_host'] || 'undeclared',
               'persona_host' => state['orchestrator_host'] || 'undeclared',
-              'host_detected' => state['host_detected'],
               'run_token' => token
             }
+            # Omitted, not nulled, for tokens dispatched before 0.12.0: the
+            # detection was never taken.
+            payload['host_detected'] = state['host_detected'] if state['host_detected']
             # The worker died and finished seats were recovered; the lost
             # seats are in the denominator composition as skip rows, and this
             # names the death they were lost to.

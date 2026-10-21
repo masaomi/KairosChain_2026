@@ -66,9 +66,12 @@ module KairosMcp
           SOURCE_CONFIGURED
         end
 
+        # An observation naming more than one model decides the maker whatever
+        # the source: the record already says the seat ran on several models, so
+        # the declared name cannot stand for it (maker_of gives `unknown`).
         def model_for(row, source)
           observed = fetch(row, :model_observed)
-          return observed if source == SOURCE_OBSERVED && observed
+          return observed if observed && (source == SOURCE_OBSERVED || observed.to_s.include?(','))
 
           fetch(row, :model)
         end

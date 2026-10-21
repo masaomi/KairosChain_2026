@@ -62,7 +62,7 @@ module KairosMcp
         def self.action_for(reason, context = {})
           case reason.to_s
           when 'cli_missing'
-            "install the CLI, or put its directory on the PATH the server searched (#{context[:path]})"
+            'install the CLI, or put its directory on the PATH the server searched (shown above)'
           when 'cli_unauthenticated'
             "log in with that CLI's own command (codex login / agent login / claude, then /login); " \
               'the seat reads the login under HOME'
@@ -75,12 +75,39 @@ module KairosMcp
           end
         end
 
+        INSUFFICIENT_MAX_LEN = 4000
+        # What a not-counted row with no reason is written as. Not a reason
+        # token, and not "unknown" (the maker table's word).
+        NO_REASON = 'no reason recorded'
+
+        # Whole lines only, in order, within max_len; when a line does not fit,
+        # one closing line says how many were left out and where to read them.
+        # The counts and the roster line come first, so they are never the
+        # lines that go.
+        def self.bounded_lines(lines, max_len)
+          clean = lines.map { |l| Sanitizer.sanitize_finding_text(l, max_len: max_len) }
+          kept = []
+          used = 0
+          clean.each_with_index do |line, i|
+            rest = clean.size - i
+            marker = "… #{rest} more line(s) left out; vote_tally.roster_health has every seat."
+            need = used + line.size + (kept.empty? ? 0 : 1)
+            if need > max_len || (rest > 1 && need + marker.size + 1 > max_len)
+              kept << marker
+              break
+            end
+            kept << line
+            used = need
+          end
+          kept.join("\n")
+        end
+
         # The one line INV-H2 requires. Shaped as a statement about the roster,
         # never as a finding: it carries no severity tag.
         def self.roster_line(health)
           h = health || {}
           get = ->(k) { h[k] || h[k.to_s] }
-          lost = Array(get.(:not_counted)).group_by { |r| (r[:reason] || r['reason'] || 'unknown').to_s }
+          lost = Array(get.(:not_counted)).group_by { |r| (r[:reason] || r['reason'] || NO_REASON).to_s }
           lost_text = lost.map { |reason, rows|
             "#{reason}: #{rows.map { |r| r[:role_label] || r['role_label'] }.join(', ')}"
           }.join('; ')
@@ -97,19 +124,27 @@ module KairosMcp
           health = get.(:roster_health) || {}
           counted = get.(:successful_count).to_i
           needed = get.(:min_quorum).to_i
-          lines = ["Multi-LLM review could not complete: #{counted} of #{needed} seats needed counted."]
+          # The roster line and the counts come first, so that bounding the
+          # text can only ever cut the per-seat actions, never the account of
+          # which seats did not count (INV-H2). The PATH is shown once, not
+          # once per missing seat.
+          lines = ["Multi-LLM review could not complete: #{counted} of #{needed} seats needed counted.",
+                   roster_line(health)]
           if counted < needed
             lines << 'A seat can be added in config: a slot naming provider, model and role_label, ' \
                      'on a model the roster does not already name.'
           end
-          Array(health[:not_counted] || health['not_counted']).each do |row|
-            reason = row[:reason] || row['reason']
+          not_counted = Array(health[:not_counted] || health['not_counted'])
+          if not_counted.any? { |r| (r[:reason] || r['reason']).to_s == 'cli_missing' }
+            lines << "PATH the server searched: #{context[:path]}"
+          end
+          not_counted.each do |row|
+            reason = row[:reason] || row['reason'] || NO_REASON
             action = action_for(reason, context)
             label = row[:role_label] || row['role_label']
             lines << (action ? "- #{label}: #{reason} — #{action}" : "- #{label}: #{reason}")
           end
-          lines << roster_line(health)
-          Sanitizer.sanitize_finding_text(lines.join("\n"), max_len: 4000)
+          bounded_lines(lines, INSUFFICIENT_MAX_LEN)
         end
 
         # feedback_text for a computed result (INV-H2). nil only when the

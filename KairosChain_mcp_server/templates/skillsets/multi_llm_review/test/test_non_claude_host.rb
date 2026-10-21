@@ -39,6 +39,18 @@ unless defined?(KairosMcp::Tools::BaseTool)
   end
 end
 
+# The server's own host detection lives in core; a stand-in keeps this file
+# runnable from the SkillSet alone.
+unless defined?(KairosMcp::Capability)
+  module KairosMcp
+    module Capability
+      def self.detect_harness
+        { active_harness: :codex_cli, detection_method: :env_var, confidence: :explicit }
+      end
+    end
+  end
+end
+
 require_relative '../tools/multi_llm_review'
 require_relative '../tools/multi_llm_review_collect'
 require_relative '../tools/multi_llm_review_wait'
@@ -136,6 +148,16 @@ module KairosMcp
           assert_equal 1, rh[:counted_declared]
         end
 
+        # Implementation review K2: several observed models make the maker
+        # unknown whatever the row's source.
+        def test_a_multi_model_observation_has_no_maker_even_when_declared
+          rows = [MultiLlmReview.row('claude_team_claude-opus-5-5', 'claude-opus-5-5', synthetic: true,
+                                     model_source: 'declared', model_observed: 'claude-opus-5-5,gpt-6-astra')]
+          rh = aggregate(rows, [], min_quorum: 1)[:vote_tally][:roster_health]
+          assert_equal 'unknown', rh[:makers].first[:maker]
+          assert_equal 'declared', rh[:makers].first[:source]
+        end
+
         def test_fully_observed_persona_counts_as_observed
           rows = [
             MultiLlmReview.row('codex_gpt6-astra', 'gpt-6-astra'),
@@ -228,8 +250,40 @@ module KairosMcp
           assert_includes text, 'cursor_composer2.5: cli_unauthenticated — log in'
           assert_includes text, 'codex_x: workspace_refused'
           assert_includes text, '/work/project'
-          assert_includes text, "- codex_y: no_verdict\n", 'a reason with no restoring action is named only'
+          assert_match(/^- codex_y: no_verdict$/, text, 'a reason with no restoring action is named only')
           refute_match(/subprocess|orchestrator_strategy|short wait/i, text, 'the tool advises no strategy')
+        end
+
+        # Implementation review K1: a long PATH repeated per seat used to push
+        # the roster line past the 4000-character bound.
+        def test_insufficient_keeps_counts_and_roster_line_under_a_long_path
+          long_path = (['/opt/some/very/long/toolchain/bin'] * 70).join(':') # ~2400 chars
+          health = { seats: 5, counted: 1, maker_diversity: 'not_established', counted_declared: 1, makers: [],
+                     not_counted: %w[a b c d].map { |l| { role_label: "seat_#{l}", reason: 'cli_missing' } } }
+          text = F.for_result(consensus('INSUFFICIENT', health, successful: 1), [], { path: long_path, cwd: '/w' })
+          assert_operator text.size, :<=, 4000
+          assert_match(/^Roster: 1 of 5 seats counted/, text)
+          assert_equal 1, text.scan('/opt/some/very/long/toolchain/bin:/opt').size.clamp(0, 1)
+          assert_equal 1, text.scan('PATH the server searched:').size, 'the PATH is shown once'
+          %w[a b c d].each { |l| assert_includes text, "seat_#{l}: cli_missing" }
+        end
+
+        def test_insufficient_cut_says_what_was_left_out
+          huge = 'x' * 3900
+          health = { seats: 4, counted: 0, maker_diversity: 'not_established', counted_declared: 0, makers: [],
+                     not_counted: [{ role_label: 'a', reason: 'cli_missing' }, { role_label: 'b', reason: 'cli_missing' }] }
+          text = F.for_result(consensus('INSUFFICIENT', health, successful: 0), [], { path: huge, cwd: '/w' })
+          assert_operator text.size, :<=, 4000
+          assert_match(/^Roster: 0 of 4 seats counted/, text)
+          assert_match(/more line\(s\) left out; vote_tally.roster_health has every seat\.\z/, text)
+        end
+
+        def test_a_missing_reason_is_written_as_such
+          health = { seats: 2, counted: 1, maker_diversity: 'not_established', counted_declared: 0, makers: [],
+                     not_counted: [{ role_label: 'a' }] }
+          text = F.for_result(consensus('APPROVE', health, successful: 1, min_quorum: 1), [], CTX)
+          assert_includes text, 'no reason recorded: a'
+          refute_includes text, 'unknown'
         end
 
         def test_revise_puts_the_roster_line_before_the_findings
@@ -250,7 +304,8 @@ module KairosMcp
 
         def test_other_hosts_take_their_own_label_and_a_provider_no_seat_uses
           assert_equal 'codex_team_gpt-6-astra', PersonaAssembly.role_label_for('gpt-6-astra', 'codex_cli')
-          assert_equal 'codex_host', PersonaAssembly.provider_for('codex_cli')
+          assert_equal 'codex_cli_host', PersonaAssembly.provider_for('codex_cli')
+          assert_equal 'cursor_host', PersonaAssembly.provider_for('cursor')
           assert_equal 'cursor_team_composer-2.5', PersonaAssembly.role_label_for('composer-2.5', 'cursor')
           assert_equal 'other_host', PersonaAssembly.provider_for('other')
         end
@@ -327,6 +382,19 @@ module KairosMcp
           assert(@calls.all? { |a| a['no_fallback'] == true })
         end
 
+        def test_all_failed_synchronous_delegate_names_each_cause
+          t = tool(failing: { 'claude-sonnet-5-5' => 'cli_missing', 'composer-2.5' => 'cli_unauthenticated' })
+          out = run_review(t, 'orchestrator_model' => 'gpt-6-astra')
+          assert_equal 'error', out['status']
+          reasons = out['subprocess_failures'].to_h { |f| [f['role_label'], f['reason']] }
+          assert_equal({ 'claude_cli_sonnet5.5' => 'cli_missing', 'cursor_composer2.5' => 'cli_unauthenticated' }, reasons)
+        end
+
+        def test_single_phase_records_the_declared_host
+          out = run_review(tool, 'orchestrator_host' => 'cursor')
+          assert_equal 'cursor', out['orchestrator_host']
+        end
+
         def test_an_unknown_host_is_refused
           out = run_review(tool, 'orchestrator_host' => 'codex')
           assert_equal 'error', out['status']
@@ -349,9 +417,11 @@ module KairosMcp
           ).first[:text])
           persona = payload['reviews'].find { |r| r['role_label'].start_with?('codex_team_') }
           refute_nil persona, 'the persona seat is named for the declared host'
-          assert_equal 'codex_host', persona['provider']
+          assert_equal 'codex_cli_host', persona['provider']
           assert_equal 'codex_cli', payload['persona_host']
-          assert payload.key?('host_detected')
+          assert_equal 'codex_cli', payload['orchestrator_host'], 'one host field on both record paths'
+          assert_equal 'server_detection', payload.dig('host_detected', 'source')
+          assert_includes %w[explicit inferred unknown], payload.dig('host_detected', 'confidence')
         end
 
         def test_undeclared_host_keeps_claude_team
@@ -372,9 +442,10 @@ module KairosMcp
             { 'role_label' => 'a', 'status' => 'success' },
             { 'role_label' => 'b', 'status' => 'error', 'error' => { 'code' => 'cli_missing' } },
             { 'role_label' => 'c', 'status' => 'error', 'error' => { 'message' => 'boom' } },
-            { 'role_label' => 'd', 'status' => 'skip', 'error' => { 'message' => 'dispatch_timeout' } }
+            { 'role_label' => 'd', 'status' => 'skip', 'error' => { 'message' => 'dispatch_timeout' } },
+            { 'role_label' => 'e' } # no status: a success, as ReviewSerializer.deserialize reads it
           ])
-          assert_equal 1, out[:subprocess_answered]
+          assert_equal 2, out[:subprocess_answered]
           assert_equal [%w[b cli_missing], %w[c transport], %w[d dispatch_timeout]],
                        out[:subprocess_failed].map { |f| [f['role_label'], f['reason']] }
         end

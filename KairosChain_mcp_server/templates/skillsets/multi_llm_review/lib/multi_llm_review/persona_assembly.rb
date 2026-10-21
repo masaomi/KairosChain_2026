@@ -66,8 +66,10 @@ module KairosMcp
         end
 
         def provider_for(host = nil)
-          prefix = HOST_LABEL_PREFIX.fetch(host.to_s, 'claude')
-          prefix == 'claude' ? 'claude_code' : "#{prefix}_host"
+          name = host.to_s
+          return 'claude_code' if name.empty? || name == 'claude_code' || !HOSTS.include?(name)
+
+          "#{name}_host"
         end
 
         # @param orchestrator_reviews [Array<Hash>] each: {persona, verdict, findings, reasoning}

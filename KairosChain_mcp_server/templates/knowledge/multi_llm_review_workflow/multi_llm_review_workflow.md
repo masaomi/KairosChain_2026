@@ -880,6 +880,11 @@ out of text the CLI printed, because codex prints the prompt and the files it re
 | `dispatch_timeout` | the dispatch window (multi_llm_review `timeout_seconds`) closed with the seat still running or still queued; with both at 600 s this fires first | as for `cli_timeout`; `collect_deadline_seconds` (1800 shipped) bounds how far that helps |
 | `transport` | anything else; the seat's error message says what was seen | read the seat's row (an API-key seat whose key is unset lands here) |
 
+Asking a failed CLI whether it is logged in costs one status command after the
+failure (its own 10 s timer; up to about 19 s with the kill grace and reader joins),
+and every other llm_client caller sees the same pause after a failed CLI call. It is
+never run when the dispatcher itself ended the call.
+
 Whenever a seat did not count, or the counted seats are not known to come from two
 different makers, the result carries one roster line, on APPROVE too:
 

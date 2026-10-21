@@ -310,11 +310,10 @@ module KairosMcp
           def seat_outcomes(results)
             return {} unless results.is_a?(Array)
 
-            failed = results.reject { |r| r.is_a?(Hash) && r['status'].to_s == 'success' }.map do |r|
-              row = r.is_a?(Hash) ? r : {}
-              status = row['status'].to_s
-              reason = status.empty? ? Consensus::SKIP_REASON_TRANSPORT :
-                         Consensus.transport_reason(status: status.to_sym, error: row['error'])
+            # A row with no status is a success, as ReviewSerializer.deserialize
+            # reads it, so wait and the record agree.
+            failed = results.select { |r| r.is_a?(Hash) && !['', 'success'].include?(r['status'].to_s) }.map do |row|
+              reason = Consensus.transport_reason(status: row['status'].to_s.to_sym, error: row['error'])
               { 'role_label' => row['role_label'], 'reason' => reason }
             end
             { subprocess_answered: results.size - failed.size, subprocess_failed: failed }
