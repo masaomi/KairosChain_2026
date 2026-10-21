@@ -24,7 +24,12 @@ report. You can carry a whole dev cycle, a document revision or a survey; do not
 1. `agent_status` (no arguments) shows the adopted policy and how many precedent records the stand-in has. If no
    policy is adopted, `agent_start` refuses and shows the sentence the operator must type
    (`adopt policy <name> <8 hex>`); after they type it, call `agent_items(action: "adopt_policy", policy: <name>)`.
-   Ask for this once; it is the only setup question.
+   Ask for this once; it is the only setup question. The SkillSet ships one sample, `default_2026_10_20`
+   (`adopt policy default_2026_10_20 ac4ae89b`). Before the operator types an adoption, show them the policy file:
+   the stand-in reads it, comments included; adopting the sample consents to sending the run's artifacts to the
+   reviewers configured in multi_llm_review, and lets the stand-in answer reversible questions no recorded word
+   covers by the model's own judgment. A policy file a 3.95.0 install left beside it, named for its author, is
+   another operator's sample with the same rules.
 2. `agent_start(goal, template, …)`:
    - `dev_cycle` — design → design review → implement → implementation review: `design_glob:
      "log/<topic>_design_v*.md"`, `tests: "<test dir or glob in the repo>"`;
@@ -37,7 +42,7 @@ report. You can carry a whole dev cycle, a document revision or a survey; do not
    - `general` — any other work: `output_glob` for versioned files, or committed work on the run branch with
      optional `tests`/`test_command`; `review_as` design, implementation or document.
    A review closes when no (a)/(b) P0 is open. Each review may take the policy's
-   `review_rounds` (10 in `masa_2026_10_20`), counted for that review alone; at the cap it waits for the operator. The stand-in rules on the tests directory and
+   `review_rounds` (10 in the shipped `default_2026_10_20`), counted for that review alone; at the cap it waits for the operator. The stand-in rules on the tests directory and
    the test command against the operator's words at the first advance. `tests` as a directory pins everything under it from the base commit; as a glob it pins only the
    files it matches. `test_command` names a test runner (ruby, bundle, rake, pytest, npm, go, cargo, make, …) or a
    script the repository tracks; it runs without a shell, one test file appended (default: `ruby -Ilib -Itest` for
@@ -139,8 +144,15 @@ after it. Words that name the run's own items keep its guard; other typed words 
 whose report is built — continues in the session that resolved it; its earlier report is kept beside the new one.
 
 The stand-in learns from the operator's words in transcripts. The operator keeps the precedent store filled with
-`ruby <SkillSet>/bin/agent_harvest.rb` (regularly: the host deletes transcripts after 30 days); the 2026-10-20
-snapshot is imported with `--import-snapshot <data dir>/storage/agent_precedent_snapshots`.
+`ruby <SkillSet>/bin/agent_harvest.rb` (regularly: the host deletes transcripts after 30 days); a directory
+holding a snapshot in the two files harvest reads (`askuserquestion_pairs_20261020.json`,
+`prose_question_answers_20261020_operator_only.json`) is imported with `--import-snapshot <dir>`.
+
+`ruby <SkillSet>/bin/agent_policy_report.rb` writes a report under `storage/agent/policy_reports/`: for each rule
+of the adopted policy, what the runs the chain records as ended hold against it, with counts, denominators and
+the operator's words. It moves no rule and evaluates no file from a run directory. A policy changes only when the operator copies it under a new name (file
+and `policy` line), edits it, and types the adoption; a change you draft from the report carries your own
+readings of the operator's words, so say so when you offer one.
 
 ## Available Tools
 

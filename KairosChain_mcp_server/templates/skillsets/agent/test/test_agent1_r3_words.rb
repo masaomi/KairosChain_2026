@@ -141,10 +141,10 @@ module KairosMcp
         end
 
         def test_a_negation_about_questions_does_not_refuse_the_adoption
-          adoption_setup('masa_2026_10_20')
-          words = "adopt policy masa_2026_10_20 #{@hex} で。以後は質問しないで進めて"
-          assert_equal 'masa_2026_10_20', adopt(words, 'ok1').name
-          assert_equal 'masa_2026_10_20', @policies.adopted.name
+          adoption_setup('demo_2026_10_20')
+          words = "adopt policy demo_2026_10_20 #{@hex} で。以後は質問しないで進めて"
+          assert_equal 'demo_2026_10_20', adopt(words, 'ok1').name
+          assert_equal 'demo_2026_10_20', @policies.adopted.name
         end
 
         def test_a_question_about_the_adopting_sentence_refuses
@@ -236,30 +236,30 @@ module KairosMcp
         end
 
         def test_importing_the_snapshot_then_harvesting_stores_each_answer_once
-          q = '親種をどうしますか。'
+          q = '古い設定をどうしますか。'
           projects = File.join(@tmp, 'projects')
-          dir = File.join(projects, '-Users-masa-x')
+          dir = File.join(projects, '-Users-operator-x')
           FileUtils.mkdir_p(dir)
           lines = [
             { 'type' => 'assistant', 'sessionId' => 'sx', 'timestamp' => '2026-09-21T10:00:00.000Z',
               'message' => { 'content' => [{ 'type' => 'tool_use', 'id' => 'tu1', 'name' => 'AskUserQuestion',
                                              'input' => { 'questions' => [{ 'question' => q, 'options' => [{ 'label' => 'a' }] }] } }] } },
             { 'type' => 'user', 'sessionId' => 'sx', 'timestamp' => '2026-09-21T10:01:00.000Z',
-              'toolUseResult' => { 'answers' => { q => '走らせないが、行列としては残す' } },
+              'toolUseResult' => { 'answers' => { q => '使わないが、記録としては残す' } },
               'message' => { 'content' => [{ 'type' => 'tool_result', 'tool_use_id' => 'tu1', 'content' => 'answered' }] } }
           ]
           File.write(File.join(dir, 'sx.jsonl'), lines.map { |l| JSON.generate(l) }.join("\n") + "\n")
           snap = File.join(@tmp, 'snap')
           FileUtils.mkdir_p(snap)
-          pairs = [{ 'proj' => '-Users-masa-x', 'ts' => '2026-09-21T10:00:00.000Z',
+          pairs = [{ 'proj' => '-Users-operator-x', 'ts' => '2026-09-21T10:00:00.000Z',
                      'input' => { 'questions' => [{ 'question' => q, 'options' => [{ 'label' => 'a' }] }] },
-                     'result' => "Your questions have been answered: \"#{q}\"=\"走らせないが、行列としては残す\". You can now continue." }]
+                     'result' => "Your questions have been answered: \"#{q}\"=\"使わないが、記録としては残す\". You can now continue." }]
           File.write(File.join(snap, 'askuserquestion_pairs_20261020.json'), JSON.generate(pairs))
           paths = Paths.new(File.join(@tmp, '.kairos'))
           h = Harvest.new(paths, projects_root: projects)
           assert_equal 1, h.import_snapshot(snap)
           assert_equal 0, h.run, 'the live transcript gives the same answer another source and time'
-          assert_equal ['snapshot:-Users-masa-x'], Precedents.new(paths.precedents_dir).all.map { |r| r['source'] }
+          assert_equal ['snapshot:-Users-operator-x'], Precedents.new(paths.precedents_dir).all.map { |r| r['source'] }
         end
 
         # --- 4. a stand-in failure keeps its cause ------------------------------
@@ -348,7 +348,7 @@ module KairosMcp
 
         def test_harvest_admits_a_goal_answer_to_a_full_width_question
           projects = File.join(@tmp, 'projects')
-          dir = File.join(projects, '-Users-masa-x')
+          dir = File.join(projects, '-Users-operator-x')
           FileUtils.mkdir_p(dir)
           lines = [
             { 'type' => 'assistant', 'sessionId' => 'sg', 'message' => { 'content' => [{ 'type' => 'text', 'text' => "どこまで進めますか？" }] } },

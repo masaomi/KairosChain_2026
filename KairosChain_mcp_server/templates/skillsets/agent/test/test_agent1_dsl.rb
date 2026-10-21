@@ -8,10 +8,10 @@ module KairosMcp
     module Agent
       class TestAgent1DSL < Minitest::Test
         POLICY = <<~RUBY
-          policy "masa_2026_10_20" do
+          policy "demo_2026_10_20" do
             stand_in may: [:precedent, :instruction_mode, :novel_reversible]
             consent review: :configured_providers, of: :project_artifacts
-            free_of_personal_data projects: ["KairosChain_2026"]
+            free_of_personal_data projects: ["demo_project"]
             spend default: { review_rounds: 8, stand_in_calls: 200 }
           end
         RUBY
@@ -31,12 +31,12 @@ module KairosMcp
         def test_policy_parses_into_a_frozen_pinned_object
           p = DSL.parse_policy(POLICY)
           assert p.frozen?
-          assert_equal 'masa_2026_10_20', p.name
+          assert_equal 'demo_2026_10_20', p.name
           assert p.allows?(:novel_reversible)
           assert p.consents?(:review, :project_artifacts)
           refute p.consents?(:lookup), 'the policy language has no lookup consent'
-          assert p.free_of_personal_data?('KairosChain_2026')
-          refute p.free_of_personal_data?('GenomicsChain_SkillSets')
+          assert p.free_of_personal_data?('demo_project')
+          refute p.free_of_personal_data?('other_project')
           assert_equal 200, p.spend[:stand_in_calls]
           assert_equal DSL.digest(POLICY), p.digest
         end

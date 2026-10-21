@@ -547,17 +547,17 @@ module KairosMcp
         # operator took of it (answers the snapshot format quotes the way
         # the host's tool result does).
         def harvest_fixture
-          proj = '-Users-masa-forback-github-x'
+          proj = '-Users-operator-projects-x'
           dir = File.join(@home, '.claude', 'projects', proj)
           FileUtils.mkdir_p(dir)
           file = File.join(dir, 'sx.jsonl')
-          q1 = '親種をどうしますか。'
-          q2 = 'Mapping §6 の参照表を、16本に合わせてどう書き直しますか。'
-          a1 = '走らせないが、行列としては残す'
-          a2 = '8本（A. kamchatica のみ）に絞る（推奨）'
-          input = { 'questions' => [ask_pair(q1, %w[走らせる 走らせない]), ask_pair(q2, ['8本', '16本'])] }
-          long = "#{'葉と根で 3 遺伝子がこうなります。' * 120}\n\nhands-on をどちらにしますか？"
-          prose = '根に替えましょう。書き換えは家に帰ってから。'
+          q1 = '古い苗をどうしますか。'
+          q2 = 'Planting §6 の配置表を、16株に合わせてどう書き直しますか。'
+          a1 = '植えないが、記録としては残す'
+          a2 = '8株（B. 東側の畝のみ）に絞る（推奨）'
+          input = { 'questions' => [ask_pair(q1, %w[植える 植えない]), ask_pair(q2, ['8株', '16株'])] }
+          long = "#{'畝と鉢で 3 品種がこう育ちます。' * 120}\n\n植え替えをどちらにしますか？"
+          prose = '鉢に替えましょう。植え替えは週末になってから。'
           lines = [
             { 'type' => 'assistant', 'sessionId' => 'sx', 'timestamp' => '2026-09-21T10:00:00.000Z',
               'message' => { 'content' => [{ 'type' => 'tool_use', 'id' => 'tu1', 'name' => 'AskUserQuestion', 'input' => input }] } },
@@ -572,12 +572,12 @@ module KairosMcp
           snap = File.join(@tmp, 'snap')
           FileUtils.mkdir_p(snap)
           result = "Your questions have been answered: \"#{q1}\"=\"#{a1}\", \"#{q2}\"=\"#{a2}\" selected preview:\n" \
-                   "| Sample | 500k |\n| ALK_L_C | 75.60 % |. You can now continue with the user's answers in mind."
+                   "| Bed | 500g |\n| BED_E_2 | 42.50 % |. You can now continue with the user's answers in mind."
           File.write(File.join(snap, 'askuserquestion_pairs_20261020.json'),
                      JSON.generate([{ 'proj' => proj, 'ts' => '2026-09-21T10:00:00.000Z', 'input' => input, 'result' => result,
                                       'tur' => { 'questions' => input['questions'] } }]))
           File.write(File.join(snap, 'prose_question_answers_20261020_operator_only.json'),
-                     JSON.generate([{ 'source' => "/Users/masa/.claude/projects/#{proj}/sx.jsonl", 'project' => proj,
+                     JSON.generate([{ 'source' => "/Users/operator/.claude/projects/#{proj}/sx.jsonl", 'project' => proj,
                                       'asked_at' => '2026-09-21T14:30:32.504Z', 'answered_at' => '2026-09-21T14:38:26.634Z',
                                       'question_tail' => long[-1500..], 'answer' => prose }]))
           [snap, [a1, a2, prose]]
@@ -602,7 +602,7 @@ module KairosMcp
           assert_includes harvest!(data), 'harvested 0 new records from transcripts'
           store = Precedents.new(Paths.new(data).precedents_dir).all
           assert_equal answers.sort, store.map { |r| r['words'] }.sort, 'each answer once'
-          assert(store.all? { |r| r['source'].start_with?('snapshot:', '/Users/masa/') }, 'the snapshot records are the ones kept')
+          assert(store.all? { |r| r['source'].start_with?('snapshot:', '/Users/operator/') }, 'the snapshot records are the ones kept')
 
           # The other order stores each once too.
           other = File.join(@tmp, 'data_h2')

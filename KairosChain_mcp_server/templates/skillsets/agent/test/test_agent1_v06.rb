@@ -133,14 +133,39 @@ module KairosMcp
         end
 
         def test_the_shipped_policy_has_no_lookup_consent_ten_rounds_for_each_review_and_a_known_digest
-          path = File.expand_path('../config/policies/masa_2026_10_20.rb', __dir__)
+          path = File.expand_path('../config/policies/default_2026_10_20.rb', __dir__)
           policy = DSL.parse_policy(File.read(path))
-          assert_equal 'masa_2026_10_20', policy.name
+          assert_equal 'default_2026_10_20', policy.name
           assert policy.consents?(:review)
           refute policy.consents?(:lookup)
           assert_equal 10, policy.spend[:review_rounds], 'the cap of each review, counted apart'
-          assert_equal '8846b67e', policy.digest[0, 8],
+          assert_equal 'ac4ae89b', policy.digest[0, 8],
                        'the operator adopts this digest in their own words; an edit needs a new adoption'
+        end
+
+        # A shipped policy is a sample: it names no person and no instance's
+        # records, and each ships under its own name (Policies#find returns the
+        # first of a repeated one). The shipped ones are those skillset.json
+        # lists; an installed directory also holds the operator's own.
+        def test_every_shipped_policy_names_no_person_and_parses_under_its_own_name
+          shipped = JSON.parse(File.read(File.expand_path('../skillset.json', __dir__)))['config_files']
+          files = Array(shipped).grep(%r{\Aconfig/policies/.+\.rb\z}).map { |f| File.expand_path("../#{f}", __dir__) }
+          refute_empty files
+          # In the gem's template tree everything under config/policies ships
+          # (the gemspec globs templates/**, install copies the tree), so the
+          # directory must hold exactly the listed policies.
+          if File.basename(File.expand_path('../../..', __dir__)) == 'templates'
+            assert_equal files.sort, Dir.glob(File.expand_path('../config/policies/*.rb', __dir__)).sort,
+                         'every policy in the template is listed in config_files'
+          end
+          names = files.map do |f|
+            src = File.read(f)
+            refute_includes src, '/Users/', f
+            refute_match(/masa/i, src, f)
+            refute_match(/\b(ruling|handoff|decision)_[a-z0-9_]+_\d{8}\b/, src, "#{f}: an L2 context name")
+            DSL.parse_policy(src).name
+          end
+          assert_equal names.uniq, names, 'policy names are unique'
         end
       end
 

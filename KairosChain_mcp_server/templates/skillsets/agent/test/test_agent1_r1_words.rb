@@ -126,7 +126,7 @@ module KairosMcp
         end
 
         def test_a_prompt_that_starts_with_a_file_path_is_still_typed
-          words = '/Users/masa/forback/github/KairosChain_2026/log/handoff.md を読んで実装を続けて。収束するまで回して'
+          words = '/Users/operator/projects/DemoProject_2026/log/handoff.md を読んで実装を続けて。収束するまで回して'
           ok_prompt = Transcript.plausibly_typed?(words)
           ok_entry = Transcript.typed?(entry(words, 'p1'))
           unless ok_prompt && ok_entry
@@ -516,7 +516,7 @@ module KairosMcp
             t.start_design_run # binds s1 here, which registers it in the machine-wide list
             assert_includes File.read(ENV['KAIROS_AGENT_GLOBAL']).split, 's1'
             projects = File.join(iv(t, :@root), 'projects')
-            dir = File.join(projects, '-Users-masa-forback-github-KairosChain-2026')
+            dir = File.join(projects, '-Users-operator-projects-DemoProject-2026')
             bound = write_transcript(dir, 's1')
             free = write_transcript(dir, 'free')
             # Another instance on the same machine: its own journals know nothing of s1.
@@ -533,25 +533,25 @@ module KairosMcp
         def test_import_snapshot_reads_both_snapshot_files_and_result_forms
           snap = File.join(@tmp, 'snap')
           FileUtils.mkdir_p(snap)
-          q1 = 'Mapping §6 の参照表をどう書き直しますか。'
+          q1 = 'Planting §6 の配置表をどう書き直しますか。'
           pairs = [
-            { 'proj' => '-Users-masa-forback-github-EEE338-2026-', 'ts' => '2026-09-21T09:31:25.920Z',
+            { 'proj' => '-Users-operator-projects-course-2026-', 'ts' => '2026-09-21T09:31:25.920Z',
               'input' => { 'questions' => [{ 'question' => q1, 'header' => '§6', 'multiSelect' => false,
-                                             'options' => [{ 'label' => '8本に絞る（推奨）', 'description' => 'd' },
-                                                           { 'label' => '16本すべて載せる', 'description' => 'd' }] }] },
-              'result' => "Your questions have been answered: \"#{q1}\"=\"8本に絞る（推奨）\" selected preview:\n" \
-                          "| Sample | 500k |\n| ALK_L_C | 75.60 % |. You can now continue with these answers in mind.",
+                                             'options' => [{ 'label' => '8株に絞る（推奨）', 'description' => 'd' },
+                                                           { 'label' => '16株すべて載せる', 'description' => 'd' }] }] },
+              'result' => "Your questions have been answered: \"#{q1}\"=\"8株に絞る（推奨）\" selected preview:\n" \
+                          "| Bed | 500g |\n| BED_E_2 | 42.50 % |. You can now continue with these answers in mind.",
               'tur' => {} },
-            { 'proj' => '-Users-masa-forback-github-EEE338-2026-', 'ts' => '2026-09-21T10:00:00.000Z',
-              'input' => { 'questions' => [{ 'question' => '親種をどうしますか。', 'options' => [{ 'label' => 'a' }] },
-                                           { 'question' => '明日の実習を今夜書き直しますか。', 'options' => [{ 'label' => 'b' }] }] },
-              'result' => 'Your questions have been answered: "親種をどうしますか。"="走らせないが、行列としては残す（推奨）", ' \
-                          '"明日の実習を今夜書き直しますか。"="そのまま。replicate は水曜から（推奨）". You can now continue with these answers in mind.',
+            { 'proj' => '-Users-operator-projects-course-2026-', 'ts' => '2026-09-21T10:00:00.000Z',
+              'input' => { 'questions' => [{ 'question' => '古い苗をどうしますか。', 'options' => [{ 'label' => 'a' }] },
+                                           { 'question' => '明日の作業を今夜書き直しますか。', 'options' => [{ 'label' => 'b' }] }] },
+              'result' => 'Your questions have been answered: "古い苗をどうしますか。"="植えないが、記録としては残す（推奨）", ' \
+                          '"明日の作業を今夜書き直しますか。"="そのまま。mulch は水曜から（推奨）". You can now continue with these answers in mind.',
               'tur' => {} },
-            { 'proj' => '-Users-masa-forback-github-KairosChain-2026', 'ts' => '2026-10-01T08:00:00.000Z',
-              'input' => { 'questions' => [{ 'question' => 'replicate の件、どこまでやりますか。', 'options' => [{ 'label' => '(a) だけ' }] }] },
-              'result' => "The user answered: \"replicate の件、どこまでやりますか。\"=\"DRAをみるとちゃんとbiological replicatesが登録されています、\n" \
-                          "Object \tBioProject ID\r+  run \tDRR054435\r\". Read the answers carefully — they may request clarification, " \
+            { 'proj' => '-Users-operator-projects-DemoProject-2026', 'ts' => '2026-10-01T08:00:00.000Z',
+              'input' => { 'questions' => [{ 'question' => '支柱の件、どこまでやりますか。', 'options' => [{ 'label' => '(a) だけ' }] }] },
+              'result' => "The user answered: \"支柱の件、どこまでやりますか。\"=\"Ledgerをみるとちゃんとtomato seedlingsが登録されています、\n" \
+                          "Object \tBatch ID\r+  lot \tABC012345\r\". Read the answers carefully — they may request clarification, " \
                           'changes, or that you not proceed — and follow what they actually say.',
               'tur' => {} },
             { 'proj' => 'x', 'ts' => '2026-10-02T08:00:00.000Z',
@@ -559,12 +559,12 @@ module KairosMcp
               'result' => "The user doesn't want to proceed with this tool use. The tool use was rejected.", 'tur' => {} }
           ]
           prose = [
-            { 'source' => '/Users/masa/.claude/projects/-Users-masa-forback-github-EEE338-2026-/b4df.jsonl',
-              'project' => '-Users-masa-forback-github-EEE338-2026-', 'asked_at' => '2026-09-21T14:30:32.504Z',
+            { 'source' => '/Users/operator/.claude/projects/-Users-operator-projects-course-2026-/b4df.jsonl',
+              'project' => '-Users-operator-projects-course-2026-', 'asked_at' => '2026-09-21T14:30:32.504Z',
               'answered_at' => '2026-09-21T14:38:26.634Z', 'question_tail' => '…どちらにしますか。',
-              'answer' => 'hands-on の対象を ALK の葉から根に替えましょう。' },
-            { 'source' => '/Users/masa/.claude/projects/-Users-masa-forback-github-KairosChain-2026/c1.jsonl',
-              'project' => '-Users-masa-forback-github-KairosChain-2026', 'asked_at' => '2026-10-19T09:00:00Z',
+              'answer' => 'workshop の対象を東の畝から西の鉢に替えましょう。' },
+            { 'source' => '/Users/operator/.claude/projects/-Users-operator-projects-DemoProject-2026/c1.jsonl',
+              'project' => '-Users-operator-projects-DemoProject-2026', 'asked_at' => '2026-10-19T09:00:00Z',
               'answered_at' => '2026-10-19T09:05:00Z', 'question_tail' => '進めますか？',
               'answer' => "これで\n\n⏺ Done. Summary:\n\n  | a | b |\n  |---|---|" }
           ]
@@ -579,20 +579,20 @@ module KairosMcp
           assert_equal 0, h.import_snapshot(snap), 'importing again adds nothing'
           recs = Precedents.new(paths.precedents_dir).all
           words = recs.map { |r| r['words'] }
-          assert_includes words, '8本に絞る（推奨）'
-          assert_includes words, '走らせないが、行列としては残す（推奨）'
-          assert_includes words, 'そのまま。replicate は水曜から（推奨）'
-          dra = words.find { |w| w.start_with?('DRAをみると') }
-          refute_nil dra
-          assert_includes dra, 'DRR054435'
-          refute_includes dra, 'Read the answers carefully'
-          assert_includes words, 'hands-on の対象を ALK の葉から根に替えましょう。'
+          assert_includes words, '8株に絞る（推奨）'
+          assert_includes words, '植えないが、記録としては残す（推奨）'
+          assert_includes words, 'そのまま。mulch は水曜から（推奨）'
+          ledger = words.find { |w| w.start_with?('Ledgerをみると') }
+          refute_nil ledger
+          assert_includes ledger, 'ABC012345'
+          refute_includes ledger, 'Read the answers carefully'
+          assert_includes words, 'workshop の対象を東の畝から西の鉢に替えましょう。'
           assert_includes words, 'これで'
           refute(words.any? { |w| w.include?('⏺') || w.include?('| a |') || w.include?('contaminated') })
-          first = recs.find { |r| r['words'] == '8本に絞る（推奨）' }
-          assert_equal '-Users-masa-forback-github-EEE338-2026-', first['project']
-          assert_includes first['question'], '| options: 8本に絞る（推奨） / 16本すべて載せる'
-          prose_rec = recs.find { |r| r['words'].start_with?('hands-on') }
+          first = recs.find { |r| r['words'] == '8株に絞る（推奨）' }
+          assert_equal '-Users-operator-projects-course-2026-', first['project']
+          assert_includes first['question'], '| options: 8株に絞る（推奨） / 16株すべて載せる'
+          prose_rec = recs.find { |r| r['words'].start_with?('workshop') }
           assert_equal '2026-09-21T14:38:26.634Z', prose_rec['at']
           assert_equal '…どちらにしますか。', prose_rec['question']
           assert(recs.all? { |r| r['kind'] == 'typed_answer' })
@@ -601,12 +601,12 @@ module KairosMcp
         def test_retrieve_boosts_the_host_spelling_of_the_same_project
           store = Precedents.new(File.join(@tmp, 'prec'))
           base = { 'at' => '2026-10-20T00:00:00Z', 'question' => '査読の席は何席にしますか', 'words' => 'Fable も入れて 8 席' }
-          store.add([base.merge('source' => 'a', 'project' => '-Users-masa-forback-github-EEE338-2026-', 'kind' => 'correction'),
-                     base.merge('source' => 'b', 'project' => '-Users-masa-forback-github-KairosChain-2026', 'kind' => 'typed_answer')])
-          assert_equal '-Users-masa-forback-github-EEE338-2026-', store.retrieve('査読の席 Fable').first['project'],
+          store.add([base.merge('source' => 'a', 'project' => '-Users-operator-projects-course-2026-', 'kind' => 'correction'),
+                     base.merge('source' => 'b', 'project' => '-Users-operator-projects-DemoProject-2026', 'kind' => 'typed_answer')])
+          assert_equal '-Users-operator-projects-course-2026-', store.retrieve('査読の席 Fable').first['project'],
                        'without a project the correction ranks first'
-          top = store.retrieve('査読の席 Fable', project: 'KairosChain_2026')
-          assert_equal '-Users-masa-forback-github-KairosChain-2026', top.first['project']
+          top = store.retrieve('査読の席 Fable', project: 'DemoProject_2026')
+          assert_equal '-Users-operator-projects-DemoProject-2026', top.first['project']
         end
       end
     end

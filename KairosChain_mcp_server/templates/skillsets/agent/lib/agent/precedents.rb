@@ -130,8 +130,11 @@ module KairosMcp
         end
 
         # Project names as the host spells transcript directories
-        # (-Users-masa-forback-github-KairosChain-2026) and as a repository's
-        # basename (KairosChain_2026) compare equal under this key.
+        # (-Users-operator-projects-DemoProject-2026) and as a repository's
+        # basename (DemoProject_2026) fold to keys where the basename's key is
+        # contained in the host spelling's key; retrieve tests that containment
+        # with include?. The two keys are not equal, so answer_key keeps them
+        # apart.
         def self.project_key(name)
           name.to_s.downcase.gsub(/[^a-z0-9]+/, '-')
         end

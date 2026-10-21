@@ -6,6 +6,39 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.95.1] - 2026-10-21
+
+### Changed — the agent SkillSet ships a sample policy, `default_2026_10_20`, instead of `masa_2026_10_20` (agent 1.0.1)
+
+`masa_2026_10_20.rb` named its author and cited a record that exists only in the author's instance.
+`default_2026_10_20.rb` carries the same rules (the stand-in may answer from the operator's recorded words, from
+the instruction mode, and reversible questions no recorded word covers; review consent; no project exempt from the
+data check; 10 rounds per review; 300 stand-in calls), with comments that say what each rule does. The stand-in
+reads the policy file, comments included. Adopt it with `adopt policy default_2026_10_20 ac4ae89b`; adopting it
+consents to sending the run's artifacts to the reviewers configured in multi_llm_review.
+
+`masa_2026_10_20.rb` is no longer shipped and is not listed in `removed_files`, so upgrade leaves an installed copy
+and a forced reinstall keeps the installed copy: an instance that has it keeps it, and an adoption of it stays valid. It is another operator's sample with the same
+rules: an instance that never adopted it may delete it, and one that did may adopt `default_2026_10_20` instead. A
+shipped policy is never changed in place; a changed rule ships under a new policy name in a new file. Design:
+`log/agent_policy_default_and_proposal_design_v0.7.2_20261021.md`.
+
+### Changed — personal material out of the shipped agent tree
+
+Home paths, a person's project and course names, answers typed in a real course and a third party's name are
+replaced by synthetic ones in the agent SkillSet's tests and one code comment. The published 3.95.0 gem and the
+repository history keep them.
+
+### Added — `bin/agent_policy_report.rb`
+
+An operator-run script that reports, for each rule of the adopted policy, what the runs the chain records as ended
+hold against it: stand-in answers by class and their corrections, review rounds and cap hits, stand-in calls and
+grants, data checks, with counts, denominators and the operator's words. It moves no rule, evaluates no file
+from a run directory, and writes only its report, under `storage/agent/policy_reports/` (and
+`storage/agent/.gitignore` when absent; no report is written unless that file is a regular file holding exactly the line `*`). Every act it counts is recorded on the actor's reading of the
+operator's words, and the report says so. A policy changes only by the operator's own copy, edit and typed
+adoption.
+
 ## [3.95.0] - 2026-10-21
 
 ### Changed — the `agent` SkillSet is rebuilt (1.0): long runs in the host session, a stand-in instead of terminal approvals

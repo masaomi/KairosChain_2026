@@ -20,7 +20,7 @@ module KairosMcp
           FileUtils.rm_rf(@dir)
         end
 
-        def rec(words, kind: 'typed_answer', project: 'KairosChain_2026', question: 'q')
+        def rec(words, kind: 'typed_answer', project: 'demo_project', question: 'q')
           { 'source' => 't.jsonl', 'project' => project, 'at' => '2026-10-20T00:00:00Z',
             'kind' => kind, 'question' => question, 'words' => words }
         end
@@ -45,11 +45,11 @@ module KairosMcp
 
         def test_retrieval_prefers_related_words_and_the_same_project
           @store.add([rec('Fable も入れて 8 席で出す', question: '2 周目の査読をどう出しますか'),
-                      rec('メールで良いと思います', question: 'Ralph さんにはどう連絡しますか', project: 'Desktop'),
-                      rec('Fable 込み 8 席', question: '査読の席', project: 'GenomicsChain_SkillSets')])
-          top = @store.retrieve('査読の席を何席にしますか Fable', project: 'KairosChain_2026', k: 2)
+                      rec('メールで良いと思います', question: 'Alex さんにはどう連絡しますか', project: 'scratch'),
+                      rec('Fable 込み 8 席', question: '査読の席', project: 'other_project')])
+          top = @store.retrieve('査読の席を何席にしますか Fable', project: 'demo_project', k: 2)
           assert_equal 2, top.size
-          assert_equal 'KairosChain_2026', top.first['project']
+          assert_equal 'demo_project', top.first['project']
           refute(top.any? { |r| r['words'].include?('メール') })
         end
       end

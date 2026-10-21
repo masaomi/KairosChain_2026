@@ -15,7 +15,7 @@
 # tools are scripted; no claude -p runs. Some scenarios run every hook event
 # through hooks/agent_hook.rb as a subprocess with an empty gem path, so the
 # project's ruby cannot load kairos_mcp and the stand-in cannot be built (the
-# R3 operator-proxy trigger, ChronosChain_2026's ruby 3.3.10).
+# R3 operator-proxy trigger, a project pinned to an older ruby without the gem).
 require 'rbconfig'
 require 'shellwords'
 require_relative 'test_agent1_r1_check'
