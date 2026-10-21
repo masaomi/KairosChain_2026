@@ -247,6 +247,40 @@ assert('absolutely_nonexistent_binary_xyz is NOT in PATH') do
 end
 assert('non-symbol non-string returns false') { !CAP.cli_in_path?(nil) }
 
+# The declared externals are probed by the binary each adapter spawns.
+assert('claude_cli/codex_cli/cursor_cli map to claude/codex/agent') do
+  CAP.binary_for(:claude_cli) == 'claude' && CAP.binary_for(:codex_cli) == 'codex' &&
+    CAP.binary_for(:cursor_cli) == 'agent' && CAP.binary_for(:ls) == 'ls'
+end
+assert('codex_cli is found when a file named codex is on PATH') do
+  Dir.mktmpdir do |dir|
+    exe = File.join(dir, 'codex')
+    File.write(exe, "#!/bin/sh\necho codex-cli 9.9.9\n")
+    File.chmod(0o755, exe)
+    old = ENV['PATH']
+    begin
+      ENV['PATH'] = dir
+      CAP.cli_in_path?(:codex_cli) && CAP.cli_version(:codex_cli) == 'codex-cli 9.9.9'
+    ensure
+      ENV['PATH'] = old
+    end
+  end
+end
+assert('codex_cli is not found from a file named codex_cli') do
+  Dir.mktmpdir do |dir|
+    exe = File.join(dir, 'codex_cli')
+    File.write(exe, "#!/bin/sh\n")
+    File.chmod(0o755, exe)
+    old = ENV['PATH']
+    begin
+      ENV['PATH'] = dir
+      !CAP.cli_in_path?(:codex_cli)
+    ensure
+      ENV['PATH'] = old
+    end
+  end
+end
+
 # ============================================================
 section('8. compute_used_externals — same-source exclusion (F4)')
 # ============================================================

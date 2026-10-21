@@ -98,11 +98,25 @@ module KairosMcp
           declaration_errors: errors }
       end
 
+      # The binary each declared external names: the one the llm_client
+      # adapter spawns for it (claude_code_adapter, codex_adapter,
+      # cursor_adapter). Probing the symbol itself searched PATH for a file
+      # called "codex_cli" and reported every installed CLI as missing.
+      EXTERNAL_BINARIES = {
+        claude_cli: 'claude',
+        codex_cli:  'codex',
+        cursor_cli: 'agent'
+      }.freeze
+
+      def binary_for(name)
+        EXTERNAL_BINARIES.fetch(name.to_s.to_sym, name.to_s)
+      end
+
       # which-style PATH check using only filesystem (no subprocess).
       # Returns true/false.
       def cli_in_path?(name)
         return false unless name.is_a?(Symbol) || name.is_a?(String)
-        bin = name.to_s
+        bin = binary_for(name)
         ENV.fetch('PATH', '').split(File::PATH_SEPARATOR).any? do |dir|
           full = File.join(dir, bin)
           File.executable?(full) && !File.directory?(full)
@@ -110,11 +124,13 @@ module KairosMcp
       end
 
       # Get version of a CLI by spawning subprocess (only when probe_versions: true).
-      # Returns nil on any failure (Honest unknown).
+      # Returns nil on any failure (Honest unknown). Spawned as an argv, not
+      # through a shell.
       def cli_version(name)
         return nil unless cli_in_path?(name)
-        out = `#{name} --version 2>&1`.strip
-        $?.success? ? out.lines.first&.strip : nil
+        require 'open3'
+        out, status = Open3.capture2e(binary_for(name), '--version')
+        status.success? ? out.strip.lines.first&.strip : nil
       rescue StandardError
         nil
       end
