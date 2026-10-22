@@ -6,11 +6,11 @@
 # the console's session (so nothing it starts has a controlling terminal),
 # runs the child in that new session, and ends the whole session when the
 # lifeline reads end-of-file — the console ended, in any way, SIGKILL
-# included — or when the child exits by itself. Claude Code runs each shell
-# command in a process group of its own, so the session, not a group, is the
-# unit. A process that has left this session (setsid, a daemonizing
-# interpreter) is outside its reach; so is the watchdog being killed with
-# SIGKILL itself.
+# included — or when the child exits by itself. That session holds Claude Code
+# and its MCP server. Claude Code starts each Bash command's shell in a session
+# of its own, so Bash commands and what they start are outside the sweep's
+# reach, as is any process that left with setsid, and so is the watchdog being
+# killed with SIGKILL itself.
 #
 # It writes nothing to stdout, which is the child's stream to the console.
 

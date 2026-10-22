@@ -1015,6 +1015,26 @@ class KairomoneConsoleIntegrationTest < Minitest::Test
     assert_empty fake_reports, 'no child is started'
   end
 
+  # A refusal names folders; a folder name holding ESC, CR or BEL must not
+  # reach the owner's terminal as those bytes (a forged "open this URL" line).
+  def test_a_refusal_prints_control_characters_in_folder_names_as_visible_escapes
+    installed = File.join(@data, 'skillsets', 'kairomone')
+    FileUtils.cp_r(installed, File.join(@data, 'skillsets', "aa\e]0;open this URL\a\rkairomone"))
+    console = start_console
+    status = console.wait_exit(40)
+    refute_nil status, 'the console refuses and ends'
+    refute status.success?
+    console.drain
+    line = console.output.split("\n").find { |l| l.include?('Kairomone console:') }
+    refute_nil line, "no refusal line in:\n#{console.output}"
+    line = line.sub(/\r\z/, '') # the pty's own line ending
+    assert_includes line, 'open this URL', 'the folder is named'
+    refute_match(/[\e\a\r]/, line, 'no ESC, BEL or CR byte reaches the terminal')
+    assert_includes line, 'aa\\e]0;open this URL\\a\\rkairomone', 'the bytes are shown as visible escapes'
+    assert_empty console.urls
+    assert_empty fake_reports, 'no child is started'
+  end
+
   def test_child_process_lifeline_sweeps_the_session_and_passes_the_exit_status
     out = run_helper('lifeline')
     assert_includes out['types'], 'result', 'lines written to the child are answered on each_line'

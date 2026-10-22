@@ -127,7 +127,8 @@ For a portable recovery that becomes the new active instance:
    `kairomone-inbox/` directory, retaining a simple `.kairomone.json` basename.
 3. Call `kairomone_backup(command: "restore_new", file: "BASENAME",
    dot_id: "EXPECTED_ORIGINAL_DOT_ID")`, or CLI `backup restore-new --file
-   BASENAME --dot-id EXPECTED_ORIGINAL_DOT_ID`.
+   BASENAME --dot-id EXPECTED_ORIGINAL_DOT_ID` at a terminal (it refuses
+   without one).
 4. Inspect returned integrity/L0 comparison and `kairomone_status`, then use the
    regular knowledge and observation tools. Recovery is active only after every
    archive, canonical-chain and expected-identity check passes.
@@ -144,7 +145,9 @@ owner's terminal ruling accepts the new host L0. Current host layer governance s
 
 Version 0.6 adds a page from which the owner talks to the dot, with each tool
 permission answered on the page. The owner starts it at a terminal, in the
-project folder:
+project folder, from the installed copy under the data directory
+(`<data_dir>/skillsets/kairomone`; the console refuses to start from any other
+copy):
 
     ruby .kairos/skillsets/kairomone/scripts/kairomone_console.rb
 
@@ -170,8 +173,11 @@ What the console holds to:
 - It writes nothing to the dot itself. The dot changes only through the
   `kairomone_*` tools the supervised session calls. That session has Bash, Read,
   Grep, Glob and ToolSearch and this project's `kairomone_*` tools, nothing else;
-  any other tool, a background shell and a backup restore are refused before
-  they run, in every mode.
+  any other tool, a Bash command with the `run_in_background` flag and a
+  `kairomone_backup` restore are refused before they run, in every mode. The CLI
+  restore needs a terminal; a shell command that opens a pseudo-terminal can run
+  it, and in the asking mode such a command is asked about before it runs,
+  unless Claude Code classifies it as read-only.
 - It starts in the asking mode and accepts a message only after Claude Code
   reports that mode (`default`). The page always shows Claude Code's own word
   for the mode. Auto is chosen on the page; in auto, Claude Code's classifier
@@ -188,11 +194,15 @@ What the console holds to:
   Nothing is allowed by timeout; pending requests are denied when the console
   stops; a request the page did not answer is marked with Claude Code's stated
   source.
-- When the console ends in any way, SIGKILL included, its watchdog ends every
-  process Claude Code started (TERM, then KILL after five seconds), except one
-  that has left their process session.
+- When the console ends in any way, SIGKILL included, its watchdog ends Claude
+  Code and its MCP server (TERM, then KILL after five seconds). Each Bash command
+  runs in a session of its own and is not ended by the console; in the asking
+  mode such commands are asked about before they run unless Claude Code
+  classifies them as read-only.
 - It starts only when the installed package matches the content recorded on the
-  host chain at install. Otherwise it names the reinstall command:
+  host chain at install. The start check covers the Kairomone package only;
+  another SkillSet in the same data directory runs in the same server and can
+  replace its tools. Otherwise it names the reinstall command:
   `kairos-chain skillset install kairomone --force --data-dir <dir>`. A package
   whose path holds `* ? [ ] { }` or a backslash cannot be checked (KairosChain's
   file listing reads them as a pattern), so the console refuses to start there.
@@ -205,10 +215,16 @@ What it does not protect (also stated on the page): the session keeps a shell,
 because a learning cycle fetches sources with `curl`. A shell runs with your
 macOS user rights. It can read browser data, change files you can change —
 including the dot's own files, bypassing its locks and ledger — and start a
-process that leaves the session (`setsid`, a daemonizing interpreter), which the
-watchdog cannot reach. In the asking mode such a command is asked about unless
+process that keeps running after the console ends (each Bash command runs in a
+session of its own, which the watchdog does not end; `nohup … &` is enough). In
+the asking mode such a command is asked about unless
 Claude Code classifies it as read-only; in auto nothing asks. The same shell can
 edit the console's program, which the start check detects at the next start
-unless the checking code was edited too. This is weaker than a terminal session,
+unless the checking code was edited too; the start check covers the Kairomone
+package only, so another SkillSet in the same data directory, loaded into the
+same server, can replace the Kairomone tools unchecked. This is weaker than a terminal session,
 whose prompts are answered on a terminal the session cannot type into. The L0
-re-baseline ruling and backup restores stay at a terminal.
+re-baseline ruling and backup restores need a terminal; as with the ruling, a
+shell command that opens a pseudo-terminal can supply one, and in the asking
+mode it is asked about before it runs, unless Claude Code classifies it as
+read-only.

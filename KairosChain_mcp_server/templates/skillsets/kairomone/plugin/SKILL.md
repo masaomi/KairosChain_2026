@@ -162,8 +162,11 @@ permission prompts.
 - If you are the session the console started (your turns come from the owner's page, and your only tools
   are Bash, Read, Grep, Glob, ToolSearch and the `kairomone_*` tools), every rule above holds unchanged.
   The owner answers each permission prompt on the page: a denial is their answer, so report it and do not
-  try another way. `kairomone_backup restore` and `restore_new` are refused here; restores are done in a
-  terminal session. Do not start anything that outlives your turn (`nohup`, `setsid`, background jobs):
-  the console ends everything in its session when it stops, and what leaves it is out of the owner's sight.
+  try another way. `kairomone_backup restore` and `restore_new` are refused here, and the CLI `backup
+  restore` / `restore-new` needs a terminal; restores are done by the owner in a terminal session. As with
+  the L0 ruling, never run the CLI restore yourself — not directly and not through a pseudo-terminal tool
+  such as `script`, `expect` or a PTY library. Do not start anything that outlives your turn (`nohup`, `setsid`, background jobs):
+  when the console stops it ends you and your MCP server, but each Bash command runs in a session of its
+  own and is not ended by the console, so what you leave running is out of the owner's sight.
 - A quick request from the page is the owner's own message. It is not consent to `remember` and not an
   approval of a summary; those still need the owner's explicit words.

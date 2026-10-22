@@ -135,10 +135,11 @@ Values the page should expect:
   console stops.
 - `permission_request.exact` is false when the tool name or input holds a value
   JSON cannot carry back unchanged (text that is not UTF-8, a number outside the
-  double range). Such a request waits like any other but can only be denied,
-  because an allow carries back exactly the input shown. In every event, such a
-  value is shown as text: U+FFFD for invalid bytes, `Infinity` for a number out
-  of range.
+  double range, an integer beyond ±(2^53 − 1), which the page's JSON parse
+  rounds). Such a request waits like any other but can only be denied,
+  because an allow carries back exactly the input shown. In every event, invalid
+  bytes are shown as U+FFFD and a number out of range as the text `Infinity`; an
+  integer beyond ±(2^53 − 1) stays a JSON number, which the page shows rounded.
 - `tool_result.content` is Claude Code's own value: a string or a list of
   content blocks. Show it as text.
 

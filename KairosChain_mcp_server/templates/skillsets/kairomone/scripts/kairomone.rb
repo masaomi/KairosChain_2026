@@ -96,8 +96,20 @@ begin
            when ['growth', 'stop'] then store.autonomy.stop(reason: options.fetch(:reason, 'Explicit stop'))
            when ['backup', 'create'] then store.create_backup
            when ['backup', 'verify'] then store.verify_backup(file: options[:file])
-           when ['backup', 'restore'] then store.restore_backup(file: options[:file], target_id: options[:target_id])
-           when ['backup', 'restore-new'] then store.restore_new(file: options[:file], dot_id: options[:dot_id])
+           when ['backup', 'restore'], ['backup', 'restore-new']
+             # A restore is done at a terminal, like the L0 ruling: the console's
+             # child has no controlling terminal; a shell command that opens a
+             # pseudo-terminal can give it one, which the standing rule forbids.
+             begin
+               File.open('/dev/tty', 'r+').close
+             rescue SystemCallError => e
+               raise Kairomone::Error, "backup #{subcommand} needs a terminal (/dev/tty: #{e.class}). Run it yourself in a terminal, in the project folder."
+             end
+             if subcommand == 'restore'
+               store.restore_backup(file: options[:file], target_id: options[:target_id])
+             else
+               store.restore_new(file: options[:file], dot_id: options[:dot_id])
+             end
            when ['l0', 'rebaseline']
              # The ruling reads its nonce back at the terminal and refuses without
              # one, so no MCP call reaches it. This is a path, not proof of a person.

@@ -11,6 +11,7 @@ require 'fileutils'
 require 'monitor'
 require_relative '../kairomone'
 require 'kairos_mcp/skillset'
+require 'kairos_mcp/skillset_manager'
 require 'kairos_mcp/kairos_chain/chain'
 
 module Kairomone

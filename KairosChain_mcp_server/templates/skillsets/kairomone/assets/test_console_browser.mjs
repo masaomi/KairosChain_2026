@@ -250,7 +250,8 @@ class Fake
   def ask(spec, tool_use_id: "toolu_fake_#{@n}_#{SecureRandom.hex(4)}", announce: true)
     name = spec['tool']
     input = spec['input']
-    emit(assistant([{ 'type' => 'tool_use', 'id' => tool_use_id, 'name' => name, 'input' => input }])) if announce
+    # "quiet": the request comes without a preceding tool_use block.
+    emit(assistant([{ 'type' => 'tool_use', 'id' => tool_use_id, 'name' => name, 'input' => input }])) if announce && !spec['quiet']
     request_id = SecureRandom.uuid
     request = { 'subtype' => 'can_use_tool', 'tool_name' => name, 'display_name' => spec['display_name'] || name,
                 'input' => input, 'permission_suggestions' => [], 'tool_use_id' => tool_use_id }
@@ -665,6 +666,36 @@ test('a permission request shows its full input; Allow carries exactly that inpu
     await waitFor('the denied tool card', async () => (await page.locator('#log li.tool .badge').nth(1).textContent()) === '拒否');
     assert.match(await page.locator('#log li.tool').nth(1).textContent(), /この画面での答えです。/);
     await waitFor('the pending list to empty', async () => page.locator('#pending').isHidden());
+    await assertCleanPage(page, rec, con.origin);
+  });
+});
+
+test('a permission request without a preceding tool_use keeps its input on the tool card after the answer and across a reload', { timeout: 120000 }, async () => {
+  await withConsole({}, async ({ host, con, context }) => {
+    const { page, rec } = await openPage(context, con.url);
+    await waitBoxOpen(page);
+    const input = { command: 'ls -la', description: 'List the folder' };
+    await send(page, host, `ASKJSON ${JSON.stringify({ tool: 'Bash', description: 'List the folder', input, quiet: true })}`);
+    const asked = await nextRequest(host, 0);
+    await cardFor(page, asked.request_id).waitFor();
+    const shownInput = (card) => card.locator('.tool-input details pre');
+    const tool = page.locator('#log li.tool').first();
+    assert.equal(await tool.locator('.tool-name').textContent(), 'Bash');
+    assert.equal(await shownInput(tool).count(), 1, 'the tool card shows the request input while it waits');
+    assert.equal(await shownInput(tool).textContent(), JSON.stringify(input, null, 2));
+    await cardFor(page, asked.request_id).locator('button.allow').click();
+    await waitFor('the allow to reach the child', async () => (await answersFor(host, asked.request_id))[0]);
+    await waitFor('the pending list to empty', async () => page.locator('#pending').isHidden());
+    await waitFor('the turn to end', async () => (await turnEnds(page)) === 1);
+    assert.equal(await shownInput(tool).count(), 1, 'the input stays on the tool card after the answer');
+    assert.equal(await shownInput(tool).textContent(), JSON.stringify(input, null, 2));
+    assert.equal(await tool.locator('pre.cmd').textContent(), input.command, 'the command stays shown');
+    await page.reload();
+    await waitFor('the replayed tool card', async () => (await page.locator('#log li.tool').count()) === 1);
+    const replayed = page.locator('#log li.tool').first();
+    assert.equal(await shownInput(replayed).count(), 1, 'the input is shown again after a reload');
+    assert.equal(await shownInput(replayed).textContent(), JSON.stringify(input, null, 2));
+    assert.equal(await page.locator('#pending-list article.request').count(), 0, 'nothing is pending after the answer');
     await assertCleanPage(page, rec, con.origin);
   });
 });

@@ -250,10 +250,11 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
         <h3>端末でだけ行うこと</h3>
         <p>ホストの L0 が変わったとき、それを受け入れるかどうかは、あなた自身がこのプロジェクトのフォルダーの端末で判断します。Claude には実行させないでください。</p>
         <code class="block">ruby .kairos/skillsets/kairomone/scripts/kairomone.rb l0 rebaseline --reason "…"</code>
-        <p>バックアップからの復元は、この画面からはどのモードでもできません。端末の Claude Code セッションで行ってください。</p>
+        <p>バックアップからの復元は、Kairomone の道具（kairomone_backup）からは、どのモードでもできません。コマンド行の復元は端末を必要としますが、擬似端末を開くシェルの命令なら実行でき、確認ありでは、Claude Code が読み取りだけと判断した命令を除き、その命令は実行前に問われます。復元は端末の Claude Code セッションで行ってください。</p>
         <h3>この画面の弱さ</h3>
         <ul>
           <li>学習には <code>curl</code> が要るので、Claude はシェルを使えます。シェルはあなたと同じ権限で動き、相棒のファイル（<code>.kairos/kairomone/</code> の下）を書き換えることも、コンソールを止めても動き続けるプロセスを作ることもできます。相棒のファイルにシェルで触れないよう Claude を縛っているのは、Kairomone の決まり（<code>SKILL.md</code>）です。</li>
+          <li>起動時の点検が見るのは Kairomone のパッケージだけです。同じデータの場所にある別の SkillSet は同じサーバーの中で動き、Kairomone の道具を置き換えることができます。</li>
           <li>確認ありでも、Claude Code が「読むだけ」と判断した命令は問われずに実行されます（実行したことはこの画面に出ます）。auto では何も問われません。</li>
           <li>端末のセッションでは、許可の問いに答えるのは Claude が入力できない端末です。この画面はそれより弱い仕組みです。この画面の合言葉は Claude に渡していませんが、あなたと同じ権限で動くプロセスが探せば、読める可能性はあります。</li>
         </ul>
@@ -696,6 +697,9 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     var id = show(ev.request_id), name = str(ev.tool_name, '（名前なし）');
     var card = toolCard(str(ev.tool_use_id) || 'request:' + id, name, ev.at);
     if (!card.resolved) setBadge(card, 'awaiting', '確認待ち');
+    // Without a preceding tool_use the card has no input; the request's input
+    // stays here after the pending card is removed.
+    if (!card.input.firstChild) card.input.appendChild(inputView(name, ev.input, false));
     card.awaiting = true;
     renderNote(card);
     var old = pending.get(id);

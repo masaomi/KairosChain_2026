@@ -161,6 +161,20 @@ Dir.mktmpdir('kairomone-independent-') do |tmp|
   inbox_hash = Digest::SHA256.file(File.join(inbox, file)).hexdigest
   new_host_base = tree(new_host)
   run_recovered = lambda do |*arguments|
+    if arguments.first(2) == %w[backup restore-new]
+      # A restore needs a controlling terminal, so it runs under a pty.
+      require 'pty'
+      stdout = +''
+      PTY.spawn({ 'KAIROS_DATA_DIR' => new_host }, RbConfig.ruby, '-I', File.join(CORE, 'lib'), new_cli, *arguments) do |reader, _writer, pid|
+        begin
+          stdout << reader.read
+        rescue Errno::EIO
+          nil
+        end
+        _, outcome = Process.wait2(pid)
+        return [JSON.parse(stdout), outcome, '']
+      end
+    end
     stdout, stderr, outcome = Open3.capture3(
       { 'KAIROS_DATA_DIR' => new_host }, RbConfig.ruby, '-I', File.join(CORE, 'lib'), new_cli, *arguments
     )

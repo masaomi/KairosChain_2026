@@ -605,10 +605,12 @@ module Kairomone
         value.valid_encoding? ? value : nil
       end
 
-      # True when JSON can carry the value back unchanged.
+      # True when JSON can carry the value back unchanged, through the page's
+      # JavaScript parse too, which rounds integers beyond 2^53.
       def exact?(value)
         case value
         when String then value.valid_encoding?
+        when Integer then value.abs <= 2**53 - 1
         when Float then value.finite?
         when Array then value.all? { |v| exact?(v) }
         when Hash then value.all? { |k, v| exact?(k) && exact?(v) }

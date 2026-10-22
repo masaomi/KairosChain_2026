@@ -409,6 +409,26 @@ class KairomoneConsoleSessionTest < Minitest::Test
                  last_event('tool_result').values_at('decided_by_page', 'decision_source', 'decision', 'is_error')
   end
 
+  # The page parses events in JavaScript, which rounds integers beyond 2^53;
+  # such an input cannot be shown exactly, so it can only be denied.
+  def test_an_integer_the_page_rounds_is_inexact_and_cannot_be_allowed
+    confirm!
+    owner_turn('count')
+    exact = { 'command' => 'sleep 1', 'timeout' => 9_007_199_254_740_991 }
+    feed(L.tool_use('toolu_ok', 'Bash', exact))
+    feed(L.can_use_tool('req-ok', 'toolu_ok', 'Bash', exact))
+    assert_equal true, last_event('permission_request')['exact'], '2^53 - 1 is exact'
+    rounded = { 'command' => 'sleep 1', 'nested' => { 'timeout' => 9_007_199_254_740_993 } }
+    feed(L.tool_use('toolu_big', 'Bash', rounded))
+    feed(L.can_use_tool('req-big', 'toolu_big', 'Bash', rounded))
+    assert_equal false, last_event('permission_request')['exact'], '2^53 + 1 is not exact'
+    assert_equal :not_allowable, @session.answer_permission('req-big', 'allow')
+    assert_includes @session.pending_ids, 'req-big'
+    assert_empty answers_for('req-big')
+    assert_equal :ok, @session.answer_permission('req-big', 'deny')
+    assert_equal 'deny', answers_for('req-big').first.dig('response', 'response', 'behavior')
+  end
+
   def test_the_cli_copy_of_an_answer_changes_nothing
     confirm!
     owner_turn('run it')
@@ -1187,6 +1207,59 @@ class KairomoneConsoleProjectTest < Minitest::Test
     assert_equal true, start_check['result'], 'the reinstall recorded the edited content'
     File.binwrite(File.join(installed, 'plugin', 'SKILL.md'), File.binread(File.join(PACKAGE, 'plugin', 'SKILL.md')))
     refute_nil start_check['refusal'], 'an earlier event matching the files does not count'
+  end
+
+  # The start check run from a console loaded out of the given package.
+  def start_check_from(package)
+    out, err, status = Open3.capture3({ 'KAIROS_DATA_DIR' => nil }, RbConfig.ruby, '-e', START_CHECK, CORE_LIB, package,
+                                      @project, @home, chdir: @tmp)
+    assert status.success?, err
+    JSON.parse(out.lines.last)
+  end
+
+  # The child's kairos-chain server loads <data_dir>/skillsets/kairomone; the
+  # package the console hashes must be that copy, not merely equal to it.
+  def test_start_check_refuses_a_package_that_is_not_the_copy_the_child_loads
+    install(@data)
+    valid_mcp!
+    other = File.join(@tmp, 'other_data')
+    FileUtils.mkdir_p(other)
+    install(other)
+    elsewhere = File.join(other, 'skillsets', 'kairomone')
+    assert_equal KairosMcp::Skillset.new(installed).content_hash, KairosMcp::Skillset.new(elsewhere).content_hash,
+                 'fixture: the second install has the recorded content'
+    [elsewhere, PACKAGE].each do |package|
+      result = start_check_from(package)
+      refute_nil result['refusal'], "#{package} is not the copy the child loads"
+      assert_includes result['refusal'], package, 'names the package the console was started from'
+      assert_includes result['refusal'], File.join(installed, 'scripts', 'kairomone_console.rb'), 'names how to start from the installed copy'
+    end
+    assert_equal true, start_check['result'], 'the installed copy itself passes'
+  end
+
+  # The core loads SkillSets by the name skillset.json declares, taking the
+  # first folder of that name in sorted order; a second folder declaring
+  # kairomone is refused whether it sorts before or after the installed copy.
+  def test_start_check_refuses_a_second_folder_declaring_kairomone
+    install(@data)
+    valid_mcp!
+    skillsets = File.join(@data, 'skillsets')
+    loaded_by_core = lambda do
+      KairosMcp::SkillSetManager.new(skillsets_dir: skillsets).enabled_skillsets.select { |ss| ss.name == 'kairomone' }.map(&:path)
+    end
+    assert_equal [installed], loaded_by_core.call, 'fixture: the clean install is the copy the core loads'
+    assert_equal true, start_check['result']
+    { 'aa_kairomone' => true, 'kairomone.bak.20261020' => false }.each do |folder, sorts_first|
+      shadow = File.join(skillsets, folder)
+      FileUtils.cp_r(installed, shadow)
+      assert_equal [sorts_first ? shadow : installed], loaded_by_core.call, "fixture: #{folder} #{sorts_first ? 'is' : 'is not'} the copy the core loads"
+      result = start_check
+      refute_nil result['refusal'], "#{folder} declares kairomone too"
+      assert_includes result['refusal'], shadow, 'names the other folder'
+      assert_includes result['refusal'], installed, 'names the installed copy'
+      FileUtils.rm_rf(shadow)
+      assert_equal true, start_check['result'], "the install passes again once #{folder} is gone"
+    end
   end
 end
 

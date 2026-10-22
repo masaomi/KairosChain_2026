@@ -63,6 +63,9 @@ end
 
 out_lock = Mutex.new
 say = ->(line) { out_lock.synchronize { $stdout.puts(line); $stdout.flush } }
+# A refusal names paths; a control character in one (ESC, CR, BEL) is shown
+# as its visible escape rather than reaching the terminal.
+refuse = ->(message) { warn "Kairomone console: #{message.gsub(/[[:cntrl:]]/) { |c| c.inspect[1..-2] }}" }
 
 begin
   raise Kairomone::Console::Refusal, 'WEBrick is not installed for this Ruby; install it with: gem install webrick' unless defined?(::WEBrick::HTTPServer)
@@ -80,7 +83,7 @@ begin
     raise Kairomone::Console::Refusal, "Cannot open the console log #{project.log_path}: #{e.class}"
   end
 rescue Kairomone::Console::Refusal => e
-  warn "Kairomone console: #{e.message}"
+  refuse.call(e.message)
   exit 1
 end
 log_io.sync = true
@@ -119,7 +122,8 @@ stop = lambda do |by|
   next if state[:stopping]
   state[:stopping] = true
   # Deny what is pending and interrupt, let those reach the child, then
-  # close the lifeline: the watchdog ends the child's whole session.
+  # close the lifeline: the watchdog ends the child's session (Claude Code and
+  # its MCP server; Bash commands run in sessions of their own).
   session.stop!(by: by)
   outgoing << nil
   writer&.join(2)
@@ -184,7 +188,7 @@ begin
   stop.call(by)
 rescue Exception => e # rubocop:disable Lint/RescueException -- any end closes the lifeline
   stop.call(e.is_a?(Kairomone::Console::Refusal) ? 'refusal' : 'error')
-  warn "Kairomone console: #{e.message}" if e.is_a?(Kairomone::Console::Refusal)
+  refuse.call(e.message) if e.is_a?(Kairomone::Console::Refusal)
   warn "Kairomone console: stopped after an internal error (#{e.class})." unless e.is_a?(Kairomone::Console::Refusal) || e.is_a?(SystemExit)
   exit(e.is_a?(SystemExit) ? e.status : 1)
 ensure

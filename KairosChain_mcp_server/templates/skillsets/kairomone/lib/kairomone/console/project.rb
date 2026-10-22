@@ -90,6 +90,23 @@ module Kairomone
       # gate's source and the standing rules; it does not cover an edit that
       # also rewrites this check, which runs with the same rights.
       def start_check!
+        # The child's server loads the SkillSets the core discovers under
+        # <data_dir>/skillsets by the name each skillset.json declares, taking
+        # the first folder of a name in sorted order; so the package hashed
+        # here must be the only folder there that declares kairomone.
+        skillsets_dir = File.join(@data_dir, 'skillsets')
+        loaded = File.join(skillsets_dir, 'kairomone')
+        declaring = begin
+          KairosMcp::SkillSetManager.new(skillsets_dir: skillsets_dir).all_skillsets.select { |ss| ss.name == 'kairomone' }.map(&:path)
+        rescue StandardError => e
+          raise Refusal, "Cannot list the SkillSets under #{skillsets_dir}: #{e.class}"
+        end
+        unless declaring.length == 1 && File.realpath(declaring.first) == File.realpath(@package_root)
+          raise Refusal, "The child's kairos-chain server loads the SkillSet that declares kairomone under #{skillsets_dir} — " \
+                         "#{declaring.empty? ? 'none is there' : "#{declaring.length} found: #{declaring.join(', ')}"} — " \
+                         "and the console was started from #{@package_root}. Keep exactly one, the installed copy #{loaded}, move the " \
+                         "others out of that directory, and start the console from it: ruby #{Shellwords.escape(File.join(loaded, 'scripts', 'kairomone_console.rb'))}"
+        end
         # The core lists the package's files with Dir[], which reads these
         # characters in the package's own path as a pattern: the list then
         # misses files or is empty, the hash recorded at install and the one

@@ -329,8 +329,47 @@ check('CLI subprocess uses selected host data and supports the full basic path')
     assert File.file?(run.call('status', '--html')['html_path'])
     file = run.call('backup', 'create')['file']
     assert run.call('backup', 'verify', '--file', file)['verified']
-    assert run.call('backup', 'restore', '--file', file, '--target-id', 'cli_restore')['restored']
+    # A restore needs a controlling terminal, so it runs under a pty.
+    require 'pty'
+    at_tty = lambda do |*args|
+      output = +''
+      PTY.spawn(env, RbConfig.ruby, cli, *args) do |reader, _writer, pid|
+        begin
+          output << reader.read
+        rescue Errno::EIO
+          nil
+        end
+        Process.wait(pid)
+      end
+      assert $?.success?, "CLI failed: #{output}"
+      JSON.parse(output)
+    end
+    assert at_tty.call('backup', 'restore', '--file', file, '--target-id', 'cli_restore')['restored']
     assert run.call('status', '--instance', 'cli_restore')['integrity']['valid']
+  end
+end
+
+check('CLI restore and restore-new refuse without a controlling terminal and restore nothing') do
+  Dir.mktmpdir('kairomone-cli-notty-') do |host|
+    cli = File.expand_path('templates/skillsets/kairomone/scripts/kairomone.rb', __dir__)
+    # A new session has no controlling terminal, whatever started the test.
+    run = lambda do |data, *args|
+      output, _errors, status = Open3.capture3({ 'KAIROS_DATA_DIR' => data }, RbConfig.ruby, '-e', 'Process.setsid; exec(*ARGV)',
+                                               RbConfig.ruby, cli, *args)
+      [JSON.parse(output), status]
+    end
+    assert run.call(host, 'init', '--dot-id', 'cli_dot', '--name', 'CLI dot').first['success']
+    backup = run.call(host, 'backup', 'create').first
+    result, status = run.call(host, 'backup', 'restore', '--file', backup['file'], '--target-id', 'cli_restore')
+    assert !status.success? && result['success'] == false && result['error'].include?('needs a terminal'), result.inspect
+    assert !File.exist?(File.join(host, 'kairomone-restored', 'cli_restore'))
+    Dir.mktmpdir('kairomone-cli-notty-new-') do |new_host|
+      FileUtils.mkdir_p(File.join(new_host, 'kairomone-inbox'))
+      FileUtils.cp(backup['path'], File.join(new_host, 'kairomone-inbox', backup['file']))
+      result, status = run.call(new_host, 'backup', 'restore-new', '--file', backup['file'], '--dot-id', 'cli_dot')
+      assert !status.success? && result['success'] == false && result['error'].include?('needs a terminal'), result.inspect
+      assert !File.exist?(File.join(new_host, 'kairomone'))
+    end
   end
 end
 
