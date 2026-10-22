@@ -6,6 +6,8 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.96.1] - 2026-10-22
+
 ### Fixed — agent runs convene the persona seat their reviews declared none for (agent 1.0.2)
 
 A run review dispatched multi_llm_review with `persona_count_declared: 0` and collected with no persona reviews,
@@ -37,8 +39,9 @@ so every round counted four seats where the operator's roster has five, and the 
   never messaged.
 - The seats run on the session's own plan; no policy spend counter counts them.
 - `depends_on` pins multi_llm_review >= 0.12.0. L1 multi_llm_review_workflow 3.17.1.
-- Design: `log/agent_persona_seats_design_v0.3_20261022.md` (two design review rounds, three implementation
-  review rounds; the P1s of each fixed).
+- Design: `log/agent_persona_seats_design_v0.3_20261022.md` (two design review rounds, four implementation
+  review rounds and one falsification check; the P1s of each fixed). Probed live on one host: three seats
+  launched through the rewrite, all three submitted, five seats counted.
 
 ## [3.96.0] - 2026-10-21
 
