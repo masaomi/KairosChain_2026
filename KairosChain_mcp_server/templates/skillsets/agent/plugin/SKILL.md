@@ -67,7 +67,17 @@ report. You can carry a whole dev cycle, a document revision or a survey; do not
   the Write tool (never overwrite an existing file), then `agent_advance(run_id)`.
 - **Review phases:** `agent_advance` dispatches the round itself (do not call `multi_llm_review` yourself in a
   run — it is refused) and, on the next call, collects it and returns the seats' findings labelled by the
-  stand-in. Answer the open P0s in a new version (a new file) or new commits, then advance again. A review
+  stand-in. Each round also has three persona seats on your own host: when `next` lists their markers, launch
+  them in ONE message, one Agent call per marker, the prompt exactly the marker line (the hook replaces it with
+  the seat's prompt), then call `agent_advance` again — it waits for them. Do not message or relay a seat: the
+  hooks record each seat's own reply, and a seat may only read its prompt and hand back. Until the round
+  collects or its deadline passes, the Stop hook sends you back to `agent_advance` — up to three times between
+  two calls of it, and once more after a turn in which a seat started or ended. Stopping a seat the round still
+  waits for, or a background task the run cannot tell from one, is refused; a seat still running after its
+  round collected may be stopped, and should be, since its reply no longer counts.
+  Ten minutes before the round's deadline its seats are no longer launched and the next call collects without
+  them. The seats run on your own plan; the policy's spend does not count them.
+  Answer the open P0s in a new version (a new file) or new commits, then advance again. A review
   closes provisionally when a quorum of seats answered and every P0 is fixed, refuted with grounds, or (design
   reviews) deferred to the implementation review; the only cap is the policy's rounds for each review.
 - **How to revise (L1 multi_llm_review_workflow § Revision Discipline):** answer a finding by deletion,

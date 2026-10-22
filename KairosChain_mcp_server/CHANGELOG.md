@@ -6,6 +6,40 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed — agent runs convene the persona seat their reviews declared none for (agent 1.0.2)
+
+A run review dispatched multi_llm_review with `persona_count_declared: 0` and collected with no persona reviews,
+so every round counted four seats where the operator's roster has five, and the report said so in one line.
+
+- Each review round declares three personas (design: architect, security, operability; implementation:
+  correctness, performance, api-design; document: ontologist, skeptic, integration) and stores their prompts —
+  multi_llm_review's own canonical prompt for the same bundle, under a persona header — in run storage.
+- The actor launches each seat with a one-line marker that the PreToolUse hook replaces with the seat's prompt.
+  From then on the subagent is a seat for its whole life, recognised by the host's meta file naming that launch;
+  it may read only its prompt file and hand back. Messages and stops aimed at a seat are refused.
+- Each seat is settled at its SubagentStop from the hand-back the hooks kept, before the hazard and question
+  readers; agent_advance settles launches the host never started or never stopped. A seat whose transcript
+  shows another prompt is not submitted.
+- agent_advance waits about 540 s per call for running seats, submits each settled reply with the verdict and
+  findings multi_llm_review's own parser reads from it, one per line the seat wrote, so a finding's severity
+  and consequence come from the same line, and gives the stand-in each persona's own reply. A finding whose
+  consequence clause (or location) lies past the point where multi_llm_review cuts a persona finding is
+  rebuilt with the clause and its location after a shortened body, so the cut does not record a P0 as one
+  that stated no consequence. A seat never launched holds the round only until the first reminder; missing
+  seats become a shortfall named in the report, and seats launched late or never are named on the review's
+  closure item. Until the round collects or its token expires the Stop hook sends the actor back to
+  agent_advance (three times without an advance between, and once more after a turn in which a seat started or
+  ended, then the run rests), so the round collects before its token expires. From ten minutes before the
+  token's end no seat is launched or asked for. Collect closes the round's seats under the lock that admits
+  launches and settles its remaining launches, so no launch outlives the round and the seat refusals end with
+  it; agent_stop closes the seats of a round that never collected. A close that fails because the seat lock
+  cannot be taken is journaled as such (`seats_close_failed`) and the settled replies are still submitted. A settled seat may be stopped; it is
+  never messaged.
+- The seats run on the session's own plan; no policy spend counter counts them.
+- `depends_on` pins multi_llm_review >= 0.12.0. L1 multi_llm_review_workflow 3.17.1.
+- Design: `log/agent_persona_seats_design_v0.3_20261022.md` (two design review rounds, three implementation
+  review rounds; the P1s of each fixed).
+
 ## [3.96.0] - 2026-10-21
 
 ### Changed — multi_llm_review says what the roster was when a result is read (multi_llm_review 0.12.0, llm_client 0.4.0)

@@ -1,6 +1,6 @@
 {
   "name": "agent",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Long autonomous runs in the operator's own host session (Claude Code): design → design review → implement → implementation review → layered-deck report, with as few questions as possible. A stand-in (isolated claude -p, Opus 5.5) answers decision points from the operator's own words and the instruction mode; a guard (host hooks) lets through only what the run created or its worktree and branch hold, and queues everything else — governing material, shared files, anything that discloses, publishes, sends or commits the operator — as operator items. Every run ends with a report. Needs an adopted policy (the operator's mandate). Not for unattended operation.",
   "author": "Masaomi Hatakeyama",
   "layer": "L1",
@@ -9,7 +9,10 @@
       "name": "llm_client",
       "version": ">= 0.3.0"
     },
-    "multi_llm_review"
+    {
+      "name": "multi_llm_review",
+      "version": ">= 0.12.0"
+    }
   ],
   "provides": [
     "agent_runs",

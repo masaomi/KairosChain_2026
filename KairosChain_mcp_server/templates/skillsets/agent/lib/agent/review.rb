@@ -3,6 +3,7 @@
 require 'json'
 require 'digest'
 require 'fileutils'
+require_relative 'seats'
 
 module KairosMcp
   module SkillSets
@@ -43,7 +44,8 @@ module KairosMcp
         # revision_diff: callable(previous review_round entry, this one) -> the
         # actor's change between the two rounds' artifacts, as text.
         def initialize(run:, policy:, stand_in:, invoke:, project_root:, words: -> { [] }, precedents: ->(_t) { [] },
-                       head: nil, type: nil, revision_diff: ->(_a, _b) { '' })
+                       head: nil, type: nil, revision_diff: ->(_a, _b) { '' }, clock: -> { Time.now },
+                       sleep: ->(s) { Kernel.sleep(s) })
           @run = run
           @policy = policy
           @stand_in = stand_in
@@ -54,6 +56,8 @@ module KairosMcp
           @head = head
           @type = type&.to_s
           @revision_diff = revision_diff
+          @clock = clock
+          @sleep = sleep
         end
 
         def credentials?(text)
@@ -124,56 +128,198 @@ module KairosMcp
           end
           clear_blocking(name)
 
-          payload = @invoke.call('multi_llm_review', {
-                                   'artifact_name' => artifact_name, 'review_type' => review_type,
-                                   'artifact_content' => bundle, 'review_round' => round,
-                                   'orchestrator_strategy' => 'delegate', 'orchestrator_model' => 'claude-opus-5-5',
-                                   'persona_count_declared' => 0, 'escalate' => true, 'complexity' => 'high',
-                                   'prior_findings' => carry.map { |f| { 'id' => f['id'], 'severity' => 'P0', 'issue' => f['text'][0, 400] } }
-                                 })
+          prior = carry.map { |f| { 'id' => f['id'], 'severity' => 'P0', 'issue' => f['text'][0, 400] } }
+          seats = compose_seats(name, round, review_type, artifact_name, bundle, prior)
+          request = {
+            'artifact_name' => artifact_name, 'review_type' => review_type,
+            'artifact_content' => bundle, 'review_round' => round,
+            'orchestrator_strategy' => 'delegate', 'orchestrator_model' => 'claude-opus-5-5',
+            'persona_count_declared' => seats.size, 'escalate' => true, 'complexity' => 'high',
+            'prior_findings' => prior
+          }
+          request['collect_deadline_seconds_override'] = Seats::DEADLINE_SECONDS unless seats.empty?
+          payload = @invoke.call('multi_llm_review', request)
           token = payload['collect_token']
           return { 'status' => 'error', 'reason' => payload['error'] || 'no collect token' } unless token
 
-          @run.append(:review_dispatched, { phase: name, round: round, token: token,
-                                            bundle_sha256: Digest::SHA256.hexdigest(bundle), artifact_digest: artifact_digest,
-                                            bundle_file: store_bundle(name, round, bundle) }.merge(extra))
+          entry = { phase: name, round: round, token: token,
+                    bundle_sha256: Digest::SHA256.hexdigest(bundle), artifact_digest: artifact_digest,
+                    bundle_file: store_bundle(name, round, bundle) }.merge(extra)
+          # Persona seats exist in the delegated protocol only; the seats, the
+          # token and its deadline are journaled in the one dispatch entry.
+          if !seats.empty? && payload['status'] == 'delegation_pending'
+            entry[:seats] = seats
+            entry[:must_collect_by] = payload['must_collect_by']
+          end
+          @run.append(:review_dispatched, entry)
           { 'status' => 'dispatched', 'round' => round,
             'next' => "Round #{round} is running (about 5-10 minutes). Call agent_advance again to collect it." }
+        end
+
+        # The persona seats' full prompts, stored under their digests; none
+        # (the round runs as 1.0.1 did) when they cannot be composed.
+        def compose_seats(phase, round, review_type, artifact_name, bundle, prior)
+          composed = Seats.compose(review_type: review_type, artifact_name: artifact_name, bundle: bundle, round: round,
+                                   prior: prior, worktree: @run.worktree, branch: @run.branch)
+          Seats.store_prompts(@run, composed)
+        rescue StandardError, ScriptError => e
+          @run.append(:seats_not_composed, phase: phase, round: round, reason: "#{e.class}: #{e.message[0, 300]}")
+          []
         end
 
         # Collects whatever the round produced, also after a worker crash: a
         # round with quorum is a round.
         def collect(phase, pending)
           name = phase.name.to_s
-          wait = @invoke.call('multi_llm_review_wait', { 'collect_token' => pending['token'], 'max_wait_seconds' => 540 })
+          budget_end = @clock.call + Seats::WAIT_SECONDS
+          with_seats = pending['seats'].is_a?(Array) && !pending['seats'].empty?
+          if with_seats
+            held = seat_gate(pending, budget_end)
+            return held if held
+          end
+          left = (budget_end - @clock.call).to_i.clamp(30, Seats::WAIT_SECONDS)
+          wait = @invoke.call('multi_llm_review_wait', { 'collect_token' => pending['token'], 'max_wait_seconds' => left })
           st = wait['status'].to_s
           if WAITING.include?(st)
+            # Each call that waited earns the Stop hook's next block (§3.7).
+            @run.append(:seats_waited, phase: name, round: pending['round'], token: pending['token'], running: 0) if with_seats
             return { 'status' => 'pending', 'detail' => st, 'next' => 'The round is still running. Call agent_advance again.' }
           end
 
-          result = @invoke.call('multi_llm_review_collect', { 'collect_token' => pending['token'],
-                                                              'orchestrator_reviews' => [], 'include_raw_text' => true })
+          reviews, persona_rows, outcomes = with_seats ? seat_submission(pending) : [[], [], nil]
+          result = collect_call(pending['token'], reviews)
+          if result['status'] == 'error' && !reviews.empty? && result['error'].to_s.start_with?('invalid orchestrator_reviews')
+            # MLR's refusal of a persona submission leaves the token
+            # collectable: the external seats' replies are kept.
+            @run.append(:seat_submission_refused, phase: name, round: pending['round'], token: pending['token'],
+                                                  detail: result['error'].to_s[0, 600])
+            outcomes.each { |o| o.merge!('submitted' => false, 'cause' => 'refused_by_review_tool') if o['submitted'] }
+            result = collect_call(pending['token'], [])
+          end
           if result['status'] != 'ok'
             detail = "#{st}: #{result['error'] || result['status']}"
-            @run.append(:review_dispatch_failed, phase: name, round: pending['round'], detail: detail)
+            @run.append(:review_dispatch_failed, phase: name, round: pending['round'], token: pending['token'], detail: detail)
             return { 'status' => 'dispatch_failed', 'detail' => detail, 'next' => 'Call agent_advance again to dispatch the round anew.' }
           end
           seats = Array(result['reviews']).map do |r|
             { 'seat' => r['role_label'].to_s, 'verdict' => r['verdict'].to_s, 'reply' => (r['raw_text'] || r['raw_text_excerpt']).to_s }
           end
+          # What the stand-in reads: each persona's own reply in place of the
+          # review tool's assembled persona row (INV-3).
+          team = Array(result['reviews']).find { |r| r['synthetic'] || r.key?('persona_rows') }
+          team_label = team ? team['role_label'].to_s : 'claude_team'
+          read = if with_seats
+                   seats.reject { |s| s['seat'] == team_label } +
+                     persona_rows.map { |r| { 'seat' => "#{team_label}/#{r['persona']}", 'verdict' => r['verdict'], 'reply' => r['reply'] } }
+                 else
+                   seats
+                 end
           p0_lines = Array(result['aggregated_findings']).select { |f| f.is_a?(Hash) && f['severity'].to_s.upcase == 'P0' }
                                                          .map { |f| (f['issue'] || f['text']).to_s[0, 600] }
           counted = result.dig('vote_tally', 'successful_count').to_i
           quorum = result.dig('vote_tally', 'min_quorum').to_i.nonzero? || 2
-          file = store_replies(name, pending['round'], seats, p0_lines)
-          @run.append(:review_round, phase: name, round: pending['round'], counted: counted, quorum: quorum,
-                                     wait_status: st, commit: pending['commit'], replies_file: file,
-                                     bundle_sha256: pending['bundle_sha256'], artifact: pending['artifact'],
-                                     bundle_file: pending['bundle_file'], artifact_digest: pending['artifact_digest'],
-                                     seats: seats.map { |s| { 'seat' => s['seat'], 'verdict' => s['verdict'],
-                                                              'reply_sha256' => Digest::SHA256.hexdigest(s['reply']),
-                                                              'reply' => s['reply'][0, 4000] } })
+          file = store_replies(name, pending['round'], read, p0_lines)
+          @run.append(:review_round, { phase: name, round: pending['round'], token: pending['token'], counted: counted,
+                                       quorum: quorum, wait_status: st, commit: pending['commit'], replies_file: file,
+                                       bundle_sha256: pending['bundle_sha256'], artifact: pending['artifact'],
+                                       bundle_file: pending['bundle_file'], artifact_digest: pending['artifact_digest'],
+                                       seats: seats.map { |s| { 'seat' => s['seat'], 'verdict' => s['verdict'],
+                                                                'reply_sha256' => Digest::SHA256.hexdigest(s['reply']),
+                                                                'reply' => s['reply'][0, 4000] } } }
+                                     .merge(with_seats ? { personas: outcomes, persona_count_declared: pending['seats'].size } : {}))
           label_round(phase, @run.journal.entries.reverse.find { |e| e['kind'] == 'review_round' && e['phase'] == name })
+        end
+
+        def collect_call(token, reviews)
+          @invoke.call('multi_llm_review_collect', { 'collect_token' => token, 'orchestrator_reviews' => reviews,
+                                                     'include_raw_text' => true })
+        end
+
+        # Holds the round while persona seats are reviewing, within this
+        # call's budget and never past the cutoff. Seats never launched get
+        # the launch instruction once; after that, and at the cutoff, what is
+        # missing becomes a shortfall. Returns a reply, or nil to collect.
+        def seat_gate(pending, budget_end)
+          token = pending['token']
+          loop do
+            at = @clock.call
+            Seats.settle_orphans(@run, at)
+            entries = @run.journal.entries
+            return nil if Seats.closed?(entries, token)
+
+            d = Seats.dispatch_for(entries, token) || pending
+            cutoff = Seats.cutoff_of(d)
+            return nil if cutoff && at >= cutoff
+
+            states = Seats.seat_states(entries, d)
+            launch = Seats.to_launch(states)
+            running = states.select { |s| s['state'] == 'running' }
+            prompted = entries.any? { |e| e['kind'] == 'seats_prompted' && e['token'] == token }
+            if !launch.empty? && !prompted
+              @run.append(:seats_prompted, phase: d['phase'], round: d['round'], token: token,
+                                           personas: launch.map { |s| s['persona'] })
+              return { 'status' => 'pending', 'detail' => 'persona seats to launch',
+                       'markers' => launch.map { |s| Seats.marker(@run.id, token, s['persona']) } }
+            end
+            return nil if running.empty?
+
+            if at >= budget_end
+              @run.append(:seats_waited, phase: d['phase'], round: d['round'], token: token, running: running.size)
+              return { 'status' => 'pending', 'detail' => 'persona seats reviewing', 'running' => running.map { |s| s['persona'] } }
+            end
+            @sleep.call([Seats::POLL_SECONDS, budget_end - at, cutoff ? cutoff - at : Seats::POLL_SECONDS].min.clamp(0.05, Seats::POLL_SECONDS))
+          end
+        end
+
+        # The seats' replies as settled: submitted to the review tool when a
+        # verdict reads from them, given to the stand-in either way, never
+        # inferred or transcribed.
+        def seat_submission(pending)
+          close_seats(pending)
+          entries = @run.journal.entries
+          d = Seats.dispatch_for(entries, pending['token']) || pending
+          reviews = []
+          rows = []
+          outcomes = Seats.seat_states(entries, d).map do |s|
+            o = { 'persona' => s['persona'], 'launches' => s['launches'], 'late' => s['late'] }
+            a = s['answer']
+            unless a
+              cause = case s['state']
+                      when 'not_launched' then 'not_launched'
+                      when 'running' then 'not_settled'
+                      else s['last_cause'] || 'no_reply'
+                      end
+              next o.merge('submitted' => false, 'cause' => cause)
+            end
+            text = Seats.settled_reply(a)
+            next o.merge('submitted' => false, 'cause' => 'reply_changed') unless text
+
+            v = Seats.verdict(text)
+            rows << { 'persona' => s['persona'], 'verdict' => v.to_s, 'reply' => text }
+            next o.merge('submitted' => false, 'cause' => 'no_verdict', 'agent_id' => a['agent_id']) unless v
+
+            reviews << { 'persona' => s['persona'], 'verdict' => v, 'findings' => Seats.findings(text, v),
+                         'reasoning' => text, 'agent_id' => a['agent_id'] }.compact
+            o.merge('submitted' => true, 'verdict' => v, 'agent_id' => a['agent_id'])
+          end
+          [reviews, rows, outcomes]
+        rescue StandardError, ScriptError => e
+          # The review tool's parsers are its internals: if they cannot be
+          # used, the round is collected without personas, and says why.
+          @run.append(:seat_submission_failed, phase: pending['phase'], round: pending['round'], token: pending['token'],
+                                               reason: "#{e.class}: #{e.message[0, 300]}")
+          [[], [], Array(pending['seats']).map { |x| { 'persona' => x['persona'], 'submitted' => false, 'cause' => 'parse_failed' } }]
+        end
+
+        # Closes the round's seats. A close that fails (the seat lock cannot be
+        # taken) is journaled as itself and the replies already settled are
+        # still submitted; launches left unsettled count as not_settled. A
+        # journal that cannot be written fails the round whatever this does.
+        def close_seats(pending)
+          Seats.settle_remaining(@run, pending['token'])
+        rescue StandardError => e
+          @run.append(:seats_close_failed, phase: pending['phase'], round: pending['round'], token: pending['token'],
+                                           reason: "#{e.class}: #{e.message[0, 300]}")
         end
 
         # Labels a collected round. A failed labelling keeps the round: the
@@ -234,12 +380,12 @@ module KairosMcp
           if quorate && open.empty?
             @run.append(:phase_ended, phase: name, by: 'closure', provisional: true, round: round)
             item = @run.open_item('closure', "#{name} closed provisionally at round #{round}; the operator confirms it, or sends " \
-                                             'it back (decision send_back)', ref: name)
+                                             "it back (decision send_back)#{seats_note(entry)}", ref: name)
             return { 'status' => 'closed_provisionally', 'round' => round, 'labels' => labels, 'item' => item['id'] }
           end
           if quorate && bound && round >= bound
             return refuse_with_item(name, 'review_open', "#{name} is open (#{open.size} P0) and has had its #{bound} rounds; it " \
-                                                         'waits for the operator (decision more_rounds, or freeze)',
+                                                         "waits for the operator (decision more_rounds, or freeze)#{seats_note(entry)}",
                                     "#{name} is at its round cap; it waits for the operator", status: 'waiting',
                                                                                               extra: { 'labels' => labels },
                                                                                               any_of_kind: true)
@@ -270,6 +416,20 @@ module KairosMcp
                    'correction or naming; a new mechanism a finding seems to need is a question to ask before writing it. ' \
                    'Then call agent_advance again.'
           steps.join(' ')
+        end
+
+        # Persona seats the round went without because of how they were
+        # launched — never, or only after another seat had answered — named
+        # where the operator rules on the round (design v0.3 §3.8).
+        def seats_note(entry)
+          missed = Array(entry['personas']).select { |o| o['cause'] == 'not_launched' || o['late'] }
+          return '' if missed.empty?
+
+          '. Persona seats launched late or never in this round: ' +
+            missed.map do |o|
+              how = o['cause'] == 'not_launched' ? 'never launched' : 'first launched after another seat had answered'
+              "#{o['persona']} (#{how}#{o['submitted'] ? ', then submitted' : (o['cause'] == 'not_launched' ? '' : ", then #{o['cause']}")})"
+            end.join(', ')
         end
 
         def tally_of(labels)

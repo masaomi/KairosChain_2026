@@ -1364,6 +1364,15 @@ module KairosMcp
           end
           run.append(:run_ended, reason: "stopped: #{args['reason']}") unless run.status == 'ended'
           run.ensure_merge_item
+          # A round that will never collect closes its persona seats now, so
+          # its launches do not keep the seat refusals on after the run. A
+          # close that fails is journaled; the stop stands.
+          Seats.live_dispatches(run.journal.entries).each do |d|
+            Seats.settle_remaining(run, d['token'])
+          rescue StandardError => e
+            run.append(:seats_close_failed, phase: d['phase'], round: d['round'], token: d['token'],
+                                            reason: "#{e.class}: #{e.message[0, 300]}")
+          end
           { 'status' => 'stopped', 'next' => Guidance.report_step(run.reload) }
         end
 
@@ -1460,9 +1469,10 @@ module KairosMcp
             'effects' => e.select { |x| x['kind'] == 'effect' }.map { |x| x.slice('seq', 'tool', 'verdict', 'reason', 'command', 'path', 'item', 'agent_id') },
             'review_rounds' => e.select { |x| x['kind'] == 'review_round' }.map do |x|
               labelled = e.reverse.find { |l| l['kind'] == 'review_labelled' && l['phase'] == x['phase'] && l['round'] == x['round'] }
-              x.slice('phase', 'round', 'counted', 'quorum', 'commit', 'artifact')
+              x.slice('phase', 'round', 'counted', 'quorum', 'commit', 'artifact', 'persona_count_declared')
                .merge('labels' => labelled&.dig('labels'), 'tally' => labelled&.dig('tally'),
-                      'seats' => Array(x['seats']).map { |s| s.slice('seat', 'verdict') })
+                      'seats' => Array(x['seats']).map { |s| s.slice('seat', 'verdict') },
+                      'personas' => x['personas'] && Array(x['personas']).map { |o| o.slice('persona', 'submitted', 'verdict', 'cause', 'late') })
             end,
             'checks' => e.select { |x| x['kind'] == 'check' },
             'pinned_changes' => e.select { |x| x['kind'] == 'pinned_change' },
@@ -1470,9 +1480,32 @@ module KairosMcp
             'precedent_records' => Precedents.new(@paths.precedents_dir).all.size,
             'journal_digest' => run.journal.digest,
             'kit' => KIT_DIR, 'report_dir' => report_dir(run),
-            'not_checked' => check_waiver_notes(run) + ['choices the actor made without stopping are listed only where found',
-                              'persona seats were not convened (external seats only, 1.0)',
+            'not_checked' => check_waiver_notes(run) + persona_seat_notes(run) +
+                             ['choices the actor made without stopping are listed only where found',
                               'the kind of a confirmation or correction is the actor\'s reading of the operator\'s words'] }
+        end
+
+        # A round that judged with fewer persona seats than it declared, or
+        # with none (a dispatch made without seats), says so with each cause.
+        def persona_seat_notes(run)
+          e = run.journal.entries
+          notes = e.select { |x| x['kind'] == 'review_round' }.filter_map do |x|
+            label = "#{x['phase']} round #{x['round']}"
+            unless x['personas']
+              why = e.reverse.find { |c| c['kind'] == 'seats_not_composed' && c['phase'] == x['phase'] && c['round'] == x['round'] }
+              next "#{label}: no persona seats were convened (#{why ? "their prompts could not be composed: #{why['reason']}" : 'dispatched without seats'})"
+            end
+
+            missed = Array(x['personas']).reject { |o| o['submitted'] }
+            next if missed.empty?
+
+            "#{label}: #{x['personas'].size - missed.size} of #{x['persona_count_declared'] || x['personas'].size} persona " \
+              "seats submitted; #{missed.map { |o| "#{o['persona']} #{o['cause']}#{o['late'] ? ' (launched after another seat answered)' : ''}" }.join(', ')}"
+          end
+          lost = e.select { |x| x['kind'] == 'seat_settled' && x['answered'] }
+                  .reject { |s| e.any? { |x| x['kind'] == 'review_round' && x['token'] == s['token'] } }
+          notes << "persona replies of rounds that never collected: #{lost.map { |s| "#{s['phase']} round #{s['round']} #{s['persona']}" }.join(', ')}" unless lost.empty?
+          notes
         end
 
         def check_waiver_notes(run)

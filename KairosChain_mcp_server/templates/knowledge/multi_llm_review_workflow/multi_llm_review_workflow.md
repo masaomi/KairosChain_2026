@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.17.0"
+version: "3.17.1"
 tags:
   - workflow
   - review
@@ -896,9 +896,11 @@ A counted seat's maker is observed (the seat reported its model), configured (th
 roster pins the model and the seat ran on its own provider — this holds while the
 CLI's own configuration does not route that name to another maker), or
 caller-declared (a persona seat that was not observed). Only the first two
-establish diversity. Two kinds of round always carry the line: an `exclude` round
-whose caller names a slot (that slot does not count), and an agent SkillSet round
-(it submits no personas). None of this changes the verdict or the quorum
+establish diversity. One kind of round always carries the line: an `exclude` round
+whose caller names a slot (that slot does not count). An agent SkillSet round no
+longer always carries it: agent 1.0.2 convenes three personas on the host and
+submits the replies the host handed back, where 1.0.1 submitted none, so its line
+follows the same rule as any other round. None of this changes the verdict or the quorum
 (`min_quorum`, 2 shipped). An INSUFFICIENT result also says how many seats counted
 and how many were needed, that a seat can be added in config, and the restoring
 action for each reason in the table above.
@@ -2116,6 +2118,13 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   surfaces; the Error Handling table maps the new reason tokens. Ships with
   multi_llm_review 0.12.0 and llm_client 0.4.0. Design
   `log/mlr_non_claude_host_design_v0.3.3_20261021.md`, frozen after four rounds.
+
+- Agent runs convene persona seats (v3.17.1, 2026-10-22, operator request:
+  「Agent SkillSet1.0.1でreview時にpersona数が0に決め打ちされてるそうですが、MLRの設定と異なるので
+  修正して下さい」). § Reduced rosters no longer says an agent SkillSet round always
+  carries the roster line: agent 1.0.2 declares and convenes three personas, launched
+  by the run's actor through a marker the SkillSet's hook rewrites, and submits the
+  replies the host handed back. Design `log/agent_persona_seats_design_v0.3_20261022.md`.
 
 **Key insight**: Design reviews and implementation reviews find
 **categorically different bugs**. Both phases are necessary. The corollary that

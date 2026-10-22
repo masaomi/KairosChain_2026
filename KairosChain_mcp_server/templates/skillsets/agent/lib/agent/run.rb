@@ -396,7 +396,7 @@ module KairosMcp
         # passed to the operator is not progress: a turn made only of those
         # rests instead of being pushed on.
         PROGRESS = %w[item_resolved created pinned check review_dispatched review_round review_labelled phase_ended
-                      report_built plan_ratified].freeze
+                      report_built plan_ratified seat_launched seat_settled].freeze
 
         FILE_TOOLS = %w[Edit Write MultiEdit NotebookEdit].freeze
 

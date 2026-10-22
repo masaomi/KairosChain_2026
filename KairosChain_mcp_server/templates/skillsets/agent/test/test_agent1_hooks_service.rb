@@ -283,7 +283,9 @@ module KairosMcp
           assert_equal 'dispatched', service.advance('run_id' => run.id, '_session_id' => 's1')['status']
           dispatched = @invoked.find { |n, _| n == 'multi_llm_review' }.last
           assert_includes dispatched['artifact_content'], 'INV-1'
-          assert_equal 0, dispatched['persona_count_declared']
+          assert_equal 3, dispatched['persona_count_declared'], 'three persona seats are declared at dispatch'
+          refute run.reload.journal.entries.find { |e| e['kind'] == 'review_dispatched' }.key?('seats'),
+                 'a dispatch the review tool did not delegate records no seats'
 
           @mlr['multi_llm_review_wait'] = { 'status' => 'ready' }
           @mlr['multi_llm_review_collect'] = {

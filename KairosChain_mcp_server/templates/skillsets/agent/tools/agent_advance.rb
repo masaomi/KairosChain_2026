@@ -13,7 +13,7 @@ module KairosMcp
           end
 
           def description
-            "Advance the current phase: the SkillSet checks a produced design, re-runs the pinned tests itself (confined), or dispatches/collects a review round and has the stand-in label the seats' findings. Call when the phase's work is ready; call again to collect a running review."
+            "Advance the current phase: the SkillSet checks a produced design, re-runs the pinned tests itself (confined), or dispatches/collects a review round and has the stand-in label the seats' findings. Call when the phase's work is ready; call again to collect a running review. While a review's persona seats are out, a pending reply lists the `markers` to launch (one Agent call per marker, in one message) or the personas still `running`; call again and it waits for them."
           end
 
           def category

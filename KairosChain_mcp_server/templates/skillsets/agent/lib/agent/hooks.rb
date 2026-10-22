@@ -10,6 +10,7 @@ require_relative 'stand_in'
 require_relative 'precedents'
 require_relative 'policies'
 require_relative 'transcript'
+require_relative 'seats'
 
 module KairosMcp
   module SkillSets
@@ -32,6 +33,13 @@ module KairosMcp
               "(#{run.target_repo}) as a new file — each version is a new file. Then call " \
               "agent_advance(run_id: '#{id}', phase: '#{phase.name}')."
           when :review
+            seats = Seats.instruction(run, phase.name.to_s)
+            return seats if seats
+            if run.in_flight_review
+              return "Phase #{phase.name}: a review round is running. Call agent_advance(run_id: '#{id}', " \
+                     "phase: '#{phase.name}') to collect it."
+            end
+
             answer = plan.phase(phase.args[:of])&.kind == :produce ? 'writing the next version as a new file' : 'new commits on the run branch'
             "Phase #{phase.name}: call agent_advance(run_id: '#{id}', phase: '#{phase.name}'). It dispatches the next " \
               "review round of the latest #{phase.args[:of]} artifact and, on the next call, returns the seats' findings " \
@@ -136,6 +144,11 @@ module KairosMcp
           sid = input['session_id']
           touch_guard_seen(sid)
           tool = input['tool_name'].to_s
+          # A review seat's own calls are placed before anything else, the
+          # agent-tool shortcut included (design v0.3 §3.5).
+          if input['agent_id'] && (out = seat_tool_gate(input, tool))
+            return out
+          end
           if Hooks.agent_tool?(tool)
             # The operator's words after an ending release the guard before the
             # agent tool runs (agent_start right after them is not refused).
@@ -149,6 +162,9 @@ module KairosMcp
           run = Run.bound_to(@paths, sid)
           return nil unless run
           return nil if release_if_typed(run, sid)
+
+          seat = seat_launch_gate(run, input, tool)
+          return seat if seat
 
           policy = policy_for(run)
           unless policy
@@ -379,6 +395,9 @@ module KairosMcp
         def stop(input, subagent:)
           run = Run.bound_to(@paths, input['session_id'])
           return nil unless run
+          # A review seat's end settles it, before any other Stop-hook path:
+          # its reply is a review, not a hazard report or a question.
+          return nil if subagent && seat_stop(run, input) == :seat
           return nil if release_if_typed(run, input['session_id'])
           return nil if run.status == 'finished'
 
@@ -401,7 +420,10 @@ module KairosMcp
             end
             return out if out
           end
-          return nil if !subagent && Array(input['background_tasks']).any?
+          # Background tasks let the actor rest, except while persona seats of
+          # a dispatch are out: then the round must reach agent_advance before
+          # its token expires.
+          return nil if !subagent && Array(input['background_tasks']).any? && !Seats.holding_dispatch(run.journal.entries)
           if live && QUESTION_END.match?(tail.strip)
             answer = prose_question(run, policy, tail)
             return block("Stand-in answer (provisional, journaled): #{answer}. Continue the run.") if answer
@@ -430,11 +452,28 @@ module KairosMcp
           progressed = run.last_block_seq.nil? || run.last_progress_seq.to_i > run.last_block_seq.to_i ||
                        (last_block && last_block['fingerprint'] && last_block['fingerprint'] != fingerprint)
           if run.in_flight_review
+            # While persona seats are out, each agent_advance call (which waits
+            # for them) earns one more block, until the round collects.
+            entries = run.journal.entries
+            if Seats.holding_dispatch(entries)
+              # Blocked every time until the round collects, so the call that
+              # collects comes before the token expires; three blocks with no
+              # agent_advance between them is an actor not following, and the
+              # run rests rather than spin. Only what an agent_advance call
+              # journals counts as one between them: a seat launching or
+              # settling is not the actor calling it.
+              last_wait = entries.reverse.find { |e| %w[seats_prompted seats_waited review_dispatched].include?(e['kind']) }
+              since = entries.count { |e| e['kind'] == 'stop_blocked' && e['for'] == 'persona_seats' && e['seq'] > last_wait.to_h['seq'].to_i }
+              if since < Seats::HOLD_BLOCKS
+                run.append(:stop_blocked, for: 'persona_seats', fingerprint: fingerprint)
+                return block("Run #{run.id}: #{Guidance.next_step(run)}")
+              end
+            end
             # Once per progress: a round that never comes back rests the run.
-            last = run.journal.entries.reverse.find { |e| e['kind'] == 'stop_blocked' }
-            unless last && last['for'] == 'review_in_flight' && !progressed
+            last = entries.reverse.find { |e| e['kind'] == 'stop_blocked' }
+            unless last && %w[review_in_flight persona_seats].include?(last['for']) && !progressed
               run.append(:stop_blocked, for: 'review_in_flight', fingerprint: fingerprint)
-              return block("Run #{run.id}: a review round is running. Call agent_advance(run_id: '#{run.id}') to collect it.")
+              return block("Run #{run.id}: #{Guidance.next_step(run)}")
             end
           end
           if progressed
@@ -521,6 +560,141 @@ module KairosMcp
 
           f = File.join(@paths.guard_seen_dir, Run.safe(sid))
           File.exist?(f) && (Time.now - File.mtime(f)) <= within
+        end
+
+        # --- persona seats (design log/agent_persona_seats_design_v0.3) ------------
+
+        # A subagent's own tool call while the run has seat launches: a seat
+        # may hand back and read its own prompt file, nothing else, and a
+        # subagent whose launch cannot be read is held to that while a seat is
+        # out. nil when the call is not a seat's.
+        def seat_tool_gate(input, tool)
+          run = Run.bound_to(@paths, input['session_id'])
+          return nil unless run
+
+          entries = run.journal.entries
+          return nil unless Seats.any_launch?(entries)
+
+          kind, launch = Seats.identify(entries, input)
+          return nil if kind == :other
+          return nil if kind == :unknown && Seats.unsettled_launches(entries).empty?
+
+          if tool == Seats::HANDBACK
+            Seats.keep_handback(run, input['agent_id'], input.dig('tool_input', 'message')) if kind == :seat
+            return allow
+          end
+          return allow if kind == :seat && tool == 'Read' && seat_reads_own_prompt?(run, launch, input['tool_input'], input['cwd'] || Dir.pwd)
+
+          if kind == :seat
+            deny("A review seat reads only its prompt file and answers with its hand-back; #{tool} is refused to it " \
+                 '(INV-2). Answer from the prompt.')
+          else
+            deny('The run cannot tell whether this subagent is a review seat (its host meta file names no launch) while ' \
+                 "a seat is out, so it is held to a seat's tools (INV-2).")
+          end
+        rescue StandardError, ScriptError => e
+          deny("agent seat gate error (#{e.class}): #{e.message[0, 200]}")
+        end
+
+        def seat_reads_own_prompt?(run, launch, tool_input, cwd = Dir.pwd)
+          given = tool_input.is_a?(Hash) ? tool_input['file_path'].to_s : ''
+          !given.empty? && File.expand_path(given, cwd) == File.expand_path(Seats.prompt_path(run, launch['full_sha256'].to_s))
+        end
+
+        # A launch of a seat by its marker, from any caller, and messages or
+        # stops aimed at a seat. nil when neither applies.
+        def seat_launch_gate(run, input, tool)
+          if Seats::LAUNCH_TOOLS.include?(tool)
+            prompt = input.dig('tool_input', 'prompt').to_s.strip
+            return nil unless prompt.start_with?(Seats::MARKER_PREFIX)
+
+            return Seats.locked(run) { launch_seat(run, input, prompt) }
+          end
+          return nil unless Seats::TARGET_TOOLS.include?(tool)
+
+          entries = run.journal.entries
+          return nil unless Seats.any_launch?(entries)
+
+          ti = input['tool_input'].is_a?(Hash) ? input['tool_input'] : {}
+          targets = Seats::TARGET_KEYS.map { |k| ti[k] }.select { |v| v.is_a?(String) && !v.empty? }
+          out = Seats.unsettled_launches(entries).any?
+          targets.each do |t|
+            kind, launch = Seats.identify(entries, input, t)
+            if kind == :seat
+              # A settled seat's reply is frozen, so stopping it changes no
+              # record; a message still could reach a reply, so it stays refused.
+              next if tool == 'TaskStop' && Seats.settlement_for(entries, launch)
+
+              return deny("#{tool} to a review seat is refused: a seat is neither messaged nor stopped by the run (INV-3).")
+            end
+            if kind == :unknown && out
+              return deny("#{tool} to #{t} is refused while a review seat is out: the run cannot tell whether it is a seat (INV-3).")
+            end
+          end
+          nil
+        end
+
+        # Admits one launch of a seat (under the run's seat lock) and replaces
+        # the marker with the seat's short prompt; every other key the caller
+        # gave is dropped.
+        def launch_seat(run, input, prompt)
+          if input['tool_use_id'].to_s.empty?
+            return deny('A review seat cannot be launched from a call the host gave no tool_use_id: the seat could not be bound to its launch.')
+          end
+
+          entries = run.journal.entries
+          live = Seats.live_markers(run.id, entries)
+          seat = live[prompt]
+          listing = live.empty? ? 'There is no seat to launch now.' : "Live markers:\n#{live.keys.join("\n")}"
+          unless seat
+            spent = Seats.spent_reason(run.id, entries, prompt)
+            return deny("This seat is no longer launched: #{spent}. #{listing}") if spent
+
+            return deny("Not a live review-seat marker. #{listing}")
+          end
+
+          why = Seats.launch_refusal(entries, seat)
+          return deny("Refused: #{why}. #{listing}") if why
+
+          path = Seats.prompt_path(run, seat['sha256'])
+          unless File.file?(path) && Digest::SHA256.file(path).hexdigest == seat['sha256']
+            return deny("The stored prompt of seat #{seat['persona']} no longer matches its dispatch; the seat cannot be launched.")
+          end
+
+          short = Seats.short_prompt(run, seat, Seats.dispatch_for(entries, seat['token']))
+          run.append(:seat_launched, token: seat['token'], persona: seat['persona'], phase: seat['phase'], round: seat['round'],
+                                     tool_use_id: input['tool_use_id'], full_sha256: seat['sha256'],
+                                     prompt_sha256: Digest::SHA256.hexdigest(short), session_id: input['session_id'],
+                                     subagents_dir: Seats.subagents_dir(input))
+          updated = { 'description' => "review seat #{seat['persona']}", 'prompt' => short, 'subagent_type' => 'general-purpose' }
+          effort = input['effort'].is_a?(Hash) ? input['effort']['level'] : input['effort']
+          updated['effort'] = effort if Seats::EFFORTS.include?(effort)
+          allow(updated_input: updated)
+        end
+
+        # Settles a seat at its first stop, and journals a subagent the run
+        # cannot place while a seat is out. :seat when the stop was a seat's.
+        def seat_stop(run, input)
+          entries = run.journal.entries
+          return nil unless Seats.any_launch?(entries)
+
+          kind, launch = Seats.identify(entries, input)
+          if kind == :seat
+            begin
+              reply = Seats.kept_handback(run, input['agent_id']) || input['last_assistant_message']
+              cause = Seats.first_prompt_sha256(Seats.host_files(input)) == launch['prompt_sha256'] ? nil : 'prompt_mismatch'
+              Seats.settle(run, launch, agent_id: input['agent_id'], reply: reply, cause: cause)
+            rescue StandardError, ScriptError => e
+              run.append(:seat_settle_failed, token: launch['token'], persona: launch['persona'], tool_use_id: launch['tool_use_id'],
+                                              reason: "#{e.class}: #{e.message[0, 200]}")
+            end
+            return :seat
+          end
+          if kind == :unknown && Seats.unsettled_launches(entries).any?
+            run.append(:subagent_unidentified, agent_id: input['agent_id'], agent_type: input['agent_type'],
+                                               cause: 'its host meta file names no launch')
+          end
+          nil
         end
 
         # A session whose run another session took over: its guard refuses
