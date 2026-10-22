@@ -1,6 +1,6 @@
 {
   "name": "kairomone",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "min_core_version": "3.92.0",
   "description": "Kairomone: a single-owner companion that grows through owned L1/L2 and a bounded, evidence-backed growth protocol, driven by the host assistant over MCP. Portable companion settings, bounded retrieval and consent-gated zero-XP chat summaries. An owner-started loopback console page relays one supervised Claude Code session with per-request permission answers. No L0 changes or built-in LLM/scheduler.",
   "author": "Kairomone contributors",

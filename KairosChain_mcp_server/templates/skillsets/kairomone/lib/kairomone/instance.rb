@@ -9,6 +9,66 @@ module Kairomone
     private
 
     def track_pending_change(**_args); end
+
+    # The dot keeps no core 3.94+ L1 body history (hosted-dot design K4): its
+    # bodies would sit in files the backup does not carry, and this create-only
+    # store would gain nothing from them. A dot an earlier Kairomone let core
+    # activate is closed by Instance#create_knowledge, which runs on every core.
+    def keep_bodies!(*_bodies)
+      nil
+    end
+  end
+
+  # Kairomone before 0.6.1 let core 3.94+ activate L1 body history on the dot,
+  # and such a dot's ledger still says so, also after a backup restore and on a
+  # core that never asks the provider about history. Before the write it
+  # guards, the switch-off is recorded on that ledger, in core's record shape,
+  # so after every Kairomone L1 write the ledger states the regime in force. Only
+  # the ledger is read: <dot>/l1_history/state.json may still say active and is
+  # left as it is, and bodies already under l1_history/ stay there.
+  module BodyHistory
+    SWITCH_OFF_REASON = "Kairomone keeps no L1 body history; bodies stay in the dot's knowledge files"
+
+    module_function
+
+    # Read as core's history reads it: the last activation record wins.
+    def declared_active?(ledger)
+      declared = false
+      ledger.chain.each do |block|
+        Array(block.data).each do |raw|
+          record = JSON.parse(raw) rescue nil
+          next unless record.is_a?(Hash) && record['type'] == 'l1_history_activation'
+
+          flag = record.key?('active') ? record['active'] : record['enabled']
+          declared = [true, 'true'].include?(flag)
+        end
+      end
+      declared
+    end
+
+    # ledger: a Chain whose load_state the caller has checked under the dot's
+    # lock. Raises Error unless the switch-off is confirmed on the ledger, so
+    # the guarded write does not happen.
+    def close!(ledger, reread)
+      return unless declared_active?(ledger)
+
+      ledger.add_block([{ type: 'l1_history_activation', layer: 'L1', active: false,
+                          timestamp: Time.now.utc.iso8601, reason: SWITCH_OFF_REASON }.to_json])
+    rescue KairosMcp::Storage::Error => e
+      # Unknown whether the append landed: decide on what the ledger now says.
+      # A ledger that cannot be re-read confirms nothing.
+      confirmed = begin
+        after = reread.call
+        after.load_state == :readable && !declared_active?(after)
+      rescue StandardError
+        false
+      end
+      return if confirmed
+
+      raise Error, "The end of L1 body history may or may not be on the dot ledger; nothing else was written: #{e.message}"
+    rescue StandardError => e
+      raise Error, "Could not record the end of L1 body history on the dot ledger; nothing was written: #{e.message}"
+    end
   end
 
   class Instance
@@ -118,6 +178,7 @@ module Kairomone
         raise Error, 'Knowledge limit reached; use a separate explicit archival workflow' if knowledge_entries.length >= MAX_ENTRIES
         before = chain
         raise Error, "Cannot write knowledge: dedicated ledger is #{before.load_state}" unless %i[absent readable].include?(before.load_state)
+        BodyHistory.close!(before, -> { chain })
         raw = document(id, title, content, 'L1', Time.now.utc.iso8601)
         result = knowledge_provider.create(id, raw, reason: 'Explicit Kairomone basic knowledge creation')
         # KnowledgeProvider deliberately rescues recording errors. Never infer

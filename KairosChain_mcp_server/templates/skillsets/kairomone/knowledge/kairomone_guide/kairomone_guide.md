@@ -1,7 +1,7 @@
 ---
 name: kairomone_guide
 description: Operate Kairomone FreeTier basic safely through its dedicated canonical providers and explicit tools.
-version: '0.3.0'
+version: '0.3.1'
 layer: L1
 tags: [kairomone, basic, local]
 ---
@@ -56,10 +56,24 @@ canonical KC. The host's normal `knowledge_get` does not search this dedicated
 store; use the registered Kairomone tools. Unifying these stores is a possible
 future upstream design decision, not an implemented behavior in v0.1.0.
 
-The provider subclass suppresses only the global host state-commit bookkeeping
-hook. Its canonical L1 hash record is preserved. This prevents injected instance
-paths from accidentally writing the host's pending changes or triggering its
-auto-commit. Vector indexing is disabled for this bounded basic store.
+The provider subclass suppresses the global host state-commit bookkeeping hook.
+Suppressing it prevents injected instance paths from accidentally writing the
+host's pending changes or triggering its auto-commit. Its canonical L1 hash
+record is preserved. Vector indexing is disabled for this bounded basic store.
+
+On core 3.94 or later the subclass also keeps no L1 body history: those bodies
+would sit in files the backup does not carry, and this create-only store would
+gain nothing from them (an entry is never overwritten). Kairomone before 0.6.1
+let core activate that history, so such a dot's ledger says it is on, also
+after a backup restore. Kairomone's next L1 write to such a dot, on any core,
+first records the switch-off on the dot's own ledger; from then on the ledger
+states what is in force. Until that write, the ledger still says on. Bodies
+already kept under the dot's `l1_history/` stay there, outside the backup; the
+same bodies are in the dot's knowledge files, which the backup carries. The
+dot's `l1_history/state.json` may keep saying active; Kairomone no longer reads
+it. After installing 0.6.1 over an earlier Kairomone, restart every session and
+console that serves the dot before writing to it: a process still running the
+earlier code would keep a body after the switch-off.
 
 ## Integrity and L0
 
