@@ -55,6 +55,10 @@ module Hestia
       end
     end
 
+    # Source of the place extension class names enabled SkillSets declare;
+    # defaults to the SkillSet manager (tests inject one).
+    attr_writer :declared_extension_classes_source
+
     attr_reader :registry, :skill_board, :heartbeat_manager, :session_store, :started_at, :extensions,
                 :web_router, :anchor_log, :anchor_board
 
@@ -122,6 +126,14 @@ module Hestia
     # @param route_action_map [Hash] Maps route segments to action names for access control
     # @param public_routes [Array<String>] Extra path prefixes under /place/web/ served unauthenticated
     def register_extension(extension, route_action_map: {}, public_routes: [])
+      # An extension that keeps items under agent ids must be able to report
+      # them, or a claim of an unbound id could not ask everything held under
+      # it (I3). Refused like a public-route extension without #public_call.
+      unless extension.respond_to?(:holdings_evidence)
+        raise ArgumentError, "#{extension.class} does not implement #holdings_evidence(agent_id); " \
+                             'upgrade the SkillSet that provides it'
+      end
+
       declared = public_routes.dup
       if extension.respond_to?(:public_route_prefixes)
         declared |= Array(extension.public_route_prefixes)
@@ -198,15 +210,27 @@ module Hestia
       # Resolve storage paths relative to KairosMcp.data_dir (ensures Docker volume persistence)
       default_storage = defined?(KairosMcp) ? File.join(KairosMcp.storage_dir, '') : 'storage/'
       registry_path = place_config['registry_path'] || "#{default_storage}agent_registry.json"
+      deposit_storage = place_config['deposit_storage_path'] || "#{default_storage}skill_board_state.json"
+      # Bindings always resolve under the storage directory (the persistent
+      # volume in Docker), never against the working directory or the
+      # registry path, which may be relative.
+      bindings_path = File.expand_path(place_config['bindings_path'] || 'agent_bindings.json', default_storage)
 
       @session_store = session_store
       @trust_anchor_client = trust_anchor_client
-      @registry = AgentRegistry.new(registry_path: registry_path, config: place_config)
+      @registry = AgentRegistry.new(
+        registry_path: registry_path, config: place_config, bindings_path: bindings_path,
+        require_bindings_file: !File.exist?(bindings_path) && [deposit_storage, registry_path].any? { |p| File.exist?(p) }
+      )
+      @registration_nonces = RegistrationNonceStore.new
+      configured_host = place_config.dig('web_ui', 'place_host')
+      if configured_host && !configured_host.to_s.strip.empty? && ::MMP::RegistrationProof.origin_for_host(configured_host).nil?
+        raise AgentRegistry::BindingStoreError, "meeting_place.web_ui.place_host #{configured_host.inspect} cannot be parsed; refusing to start"
+      end
       intro = identity.introduce
       @self_id = intro.dig(:identity, :instance_id)
 
       deposit_policy = place_config['deposit_policy'] || {}
-      deposit_storage = place_config['deposit_storage_path'] || "#{default_storage}skill_board_state.json"
       federation_config = place_config['federation'] || {}
       @skill_board = SkillBoard.new(
         registry: @registry,
@@ -234,8 +258,28 @@ module Hestia
       # Mount the public web surface (catalog/api + ANC-7 verification view).
       @web_router = build_web_router(place_config)
 
-      # Self-register: the Place IS also a participant (主客未分)
-      @registry.self_register(identity)
+      # Self-register: the Place IS also a participant (主客未分). Its own id
+      # is bound to its own key before anything is served.
+      unless intro[:public_key]
+        raise AgentRegistry::BindingStoreError, 'Meeting Place has no usable keypair; refusing to start'
+      end
+      if @registry.bound_key(@self_id).nil?
+        foreign = @skill_board.holdings_evidence(@self_id).reject do |data, signature|
+          data && signature && (::MMP::Crypto.new(auto_generate: false).verify_signature(data, signature, intro[:public_key]) rescue false)
+        end
+        unless foreign.empty?
+          raise AgentRegistry::BindingStoreError,
+                "Meeting Place's own id #{@self_id} is unbound and holds #{foreign.size} board item(s) its key did not sign; refusing to bind it. " \
+                "If the Place's key is the rightful owner, add #{@self_id} with the public key from keys/mmp_keypair.pem.pub to agent_bindings.json (Place stopped); otherwise remove those items first."
+        end
+      end
+      self_result = @registry.self_register(identity)
+      unless %w[registered updated].include?(self_result[:status])
+        raise AgentRegistry::BindingStoreError,
+              "Meeting Place's own id #{@self_id} cannot be bound to its key (#{self_result[:status]}); refusing to start"
+      end
+      bound = @registry.bound_ids
+      $stderr.puts "[PlaceRouter] Bound ids (#{bound.size}): #{bound.first(50).join(', ')}#{bound.size > 50 ? ', ...' : ''}"
 
       @started = true
       @started_at = Time.now.utc
@@ -399,15 +443,15 @@ module Hestia
 
       case [request_method, path]
       when ['POST', '/place/v1/unregister']
-        handle_unregister(env)
+        handle_unregister(env, peer_id)
       when ['GET', '/place/v1/agents']
         handle_list_agents(env)
       when ['GET', '/place/v1/board/browse']
         handle_browse(env)
       when ['POST', '/place/v1/board/needs']
-        handle_post_needs(env)
+        handle_post_needs(env, peer_id)
       when ['DELETE', '/place/v1/board/needs']
-        handle_delete_needs(env)
+        handle_delete_needs(env, peer_id)
       when ['POST', '/place/v1/deposit']
         handle_deposit(env)
       when ['POST', '/place/v1/board/attest']
@@ -464,7 +508,9 @@ module Hestia
         deposits: @skill_board.deposit_stats,
         last_heartbeat_check: heartbeat_result,
         federation_cleanup: cleanup_result,
-        public_route_declarations: public_route_declarations
+        public_route_declarations: public_route_declarations,
+        # Declared but unmounted place extensions suspend claims of new ids.
+        unmounted_extensions: unmounted_extension_classes
       }
     end
 
@@ -561,6 +607,7 @@ module Hestia
         place_id: @self_id,
         name: place_config['name'] || 'KairosChain Meeting Place',
         version: Hestia::VERSION,
+        registration_proof: ::MMP::RegistrationProof::PROTOCOL,
         registered_agents: @registry.count,
         max_agents: place_config['max_agents'] || 100,
         started_at: @started_at&.iso8601,
@@ -569,18 +616,19 @@ module Hestia
       })
     end
 
-    # POST /place/v1/register — RSA signature verification
+    # POST /place/v1/register — registration proof (MMP::RegistrationProof)
+    #
+    # A session for id X is issued only for a proof made by X's key holder for
+    # this Place: addressed to this Place's own https origin, fresh, never
+    # acceptable to an earlier process of this Place, single use, and
+    # verifying against X's bound key — or, for an unbound X, against the
+    # presented key, which becomes X's binding once everything already held
+    # under X is shown to be signed by it. A refusal writes nothing.
     def handle_register(env)
       body = parse_body(env)
       agent_id = body['id']
-      agent_name = body['name'] || 'Unknown Agent'
-      capabilities = body['capabilities']
-      public_key = body['public_key']
-      identity_data = body['identity']
-      signature = body['identity_signature']
-
-      unless agent_id
-        return json_response(400, { error: 'missing_id', message: 'Agent id is required' })
+      unless agent_id.is_a?(String) && ::MMP::RegistrationProof::AGENT_ID_PATTERN.match?(agent_id)
+        return json_response(400, { error: 'missing_id', message: 'A valid agent id is required' })
       end
 
       # Check max agents
@@ -590,53 +638,105 @@ module Hestia
         return json_response(503, { error: 'place_full', message: "Meeting Place is full (max #{max} agents)" })
       end
 
-      # RSA signature verification (if provided)
-      verified = false
-      if public_key && signature && identity_data
-        begin
-          canonical = JSON.generate(identity_data, sort_keys: true)
-          crypto = ::MMP::Crypto.new(auto_generate: false)
-          verified = crypto.verify_signature(canonical, signature, public_key)
-        rescue StandardError => e
-          $stderr.puts "[PlaceRouter] Signature verification failed: #{e.message}"
+      fields = body['registration']
+      signature = body['registration_signature']
+      unless fields.is_a?(Hash) && signature.is_a?(String)
+        return json_response(401, { error: 'registration_proof_required',
+                                    message: 'This Meeting Place requires a registration proof. Update KairosChain (mmp >= 1.2.0).' })
+      end
+      if ::MMP::RegistrationProof.field_error(fields) || fields['agent_id'] != agent_id
+        return json_response(401, { error: 'registration_proof_invalid', message: 'Malformed registration proof' })
+      end
+
+      unless audience_acceptable?(fields['audience'])
+        return json_response(401, { error: 'registration_proof_wrong_audience',
+                                    message: 'The registration proof is not addressed to this Meeting Place over https',
+                                    expected_audience: own_origin || 'a loopback origin' })
+      end
+
+      now = Time.now.utc
+      issued = ::MMP::RegistrationProof.issued_at_time(fields)
+      earliest = [now - REGISTRATION_MAX_AGE, @started_at + REGISTRATION_FUTURE_SKEW].max
+      if issued.nil? || issued < earliest || issued > now + REGISTRATION_FUTURE_SKEW
+        return json_response(401, { error: 'registration_proof_stale',
+                                    message: 'The registration proof is outside the accepted time window',
+                                    server_time: now.iso8601, earliest_acceptable_at: earliest.utc.iso8601 })
+      end
+
+      bound = @registry.bound_key(agent_id)
+      presented = body['public_key']
+      if bound
+        if presented && !::MMP::RegistrationProof.same_key?(bound, presented)
+          return json_response(409, { error: 'key_mismatch',
+                                      message: 'This agent id is bound to a different public key at this Meeting Place' })
         end
+        key = bound
+      else
+        unless ::MMP::RegistrationProof.key_acceptable?(presented)
+          return json_response(400, { error: 'unacceptable_key',
+                                      message: 'An RSA public key with exponent 65537 and at least 2048 bits is required' })
+        end
+        key = presented
       end
 
-      # Register the agent (with enhanced profile fields)
-      agent_description = body['description'] || identity_data&.dig('description')
-      agent_scope = body['scope'] || identity_data&.dig('scope')
-
-      result = @registry.register(
-        id: agent_id,
-        name: agent_name,
-        capabilities: capabilities,
-        public_key: public_key,
-        is_self: false,
-        description: agent_description,
-        scope: agent_scope
-      )
-
-      # Issue session token if signature was verified
-      session_token = nil
-      if verified
-        pubkey_hash = public_key ? Digest::SHA256.hexdigest(public_key) : nil
-        session_token = @session_store.create_session(agent_id, public_key, pubkey_hash: pubkey_hash)
+      unless ::MMP::RegistrationProof.verify(key, fields, signature)
+        return json_response(401, { error: 'registration_proof_invalid', message: 'Registration proof signature does not verify' })
       end
 
-      response = result.merge(identity_verified: verified)
-      response[:session_token] = session_token if session_token
+      if bound.nil? && (unproven = unproven_holdings(agent_id, key))
+        return json_response(409, { error: 'id_claim_unproven', message: unproven })
+      end
 
-      json_response(200, response)
+      unless @registration_nonces.accept(fields['nonce'], expires_at: issued + REGISTRATION_MAX_AGE + REGISTRATION_FUTURE_SKEW)
+        return json_response(401, { error: 'registration_proof_replayed', message: 'This registration proof was already used' })
+      end
+
+      identity_data = body['identity'].is_a?(Hash) ? body['identity'] : {}
+      begin
+        result = @registry.register(
+          id: agent_id,
+          name: body['name'] || 'Unknown Agent',
+          capabilities: body['capabilities'],
+          public_key: key,
+          is_self: false,
+          description: body['description'] || identity_data['description'],
+          scope: body['scope'] || identity_data['scope']
+        )
+      rescue AgentRegistry::BindingStoreError => e
+        $stderr.puts "[PlaceRouter] #{e.message}"
+        return json_response(500, { error: 'binding_store_error', message: 'The binding could not be stored; nothing was registered' })
+      end
+
+      case result[:status]
+      when 'key_mismatch'
+        return json_response(409, { error: 'key_mismatch',
+                                    message: 'This agent id is bound to a different public key at this Meeting Place' })
+      when 'binding_rate_exceeded'
+        return json_response(503, { error: 'binding_rate_exceeded',
+                                    message: 'Too many new agent ids recently; retry later', retry_after: result[:retry_after] })
+      when 'invalid_key'
+        return json_response(400, { error: 'unacceptable_key', message: 'The public key is not acceptable' })
+      when 'registered', 'updated'
+        nil
+      else
+        return json_response(500, { error: 'registration_failed', message: "Registration not completed (#{result[:status]})" })
+      end
+
+      binding_pem = @registry.bound_key(agent_id)
+      session_token = @session_store.create_session(agent_id, binding_pem,
+                                                    pubkey_hash: Digest::SHA256.hexdigest(binding_pem),
+                                                    issuer: SESSION_ISSUER)
+      json_response(200, result.merge(identity_verified: true, session_token: session_token))
     end
 
-    # POST /place/v1/unregister — Bearer token required
-    def handle_unregister(env)
+    # POST /place/v1/unregister — Bearer token required. Acts on the session's id.
+    def handle_unregister(env, peer_id)
       body = parse_body(env)
-      agent_id = body['agent_id']
-      unless agent_id
-        return json_response(400, { error: 'missing_agent_id', message: 'agent_id is required' })
+      if (refusal = foreign_agent_id_refusal(body['agent_id'], peer_id))
+        return refusal
       end
 
+      agent_id = peer_id
       result = @registry.unregister(agent_id)
 
       # Clean up any posted needs and deposits for this agent
@@ -679,17 +779,17 @@ module Hestia
     end
 
     # POST /place/v1/board/needs — Bearer token required
-    # Publish knowledge needs to the board (session-only, in-memory)
-    def handle_post_needs(env)
+    # Publish knowledge needs to the board (session-only, in-memory), as the session's id.
+    def handle_post_needs(env, peer_id)
       body = parse_body(env)
-      agent_id = body['agent_id']
+      if (refusal = foreign_agent_id_refusal(body['agent_id'], peer_id))
+        return refusal
+      end
+
+      agent_id = peer_id
       agent_name = body['agent_name'] || 'Unknown Agent'
       agent_mode = body['agent_mode'] || 'unknown'
       needs = body['needs'] || []
-
-      unless agent_id
-        return json_response(400, { error: 'missing_agent_id', message: 'agent_id is required' })
-      end
 
       @skill_board.post_need(
         agent_id: agent_id,
@@ -707,18 +807,16 @@ module Hestia
     end
 
     # DELETE /place/v1/board/needs — Bearer token required
-    # Remove all needs posted by an agent
-    def handle_delete_needs(env)
+    # Remove all needs posted by the session's id.
+    def handle_delete_needs(env, peer_id)
       body = parse_body(env)
-      agent_id = body['agent_id']
-
-      unless agent_id
-        return json_response(400, { error: 'missing_agent_id', message: 'agent_id is required' })
+      if (refusal = foreign_agent_id_refusal(body['agent_id'], peer_id))
+        return refusal
       end
 
-      @skill_board.remove_needs(agent_id)
+      @skill_board.remove_needs(peer_id)
 
-      json_response(200, { status: 'removed', agent_id: agent_id })
+      json_response(200, { status: 'removed', agent_id: peer_id })
     end
 
     # GET /place/v1/keys/:id — Bearer token required
@@ -844,6 +942,17 @@ module Hestia
         return json_response(400, {
           error: 'missing_fields',
           message: 'skill_id, owner_agent_id, and claim are required'
+        })
+      end
+
+      # A signed attestation names its attester as the first payload field;
+      # it must be the session's id, or the signed record would be filed
+      # under an id it does not name.
+      signed_payload = body['signed_payload']
+      if signed_payload && signed_payload.to_s.split('|', 2).first != attester_id
+        return json_response(403, {
+          error: 'attester_id_mismatch',
+          message: 'The signed payload must name the session agent id as attester'
         })
       end
 
@@ -1112,6 +1221,19 @@ module Hestia
         })
       end
 
+      # Honour only sessions this Place issued: their pubkey_hash is the hash
+      # of the id's binding. Sessions minted elsewhere in the shared store
+      # (core P2P introduce) carry none and are refused here.
+      bound = @registry.bound_key(peer_id)
+      session_hash = @session_store.pubkey_hash_for_token(token)
+      issued_here = @session_store.respond_to?(:issuer_for_token) && @session_store.issuer_for_token(token) == SESSION_ISSUER
+      unless issued_here && bound && session_hash && session_hash == Digest::SHA256.hexdigest(bound)
+        return json_response(401, {
+          error: 'invalid_or_expired_token',
+          message: 'Session token was not issued by this Meeting Place. Register first to obtain a session token.'
+        })
+      end
+
       unless @session_store.check_rate_limit(token)
         return json_response(429, { error: 'rate_limited', message: 'Too many requests.' })
       end
@@ -1129,6 +1251,100 @@ module Hestia
     end
 
     # --- Helpers ---
+
+    # Marks sessions this Place issued in the shared session store; sessions
+    # from other issuers (core P2P introduce) carry another value or none.
+    SESSION_ISSUER = 'hestia.place'
+    REGISTRATION_MAX_AGE = 300
+    REGISTRATION_FUTURE_SKEW = 30
+
+    # This Place's https origin, from meeting_place.web_ui.place_host.
+    def own_origin
+      host = (@config['meeting_place'] || {}).dig('web_ui', 'place_host')
+      ::MMP::RegistrationProof.origin_for_host(host)
+    end
+
+    # The proof must be addressed to this Place's own https origin; without a
+    # configured host only loopback origins are accepted (local development).
+    def audience_acceptable?(audience)
+      origin = own_origin
+      return audience == origin if origin
+
+      ::MMP::RegistrationProof.loopback?(audience)
+    end
+
+    # @return [String, nil] why the key cannot claim the id, or nil when every
+    #   item held under the id carries a signature that verifies with it.
+    def unproven_holdings(agent_id, public_key)
+      missing = unmounted_extension_classes
+      unless missing.empty?
+        if missing != @last_logged_unmounted
+          $stderr.puts "[PlaceRouter] Claims of new agent ids suspended: unmounted place extension(s) #{missing.join(', ')}"
+          @last_logged_unmounted = missing
+        end
+        return "Claims of new agent ids are suspended: place extension #{missing.join(', ')} is declared " \
+               'but not mounted, so what it holds cannot be checked. Ask the Meeting Place operator.'
+      end
+
+      evidence = @skill_board.holdings_evidence(agent_id)
+      @extensions.each { |ext| evidence.concat(Array(ext.holdings_evidence(agent_id))) }
+      return nil if evidence.empty?
+
+      crypto = ::MMP::Crypto.new(auto_generate: false)
+      proven = evidence.all? do |data, signature|
+        next false if data.nil? || signature.nil?
+
+        begin
+          crypto.verify_signature(data, signature, public_key)
+        rescue StandardError
+          false
+        end
+      end
+      return nil if proven
+
+      "Items are held under #{agent_id} that this key did not sign. Ask the Meeting Place operator."
+    end
+
+    # Place extension classes declared by enabled SkillSets but not mounted —
+    # refused (no holdings_evidence), failed to load, or not yet registered.
+    # Their holdings cannot be asked, so an unbound id cannot be claimed.
+    def unmounted_extension_classes
+      mounted = @extensions.map { |e| e.class.name }
+      declared_extension_classes.reject { |name| mounted.include?(name) }
+    end
+
+    def declared_extension_classes
+      return Array(@declared_extension_classes_source.call) if @declared_extension_classes_source
+
+      now = Time.now
+      if @declared_cache && now - @declared_cache[0] < 60
+        return @declared_cache[1]
+      end
+
+      list = read_declared_extension_classes
+      @declared_cache = [now, list]
+      list
+    end
+
+    def read_declared_extension_classes
+      return [] unless defined?(KairosMcp)
+
+      require 'kairos_mcp/skillset_manager'
+      KairosMcp::SkillSetManager.new.enabled_skillsets.flat_map do |ss|
+        ss.place_extensions.map { |ext_def| ext_def['class'].to_s.sub(/\A::/, '') }
+      end
+    rescue StandardError => e
+      $stderr.puts "[PlaceRouter] Cannot list declared place extensions: #{e.message}"
+      ['(unknown: extension list unavailable)']
+    end
+
+    # Refuse a body agent_id naming an id other than the session's.
+    def foreign_agent_id_refusal(claimed, peer_id)
+      return nil if claimed.nil? || claimed == peer_id
+
+      json_response(403, { error: 'agent_id_mismatch',
+                           message: 'Requests act on the session agent id; agent_id names another id' })
+    end
 
     def parse_body(env)
       body = env['rack.input']&.read

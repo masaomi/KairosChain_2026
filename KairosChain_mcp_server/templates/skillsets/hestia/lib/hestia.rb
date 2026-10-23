@@ -5,7 +5,7 @@ require 'json'
 
 module Hestia
   SKILLSET_ROOT = File.expand_path('..', __dir__)
-  VERSION = '0.2.0'
+  VERSION = '0.3.0'
 
   # Eagerly load chain components (needed by adapter and tools)
   require_relative 'hestia/chain/core/anchor'
@@ -29,6 +29,7 @@ module Hestia
 
   # Meeting Place components (Phase 4B)
   require_relative 'hestia/agent_registry'
+  require_relative 'hestia/registration_nonce_store'
   require_relative 'hestia/skill_board'
   require_relative 'hestia/heartbeat_manager'
   require_relative 'hestia/place_router'

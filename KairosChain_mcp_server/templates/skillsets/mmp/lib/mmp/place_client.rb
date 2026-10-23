@@ -3,6 +3,7 @@
 require 'net/http'
 require 'json'
 require 'uri'
+require 'time'
 
 module MMP
   class PlaceClient
@@ -10,6 +11,9 @@ module MMP
 
     DEFAULT_MAX_SESSION_MINUTES = 60
     DEFAULT_WARN_AFTER_INTERACTIONS = 50
+    # Longest wait honoured when a Place says a proof was issued too early
+    # (right after its restart) and names the earliest acceptable time.
+    MAX_STALE_WAIT_SECONDS = 45
 
     NETWORK_ERRORS = [
       Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EPIPE,
@@ -30,6 +34,7 @@ module MMP
       @warn_after_interactions = config[:warn_after_interactions] || DEFAULT_WARN_AFTER_INTERACTIONS
       @crypto = crypto || Crypto.new(keypair_path: keypair_path, auto_generate: true)
       @peer_public_keys = {}
+      @clock_offset = 0.0
     end
 
     # Reconnect using saved connection state (no re-registration)
@@ -73,24 +78,49 @@ module MMP
 
     def register
       intro = @identity.introduce
+      agent_id = @identity.respond_to?(:place_agent_id) ? @identity.place_agent_id : intro.dig(:identity, :instance_id)
       body = {
-        id: intro.dig(:identity, :instance_id),
+        id: agent_id,
         name: intro.dig(:identity, :name),
         capabilities: intro[:capabilities],
         public_key: intro[:public_key],
         description: intro.dig(:identity, :description),
         scope: intro.dig(:identity, :scope)
       }
-
-      # Add RSA signature for server-side verification
-      if intro[:identity] && @crypto&.has_keypair?
-        identity_data = intro[:identity]
-        canonical = JSON.generate(identity_data, sort_keys: true)
-        body[:identity] = identity_data
-        body[:identity_signature] = @crypto.sign(canonical)
+      unless @crypto&.has_keypair?
+        return { error: 'no_keypair', message: 'No MMP keypair available to sign the registration' }
       end
 
-      post('/place/v1/register', body)
+      info = place_info
+      unless info.is_a?(Hash) && info[:registration_proof] == RegistrationProof::PROTOCOL
+        # A Place older than registration proofs: only the legacy identity
+        # signature is understood there. Newer Places never receive it.
+        identity_data = intro[:identity]
+        body[:identity] = identity_data
+        body[:identity_signature] = @crypto.sign(JSON.generate(identity_data, sort_keys: true))
+        return post('/place/v1/register', body)
+      end
+
+      audience = RegistrationProof.normalize_origin(@place_url)
+      unless audience && (audience.start_with?('https://') || RegistrationProof.loopback?(audience))
+        return { error: 'insecure_transport',
+                 message: "Refusing to send a registration proof to #{@place_url} without TLS. Use the https:// address of the Meeting Place." }
+      end
+
+      result = post_registration(body, audience, agent_id)
+      if result[:error] == 'registration_proof_stale'
+        server_now = parse_time(result[:server_time])
+        earliest = parse_time(result[:earliest_acceptable_at])
+        if server_now
+          @clock_offset = server_now - Time.now.utc
+          wait = earliest ? (earliest - server_now) + 1 : 0
+          if wait <= MAX_STALE_WAIT_SECONDS
+            sleep(wait) if wait.positive?
+            result = post_registration(body, audience, agent_id)
+          end
+        end
+      end
+      result
     end
 
     def unregister
@@ -207,6 +237,17 @@ module MMP
     end
 
     private
+
+    def post_registration(body, audience, agent_id)
+      fields = RegistrationProof.build(audience: audience, agent_id: agent_id, issued_at: Time.now.utc + @clock_offset)
+      post('/place/v1/register', body.merge(registration: fields, registration_signature: @crypto.sign_registration(fields)))
+    end
+
+    def parse_time(value)
+      value ? Time.iso8601(value.to_s) : nil
+    rescue ArgumentError
+      nil
+    end
 
     def get_public_key(peer_id)
       return @peer_public_keys[peer_id] if @peer_public_keys[peer_id]

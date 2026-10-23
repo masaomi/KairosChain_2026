@@ -120,6 +120,12 @@ module MMP
       Base64.strict_encode64(@private_key.sign(OpenSSL::Digest.new('SHA256'), data_bytes))
     end
 
+    # Sign Meeting Place registration proof fields (RSA-PSS; see RegistrationProof).
+    def sign_registration(fields)
+      raise 'No private key available for signing' unless @private_key
+      RegistrationProof.sign(@private_key, fields)
+    end
+
     def verify_signature(data, signature, signer_public_key = nil)
       key = signer_public_key ? (signer_public_key.is_a?(String) ? import_public_key(signer_public_key) : signer_public_key) : @public_key
       raise 'No public key available for verification' unless key

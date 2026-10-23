@@ -27,6 +27,9 @@ require 'tmpdir'
 require 'fileutils'
 require 'json'
 require 'stringio'
+require 'openssl'
+
+KairosMcp.data_dir = Dir.mktmpdir('kairos_test09')
 
 $pass_count = 0
 $fail_count = 0
@@ -91,6 +94,30 @@ def rack_env(method, path, body: nil, bearer_token: nil, query: nil)
   env
 end
 
+# Helpers: per-name RSA test keys, and a registration carrying a valid proof.
+TEST_RSA_KEYS = Hash.new { |h, k| h[k] = OpenSSL::PKey::RSA.new(2048) }
+
+def test_pub_pem(name)
+  TEST_RSA_KEYS[name].public_key.to_pem
+end
+
+# A just-started Place refuses proofs issued in its first 30 s; tests move its
+# start time back instead of sleeping.
+def age_router(router)
+  router.instance_variable_set(:@started_at, Time.now.utc - 120)
+end
+
+def signed_register(router, id:, key: id, name: id, audience: 'http://localhost', extra: {})
+  rsa = TEST_RSA_KEYS[key]
+  fields = MMP::RegistrationProof.build(audience: audience, agent_id: id)
+  body = {
+    'id' => id, 'name' => name, 'public_key' => rsa.public_key.to_pem,
+    'registration' => fields, 'registration_signature' => MMP::RegistrationProof.sign(rsa, fields)
+  }.merge(extra)
+  status, _headers, resp = router.call(rack_env('POST', '/place/v1/register', body: body))
+  [status, JSON.parse(resp.first, symbolize_names: true)]
+end
+
 puts "=" * 60
 puts "Phase 4B: Meeting Place Server Tests"
 puts "=" * 60
@@ -115,7 +142,7 @@ section("1. AgentRegistry") do
     assert("get returns agent with correct name") { agent[:name] == 'Agent A' }
 
     # 1.4 Register second agent
-    registry.register(id: 'agent-b', name: 'Agent B', public_key: 'PEM_KEY_HERE')
+    registry.register(id: 'agent-b', name: 'Agent B', public_key: test_pub_pem('agent-b'))
     assert("count is 2 after second register") { registry.count == 2 }
 
     # 1.5 Update existing
@@ -147,8 +174,8 @@ section("1. AgentRegistry") do
     assert("list include_self: false excludes self agent") { no_self.none? { |a| a[:is_self] } }
 
     # 1.10 Public key
-    registry.register(id: 'key-agent', name: 'KeyAgent', public_key: 'RSA_PUB_KEY')
-    assert("public_key_for returns stored key") { registry.public_key_for('key-agent') == 'RSA_PUB_KEY' }
+    registry.register(id: 'key-agent', name: 'KeyAgent', public_key: test_pub_pem('key-agent'))
+    assert("public_key_for returns stored key") { registry.public_key_for('key-agent') == test_pub_pem('key-agent') }
 
     # 1.11 Heartbeat
     old_hb = registry.get('agent-a')[:last_heartbeat]
@@ -254,7 +281,9 @@ section("4. PlaceRouter (HTTP endpoints)") do
         'name' => 'Test Meeting Place',
         'max_agents' => 10,
         'session_timeout' => 3600,
-        'registry_path' => File.join(dir, 'agents.json')
+        'registry_path' => File.join(dir, 'agents.json'),
+        'bindings_path' => File.join(dir, 'bindings.json'),
+        'deposit_storage_path' => File.join(dir, 'board.json')
       }
     }
 
@@ -268,6 +297,7 @@ section("4. PlaceRouter (HTTP endpoints)") do
 
     # 4.2 Start the PlaceRouter
     start_result = router.start(identity: identity, session_store: session_store)
+    age_router(router)
     assert("start returns status 'started'") { start_result[:status] == 'started' }
     assert("start includes self_id (non-nil)") { !start_result[:self_id].nil? && !start_result[:self_id].empty? }
     assert("start registers self (count >= 1)") { start_result[:registered_agents] >= 1 }
@@ -279,24 +309,30 @@ section("4. PlaceRouter (HTTP endpoints)") do
     assert("info includes place name") { info[:name] == 'Test Meeting Place' }
     assert("info includes registered_agents count") { info[:registered_agents] >= 1 }
 
-    # 4.4 POST /place/v1/register (no RSA signature → registers but unverified)
+    # 4.4 POST /place/v1/register without a proof → refused, nothing written
     status, _headers, body = router.call(rack_env('POST', '/place/v1/register', body: {
       'id' => 'ext-agent-1',
       'name' => 'External Agent 1',
       'capabilities' => { 'supported_actions' => ['test'] }
     }))
-    reg_result = JSON.parse(body.first, symbolize_names: true)
+    unsigned_result = JSON.parse(body.first, symbolize_names: true)
+    assert("register without proof returns 401") { status == 401 }
+    assert("register without proof: registration_proof_required") { unsigned_result[:error] == 'registration_proof_required' }
+    assert("register without proof: no session_token") { unsigned_result[:session_token].nil? }
+
+    # 4.4b POST /place/v1/register with a proof → registered with a session
+    status, reg_result = signed_register(router, id: 'ext-agent-1', name: 'External Agent 1',
+                                                 extra: { 'capabilities' => { 'supported_actions' => ['test'] } })
     assert("POST /place/v1/register returns 200") { status == 200 }
     assert("register returns agent_id") { reg_result[:agent_id] == 'ext-agent-1' }
-    assert("register without sig: identity_verified = false") { reg_result[:identity_verified] == false }
-    assert("register without sig: no session_token") { reg_result[:session_token].nil? }
+    assert("register with proof: identity_verified = true") { reg_result[:identity_verified] == true }
 
     # 4.5 Authenticated endpoints without token → 401
     status, _headers, body = router.call(rack_env('GET', '/place/v1/agents'))
     assert("GET /agents without token returns 401") { status == 401 }
 
-    # 4.6 Create a session token manually for testing
-    token = session_store.create_session('ext-agent-1', nil)
+    # 4.6 The session token issued by registration
+    token = reg_result[:session_token]
 
     # 4.7 GET /place/v1/agents (with token)
     status, _headers, body = router.call(rack_env('GET', '/place/v1/agents', bearer_token: token))
@@ -313,15 +349,11 @@ section("4. PlaceRouter (HTTP endpoints)") do
 
     # 4.9 GET /place/v1/keys/:id
     # Register an agent with a public key first
-    router.call(rack_env('POST', '/place/v1/register', body: {
-      'id' => 'key-holder',
-      'name' => 'KeyHolder',
-      'public_key' => 'RSA_PUB_KEY_DATA'
-    }))
+    signed_register(router, id: 'key-holder', name: 'KeyHolder')
     status, _headers, body = router.call(rack_env('GET', '/place/v1/keys/key-holder', bearer_token: token))
     key_result = JSON.parse(body.first, symbolize_names: true)
     assert("GET /keys/:id returns 200") { status == 200 }
-    assert("GET /keys/:id returns correct key") { key_result[:public_key] == 'RSA_PUB_KEY_DATA' }
+    assert("GET /keys/:id returns correct key") { key_result[:public_key] == test_pub_pem('key-holder') }
 
     # 4.10 GET /keys for unknown agent → 404
     status, _headers, body = router.call(rack_env('GET', '/place/v1/keys/no-such', bearer_token: token))
@@ -340,13 +372,16 @@ section("4. PlaceRouter (HTTP endpoints)") do
 
     # 4.13 Place is full → 503
     config_full = config.dup
-    config_full['meeting_place'] = config_full['meeting_place'].merge('max_agents' => 3, 'registry_path' => File.join(dir, 'full.json'))
+    config_full['meeting_place'] = config_full['meeting_place'].merge('max_agents' => 3, 'registry_path' => File.join(dir, 'full.json'),
+                                                                      'bindings_path' => File.join(dir, 'full_bindings.json'),
+                                                                      'deposit_storage_path' => File.join(dir, 'full_board.json'))
     full_router = Hestia::PlaceRouter.new(config: config_full)
     full_router.start(identity: identity, session_store: session_store)
+    age_router(full_router)
     # Self + 2 more = 3 (max)
-    full_router.call(rack_env('POST', '/place/v1/register', body: { 'id' => 'fill-1', 'name' => 'Fill1' }))
-    full_router.call(rack_env('POST', '/place/v1/register', body: { 'id' => 'fill-2', 'name' => 'Fill2' }))
-    status, _headers, body = full_router.call(rack_env('POST', '/place/v1/register', body: { 'id' => 'overflow', 'name' => 'Overflow' }))
+    signed_register(full_router, id: 'fill-1', name: 'Fill1')
+    signed_register(full_router, id: 'fill-2', name: 'Fill2')
+    status, _body = signed_register(full_router, id: 'overflow', name: 'Overflow')
     assert("register when full returns 503") { status == 503 }
 
     # 4.14 PlaceRouter#status
@@ -436,7 +471,9 @@ section("6. PlaceRouter Needs Endpoints") do
         'name' => 'Needs Test Place',
         'max_agents' => 10,
         'session_timeout' => 3600,
-        'registry_path' => File.join(dir, 'agents.json')
+        'registry_path' => File.join(dir, 'agents.json'),
+        'bindings_path' => File.join(dir, 'bindings.json'),
+        'deposit_storage_path' => File.join(dir, 'board.json')
       }
     }
 
@@ -445,14 +482,12 @@ section("6. PlaceRouter Needs Endpoints") do
     session_store = MMP::MeetingSessionStore.new
 
     router.start(identity: identity, session_store: session_store)
+    age_router(router)
 
     # Register an agent and get a token
-    router.call(rack_env('POST', '/place/v1/register', body: {
-      'id' => 'needs-ext-1',
-      'name' => 'NeedsExtAgent',
-      'capabilities' => { 'supported_actions' => ['test'] }
-    }))
-    token = session_store.create_session('needs-ext-1', nil)
+    _status, needs_reg = signed_register(router, id: 'needs-ext-1', name: 'NeedsExtAgent',
+                                                 extra: { 'capabilities' => { 'supported_actions' => ['test'] } })
+    token = needs_reg[:session_token]
 
     # 6.1 POST /place/v1/board/needs succeeds
     status, _headers, body = router.call(rack_env('POST', '/place/v1/board/needs',

@@ -66,7 +66,9 @@ module KairosMcp
               config = ::MMP.load_config
               identity = ::MMP::Identity.new(config: config)
               crypto = identity.crypto
-              attester_id = identity.instance_id
+              # Sign as the id this install holds at the Place (the session's id);
+              # the Place refuses a payload naming any other id.
+              attester_id = load_connection_state&.dig('self_agent_id') || identity.place_agent_id
 
               # Fetch current skill content_hash for version-bound attestation
               preview = client.preview_skill(skill_id: skill_id, owner: owner_agent_id, first_lines: 1)
@@ -147,6 +149,7 @@ module KairosMcp
             client = ::MMP::PlaceClient.new(place_url: url, identity: identity, config: {})
             client.instance_variable_set(:@bearer_token, token)
             client.instance_variable_set(:@connected, true)
+            client.instance_variable_set(:@agent_id, connection['self_agent_id'])
             client
           end
 

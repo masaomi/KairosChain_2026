@@ -4,9 +4,13 @@ require 'yaml'
 require 'digest'
 require 'json'
 require 'fileutils'
+require 'securerandom'
 
 module MMP
   class Identity
+    PLACE_ID_FILE = 'mmp_place_id'
+    PLACE_ID_PATTERN = /\A[0-9a-f]{16}\z/
+
     attr_reader :config
 
     def initialize(workspace_root: nil, config: nil)
@@ -59,6 +63,37 @@ module MMP
 
     def instance_id
       @instance_id ||= generate_instance_id
+    end
+
+    # The id this install presents to Meeting Places, kept in keys/mmp_place_id
+    # beside the MMP keypair. A keypair created by this version is created
+    # together with a fresh random id; an install whose keypair predates the file
+    # gets the id it has always presented written once and keeps it. instance_id
+    # (P2P, Synoptis, a Place's own self-registration) is not affected.
+    def place_agent_id
+      crypto_available? # a keypair created here comes with a random id file
+      existing = read_place_id
+      return existing if existing
+
+      write_place_id(legacy_place_agent_id, overwrite: false)
+      read_place_id || legacy_place_agent_id
+    end
+
+    # Replace the Place-facing id with a fresh random one (meeting_connect fresh_id).
+    # Items held under the old id at any Place stay with the old id.
+    def fresh_place_agent_id!
+      crypto_available?
+      write_place_id(SecureRandom.hex(8), overwrite: true)
+      read_place_id
+    end
+
+    # Put back a Place-facing id (meeting_connect restores the previous id
+    # when registering under a fresh one fails).
+    def restore_place_agent_id!(value)
+      raise ArgumentError, 'Place id must be 16 lowercase hex characters' unless PLACE_ID_PATTERN.match?(value.to_s)
+
+      write_place_id(value, overwrite: true)
+      read_place_id
     end
 
     # Public accessor for the Identity's crypto instance.
@@ -192,12 +227,13 @@ module MMP
 
       @crypto_checked = true
       @crypto = begin
-        base_dir = @workspace_root || (defined?(KairosMcp) && KairosMcp.respond_to?(:data_dir) ? KairosMcp.data_dir : '.')
-        keypair_dir = File.join(base_dir, 'keys')
         keypair_path = File.join(keypair_dir, 'mmp_keypair.pem')
         c = MMP::Crypto.new(keypair_path: keypair_path, auto_generate: true)
         unless File.exist?(keypair_path)
           FileUtils.mkdir_p(keypair_dir)
+          # The Place-facing id is born with the key, and written first so a
+          # crash between the two writes never leaves a key without its id.
+          write_place_id(SecureRandom.hex(8), overwrite: true)
           c.save_keypair(keypair_path)
         end
         c
@@ -206,6 +242,57 @@ module MMP
         nil
       end
       !@crypto.nil?
+    end
+
+    def keypair_dir
+      base_dir = @workspace_root || (defined?(KairosMcp) && KairosMcp.respond_to?(:data_dir) ? KairosMcp.data_dir : '.')
+      File.join(base_dir, 'keys')
+    end
+
+    def place_id_path
+      File.join(keypair_dir, PLACE_ID_FILE)
+    end
+
+    # The id meeting_connect has always presented: derived from config contents
+    # only, regardless of workspace root.
+    def legacy_place_agent_id
+      Digest::SHA256.hexdigest(":#{@config}")[0, 16]
+    end
+
+    # @return [String, nil] the stored id; raises if the file holds anything else,
+    #   so a damaged file is noticed rather than silently replaced.
+    def read_place_id
+      path = place_id_path
+      return nil unless File.exist?(path)
+
+      value = File.read(path).strip
+      raise "Invalid Place id file #{path}: expected 16 lowercase hex characters" unless PLACE_ID_PATTERN.match?(value)
+
+      value
+    end
+
+    # Atomic write. overwrite: false never replaces an existing file (a
+    # concurrent writer that got there first wins).
+    def write_place_id(value, overwrite:)
+      path = place_id_path
+      FileUtils.mkdir_p(File.dirname(path))
+      tmp = "#{path}.tmp.#{Process.pid}.#{SecureRandom.hex(4)}"
+      File.write(tmp, value)
+      if overwrite
+        File.rename(tmp, path)
+      else
+        begin
+          File.link(tmp, path)
+        rescue Errno::EEXIST
+          nil
+        rescue NotImplementedError, Errno::EPERM, Errno::EOPNOTSUPP
+          # No hard links on this filesystem: fall back to a rename, which can
+          # only race with another first writer of the same install.
+          File.rename(tmp, path) unless File.exist?(path)
+        end
+      end
+    ensure
+      File.unlink(tmp) if tmp && File.exist?(tmp)
     end
 
   end

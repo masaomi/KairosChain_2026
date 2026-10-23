@@ -72,6 +72,15 @@ module Hestia
 
         # Exclude existing deposit of same key from quota checks (allows updates at quota limit)
         is_replacement = @deposited_skills.any? { |d| d[:internal_key] == internal_key }
+
+        # Content files are named from a sanitized internal key, which is not
+        # unique in general; refuse a deposit whose file another deposit holds.
+        # Compared case-insensitively: on a case-insensitive filesystem names
+        # differing only in case are one file.
+        path = content_path(internal_key).downcase
+        if @deposited_skills.any? { |d| d[:internal_key] != internal_key && content_path(d[:internal_key]).downcase == path }
+          return { valid: false, errors: ['This skill id collides with the storage of another deposit; choose another skill id'] }
+        end
         validation = validate_deposit(skill, agent_id: agent_id, public_key: public_key,
                                       replacing_key: is_replacement ? internal_key : nil)
         return validation unless validation[:valid]
@@ -128,6 +137,20 @@ module Hestia
         @deposited_skills.find { |d| d[:internal_key] == internal_key }
       else
         @deposited_skills.find { |d| d[:skill_id] == skill_id }
+      end
+    end
+
+    # Everything held under an agent id, as [signed data, signature] pairs:
+    # its deposits (content, depositor signature) and the attestations it
+    # authored (signed payload, signature). A claim of an unbound id must
+    # verify every pair (PlaceRouter#unproven_holdings).
+    def holdings_evidence(agent_id)
+      @mutex.synchronize do
+        deposits = @deposited_skills.select { |d| d[:agent_id] == agent_id }
+                                    .map { |d| [d[:content], d[:depositor_signature]] }
+        authored = @attestations.select { |a| a[:attester_id] == agent_id }
+                                .map { |a| [a[:signed_payload], a[:signature]] }
+        deposits + authored
       end
     end
 

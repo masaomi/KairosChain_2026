@@ -59,6 +59,20 @@ module KairosMcp
               hint: 'Use meeting_place_start to start the Meeting Place server.'
             }
 
+            # Live state of a running Place (HTTP mode), including place
+            # extensions that are declared but not mounted.
+            http_server = defined?(KairosMcp) && KairosMcp.respond_to?(:http_server) ? KairosMcp.http_server : nil
+            router = http_server.respond_to?(:place_router) ? http_server.place_router : nil
+            if router
+              live = router.status
+              result[:running] = {
+                started: live[:started],
+                registered_agents: live[:registered_agents],
+                unmounted_extensions: live[:unmounted_extensions]
+              }
+              result.delete(:hint)
+            end
+
             text_content(JSON.pretty_generate(result))
           rescue StandardError => e
             text_content(JSON.pretty_generate({

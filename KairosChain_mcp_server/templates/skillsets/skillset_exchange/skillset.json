@@ -1,12 +1,12 @@
 {
   "name": "skillset_exchange",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "SkillSet deposit, browse, acquire, and withdraw via Meeting Place",
   "author": "Masaomi Hatakeyama",
   "layer": "L1",
   "depends_on": [
-    {"name": "mmp", "version": ">= 1.0.0"},
-    {"name": "hestia", "version": ">= 0.1.0"}
+    {"name": "mmp", "version": ">= 1.2.0"},
+    {"name": "hestia", "version": ">= 0.3.0"}
   ],
   "provides": ["skillset_exchange", "skillset_deposit", "skillset_acquire"],
   "tool_classes": [

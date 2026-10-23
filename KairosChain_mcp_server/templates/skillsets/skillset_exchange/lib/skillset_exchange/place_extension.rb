@@ -93,6 +93,7 @@ module SkillsetExchange
       # Guards @deposited_skillsets across authenticated writer threads
       # (deposit/withdraw) and anonymous reader threads (catalog/detail render).
       @state_mutex = Mutex.new
+      @dirs_in_flight = {} # storage directories reserved by deposits in progress
       @config = load_config
       @storage_dir = resolve_storage_dir
       FileUtils.mkdir_p(@storage_dir) if @storage_dir
@@ -106,6 +107,17 @@ module SkillsetExchange
         backfill_listing_state!
       rescue StandardError => e
         $stderr.puts "[SkillsetExchange] Listing-state backfill failed (non-fatal): #{e.message}"
+      end
+    end
+
+    # SkillSet deposits held under an agent id, as [signed data, signature]
+    # pairs (content_hash, depositor signature; signature may be nil). The
+    # Place asks this before binding an unbound id to a key.
+    def holdings_evidence(agent_id)
+      @state_mutex.synchronize do
+        @deposited_skillsets.values
+                            .select { |meta| meta[:depositor_id] == agent_id }
+                            .map { |meta| [meta[:content_hash], meta[:signature]] }
       end
     end
 
@@ -320,10 +332,25 @@ module SkillsetExchange
         })
       end
 
-      # 10. Store archive to disk
-      deposit_dir = File.join(@storage_dir, "#{name}_#{sanitize_id(peer_id)}")
-      FileUtils.mkdir_p(deposit_dir)
-      File.binwrite(File.join(deposit_dir, 'archive.tar.gz'), archive_data)
+      # 10. Store archive to disk. A storage directory belongs to the first
+      # (name, depositor) that holds it; a deposit whose directory is held by
+      # another is refused, so no write or withdraw touches another
+      # depositor's files.
+      dir_name = deposit_dir_name(name, peer_id)
+      unless claim_deposit_dir(dir_name, deposit_key)
+        return json_response(409, {
+          error: 'storage_conflict',
+          message: 'This SkillSet name collides with the storage of another deposit; choose another name'
+        })
+      end
+      deposit_dir = File.join(@storage_dir, dir_name)
+      begin
+        FileUtils.mkdir_p(deposit_dir)
+        File.binwrite(File.join(deposit_dir, 'archive.tar.gz'), archive_data)
+      rescue StandardError
+        release_deposit_dir(dir_name, deposit_key)
+        raise
+      end
 
       metadata = {
         name: name,
@@ -350,11 +377,19 @@ module SkillsetExchange
       # addresses, so a new deposit never wears a predecessor's address.
       metadata[:deposit_nonce] = SecureRandom.hex(16)
       metadata[:listing_address] = listing_address_for(metadata)
-      File.write(File.join(deposit_dir, 'metadata.json'), JSON.pretty_generate(metadata))
+      begin
+        File.write(File.join(deposit_dir, 'metadata.json'), JSON.pretty_generate(metadata))
+      rescue StandardError
+        release_deposit_dir(dir_name, deposit_key)
+        raise
+      end
 
       # Replace existing deposit from same agent with same name.
       # Guarded so an anonymous reader's snapshot never sees a torn write.
-      @state_mutex.synchronize { @deposited_skillsets[deposit_key] = metadata }
+      @state_mutex.synchronize do
+        @deposited_skillsets[deposit_key] = metadata
+        @dirs_in_flight.delete(storage_key(dir_name)) if @dirs_in_flight[storage_key(dir_name)] == deposit_key
+      end
       save_state
 
       # 11. Record chain event
@@ -490,7 +525,7 @@ module SkillsetExchange
       end
 
       # 4. Read archive from disk
-      deposit_dir = File.join(@storage_dir, "#{meta[:name]}_#{sanitize_id(meta[:depositor_id])}")
+      deposit_dir = File.join(@storage_dir, deposit_dir_name(meta[:name], meta[:depositor_id]))
       archive_path = File.join(deposit_dir, 'archive.tar.gz')
 
       unless File.exist?(archive_path)
@@ -582,12 +617,33 @@ module SkillsetExchange
         })
       end
 
-      # 4. Remove from in-memory state (guarded against anonymous readers)
-      @state_mutex.synchronize { @deposited_skillsets.delete(deposit_key) }
+      # 4. Remove from in-memory state (guarded against anonymous readers),
+      # keeping the directory reserved until its files are deleted so no
+      # colliding deposit can write into it in between.
+      dir_name = deposit_dir_name(meta[:name], meta[:depositor_id])
+      busy = false
+      shared = @state_mutex.synchronize do
+        if @dirs_in_flight.key?(storage_key(dir_name))
+          busy = true
+          next false
+        end
+        @deposited_skillsets.delete(deposit_key)
+        @dirs_in_flight[storage_key(dir_name)] = deposit_key
+        @deposited_skillsets.values.any? { |v| storage_key(deposit_dir_name(v[:name], v[:depositor_id])) == storage_key(dir_name) }
+      end
 
-      # 5. Delete disk files (use trusted metadata values, not raw request input)
-      deposit_dir = File.join(@storage_dir, "#{meta[:name]}_#{sanitize_id(meta[:depositor_id])}")
-      FileUtils.rm_rf(deposit_dir) if File.directory?(deposit_dir)
+      if busy
+        return json_response(409, { error: 'deposit_in_progress', message: 'A deposit to this storage is in progress; retry shortly' })
+      end
+
+      # 5. Delete disk files (use trusted metadata values, not raw request
+      # input) — unless another deposit still maps to the same directory.
+      begin
+        deposit_dir = File.join(@storage_dir, dir_name)
+        FileUtils.rm_rf(deposit_dir) if File.directory?(deposit_dir) && !shared
+      ensure
+        release_deposit_dir(dir_name, deposit_key)
+      end
 
       # 6. Save state
       save_state
@@ -704,6 +760,36 @@ module SkillsetExchange
       id.to_s.gsub(/[^a-zA-Z0-9_-]/, '_')
     end
 
+    # Storage directory of a deposit. Both name and id may contain '_', so
+    # distinct deposits can share a directory name; claim_deposit_dir keeps
+    # each directory with one deposit.
+    def deposit_dir_name(name, depositor_id)
+      "#{name}_#{sanitize_id(depositor_id)}"
+    end
+
+    # Directory names compare case-insensitively: on a case-insensitive
+    # filesystem (macOS default) names differing only in case are one directory.
+    def storage_key(dir_name)
+      dir_name.downcase
+    end
+
+    # @return [Boolean] true when the directory is free for deposit_key (and is
+    #   now reserved for it until released)
+    def claim_deposit_dir(dir_name, deposit_key)
+      key = storage_key(dir_name)
+      @state_mutex.synchronize do
+        held = @deposited_skillsets.any? { |k, v| k != deposit_key && storage_key(deposit_dir_name(v[:name], v[:depositor_id])) == key }
+        held ||= @dirs_in_flight.key?(key) && @dirs_in_flight[key] != deposit_key
+        @dirs_in_flight[key] = deposit_key unless held
+        !held
+      end
+    end
+
+    def release_deposit_dir(dir_name, deposit_key)
+      key = storage_key(dir_name)
+      @state_mutex.synchronize { @dirs_in_flight.delete(key) if @dirs_in_flight[key] == deposit_key }
+    end
+
     def record_chain_event(event_type:, skillset_name:, content_hash:, participants:, extra: {})
       # Use PlaceRouter's chain recording pattern if trust_anchor is available
       return unless @router.respond_to?(:record_chain_event, true)
@@ -812,7 +898,7 @@ module SkillsetExchange
     end
 
     def backfill_certificate_state(meta)
-      deposit_dir = File.join(@storage_dir, "#{meta[:name]}_#{sanitize_id(meta[:depositor_id])}")
+      deposit_dir = File.join(@storage_dir, deposit_dir_name(meta[:name], meta[:depositor_id]))
       archive_path = File.join(deposit_dir, 'archive.tar.gz')
       # Presence unknown when the archive cannot be inspected: rendered as the
       # neutral unavailability marker, never as "no provenance claim".

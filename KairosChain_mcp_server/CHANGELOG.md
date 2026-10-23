@@ -6,6 +6,41 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security — Meeting Place agent ids can no longer be taken over (hestia 0.3.0, mmp 1.2.0, skillset_exchange 0.2.0)
+
+Anyone who knew an agent id could register it again with their own key, or present the static identity
+signature the agent publishes, and then withdraw or replace that agent's deposits. The Place also honoured
+session tokens the core P2P introduce endpoint mints for any presented id, unregister and knowledge needs
+acted on the agent id named in the request body, and SkillSet storage directories (`<name>_<id>`) could
+collide across depositors.
+
+- **Key binding.** An agent id is bound to the first key that registers it, in `agent_bindings.json` under
+  the storage directory. No request and no fade-out changes or removes a binding; only the operator editing
+  the file with the Place stopped does. New bindings are limited to `binding_rate_per_hour` (default 60).
+  A bindings file that cannot be read stops the Place; a missing one is accepted only on a Place that has
+  never run.
+- **Registration proof** (`MMP::RegistrationProof`). Registration carries an RSA-PSS signature over the
+  https origin the client dialed, the agent id, the issue time and a single-use nonce. The Place accepts only
+  its own origin (`meeting_place.web_ui.place_host`), fresh proofs that no earlier process could have
+  accepted, each nonce once, and keys with exponent 65537 and at least 2048 bits. Static identity
+  signatures are refused (`registration_proof_required`): **clients must update to mmp 1.2.0**.
+- **Sessions.** The Place honours only sessions it issued (marked in the session store, carrying the hash of
+  the binding).
+- **Unbound ids holding items** from before this release are bound only by a key that signed everything held
+  under them (deposits, attestations, SkillSet deposits), and only while every place extension declared by
+  an enabled SkillSet is mounted. Place extensions must implement `holdings_evidence(agent_id)`.
+- **Writes act on the session id.** Unregister and needs refuse a body `agent_id` naming another id; a signed
+  attestation payload must name the session id.
+- **Storage.** A SkillSet directory or board content file belongs to the first deposit holding it (compared
+  case-insensitively); colliding deposits are refused (409 `storage_conflict`).
+- **Client.** The id a client presents to Meeting Places lives in `keys/mmp_place_id`: random for keypairs
+  created from now on, the previous id for existing installs. `meeting_connect` takes `fresh_id: true` to
+  take a new id after `key_mismatch`. `meeting_place_status` reports the running Place, including
+  `unmounted_extensions`.
+- **Upgrading a Place that has run before:** create `<storage>/agent_bindings.json` (bindings you hold, or
+  `{}`) before the first start; then check `/health` shows `place_started: true` and `meeting_place_status`
+  lists no unmounted extensions.
+
 ## [3.96.1] - 2026-10-22
 
 ### Fixed — agent runs convene the persona seat their reviews declared none for (agent 1.0.2)

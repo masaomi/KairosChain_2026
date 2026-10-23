@@ -19,7 +19,7 @@ module MMP
     DEFAULT_RATE_LIMIT_PER_MINUTE = 100
 
     Session = Struct.new(
-      :peer_id, :public_key, :pubkey_hash, :token, :created_at,
+      :peer_id, :public_key, :pubkey_hash, :issuer, :token, :created_at,
       :last_activity, :request_count, :request_window_start,
       keyword_init: true
     )
@@ -41,7 +41,9 @@ module MMP
     # @param peer_id [String] Peer identifier
     # @param public_key [String] PEM-encoded public key
     # @param pubkey_hash [String, nil] SHA256 hex of public key (for Service Grant)
-    def create_session(peer_id, public_key, pubkey_hash: nil)
+    # @param issuer [String, nil] Which component issued the session (a Meeting
+    #   Place honours only its own; sessions from other issuers carry theirs or nil)
+    def create_session(peer_id, public_key, pubkey_hash: nil, issuer: nil)
       token = SecureRandom.hex(32)
       now = Time.now
       @mutex.synchronize do
@@ -49,6 +51,7 @@ module MMP
           peer_id: peer_id,
           public_key: public_key,
           pubkey_hash: pubkey_hash,
+          issuer: issuer,
           token: token,
           created_at: now,
           last_activity: now,
@@ -154,6 +157,19 @@ module MMP
       @mutex.synchronize do
         session = @sessions[token]
         session&.pubkey_hash
+      end
+    end
+
+    # Issuer of a live session, or nil.
+    #
+    # @param token [String] Bearer token
+    # @return [String, nil]
+    def issuer_for_token(token)
+      @mutex.synchronize do
+        session = @sessions[token]
+        next nil unless session && Time.now - session.created_at <= @ttl
+
+        session.issuer
       end
     end
 

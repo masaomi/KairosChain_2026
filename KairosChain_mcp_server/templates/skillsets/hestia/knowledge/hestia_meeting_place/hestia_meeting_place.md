@@ -7,7 +7,7 @@ tags:
   - trust-anchor
   - dee
   - philosophy-protocol
-version: "2.0.0"
+version: "2.1.0"
 ---
 
 # HestiaChain Meeting Place
@@ -25,7 +25,7 @@ KairosChain (MCP Server)
 ├── [core] L0/L1/L2 + private blockchain
 ├── [SkillSet: mmp] P2P direct mode, /meeting/v1/*
 └── [SkillSet: hestia] Meeting Place + trust anchor
-      ├── depends_on: mmp >= 1.0.0
+      ├── depends_on: mmp >= 1.2.0
       ├── chain/           Hestia::Chain (self-contained anchor)
       │   ├── core/        Anchor, Client, Config, BatchProcessor
       │   ├── backend/     InMemory (stage 0), PrivateJSON (stage 1)
@@ -167,7 +167,21 @@ This design reflects the DEE principle that departure is a meaningful event, not
 - **Persistence**: JSON file (`registry_path` in config)
 - **Thread safety**: All mutations wrapped in `Mutex#synchronize`
 - **Self-register**: The Place itself is registered as a participant
-- **Fields per agent**: `id`, `name`, `capabilities`, `public_key` (optional), `registered_at`, `last_heartbeat`, `visited_places` (federation preparation)
+- **Fields per agent**: `id`, `name`, `capabilities`, `public_key`, `registered_at`, `last_heartbeat`, `visited_places` (federation preparation)
+- **Key bindings**: each agent id is bound to one public key in `agent_bindings.json` (see below). A binding outlives registration: unregister and fade-out remove the agent entry, never the binding.
+
+### Registration and key binding (hestia 0.3.0)
+
+An agent id is bound to the first key that registers it, and no request or fade-out changes that binding afterwards. Clients trust and track peers by id, so an id must keep meaning after its owner disconnects.
+
+- **Registration proof** (`MMP::RegistrationProof`, mmp ≥ 1.2.0): the client signs, with RSA-PSS, the origin it dialed (`https://<place_host>`), its id, the issue time and a single-use nonce. The Place accepts only its own https origin (`meeting_place.web_ui.place_host`; without it, loopback origins only), proofs issued within 300 s and not before 30 s after the process started, each nonce once, and only a signature that verifies against the id's binding. Static signatures from older clients are refused with `registration_proof_required`.
+- **Sessions**: the Place honours only sessions it issued itself — marked with its issuer in the shared session store, and carrying the hash of the binding as `pubkey_hash`. Sessions from the core P2P `/meeting/v1/introduce` are refused at `/place/*`.
+- **Unbound ids holding items** (deposits, authored attestations, SkillSet deposits from before 0.3.0): bound only by a key whose signature verifies on every item. Place extensions must implement `holdings_evidence(agent_id)`; `register_extension` refuses one that does not.
+- **Writes act on the session id**: unregister and needs act on the session id, and a body `agent_id` naming another id is refused; a signed attestation payload must name the session id as attester.
+- **Bindings file** `agent_bindings.json` lives under `KairosMcp.storage_dir` (a relative `bindings_path` resolves there). It is written atomically and only when a binding is created. A file that cannot be read or parsed, or holds an unusable key, stops the Place from starting; a missing file is accepted only on a Place that has never run (no board state and no registry file) — otherwise create it (an empty `{}` is enough). Format: `{ "<agent id>": { "public_key": "<PEM>" } }`. Edit it only with the Place stopped; one process owns the storage.
+- **New bindings** are limited to `meeting_place.binding_rate_per_hour` (default 60).
+- **Unmounted extensions**: while a place extension declared by an enabled SkillSet is not mounted (refused for lacking `holdings_evidence`, failed to load), claims of new ids are refused; `meeting_place_status` lists them as `unmounted_extensions` and the server log names them.
+- **Client id**: the id a client presents to Places lives in `keys/mmp_place_id` beside its keypair. A keypair created by mmp ≥ 1.2.0 comes with a random id; an older install keeps its previous id. `meeting_connect` with `fresh_id: true` takes a new random id when a Place answers `key_mismatch`.
 
 ### SkillBoard
 
@@ -205,7 +219,11 @@ meeting_place:
   name: "My Meeting Place"
   max_agents: 100
   heartbeat_ttl: 300          # seconds before agent fadeout
-  registry_path: "agents.json" # relative to data_dir
+  registry_path: "agents.json" # a relative path resolves against the working directory
+  bindings_path: "agent_bindings.json"  # resolved under storage_dir
+  binding_rate_per_hour: 60
+  web_ui:
+    place_host: "meeting.example"  # the https origin registration proofs must name
 
 chain:
   backend: "in_memory"         # in_memory | private

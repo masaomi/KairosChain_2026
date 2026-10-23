@@ -38,7 +38,8 @@ module KairosMcp
               properties: {
                 url: { type: 'string', description: 'URL of the Meeting Place or peer (e.g., http://localhost:8080)' },
                 mode: { type: 'string', enum: %w[relay direct], description: 'Connection mode: relay (via Meeting Place) or direct (P2P). Default: relay' },
-                filter_capabilities: { type: 'array', items: { type: 'string' }, description: 'Filter peers by capabilities' }
+                filter_capabilities: { type: 'array', items: { type: 'string' }, description: 'Filter peers by capabilities' },
+                fresh_id: { type: 'boolean', description: 'Relay mode: replace the Meeting Place id of this install with a fresh random one before registering. Use when the Place answers key_mismatch because another install already holds the id. Items held under the old id stay with the old id.' }
               },
               required: ['url']
             }
@@ -58,10 +59,10 @@ module KairosMcp
               if mode == 'direct'
                 result = connect_direct(url, config)
               else
-                result = connect_relay(url, config, filter_caps)
+                result = connect_relay(url, config, filter_caps, fresh_id: arguments['fresh_id'] == true)
               end
 
-              save_connection_state(result)
+              save_connection_state(result) if result[:status] == 'connected'
 
               # Check for pending attestation nudge
               nudge_msg = nil
@@ -112,8 +113,13 @@ module KairosMcp
             result
           end
 
-          def connect_relay(url, config, filter_caps)
+          def connect_relay(url, config, filter_caps, fresh_id: false)
             identity = ::MMP::Identity.new(config: config)
+            previous_id = nil
+            if fresh_id
+              previous_id = identity.place_agent_id
+              identity.fresh_place_agent_id!
+            end
             # Use Identity's own crypto to ensure the same keypair is used
             # for both signing (in PlaceClient.register) and the public key
             # attached to the introduction. Identity handles key generation,
@@ -130,8 +136,32 @@ module KairosMcp
               }
             )
 
-            connect_result = client.connect
-            agent_id = connect_result[:agent_id] || identity.introduce.dig(:identity, :instance_id)
+            begin
+              connect_result = client.connect
+            rescue StandardError
+              # A fresh id that did not register is not kept, whatever the failure.
+              identity.restore_place_agent_id!(previous_id) if previous_id
+              raise
+            end
+            unless connect_result[:session_token]
+              # A fresh id that did not register is not kept: put the previous one back.
+              identity.restore_place_agent_id!(previous_id) if previous_id
+              refused = {
+                status: 'refused', mode: 'relay', url: url,
+                self_agent_id: identity.place_agent_id,
+                error: connect_result[:error] || 'registration_failed',
+                message: connect_result[:message]
+              }
+              if connect_result[:error] == 'key_mismatch'
+                refused[:hint] = 'This Meeting Place already binds your id to a different key, usually because another ' \
+                                 'installation shares the id. Run meeting_connect again with fresh_id: true to take a new id.'
+              elsif connect_result[:error] == 'registration_proof_required'
+                refused[:hint] = 'This Meeting Place requires registration proofs. Update KairosChain (mmp >= 1.2.0).'
+              end
+              refused[:previous_agent_id] = previous_id if previous_id
+              return refused
+            end
+            agent_id = connect_result[:agent_id] || identity.place_agent_id
             verified = connect_result[:identity_verified]
             session_token = connect_result[:session_token]
 
@@ -170,6 +200,8 @@ module KairosMcp
               meeting_session_token: meeting_session_token,
               meeting_place: { url: url, name: place_info['name'] || place_info[:name] || 'Meeting Place' },
               self_agent_id: agent_id,
+              previous_agent_id: previous_id,
+              fresh_id_note: previous_id ? "This install now uses #{agent_id} at every Meeting Place. Items held under #{previous_id} stay with that id." : nil,
               your_skills: skill_counts,
               peers: peers_list,
               hint: agents.empty? ? 'No peers found. Wait for others to connect.' : 'Use meeting_get_skill_details to learn about a skill.'

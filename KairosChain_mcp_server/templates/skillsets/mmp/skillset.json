@@ -1,6 +1,6 @@
 {
   "name": "mmp",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Model Meeting Protocol for P2P agent communication and skill exchange",
   "author": "Dr. Masa Hatakeyama",
   "layer": "L1",

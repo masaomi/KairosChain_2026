@@ -167,6 +167,7 @@ end
 class CatalogStubExtension
   def initialize(_router = nil); end
   def call(_env, peer_id:) = nil
+  def holdings_evidence(_agent_id) = []
 
   def public_call(env)
     return [200, { 'Content-Type' => 'text/html' }, ['<html>stub-catalog</html>']] if env['PATH_INFO'] == '/place/web/stub'
@@ -182,6 +183,7 @@ class SelfDeclaringExtension
   def initialize(_router = nil); end
   def public_route_prefixes = self.class.public_route_prefixes
   def call(_env, peer_id:) = nil
+  def holdings_evidence(_agent_id) = []
 
   def public_call(env)
     return [200, { 'Content-Type' => 'text/html' }, ['self-declared']] if env['PATH_INFO'] == '/place/web/selfdecl'
@@ -193,6 +195,7 @@ end
 class NoPublicCallExtension
   def initialize(_router = nil); end
   def call(_env, peer_id:) = nil
+  def holdings_evidence(_agent_id) = []
 end
 
 # ============================================================================
@@ -301,6 +304,7 @@ section('1b. Auto-sourced + idempotent-upgrade public routes (wiring hardening)'
   r_sec.instance_variable_set(:@started, true)
   weak = Class.new do
     def call(_e, peer_id:) = nil
+    def holdings_evidence(_agent_id) = []
     def public_call(_e)
       [200, { 'Content-Type' => 'text/html', 'X-Frame-Options' => 'SAMEORIGIN',
               'Content-Security-Policy' => "default-src *" }, ['weak']]
@@ -338,10 +342,12 @@ section('1b. Auto-sourced + idempotent-upgrade public routes (wiring hardening)'
   r3.instance_variable_set(:@started, true)
   broad = Class.new do
     def call(_e, peer_id:) = nil
+    def holdings_evidence(_agent_id) = []
     def public_call(_e) = [200, { 'Content-Type' => 'text/plain' }, ['broad']]
   end.new
   narrow = Class.new do
     def call(_e, peer_id:) = nil
+    def holdings_evidence(_agent_id) = []
     def public_call(_e) = [200, { 'Content-Type' => 'text/plain' }, ['narrow']]
   end.new
   r3.register_extension(broad, public_routes: ['/place/web/a'])
