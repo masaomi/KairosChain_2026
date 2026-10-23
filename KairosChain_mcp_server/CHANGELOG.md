@@ -6,6 +6,8 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.97.0] - 2026-10-23
+
 ### Security — Meeting Place agent ids can no longer be taken over (hestia 0.3.0, mmp 1.2.0, skillset_exchange 0.2.0)
 
 Anyone who knew an agent id could register it again with their own key, or present the static identity
