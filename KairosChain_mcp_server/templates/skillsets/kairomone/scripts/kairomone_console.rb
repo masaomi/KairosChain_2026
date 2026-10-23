@@ -110,10 +110,10 @@ child = Kairomone::Console::ChildProcess.new(argv: argv, cwd: project.dir)
 session = Kairomone::Console::Session.new(writer: ->(message) { outgoing << message }, log: log)
 secret = Kairomone::Console::Secret.new
 stops = Queue.new
-status_reader = lambda do
-  { 'data_dir' => project.data_dir, 'status' => Kairomone::Instance.new(host_root: project.data_dir).status }
+status_reader = lambda do |kairomone = nil|
+  Kairomone::Console::View.payload(project.data_dir, kairomone)
 rescue StandardError => e
-  { 'data_dir' => project.data_dir, 'status' => nil, 'error' => e.message }
+  { 'data_dir' => project.data_dir, 'kairomones' => [], 'shown' => kairomone, 'status' => nil, 'error' => e.message }
 end
 
 server = nil

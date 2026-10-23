@@ -251,7 +251,7 @@ module Kairomone
       end
       shown = waiting.sort_by { |sha, doc| [doc['proposed_at'].to_s, sha] }.reverse.lazy
                      .select { |_sha, doc| Art.valid?(doc['svg']) }.first(limit)
-                     .map { |sha, doc| { proposal: sha, stage: doc['stage'], data_uri: Art.data_uri(doc['svg']) } }
+                     .map { |sha, doc| { proposal: sha, sha256: doc['sha256'], stage: doc['stage'], data_uri: Art.data_uri(doc['svg']) } }
       view.merge(data_uri: Art.data_uri(text), waiting: shown)
     end
 

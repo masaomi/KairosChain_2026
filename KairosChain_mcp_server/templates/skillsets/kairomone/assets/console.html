@@ -145,10 +145,17 @@ textarea:disabled{background:#efede4;color:var(--muted)}
 .notes li+li{margin-top:6px}
 code{font-family:var(--mono);font-size:12px;overflow-wrap:anywhere}
 code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;border:1px solid #d5d8c9;border-radius:10px;white-space:pre-wrap;color:#364a30}
-.creature [data-part]{display:none}
-.creature[data-stage=sprout] [data-part=leaves],.creature[data-stage=grove] [data-part=leaves],.creature[data-stage=canopy] [data-part=leaves],.creature[data-stage=ancient] [data-part=leaves],.creature[data-stage=grove] [data-part=branches],.creature[data-stage=canopy] [data-part=branches],.creature[data-stage=ancient] [data-part=branches],.creature[data-stage=canopy] [data-part=crown],.creature[data-stage=ancient] [data-part=crown],.creature[data-stage=ancient] [data-part=stars]{display:inline}
-.creature[data-stage=seed] .moss-body{transform:translate(20px,34px) scale(.82)}
-.creature[data-stage=unknown]{opacity:.6}
+.switcher select{font:inherit;font-size:12px;margin-left:4px;max-width:14em}
+.wait-list,.tool-list{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:8px}
+.wait-list li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font-size:13px}
+.wait-list img{width:48px;height:auto;border:1px solid var(--line);border-radius:10px;background:#fff}
+.tool-list li{font-size:12px}
+.hash{font-family:var(--mono);font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+.panel fieldset{border:1px solid var(--line);border-radius:12px;margin:8px 0;padding:6px 10px}
+.panel legend{font-size:12px;color:var(--muted)}
+.panel label{display:inline-flex;align-items:center;gap:4px;margin:2px 10px 2px 0;font-size:13px}
+.panel label.wide{display:flex;flex-direction:column;align-items:stretch;margin:6px 0}
+.panel textarea,.panel input[type=text],.panel select{font:inherit;font-size:13px}
 @media (max-width:960px),(max-height:640px){.app{height:auto;min-height:100vh}.convo{overflow:visible}.layout{grid-template-columns:minmax(0,1fr);padding:0 12px 16px}.log{max-height:62vh;min-height:220px}.pending{max-height:none}.side{overflow:visible}}
 @media (max-width:480px){.top{padding:12px}.gate{margin:0 12px 12px}.msg{max-width:100%}.card{padding:16px}}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
@@ -162,8 +169,8 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
       <div>Kairomone<small>OWNER CONSOLE</small></div>
     </div>
     <div class="identity">
-      <h1 id="dot-name">Kairomone</h1>
-      <p class="where"><span>dot ID <b id="dot-id">未確認</b></span><span>データの場所 <b id="data-dir">未確認</b></span></p>
+      <h1 id="kairomone-name">Kairomone</h1>
+      <p class="where"><label class="switcher">表示する Kairomone<select id="kairomone-select" disabled><option value="">未確認</option></select></label><span>識別子 <b id="kairomone-id">未確認</b></span><span>データの場所 <b id="data-dir">未確認</b></span></p>
     </div>
     <div class="badges">
       <span id="mode-badge" class="mode-badge unknown">モード: 不明</span>
@@ -188,10 +195,10 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
       </section>
       <section class="composer" aria-label="会話を送る">
         <div class="quick" role="group" aria-label="よく使う依頼">
-          <button type="button" class="q" disabled>いまの状態を教えて</button>
-          <button type="button" class="q" disabled>最近覚えたことを見せて</button>
-          <button type="button" class="q" disabled>〈話題〉について 1 回学習して</button>
-          <button type="button" class="q" disabled>バックアップを取って、検証して</button>
+          <button type="button" class="q" data-place="status" disabled>いまの状態を教えて</button>
+          <button type="button" class="q" data-place="recent" disabled>最近覚えたことを見せて</button>
+          <button type="button" class="q" data-place="learn" disabled>〈話題〉について 1 回学習して</button>
+          <button type="button" class="q" data-place="backup" disabled>バックアップを取って、検証して</button>
         </div>
         <label for="message" class="sr">相棒への会話</label>
         <textarea id="message" rows="3" placeholder="相棒への会話を書きます" disabled></textarea>
@@ -206,15 +213,15 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
             <button type="button" id="stop" class="danger" disabled>停止</button>
           </div>
         </div>
-        <p class="hint">⌘ / Ctrl + Enter でも送れます。よく使う依頼のボタンは決まった文を入れるだけで、送るのはあなたです。</p>
+        <p class="hint">⌘ / Ctrl + Enter でも送れます。よく使う依頼のボタンや右のパネルは、表示している Kairomone の名前と識別子を入れた文を置くだけで、送るのはあなたです。</p>
       </section>
     </section>
     <aside class="side" aria-label="相棒の状態と注意">
       <section class="card" aria-labelledby="st-name">
         <div class="status-top">
-          <svg id="creature" data-stage="unknown" class="creature" viewBox="0 0 260 220" role="img" aria-labelledby="creature-title"><title id="creature-title">小さな、オリジナルの苔の生きもの</title><ellipse cx="133" cy="190" rx="83" ry="12" fill="#ccd6bd"/><g data-part="leaves"><path d="M82 126c-18-29-11-58 8-73 4 25 26 34 32 62" fill="#829768"/><path d="M126 96c-13-31-2-60 20-73 3 22 20 36 9 61" fill="#566f45"/><path d="M142 97c6-27 34-42 60-32-11 21-29 34-53 41" fill="#9cad7e"/></g><g data-part="branches"><path d="M87 129Q31 110 43 69Q75 78 89 117M172 131Q226 111 225 77Q192 83 177 119" fill="#7c9463"/></g><g data-part="crown"><path d="M78 88Q51 52 87 42Q101 12 128 36Q161 7 183 36Q224 40 200 77Q151 113 78 88Z" fill="#708957"/><circle cx="91" cy="48" r="6" fill="#d4bc78"/><circle cx="179" cy="46" r="6" fill="#d4bc78"/></g><g class="moss-body"><path d="M78 114c-15 17-24 49-10 65 14 14 38 12 55 13 26 3 54 2 69-17 13-17 4-47-14-61-28-20-72-22-100 0Z" fill="#647c50"/><path d="M89 123c-9 15-15 36-5 48 13 16 62 23 85 6 18-14 12-34-1-45-21-19-57-23-79-9Z" fill="#abb991"/><ellipse cx="77" cy="181" rx="15" ry="9" fill="#526d43"/><ellipse cx="178" cy="185" rx="16" ry="8" fill="#526d43"/><path d="M77 133c-13-8-29 1-33 15 12 4 26 2 35-6" fill="#708957"/><path d="M186 142c13-7 24 0 27 14-11 6-21 3-28-6" fill="#708957"/><ellipse cx="106" cy="144" rx="4" ry="5" fill="#293f2c"/><ellipse cx="153" cy="147" rx="4" ry="5" fill="#293f2c"/><path d="M122 157c4 5 10 6 14 1" fill="none" stroke="#405338" stroke-width="3" stroke-linecap="round"/><ellipse cx="94" cy="157" rx="8" ry="4" fill="#c6b391"/><ellipse cx="165" cy="161" rx="8" ry="4" fill="#c6b391"/></g><g data-part="stars"><path d="m202 103 4-9 4 9 9 4-9 4-4 9-4-9-9-4Z" fill="#b0bb8a"/><circle cx="57" cy="88" r="4" fill="#b0bb8a"/><path d="m39 38 3-7 3 7 7 3-7 3-3 7-3-7-7-3Z" fill="#b29658"/></g></svg>
+          <img id="art" class="creature" alt="" hidden>
           <div>
-            <p class="eyebrow">YOUR DOT</p>
+            <p class="eyebrow">YOUR KAIROMONE</p>
             <h2 id="st-name">Kairomone</h2>
             <p id="st-stage" class="caption">成長段階は未確認</p>
           </div>
@@ -235,15 +242,41 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
         <p class="section">ホストの L0</p>
         <div id="st-l0" class="status-badge">未確認</div>
         <p id="st-l0-hint" class="caption" hidden>学習は止まっています。変化を受け入れるかどうかは、あなたが端末で判断します（下の「端末でだけ行うこと」）。</p>
-        <p class="section">自律学習</p>
+        <p class="section">成長の run（あなたが始めた自律学習）</p>
         <div id="st-growth" class="status-badge">未確認</div>
-        <dl class="small-facts"><div><dt>使用済み</dt><dd id="st-used">—</dd></div><div><dt>上限</dt><dd id="st-max">—</dd></div><div><dt>残り</dt><dd id="st-remaining">—</dd></div></dl>
+        <dl class="small-facts"><div><dt>この run で使った回数</dt><dd id="st-used">—</dd></div><div><dt>この run の上限</dt><dd id="st-max">—</dd></div><div><dt>残り</dt><dd id="st-remaining">—</dd></div></dl>
         <dl class="paths">
-          <dt>dot ID</dt><dd id="st-dot-id">未確認</dd>
+          <dt>識別子</dt><dd id="st-kairomone-id">未確認</dd>
           <dt>相棒の記録の場所</dt><dd id="st-root">未確認</dd>
           <dt>データの場所</dt><dd id="st-data-dir">未確認</dd>
         </dl>
         <div class="status-foot"><span id="st-at" role="status">まだ読み込んでいません</span><button type="button" id="status-refresh" disabled>更新</button></div>
+      </section>
+      <section class="card panel" aria-labelledby="wait-title">
+        <h2 id="wait-title">待っている案</h2>
+        <p class="caption">まだ効いていない絵・プロフィール・職業の案です。ボタンは、その案を見せてと頼む文を入力欄に置くだけです。案を受け入れるかどうかは、あなたが自分の言葉で打ちます。</p>
+        <ul id="wait-list" class="wait-list"><li>待っている案はありません</li></ul>
+      </section>
+      <section class="card panel" aria-labelledby="create-title">
+        <h2 id="create-title">新しい Kairomone</h2>
+        <p class="caption">選んだことを入れた依頼の文を入力欄に置きます。Claude がプロフィールと最初の職業の案を作り、あなたが見てから決めます。</p>
+        <fieldset id="create-kinds"><legend>種類</legend></fieldset>
+        <fieldset id="create-traits"><legend>性格・好きなこと</legend></fieldset>
+        <label class="wide">最初の職業の雛形<select id="create-template"><option value="">おまかせ</option></select></label>
+        <label class="wide">識別子（英小文字・数字・_ -、空なら Claude に任せる）<input type="text" id="create-id" maxlength="64" autocomplete="off"></label>
+        <label class="wide">ほかに伝えたいこと<textarea id="create-free" rows="2" maxlength="2000"></textarea></label>
+        <button type="button" id="create-place" class="panel-button" disabled>依頼の文を置く</button>
+      </section>
+      <section class="card panel" aria-labelledby="export-title">
+        <h2 id="export-title">書き出しの下見</h2>
+        <p class="caption">表示している Kairomone を書き出す前に、ファイルに入るものを全部見せてと頼む文を置きます。書き出すのは下見のあとです。</p>
+        <fieldset id="export-kinds"><legend>入れる知識の種類</legend>
+          <label><input type="checkbox" value="learned" checked>学んだもの</label>
+          <label><input type="checkbox" value="owner_written" checked>あなたが書いたもの</label>
+          <label><input type="checkbox" value="received">受け取ったもの</label>
+          <label><input type="checkbox" value="inherited">受け継いだもの</label>
+        </fieldset>
+        <button type="button" id="export-place" class="panel-button" disabled>依頼の文を置く</button>
       </section>
       <section class="card notes" aria-labelledby="notes-title">
         <h2 id="notes-title">この画面について</h2>
@@ -259,7 +292,9 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
           <li>端末のセッションでは、許可の問いに答えるのは Claude が入力できない端末です。この画面はそれより弱い仕組みです。この画面の合言葉は Claude に渡していませんが、あなたと同じ権限で動くプロセスが探せば、読める可能性はあります。</li>
         </ul>
         <h3>この画面が書かないもの</h3>
-        <p>この画面は相棒の記録を自分では書きません。書き込むのは、Claude が Kairomone の道具を使うときだけです。</p>
+        <p>この画面は相棒の記録を自分では書きません。書き込むのは、Claude が Kairomone の道具を使うときだけです。表示する Kairomone を切り替えても、変わるのはこの画面の表示と、置く文に入る識別子だけです。</p>
+        <h3>Claude が使う Kairomone の道具</h3>
+        <ul id="tool-list" class="tool-list"></ul>
       </section>
     </aside>
   </div>
@@ -304,7 +339,31 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
   var CONN = { idle: '接続していません', live: '接続中', retry: 'コンソールに再接続しています…', ended: 'コンソールは停止しました', lost: '接続は無効です' };
   var MODE_SOURCES = { echo: '切り替えへの応答', status: '状態の報告', init: '応答の開始時の報告' };
   var DECISION_SOURCES = { user_temporary: 'その 1 回だけの許可', user_reject: 'その 1 回の拒否', hook: 'コンソールのゲート', config: 'Claude Code の組み込みの決まり', user_permanent: '保存された規則' };
-  var STAGES = { seed: '種', sprout: '芽', grove: '若木', canopy: '樹冠', ancient: '古木' };
+  // The text each button places (design M2, M12). {who} names the Kairomone
+  // the page shows and its identifier; a proposal's text names its ID and
+  // hash. None carries acceptance or consent: the owner types that (Inv 10).
+  var PLACE = {
+    status: '{who}のいまの状態を教えて',
+    recent: '{who}が最近覚えたことを見せて',
+    learn: '{who}に〈話題〉について 1 回学習させて',
+    backup: '{who}のバックアップを取って、検証して',
+    proposal: '{who}の{what}の案 {proposal}（中身の sha256: {hash}）を全部見せて',
+    drawing: '{who}の絵の案 {proposal}（絵の sha256: {hash}）を見せて',
+    offer: '{who}の職業の候補（offer {offer}）の {n} 番目「{name}」で、学び方がどう変わるか教えて',
+    create: '新しい Kairomone の案を作って。種類: {kind}。性格・好きなこと: {traits}。最初の職業の雛形: {template}。識別子: {id}。ほかに: {free}。プロフィールと最初の職業の案を全部見せて',
+    exportPreview: '{who}を書き出す前の下見を見せて。入れる知識の種類: {kinds}'
+  };
+  // Every Kairomone tool (design M3), as the page names it.
+  var TOOL_LABELS = {
+    kairomone_list: '一覧', kairomone_init: '最初の 1 体を作る（短縮）', kairomone_create: '作る', kairomone_profile: 'プロフィール',
+    kairomone_art: '絵', kairomone_profession: '職業', kairomone_growth: '成長の run', kairomone_knowledge: '知識',
+    kairomone_exchange: '交換', kairomone_fusion: '合成', kairomone_backup: 'バックアップ', kairomone_observe: '観察',
+    kairomone_companion: '会話の設定と記憶', kairomone_status: '状態'
+  };
+  var KIND_WORDS = { learned: '学んだもの', owner_written: 'あなたが書いたもの', received: '受け取ったもの', inherited: '受け継いだもの' };
+  var PIECE_WORDS = { profile: 'プロフィール', profession: '職業' };
+  var DATA_SVG = /^data:image\/svg\+xml;base64,[A-Za-z0-9+\/]+={0,2}$/;
+  var ID = /^[a-z][a-z0-9_-]{0,63}$/;
   var AUTO_CONFIRM = '確認なし（auto）に切り替えますか？\n\n' +
     'auto では、道具を使ってよいかを Claude Code の分類器が決めます。この画面からあなたに問うことはありません。シェルの命令も、問われずに実行されることがあります。\n\n' +
     'コンソールが決めた道具以外は auto でも使えません。このフォルダーに保存された「禁止」の規則も効きます。\n\n' +
@@ -317,7 +376,8 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     accepting: false, acceptReason: 'connecting', childExited: false, sending: false,
     modeKnown: false, modeWord: null, modeSource: null, modeAt: null, modeRequest: null, modeBusy: false,
     sessionId: null, resumed: false, name: 'Kairomone',
-    statusTimer: null, statusBusy: false, statusAgain: false
+    statusTimer: null, statusBusy: false, statusAgain: false,
+    shown: null, listed: '', placed: '', vocab: false
   };
   var tools = new Map();
   var pending = new Map();
@@ -595,7 +655,7 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     var card = tools.get(id);
     if (card) return card;
     var li = el('li', 'tool'), head = el('div', 'tool-head');
-    card = { li: li, name: name, badge: el('span', 'badge proposed', '提案'), title: el('span', 'tool-name', name),
+    card = { li: li, name: name, badge: el('span', 'badge proposed', '提案'), title: el('span', 'tool-name', toolTitle(name)),
              note: el('p', 'tool-note'), input: el('div', 'tool-input'), result: el('div', 'tool-result'),
              resolved: false, awaiting: false, answer: '', noResult: false };
     head.appendChild(card.badge);
@@ -637,7 +697,7 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     var name = str(ev.name, '（名前なし）');
     var card = toolCard(str(ev.tool_use_id) || 'tool-use:' + ev.seq, name, ev.at);
     card.name = name;
-    card.title.textContent = name;
+    card.title.textContent = toolTitle(name);
     clear(card.input);
     card.input.appendChild(inputView(name, ev.input, false));
   }
@@ -814,6 +874,10 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     $('auto-switch').disabled = !on || state.childExited || !state.modeKnown || state.modeBusy;
     $('status-refresh').disabled = !state.session || state.lost || state.ended;
     document.querySelectorAll('button.q').forEach(function (button) { button.disabled = !open; });
+    document.querySelectorAll('button.place').forEach(function (button) { button.disabled = !open; });
+    $('create-place').disabled = !open;
+    $('export-place').disabled = !open || !state.shown;
+    $('kairomone-select').disabled = !state.session || state.lost || state.ended || $('kairomone-select').options.length < 2;
     var reason = '';
     if (state.lost) reason = REASONS.no_session;
     else if (!state.session) reason = REASONS.connecting;
@@ -915,15 +979,48 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     });
   }
 
-  function quick(value) {
+  function toolTitle(name) {
+    var m = /(?:^|__)(kairomone_[a-z_]+)$/.exec(name);
+    return m && has(TOOL_LABELS, m[1]) ? name + '（' + TOOL_LABELS[m[1]] + '）' : name;
+  }
+  function who() { return state.shown ? 'Kairomone「' + state.name + '」（識別子: ' + state.shown + '）' : 'Kairomone'; }
+  function fill(template, values) {
+    return template.replace(/\{(\w+)\}/g, function (all, key) { return has(values, key) ? String(values[key]) : all; });
+  }
+  // Puts text in the box for the owner to read, change and send. What the
+  // owner typed stays; text a button placed and the owner left is replaced.
+  function place(value) {
     var box = $('message'), current = box.value;
-    var untouched = !current.trim() || Array.prototype.some.call(document.querySelectorAll('button.q'), function (button) { return button.textContent === current; });
+    var untouched = !current.trim() || current === state.placed;
     box.value = untouched ? value : current.replace(/\s+$/, '') + '\n' + value;
+    state.placed = box.value;
     if (box.disabled) return;
     box.focus();
     var at = box.value.lastIndexOf('〈話題〉');
     if (at >= 0) box.setSelectionRange(at, at + '〈話題〉'.length);
     else box.setSelectionRange(box.value.length, box.value.length);
+  }
+  function placeKey(key, values) {
+    var all = { who: who() };
+    Object.keys(values || {}).forEach(function (k) { all[k] = values[k]; });
+    place(fill(PLACE[key], all));
+  }
+  function checked(id) {
+    return Array.prototype.filter.call($(id).querySelectorAll('input[type=checkbox]'), function (box) { return box.checked; })
+      .map(function (box) { return box.value; });
+  }
+  function placeCreate() {
+    var id = $('create-id').value.trim(), template = $('create-template');
+    var kinds = checked('create-kinds'), traits = checked('create-traits');
+    placeKey('create', {
+      kind: kinds.length ? kinds.join('、') : 'おまかせ', traits: traits.length ? traits.join('、') : 'おまかせ',
+      template: template.value ? template.options[template.selectedIndex].textContent : 'おまかせ',
+      id: ID.test(id) ? id : 'あなたが決めて', free: $('create-free').value.trim() || 'なし'
+    });
+  }
+  function placeExport() {
+    var kinds = checked('export-kinds');
+    placeKey('exportPreview', { kinds: kinds.length ? kinds.map(function (k) { return KIND_WORDS[k]; }).join('、') : 'なし（知識は入れない）' });
   }
 
   // Status follows instance.rb#status (schema version 1) and status.html's rules:
@@ -938,7 +1035,7 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     if (state.statusBusy) { state.statusAgain = true; return; }
     state.statusBusy = true;
     text('st-at', '読み込んでいます…');
-    api('GET', '/status').then(function (res) {
+    api('GET', '/status' + (state.shown ? '?kairomone=' + encodeURIComponent(state.shown) : '')).then(function (res) {
       if (res.status === 403) return;
       if (!res.ok || !res.data || typeof res.data !== 'object' || Array.isArray(res.data)) throw new Error('status ' + res.status);
       renderStatus(res.data);
@@ -955,14 +1052,117 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     clear(node);
     (items.length ? items.slice(0, 50) : [fallback]).forEach(function (value) { node.appendChild(el('li', '', value)); });
   }
+  function renderSwitcher(payload) {
+    var listed = Array.isArray(payload.kairomones) ? payload.kairomones.filter(function (k) { return k && ID.test(str(k.listing_id)); }) : [];
+    var key = listed.map(function (k) { return k.listing_id + '\u0000' + str(k.name); }).join('\u0001');
+    if (key !== state.listed) {
+      state.listed = key;
+      var select = $('kairomone-select');
+      clear(select);
+      if (!listed.length) select.appendChild(el('option', '', 'まだいません'));
+      listed.forEach(function (k) {
+        var option = el('option', '', str(k.name, k.listing_id) + '（' + k.listing_id + '）');
+        option.value = k.listing_id;
+        select.appendChild(option);
+      });
+    }
+    var shown = ID.test(str(payload.shown)) ? payload.shown : null;
+    state.shown = shown;
+    if (shown) $('kairomone-select').value = shown;
+  }
+  function renderVocab(payload) {
+    if (state.vocab || !Array.isArray(payload.kinds)) return;
+    state.vocab = true;
+    var traits = [];
+    payload.kinds.forEach(function (k) {
+      if (!k || !str(k.kind)) return;
+      var label = el('label'), box = el('input');
+      box.type = 'checkbox'; box.value = str(k.label, k.kind);
+      label.appendChild(box); label.appendChild(document.createTextNode(str(k.label, k.kind)));
+      $('create-kinds').appendChild(label);
+      (Array.isArray(k.traits) ? k.traits : []).forEach(function (t) { if (typeof t === 'string' && t && traits.indexOf(t) < 0) traits.push(t); });
+    });
+    traits.slice(0, 40).forEach(function (t) {
+      var label = el('label'), box = el('input');
+      box.type = 'checkbox'; box.value = t;
+      label.appendChild(box); label.appendChild(document.createTextNode(t));
+      $('create-traits').appendChild(label);
+    });
+    (Array.isArray(payload.templates) ? payload.templates : []).forEach(function (t) {
+      if (!t || !str(t.id)) return;
+      var option = el('option', '', str(t.name, t.id));
+      option.value = t.id;
+      $('create-template').appendChild(option);
+    });
+  }
+  function short(hash) { return typeof hash === 'string' && /^[0-9a-f]{64}$/.test(hash) ? hash : '（不明）'; }
+  function waitButton(label, onClick) {
+    var button = el('button', 'place', label);
+    button.type = 'button';
+    button.addEventListener('click', onClick);
+    return button;
+  }
+  // What waits for the owner: drawings as images, profiles and professions,
+  // and the open branch offer. Each button places text naming the ID and hash.
+  function renderWaiting(waiting) {
+    var w = obj(waiting), art = obj(w.art), list = $('wait-list'), items = 0;
+    var img = $('art');
+    if (typeof art.data_uri === 'string' && DATA_SVG.test(art.data_uri)) {
+      img.src = art.data_uri;
+      img.alt = state.name + 'の絵' + (art.shown === 'egg' ? '（卵）' : '');
+      img.hidden = false;
+    } else {
+      img.hidden = true;
+    }
+    clear(list);
+    (Array.isArray(art.waiting) ? art.waiting : []).forEach(function (d) {
+      if (!d) return;
+      var li = el('li');
+      if (typeof d.data_uri === 'string' && DATA_SVG.test(d.data_uri)) {
+        var image = el('img');
+        image.src = d.data_uri;
+        image.alt = '絵の案';
+        li.appendChild(image);
+      }
+      li.appendChild(el('span', '', '絵の案（段階: ' + str(d.stage, '不明') + '）'));
+      li.appendChild(el('span', 'hash', '案 ' + short(d.proposal) + ' · 絵 ' + short(d.sha256)));
+      li.appendChild(waitButton('見せてと頼む文を置く', function () { placeKey('drawing', { proposal: short(d.proposal), hash: short(d.sha256) }); }));
+      list.appendChild(li);
+      items += 1;
+    });
+    (Array.isArray(w.proposals) ? w.proposals : []).forEach(function (p) {
+      if (!p || !has(PIECE_WORDS, p.kind)) return;
+      var li = el('li');
+      li.appendChild(el('span', '', PIECE_WORDS[p.kind] + 'の案「' + str(p.name, '名前なし') + '」' + (p.received === true ? '（受け取ったもの）' : '')));
+      li.appendChild(el('span', 'hash', '案 ' + short(p.proposal) + ' · 中身 ' + short(p.sha256)));
+      li.appendChild(waitButton('見せてと頼む文を置く', function () {
+        placeKey('proposal', { what: PIECE_WORDS[p.kind], proposal: short(p.proposal), hash: short(p.sha256) });
+      }));
+      list.appendChild(li);
+      items += 1;
+    });
+    var offer = obj(w.offer);
+    (Array.isArray(offer.candidates) ? offer.candidates : []).slice(0, 3).forEach(function (c, i) {
+      var li = el('li');
+      li.appendChild(el('span', '', '職業の候補 ' + (i + 1) + '「' + str(obj(c).name, '名前なし') + '」 ' + str(obj(c).description)));
+      li.appendChild(el('span', 'hash', 'offer ' + short(offer.offer)));
+      li.appendChild(waitButton('尋ねる文を置く', function () { placeKey('offer', { offer: short(offer.offer), n: i + 1, name: str(obj(c).name) }); }));
+      list.appendChild(li);
+      items += 1;
+    });
+    if (!items) list.appendChild(el('li', '', '待っている案はありません'));
+  }
   function renderStatus(payload) {
     var data = payload.status, dir = str(payload.data_dir, '未確認');
     var valid = !!data && typeof data === 'object' && !Array.isArray(data) && data.schema_version === 1;
-    var s = valid ? data : {}, profile = obj(s.profile), companion = obj(s.companion);
-    var name = str(companion.display_name, str(profile.display_name, 'Kairomone')), dotId = str(profile.dot_id, '未確認');
+    var s = valid ? data : {}, profile = obj(s.profile), companion = obj(s.companion), kairomone = obj(s.kairomone);
+    renderSwitcher(payload);
+    renderVocab(payload);
+    var name = str(companion.display_name, str(profile.display_name, str(state.shown, 'Kairomone')));
+    var identity = str(kairomone.identity, '未確認');
     state.name = name;
-    text('dot-name', name); text('st-name', name);
-    text('dot-id', dotId); text('st-dot-id', dotId);
+    text('kairomone-name', name); text('st-name', name);
+    text('kairomone-id', identity); text('st-kairomone-id', identity);
     text('data-dir', dir); text('st-data-dir', dir);
     text('st-root', str(obj(s.storage).data_root, '未確認'));
     var problems = [];
@@ -977,10 +1177,9 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
 
     var p = obj(s.progression);
     var validLevel = Number.isSafeInteger(p.level) && p.level >= 1 && p.level <= 999 && p.level_cap === 999;
-    var stage = validLevel ? (p.level >= 500 ? 'ancient' : p.level >= 100 ? 'canopy' : p.level >= 20 ? 'grove' : p.level >= 5 ? 'sprout' : 'seed') : 'unknown';
-    $('creature').setAttribute('data-stage', stage);
-    text('st-stage', stage === 'unknown' ? '成長段階は未確認' : '姿: ' + STAGES[stage]);
-    text('creature-title', '小さな、オリジナルの苔の生きもの · ' + (stage === 'unknown' ? '成長段階は未確認' : STAGES[stage]));
+    var stage = validLevel ? str(obj(p.stage).ja) : '';
+    text('st-stage', stage ? '成長段階: ' + stage : '成長段階は未確認');
+    renderWaiting(payload.waiting);
     text('st-level', validLevel ? String(p.level) : '—');
     text('st-xp', count(p.total_xp));
     var knowledge = obj(s.knowledge), observations = obj(s.observations);
@@ -1009,12 +1208,12 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     else badge('st-l0', '未確認', '');
     $('st-l0-hint').hidden = l0 !== 'changed';
 
-    var g = obj(s.autonomy), configured = g.configured === true;
-    badge('st-growth', g.configured === false ? '未設定' : !configured ? '未確認' : g.stopped === true ? '停止中' :
-      g.active_claim && typeof g.active_claim === 'object' ? 'リースあり（学習中）' : g.queue && typeof g.queue === 'object' ? '待機中の依頼あり' : '待機中の依頼なし', '');
-    text('st-used', configured ? count(g.used_cycles) : '—');
-    text('st-max', configured ? count(g.max_cycles) : '—');
-    text('st-remaining', configured ? count(g.remaining_cycles) : '—');
+    var g = obj(s.autonomy), live = g.live === true;
+    badge('st-growth', g.live === false ? '動いている run はありません' : !live ? '未確認' :
+      g.active_claim && typeof g.active_claim === 'object' ? 'run 実行中（学習中）' : g.queue && typeof g.queue === 'object' ? 'run 実行中（依頼が待機中）' : 'run 実行中', '');
+    text('st-used', live ? count(g.used_cycles) : '—');
+    text('st-max', live ? (g.max_cycles === null ? '決めていない' : count(g.max_cycles)) : '—');
+    text('st-remaining', live ? (g.remaining_cycles === null ? '—' : count(g.remaining_cycles)) : '—');
     text('st-at', '取得: ' + (typeof s.generated_at === 'string' ? clock(s.generated_at) : '不明'));
     refreshControls();
   }
@@ -1029,7 +1228,23 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     $('auto-switch').addEventListener('change', toggleMode);
     $('status-refresh').addEventListener('click', function () { scheduleStatus(0); });
     document.querySelectorAll('button.q').forEach(function (button) {
-      button.addEventListener('click', function () { quick(button.textContent); });
+      button.addEventListener('click', function () { if (has(PLACE, button.getAttribute('data-place'))) placeKey(button.getAttribute('data-place')); });
+    });
+    // Switching is the page's own: it changes what is shown and the ID the
+    // placed text names, and nothing else (Inv 10).
+    $('kairomone-select').addEventListener('change', function () {
+      var id = $('kairomone-select').value;
+      if (!ID.test(id)) return;
+      state.shown = id;
+      scheduleStatus(0);
+    });
+    $('create-place').addEventListener('click', placeCreate);
+    $('export-place').addEventListener('click', placeExport);
+    Object.keys(TOOL_LABELS).forEach(function (name) {
+      var li = el('li');
+      li.appendChild(el('code', '', name));
+      li.appendChild(document.createTextNode(' ' + TOOL_LABELS[name]));
+      $('tool-list').appendChild(li);
     });
     // Opening a fresh URL in a tab that already shows the console changes
     // only the fragment, which loads nothing: load the page again, so the

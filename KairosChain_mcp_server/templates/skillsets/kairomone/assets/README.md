@@ -101,7 +101,7 @@ any decoding: `<request_id>` below is one path segment, written as
 | `GET /` | — | 200, the page |
 | `POST /session` | header `X-Kairomone-Bootstrap` | 200 `{"session"}`, or 403 (wrong, spent, or older than 10 minutes) |
 | `GET /events?after=<n>` | — | waits up to 25 s; 200 `{"events":[…],"last":<seq>}`, or 403 if the session was revoked while it waited |
-| `GET /status` | — | 200 `{"data_dir","status"}`; `status` is the schema-version-1 object |
+| `GET /status?kairomone=<listing ID>` | — | 200 `{"data_dir","kairomones","shown","kinds","templates","status","waiting"}`: every individual the host lists, the one shown (the one named, else the first), its schema-version-1 `status`, and `waiting` — its drawing as a `data:` image, the drawings, profiles and professions waiting for the owner with their proposal IDs and hashes, and the open branch offer; 400 for a malformed ID. Without a listed individual, `shown` is null and `status` says not initialized |
 | `POST /message` | `{"text"}` | 202 `{"accepted":true}`, or 409 `{"error":"not_accepting","reason"}` |
 | `POST /permission/<request_id>` | `{"decision":"allow"\|"deny"}` | 200, 404 (not pending), 409 `answered` (already answered) or `not_allowable` (an allow for a request with `exact: false`) |
 | `POST /mode` | `{"mode":"auto"\|"ask"}` | 202, or 409 `{"error":"refused","reason"}` |

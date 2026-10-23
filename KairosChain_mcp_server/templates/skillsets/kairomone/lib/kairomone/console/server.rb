@@ -188,7 +188,7 @@ module Kairomone
         return permission(path.delete_prefix(PERMISSION_PREFIX), req, res) if answer
         case path
         when '/events' then events(req, res)
-        when '/status' then status(res)
+        when '/status' then status(req, res)
         when '/message' then message(json_body(req), res)
         when '/mode' then mode(json_body(req), res)
         when '/interrupt' then read_body(req) && interrupt(res)
@@ -244,9 +244,13 @@ module Kairomone
         res.body = "{\"events\":[#{parts.join(',')}],\"last\":#{Integer(last)}}"
       end
 
-      def status(res)
+      # ?kairomone=<listing ID> names the individual the page shows; switching
+      # is the page's own state, so the console holds none (M12).
+      def status(req, res)
+        shown = req.query['kairomone']&.to_s
+        raise BadRequest if shown && !Kairomone::Paths::ID.match?(shown)
         body = begin
-          @status_reader.call
+          @status_reader.arity.zero? ? @status_reader.call : @status_reader.call(shown)
         rescue StandardError
           return reply(res, 500, 'error' => 'status_unavailable')
         end

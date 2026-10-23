@@ -17,7 +17,7 @@ require 'kairos_mcp/kairos_chain/chain'
 module Kairomone
   # The owner's console: a loopback page that relays one supervised Claude
   # Code child. Loaded only by scripts/kairomone_console.rb and its tests; the
-  # MCP tools never load it, so nothing here runs inside the dot's server.
+  # MCP tools never load it, so nothing here runs inside the Kairomone's server.
   module Console
     # Every refusal to start. The message is one line for the owner.
     class Refusal < Kairomone::Error; end
@@ -29,3 +29,4 @@ require_relative 'console/gate'
 require_relative 'console/child'
 require_relative 'console/session'
 require_relative 'console/server'
+require_relative 'console/view'

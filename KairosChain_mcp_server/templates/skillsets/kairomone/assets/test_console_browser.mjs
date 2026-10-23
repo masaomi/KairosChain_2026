@@ -49,6 +49,9 @@ const URL_RE = /http:\/\/127\.0\.0\.1:(\d+)\/#([0-9a-f]{64})/g;
 const ASKING = '確認あり（default）';
 const UNKNOWN = 'モード: 不明';
 const QUICK = ['いまの状態を教えて', '最近覚えたことを見せて', '〈話題〉について 1 回学習して', 'バックアップを取って、検証して'];
+// What each quick request places: the text names the Kairomone the page shows.
+const WHO = 'Kairomone「Console fixture」（識別子: console_dot）';
+const PLACED = [`${WHO}のいまの状態を教えて`, `${WHO}が最近覚えたことを見せて`, `${WHO}に〈話題〉について 1 回学習させて`, `${WHO}のバックアップを取って、検証して`];
 // Markup, entities and bidirectional controls the stream may carry.
 const PAYLOAD = [
   '<script>window.__KX__="script"</script>',
@@ -70,7 +73,7 @@ require 'kairos_mcp/skillset_manager'
 KairosMcp.data_dir = data
 result = KairosMcp::SkillSetManager.new(skillsets_dir: File.join(data, 'skillsets')).install(pkg)
 abort("install failed: #{result.inspect}") unless result[:success]
-Kairomone::Instance.new(host_root: data).init(dot_id: 'console_dot', display_name: 'Console fixture') if init == 'init'
+Kairomone::Instance.new(host_root: data, bind: false).init(kairomone_id: 'console_dot', display_name: 'Console fixture') if init == 'init'
 `;
 
 // Speaks the stream-json measured on 2026-10-21 (log/kairomone_console_probes_20261021/).
@@ -788,9 +791,10 @@ test('quick requests only fill the editable box and never send', { timeout: 1200
     for (const text of await page.locator('button.q').allTextContents()) {
       assert.doesNotMatch(text, /許可|承認|同意|保存|復元|restore|approve|consent/i, 'no consent, approval, save or restore wording');
     }
-    for (const [index, text] of QUICK.entries()) {
+    await waitFor('the status', async () => (await page.locator('#kairomone-id').textContent()) === 'console_dot');
+    for (const [index, text] of PLACED.entries()) {
       await page.locator('button.q').nth(index).click();
-      assert.equal(await page.inputValue('#message'), text, 'the box holds the fixed text');
+      assert.equal(await page.inputValue('#message'), text, 'the box holds the fixed text naming the Kairomone');
       assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), 'message', 'the box is focused for editing');
     }
     assert.equal(await page.evaluate(() => {
@@ -803,7 +807,7 @@ test('quick requests only fill the editable box and never send', { timeout: 1200
       return box.value.slice(box.selectionStart, box.selectionEnd);
     }), '〈話題〉', 'the topic placeholder is selected for typing over');
     await page.keyboard.type('苔');
-    assert.equal(await page.inputValue('#message'), '苔について 1 回学習して', 'the text is editable');
+    assert.equal(await page.inputValue('#message'), `${WHO}に苔について 1 回学習させて`, 'the text is editable');
     await sleep(800);
     assert.equal(rec.requests.filter((r) => r.url.endsWith('/message')).length, 0, 'no quick request is sent');
     assert.deepEqual(await userLines(host), [], 'the child received no message');
@@ -915,29 +919,28 @@ test('a growth claim without lease_seconds names the lease the tool will actuall
   });
 });
 
-test('the status panel names the dot ID and data directory and shows unknown counts as unknown', { timeout: 120000 }, async () => {
+test('the status panel names the Kairomone ID and data directory and shows unknown counts as unknown', { timeout: 120000 }, async () => {
   const facts = (page) => page.evaluate(() => Object.fromEntries(Array.from(document.querySelectorAll('.facts dd, .small-facts dd, .paths dd'))
     .map((dd) => [dd.id, dd.textContent])));
   await withConsole({}, async ({ host, con, context }) => {
     const { page, rec } = await openPage(context, con.url);
-    await waitFor('the status', async () => (await page.locator('#dot-id').textContent()) === 'console_dot');
+    await waitFor('the status', async () => (await page.locator('#kairomone-id').textContent()) === 'console_dot');
     assert.equal(await page.locator('#data-dir').textContent(), host.data);
     const shown = await facts(page);
-    assert.equal(shown['st-dot-id'], 'console_dot');
+    assert.equal(shown['st-kairomone-id'], 'console_dot');
     assert.equal(shown['st-data-dir'], host.data);
-    assert.equal(shown['st-root'], path.join(host.data, 'kairomone'), 'the instance root');
-    assert.equal(await page.locator('#st-integrity').textContent(), 'チェーンが見つかりません');
-    assert.equal(shown['st-blocks'], '—', 'a chain that was not read has no block count');
-    assert.equal(shown['st-pending'], '—', 'a chain that was not read has no pending count');
+    assert.equal(shown['st-root'], path.join(host.data, 'kairomones', 'console_dot'), 'the instance root');
+    assert.equal(await page.locator('#st-integrity').textContent(), 'ローカルチェーンの検証に合格');
     assert.equal(shown['st-l1'], '0', 'a readable empty store is a known zero');
-    assert.equal(shown['st-used'], '—', 'growth that is not configured has no counts');
+    assert.equal(shown['st-used'], '—', 'without a live run there are no run counts');
+    assert.equal(await page.locator('#art').getAttribute('hidden'), null, 'the drawing (the egg) is shown as an image');
     await assertCleanPage(page, rec, con.origin);
   });
   await withConsole({ init: false }, async ({ host, con, context }) => {
     const { page, rec } = await openPage(context, con.url);
     await waitFor('the status', async () => (await page.locator('#st-at').textContent()).startsWith('取得'));
     const shown = await facts(page);
-    assert.equal(await page.locator('#dot-id').textContent(), '未確認', 'no dot ID before the dot exists');
+    assert.equal(await page.locator('#kairomone-id').textContent(), '未確認', 'no ID before a Kairomone exists');
     assert.equal(shown['st-data-dir'], host.data);
     for (const id of ['st-level', 'st-xp', 'st-l1', 'st-l2', 'st-blocks', 'st-pending', 'st-used', 'st-max', 'st-remaining']) {
       assert.equal(shown[id], '—', `${id} is unknown, not zero`);
