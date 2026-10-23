@@ -112,6 +112,8 @@ class Kairomone08ProfileTest < Minitest::Test
     grow_to(store, 10)
     assert store.profession_status[:branch][:due]
     assert_raises(Kairomone::Error) { store.offer_professions(candidates: candidates('Two').first(2)) }
+    assert_raises(Kairomone::Error) { store.offer_professions(candidates: candidates('Four') + [CRAFT.merge('name' => 'Four 3')]) }
+    assert_raises(Kairomone::Error) { store.offer_professions(candidates: [CRAFT, CRAFT, CRAFT.merge('name' => 'Other')]) }
     first = store.offer_professions(candidates: candidates('First'))
     refute store.profession_status[:branch][:due], 'an open offer waits'
     second = store.offer_professions(candidates: candidates('Second')) # the owner asked for three new ones

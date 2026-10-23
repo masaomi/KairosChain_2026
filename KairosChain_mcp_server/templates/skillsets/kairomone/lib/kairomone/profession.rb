@@ -123,7 +123,7 @@ module Kairomone
         raise Error, 'An offer holds exactly three professions' unless candidates.is_a?(Array) && candidates.length == 3
 
         pieces = candidates.map { |c| Profession.build(c, parents: [current[:id]], tier: tier + 1, origin: 'branch') }
-        raise Error, 'The three professions need three different names' unless pieces.map { |p| p['name'] }.uniq.length == 3
+        raise Error, 'The three professions need three different names' unless pieces.map { |p| p['name'] }.uniq.length == pieces.length
 
         doc = { 'kind' => 'profession_offer', 'from' => current[:id], 'tier' => tier + 1, 'level' => level,
                 'candidates' => pieces, 'offered_at' => Time.now.utc.iso8601 }
