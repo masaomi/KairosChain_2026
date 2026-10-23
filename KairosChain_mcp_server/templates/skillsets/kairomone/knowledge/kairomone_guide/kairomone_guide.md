@@ -1,7 +1,7 @@
 ---
 name: kairomone_guide
 description: Operate Kairomone FreeTier basic safely through its dedicated canonical providers and explicit tools.
-version: '0.5.0'
+version: '0.6.0'
 layer: L1
 tags: [kairomone, basic, local]
 ---
@@ -102,13 +102,48 @@ drawing inert, not well drawn.
 the host's own L1, only when the owner asks for that entry. It goes through the
 host's canonical knowledge path, under host governance, as a new host entry
 named `kairomone_<16 hex>` with a generated description and the tag
-`kairomone_transplant`; the entry's ID, title and origin (learned or
-owner-written, and the archive it was restored from) go into the body, under a
-notice when it holds outside content. It is done only when the host chain shows
+`kairomone_transplant`; the entry's ID, origin (learned, owner-written,
+received by exchange or inherited by fusion, and the archive it was restored
+from) and title go into the body, under a notice when it holds outside content
+(learned, received or inherited from outside content). It is done only when the host chain shows
 its record; until then it is pending, the Kairomone's ledger records nothing,
 and the same transplant asked again completes it (`pending_transplants` lists
 the open ones). The Kairomone keeps its entry, and its ledger records the
 transplant.
+
+## Exchange and fusion
+
+`kairomone_exchange` hands someone a labelled copy. The owner chooses what goes
+in — learned, owner-written and inherited knowledge, by title — and `preview`
+shows every piece the file will carry in full, paged under one file sha256: the
+current profile, the professions, the drawings that pass the art check, the
+chosen entries, a learned entry's evidence (without its request, so no topic or
+direction) and the lineage. `export` writes exactly that file to
+`kairomone-outbox/`, and is refused if anything on the Kairomone changed since
+the preview; the Kairomone itself does not change. Chat memories, growth state,
+backups, the ledger, the direction and personality, composition material and
+host references never go in. The file is unencrypted. `import` takes a file the
+owner placed in `kairomone-inbox/` and makes a new Kairomone under a listing ID
+the owner names, which is also its new identity. Its knowledge is outside
+content and keeps the XP basis it carried, so a copy has exactly the level its
+content gives; an identity that does not match its content refuses the file.
+The received profile, professions and drawings wait as proposals (a received
+profession is accepted with `kairomone_profession accept`), and the ledger
+records every piece received and the file's manifest.
+
+`kairomone_fusion` makes a new Kairomone from two and changes neither.
+`material` pages both parents' knowledge with each entry's hash and whether it
+is outside content; `propose` stores the assistant's plan (the child's listing
+ID, a draft profile, three profession candidates, and the child's entries, each
+kept from one parent entry or merged from several); `summary` shows what is
+kept, merged and dropped, the titles that remain, the profile and the
+candidates; `accept` with one candidate makes the child, refused when a parent
+changed since the plan or a cited entry no longer holds the cited content. The
+child starts at level 1 as an egg with no L2; its inherited knowledge is held
+and never counts, nor does the same content learned again; a merged entry is
+outside content when any of its sources is; its lineage and first profession
+name both parents. Whether a merged text is faithful to its sources is the
+assistant's judgment, shown to the owner in the summary.
 
 Text content is limited to 16 KiB per write; titles to 512 bytes. This release
 allows 1,000 L1 entries and 1,000 L2 observations and provides no automatic pruning

@@ -24,7 +24,9 @@
     "growth_runs",
     "signed_backups",
     "inert_art",
-    "knowledge_transplant"
+    "knowledge_transplant",
+    "labelled_exchange",
+    "fusion"
   ],
   "tool_classes": [
     "KairosMcp::SkillSets::KairomoneSkillSet::Tools::List",
@@ -36,6 +38,8 @@
     "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Observe",
     "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Knowledge",
     "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Backup",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Exchange",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Fusion",
     "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Profession",
     "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Growth",
     "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Companion"

@@ -121,12 +121,23 @@ module Kairomone
       )
     end
 
-    # How the entry came to this individual: learned in a growth cycle (outside
-    # content) or written by the owner; and, when a restore came after its
-    # record, the archive it was restored from.
+    # How the entry came to this individual: learned in a growth cycle,
+    # received by exchange or inherited by fusion (all outside content, as
+    # its identity record says for the last two), or written by the owner;
+    # and, when a restore came after its record, the archive it was restored
+    # from.
     def transplant_origin(id, entry_sha, ledger)
       learned = id.start_with?('growth_') || Records.of_type(ledger, 'kairomone_growth_completed').any? { |r| r['l1_id'] == id }
-      text = learned ? 'learned' : 'owner-written'
+      record = identity_records(ledger)[['L1', id]].reverse.find { |r| r['content_sha256'] == entry_sha }
+      sources = ->(kind) { Records.of_type(ledger, 'kairomone_lineage').select { |r| r['kind'] == kind }.flat_map { |r| Array(r['sources']).map { |s| s['identity'] } } }
+      text = if Records.of_type(ledger, 'kairomone_received').any? { |r| Array(r['entries']).include?(id) }
+               "received by exchange from Kairomone #{sources.call('exchange').join(', ')}"
+             elsif record && record['counted'] == false && !sources.call('fusion').empty?
+               "inherited by fusion from Kairomone #{sources.call('fusion').join(' + ')}"
+             elsif learned then 'learned'
+             else 'owner-written'
+             end
+      outside = learned || record&.dig('outside') == true
       written = nil
       restored = nil
       Records.each(ledger) do |record, index|
@@ -137,7 +148,7 @@ module Kairomone
         restored = record['manifest_sha256'] if record['type'] == 'kairomone_restored' && written
       end
       text += ", restored from archive #{restored}" if restored
-      { text: text, outside: learned }
+      { text: text, outside: outside }
     end
 
     def host_chain = KairosMcp::KairosChain::Chain.new(storage_backend: KairosMcp::Storage::Backend.default)

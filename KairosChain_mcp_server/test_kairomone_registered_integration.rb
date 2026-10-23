@@ -17,6 +17,10 @@
 # Changed in run C (run_20261023_100956_bec01a): kairomone_art joins the tools
 # (design M3, phase 5), so the registered list names twelve. No other check
 # in this file changed.
+#
+# Changed in run D (run_20261023_130838_773740): kairomone_exchange and
+# kairomone_fusion join the tools (design M3, phases 8 and 9), so the
+# registered list names fourteen. No other check in this file changed.
 
 require 'json'
 require 'tmpdir'
@@ -91,7 +95,7 @@ Dir.mktmpdir('kairomone-independent-') do |tmp|
   check('real Skillset loads installed package') { ss.valid? && ss.load! && ss.loaded? }
   reg=KairosMcp::ToolRegistry.new
   names=reg.list_tools.map{|t|t[:name]}.grep(/^kairomone_/).sort
-  check('all twelve tools registered by real ToolRegistry') { names==%w[kairomone_art kairomone_backup kairomone_companion kairomone_create kairomone_growth kairomone_init kairomone_knowledge kairomone_list kairomone_observe kairomone_profession kairomone_profile kairomone_status] }
+  check('all fourteen tools registered by real ToolRegistry') { names==%w[kairomone_art kairomone_backup kairomone_companion kairomone_create kairomone_exchange kairomone_fusion kairomone_growth kairomone_init kairomone_knowledge kairomone_list kairomone_observe kairomone_profession kairomone_profile kairomone_status] }
   outside=%w[kairomone kairomones kairomone-restored kairomone-keys]
   base=tree(host,exclude:outside)
   own=File.join(host,'kairomones','review_dot')

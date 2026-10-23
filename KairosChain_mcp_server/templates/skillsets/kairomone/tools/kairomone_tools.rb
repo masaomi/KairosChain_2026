@@ -188,13 +188,69 @@ module KairosMcp
           end
         end
 
+        class Exchange < Base
+          def name; 'kairomone_exchange'; end
+          def description; 'Hand a labelled copy of a Kairomone to someone else, or bring one in. preview: the owner chooses what goes in (include: learned, owner_written, inherited; optionally entry_ids) and is shown every piece the file will carry, in full and paged, under one file_sha256; show every page. export (file_sha256) writes exactly that file to kairomone-outbox/ and changes nothing on the Kairomone; it is refused if anything changed since the preview. Chat memories, growth state, backups, the ledger, the direction, personality, material and host references never go in. import (file in kairomone-inbox/, kairomone: the new listing ID, which is also its identity) makes a new Kairomone whose knowledge is outside content and whose received profile, professions and drawings wait as proposals. Only on the owner\'s request.'; end
+          def input_schema
+            { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: %w[preview export import] },
+              include: { type: 'array', items: { type: 'string', enum: %w[learned owner_written inherited] } },
+              entry_ids: { type: 'array', items: { type: 'string' } }, page: { type: 'integer', minimum: 1 },
+              file_sha256: { type: 'string' }, file: { type: 'string', description: 'import: a basename in kairomone-inbox/' } },
+              required: ['command'], additionalProperties: false }
+          end
+          def call(args)
+            output do
+              case args['command']
+              when 'preview' then instance(args).exchange_preview(include: args['include'], entry_ids: args['entry_ids'], page: args.fetch('page', 1))
+              when 'export' then instance(args).exchange_export(file_sha256: args['file_sha256'])
+              when 'import'
+                single_owner!
+                raise ::Kairomone::Error, 'Name the new Kairomone with kairomone (its listing ID and identity)' unless args['kairomone']
+
+                ::Kairomone::Host.new.import_exchange(file: args['file'], listing_id: args['kairomone'])
+              else raise ::Kairomone::Error, 'Expected preview, export or import'
+              end
+            end
+          end
+        end
+
+        class Fusion < Base
+          def name; 'kairomone_fusion'; end
+          def description; 'Make a new Kairomone from two, changing neither, only on the owner\'s request. material (parents: two listing IDs) pages both parents\' L1 with each entry\'s sha256, identity and outside flag, and their ledger heads. propose stores your plan: kairomone (the child\'s listing ID and identity), profile (a draft, an anthropomorphised cute character), candidates (exactly three professions, focus from the subject vocabulary), entries ({id, title, content, mode: keep|merge, sources: [{parent, entry_id, sha256}]}) and heads (as material showed them); nothing takes effect. summary (plan) shows what is kept, merged and dropped, the titles that remain, the profile and the candidates; show it to the owner. accept (plan, candidate: 0-2) makes the child when the owner accepted the plan: level 1, an egg, no L2, its inherited knowledge held and never counted.'; end
+          def input_schema
+            { type: 'object', properties: { command: { type: 'string', enum: %w[material propose summary accept] },
+              parents: { type: 'array', items: { type: 'string' } }, page: { type: 'integer', minimum: 1 },
+              kairomone: { type: 'string', description: 'propose: the child\'s listing ID and identity' },
+              profile: { type: 'object' }, candidates: { type: 'array', items: { type: 'object' } },
+              entries: { type: 'array', items: { type: 'object' } }, heads: { type: 'object' },
+              plan: { type: 'string' }, candidate: { type: 'integer', minimum: 0, maximum: 2 } },
+              required: ['command'], additionalProperties: false }
+          end
+          def call(args)
+            output do
+              single_owner!
+              host = ::Kairomone::Host.new
+              case args['command']
+              when 'material' then host.fusion_material(parents: args['parents'], page: args.fetch('page', 1))
+              when 'propose'
+                host.fusion_propose(parents: args['parents'], child: args['kairomone'], profile: args['profile'], candidates: args['candidates'],
+                                    entries: args['entries'], heads: args['heads'])
+              when 'summary' then host.fusion_summary(plan: args['plan'])
+              when 'accept' then host.fusion_accept(plan: args['plan'], candidate: args['candidate'])
+              else raise ::Kairomone::Error, 'Expected material, propose, summary or accept'
+              end
+            end
+          end
+        end
+
         class Profession < Base
           def name; 'kairomone_profession'; end
-          def description; 'A Kairomone\'s profession: what and how it learns, never what it may do. status shows the profession in force, its lineage and whether a branch is due (levels 10, 30, 100, 300, 600); offer stores exactly three professions derived from the current one, which change nothing; choose puts one in force only when the owner chose it in the conversation (or offer again for three new ones); templates and subjects list the shipped vocabularies; list and select keep the 0.6 template selection.'; end
+          def description; 'A Kairomone\'s profession: what and how it learns, never what it may do. status shows the profession in force, its lineage and whether a branch is due (levels 10, 30, 100, 300, 600); offer stores exactly three professions derived from the current one, which change nothing; choose puts one in force only when the owner chose it in the conversation (or offer again for three new ones); accept puts a profession received by exchange in force when the owner accepted it; templates and subjects list the shipped vocabularies; list and select keep the 0.6 template selection.'; end
           def input_schema
-            { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: %w[status offer choose templates subjects list select] },
+            { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: %w[status offer choose accept templates subjects list select] },
               candidates: { type: 'array', items: { type: 'object' }, description: 'offer: three {name, description, focus[], habits{sources, depth, reflection, stance}}' },
               offer: { type: 'string', description: 'choose: the offer sha256' }, index: { type: 'integer', minimum: 0, maximum: 2 },
+              proposal: { type: 'string', description: 'accept: a received profession proposal sha256' },
               id: { type: 'string', description: 'select: a template ID' } }, required: ['command'], additionalProperties: false }
           end
           def call(args)
@@ -205,10 +261,11 @@ module KairosMcp
                 { success: true, profession: store.profession_status, kairomone: store.address }
               when 'offer' then instance(args).offer_professions(candidates: args['candidates'])
               when 'choose' then instance(args).choose_profession(offer: args['offer'], index: args['index'])
+              when 'accept' then instance(args).accept_profession(proposal: args['proposal'])
               when 'select' then instance(args).select_profession(id: args['id'])
               when 'templates' then { success: true, templates: ::Kairomone::Vocabulary.templates, habits: ::Kairomone::Vocabulary::HABITS }
               when 'subjects' then { success: true, subjects: ::Kairomone::Vocabulary.subjects, habits: ::Kairomone::Vocabulary::HABITS, kinds: ::Kairomone::Vocabulary.characters }
-              else raise ::Kairomone::Error, 'Expected status, offer, choose, templates, subjects, list or select'
+              else raise ::Kairomone::Error, 'Expected status, offer, choose, accept, templates, subjects, list or select'
               end
             end
           end

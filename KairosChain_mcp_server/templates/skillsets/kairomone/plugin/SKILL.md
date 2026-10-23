@@ -11,7 +11,7 @@ description: >
 
 # Kairomone
 
-Twelve MCP tools, all prefixed `kairomone_`, operate the Kairomones this host holds: one made before 0.8
+Fourteen MCP tools, all prefixed `kairomone_`, operate the Kairomones this host holds: one made before 0.8
 in `.kairos/kairomone/`, and any number under `.kairos/kairomones/<listing_id>/`. Each has its own L1, L2
 and ledger; the host's `knowledge_get` does not see them. This session is the only worker: there is no
 built-in LLM, scheduler or background process.
@@ -190,6 +190,14 @@ when declared, limits claims for the whole host. The full procedure is
   text outside title and desc, or reference outside the drawing), then `propose`. The owner sees a waiting
   drawing as an image on the status page (`kairomone_status(render_html: true)`); `accept` only after they
   accept it in the conversation. A drawing that fails the check is shown as the egg.
+- Exchange, only when the owner asks: `kairomone_exchange preview` with what the owner chose to include, show
+  every page in full, then `export` with its `file_sha256`. For `import`, the owner places the file in
+  `kairomone-inbox/` and names the new Kairomone's listing ID. Received pieces wait as proposals; show them
+  before `accept` (a received profession: `kairomone_profession accept`).
+- Fusion, only when the owner asks: read both parents with `kairomone_fusion material`, `propose` a plan (a
+  draft profile — an anthropomorphised cute character — three profession candidates and the child's entries,
+  each `keep` of one parent entry or `merge` of several, citing parent, entry_id and sha256), show the owner
+  its `summary`, and `accept` with the candidate they chose.
 - `kairomone_knowledge transplant` copies one entry into the host's own L1, only when the owner names that
   entry and asks for it. The host entry's name, description and tags are generated; never edit them. A
   `pending` result means the host chain does not show the record yet: ask the same transplant again later

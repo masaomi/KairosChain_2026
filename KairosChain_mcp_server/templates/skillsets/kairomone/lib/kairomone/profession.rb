@@ -167,6 +167,31 @@ module Kairomone
       end
     end
 
+    # The owner accepts a profession received by exchange (it waits as a
+    # proposal, Inv 8). Accepting the same proposal again changes nothing.
+    def accept_profession(proposal:)
+      raise Error, 'proposal must be a proposal sha256' unless Progression::SHA.match?(proposal.to_s)
+
+      with_lock do
+        ensure_writable!('L2')
+        ledger = chain
+        if (prior = Records.of_type(ledger, 'kairomone_profession').find { |r| r['proposal_sha256'] == proposal })
+          next { success: true, accepted: true, preserved: true, sha256: prior['sha256'], profession: profession_status, kairomone: address }
+        end
+        doc = read_proposal(proposal) or raise Error, 'No such proposal'
+        raise Error, 'This proposal is not a received profession (branch offers are answered with choose)' unless doc['kind'] == 'profession'
+
+        piece = doc['piece']
+        raise Error, 'The proposed profession no longer reads as a profession' unless Profession.shape?(piece)
+        Profession.build(piece.slice('name', 'description', 'focus', 'habits'), parents: piece['parents'], tier: piece['tier'], origin: piece['origin'])
+        ComposedText.guard!(Profession.texts(piece))
+        sha = write_piece('professions', piece)
+        Records.append!(ledger, [{ 'type' => 'kairomone_profession', 'sha256' => sha, 'origin' => piece['origin'], 'proposal_sha256' => proposal,
+                                   'parents' => piece['parents'] }], -> { chain })
+        { success: true, accepted: true, sha256: sha, profession: profession_status, kairomone: address }
+      end
+    end
+
     # A 0.6 template selection (kept: a 0.6 selection reads as its template).
     def select_profession(id:)
       template = Vocabulary.template(id) or raise Error, 'Unknown profession ID'

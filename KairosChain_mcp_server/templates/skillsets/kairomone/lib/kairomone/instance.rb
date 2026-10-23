@@ -168,15 +168,22 @@ module Kairomone
     # version (and first profession), and the ledger records that open every
     # 0.8 individual (Inv 1, M5) — identity, baseline at entry, and the
     # acceptance of what it was created with. Creation is that acceptance.
-    def open_new!(identity:, origin:, listing_id:, name: nil, profile_piece: nil, profession_piece: nil, material: nil, baseline: l0_fingerprints)
+    # An imported individual opens with no profile in force (with_profile:
+    # false): its received profile waits as a proposal, and it is shown as an
+    # egg under its listing ID (M4).
+    def open_new!(identity:, origin:, listing_id:, name: nil, profile_piece: nil, profession_piece: nil, material: nil, baseline: l0_fingerprints,
+                  with_profile: true, lineage: nil)
       Paths.id!(identity)
       Paths.id!(listing_id)
       STORE_DIRS.each { |dir| Paths.mkdir(root, dir) }
       with_lock { nil } # the instance lock file exists from birth, as 0.6 left it
-      sha = write_piece('profile', profile_piece || Profile.initial(name: name, origin: origin))
       records = [{ 'type' => 'kairomone_identity', 'identity' => identity, 'origin' => origin, 'listing_id' => listing_id },
-                 { 'type' => 'kairomone_baseline', 'files' => baseline },
-                 { 'type' => 'kairomone_profile', 'sha256' => sha, 'origin' => origin }.merge(material || {})]
+                 { 'type' => 'kairomone_baseline', 'files' => baseline }]
+      records << lineage if lineage
+      if with_profile
+        sha = write_piece('profile', profile_piece || Profile.initial(name: name, origin: origin))
+        records << { 'type' => 'kairomone_profile', 'sha256' => sha, 'origin' => origin }.merge(material || {})
+      end
       if profession_piece
         records << { 'type' => 'kairomone_profession', 'sha256' => write_piece('professions', profession_piece), 'origin' => origin,
                      'parents' => profession_piece['parents'] }
