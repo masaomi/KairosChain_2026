@@ -17,7 +17,7 @@ module Kairomone
     VERSION = 1
     NAME = /\A[A-Za-z0-9][A-Za-z0-9_.-]{0,150}\.kairomone-exchange\.json\z/
     OUTBOX = 'kairomone-outbox'
-    PREVIEWS = 'kairomone-outbox/.previews'
+    PREVIEWS = 'kairomone-previews' # host-private: never inside the hand-off folder
     INBOX = 'kairomone-inbox'
     KINDS = %w[learned owner_written inherited].freeze
     PAGE_BYTES = 24 * 1024
@@ -68,7 +68,11 @@ module Kairomone
       raise Error, 'Invalid exchange pieces' unless pieces.is_a?(Hash) && pieces.keys.sort == %w[art professions profile]
       raise Error, "An exchange file carries at most #{PIECES_MAX} professions and #{PIECES_MAX} drawings" unless
         [pieces['professions'], pieces['art']].all? { |list| list.is_a?(Array) && list.length <= PIECES_MAX }
-      raise Error, 'Invalid exchange lineage' unless doc['lineage'].is_a?(Array) && doc['lineage'].length <= PIECES_MAX
+      lineage_ok = doc['lineage'].is_a?(Array) && doc['lineage'].length <= PIECES_MAX && doc['lineage'].all? do |l|
+        l.is_a?(Hash) && l.keys.sort == %w[kind sources] && short.call(l['kind'], 32) && l['sources'].is_a?(Array) && l['sources'].length <= 8 &&
+          l['sources'].all? { |s| s.is_a?(Hash) && s.keys.sort == %w[identity name] && Paths::ID.match?(s['identity'].to_s) && short.call(s['name'], 256) }
+      end
+      raise Error, 'Invalid exchange lineage' unless lineage_ok
       doc
     rescue JSON::ParserError => e
       raise Error, "Invalid exchange file: #{e.message}"
@@ -136,6 +140,7 @@ module Kairomone
           name = "#{listing_id}-#{Time.now.utc.strftime('%Y%m%dT%H%M%SZ')}-#{SecureRandom.hex(4)}.kairomone-exchange.json"
           path = Paths.write(host_root, "#{Exchange::OUTBOX}/#{name}", bytes)
           [relative, relative.sub(/\.json\z/, '.file')].each { |r| File.delete(Paths.checked(host_root, r)) if File.file?(Paths.checked(host_root, r)) }
+          @host.send(:prune_exchange_previews!)
           { success: true, exported: true, kairomone: address, file: name, path: path, file_sha256: file_sha256,
             manifest_sha256: doc['manifest_sha256'], entries: doc['entries'].length,
             note: 'The file is unencrypted. This Kairomone did not change.' }
@@ -183,7 +188,8 @@ module Kairomone
       Records.append!(chain, [{ 'type' => 'kairomone_received', 'manifest_sha256' => doc['manifest_sha256'], 'pieces' => received,
                                 'entries' => entries.map { |e| e['id'] } },
                               { 'type' => 'kairomone_lineage', 'kind' => 'exchange',
-                                'sources' => [doc['source'].slice('identity', 'name', 'ledger_head')], 'manifest_sha256' => doc['manifest_sha256'] }],
+                                'sources' => [doc['source'].slice('identity', 'name', 'ledger_head')], 'manifest_sha256' => doc['manifest_sha256'],
+                                'ancestry' => doc['lineage'] }],
                       -> { chain })
       { received: received, skipped: skipped, entries: entries.length }
     end
@@ -197,28 +203,39 @@ module Kairomone
       effective = ->(b) { b['counted'] && !excluded.include?(b['identity']) }
       growth = growth_entry_ids(ledger)
       l2_basis = basis.select { |b| b['layer'] == 'L2' }.to_h { |b| [b['id'], b] }
-      # A learned entry is one a cycle wrote, or one that came with its
-      # evidence (a received copy of a learned entry). It travels only with
-      # its evidence, which is how an importer checks its identity.
+      provider = knowledge_provider
+      # The kind follows where an entry came from: learned when a cycle wrote
+      # it or it came with its evidence, otherwise inherited when it does not
+      # count, otherwise owner-written. Whether it counts is its own field.
       eligible = basis.select { |b| b['layer'] == 'L1' && b['recorded'] }.sort_by { |b| b['id'] }.map do |b|
         evidence = carried_evidence(b['id'])
-        kind = if !b['counted'] then 'inherited'
-               elsif growth.include?(b['id']) || evidence then 'learned'
+        kind = if growth.include?(b['id']) || evidence then 'learned'
+               elsif !b['counted'] then 'inherited'
                else 'owner_written'
                end
-        [b, kind, kind == 'learned' && !(evidence && l2_basis[b['id']]) ? nil : evidence]
+        [b, kind, evidence && l2_basis[b['id']] ? evidence : nil]
       end
-      chosen = eligible.select do |b, kind, evidence|
-        inputs['includes'][kind] && (inputs['entry_ids'].nil? || inputs['entry_ids'].include?(b['id'])) && !(kind == 'learned' && evidence.nil?)
+      # An entry goes in only when an importer can check its identity, by
+      # the import rule: a learned one by its evidence, any other by its
+      # content. One that cannot be checked is left out with the reason.
+      unchecked = lambda do |b, kind, evidence|
+        if kind == 'learned'
+          evidence ? nil : 'its evidence is absent, so an importer could not check it'
+        elsif b['identity'] != Progression.fingerprint(provider.get(b['id']).content)
+          'its XP identity is not its content\'s, so an importer could not check it'
+        end
       end
-      unknown = Array(inputs['entry_ids']) - chosen.map { |b, _| b['id'] }
+      wanted = eligible.select { |b, kind, _| inputs['includes'][kind] && (inputs['entry_ids'].nil? || inputs['entry_ids'].include?(b['id'])) }
+      reasons = wanted.to_h { |b, kind, evidence| [b['id'], unchecked.call(b, kind, evidence)] }
+      chosen = wanted.reject { |b, _| reasons[b['id']] }
+      unknown = Array(inputs['entry_ids']) - wanted.map { |b, _| b['id'] }
       raise Error, "Not exportable under the chosen kinds: #{unknown.join(', ')}" unless unknown.empty?
 
       basis_item = ->(b) { { 'id' => b['id'], 'layer' => b['layer'], 'identity' => b['identity'], 'counted' => effective.call(b), 'holds' => b['holds'] } }
       entries = []
       xp = []
       chosen.each do |b, kind, evidence|
-        item = knowledge_provider.get(b['id'])
+        item = provider.get(b['id'])
         entry = { 'id' => b['id'], 'title' => item.description.to_s, 'content' => item.content.to_s, 'kind' => kind }
         xp << basis_item.call(b)
         if kind == 'learned'
@@ -230,18 +247,24 @@ module Kairomone
       doc = { 'format' => Exchange::FORMAT, 'version' => Exchange::VERSION,
               'source' => { 'identity' => identity(ledger), 'name' => name, 'ledger_head' => inputs['ledger_head'], 'exported_at' => inputs['exported_at'] },
               'includes' => inputs['includes'], 'pieces' => exchange_pieces(ledger), 'entries' => entries, 'xp_basis' => xp,
-              'lineage' => Records.of_type(ledger, 'kairomone_lineage').map { |r| { 'kind' => r['kind'], 'sources' => Array(r['sources']).map { |s| s.slice('identity', 'name') } } } }
+              'lineage' => exchange_lineage(ledger) }
       doc['manifest_sha256'] = Exchange.manifest(doc)
       taken = Set.new(chosen.map { |b, _| b['id'] })
-      left = eligible.reject { |b, _| taken.include?(b['id']) }.map do |b, kind, evidence|
-        { 'id' => b['id'], 'kind' => kind, 'title' => knowledge_provider.get(b['id']).description.to_s }
-          .merge(kind == 'learned' && evidence.nil? ? { 'reason' => 'its evidence is absent, so an importer could not check it' } : {})
+      left = eligible.reject { |b, _| taken.include?(b['id']) }.map do |b, kind, _|
+        { 'id' => b['id'], 'kind' => kind, 'title' => provider.get(b['id']).description.to_s }.merge(reasons[b['id']] ? { 'reason' => reasons[b['id']] } : {})
       end
       left_out = { 'entries' => left, 'observations' => observation_entries.length - entries.count { |e| e['evidence'] },
                    'chat_memories' => verified_chat_entries.length,
                    'never' => 'Chat memories, growth state, backups, the ledger, the companion\'s direction and personality settings, ' \
                               'composition material and host references never go in.' }
       [doc, left_out]
+    end
+
+    # This individual's lineage and the ancestry it received, nearest first.
+    def exchange_lineage(ledger)
+      Records.of_type(ledger, 'kairomone_lineage').reverse.flat_map do |r|
+        [{ 'kind' => r['kind'].to_s, 'sources' => Array(r['sources']).map { |s| s.slice('identity', 'name') } }] + Array(r['ancestry'])
+      end.first(Exchange::PIECES_MAX)
     end
 
     # The current profile's fields, the accepted professions and the accepted
@@ -285,7 +308,10 @@ module Kairomone
       raise Error, 'file_sha256 must be a sha256 hex digest' unless Progression::SHA.match?(sha.to_s)
 
       relative = "#{Exchange::PREVIEWS}/#{sha}"
-      raise Error, 'No such preview (it expired or was used); preview again' unless File.file?(Paths.checked(host_root, "#{relative}.file"))
+      unless File.file?(Paths.checked(host_root, "#{relative}.file")) && File.file?(Paths.checked(host_root, "#{relative}.json"))
+        raise Error, 'No such preview (it expired or was used); preview again'
+      end
+      raise Error, 'This preview expired; preview again' if File.mtime(Paths.checked(host_root, "#{relative}.json")) < Time.now - Exchange::PREVIEW_TTL
 
       inputs = JSON.parse(Paths.read(host_root, "#{relative}.json", limit: 4 * 1_048_576))
       raise Error, 'This preview is of another Kairomone' unless inputs['listing_id'] == listing_id
@@ -398,8 +424,9 @@ module Kairomone
       raise Error, 'The exchange file is a basename ending in .kairomone-exchange.json' unless file.is_a?(String) && Exchange::NAME.match?(file)
 
       Paths.id!(listing_id)
-      governed!('L1', 'L2')
+      governed!('L1')
       doc = Exchange.load(Paths.read(host_root, "#{Exchange::INBOX}/#{file}", limit: Exchange::FILE_LIMIT))
+      governed!('L2') if doc['entries'].any? { |e| e['evidence'] }
       raise Error, "An import is a new Kairomone: name it other than its source #{listing_id}" if doc['source']['identity'] == listing_id
       with_registry_lock do
         outcome = nil
@@ -434,6 +461,8 @@ module Kairomone
       Dir.children(dir).each do |name|
         path = File.join(dir, name)
         File.delete(path) if name.match?(/\A[0-9a-f]{64}\.(?:json|file)\z/) && File.file?(path) && File.mtime(path) < Time.now - Exchange::PREVIEW_TTL
+      rescue Errno::ENOENT
+        next # pruned by a concurrent preview
       end
     end
   end

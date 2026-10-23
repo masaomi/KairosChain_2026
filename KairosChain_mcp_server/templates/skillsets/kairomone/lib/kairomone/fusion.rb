@@ -12,6 +12,7 @@ module Kairomone
     PLANS = 'kairomone-fusion'
     PAGE_BYTES = 24 * 1024
     MODES = %w[keep merge].freeze
+    PLAN_TTL = 7 * 24 * 3600
   end
 
   class Host
@@ -63,6 +64,7 @@ module Kairomone
                'candidates' => pieces, 'entries' => planned, 'proposed_at' => Time.now.utc.iso8601 }
       bytes = JSON.pretty_generate(plan) + "\n"
       sha = Digest::SHA256.hexdigest(bytes)
+      prune_fusion_plans!
       Paths.mkdir(host_root, Fusion::PLANS)
       relative = "#{Fusion::PLANS}/#{sha}.json"
       Paths.write(host_root, relative, bytes) unless File.exist?(Paths.checked(host_root, relative))
@@ -131,6 +133,19 @@ module Kairomone
     end
 
     private
+
+    # Plans not accepted within a week are removed.
+    def prune_fusion_plans!
+      dir = Paths.checked(host_root, Fusion::PLANS)
+      return unless File.directory?(dir) && !File.symlink?(dir)
+
+      Dir.children(dir).each do |name|
+        path = File.join(dir, name)
+        File.delete(path) if name.match?(/\A[0-9a-f]{64}\.json\z/) && File.file?(path) && File.mtime(path) < Time.now - Fusion::PLAN_TTL
+      rescue Errno::ENOENT
+        next
+      end
+    end
 
     def fusion_pages(items)
       pages = [[]]
@@ -224,7 +239,9 @@ module Kairomone
       writes = plan['entries'].map do |e|
         raw = document(e['id'], e['title'], e['content'], 'L1', now)
         cited = e['sources'].map { |s| sources_of.dig(s['parent'], s['entry_id']) }
-        entry = xp_entry('L1', e['id'], Progression.fingerprint(e['content']), raw, counted: false, holds: cited.map { |c| c['identity'] }.uniq)
+        # A child holds each cited entry's identity and what that entry holds.
+        entry = xp_entry('L1', e['id'], Progression.fingerprint(e['content']), raw, counted: false,
+                         holds: cited.flat_map { |c| [c['identity'], *c['holds']] }.uniq.first(256))
         [e['id'], raw, entry.merge('outside' => cited.any? { |c| c['outside'] })]
       end
       record_identities!(writes.map { |_, _, entry| entry }, ledger)
@@ -246,7 +263,7 @@ module Kairomone
         item = knowledge_provider.get(b['id'])
         record = records[['L1', b['id']]].reverse.find { |r| r['content_sha256'] == b['content_sha256'] }
         { 'id' => b['id'], 'title' => item.description.to_s, 'body' => item.content.to_s, 'sha256' => b['content_sha256'],
-          'identity' => b['identity'], 'outside' => growth.include?(b['id']) || record&.dig('outside') == true }
+          'identity' => b['identity'], 'holds' => b['holds'], 'outside' => growth.include?(b['id']) || record&.dig('outside') == true }
       end
     end
   end

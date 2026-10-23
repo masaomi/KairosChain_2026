@@ -90,6 +90,11 @@ class Kairomone08ExchangeTest < Minitest::Test
     assert_raises(Kairomone::Error) { store.exchange_preview(include: %w[owner_written], page: 2) }
     out = store.exchange_export(file_sha256: first[:file_sha256])
     assert_equal shown, JSON.parse(File.read(out[:path]))['entries'].map { |e| e['id'] }
+    again = store.exchange_preview(include: %w[owner_written learned])
+    json = File.join(@host, 'kairomone-previews', "#{again[:file_sha256]}.json")
+    File.utime(Time.now - 25 * 3600, Time.now - 25 * 3600, json)
+    error = assert_raises(Kairomone::Error) { store.exchange_preview(file_sha256: again[:file_sha256], page: 2) }
+    assert_match(/expired/, error.message)
   end
 
   def test_a_learned_entry_without_its_evidence_stays_out
@@ -102,6 +107,33 @@ class Kairomone08ExchangeTest < Minitest::Test
     assert_equal 'growth_moss', left['id']
     assert_match(/evidence is absent/, left['reason'])
     assert_equal 1, first[:left_out]['entries']
+  end
+
+  def test_a_preview_is_kept_outside_the_hand_off_folder
+    store = rich
+    preview = store.exchange_preview(include: %w[owner_written])
+    assert File.file?(File.join(@host, 'kairomone-previews', "#{preview[:file_sha256]}.file"))
+    refute Dir.exist?(File.join(@host, 'kairomone-outbox')), 'nothing is in the hand-off folder before an export'
+    out = store.exchange_export(file_sha256: preview[:file_sha256])
+    assert_equal [out[:file]], Dir.children(File.join(@host, 'kairomone-outbox'))
+    refute File.exist?(File.join(@host, 'kairomone-previews', "#{preview[:file_sha256]}.file"))
+  end
+
+  def test_a_copy_exports_only_what_its_importer_can_check
+    store = rich
+    _preview, out = export_and_place(store)
+    Kairomone::Host.new.import_exchange(file: out[:file], listing_id: 'copy')
+    copy = Kairomone::Instance.new(host_root: @host, kairomone: 'copy')
+    path = File.join(copy.root, 'context/kairomone/growth_moss/growth_moss.md')
+    File.write(path, File.read(path).sub('untrusted_research_evidence', 'something_else'))
+    first, items = all_pages(copy, include: %w[learned owner_written inherited])
+    assert_equal ['tea'], items.select { |i| i['item'] == 'entry' }.map { |i| i['id'] }
+    left = items.find { |i| i['item'] == 'left_out' }
+    assert_equal 'growth_moss', left['id']
+    assert_match(/could not check it/, left['reason'])
+    again = copy.exchange_export(file_sha256: first[:file_sha256])
+    FileUtils.cp(again[:path], File.join(@host, 'kairomone-inbox', again[:file]))
+    assert Kairomone::Host.new.import_exchange(file: again[:file], listing_id: 'second')[:imported], 'the file it writes imports'
   end
 
   def test_a_moved_ledger_head_refuses_the_write
@@ -277,6 +309,22 @@ class Kairomone08ExchangeTest < Minitest::Test
     assert_match(/does not match its evidence/, error.message)
   end
 
+  def test_a_held_learned_entry_travels_as_learned_with_its_evidence
+    store = rich
+    _preview, out = export_and_place(store, include: %w[learned])
+    inbox = File.join(@host, 'kairomone-inbox', out[:file])
+    doc = JSON.parse(File.read(inbox))
+    doc['xp_basis'].each { |b| b['counted'] = false }
+    doc['manifest_sha256'] = Kairomone::Exchange.manifest(doc)
+    File.write(inbox, Kairomone::Exchange.bytes(doc))
+    Kairomone::Host.new.import_exchange(file: out[:file], listing_id: 'held')
+    held = Kairomone::Instance.new(host_root: @host, kairomone: 'held')
+    again = held.exchange_export(file_sha256: held.exchange_preview(include: %w[learned])[:file_sha256])
+    entry = JSON.parse(File.read(again[:path]))['entries'].first
+    assert_equal %w[growth_moss learned], entry.values_at('id', 'kind')
+    assert entry['evidence'], 'whether it counts does not decide its kind'
+  end
+
   def test_an_import_refuses_oversized_lists_and_its_source_identity
     store = rich
     _preview, out = export_and_place(store, include: %w[owner_written])
@@ -299,6 +347,8 @@ class Kairomone08ExchangeTest < Minitest::Test
   def test_host_governance_applies_to_an_import
     store = rich
     _preview, out = export_and_place(store, include: %w[owner_written])
+    File.write(File.join(@host, 'skills/config.yml'), { 'layers' => { 'L1' => { 'enabled' => true, 'mutable' => true }, 'L2' => { 'enabled' => true, 'mutable' => false } } }.to_yaml)
+    assert Kairomone::Host.new.import_exchange(file: out[:file], listing_id: 'no_l2')[:imported], 'a file without evidence writes no L2'
     File.write(File.join(@host, 'skills/config.yml'), { 'layers' => { 'L1' => { 'enabled' => true, 'mutable' => false } } }.to_yaml)
     error = assert_raises(Kairomone::Error) { Kairomone::Host.new.import_exchange(file: out[:file], listing_id: 'copy') }
     assert_match(/governance/, error.message)

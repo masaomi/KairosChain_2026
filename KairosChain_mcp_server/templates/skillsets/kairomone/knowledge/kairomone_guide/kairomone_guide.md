@@ -119,8 +119,11 @@ shows every piece the file will carry in full, paged under one file sha256
 (later pages are asked for with that sha256): the
 current profile, the professions, the drawings that pass the art check, the
 chosen entries, a learned entry's evidence (without its request, so no topic or
-direction; a learned entry whose evidence is absent stays out) and the
-lineage, and lists what is left out. `export` writes exactly that file to
+direction) and the lineage with the ancestry it received, and lists what is
+left out, with the reason when an entry stays out because an importer could
+not check its identity (a learned entry without its evidence, or an entry whose
+identity is not its content's). The preview is kept for 24 hours in
+`kairomone-previews/`, outside the hand-off folder. `export` writes exactly that file to
 `kairomone-outbox/`, and is refused if anything on the Kairomone changed since
 the preview; the Kairomone itself does not change. Chat memories, growth state,
 backups, the ledger, the companion's direction and personality settings,
@@ -145,9 +148,10 @@ dropped, with the counts, the profile and the candidates; `accept` with one
 candidate makes the child, judging the profile and profession by the rules
 current then, refused when a parent changed since the plan or a cited entry no
 longer holds the cited content. A plan stays in `kairomone-fusion/` until it is
-accepted. The
+accepted, or for a week. The
 child starts at level 1 as an egg with no L2; its inherited knowledge is held
-and never counts, nor does the same content learned again; a merged entry is
+and never counts, nor does the same content learned again, nor what the cited
+entries themselves held; a merged entry is
 outside content when any of its sources is; its lineage and first profession
 name both parents. Whether a merged text is faithful to its sources is the
 assistant's judgment, shown to the owner in the summary.

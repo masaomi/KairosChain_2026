@@ -190,6 +190,50 @@ class Kairomone08FusionTest < Minitest::Test
     assert_equal 0, copy.progression_status[:unique_l1], 'the parents\' source is held in the copy too'
   end
 
+  def test_a_grandchild_holds_what_its_parents_held
+    parents
+    heads, entries = material
+    Kairomone::Host.new.fusion_accept(plan: propose(heads, entries)[:plan], candidate: 0)
+    create('delta').create_knowledge(id: 'sky', title: 'Sky', content: 'The sky is wide.')
+    host = Kairomone::Host.new
+    first = host.fusion_material(parents: %w[pip delta])
+    items = first[:items] + (2..first[:pages]).flat_map { |n| host.fusion_material(parents: %w[pip delta], page: n)[:items] }
+    tea = items.find { |i| i['item'] == 'entry' && i['parent'] == 'pip' && i['id'] == 'tea' }
+    plan = host.fusion_propose(parents: %w[pip delta], child: 'kit', profile: CHILD, heads: first[:heads],
+                               candidates: %w[Gardener Herbalist Forager].map { |n| CRAFT.merge('name' => n) },
+                               entries: [{ 'id' => 'tea', 'title' => 'Tea', 'content' => tea['body'], 'mode' => 'keep',
+                                           'sources' => [{ 'parent' => 'pip', 'entry_id' => 'tea', 'sha256' => tea['sha256'] }] }])[:plan]
+    host.fusion_accept(plan: plan, candidate: 0)
+    kit = Kairomone::Instance.new(host_root: @host, kairomone: 'kit')
+    kit.create_knowledge(id: 'again', title: 'Tea again', content: 'Brew green tea at 70 degrees.')
+    assert_equal 0, kit.progression_status[:unique_l1], 'a grandparent\'s source stays held'
+  end
+
+  def test_a_copy_of_a_fused_child_names_its_parents
+    parents
+    heads, entries = material
+    Kairomone::Host.new.fusion_accept(plan: propose(heads, entries)[:plan], candidate: 0)
+    child = Kairomone::Instance.new(host_root: @host, kairomone: 'pip')
+    out = child.exchange_export(file_sha256: child.exchange_preview(include: %w[inherited])[:file_sha256])
+    FileUtils.mkdir_p(File.join(@host, 'kairomone-inbox'))
+    FileUtils.cp(out[:path], File.join(@host, 'kairomone-inbox', out[:file]))
+    Kairomone::Host.new.import_exchange(file: out[:file], listing_id: 'pip_copy')
+    copy = Kairomone::Instance.new(host_root: @host, kairomone: 'pip_copy')
+    lineage = Kairomone::Records.of_type(copy.chain, 'kairomone_lineage').last
+    assert_equal ['pip'], lineage['sources'].map { |s| s['identity'] }
+    assert_equal [%w[alpha beta]], lineage['ancestry'].select { |a| a['kind'] == 'fusion' }.map { |a| a['sources'].map { |s| s['identity'] } }
+  end
+
+  def test_an_old_plan_is_removed_when_another_is_proposed
+    parents
+    heads, entries = material
+    old = propose(heads, entries)[:plan]
+    path = File.join(@host, 'kairomone-fusion', "#{old}.json")
+    File.utime(Time.now - 8 * 24 * 3600, Time.now - 8 * 24 * 3600, path)
+    propose(heads, entries, child: 'pip_two')
+    refute File.exist?(path)
+  end
+
   def test_self_fusion_is_refused
     parents
     error = assert_raises(Kairomone::Error) { Kairomone::Host.new.fusion_material(parents: %w[alpha alpha]) }
