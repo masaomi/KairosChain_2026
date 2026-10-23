@@ -132,8 +132,8 @@ isolated staging directory. No general-purpose archive extraction is used.
 
 `restore` takes a backup in this Kairomone's `backups/` and a new `target_id`,
 and lists it as a separate Kairomone: a twin with the same identity under
-another listing ID. Through MCP and the library only an archive signed with
-this host's key restores; it restores as stored (integrity checks only),
+another listing ID. Through MCP and the Instance restore methods only an archive
+signed with this host's key restores; it restores as stored (integrity checks only),
 appends a `kairomone_restored` record, and ends any run that was live in it.
 Any other archive — a 0.6.1 backup, another machine's, one signed by a lost key —
 restores only through the owner's terminal command, which prints its profile,
@@ -155,8 +155,10 @@ not promise safe concurrent editing by other processes that ignore these locks.
 2. Deliberately copy the archive into the new host's fixed `kairomone-inbox/`
    directory, retaining a simple `.kairomone.json` basename. To restore it
    without the terminal confirmation, also copy `kairomone-keys/archive.key`
-   from the old host (whoever holds the key can sign archives that host
-   restores without asking).
+   from the old host — only to a host that has no key yet: a host keeps one
+   key, and replacing it turns that host's own earlier backups into unsigned
+   archives (restored at a terminal). Whoever holds the key can sign archives
+   that host restores without asking.
 3. Call `kairomone_backup(command: "restore_new", file: "BASENAME",
    dot_id: "EXPECTED_IDENTITY")` for a signed archive (with `target_id` when
    that identity is already listed), or, at a terminal, CLI

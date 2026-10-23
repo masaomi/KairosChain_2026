@@ -169,7 +169,8 @@ module KairosMcp
               command: { type: 'string', enum: %w[status run_start run_stop run_status request claim heartbeat commit fail], description: 'configure and stop (0.6) are gone: runs replace them' },
               owner_words: { type: 'string', description: 'run_start: the owner\'s own words asking for the run (at most 512 bytes)' },
               cycles: { type: 'integer', minimum: 1 }, end_at: { type: 'string', description: 'ISO 8601 time with zone' },
-              run_id: { type: 'string' }, token: { type: 'string' },
+              run_id: { type: 'string', description: 'The run a step belongs to; with run_status, answers for that run' },
+              token: { type: 'string', description: 'The driver token run_start returned (not a claim token)' },
               request_id: { type: 'string' }, topic: { type: 'string' },
               profession_id: { type: 'string' }, bias_applied: { type: 'boolean' }, worker_id: { type: 'string' },
               lease_seconds: { type: 'integer', minimum: 1, maximum: 900 }, claim_token: { type: 'string' },
@@ -185,7 +186,7 @@ module KairosMcp
               when 'status' then growth.status.merge('kairomone' => store.address)
               when 'run_start' then growth.run_start(owner_words: args['owner_words'], cycles: args['cycles'], end_at: args['end_at'])
               when 'run_stop' then growth.run_stop(reason: args.fetch('reason', 'Owner stop'))
-              when 'run_status' then growth.run_status
+              when 'run_status' then growth.run_status(run_id: args['run_id'])
               when 'request' then growth.request(run_id: args['run_id'], token: args['token'], request_id: args['request_id'], topic: args['topic'], profession_id: args.fetch('profession_id', 'generalist'), bias_applied: args.fetch('bias_applied', false))
               when 'claim' then growth.claim(run_id: args['run_id'], token: args['token'], worker_id: args['worker_id'], lease_seconds: args.fetch('lease_seconds', 300))
               when 'heartbeat' then growth.heartbeat(run_id: args['run_id'], token: args['token'], claim_token: args['claim_token'])

@@ -224,7 +224,7 @@ class Kairomone08RunsTest < Minitest::Test
   end
 
   def test_an_end_time_without_a_zone_is_refused
-    ['2026-10-23T18:00:00', '2026-10-24', '2026-10-23 18:00:00+02:00'].each do |value|
+    ['2026-10-23T18:00:00', '2026-10-24', '2026-10-23 18:00:00+02:00', '2026-10-23T18:00+02:00'].each do |value|
       error = assert_raises(Kairomone::Error) { growth.run_start(owner_words: 'Until tonight', end_at: value) }
       assert_match(/with a zone/, error.message)
     end
@@ -258,5 +258,42 @@ class Kairomone08RunsTest < Minitest::Test
     assert_equal 1, ended[step[:run_id]]['claims']
     refute ended['run_20261023T115900Z_0badf00d'].key?('claims')
     assert_equal 'interrupted', growth(twin).status['last_result']['state']
+  end
+
+  def test_a_claim_that_cannot_be_recorded_is_not_counted
+    write_policy(JSON.generate('max_claims' => 5, 'window' => 'lifetime'))
+    step = start(cycles: 3)
+    growth.request(**step, request_id: 'orphaned', topic: 'Topic')
+    path = File.join(@store.root, 'growth/runs.json')
+    state = JSON.parse(File.read(path))
+    state['requests'] = []
+    File.write(path, JSON.generate(state))
+    assert_raises(Kairomone::Error) { growth.claim(**step, worker_id: 'worker') }
+    refute File.exist?(File.join(@host, 'kairomone-policy/counter.json')), 'nothing was counted'
+  end
+
+  def test_a_commit_that_passed_its_checks_writes_both_entries
+    step = start(end_at: (@now + 600).iso8601)
+    token = claim_one(step, 'one')
+    clock = -> { @now }
+    bump = -> { @now += 1200 }
+    @store.define_singleton_method(:growth_write!) do |layer, id, raw|
+      result = super(layer, id, raw)
+      bump.call if layer == 'L2' # the end time passes between the two writes
+      result
+    end
+    assert_equal 'completed', Kairomone::Autonomy.new(instance: @store, clock: clock).commit(**step, claim_token: token, evidence: evidence)['state']
+    assert_equal 1, @store.status[:knowledge][:count]
+    assert_equal 1, @store.status[:observations][:count]
+  end
+
+  def test_run_status_answers_for_a_named_run
+    first = start(cycles: 1)
+    growth.run_stop(reason: 'Done')
+    second = start(cycles: 1)
+    named = growth.run_status(run_id: first[:run_id])
+    assert_equal false, named['live']
+    assert_equal 'ended: owner_stop', named['this_run']
+    assert growth.run_status(run_id: second[:run_id])['live']
   end
 end

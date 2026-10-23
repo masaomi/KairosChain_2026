@@ -84,7 +84,7 @@ Canonical L1 and L2 are two provider writes, not an atomic cross-provider transa
 
 The owner's stop serializes against commit: if `run_stop` acquires the growth lock first, no write follows; if commit already holds it, the stop waits for that commit boundary.
 
-A restore ends every live run of the restored Kairomone (recorded on its ledger); runs that ended before the restore are shown as archived. Backups hold the growth lock before the canonical lock; status reads without taking the growth lock.
+A restore ends every live run of the restored Kairomone (recorded on its ledger); every run the archive brought, including those the restore ended, is shown as archived. Backups hold the growth lock before the canonical lock; status reads without taking the growth lock.
 
 ## Growth accounting
 

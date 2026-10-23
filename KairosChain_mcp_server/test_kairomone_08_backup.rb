@@ -243,4 +243,31 @@ class Kairomone08BackupTest < Minitest::Test
     assert_equal({ 'listing_id' => 'alpha_copy', 'identity' => 'alpha' }, restored['kairomone'])
     assert_match(/Name a target_id/, tool(:Backup, 'kairomone' => 'alpha', 'command' => 'restore', 'file' => backup[:file])['error'])
   end
+
+  def test_the_terminal_prompts_hold_no_lock_while_the_owner_reads
+    alpha = make('alpha')
+    sha = alpha.current_profile_piece[:sha256]
+    File.delete(File.join(alpha.root, "profile/#{sha}.json"))
+    free = lambda do |lock|
+      Thread.new { lock.call }.join(2) ? true : false
+    end
+    answer = Object.new
+    other = Kairomone::Instance.new(host_root: @host, kairomone: 'alpha')
+    answer.define_singleton_method(:gets) do
+      raise 'the growth lock was held during the prompt' unless free.call(-> { other.autonomy.synchronize { nil } })
+      raise 'the instance lock was held during the prompt' unless free.call(-> { other.send(:with_lock) { nil } })
+      "k7m3xp\n"
+    end
+    assert alpha.record_missing_interactive(pieces: [{ kind: 'profile', sha256: sha }], reason: 'Lost', tty_in: answer,
+                                            tty_out: StringIO.new, nonce: 'k7m3xp')[:recorded]
+    archive = archive_of(alpha.create_backup)
+    archive.delete('signature')
+    registry_free = nil
+    confirm = lambda do |_lines|
+      registry_free = free.call(-> { Kairomone::Host.new(host_root: @host).with_registry_lock { nil } })
+      true
+    end
+    assert Kairomone::Host.new.restore(JSON.generate(archive), trust: confirm, listing_id: 'copy')[:success]
+    assert registry_free, 'the registry lock was free while the owner read the summary'
+  end
 end

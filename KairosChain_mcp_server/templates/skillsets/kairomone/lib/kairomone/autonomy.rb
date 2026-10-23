@@ -84,12 +84,20 @@ module Kairomone
 
     # Concludes what time has decided (an expired lease, a passed end time, a
     # used count, an interrupted start) and reports the state.
-    def run_status
+    # With run_id it answers for that run: a tick of an ended run's interval
+    # loop sees it ended even when the owner has started another.
+    def run_status(run_id: nil)
       locked do
         state = load_state
         reconcile!(state)
         save(state)
-        public_state(state).merge('kairomone' => @instance.address)
+        out = public_state(state).merge('kairomone' => @instance.address)
+        if run_id
+          live = state.dig('live', 'run_id') == run_id
+          ended = state['ended'].reverse.find { |r| r['run_id'] == run_id }
+          out = out.merge('run_id' => run_id, 'live' => live, 'this_run' => live ? 'live' : (ended ? "ended: #{ended['reason']}" : 'not a run of this Kairomone'))
+        end
+        out
       end
     end
 
@@ -109,7 +117,7 @@ module Kairomone
         existing = state['requests'].find { |r| r['request_id'] == request_id }
         if existing && existing['run_id'] == run_id && existing['request'].reject { |k, _| k == 'companion' } == proposal && existing['state'] == 'queued'
           step!(state, run_id, token)
-          next public_state(state).merge('preserved' => true)
+          next public_state(state).merge('preserved' => true, 'kairomone' => @instance.address)
         end
         live = step!(state, run_id, token)
         raise Error, 'request_id already used' if existing || request_id_used?(request_id)
@@ -145,27 +153,31 @@ module Kairomone
         raise Error, 'No queued request' unless state['queue'] && state['queue']['run_id'] == run_id
         raise Error, 'No further cycle can be admitted in this run' unless admissible?(live)
 
-        # The policy is the last check: the count it adds is never taken back.
+        # The claimed state is built and checked first; the policy count comes
+        # last, because it is never taken back. Only the save after it can
+        # still fail (a disk error), and then the count errs toward the limit.
+        claim_token = SecureRandom.hex(24)
+        ends = live.dig('stop', 'end_at') && Time.iso8601(live.dig('stop', 'end_at'))
+        expires = [now + lease_seconds, ends].compact.min # a lease never outlives its run
+        claimed = JSON.parse(JSON.generate(state))
+        request = claimed['queue']
+        entry = request_entry(claimed, request['request_id']) or raise Error, 'The queued request is missing from the growth state'
+        claimed['queue'] = nil
+        claimed['live']['claims'] += 1
+        claimed['active_claim'] = request.merge('claim_token_sha256' => sha(claim_token), 'worker_id' => worker_id,
+                                                'claimed_at' => timestamp, 'heartbeat_at' => timestamp,
+                                                'expires_at' => expires.utc.iso8601, 'lease_seconds' => lease_seconds, 'state' => 'claimed')
+        entry['state'] = 'claimed'
+        entry['claim_token_sha256'] = sha(claim_token)
+        self.class.validate_runs!(claimed)
         begin
           Policy.new(host_root: @instance.host_root, clock: @clock).admit!
         rescue PolicyRefusal => e
           end_run!(state, 'policy', detail: e.message[0, WORDS_MAX])
           raise Error, "#{e.message}. Run #{run_id} has ended."
         end
-        claim_token = SecureRandom.hex(24)
-        ends = live.dig('stop', 'end_at') && Time.iso8601(live.dig('stop', 'end_at'))
-        expires = [now + lease_seconds, ends].compact.min # a lease never outlives its run
-        request = state['queue']
-        state['queue'] = nil
-        live['claims'] += 1
-        state['active_claim'] = request.merge('claim_token_sha256' => sha(claim_token), 'worker_id' => worker_id,
-                                              'claimed_at' => timestamp, 'heartbeat_at' => timestamp,
-                                              'expires_at' => expires.utc.iso8601, 'lease_seconds' => lease_seconds, 'state' => 'claimed')
-        entry = request_entry(state, request['request_id'])
-        entry['state'] = 'claimed'
-        entry['claim_token_sha256'] = sha(claim_token)
-        save(state)
-        public_state(state).merge('claim_token' => claim_token, 'kairomone' => @instance.address)
+        save(claimed)
+        public_state(claimed).merge('claim_token' => claim_token, 'kairomone' => @instance.address)
       end
     end
 
@@ -193,7 +205,7 @@ module Kairomone
         done = token_string?(claim_token) && state['requests'].find { |r| r['claim_token_sha256'] == sha(claim_token) && r['state'] == 'completed' }
         if done
           raise Error, 'Completed claim retried with different evidence' unless done['evidence_sha256'] == digest
-          next done['result'].merge('preserved' => true)
+          next done['result'].merge('preserved' => true, 'kairomone' => @instance.address)
         end
         live = step!(state, run_id, token)
         claim = live_claim!(state, claim_token)
@@ -205,9 +217,6 @@ module Kairomone
 
         request = entry['request']
         unless intent
-          # Entries written since the request may have used the room.
-          raise Error, 'No room for this cycle: an individual holds at most 1,000 L1 and 1,000 L2 entries' unless @instance.room_for_cycle?
-
           plan = growth_plan(request, normalized, digest, timestamp)
           intent = { 'type' => 'kairomone_growth_completed', 'request_id' => request_id, 'run_id' => live['run_id'],
                      'created_at' => plan[:created_at], 'evidence_sha256' => digest, 'l1_id' => plan[:id], 'l2_id' => plan[:id],
@@ -224,9 +233,9 @@ module Kairomone
           raise Error, 'The recorded intent cannot be rebuilt byte for byte; inspect status'
         end
 
+        # The commit passed its step's checks above and holds the growth lock,
+        # so it writes both entries: an owner's stop waits for this boundary.
         @instance.growth_write!('L2', plan[:id], plan[:l2_raw])
-        step!(state, run_id, token)
-        live_claim!(state, claim_token)
         l1 = @instance.growth_write!('L1', plan[:id], plan[:l1_raw])
         raise Error, 'Canonical L1 write/ledger verification failed; inspect pending state' unless l1[:success] && l1[:recorded_on_chain]
 
@@ -300,6 +309,8 @@ module Kairomone
         append_end!(run_id, 'restored', 'This individual was restored from an archive; its runs ended',
                     claims: run_id == live_id ? state.dig('live', 'claims') : nil)
       end
+      # Every run the archive brought — including the one this restore ends —
+      # belongs to the time before the restore and is shown as archived.
       close_state!(state, 'restored')
       state['ended'].each { |run| run['archived'] = true }
       state['ended'] = state['ended'].last(ENDED_KEEP)
@@ -324,11 +335,19 @@ module Kairomone
         raise Error, 'Invalid live run' unless live.is_a?(Hash) && RUN_ID.match?(live['run_id'].to_s) && /\A[0-9a-f]{64}\z/.match?(live['token_sha256'].to_s) &&
                                                %w[claims requests biased].all? { |k| live[k].is_a?(Integer) && live[k] >= 0 } && live['stop'].is_a?(Hash) && live['baseline'].is_a?(Hash)
       end
+      if live
+        cycles = live.dig('stop', 'cycles')
+        raise Error, 'Invalid run stop condition' unless cycles.nil? || (cycles.is_a?(Integer) && cycles.positive?)
+        Time.iso8601(live.dig('stop', 'end_at')) if live.dig('stop', 'end_at')
+      end
       claim = value['active_claim']
       raise Error, 'Invalid growth claim' if claim && !(claim.is_a?(Hash) && REQUEST_ID.match?(claim['request_id'].to_s) && /\A[0-9a-f]{64}\z/.match?(claim['claim_token_sha256'].to_s))
+      %w[expires_at heartbeat_at].each { |k| Time.iso8601(claim[k].to_s) } if claim
       raise Error, 'Cannot queue while claimed' if claim && value['queue']
       raise Error, 'Work without a live run' if (claim || value['queue']) && !live
       true
+    rescue ArgumentError, TypeError => e
+      raise Error, "Invalid growth runs: #{e.message}"
     end
 
     # The 0.6 growth state's shape (read, never written).
@@ -617,7 +636,7 @@ module Kairomone
     # A time with a date, a clock time and an explicit zone: a time without a
     # zone would be read in the server's zone, which can differ from the
     # owner's and move the owner's stop condition.
-    ZONED_TIME = /\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})\z/
+    ZONED_TIME = /\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})\z/
 
     def parse_time!(value, label)
       message = "#{label} must be an ISO 8601 time with a zone (for example 2026-10-24T00:00:00+02:00)"
@@ -672,6 +691,9 @@ module Kairomone
       with_lock do
         ensure_writable!('L1')
         ensure_writable!('L2')
+        # Entries written since the request may have used the room; checked
+        # under the lock every write takes.
+        raise Error, 'No room for this cycle: an individual holds at most 1,000 L1 and 1,000 L2 entries' unless room_for_cycle?
         record_identities!([], chain, also: [['L1', id], ['L2', id]], with: [intent])
       end
     end

@@ -213,23 +213,27 @@ module Kairomone
     def record_missing_interactive(pieces:, reason:, tty_in:, tty_out:, nonce: self.class.rebaseline_nonce)
       reason = text!(reason, 'reason', 512)
       say = ->(line) { tty_out.puts tty_safe(line) }
+      wanted = pieces.map { |p| { 'kind' => p[:kind] || p['kind'], 'sha256' => p[:sha256] || p['sha256'] } }
+      # Checked under the locks, shown and answered with no lock held (as the
+      # L0 re-baseline does), then checked again under the locks and recorded.
+      check = lambda do
+        ensure_writable!('L2')
+        unknown = wanted - absent_accepted_pieces(chain)
+        raise Error, "Not absent accepted pieces: #{unknown.map { |p| "#{p['kind']} #{p['sha256']}" }.join(', ')}" unless unknown.empty? && !wanted.empty?
+      end
+      autonomy.synchronize { with_lock { check.call } }
+      say.call "Kairomone: #{listing_id} (#{name})"
+      wanted.each { |p| say.call "  lost #{p['kind']} #{p['sha256']}" }
+      say.call "Reason:   #{reason}"
+      tty_out.print "Type #{nonce} to record these pieces as lost (anything else cancels): "
+      tty_out.flush
+      unless tty_in.gets.to_s.strip == nonce
+        say.call 'Cancelled. Nothing was recorded.'
+        return { success: false, recorded: false, reason: 'nonce_mismatch' }
+      end
       autonomy.synchronize do
         with_lock do
-          ensure_writable!('L2')
-          absent = absent_accepted_pieces(chain)
-          wanted = pieces.map { |p| { 'kind' => p[:kind] || p['kind'], 'sha256' => p[:sha256] || p['sha256'] } }
-          unknown = wanted - absent
-          raise Error, "Not absent accepted pieces: #{unknown.map { |p| "#{p['kind']} #{p['sha256']}" }.join(', ')}" unless unknown.empty? && !wanted.empty?
-
-          say.call "Kairomone: #{listing_id} (#{name})"
-          wanted.each { |p| say.call "  lost #{p['kind']} #{p['sha256']}" }
-          say.call "Reason:   #{reason}"
-          tty_out.print "Type #{nonce} to record these pieces as lost (anything else cancels): "
-          tty_out.flush
-          unless tty_in.gets.to_s.strip == nonce
-            say.call 'Cancelled. Nothing was recorded.'
-            next { success: false, recorded: false, reason: 'nonce_mismatch' }
-          end
+          check.call
           block = Records.append!(chain, [{ 'type' => 'kairomone_missing', 'pieces' => wanted, 'reason' => reason }], -> { chain })
           say.call "Recorded as block ##{block.index}."
           { success: true, recorded: true, block: block.index, pieces: wanted, kairomone: address }
@@ -317,38 +321,30 @@ module Kairomone
     # appended, live runs ended, listed by one rename.
     def restore(bytes, trust:, listing_id: nil, expected_identity: nil)
       Paths.id!(listing_id) if listing_id
-      with_registry_lock do
-        archive, files = Instance.load_archive(bytes)
-        signed = ArchiveKey.valid?(archive, ArchiveKey.load(host_root))
-        if !signed && trust == :signed
-          raise Error, 'This archive is not signed with this host\'s archive key (a 0.6.1 backup, another machine\'s, or one signed by a lost key). ' \
-                       'The owner restores it in their own terminal, where its free text is shown first: for a file in kairomone-inbox/, ' \
-                       'ruby .kairos/skillsets/kairomone/scripts/kairomone.rb backup restore-new --file NAME --dot-id IDENTITY; for a file in ' \
-                       'a Kairomone\'s backups/, ... backup restore --kairomone LISTING_ID --file NAME. Add --target-id NEW_ID when the ' \
-                       'identity is already listed.'
+      archive, files = Instance.load_archive(bytes)
+      signed = ArchiveKey.valid?(archive, ArchiveKey.load(host_root))
+      if !signed && !trust.respond_to?(:call)
+        raise Error, 'This archive is not signed with this host\'s archive key (a 0.6.1 backup, another machine\'s, or one signed by a lost key). ' \
+                     'The owner restores it in their own terminal, where its free text is shown first: for a file in kairomone-inbox/, ' \
+                     'ruby .kairos/skillsets/kairomone/scripts/kairomone.rb backup restore-new --file NAME --dot-id IDENTITY; for a file in ' \
+                     'a Kairomone\'s backups/, ... backup restore --kairomone LISTING_ID --file NAME. Add --target-id NEW_ID when the ' \
+                     'identity is already listed.'
+      end
+      unless signed
+        # The owner reads the archive's free text and answers with no lock
+        # held; the restore below checks everything again under the lock.
+        summary = with_registry_lock do
+          stage { |staged| staged.restore_summary(archive, restore_checks(staged, archive, files, listing_id, expected_identity)[:missing]) }
         end
+        raise Error, 'Cancelled. Nothing was restored.' unless trust.call(summary)
+      end
+      with_registry_lock do
         listed = nil
         missing = []
         path = assemble(listing_id) do |staged|
-          staged.place_archive_files!(files)
-          snapshot = staged.status
-          staged.send(:backup_ready!, snapshot)
-          identity = staged.identity
-          raise Error, "The archive holds #{identity}, not the expected #{expected_identity}" if expected_identity && identity != expected_identity
-          listed = listing_id || identity
-          if listed?(listed)
-            raise Error, "#{listed} is already listed on this host; name another listing ID for this restore (its identity stays #{identity})"
-          end
-          absent = staged.send(:absent_accepted_pieces, staged.chain)
-          if archive['version'] == 2
-            raise Error, "The archive lacks accepted pieces its ledger names (#{absent.length}); refused" unless absent.empty?
-          else
-            missing = absent # what an older archive lacks is reported, never invented
-          end
-          unless signed
-            confirmed = trust.respond_to?(:call) && trust.call(staged.restore_summary(archive, missing))
-            raise Error, 'Cancelled. Nothing was restored.' unless confirmed
-          end
+          checked = restore_checks(staged, archive, files, listing_id, expected_identity)
+          listed = checked[:listed]
+          missing = checked[:missing]
           Records.append!(staged.chain, [{ 'type' => 'kairomone_restored', 'manifest_sha256' => archive['manifest_sha256'],
                                            'archive_version' => archive['version'], 'listing_id' => listed,
                                            'trust' => signed ? 'signed' : 'owner_confirmed', 'missing' => missing }], -> { staged.chain })
@@ -365,6 +361,24 @@ module Kairomone
         outcome[:l0_warning] = "Current host L0 comparison is #{l0[:state]}; growth needs the owner's re-baseline at a terminal" unless l0[:state] == 'unchanged'
         outcome
       end
+    end
+
+    private
+
+    # Integrity only: the stored individual must read, hold the expected
+    # identity, take a free listing ID, and (version 2) hold every accepted
+    # piece; what a version-1 archive lacks is reported, never invented.
+    def restore_checks(staged, archive, files, listing_id, expected_identity)
+      staged.place_archive_files!(files)
+      staged.send(:backup_ready!, staged.status)
+      identity = staged.identity
+      raise Error, "The archive holds #{identity}, not the expected #{expected_identity}" if expected_identity && identity != expected_identity
+      listed = listing_id || identity
+      raise Error, "#{listed} is already listed on this host; name another listing ID for this restore (its identity stays #{identity})" if listed?(listed)
+      absent = staged.send(:absent_accepted_pieces, staged.chain)
+      raise Error, "The archive lacks accepted pieces its ledger names (#{absent.length}); refused" if archive['version'] == 2 && !absent.empty?
+
+      { listed: listed, missing: archive['version'] == 2 ? [] : absent }
     end
   end
 

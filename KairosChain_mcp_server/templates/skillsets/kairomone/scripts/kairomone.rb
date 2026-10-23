@@ -116,7 +116,7 @@ begin
            when ['growth', 'status'] then growth.call.status
            when ['growth', 'run-start'] then growth.call.run_start(owner_words: options[:owner_words], cycles: options[:cycles], end_at: options[:end_at])
            when ['growth', 'run-stop'] then growth.call.run_stop(reason: options.fetch(:reason, 'Owner stop'))
-           when ['growth', 'run-status'] then growth.call.run_status
+           when ['growth', 'run-status'] then growth.call.run_status(run_id: options[:run_id])
            when ['growth', 'request'] then growth.call.request(run_id: options[:run_id], token: options[:token], request_id: options[:request_id], topic: options[:topic], profession_id: options.fetch(:profession_id, 'generalist'), bias_applied: options.fetch(:bias_applied, false))
            when ['growth', 'claim'] then growth.call.claim(run_id: options[:run_id], token: options[:token], worker_id: options[:worker_id], lease_seconds: options.fetch(:lease_seconds, 300))
            when ['growth', 'heartbeat'] then growth.call.heartbeat(run_id: options[:run_id], token: options[:token], claim_token: options[:claim_token])
