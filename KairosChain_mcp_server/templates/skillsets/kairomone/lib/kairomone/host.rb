@@ -105,13 +105,13 @@ module Kairomone
     # individual through the registry, preserves an individual already listed
     # under that ID with that identity, and refuses when other individuals live
     # here (several are made with kairomone_create).
-    def init(dot_id:, display_name:)
-      Paths.id!(dot_id)
+    def init(kairomone_id:, display_name:)
+      Paths.id!(kairomone_id)
       with_registry_lock do
         all = listing
-        if (same = all.find { |l| l[:listing_id] == dot_id })
+        if (same = all.find { |l| l[:listing_id] == kairomone_id })
           store = Instance.new(host_root: host_root, root: same[:root])
-          raise Error, "#{dot_id} is listed for another identity (#{store.identity}); choose another ID" unless store.identity == dot_id
+          raise Error, "#{kairomone_id} is listed for another identity (#{store.identity}); choose another ID" unless store.identity == kairomone_id
 
           next { success: true, initialized: false, preserved: true, root: same[:root], profile: store.profile }
         end
@@ -125,8 +125,8 @@ module Kairomone
         end
         name = ComposedText.field!(display_name, 'display_name', Profile::NAME_MAX)
         ComposedText.guard!([name])
-        root = assemble(dot_id) do |staged|
-          staged.open_new!(identity: dot_id, origin: 'create', listing_id: dot_id, name: name)
+        root = assemble(kairomone_id) do |staged|
+          staged.open_new!(identity: kairomone_id, origin: 'create', listing_id: kairomone_id, name: name)
         end
         store = Instance.new(host_root: host_root, root: root)
         { success: true, initialized: true, preserved: false, root: root, profile: store.profile }

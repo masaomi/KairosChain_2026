@@ -1,7 +1,7 @@
 ---
 name: kairomone_guide
 description: Operate Kairomone FreeTier basic safely through its dedicated canonical providers and explicit tools.
-version: '0.6.0'
+version: '0.8.0'
 layer: L1
 tags: [kairomone, basic, local]
 ---
@@ -9,7 +9,7 @@ tags: [kairomone, basic, local]
 # Kairomone FreeTier basic
 
 This executable SkillSet supplies a small, explicit local workflow for any
-number of Kairomones per host (each once called a dot). It provides
+number of Kairomones per host (called dots before 0.8). It provides
 content-derived levels, explicit professions and growth runs the owner starts.
 It does not supply marketplace, payment, an LLM, a continuously running worker,
 a scheduled job or self-modifying L0 features. Use kairomone_profession for
@@ -23,7 +23,7 @@ intelligence or proven skill. Actual research requires the host assistant.
 1. Make a Kairomone with `kairomone_create(kairomone:, profile:, profession:)`
    from the profile and first profession the owner accepted (creation is their
    acceptance; see Profiles and professions below), or with the one-individual
-   shorthand `kairomone_init(dot_id: "my_dot", display_name: "My dot")`, which
+   shorthand `kairomone_init(kairomone_id: "momo", display_name: "Momo")`, which
    gives the host's first Kairomone just a name and is refused while others live
    here. `kairomone_list` shows the Kairomones the host holds; every tool that acts on
    one Kairomone takes `kairomone: <listing_id>`, which may be omitted while the
@@ -42,6 +42,22 @@ intelligence or proven skill. Actual research requires the host assistant.
 5. Call `kairomone_status(render_html: true)` to write a standalone offline HTML
    snapshot at the instance's fixed `exports/status.html`. No server, network,
    background refresh or Site is created. Regenerate to refresh it.
+
+## Growth runs and the interval recipe
+
+Learning happens only inside a run the owner started for one Kairomone, with a
+stop condition — a count of cycles, an end time, or both. Kairomone_Core sets
+no limit on the cycles in a life. `kairomone_growth(command: "run_start",
+kairomone:, owner_words:, cycles:, end_at:)` returns `run_id` and `token`, and
+every later step of that run carries both. To learn at an interval, use Claude
+Code's `/loop` with a line that names the Kairomone, the run and the token:
+
+    /loop 30m Kairomone growth tick: kairomone=<listing_id> run_id=<run_id> token=<token>. Call kairomone_growth run_status with this kairomone and run_id first; if this_run.live is false, report this_run.ended and ask the owner to end this loop; otherwise do one cycle as in bounded-growth.md.
+
+Each tick calls `run_status` first. When the run is no longer live, the tick
+only reports how it ended and asks the owner to end the loop; it never starts
+another run. The loop lasts only while that session is open. The full
+procedure is `docs/bounded-growth.md`.
 
 ## Profiles and professions
 
@@ -188,15 +204,15 @@ record is preserved. Vector indexing is disabled for this bounded basic store.
 On core 3.94 or later the subclass also keeps no L1 body history: those bodies
 would sit in files the backup does not carry, and this create-only store would
 gain nothing from them (an entry is never overwritten). Kairomone before 0.6.1
-let core activate that history, so such a dot's ledger says it is on, also
-after a backup restore. Kairomone's next L1 write to such a dot, on any core,
-first records the switch-off on the dot's own ledger; from then on the ledger
-states what is in force. Until that write, the ledger still says on. Bodies
-already kept under the dot's `l1_history/` stay there, outside the backup; the
-same bodies are in the dot's knowledge files, which the backup carries. The
-dot's `l1_history/state.json` may keep saying active; Kairomone no longer reads
-it. After installing 0.6.1 over an earlier Kairomone, restart every session and
-console that serves the dot before writing to it: a process still running the
+let core activate that history, so such a Kairomone's ledger says it is on,
+also after a backup restore. Kairomone's next L1 write to such an individual,
+on any core, first records the switch-off on its own ledger; from then on the
+ledger states what is in force. Until that write, the ledger still says on.
+Bodies already kept under its `l1_history/` stay there, outside the backup; the
+same bodies are in its knowledge files, which the backup carries. Its
+`l1_history/state.json` may keep saying active; Kairomone no longer reads it.
+After installing 0.6.1 over an earlier Kairomone, restart every session and
+console that serves it before writing to it: a process still running the
 earlier code would keep a body after the switch-off.
 
 ## Integrity and L0
@@ -277,9 +293,9 @@ not promise safe concurrent editing by other processes that ignore these locks.
    archives (restored at a terminal). Whoever holds the key can sign archives
    that host restores without asking.
 3. Call `kairomone_backup(command: "restore_new", file: "BASENAME",
-   dot_id: "EXPECTED_IDENTITY")` for a signed archive (with `target_id` when
+   identity: "EXPECTED_IDENTITY")` for a signed archive (with `target_id` when
    that identity is already listed), or, at a terminal, CLI
-   `backup restore-new --file BASENAME --dot-id EXPECTED_IDENTITY [--target-id NEW_ID]`
+   `backup restore-new --file BASENAME --identity EXPECTED_IDENTITY [--target-id NEW_ID]`
    (it refuses without a terminal, and asks for confirmation when the archive is
    not signed by this host).
 4. Inspect returned integrity/L0 comparison and `kairomone_status`, then use the
@@ -295,8 +311,15 @@ Current host layer governance still controls new L1/L2 writes.
 
 ## Owner console
 
-Version 0.6 adds a page from which the owner talks to the dot, with each tool
-permission answered on the page. The owner starts it at a terminal, in the
+Version 0.6 adds a page from which the owner talks to a Kairomone, with each
+tool permission answered on the page. Since 0.8 the page shows any Kairomone the
+host lists (the switch is the page's own; it changes only what is shown and the
+ID the placed text names), shows each one's drawing as an image, and has panels
+for what waits for the owner — drawings, profiles and professions with their
+proposal IDs and hashes, the branch offer — and for a creation request and an
+export preview request. Every panel only places text in the message box; the
+owner reads it, changes it if they like, and sends it. Placed text never
+accepts or chooses: that is typed by the owner. The owner starts it at a terminal, in the
 project folder, from the installed copy under the data directory
 (`<data_dir>/skillsets/kairomone`; the console refuses to start from any other
 copy):
@@ -317,12 +340,12 @@ the page, ends the console. `--resume SESSION_ID` continues an earlier session
 browser page ── loopback HTTP, 127.0.0.1 only, one-time URL ──▶ console (Ruby, your terminal)
                                                                   │ pipes; a watchdog in a session of its own
                                                                   ▼
-                                                      claude -p ── kairomone_* tools ── .kairos/kairomone/
+                                                      claude -p ── kairomone_* tools ── .kairos/kairomones/<id>/
 ```
 
 What the console holds to:
 
-- It writes nothing to the dot itself. The dot changes only through the
+- It writes nothing to a Kairomone itself. A Kairomone changes only through the
   `kairomone_*` tools the supervised session calls. That session has Bash, Read,
   Grep, Glob and ToolSearch and this project's `kairomone_*` tools, nothing else;
   any other tool, a Bash command with the `run_in_background` flag and a
@@ -366,7 +389,7 @@ What the console holds to:
 What it does not protect (also stated on the page): the session keeps a shell,
 because a learning cycle fetches sources with `curl`. A shell runs with your
 macOS user rights. It can read browser data, change files you can change —
-including the dot's own files, bypassing its locks and ledger — and start a
+including the Kairomones' own files, bypassing their locks and ledgers — and start a
 process that keeps running after the console ends (each Bash command runs in a
 session of its own, which the watchdog does not end; `nohup … &` is enough). In
 the asking mode such a command is asked about unless

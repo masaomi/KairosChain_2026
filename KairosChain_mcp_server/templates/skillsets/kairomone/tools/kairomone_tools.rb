@@ -59,12 +59,14 @@ module KairosMcp
           def name; 'kairomone_init'; end
           def description; 'Make this host\'s one Kairomone (the one-individual shorthand of creation), or confirm the one already listed under that ID. Refused when other Kairomones live here. Host L0 and instruction mode are unchanged.'; end
           def input_schema
-            { type: 'object', properties: { dot_id: { type: 'string', description: 'Identity and listing ID of the new Kairomone' }, display_name: { type: 'string' } }, required: %w[dot_id display_name], additionalProperties: false }
+            { type: 'object', properties: { kairomone_id: { type: 'string', description: 'Identity and listing ID of the new Kairomone' },
+              dot_id: { type: 'string', description: 'The older name of kairomone_id (before 0.8); give one of the two' },
+              display_name: { type: 'string' } }, required: %w[display_name], additionalProperties: false }
           end
           def call(args)
             output do
               single_owner!
-              ::Kairomone::Instance.new(bind: false).init(dot_id: args['dot_id'], display_name: args['display_name'])
+              ::Kairomone::Instance.new(bind: false).init(kairomone_id: args['kairomone_id'], dot_id: args['dot_id'], display_name: args['display_name'])
             end
           end
         end
@@ -339,12 +341,13 @@ module KairosMcp
 
         class Backup < Base
           def name; 'kairomone_backup'; end
-          def description; 'Create or verify a Kairomone backup (signed with this host\'s archive key), or restore one as a new listed Kairomone: restore takes a file in that Kairomone\'s backups directory and a target_id (its identity is listed, so the copy is a twin); restore_new takes a file in the host kairomone-inbox and the identity it must hold (dot_id), with target_id when that identity is already listed. Here only an archive this host signed restores; any other (a 0.6.1 backup, another machine\'s) restores only in the owner\'s own terminal, where its free text is shown first. Backups are unencrypted and may hold private text.'; end
+          def description; 'Create or verify a Kairomone backup (signed with this host\'s archive key), or restore one as a new listed Kairomone: restore takes a file in that Kairomone\'s backups directory and a target_id (its identity is listed, so the copy is a twin); restore_new takes a file in the host kairomone-inbox and the identity it must hold (identity), with target_id when that identity is already listed. Here only an archive this host signed restores; any other (a 0.6.1 backup, another machine\'s) restores only in the owner\'s own terminal, where its free text is shown first. Backups are unencrypted and may hold private text.'; end
           def input_schema
             { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: %w[create verify restore restore_new] },
               file: { type: 'string', description: 'Backup basename: in this Kairomone\'s backups directory (restore, verify) or the host kairomone-inbox (restore_new)' },
               target_id: { type: 'string', description: 'Listing ID for the restored Kairomone: needed by restore, and by restore_new when the identity is already listed' },
-              dot_id: { type: 'string', description: 'restore_new: the identity the archive must hold' } }, required: ['command'], additionalProperties: false }
+              identity: { type: 'string', description: 'restore_new: the identity the archive must hold' },
+              dot_id: { type: 'string', description: 'restore_new: the older name of identity (before 0.8)' } }, required: ['command'], additionalProperties: false }
           end
           def call(args)
             output do
@@ -354,7 +357,7 @@ module KairosMcp
               when 'restore' then instance(args).restore_backup(file: args['file'], target_id: args['target_id'])
               when 'restore_new'
                 single_owner!
-                ::Kairomone::Instance.new(bind: false).restore_new(file: args['file'], dot_id: args['dot_id'], target_id: args['target_id'])
+                ::Kairomone::Instance.new(bind: false).restore_new(file: args['file'], identity: args['identity'], dot_id: args['dot_id'], target_id: args['target_id'])
               else raise ::Kairomone::Error, 'Expected create, verify, restore or restore_new'
               end
             end

@@ -7,7 +7,7 @@ module Kairomone
     # The project folder the console serves, read once at start. Everything the
     # child is given comes from here: the single MCP server, the data
     # directory that server writes, and the restrictive permission rules the
-    # owner saved for this folder. Nothing in this class writes to the dot.
+    # owner saved for this folder. Nothing in this class writes to a Kairomone.
     class Project
       SERVER_NAME = /\A[A-Za-z0-9_-]{1,64}\z/
       CONFIG_LIMIT = 1_048_576

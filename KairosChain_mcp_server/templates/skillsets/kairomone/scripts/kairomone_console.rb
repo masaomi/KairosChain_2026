@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Kairomone console: a page in the owner's browser for talking to the dot
+# Kairomone console: a page in the owner's browser for talking to a Kairomone
 # through one supervised Claude Code session, with each tool permission
 # answered on the page. The owner starts it at a terminal, in the project
 # folder:

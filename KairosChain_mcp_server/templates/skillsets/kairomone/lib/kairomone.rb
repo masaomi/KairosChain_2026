@@ -16,7 +16,7 @@ require 'kairos_mcp/skills_config'
 
 module Kairomone
   class Error < StandardError; end
-  VERSION = '0.8.0.pre1'
+  VERSION = '0.8.0'
   PACKAGE_ROOT = File.expand_path('..', __dir__)
 end
 

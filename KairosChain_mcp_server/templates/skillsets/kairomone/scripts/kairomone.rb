@@ -19,7 +19,9 @@ parser = OptionParser.new do |p|
              'profession list|select|knowledge create|get|list|transplant|pending-transplants|art get|backup create|verify|restore|restore-new|missing|l0 rebaseline [options]'
   p.on('--kairomone ID', 'Listing ID of the Kairomone (needed for writes when the host lists several)') { |v| options[:kairomone] = v }
   p.on('--json-stdin', 'Read companion arguments as bounded JSON, never shell text') { options[:json_stdin] = true }
-  p.on('--dot-id ID') { |v| options[:dot_id] = v }
+  p.on('--kairomone-id ID', 'init: identity and listing ID of the new Kairomone') { |v| options[:kairomone_id] = v }
+  p.on('--identity ID', 'restore-new: the identity the archive must hold') { |v| options[:identity] = v }
+  p.on('--dot-id ID', 'The older name (before 0.8) of --kairomone-id for init and of --identity for restore-new') { |v| options[:dot_id] = v }
   p.on('--name NAME') { |v| options[:display_name] = v }
   p.on('--title TITLE') { |v| options[:title] = v }
   p.on('--content TEXT') { |v| options[:content] = v }
@@ -105,7 +107,7 @@ begin
   result = begin
     case [command, subcommand]
            when ['list', nil] then { success: true, kairomones: host.summaries }
-           when ['init', nil] then Kairomone::Instance.new(bind: false).init(dot_id: options[:dot_id], display_name: options[:display_name])
+           when ['init', nil] then Kairomone::Instance.new(bind: false).init(kairomone_id: options[:kairomone_id], dot_id: options[:dot_id], display_name: options[:display_name])
            when ['status', nil] then store.call.status(render_html: options[:render_html] == true)
            when ['observe', nil] then store.call.observe(title: options[:title], content: options[:content])
            when ['knowledge', 'create'] then store.call.create_knowledge(id: options[:id], title: options[:title], content: options[:content])
@@ -138,7 +140,7 @@ begin
                file = options[:file]
                raise Kairomone::Error, 'Backup filename must be a basename ending in .kairomone.json' unless file.is_a?(String) && Kairomone::Paths::BACKUP_NAME.match?(file)
                # restore: a file in the named Kairomone's backups/; restore-new: a
-               # file in the host kairomone-inbox/, checked against --dot-id.
+               # file in the host kairomone-inbox/, checked against --identity.
                bytes = if subcommand == 'restore'
                          Kairomone::Paths.read(store.call.root, "backups/#{file}", limit: Kairomone::Instance::ARCHIVE_LIMIT)
                        else
@@ -151,8 +153,7 @@ begin
                  tty.flush
                  tty.gets.to_s.strip == nonce
                end
-               expected = subcommand == 'restore-new' ? options[:dot_id] : nil
-               raise Kairomone::Error, 'restore-new needs --dot-id' if subcommand == 'restore-new' && expected.nil?
+               expected = subcommand == 'restore-new' ? Kairomone::Instance.renamed_id!(options[:identity], options[:dot_id], '--identity') : nil
                host.restore(bytes, trust: confirm, listing_id: options[:target_id], expected_identity: expected)
              ensure
                tty.close

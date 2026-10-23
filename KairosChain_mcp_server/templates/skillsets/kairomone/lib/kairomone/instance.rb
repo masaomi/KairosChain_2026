@@ -35,15 +35,16 @@ module Kairomone
     include ExistingRecord
   end
 
-  # Kairomone before 0.6.1 let core 3.94+ activate L1 body history on the dot,
-  # and such a dot's ledger still says so, also after a backup restore and on a
-  # core that never asks the provider about history. Before the write it
-  # guards, the switch-off is recorded on that ledger, in core's record shape,
-  # so after every Kairomone L1 write the ledger states the regime in force. Only
-  # the ledger is read: <dot>/l1_history/state.json may still say active and is
-  # left as it is, and bodies already under l1_history/ stay there.
+  # Kairomone before 0.6.1 let core 3.94+ activate L1 body history on the
+  # individual, and such an individual's ledger still says so, also after a
+  # backup restore and on a core that never asks the provider about history.
+  # Before the write it guards, the switch-off is recorded on that ledger, in
+  # core's record shape, so after every Kairomone L1 write the ledger states
+  # the regime in force. Only the ledger is read: <individual>/l1_history/
+  # state.json may still say active and is left as it is, and bodies already
+  # under l1_history/ stay there.
   module BodyHistory
-    SWITCH_OFF_REASON = "Kairomone keeps no L1 body history; bodies stay in the dot's knowledge files"
+    SWITCH_OFF_REASON = "Kairomone keeps no L1 body history; bodies stay in the dot's knowledge files" # recorded text; kept as written before 0.8
 
     module_function
 
@@ -62,8 +63,8 @@ module Kairomone
       declared
     end
 
-    # ledger: a Chain whose load_state the caller has checked under the dot's
-    # lock. Raises Error unless the switch-off is confirmed on the ledger, so
+    # ledger: a Chain whose load_state the caller has checked under the
+    # individual's lock. Raises Error unless the switch-off is confirmed on the ledger, so
     # the guarded write does not happen.
     def close!(ledger, reread)
       return unless declared_active?(ledger)
@@ -81,9 +82,9 @@ module Kairomone
       end
       return if confirmed
 
-      raise Error, "The end of L1 body history may or may not be on the dot ledger; nothing else was written: #{e.message}"
+      raise Error, "The end of L1 body history may or may not be on the Kairomone's ledger; nothing else was written: #{e.message}"
     rescue StandardError => e
-      raise Error, "Could not record the end of L1 body history on the dot ledger; nothing was written: #{e.message}"
+      raise Error, "Could not record the end of L1 body history on the Kairomone's ledger; nothing was written: #{e.message}"
     end
   end
 
@@ -152,14 +153,23 @@ module Kairomone
       legacy_slot? ? identity : File.basename(root)
     end
 
+    # An ID given under its 0.8 name or under the name it had before 0.8
+    # (dot_id, when a Kairomone was called a dot); either is read, not both.
+    def self.renamed_id!(current, older, field)
+      raise Error, "Give #{field} (dot_id is its older name), not both" if current && older && current != older
+      raise Error, "#{field} is required" if current.nil? && older.nil?
+
+      Paths.id!(current || older)
+    end
+
     # kairomone_init through the registry (Host#init). The Instance serves the
     # individual init made or preserved.
-    def init(dot_id:, display_name:)
-      Paths.id!(dot_id)
+    def init(display_name:, kairomone_id: nil, dot_id: nil)
+      id = Instance.renamed_id!(kairomone_id, dot_id, 'kairomone_id')
       title = text!(display_name, 'display_name', 256) # the composed-text rules apply when a new one is made (Host#init)
       raise Error, 'Restored targets are read-only; activation is a separate operator decision' if @restored
 
-      result = @host.init(dot_id: dot_id, display_name: title)
+      result = @host.init(kairomone_id: id, display_name: title)
       @root = result.delete(:root)
       result.merge(kairomone: address)
     end

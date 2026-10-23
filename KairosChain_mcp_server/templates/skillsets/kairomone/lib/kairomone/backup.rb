@@ -155,11 +155,12 @@ module Kairomone
     # Restores an archive the owner placed in <data_dir>/kairomone-inbox/. Its
     # identity must be the expected one; it is listed under that identity, or
     # under target_id when the identity is already listed.
-    def restore_new(file:, dot_id:, target_id: nil)
-      Paths.id!(dot_id)
+    # identity: the identity the archive must hold (dot_id: its name before 0.8).
+    def restore_new(file:, identity: nil, dot_id: nil, target_id: nil)
+      expected = Instance.renamed_id!(identity, dot_id, 'identity')
       Paths.id!(target_id) if target_id
       raise Error, 'Restored inspection targets cannot activate another instance' if @restored
-      result = @host.restore(read_archive_file(file, inbox: true), expected_identity: dot_id, listing_id: target_id, trust: :signed)
+      result = @host.restore(read_archive_file(file, inbox: true), expected_identity: expected, listing_id: target_id, trust: :signed)
       @root ||= result[:path]
       result
     end
@@ -326,7 +327,7 @@ module Kairomone
       if !signed && !trust.respond_to?(:call)
         raise Error, 'This archive is not signed with this host\'s archive key (a 0.6.1 backup, another machine\'s, or one signed by a lost key). ' \
                      'The owner restores it in their own terminal, where its free text is shown first: for a file in kairomone-inbox/, ' \
-                     'ruby .kairos/skillsets/kairomone/scripts/kairomone.rb backup restore-new --file NAME --dot-id IDENTITY; for a file in ' \
+                     'ruby .kairos/skillsets/kairomone/scripts/kairomone.rb backup restore-new --file NAME --identity IDENTITY; for a file in ' \
                      'a Kairomone\'s backups/, ... backup restore --kairomone LISTING_ID --file NAME. Add --target-id NEW_ID when the ' \
                      'identity is already listed.'
       end
