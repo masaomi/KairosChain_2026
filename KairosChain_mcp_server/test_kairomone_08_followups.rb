@@ -151,6 +151,7 @@ class Kairomone08FollowupsTest < Minitest::Test
   end
 
   def test_a_retired_subject_id_is_followed_to_its_current_successor
+    Kairomone::Vocabulary.subjects # loads the vocabulary whichever test runs first
     cache = Kairomone::Vocabulary.instance_variable_get(:@cache)
     original = cache['subjects.json']
     cache['subjects.json'] = original.merge('aliases' => { 'old_ecology' => 'older_ecology', 'older_ecology' => 'ecology' })
