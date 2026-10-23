@@ -185,9 +185,14 @@ module Kairomone
         raise Error, 'The proposed profession no longer reads as a profession' unless Profession.shape?(piece)
         Profession.build(piece.slice('name', 'description', 'focus', 'habits'), parents: piece['parents'], tier: piece['tier'], origin: piece['origin'])
         ComposedText.guard!(Profession.texts(piece))
+        # A received piece keeps the bytes (and sha256) it was sent with, so
+        # its lineage reads the same here; the acceptance says it came in.
+        if doc['received_sha256'] && doc['received_sha256'] != Digest::SHA256.hexdigest(JSON.pretty_generate(piece) + "\n")
+          raise Error, 'The received profession does not match the sha256 it was sent with'
+        end
         sha = write_piece('professions', piece)
-        Records.append!(ledger, [{ 'type' => 'kairomone_profession', 'sha256' => sha, 'origin' => piece['origin'], 'proposal_sha256' => proposal,
-                                   'parents' => piece['parents'] }], -> { chain })
+        Records.append!(ledger, [{ 'type' => 'kairomone_profession', 'sha256' => sha, 'origin' => doc['received_sha256'] ? 'import' : piece['origin'],
+                                   'proposal_sha256' => proposal, 'parents' => piece['parents'] }], -> { chain })
         { success: true, accepted: true, sha256: sha, profession: profession_status, kairomone: address }
       end
     end
@@ -256,23 +261,44 @@ module Kairomone
       doc && doc['kind'] == 'profession_offer' && doc['candidates'].is_a?(Array) && doc['candidates'].length == 3 ? { sha: record['sha256'], doc: doc } : nil
     end
 
-    # The chain of parents back to a template or a first profession.
+    # Every ancestor back to templates or first professions, nearest first;
+    # a fused profession has two parents and both lines are followed.
     def profession_lineage(piece)
-      chain_of = []
+      out = []
       seen = {}
-      parents = Array(piece['parents'])
-      while (parent = parents.first) && chain_of.length < 16 && !seen[parent]
+      queue = Array(piece['parents']).dup
+      while (parent = queue.shift) && out.length < 32
+        next if seen[parent]
+
         seen[parent] = true
         if parent.start_with?('template:')
           t = Vocabulary.template(parent.delete_prefix('template:'))
-          chain_of << { id: parent, name: t ? t['name'] : parent }
-          break
+          out << { id: parent, name: t ? t['name'] : parent }
+          next
         end
         found = profession_piece(parent)
-        chain_of << { id: parent, name: found ? found['name'] : '(absent)' }
-        parents = found ? Array(found['parents']) : []
+        out << { id: parent, name: found ? found['name'] : '(absent)' }
+        queue.concat(Array(found['parents'])) if found
       end
-      chain_of
+      out
+    end
+
+    # The professions these IDs name and every ancestor of theirs present
+    # here, nearest first: [[sha, piece]], at most `limit`. What travels with
+    # a profession so that its lineage reads the same where it arrives.
+    def profession_ancestry(ids, limit:)
+      out = []
+      seen = {}
+      queue = Array(ids).dup
+      while (id = queue.shift) && out.length < limit
+        next if seen[id] || id.start_with?('template:')
+
+        seen[id] = true
+        piece = profession_piece(id) or next
+        out << [id, piece]
+        queue.concat(Array(piece['parents']))
+      end
+      out
     end
   end
 end

@@ -13,14 +13,19 @@ module Kairomone
     PAGE_BYTES = 24 * 1024
     MODES = %w[keep merge].freeze
     PLAN_TTL = 7 * 24 * 3600
+    HOLDS_MAX = 256 # what an exchange file carries per entry (Exchange.load)
+    SOURCES = 'lineage' # the child's record of where each of its entries came from
   end
 
   class Host
     # Both parents' L1 for the composer: id, title, body, sha256, recorded
     # identity and outside flag, paged; with each parent's ledger head.
-    def fusion_material(parents:, page: 1)
+    # bodies: false gives titles, hashes and sizes only, for a plan that
+    # keeps entries by citing them.
+    def fusion_material(parents:, page: 1, bodies: true)
       a, b = fusion_parents(parents)
       raise Error, 'page is a positive integer' unless page.is_a?(Integer) && page.positive?
+      raise Error, 'bodies is true or false' unless [true, false].include?(bodies)
 
       items = []
       heads = {}
@@ -29,14 +34,18 @@ module Kairomone
         heads[parent.listing_id] = ledger.latest_block&.hash
         items << { 'item' => 'parent', 'listing_id' => parent.listing_id, 'identity' => parent.identity(ledger), 'name' => parent.name,
                    'profession' => parent.profession_status[:current].slice(:id, :name, :focus, :habits) }
-        items += parent.send(:fusion_entries, ledger).map { |e| { 'item' => 'entry', 'parent' => parent.listing_id }.merge(e) }
+        items += parent.send(:fusion_entries, ledger).map do |e|
+          shown = bodies ? e : e.reject { |k, _| k == 'body' }.merge('bytes' => e['body'].bytesize)
+          { 'item' => 'entry', 'parent' => parent.listing_id }.merge(shown)
+        end
       end
       pages = fusion_pages(items)
       raise Error, "page runs from 1 to #{pages.length}" if page > pages.length
 
       { success: true, parents: [a.listing_id, b.listing_id], heads: heads, page: page, pages: pages.length, items: pages[page - 1],
         note: 'Propose the child from this material: a draft profile, three profession candidates and its entries, each kept from ' \
-              'one parent entry or merged from several, citing them by parent, entry_id and sha256.' }
+              'one parent entry or merged from several, citing them by parent, entry_id and sha256. A kept entry needs only its id, ' \
+              'mode and source: its title and body are copied from the source.' }
     end
 
     # Stores the composer's plan; nothing takes effect until the owner
@@ -96,11 +105,17 @@ module Kairomone
     end
 
     # Makes the child when the owner accepts the plan with one candidate.
+    # Accepting a plan again after it made its child returns that child.
     def fusion_accept(plan:, candidate:)
       raise Error, 'candidate is 0, 1 or 2' unless [0, 1, 2].include?(candidate)
+      raise Error, 'plan must be a plan sha256' unless Progression::SHA.match?(plan.to_s)
 
       governed!('L1')
       with_registry_lock do
+        if (made = fused_from(plan))
+          next { success: true, fused: true, preserved: true, kairomone: made.address, level: made.progression_status[:level],
+                 note: 'This plan already made this child; nothing changed.' }
+        end
         doc = fusion_plan(plan)
         a, b = fusion_parents(doc['parents'])
         # The pieces are judged by the rules current now, as every accept is.
@@ -118,8 +133,11 @@ module Kairomone
             end
             sources_of = { a.listing_id => a, b.listing_id => b }.to_h { |id, parent| [id, parent.send(:fusion_entries).to_h { |e| [e['id'], e] }] }
             fusion_plan_entries!(doc['entries'], sources_of)
+            # The parents' professions travel with the child so its lineage
+            # reads both lines; they are in force only by its own record.
+            lineage_pieces = [a, b].flat_map { |p| p.send(:profession_ancestry, [p.profession_status[:current][:id]], limit: 64) }.uniq(&:first)
             path = assemble(doc['child']) do |staged|
-              staged.fuse_into!(doc.merge('profile' => piece), plan, profession, [a, b], sources_of)
+              staged.fuse_into!(doc.merge('profile' => piece), plan, profession, [a, b], sources_of, lineage_pieces)
               doc['child']
             end
             relative = "#{Fusion::PLANS}/#{plan}.json"
@@ -162,6 +180,19 @@ module Kairomone
       pages
     end
 
+    # The listed individual a plan made, if any (a retry after the plan was
+    # used).
+    def fused_from(plan)
+      listing.each do |l|
+        store = Instance.new(host_root: host_root, root: l[:root])
+        record = Records.of_type(store.chain, 'kairomone_lineage').first
+        return store if record && record['kind'] == 'fusion' && record['plan_sha256'] == plan
+      rescue StandardError
+        next
+      end
+      nil
+    end
+
     def fusion_parents(parents)
       ids = Array(parents)
       raise Error, 'Name exactly two parents' unless ids.length == 2
@@ -181,6 +212,7 @@ module Kairomone
 
       relative = "#{Fusion::PLANS}/#{sha}.json"
       raise Error, 'No such fusion plan' unless File.file?(Paths.checked(host_root, relative))
+      raise Error, 'This fusion plan expired; propose again' if File.mtime(Paths.checked(host_root, relative)) < Time.now - Fusion::PLAN_TTL
 
       bytes = Paths.read(host_root, relative, limit: 64 * 1024 * 1024)
       raise Error, 'The fusion plan does not match its hash' unless Digest::SHA256.hexdigest(bytes) == sha
@@ -199,25 +231,39 @@ module Kairomone
 
       planned = entries.map do |e|
         e = e.transform_keys(&:to_s) if e.is_a?(Hash)
-        raise Error, 'Each entry is {id, title, content, mode, sources}' unless e.is_a?(Hash) && e.keys.sort == %w[content id mode sources title]
+        # A merged entry carries its own title and text; a kept one cites its
+        # source and may leave both out, since they are copied from it.
+        ok = e.is_a?(Hash) && (%w[id mode sources] - e.keys).empty? && (e.keys - %w[id mode sources title content]).empty?
+        raise Error, 'Each entry is {id, mode, sources} with title and content (a kept entry may leave those out)' unless ok
 
         Paths.id!(e['id'])
         raise Error, "Entry #{e['id']}: mode is keep or merge" unless Fusion::MODES.include?(e['mode'])
-        raise Error, "Entry #{e['id']}: title is text of at most 512 bytes" unless e['title'].is_a?(String) && !e['title'].strip.empty? && e['title'].bytesize <= 512
-        raise Error, "Entry #{e['id']}: content is text of at most #{Instance::MAX_CONTENT} bytes" unless e['content'].is_a?(String) && !e['content'].strip.empty? && e['content'].bytesize <= Instance::MAX_CONTENT
 
         sources = Array(e['sources']).map { |s| s.is_a?(Hash) ? s.transform_keys(&:to_s) : {} }
         raise Error, "Entry #{e['id']}: cite at least one source" if sources.empty?
         raise Error, "Entry #{e['id']}: a kept entry has one source" if e['mode'] == 'keep' && sources.length != 1
 
-        sources.each do |s|
+        cited = sources.map do |s|
           held = sources_of.dig(s['parent'], s['entry_id'])
           raise Error, "Entry #{e['id']}: #{s['parent']}/#{s['entry_id']} is not a parent entry" unless held
           raise Error, "Entry #{e['id']}: #{s['parent']}/#{s['entry_id']} no longer holds the cited content" unless held['sha256'] == s['sha256']
+
+          held
         end
-        if e['mode'] == 'keep' && sources_of.dig(sources[0]['parent'], sources[0]['entry_id'], 'body').to_s.strip != e['content'].strip
-          raise Error, "Entry #{e['id']}: a kept entry differs from its source"
+        holds = cited.flat_map { |c| [c['identity'], *c['holds']] }.uniq
+        if holds.length > Fusion::HOLDS_MAX
+          raise Error, "Entry #{e['id']} would hold #{holds.length} identities, over the #{Fusion::HOLDS_MAX} an entry holds; merge fewer sources into it"
         end
+
+        if e['mode'] == 'keep'
+          source = cited.first
+          raise Error, "Entry #{e['id']}: a kept entry differs from its source" if e.key?('content') && e['content'].to_s.strip != source['body'].strip
+
+          e = e.merge('title' => e.key?('title') ? e['title'] : source['title'], 'content' => source['body'])
+        end
+        raise Error, "Entry #{e['id']}: title is text of at most 512 bytes" unless e['title'].is_a?(String) && !e['title'].strip.empty? && e['title'].bytesize <= 512
+        raise Error, "Entry #{e['id']}: content is text of at most #{Instance::MAX_CONTENT} bytes" unless e['content'].is_a?(String) && !e['content'].strip.empty? && e['content'].bytesize <= Instance::MAX_CONTENT
+
         { 'id' => e['id'], 'title' => e['title'], 'content' => e['content'], 'mode' => e['mode'],
           'sources' => sources.map { |s| s.slice('parent', 'entry_id', 'sha256') } }
       end
@@ -229,26 +275,32 @@ module Kairomone
 
   class Instance
     # Assembles the fused child in this staged individual.
-    def fuse_into!(plan, plan_sha, profession, parents, sources_of)
+    # The plan file is removed once used; the child keeps, as a piece its
+    # lineage record names, where each of its entries came from.
+    def fuse_into!(plan, plan_sha, profession, parents, sources_of, lineage_pieces = [])
       child = plan['child']
       now = Time.now.utc.iso8601
-      lineage = { 'type' => 'kairomone_lineage', 'kind' => 'fusion', 'plan_sha256' => plan_sha,
+      origins = { 'kind' => 'fusion_sources', 'plan_sha256' => plan_sha, 'parents' => plan['parents'], 'heads' => plan['heads'],
+                  'entries' => plan['entries'].map { |e| e.slice('id', 'mode', 'sources') } }
+      origins_sha = Digest::SHA256.hexdigest(JSON.pretty_generate(origins) + "\n")
+      lineage = { 'type' => 'kairomone_lineage', 'kind' => 'fusion', 'plan_sha256' => plan_sha, 'entries_sha256' => origins_sha,
                   'sources' => parents.map { |p| { 'identity' => p.identity, 'listing_id' => p.listing_id, 'name' => p.name, 'ledger_head' => plan['heads'][p.listing_id] } } }
       open_new!(identity: child, origin: 'fusion', listing_id: child, profile_piece: plan['profile'], profession_piece: profession, lineage: lineage)
+      raise Error, 'The fusion sources could not be kept' unless write_piece(Fusion::SOURCES, origins) == origins_sha
+
+      lineage_pieces.each { |_sha, piece| write_piece('professions', piece) }
       ledger = chain
       writes = plan['entries'].map do |e|
         raw = document(e['id'], e['title'], e['content'], 'L1', now)
         cited = e['sources'].map { |s| sources_of.dig(s['parent'], s['entry_id']) }
-        # A child holds each cited entry's identity and what that entry holds.
+        # A child holds each cited entry's identity and what that entry holds
+        # (at most Fusion::HOLDS_MAX, checked when the plan was read).
         entry = xp_entry('L1', e['id'], Progression.fingerprint(e['content']), raw, counted: false,
-                         holds: cited.flat_map { |c| [c['identity'], *c['holds']] }.uniq.first(256))
+                         holds: cited.flat_map { |c| [c['identity'], *c['holds']] }.uniq)
         [e['id'], raw, entry.merge('outside' => cited.any? { |c| c['outside'] })]
       end
       record_identities!(writes.map { |_, _, entry| entry }, ledger)
-      writes.each do |id, raw, _|
-        written = write_l1_raw(id, raw, 'Kairomone fusion: inherited entry')
-        raise Error, "Inherited entry #{id} could not be recorded" unless written[:success]
-      end
+      write_l1_all!(writes.map { |id, raw, _| [id, raw] }, 'Kairomone fusion: inherited entry')
     end
 
     private

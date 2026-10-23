@@ -427,12 +427,13 @@ module Kairomone
 
     def knowledge_entries(ledger = chain)
       entries = entry_ids('knowledge')
+      latest = latest_l1_hashes(ledger) # one pass over the ledger, not one per entry
       entries.map do |id|
         raw = Paths.read(root, "knowledge/#{id}/#{id}.md")
         entry = knowledge_provider.get(id)
         raise Error, "Malformed L1 entry: #{id}" unless entry && entry.name == id && entry.layer == 'L1'
         hash = Digest::SHA256.hexdigest(raw)
-        { 'id' => id, 'title' => entry.description, 'hash' => hash, 'recorded' => recorded?(id, hash, ledger) }
+        { 'id' => id, 'title' => entry.description, 'hash' => hash, 'recorded' => latest[id] == hash }
       end
     end
 
@@ -503,14 +504,31 @@ module Kairomone
     # Writes an L1 entry with these exact bytes through the canonical
     # provider. KnowledgeProvider deliberately rescues recording errors, so
     # success is read from the disk and the ledger again, never from its flag.
-    def write_l1_raw(id, raw, reason)
+    # verify: false reads only the disk; write_l1_all! reads the ledger once
+    # for all its entries.
+    def write_l1_raw(id, raw, reason, verify: true)
       result = knowledge_provider.create(id, raw, reason: reason)
       written = File.exist?(Paths.checked(root, "knowledge/#{id}/#{id}.md"))
       persisted = written && Paths.read(root, "knowledge/#{id}/#{id}.md") == raw.b
+      return { success: !!persisted, id: id, data_written: !!persisted } unless verify
+
       verified = persisted && recorded?(id, Digest::SHA256.hexdigest(raw), chain)
       { success: !!verified, id: id, layer: 'L1', canonical: !!persisted,
         data_written: !!persisted, recorded_on_chain: !!verified, pending: persisted && !verified,
         error: (verified ? nil : result[:error] || 'Content may be present, but its canonical ledger record could not be verified; inspect status before retrying') }.compact
+    end
+
+    # Writes many L1 entries through the canonical provider, each read back
+    # from disk, then reads the ledger once to confirm every record (an
+    # import or a fusion writing hundreds of entries would otherwise re-read
+    # the whole ledger per entry). writes: [[id, raw]].
+    def write_l1_all!(writes, reason)
+      writes.each do |id, raw|
+        raise Error, "Entry #{id} could not be written" unless write_l1_raw(id, raw, reason, verify: false)[:data_written]
+      end
+      latest = latest_l1_hashes(chain)
+      missing = writes.reject { |id, raw| latest[id] == Digest::SHA256.hexdigest(raw) }.map(&:first)
+      raise Error, "Entries could not be recorded: #{missing.first(10).join(', ')}" unless missing.empty?
     end
 
     # A content-addressed piece (profile version, profession, drawing): the
@@ -570,14 +588,22 @@ module Kairomone
     end
 
     def recorded?(id, hash, ledger)
-      return false unless ledger.valid?
-      events = ledger.chain.flat_map(&:data).filter_map do |data|
-        JSON.parse(data) if data.is_a?(String)
-      rescue JSON::ParserError
-        nil
+      latest_l1_hashes(ledger)[id] == hash
+    end
+
+    # The hash each L1 entry's latest knowledge_update record names, from one
+    # pass over a valid ledger.
+    def latest_l1_hashes(ledger)
+      return {} unless ledger.valid?
+
+      ledger.chain.flat_map(&:data).each_with_object({}) do |data, latest|
+        event = begin
+          JSON.parse(data) if data.is_a?(String)
+        rescue JSON::ParserError
+          nil
+        end
+        latest[event['knowledge_id']] = event['next_hash'] if event.is_a?(Hash) && event['type'] == 'knowledge_update' && event['layer'] == 'L1'
       end
-      latest = events.reverse.find { |event| event.is_a?(Hash) && event['type'] == 'knowledge_update' && event['layer'] == 'L1' && event['knowledge_id'] == id }
-      latest && latest['next_hash'] == hash ? true : false
     end
 
     def with_lock

@@ -19,14 +19,18 @@ module Kairomone
     OUTBOX = 'kairomone-outbox'
     PREVIEWS = 'kairomone-previews' # host-private: never inside the hand-off folder
     INBOX = 'kairomone-inbox'
-    KINDS = %w[learned owner_written inherited].freeze
+    # learned: written by a cycle or carried with its evidence; inherited:
+    # held and never counted; received: counted content that came from
+    # outside (an import); owner_written: the rest (Inv 8).
+    KINDS = %w[learned owner_written inherited received].freeze
     PAGE_BYTES = 24 * 1024
     PREVIEW_TTL = 24 * 3600
     FILE_LIMIT = 32 * 1024 * 1024
     PROFILE_FIELDS = %w[name kind kind_label appearance personality voice interests].freeze
-    PROFESSION_FIELDS = %w[name description focus habits tier parents].freeze
+    PROFESSION_FIELDS = %w[name description focus habits tier parents origin].freeze
     PIECES_MAX = 64
-    TOP = %w[format version source includes pieces entries xp_basis lineage manifest_sha256].freeze
+    TOP = %w[format version renderer source includes pieces entries xp_basis lineage manifest_sha256].freeze
+    PREVIEW_FILE = /\A[0-9a-f]{64}(?:\.p\d{1,6})?\.(?:json|file)\z/
 
     module_function
 
@@ -43,6 +47,7 @@ module Kairomone
 
       source = doc['source']
       short = ->(v, max) { v.is_a?(String) && v.bytesize <= max }
+      raise Error, 'Invalid exchange renderer' unless short.call(doc['renderer'], 64)
       unless source.is_a?(Hash) && source.keys.sort == %w[exported_at identity ledger_head name] && Paths::ID.match?(source['identity'].to_s) &&
              short.call(source['name'], 256) && short.call(source['exported_at'], 64) && (source['ledger_head'].nil? || short.call(source['ledger_head'], 128))
         raise Error, 'Invalid exchange source'
@@ -103,11 +108,22 @@ module Kairomone
           bytes = Exchange.bytes(doc)
           raise Error, "This file would be #{bytes.bytesize} bytes, over the #{Exchange::FILE_LIMIT} an import reads; include less" if bytes.bytesize > Exchange::FILE_LIMIT
 
+          # The importer's integrity and shape checks, run on the bytes the
+          # export would write: no file is offered that an import refuses.
+          begin
+            Exchange.load(bytes)
+          rescue Error => e
+            raise Error, "An import would refuse this file (#{e.message}); include less"
+          end
           sha = Digest::SHA256.hexdigest(bytes)
+          pages = exchange_pages(doc, left_out['entries']).map { |items| JSON.generate(items) }
           @host.send(:prune_exchange_previews!)
           Paths.mkdir(host_root, Exchange::PREVIEWS)
-          Paths.write(host_root, "#{Exchange::PREVIEWS}/#{sha}.json", JSON.generate(inputs.merge('left_out' => left_out)), replace: true)
+          pages.each_with_index { |page, i| Paths.write(host_root, "#{Exchange::PREVIEWS}/#{sha}.p#{i + 1}.json", page, replace: true) }
           Paths.write(host_root, "#{Exchange::PREVIEWS}/#{sha}.file", bytes, replace: true)
+          Paths.write(host_root, "#{Exchange::PREVIEWS}/#{sha}.json",
+                      JSON.generate(inputs.merge('left_out' => left_out, 'bytes' => bytes.bytesize, 'pages' => pages.map { |p| Digest::SHA256.hexdigest(p) })),
+                      replace: true)
           exchange_preview_page(sha, 1)
         end
       end
@@ -139,7 +155,8 @@ module Kairomone
           Paths.mkdir(host_root, Exchange::OUTBOX)
           name = "#{listing_id}-#{Time.now.utc.strftime('%Y%m%dT%H%M%SZ')}-#{SecureRandom.hex(4)}.kairomone-exchange.json"
           path = Paths.write(host_root, "#{Exchange::OUTBOX}/#{name}", bytes)
-          [relative, relative.sub(/\.json\z/, '.file')].each { |r| File.delete(Paths.checked(host_root, r)) if File.file?(Paths.checked(host_root, r)) }
+          used = [relative, relative.sub(/\.json\z/, '.file')] + Array(inputs['pages']).each_index.map { |i| "#{Exchange::PREVIEWS}/#{file_sha256}.p#{i + 1}.json" }
+          used.each { |r| File.delete(Paths.checked(host_root, r)) if File.file?(Paths.checked(host_root, r)) }
           @host.send(:prune_exchange_previews!)
           { success: true, exported: true, kairomone: address, file: name, path: path, file_sha256: file_sha256,
             manifest_sha256: doc['manifest_sha256'], entries: doc['entries'].length,
@@ -149,10 +166,13 @@ module Kairomone
     end
 
     # Stores a parsed exchange file into this staged individual (Host#import_exchange).
-    def import_exchange_into!(doc, listing:)
+    def import_exchange_into!(doc, listing:, keep_pieces: true)
       now = Time.now.utc.iso8601
       entries = doc['entries']
       basis = doc['xp_basis'].to_h { |b| [[b['layer'], b['id']], b] }
+      if entries.any? { |e| e['evidence'] } && doc['renderer'] != Autonomy::KNOWLEDGE_RENDERER
+        raise Error, "This file's learned entries were rendered by #{doc['renderer']}; this Kairomone renders #{Autonomy::KNOWLEDGE_RENDERER}; refused"
+      end
       writes = []
       # One identity rule, whatever kind the file names: an entry whose
       # evidence travels is checked against the evidence; any other entry's
@@ -176,15 +196,13 @@ module Kairomone
       open_new!(identity: listing, origin: 'import', listing_id: listing, with_profile: false)
       ledger = chain
       record_identities!(writes.map { |layer, id, raw, b| xp_entry(layer, id, b['identity'], raw, counted: b['counted'], holds: b['holds']).merge('outside' => true) }, ledger)
-      writes.each do |layer, id, raw, _|
-        if layer == 'L2'
-          write_l2_raw!(id, raw)
-        else
-          written = write_l1_raw(id, raw, 'Kairomone exchange import')
-          raise Error, "Received entry #{id} could not be recorded" unless written[:success]
-        end
-      end
-      received, skipped = received_pieces!(doc['pieces'], now)
+      writes.each { |layer, id, raw, _| write_l2_raw!(id, raw) if layer == 'L2' }
+      write_l1_all!(writes.select { |layer, *| layer == 'L1' }.map { |_, id, raw, _| [id, raw] }, 'Kairomone exchange import')
+      received, skipped = if keep_pieces
+                            received_pieces!(doc['pieces'], now)
+                          else
+                            [[], [{ 'kind' => 'pieces', 'reason' => 'Host governance locks L2, where proposals wait; no received piece was kept' }]]
+                          end
       Records.append!(chain, [{ 'type' => 'kairomone_received', 'manifest_sha256' => doc['manifest_sha256'], 'pieces' => received,
                                 'entries' => entries.map { |e| e['id'] } },
                               { 'type' => 'kairomone_lineage', 'kind' => 'exchange',
@@ -204,23 +222,32 @@ module Kairomone
       growth = growth_entry_ids(ledger)
       l2_basis = basis.select { |b| b['layer'] == 'L2' }.to_h { |b| [b['id'], b] }
       provider = knowledge_provider
+      records = identity_records(ledger)
       # The kind follows where an entry came from: learned when a cycle wrote
       # it or it came with its evidence, otherwise inherited when it does not
-      # count, otherwise owner-written. Whether it counts is its own field.
+      # count, otherwise received when it came from outside, otherwise
+      # owner-written. Whether it counts is its own field.
       eligible = basis.select { |b| b['layer'] == 'L1' && b['recorded'] }.sort_by { |b| b['id'] }.map do |b|
         evidence = carried_evidence(b['id'])
+        outside = records[['L1', b['id']]].reverse.find { |r| r['content_sha256'] == b['content_sha256'] }&.dig('outside') == true
         kind = if growth.include?(b['id']) || evidence then 'learned'
                elsif !b['counted'] then 'inherited'
+               elsif outside then 'received'
                else 'owner_written'
                end
         [b, kind, evidence && l2_basis[b['id']] ? evidence : nil]
       end
       # An entry goes in only when an importer can check its identity, by
-      # the import rule: a learned one by its evidence, any other by its
-      # content. One that cannot be checked is left out with the reason.
+      # the import rule and the importer's own check: a learned one by its
+      # evidence, any other by its content. One that cannot be checked is
+      # left out with the reason.
       unchecked = lambda do |b, kind, evidence|
         if kind == 'learned'
-          evidence ? nil : 'its evidence is absent, so an importer could not check it'
+          next 'its evidence is absent, so an importer could not check it' unless evidence
+
+          fault = autonomy.travelling_evidence_fault(id: b['id'], content: provider.get(b['id']).content, envelope: evidence,
+                                                     l1_identity: b['identity'], l2_identity: l2_basis[b['id']]['identity'])
+          fault && "#{fault}, so an importer could not check it"
         elsif b['identity'] != Progression.fingerprint(provider.get(b['id']).content)
           'its XP identity is not its content\'s, so an importer could not check it'
         end
@@ -244,7 +271,7 @@ module Kairomone
         end
         entries << entry
       end
-      doc = { 'format' => Exchange::FORMAT, 'version' => Exchange::VERSION,
+      doc = { 'format' => Exchange::FORMAT, 'version' => Exchange::VERSION, 'renderer' => Autonomy::KNOWLEDGE_RENDERER,
               'source' => { 'identity' => identity(ledger), 'name' => name, 'ledger_head' => inputs['ledger_head'], 'exported_at' => inputs['exported_at'] },
               'includes' => inputs['includes'], 'pieces' => exchange_pieces(ledger), 'entries' => entries, 'xp_basis' => xp,
               'lineage' => exchange_lineage(ledger) }
@@ -267,20 +294,24 @@ module Kairomone
       end.first(Exchange::PIECES_MAX)
     end
 
-    # The current profile's fields, the accepted professions and the accepted
-    # drawings that pass the art check now. Origins and material hashes stay.
+    # The current profile's fields, the accepted professions with every
+    # ancestor present (so the lineage reads the same where they arrive), and
+    # the accepted drawings that pass the art check now, each with the stage
+    # it answers. Material hashes stay. More than an import reads is not cut
+    # here: the preview refuses it (Exchange.load).
     def exchange_pieces(ledger)
       current = current_profile_piece(ledger)
       profile = if current then current[:piece].slice(*Exchange::PROFILE_FIELDS)
                 elsif (legacy = legacy_profile) then { 'name' => legacy['display_name'], 'kind' => 'unknown' }
                 end
-      professions = Records.of_type(ledger, 'kairomone_profession').map { |r| r['sha256'] }.uniq.filter_map do |sha|
-        piece = profession_piece(sha)
-        piece && { 'sha256' => sha }.merge(piece.slice(*Exchange::PROFESSION_FIELDS))
+      accepted = Records.of_type(ledger, 'kairomone_profession').map { |r| r['sha256'] }.uniq
+      professions = profession_ancestry(accepted, limit: Exchange::PIECES_MAX + 1).map do |sha, piece|
+        { 'sha256' => sha }.merge(piece.slice(*Exchange::PROFESSION_FIELDS))
       end
-      art = Records.of_type(ledger, 'kairomone_art').map { |r| r['sha256'] }.uniq.filter_map do |sha|
+      stages = Records.of_type(ledger, 'kairomone_art').to_h { |r| [r['sha256'], r['stage']] }
+      art = stages.filter_map do |sha, stage|
         text = art_text(sha)
-        text && Art.valid?(text) ? { 'sha256' => sha, 'svg' => text } : nil
+        text && Art.valid?(text) ? { 'sha256' => sha, 'svg' => text, 'stage' => stage.to_s } : nil
       end
       { 'profile' => profile, 'professions' => professions, 'art' => art }
     end
@@ -303,27 +334,25 @@ module Kairomone
       ids.compact
     end
 
-    # One page of a preview, read from the file it built.
+    # One page of a preview, read from the page the preview wrote for it.
     def exchange_preview_page(sha, page)
       raise Error, 'file_sha256 must be a sha256 hex digest' unless Progression::SHA.match?(sha.to_s)
 
       relative = "#{Exchange::PREVIEWS}/#{sha}"
-      unless File.file?(Paths.checked(host_root, "#{relative}.file")) && File.file?(Paths.checked(host_root, "#{relative}.json"))
-        raise Error, 'No such preview (it expired or was used); preview again'
-      end
+      raise Error, 'No such preview (it expired or was used); preview again' unless File.file?(Paths.checked(host_root, "#{relative}.json"))
       raise Error, 'This preview expired; preview again' if File.mtime(Paths.checked(host_root, "#{relative}.json")) < Time.now - Exchange::PREVIEW_TTL
 
       inputs = JSON.parse(Paths.read(host_root, "#{relative}.json", limit: 4 * 1_048_576))
       raise Error, 'This preview is of another Kairomone' unless inputs['listing_id'] == listing_id
 
-      bytes = Paths.read(host_root, "#{relative}.file", limit: Exchange::FILE_LIMIT)
-      raise Error, 'The preview file does not match its sha256; preview again' unless Digest::SHA256.hexdigest(bytes) == sha
-
-      left_out = inputs['left_out']
-      pages = exchange_pages(JSON.parse(bytes), left_out['entries'])
+      pages = Array(inputs['pages'])
       raise Error, "page runs from 1 to #{pages.length}" if page > pages.length
 
-      { success: true, kairomone: address, file_sha256: sha, bytes: bytes.bytesize, page: page, pages: pages.length, items: pages[page - 1],
+      text = Paths.read(host_root, "#{relative}.p#{page}.json", limit: Exchange::FILE_LIMIT)
+      raise Error, 'This preview page does not match its sha256; preview again' unless Digest::SHA256.hexdigest(text) == pages[page - 1]
+
+      left_out = inputs['left_out']
+      { success: true, kairomone: address, file_sha256: sha, bytes: inputs['bytes'], page: page, pages: pages.length, items: JSON.parse(text),
         left_out: left_out.reject { |k, _| k == 'entries' }.merge('entries' => left_out['entries'].length),
         note: 'Show the owner every page in full (later pages: preview with this file_sha256 and page). The file is written only by ' \
               'export with this file_sha256, and only while nothing on this Kairomone has changed since; the preview expires after 24 hours.' }
@@ -354,26 +383,13 @@ module Kairomone
       pages
     end
 
-    # A received growth entry: its evidence must rebuild the L1 body and both
-    # XP identities it carries.
+    # A received growth entry passes the same check the exporter ran.
     def received_evidence!(entry, evidence, l1, l2)
-      ok = evidence.is_a?(Hash) && evidence.keys.sort == %w[evidence evidence_sha256 kind l1_id] &&
-           evidence['kind'] == 'untrusted_research_evidence' && evidence['l1_id'] == entry['id'] && evidence['evidence'].is_a?(Hash)
-      raise Error, "Invalid evidence for #{entry['id']}" unless ok
+      fault = autonomy.travelling_evidence_fault(id: entry['id'], content: entry['content'], envelope: evidence,
+                                                 l1_identity: l1['identity'], l2_identity: l2['identity'])
+      raise Error, "#{entry['id']}: #{fault}; refused" if fault
 
-      digest = Digest::SHA256.hexdigest(JSON.generate(evidence['evidence']))
-      raise Error, "The evidence of #{entry['id']} does not match its hash; refused" unless digest == evidence['evidence_sha256']
-
-      normalized = autonomy.send(:normalized_content, evidence['evidence'])
-      unless entry['content'].strip == autonomy.send(:knowledge_body, evidence['evidence'], digest).strip
-        raise Error, "The content of #{entry['id']} is not what its evidence says; refused"
-      end
-      if l1['identity'] != Progression.fingerprint(normalized[:l1]) || l2['identity'] != Progression.fingerprint(normalized[:l2])
-        raise Error, "The XP identity of #{entry['id']} does not match its evidence; refused"
-      end
       evidence
-    rescue KeyError, TypeError, NoMethodError
-      raise Error, "Invalid evidence for #{entry['id']}"
     end
 
     # Received pieces wait as proposals; one that does not read as a piece
@@ -395,10 +411,14 @@ module Kairomone
         begin
           raise Error, 'not a profession' unless p.is_a?(Hash)
 
-          parents = Array(p['parents']).select { |x| x.is_a?(String) && Profession::PARENT.match?(x) }
-          piece = Profession.build(p.slice('name', 'description', 'focus', 'habits'), parents: parents, tier: p['tier'].is_a?(Integer) ? p['tier'] : 0, origin: 'import')
+          # Rebuilt by the rules current now and kept only when the bytes are
+          # the ones sent, so the sha256 its descendants name still finds it.
+          piece = Profession.build(p.slice('name', 'description', 'focus', 'habits'), parents: p['parents'], tier: p['tier'], origin: p['origin'].to_s)
+          raise Error, 'it does not match the sha256 it was sent with' unless Digest::SHA256.hexdigest(JSON.pretty_generate(piece) + "\n") == p['sha256']
+
           ComposedText.guard!(Profession.texts(piece))
-          sha = write_piece('proposals', { 'kind' => 'profession', 'piece' => piece, 'received_sha256' => p['sha256'].to_s, 'proposed_at' => now })
+          write_piece('professions', piece) # present for lineage; in force only by an acceptance record (Inv 4)
+          sha = write_piece('proposals', { 'kind' => 'profession', 'piece' => piece, 'received_sha256' => p['sha256'], 'proposed_at' => now })
           received << { 'kind' => 'profession', 'proposal' => sha }
         rescue Error => e
           skipped << { 'kind' => 'profession', 'reason' => e.message }
@@ -407,7 +427,9 @@ module Kairomone
       Array(pieces['art']).each do |a|
         begin
           text = Art.check!(a.is_a?(Hash) ? a['svg'] : nil)
-          sha = write_piece('proposals', { 'kind' => 'art', 'svg' => text, 'sha256' => Digest::SHA256.hexdigest(text.b), 'stage' => 'egg', 'proposed_at' => now })
+          # Each drawing waits for the stage it answered where it was drawn.
+          stage = Vocabulary.stage_rank(a['stage']).negative? ? 'egg' : a['stage']
+          sha = write_piece('proposals', { 'kind' => 'art', 'svg' => text, 'sha256' => Digest::SHA256.hexdigest(text.b), 'stage' => stage, 'proposed_at' => now })
           received << { 'kind' => 'art', 'proposal' => sha }
         rescue Error => e
           skipped << { 'kind' => 'art', 'reason' => e.message }
@@ -428,10 +450,14 @@ module Kairomone
       doc = Exchange.load(Paths.read(host_root, "#{Exchange::INBOX}/#{file}", limit: Exchange::FILE_LIMIT))
       governed!('L2') if doc['entries'].any? { |e| e['evidence'] }
       raise Error, "An import is a new Kairomone: name it other than its source #{listing_id}" if doc['source']['identity'] == listing_id
+      # Received pieces wait as proposals, which are L2 writes here (as every
+      # proposal is); under a locked L2 the knowledge still comes in, the
+      # pieces do not, and the result says so.
+      keep_pieces = KairosMcp::SkillsConfig.layer_enabled?('L2') && KairosMcp::SkillsConfig.layer_mutable?('L2')
       with_registry_lock do
         outcome = nil
         path = assemble(listing_id) do |staged|
-          outcome = staged.import_exchange_into!(doc, listing: listing_id)
+          outcome = staged.import_exchange_into!(doc, listing: listing_id, keep_pieces: keep_pieces)
           listing_id
         end
         made = Instance.new(host_root: host_root, root: path)
@@ -460,7 +486,7 @@ module Kairomone
 
       Dir.children(dir).each do |name|
         path = File.join(dir, name)
-        File.delete(path) if name.match?(/\A[0-9a-f]{64}\.(?:json|file)\z/) && File.file?(path) && File.mtime(path) < Time.now - Exchange::PREVIEW_TTL
+        File.delete(path) if name.match?(Exchange::PREVIEW_FILE) && File.file?(path) && File.mtime(path) < Time.now - Exchange::PREVIEW_TTL
       rescue Errno::ENOENT
         next # pruned by a concurrent preview
       end

@@ -59,7 +59,7 @@ module Kairomone
     # never looked at by restore.
     FIXED_PATHS = ['profile.json', 'profession.json', 'growth/state.json', 'growth/runs.json', 'transplants.json',
                    'companion/state.json', 'companion/memory-gate.json', LEDGER_PATH].freeze
-    PIECE_DIRS = { 'profile' => '.json', 'professions' => '.json', 'art' => '.svg', 'proposals' => '.json' }.freeze
+    PIECE_DIRS = { 'profile' => '.json', 'professions' => '.json', 'art' => '.svg', 'proposals' => '.json', 'lineage' => '.json' }.freeze
     PIECE_KINDS = { 'kairomone_profile' => 'profile', 'kairomone_profession' => 'professions', 'kairomone_art' => 'art' }.freeze
 
     def self.backup_path?(relative)

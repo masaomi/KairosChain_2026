@@ -7,6 +7,14 @@
 # never go in; an import is a new individual with a new identity that records
 # every piece received and the manifest; the exporter does not change. All
 # data is synthetic and confined to temporary hosts.
+#
+# Changed in run E (run D round-3 finding 6: an import's counted entries are
+# the kind "received", no longer "owner_written", so the owner's include
+# choice separates their own writing from received content). Two tests that
+# re-export an imported copy name the new kind and nothing else changes:
+# test_a_copy_exports_only_what_its_importer_can_check includes received as
+# well; test_a_copy_of_a_copy_keeps_its_level re-exports learned and received
+# and expects those two kinds where it expected learned and owner_written.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
@@ -126,7 +134,7 @@ class Kairomone08ExchangeTest < Minitest::Test
     copy = Kairomone::Instance.new(host_root: @host, kairomone: 'copy')
     path = File.join(copy.root, 'context/kairomone/growth_moss/growth_moss.md')
     File.write(path, File.read(path).sub('untrusted_research_evidence', 'something_else'))
-    first, items = all_pages(copy, include: %w[learned owner_written inherited])
+    first, items = all_pages(copy, include: %w[learned owner_written inherited received])
     assert_equal ['tea'], items.select { |i| i['item'] == 'entry' }.map { |i| i['id'] }
     left = items.find { |i| i['item'] == 'left_out' }
     assert_equal 'growth_moss', left['id']
@@ -218,9 +226,9 @@ class Kairomone08ExchangeTest < Minitest::Test
     _preview, out = export_and_place(store)
     Kairomone::Host.new.import_exchange(file: out[:file], listing_id: 'copy')
     copy = Kairomone::Instance.new(host_root: @host, kairomone: 'copy')
-    preview = copy.exchange_preview(include: %w[learned owner_written])
+    preview = copy.exchange_preview(include: %w[learned received])
     again = copy.exchange_export(file_sha256: preview[:file_sha256])
-    assert_equal %w[learned owner_written], JSON.parse(File.read(again[:path]))['entries'].map { |e| e['kind'] }
+    assert_equal %w[learned received], JSON.parse(File.read(again[:path]))['entries'].map { |e| e['kind'] }
     FileUtils.cp(again[:path], File.join(@host, 'kairomone-inbox', again[:file]))
     Kairomone::Host.new.import_exchange(file: again[:file], listing_id: 'second')
     second = Kairomone::Instance.new(host_root: @host, kairomone: 'second')

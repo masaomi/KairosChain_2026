@@ -20,6 +20,10 @@ module Kairomone
   # ledger. A legacy growth/state.json (0.6) is read, never written.
   class Autonomy
     MAX_LEASE = 900
+    # Names how knowledge_body renders a growth entry from its evidence. An
+    # exchange file carries it, so a body rendered another way is refused by
+    # name rather than as tampering.
+    KNOWLEDGE_RENDERER = 'growth-body-1'
     RUNS_PATH = 'growth/runs.json'
     STATE_PATH = 'growth/state.json' # the 0.6 growth state; read only
     ENDED_KEEP = 20
@@ -309,6 +313,30 @@ module Kairomone
       normalized_content(evidence)
     rescue JSON::ParserError, KeyError, TypeError, NoMethodError
       nil
+    end
+
+    # One check for a growth entry that travels with its evidence, run by the
+    # exporter and the importer alike (Inv 3, M11): the evidence is what a
+    # cycle accepts (shape and the 12 KiB bound), it matches its hash, it
+    # rebuilds the entry's body under this renderer, and it gives both XP
+    # identities. => nil, or why it fails.
+    def travelling_evidence_fault(id:, content:, envelope:, l1_identity:, l2_identity:)
+      return 'its evidence is absent' unless envelope.is_a?(Hash)
+      unless envelope.keys.sort == %w[evidence evidence_sha256 kind l1_id] && envelope['kind'] == 'untrusted_research_evidence' && envelope['l1_id'] == id
+        return 'its evidence is not a growth entry\'s evidence'
+      end
+
+      evidence = validate_evidence!(envelope['evidence'], received: true)
+      digest = Digest::SHA256.hexdigest(JSON.generate(evidence))
+      return 'its evidence does not match its hash' unless digest == envelope['evidence_sha256']
+      return 'its content is not what its evidence says' unless content.to_s.strip == knowledge_body(evidence, digest).strip
+
+      normalized = normalized_content(evidence)
+      return 'its XP identity does not match its evidence' unless l1_identity == Progression.fingerprint(normalized[:l1]) && l2_identity == Progression.fingerprint(normalized[:l2])
+
+      nil
+    rescue Error => e
+      "its evidence is not what a cycle accepts (#{e.message})"
     end
 
     def synchronize(&block) = locked(&block)
@@ -610,7 +638,9 @@ module Kairomone
         evidence['sources'].map { |source| "- #{source['url']} (#{source['retrieved_at']}; retrieval #{source['retrieval_reference']})" }.join("\n")
     end
 
-    def validate_evidence!(value)
+    # received: evidence another host's cycle accepted, which may name a
+    # retrieval time later than this host's clock.
+    def validate_evidence!(value, received: false)
       raise Error, 'Evidence must be an object' unless value.is_a?(Hash)
       evidence = JSON.parse(JSON.generate(value))
       strict!(evidence, %w[knowledge finding uncertainty counterexample sources])
@@ -625,7 +655,7 @@ module Kairomone
         source_url!(s['url']); text!(s['title'], 'source title', 256)
         text!(s['excerpt'], 'source excerpt', 1500); text!(s['retrieval_reference'], 'retrieval_reference', 256)
         retrieved = Time.iso8601(s['retrieved_at'])
-        raise Error, 'Source timestamp is in the future' if retrieved > @clock.call + 60
+        raise Error, 'Source timestamp is in the future' if !received && retrieved > @clock.call + 60
         raise Error, 'Source excerpt hash mismatch' unless s['excerpt_sha256'] == Digest::SHA256.hexdigest(s['excerpt'])
       end
       raise Error, 'Duplicate source URLs' unless sources.map { |s| s['url'] }.uniq.length == sources.length
