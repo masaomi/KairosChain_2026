@@ -6,6 +6,13 @@ require 'minitest/autorun'
 require 'tmpdir'
 require 'open3'
 
+# Kairomone 0.8 (design log/kairomone_core_0_8_design_v0.6_FROZEN_20261023.md):
+# a restore makes a separate listed individual (a writable twin under
+# target_id) instead of a read-only copy (Inv 1, M15); an archive whose
+# checksums were recomputed loses this host's signature, so the library path
+# refuses it, and the terminal path still refuses its invalid profession; the
+# 0.6 lifetime budget (growth configure) is gone and the CLI starts a run
+# instead, with no limit on cycles (Inv 2, M6).
 class KairomoneProgressionTest < Minitest::Test
   def setup
     @host = Dir.mktmpdir('kairomone-progression-')
@@ -94,13 +101,16 @@ class KairomoneProgressionTest < Minitest::Test
     @store.select_profession(id: 'generalist')
     backup = @store.create_backup
     @store.restore_backup(file: backup[:file], target_id: 'recovered')
-    restored = Kairomone::Instance.new(restored_id: 'recovered')
+    restored = Kairomone::Instance.new(kairomone: 'recovered')
     assert_equal 'generalist', restored.profession_status[:selected_id]
-    assert_raises(Kairomone::Error) { restored.select_profession(id: 'generalist') }
+    before = File.binread(File.join(@store.root, 'profession.json'))
+    File.delete(File.join(restored.root, 'profession.json'))
+    assert_nil restored.profession_status[:selected_id], 'the twin is a separate individual'
+    assert_equal before, File.binread(File.join(@store.root, 'profession.json'))
     File.delete(File.join(@store.root, 'profession.json'))
     legacy = @store.create_backup
     @store.restore_backup(file: legacy[:file], target_id: 'legacy')
-    assert_nil Kairomone::Instance.new(restored_id: 'legacy').profession_status[:selected_id]
+    assert_nil Kairomone::Instance.new(kairomone: 'legacy').profession_status[:selected_id]
   end
 
   def test_invalid_profession_blocks_status_and_backup
@@ -120,10 +130,23 @@ class KairomoneProgressionTest < Minitest::Test
     data['manifest_sha256'] = Digest::SHA256.hexdigest(JSON.generate(data['files'].map { |file| file.slice('path', 'size', 'sha256') }))
     File.write(path, JSON.generate(data))
     assert_raises(Kairomone::Error) { @store.restore_backup(file: archive[:file], target_id: 'bad') }
-    refute File.exist?(File.join(@host, 'kairomone-restored/bad'))
+    confirmed = false
+    error = assert_raises(Kairomone::Error) do
+      Kairomone::Host.new.restore(File.binread(path), trust: ->(_lines) { confirmed = true }, listing_id: 'bad')
+    end
+    assert_match(/Invalid profession/, error.message)
+    refute confirmed, 'refused before the owner is asked'
+    refute File.exist?(File.join(@host, 'kairomones/bad'))
   end
   def test_cli_profession_and_growth_configuration_roundtrip
     cli = File.expand_path('templates/skillsets/kairomone/scripts/kairomone.rb', __dir__)
+    # A run starts only under a host L0 equal to the baseline: this host gets
+    # its L0 before its individual is made.
+    FileUtils.rm_rf(Dir.children(@host).map { |c| File.join(@host, c) })
+    FileUtils.mkdir_p(File.join(@host, 'skills'))
+    File.write(File.join(@host, 'skills/kairos.md'), '# synthetic philosophy')
+    @store = Kairomone::Instance.new(bind: false)
+    @store.init(dot_id: 'test_dot', display_name: 'Test')
     invoke = lambda do |*args|
       stdout, stderr, process = Open3.capture3({ 'KAIROS_DATA_DIR' => @host }, RbConfig.ruby, cli, *args)
       assert process.success?, "CLI failed: #{stdout} #{stderr}"
@@ -131,13 +154,17 @@ class KairomoneProgressionTest < Minitest::Test
     end
     result = invoke.call('profession', 'select', '--id', 'generalist')
     assert_equal 'generalist', result.dig('profession', 'selected_id')
-    result = invoke.call('growth', 'configure', '--max-cycles', '10', '--already-used', '3')
-    assert_equal 3, result['used_cycles']
-    assert_equal 7, result['remaining_cycles']
-    assert result['stopped']
+    stdout, = Open3.capture3({ 'KAIROS_DATA_DIR' => @host }, RbConfig.ruby, cli, 'growth', 'configure')
+    assert_match(/run-start/, JSON.parse(stdout)['error'])
+    result = invoke.call('growth', 'run-start', '--owner-words', 'Grow twelve times', '--cycles', '12')
+    assert_equal 12, result.dig('stop', 'cycles')
+    result = invoke.call('growth', 'run-status')
+    assert result['live']
+    assert_equal 12, result['remaining_cycles']
+    assert_nil result['cycle_limit']
     result = invoke.call('status')
     assert_equal 999, result.dig('progression', 'level_cap')
-    assert_equal 3, result.dig('autonomy', 'used_cycles')
+    assert_equal 0, result.dig('autonomy', 'used_cycles')
   end
 
 end

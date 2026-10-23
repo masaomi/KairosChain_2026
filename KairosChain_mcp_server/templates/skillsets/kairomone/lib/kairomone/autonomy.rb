@@ -4,171 +4,265 @@ require 'uri'
 require 'ipaddr'
 
 module Kairomone
-  # A bounded local protocol, not a scheduler, web client, LLM or background worker.
-  # The host assistant supplies researched evidence. External text is data only.
+  # Growth runs (design v0.6 Inv 2, M6, M13). A bounded local protocol, not a
+  # scheduler, web client, LLM or background worker: the host assistant
+  # supplies researched evidence, and external text is data only.
+  #
+  # Autonomy exists only inside a run the owner started. A run becomes live
+  # only after its start is confirmed on the individual's ledger, and only the
+  # session holding its driver token can step it. Every step checks the start
+  # record, that the run has not ended, its end time, and host L0 against the
+  # baseline it started under (and, at claim, the operator policy); the first
+  # failing check records the run's end and refuses. Nothing revives an ended
+  # run. Kairomone_Core sets no limit on the cycles in a life.
+  #
+  # Per-run state lives in growth/runs.json; per-entry facts live on the
+  # ledger. A legacy growth/state.json (0.6) is read, never written.
   class Autonomy
-    HARD_CAP = 10
     MAX_LEASE = 900
-    STATE_PATH = 'growth/state.json'
-    STATES = %w[completed failed expired interrupted].freeze
+    RUNS_PATH = 'growth/runs.json'
+    STATE_PATH = 'growth/state.json' # the 0.6 growth state; read only
+    ENDED_KEEP = 20
+    REQUESTS_KEEP = 50
+    WORDS_MAX = 512
+    REQUEST_ID = /\A[a-z][a-z0-9_-]{0,39}\z/
+    RUN_ID = /\Arun_\d{8}T\d{6}Z_[0-9a-f]{8}\z/
+    REQUEST_STATES = %w[queued claimed committing completed failed expired interrupted abandoned].freeze
 
     def initialize(instance:, clock: -> { Time.now.utc })
       @instance, @clock = instance, clock
     end
 
-    def configure(max_cycles: HARD_CAP, already_used: 0)
-      validate_budget!(max_cycles, already_used)
+    # The owner starts a run: their words, a cycle count, an end time, or both.
+    def run_start(owner_words:, cycles: nil, end_at: nil)
+      words = text!(owner_words, 'owner_words', WORDS_MAX)
+      raise Error, 'A run needs a cycle count, an end time, or both' if cycles.nil? && end_at.nil?
+      raise Error, 'cycles must be a positive integer' unless cycles.nil? || (cycles.is_a?(Integer) && cycles.positive?)
+
+      ends = end_at && parse_time!(end_at, 'end_at')
       locked do
-        state = read_state
-        if state
-          raise Error, 'Budget cannot be reset or expanded' unless state['max_cycles'] == max_cycles && state['initial_used'] == already_used
-        else
-          state = initial(max_cycles, already_used)
-          state['stopped'] = true
-          state['stop_reason'] = 'Configured without starting work; explicit resume required'
-          save(state)
+        state = load_state
+        reconcile!(state)
+        raise Error, "Run #{state['live']['run_id']} of this Kairomone is live; stop it (run_stop) or let it end first" if state['live']
+        raise Error, 'The end time has already passed' if ends && ends <= now
+
+        ledger = @instance.chain
+        baseline = @instance.effective_l0_baseline(ledger)[:baseline]
+        current = @instance.send(:l0_fingerprints)
+        if current.empty? || current != baseline
+          raise Error, 'Host L0 differs from this Kairomone\'s baseline in force (or no host L0 is present); a run starts only after ' \
+                       'the owner re-baselines it in their own terminal'
         end
-        public_state(state)
+        run_id = "run_#{now.strftime('%Y%m%dT%H%M%SZ')}_#{SecureRandom.hex(4)}"
+        token = SecureRandom.hex(24)
+        stop = { 'cycles' => cycles, 'end_at' => ends&.iso8601 }
+        record = { 'type' => 'kairomone_run', 'run_id' => run_id, 'action' => 'start', 'stop' => stop,
+                   'owner_words' => words, 'baseline' => baseline, 'at' => timestamp }
+        # Live only once the start is confirmed on the ledger (Records.append!
+        # reads it back).
+        @instance.send(:with_lock) { Records.append!(@instance.chain, [record], -> { @instance.chain }) }
+        state['live'] = { 'run_id' => run_id, 'token_sha256' => sha(token), 'started_at' => timestamp, 'stop' => stop,
+                          'baseline' => baseline, 'owner_words' => words, 'claims' => 0, 'requests' => 0, 'biased' => 0 }
+        save(state)
+        { success: true, run_id: run_id, token: token, stop: stop, kairomone: @instance.address,
+          note: 'The token is this session\'s handle for the run. Each step (request, claim, heartbeat, commit) carries run_id and token; ' \
+                'run_status first on every interval tick, and when the run is not live, report and ask the owner to end the loop.' }
       end
     end
 
-    def request(request_id:, topic:, max_cycles: HARD_CAP, already_used: 0, resume: false, profession_id: 'generalist', bias_applied: false)
+    # The owner's stop: any session, no token.
+    def run_stop(reason: 'Owner stop')
+      reason = text!(reason, 'reason', WORDS_MAX)
+      locked do
+        state = load_state
+        reconcile!(state)
+        live = state['live'] or raise Error, 'No run of this Kairomone is live'
+        end_run!(state, 'owner_stop', detail: reason)
+        public_state(state).merge('ended_run' => live['run_id'], 'kairomone' => @instance.address)
+      end
+    end
+
+    # Concludes what time has decided (an expired lease, a passed end time, a
+    # used count, an interrupted start) and reports the state.
+    def run_status
+      locked do
+        state = load_state
+        reconcile!(state)
+        save(state)
+        public_state(state).merge('kairomone' => @instance.address)
+      end
+    end
+
+    def request(run_id:, token:, request_id:, topic:, profession_id: 'generalist', bias_applied: false)
       id!(request_id)
       text!(topic, 'topic', 512)
       Paths.id!(profession_id)
+      raise Error, 'bias_applied must be boolean' unless [true, false].include?(bias_applied)
+
       profession = @instance.profession_status
       raise Error, 'Profession must match the selected instance profession' unless profession_id == profession[:effective_id]
       raise Error, 'Profession bias needs selected profession topics' if bias_applied && Array(profession.dig(:learning_bias, :topics)).empty?
-      raise Error, 'bias_applied and resume must be boolean' unless [true, false].include?(bias_applied) && [true, false].include?(resume)
-      validate_budget!(max_cycles, already_used)
+
       locked do
-        state = read_state || initial(max_cycles, already_used)
-        expire!(state)
-        raise Error, 'Budget is immutable; request cannot reset or expand it' unless state['max_cycles'] == max_cycles && state['initial_used'] == already_used
-        existing = state['requests'][request_id]
+        state = load_state
         proposal = { 'request_id' => request_id, 'topic' => topic, 'profession_id' => profession_id, 'bias_applied' => bias_applied }
-        if existing
-          raise Error, 'request_id already used with different input' unless existing['request'].reject { |k, _v| k == 'companion' } == proposal
+        existing = state['requests'].find { |r| r['request_id'] == request_id }
+        if existing && existing['run_id'] == run_id && existing['request'].reject { |k, _| k == 'companion' } == proposal && existing['state'] == 'queued'
+          step!(state, run_id, token)
           next public_state(state).merge('preserved' => true)
         end
-        raise Error, 'Request history limit reached' if state['requests'].length >= HARD_CAP * 2
-        raise Error, 'Cycle budget exhausted' if state['used_cycles'] >= state['max_cycles']
+        live = step!(state, run_id, token)
+        raise Error, 'request_id already used' if existing || request_id_used?(request_id)
         raise Error, 'A request or claim is already pending' if state['queue'] || state['active_claim']
-        raise Error, 'Stopped; explicit resume:true is required' if state['stopped'] && !resume
-        # Starting neutral ensures the profession-specific fraction never exceeds 1/2.
-        total = state['requests'].length + 1
-        biased = state['requests'].values.count { |r| r['request']['bias_applied'] } + (bias_applied ? 1 : 0)
-        raise Error, 'Profession bias may cover at most half of requested topics' if biased * 2 > total
+        raise Error, 'No further cycle can be admitted in this run' unless admissible?(live)
+        raise Error, 'No room for this cycle: an individual holds at most 1,000 L1 and 1,000 L2 entries' unless @instance.room_for_cycle?
+
+        # The profession-specific fraction of a run's requests stays at or under 1/2.
+        total = live['requests'] + 1
+        biased = live['biased'] + (bias_applied ? 1 : 0)
+        raise Error, 'Profession bias may cover at most half of a run\'s requested topics' if biased * 2 > total
+
         snapshot = @instance.companion_status[:companion]
         proposal['companion'] = { 'revision' => snapshot['revision'], 'direction' => snapshot['direction'] }
-        state['stopped'] = false
-        state['queue'] = proposal
-        state['requests'][request_id] = { 'request' => proposal, 'state' => 'queued', 'attempted' => false }
+        live['requests'] = total
+        live['biased'] = biased
+        state['queue'] = proposal.merge('run_id' => run_id)
+        state['requests'] << { 'request_id' => request_id, 'run_id' => run_id, 'request' => proposal, 'state' => 'queued', 'at' => timestamp }
+        trim_requests!(state)
         save(state)
-        public_state(state)
+        public_state(state).merge('kairomone' => @instance.address)
       end
     end
 
-    def claim(worker_id:, lease_seconds: 300)
+    def claim(run_id:, token:, worker_id:, lease_seconds: 300)
       Paths.id!(worker_id)
       raise Error, 'Lease must be an integer between 1 and 900 seconds' unless lease_seconds.is_a?(Integer) && (1..MAX_LEASE).cover?(lease_seconds)
+
       locked do
-        state = required_state
-        expire!(state)
-        raise Error, 'Growth is stopped' if state['stopped']
+        state = load_state
+        live = step!(state, run_id, token)
         raise Error, 'Another worker owns the active claim' if state['active_claim']
-        raise Error, 'No queued request' unless state['queue']
-        raise Error, 'Cycle budget exhausted' if state['used_cycles'] >= state['max_cycles']
-        request = state['queue']; state['queue'] = nil
-        state['used_cycles'] += 1
-        state['active_claim'] = request.merge('claim_token' => SecureRandom.hex(24), 'worker_id' => worker_id,
-          'claimed_at' => timestamp, 'heartbeat_at' => timestamp, 'expires_at' => (@clock.call + lease_seconds).utc.iso8601,
-          'lease_seconds' => lease_seconds)
-        state['requests'][request['request_id']]['state'] = 'claimed'
-        state['requests'][request['request_id']]['attempted'] = true
-        state['requests'][request['request_id']]['claim_token'] = state['active_claim']['claim_token']
+        raise Error, 'No queued request' unless state['queue'] && state['queue']['run_id'] == run_id
+        raise Error, 'No further cycle can be admitted in this run' unless admissible?(live)
+
+        # The policy is the last check: the count it adds is never taken back.
+        begin
+          Policy.new(host_root: @instance.host_root, clock: @clock).admit!
+        rescue PolicyRefusal => e
+          end_run!(state, 'policy', detail: e.message[0, WORDS_MAX])
+          raise Error, "#{e.message}. Run #{run_id} has ended."
+        end
+        claim_token = SecureRandom.hex(24)
+        ends = live.dig('stop', 'end_at') && Time.iso8601(live.dig('stop', 'end_at'))
+        expires = [now + lease_seconds, ends].compact.min # a lease never outlives its run
+        request = state['queue']
+        state['queue'] = nil
+        live['claims'] += 1
+        state['active_claim'] = request.merge('claim_token_sha256' => sha(claim_token), 'worker_id' => worker_id,
+                                              'claimed_at' => timestamp, 'heartbeat_at' => timestamp,
+                                              'expires_at' => expires.utc.iso8601, 'lease_seconds' => lease_seconds, 'state' => 'claimed')
+        entry = request_entry(state, request['request_id'])
+        entry['state'] = 'claimed'
+        entry['claim_token_sha256'] = sha(claim_token)
         save(state)
-        public_state(state).merge('claim_token' => state['active_claim']['claim_token'])
+        public_state(state).merge('claim_token' => claim_token, 'kairomone' => @instance.address)
       end
     end
 
-    def heartbeat(claim_token:)
+    def heartbeat(run_id:, token:, claim_token:)
       locked do
-        state = required_state; claim = live_claim!(state, claim_token)
-        claim['heartbeat_at'] = timestamp
-        # A claim has an absolute deadline. Heartbeats report liveness, never extend authority.
+        state = load_state
+        step!(state, run_id, token)
+        claim = live_claim!(state, claim_token)
+        claim['heartbeat_at'] = timestamp # liveness only; a lease is never extended
         save(state)
-        public_state(state)
+        public_state(state).merge('kairomone' => @instance.address)
       end
     end
 
-    def commit(claim_token:, evidence:)
+    # The growth lock is held throughout: intent on the ledger, then the L2
+    # evidence, then the L1 entry. A retry with the same evidence while the run
+    # is live completes the writes; after the run ends an unfinished intent is
+    # abandoned (entries that landed count under its identities, the others
+    # hold nothing).
+    def commit(run_id:, token:, claim_token:, evidence:)
       normalized = validate_evidence!(evidence)
       digest = Digest::SHA256.hexdigest(JSON.generate(normalized))
       locked do
-        state = required_state
-        prior = state['requests'].values.find { |r| r['claim_token'] == claim_token && r['state'] == 'completed' }
-        if prior
-          raise Error, 'Completed claim retried with different evidence' unless prior['evidence_sha256'] == digest
-          next prior['result'].merge('preserved' => true)
+        state = load_state
+        done = token_string?(claim_token) && state['requests'].find { |r| r['claim_token_sha256'] == sha(claim_token) && r['state'] == 'completed' }
+        if done
+          raise Error, 'Completed claim retried with different evidence' unless done['evidence_sha256'] == digest
+          next done['result'].merge('preserved' => true)
         end
+        live = step!(state, run_id, token)
         claim = live_claim!(state, claim_token)
-        entry = state['requests'].fetch(claim['request_id'])
-        raise Error, 'Retry evidence differs from persisted commit intent' if entry['evidence_sha256'] && entry['evidence_sha256'] != digest
-        entry['claim_token'] = claim_token
+        request_id = claim['request_id']
+        entry = request_entry(state, request_id)
+        ledger = @instance.chain
+        intent = growth_intents(ledger)[request_id]
+        raise Error, 'Retry evidence differs from the recorded commit intent' if intent && intent['evidence_sha256'] != digest
+        raise Error, 'Retry evidence differs from the persisted commit intent' if entry['evidence_sha256'] && entry['evidence_sha256'] != digest
+
         entry['evidence_sha256'] = digest
-        entry['state'] = 'committing'
-        save(state) # Durable intent before either canonical write.
-        identifier = "growth_#{claim['request_id']}"
-        # No tool names, paths, commands, policy changes or source instructions are dispatched.
-        body = knowledge_body(normalized, digest)
-        verify_l0!
-        live_claim!(state, claim_token)
-        l1 = @instance.create_knowledge(id: identifier, title: normalized['knowledge']['title'], content: body)
-        raise Error, 'Canonical L1 write/ledger verification failed; inspect pending state' unless l1[:success] && l1[:recorded_on_chain]
-        live_claim!(state, claim_token)
-        l2 = @instance.observe(id: identifier, title: "Growth evidence: #{claim['request_id']}",
-          content: JSON.pretty_generate({ 'kind' => 'untrusted_research_evidence', 'request' => entry['request'], 'evidence' => normalized,
-            'evidence_sha256' => digest, 'l1_id' => identifier, 'model_weights_changed' => false }))
-        raise Error, 'Canonical L2 write failed' unless l2[:success]
-        result = { 'state' => 'completed', 'request_id' => claim['request_id'], 'l1_id' => identifier,
-          'l2_id' => l2[:id], 'evidence_sha256' => digest, 'source_count' => normalized['sources'].length,
-          'completed_at' => timestamp, 'model_weights_changed' => false }
-        entry['state'] = 'completed'; entry['result'] = result
-        state['last_result'] = result; state['active_claim'] = nil
-        state['stopped'] = true if state['used_cycles'] >= state['max_cycles']
+        entry['state'] = claim['state'] = 'committing'
         save(state)
-        result
-      end
-    end
-
-    def fail(claim_token:, reason:)
-      text!(reason, 'reason', 512)
-      locked do
-        state = required_state; live_claim!(state, claim_token)
-        finish!(state, 'failed', reason)
-        save(state); public_state(state)
-      end
-    end
-
-    def stop(reason: 'Explicit stop')
-      text!(reason, 'reason', 512)
-      locked do
-        state = required_state
-        finish!(state, 'interrupted', reason) if state['active_claim']
-        if state['queue']
-          state['requests'][state['queue']['request_id']]['state'] = 'interrupted'
-          state['queue'] = nil
+        request = entry['request']
+        unless intent
+          plan = growth_plan(request, normalized, digest, timestamp)
+          intent = { 'type' => 'kairomone_growth_completed', 'request_id' => request_id, 'run_id' => live['run_id'],
+                     'created_at' => plan[:created_at], 'evidence_sha256' => digest, 'l1_id' => plan[:id], 'l2_id' => plan[:id],
+                     'l1_identity' => plan[:l1_identity], 'l2_identity' => plan[:l2_identity],
+                     'l1_sha256' => Digest::SHA256.hexdigest(plan[:l1_raw]), 'l2_sha256' => Digest::SHA256.hexdigest(plan[:l2_raw]) }
+          @instance.growth_record_intent!(intent, plan[:id])
         end
-        state['stopped'] = true; state['stop_reason'] = reason
-        save(state); public_state(state)
+        plan = growth_plan(request, normalized, digest, intent['created_at'])
+        unless Digest::SHA256.hexdigest(plan[:l1_raw]) == intent['l1_sha256'] && Digest::SHA256.hexdigest(plan[:l2_raw]) == intent['l2_sha256']
+          raise Error, 'The recorded intent cannot be rebuilt byte for byte; inspect status'
+        end
+
+        @instance.growth_write!('L2', plan[:id], plan[:l2_raw])
+        step!(state, run_id, token)
+        live_claim!(state, claim_token)
+        l1 = @instance.growth_write!('L1', plan[:id], plan[:l1_raw])
+        raise Error, 'Canonical L1 write/ledger verification failed; inspect pending state' unless l1[:success] && l1[:recorded_on_chain]
+
+        result = { 'state' => 'completed', 'request_id' => request_id, 'run_id' => live['run_id'], 'l1_id' => plan[:id],
+                   'l2_id' => plan[:id], 'evidence_sha256' => digest, 'source_count' => normalized['sources'].length,
+                   'completed_at' => timestamp, 'model_weights_changed' => false }
+        entry['state'] = 'completed'
+        entry['result'] = result
+        state['last_result'] = result
+        state['active_claim'] = nil
+        conclude!(state)
+        save(state)
+        result.merge('kairomone' => @instance.address)
       end
     end
 
-    # Only a completed, cross-checked growth transaction can strip metadata for XP.
-    # Ordinary user JSON never gains this privilege just by resembling an envelope.
-    def progression_content(id:, l1_body:, l2_body:)
-      state = read_state
+    def fail(run_id:, token:, claim_token:, reason:)
+      text!(reason, 'reason', WORDS_MAX)
+      locked do
+        state = load_state
+        reconcile!(state)
+        live = state['live']
+        raise Error, 'This run is not live' unless live && live['run_id'] == run_id
+        raise Error, 'The driver token does not match this run' unless token_string?(token) && sha(token) == live['token_sha256']
+
+        live_claim!(state, claim_token)
+        finish_claim!(state, 'failed', reason)
+        conclude!(state)
+        save(state)
+        public_state(state).merge('kairomone' => @instance.address)
+      end
+    end
+
+    # The 0.6 rule for growth entries an earlier Kairomone wrote: only a
+    # completed, cross-checked transaction of the 0.6 growth state can strip
+    # protocol metadata from an entry's XP identity. Ordinary JSON never gains
+    # this just by resembling an envelope.
+    def legacy_progression_content(id:, l1_body:, l2_body:)
+      state = legacy_state
       return nil unless state && id.is_a?(String) && id.start_with?('growth_')
       request_id = id.delete_prefix('growth_')
       entry = state['requests'][request_id]
@@ -178,81 +272,296 @@ module Kairomone
       evidence = envelope.fetch('evidence')
       digest = Digest::SHA256.hexdigest(JSON.generate(evidence))
       return nil unless digest == entry['evidence_sha256'] && digest == envelope['evidence_sha256'] && l1_body.strip == knowledge_body(evidence, digest).strip
-      norm = ->(text) { text.gsub("\r\n", "\n").strip }
-      stable = %w[finding uncertainty counterexample].to_h { |key| [key, norm.call(evidence.fetch(key))] }
-      stable['source_excerpts'] = evidence.fetch('sources').map { |source| norm.call(source.fetch('excerpt')) }.uniq.sort
-      { l1: norm.call(evidence.fetch('knowledge').fetch('content')), l2: JSON.generate(stable) }
+      normalized_content(evidence)
     rescue JSON::ParserError, KeyError, TypeError, NoMethodError
       nil
     end
 
     def synchronize(&block) = locked(&block)
 
-    # Atomic read, deliberately does not acquire growth lock while Instance#status
-    # or backup holds the canonical lock. Expired claims are displayed offline.
+    # Read only, without the growth lock: what runs.json says now. Expired
+    # claims show as stale; run_status concludes them.
     def status
-      state = read_state
-      return { 'schema_version' => 1, 'configured' => false, 'always_on' => false, 'worker_online' => false } unless state
-      public_state(state)
+      public_state(load_state)
     end
 
-    def self.validate_backup_state!(state)
+    # Restore ends every live run of the restored individual (M6, M15): the
+    # end is recorded on its ledger, and runs that ended before the restore
+    # are shown as archived. Called on the staged copy.
+    def end_runs_for_restore!
+      state = load_state
+      ledger_runs(@instance.chain).each do |run_id, r|
+        next if r['end']
+
+        append_end!(run_id, 'restored', 'This individual was restored from an archive; its runs ended', claims: state.dig('live', 'claims'))
+      end
+      if (live = state['live'])
+        state['ended'] << { 'run_id' => live['run_id'], 'started_at' => live['started_at'], 'ended_at' => timestamp,
+                            'reason' => 'restored', 'claims' => live['claims'], 'stop' => live['stop'] }
+      end
+      [state['active_claim'], state['queue']].compact.each { |r| (e = request_entry(state, r['request_id'])) && e['state'] = 'interrupted' }
+      state['live'] = state['queue'] = state['active_claim'] = nil
+      state['ended'].each { |run| run['archived'] = true }
+      state['ended'] = state['ended'].last(ENDED_KEEP)
+      save(state)
+    end
+
+    def self.empty_state
+      { 'schema_version' => 1, 'live' => nil, 'ended' => [], 'queue' => nil, 'active_claim' => nil, 'last_result' => nil, 'requests' => [] }
+    end
+
+    # runs.json is read with a fixed shape; anything else refuses growth.
+    def self.validate_runs!(value)
+      raise Error, 'Invalid growth runs' unless value.is_a?(Hash) && value.keys.sort == empty_state.keys.sort && value['schema_version'] == 1
+      raise Error, 'Invalid ended runs' unless value['ended'].is_a?(Array) && value['ended'].length <= ENDED_KEEP && value['ended'].all? { |r| r.is_a?(Hash) && RUN_ID.match?(r['run_id'].to_s) }
+      requests = value['requests']
+      raise Error, 'Invalid growth requests' unless requests.is_a?(Array) && requests.length <= REQUESTS_KEEP + 2
+      requests.each do |r|
+        raise Error, 'Invalid growth request' unless r.is_a?(Hash) && REQUEST_ID.match?(r['request_id'].to_s) && RUN_ID.match?(r['run_id'].to_s) && REQUEST_STATES.include?(r['state']) && r['request'].is_a?(Hash)
+      end
+      live = value['live']
+      if live
+        raise Error, 'Invalid live run' unless live.is_a?(Hash) && RUN_ID.match?(live['run_id'].to_s) && /\A[0-9a-f]{64}\z/.match?(live['token_sha256'].to_s) &&
+                                               %w[claims requests biased].all? { |k| live[k].is_a?(Integer) && live[k] >= 0 } && live['stop'].is_a?(Hash) && live['baseline'].is_a?(Hash)
+      end
+      claim = value['active_claim']
+      raise Error, 'Invalid growth claim' if claim && !(claim.is_a?(Hash) && REQUEST_ID.match?(claim['request_id'].to_s) && /\A[0-9a-f]{64}\z/.match?(claim['claim_token_sha256'].to_s))
+      raise Error, 'Cannot queue while claimed' if claim && value['queue']
+      raise Error, 'Work without a live run' if (claim || value['queue']) && !live
+      true
+    end
+
+    # The 0.6 growth state's shape (read, never written).
+    def self.validate_legacy_state!(state)
       raise Error, 'Invalid growth state' unless state.is_a?(Hash) && state['schema_version'] == 1
       expected = %w[schema_version max_cycles initial_used used_cycles stopped queue active_claim requests last_result stop_reason]
       raise Error, 'Unexpected growth fields' unless state.keys.sort == expected.sort
-      cap, initial, used = state.values_at('max_cycles', 'initial_used', 'used_cycles')
-      raise Error, 'Invalid growth budget' unless [cap, initial, used].all? { |x| x.is_a?(Integer) } && (1..HARD_CAP).cover?(cap) && (0..cap).cover?(initial) && (initial..cap).cover?(used)
-      raise Error, 'Invalid growth stop flag' unless [true, false].include?(state['stopped'])
-      requests = state['requests']
-      raise Error, 'Invalid growth requests' unless requests.is_a?(Hash) && requests.length <= HARD_CAP * 2
-      requests.each do |id, entry|
-        raise Error, 'Invalid growth request ID' unless id.is_a?(String) && /\A[a-z][a-z0-9_-]{0,39}\z/.match?(id)
-        raise Error, 'Unexpected growth request fields' unless entry.is_a?(Hash) && (entry.keys - %w[request state attempted claim_token evidence_sha256 result]).empty? && [true, false].include?(entry['attempted'])
-        request = entry['request']
-        raise Error, 'Invalid request data' unless request.is_a?(Hash) && (request.keys - ['companion']).sort == %w[request_id topic profession_id bias_applied].sort && request['topic'].is_a?(String) && request['topic'].bytesize.between?(1, 512) && Paths::ID.match?(request['profession_id'].to_s) && [true, false].include?(request['bias_applied'])
-        validate_companion_snapshot!(request['companion']) if request.key?('companion')
-        raise Error, 'Invalid attempted state' if %w[claimed committing completed failed expired].include?(entry['state']) && !entry['attempted']
-        raise Error, 'Invalid attempt token' if entry['attempted'] && !/\A[0-9a-f]{48}\z/.match?(entry['claim_token'].to_s)
-        raise Error, 'Invalid evidence digest' if entry['evidence_sha256'] && !/\A[0-9a-f]{64}\z/.match?(entry['evidence_sha256'].to_s)
-        raise Error, 'Missing completed result' if entry['state'] == 'completed' && (!entry['result'].is_a?(Hash) || entry['result']['request_id'] != id || !entry['evidence_sha256'])
-        raise Error, 'Invalid growth request entry' unless entry.is_a?(Hash) && %w[queued claimed committing completed failed expired interrupted].include?(entry['state']) && entry['request'].is_a?(Hash) && entry['request']['request_id'] == id
-      end
-      raise Error, 'Growth attempt count mismatch' unless requests.values.count { |r| r['attempted'] } == used - initial
-      claim = state['active_claim']
-      if claim
-        raise Error, 'Invalid growth claim' unless claim.is_a?(Hash) && requests.key?(claim['request_id']) && claim['claim_token'].is_a?(String) && /\A[0-9a-f]{48}\z/.match?(claim['claim_token'])
-        raise Error, 'Unexpected claim fields' unless (claim.keys - ['companion']).sort == %w[request_id topic profession_id bias_applied claim_token worker_id claimed_at heartbeat_at expires_at lease_seconds].sort
-        raise Error, 'Claim companion snapshot mismatch' unless claim['companion'] == requests[claim['request_id']]['request']['companion']
-        raise Error, 'Invalid claim lease' unless claim['lease_seconds'].is_a?(Integer) && (1..MAX_LEASE).cover?(claim['lease_seconds']) && Paths::ID.match?(claim['worker_id'].to_s)
-        raise Error, 'Claim does not match attempted request' unless requests[claim['request_id']]['attempted'] && requests[claim['request_id']]['claim_token'] == claim['claim_token'] && %w[claimed committing].include?(requests[claim['request_id']]['state'])
-        %w[claimed_at heartbeat_at expires_at].each { |k| Time.iso8601(claim.fetch(k)) }
-      end
-      queue = state['queue']
-      raise Error, 'Invalid growth queue' if queue && (!queue.is_a?(Hash) || !requests.key?(queue['request_id']) || requests[queue['request_id']]['request'] != queue || requests[queue['request_id']]['state'] != 'queued')
-      raise Error, 'Cannot queue while claimed' if claim && queue
-      raise Error, 'Stopped state cannot retain work' if state['stopped'] && (claim || queue)
+      raise Error, 'Invalid growth requests' unless state['requests'].is_a?(Hash)
       true
-    rescue ArgumentError, KeyError => e
-      raise Error, "Invalid growth state: #{e.message}"
-    end
-
-    def self.validate_companion_snapshot!(value)
-      valid = value.is_a?(Hash) && value.keys.sort == %w[direction revision] && value['revision'].is_a?(Integer) && value['revision'].between?(0, 200)
-      direction = value['direction'] if valid
-      valid &&= direction.is_a?(Hash) && direction.keys.sort == %w[preset text] && Instance::DIRECTION_PRESETS.include?(direction['preset']) && direction['text'].is_a?(String) && direction['text'].valid_encoding? && direction['text'].bytesize <= 1000
-      raise Error, 'Invalid companion direction snapshot' unless valid
-    end
-
-    def self.restore_state(state)
-      validate_backup_state!(state)
-      copy = JSON.parse(JSON.generate(state))
-      [copy['active_claim'], copy['queue']].compact.each { |r| copy['requests'][r['request_id']]['state'] = 'interrupted' }
-      copy['active_claim'] = nil; copy['queue'] = nil; copy['stopped'] = true
-      copy['stop_reason'] = 'Restore requires explicit resume and a fresh worker claim; budget preserved'
-      copy
     end
 
     private
+
+    def now = @clock.call.utc
+    def timestamp = now.iso8601
+    def sha(value) = Digest::SHA256.hexdigest(value.to_s)
+    def token_string?(value) = value.is_a?(String) && /\A[0-9a-f]{48}\z/.match?(value)
+
+    def locked
+      @instance.send(:ensure_initialized!)
+      raise Error, 'Restored targets are read-only' if @instance.instance_variable_get(:@restored)
+      Paths.mkdir(@instance.root, 'growth')
+      path = Paths.checked(@instance.root, 'growth/.lock')
+      Paths.regular_file!(path, optional: true, limit: 1024)
+      File.open(path, File::RDWR | File::CREAT, 0o600) { |f| f.flock(File::LOCK_EX); yield }
+    end
+
+    def load_state
+      return self.class.empty_state unless File.exist?(Paths.checked(@instance.root, RUNS_PATH))
+
+      value = JSON.parse(Paths.read(@instance.root, RUNS_PATH))
+      self.class.validate_runs!(value)
+      value
+    rescue JSON::ParserError => e
+      raise Error, "Unreadable growth runs: #{e.message}"
+    end
+
+    def save(state)
+      self.class.validate_runs!(state)
+      # An individual that never ran keeps no runs file.
+      return if state == self.class.empty_state && !File.exist?(Paths.checked(@instance.root, RUNS_PATH))
+
+      Paths.write(@instance.root, RUNS_PATH, JSON.pretty_generate(state) + "\n", replace: true)
+    end
+
+    def legacy_state
+      return nil unless @instance.bound? && File.exist?(Paths.checked(@instance.root, STATE_PATH))
+
+      value = JSON.parse(Paths.read(@instance.root, STATE_PATH))
+      self.class.validate_legacy_state!(value)
+      value
+    rescue JSON::ParserError, Error
+      nil
+    end
+
+    # {run_id => {'start' => record, 'end' => record}} from the ledger.
+    def ledger_runs(ledger)
+      raise Error, "Growth refused: the ledger is #{ledger.load_state}" unless %i[readable absent].include?(ledger.load_state)
+
+      runs = {}
+      Records.of_type(ledger, 'kairomone_run').each do |r|
+        next unless RUN_ID.match?(r['run_id'].to_s) && %w[start end].include?(r['action'])
+
+        (runs[r['run_id']] ||= {})[r['action']] ||= r
+      end
+      runs
+    end
+
+    def growth_intents(ledger)
+      Records.of_type(ledger, 'kairomone_growth_completed').each_with_object({}) { |r, h| h[r['request_id']] ||= r if r['request_id'].is_a?(String) }
+    end
+
+    # What time and the ledger have decided, applied to the state: an
+    # interrupted run_start gets its end recorded; a run the ledger ended is
+    # cleared; an expired lease concludes its cycle; a run past its end time,
+    # or whose count is used with no admitted cycle open, ends.
+    def reconcile!(state)
+      runs = ledger_runs(@instance.chain)
+      live = state['live']
+      runs.each do |run_id, r|
+        next if r['end'] || (live && live['run_id'] == run_id)
+
+        append_end!(run_id, 'interrupted_start', 'The run never became live: its start was recorded but run_start did not finish')
+      end
+      if live
+        r = runs[live['run_id']]
+        if r.nil? || r['end']
+          close_state!(state, r ? r.dig('end', 'reason').to_s : 'no_start_record')
+          return
+        end
+      end
+      expire!(state)
+      live = state['live'] or return
+      ends = live.dig('stop', 'end_at')
+      if ends && Time.iso8601(ends) <= now && !state['active_claim']
+        end_run!(state, 'end_time')
+      else
+        conclude!(state)
+      end
+    end
+
+    # Each step: driver token, start record, not ended, end time, host L0.
+    def step!(state, run_id, token)
+      reconcile!(state)
+      save(state)
+      live = state['live']
+      raise Error, "Run #{run_id} is not live; nothing revives an ended run" unless live && live['run_id'] == run_id
+      raise Error, 'The driver token does not match this run; only the session that started it can step it' unless token_string?(token) && sha(token) == live['token_sha256']
+
+      ends = live.dig('stop', 'end_at')
+      if ends && Time.iso8601(ends) <= now
+        end_run!(state, 'end_time')
+        raise Error, "Run #{run_id} reached its end time and has ended"
+      end
+      if @instance.send(:l0_fingerprints) != live['baseline']
+        end_run!(state, 'host_l0_changed')
+        raise Error, "Host L0 differs from the baseline run #{run_id} started under; the run has ended"
+      end
+      live
+    end
+
+    def admissible?(live)
+      cycles = live.dig('stop', 'cycles')
+      ends = live.dig('stop', 'end_at')
+      (cycles.nil? || live['claims'] < cycles) && (ends.nil? || now < Time.iso8601(ends))
+    end
+
+    # When the count is used and the last admitted cycle has concluded, the
+    # run's end is recorded.
+    def conclude!(state)
+      live = state['live'] or return
+      cycles = live.dig('stop', 'cycles')
+      end_run!(state, 'count_reached') if cycles && live['claims'] >= cycles && !state['active_claim'] && !state['queue']
+    end
+
+    def end_run!(state, reason, detail: nil)
+      live = state['live'] or return
+      append_end!(live['run_id'], reason, detail, claims: live['claims'])
+      close_state!(state, reason)
+      save(state)
+    end
+
+    def append_end!(run_id, reason, detail, claims: nil)
+      record = { 'type' => 'kairomone_run', 'run_id' => run_id, 'action' => 'end', 'reason' => reason,
+                 'detail' => detail && detail[0, WORDS_MAX], 'claims' => claims, 'at' => timestamp }.compact
+      @instance.send(:with_lock) { Records.append!(@instance.chain, [record], -> { @instance.chain }) }
+    end
+
+    def close_state!(state, reason)
+      live = state['live']
+      if (claim = state['active_claim'])
+        e = request_entry(state, claim['request_id'])
+        e['state'] = claim['state'] == 'committing' ? 'abandoned' : 'interrupted' if e
+        state['last_result'] = { 'state' => e ? e['state'] : 'interrupted', 'request_id' => claim['request_id'], 'reason' => "run ended: #{reason}",
+                                 'at' => timestamp, 'partial_writes_possible' => claim['state'] == 'committing' }
+      end
+      if (queued = state['queue'])
+        e = request_entry(state, queued['request_id'])
+        e['state'] = 'interrupted' if e
+      end
+      if live
+        state['ended'] << { 'run_id' => live['run_id'], 'started_at' => live['started_at'], 'ended_at' => timestamp,
+                            'reason' => reason, 'claims' => live['claims'], 'stop' => live['stop'] }
+        state['ended'] = state['ended'].last(ENDED_KEEP)
+      end
+      state['live'] = state['queue'] = state['active_claim'] = nil
+    end
+
+    def expire!(state)
+      claim = state['active_claim']
+      return unless claim && Time.iso8601(claim['expires_at']) <= now
+
+      finish_claim!(state, 'expired', 'Worker lease expired; the claim is not refunded')
+    end
+
+    def finish_claim!(state, outcome, reason)
+      claim = state['active_claim']
+      e = request_entry(state, claim['request_id'])
+      e['state'] = outcome if e
+      state['last_result'] = { 'state' => outcome, 'request_id' => claim['request_id'], 'reason' => reason, 'at' => timestamp,
+                               'partial_writes_possible' => claim['state'] == 'committing' }
+      state['active_claim'] = nil
+    end
+
+    def live_claim!(state, claim_token)
+      expire!(state)
+      claim = state['active_claim']
+      raise Error, 'Missing, stale or invalid claim' unless token_string?(claim_token) && claim && claim['claim_token_sha256'] == sha(claim_token)
+
+      claim
+    end
+
+    def request_entry(state, request_id) = state['requests'].reverse.find { |r| r['request_id'] == request_id }
+
+    # requests keeps the last 50; open work is never dropped.
+    def trim_requests!(state)
+      open = %w[queued claimed committing]
+      while state['requests'].length > REQUESTS_KEEP
+        i = state['requests'].index { |r| !open.include?(r['state']) } or break
+        state['requests'].delete_at(i)
+      end
+    end
+
+    # A request ID is unique against the ledger, the entries present and the
+    # 0.6 growth state.
+    def request_id_used?(request_id)
+      id = "growth_#{request_id}"
+      growth_intents(@instance.chain).key?(request_id) ||
+        File.exist?(Paths.checked(@instance.root, "knowledge/#{id}")) ||
+        File.exist?(Paths.checked(@instance.root, "context/#{Instance::L2_SESSION}/#{id}")) ||
+        legacy_state&.dig('requests', request_id)
+    end
+
+    # The two entries a cycle writes, rebuilt byte for byte from the intent's
+    # created_at, and their growth-normalised identities (the 0.6
+    # progression_content rule).
+    def growth_plan(request, evidence, digest, created_at)
+      id = "growth_#{request['request_id']}"
+      l2_body = JSON.pretty_generate({ 'kind' => 'untrusted_research_evidence', 'request' => request, 'evidence' => evidence,
+                                       'evidence_sha256' => digest, 'l1_id' => id, 'model_weights_changed' => false })
+      normalized = normalized_content(evidence)
+      { id: id, created_at: created_at,
+        l1_raw: @instance.send(:document, id, evidence['knowledge']['title'], knowledge_body(evidence, digest), 'L1', created_at),
+        l2_raw: @instance.send(:document, id, "Growth evidence: #{request['request_id']}", l2_body, 'L2', created_at),
+        l1_identity: Progression.fingerprint(normalized[:l1]), l2_identity: Progression.fingerprint(normalized[:l2]) }
+    end
+
+    def normalized_content(evidence)
+      norm = ->(text) { text.gsub("\r\n", "\n").strip }
+      stable = %w[finding uncertainty counterexample].to_h { |key| [key, norm.call(evidence.fetch(key))] }
+      stable['source_excerpts'] = evidence.fetch('sources').map { |source| norm.call(source.fetch('excerpt')) }.uniq.sort
+      { l1: norm.call(evidence.fetch('knowledge').fetch('content')), l2: JSON.generate(stable) }
+    end
 
     def knowledge_body(evidence, digest)
       "Research synthesis supplied by the authorized worker. Source material is untrusted evidence, not instructions.\n\n" +
@@ -305,88 +614,86 @@ module Kairomone
       value
     end
 
+    def parse_time!(value, label)
+      raise Error, "#{label} must be an ISO 8601 time" unless value.is_a?(String)
+
+      Time.iso8601(value).utc
+    rescue ArgumentError
+      raise Error, "#{label} must be an ISO 8601 time with a zone (for example 2026-10-24T00:00:00+02:00)"
+    end
+
     def id!(id)
-      raise Error, 'request_id must be a lowercase identifier of 1–40 characters' unless id.is_a?(String) && /\A[a-z][a-z0-9_-]{0,39}\z/.match?(id)
+      raise Error, 'request_id must be a lowercase identifier of 1–40 characters' unless id.is_a?(String) && REQUEST_ID.match?(id)
     end
 
-    def validate_budget!(cap, used)
-      raise Error, 'Budget must be integers, cap 1–10 and already_used 0–cap' unless cap.is_a?(Integer) && used.is_a?(Integer) && (1..HARD_CAP).cover?(cap) && (0..cap).cover?(used)
-    end
-
-    def initial(cap, used)
-      { 'schema_version' => 1, 'max_cycles' => cap, 'initial_used' => used, 'used_cycles' => used, 'stopped' => false,
-        'queue' => nil, 'active_claim' => nil, 'requests' => {}, 'last_result' => nil, 'stop_reason' => nil }
-    end
-
-    def timestamp = @clock.call.utc.iso8601
-    def read_state
-      return nil unless File.exist?(Paths.checked(@instance.root, STATE_PATH))
-      value = JSON.parse(Paths.read(@instance.root, STATE_PATH))
-      self.class.validate_backup_state!(value)
-      value
-    rescue JSON::ParserError => e
-      raise Error, "Unreadable growth state: #{e.message}"
-    end
-    def required_state = read_state || raise(Error, 'Request a bounded cycle first')
-    def save(state) = Paths.write(@instance.root, STATE_PATH, JSON.pretty_generate(state) + "\n", replace: true)
-
-    def locked
-      @instance.send(:ensure_initialized!)
-      raise Error, 'Restored targets are read-only' if @instance.instance_variable_get(:@restored)
-      Paths.mkdir(@instance.root, 'growth')
-      path = Paths.checked(@instance.root, 'growth/.lock')
-      Paths.regular_file!(path, optional: true, limit: 1024)
-      File.open(path, File::RDWR | File::CREAT, 0o600) { |f| f.flock(File::LOCK_EX); yield }
-    end
-
-    def verify_l0!
-      expected = @instance.effective_l0_baseline[:baseline]
-      current = @instance.send(:l0_fingerprints)
-      raise Error, 'L0 baseline unavailable or changed; automatic growth refused' if expected.empty? || current != expected
-    end
-
-    # The ruling's entry under the growth lock: lease expiry is applied first,
-    # and a live claim refuses, so the baseline never changes inside a cycle.
+    # The ruling's entry under the growth lock: an expired lease is concluded
+    # first, and a live claim refuses, so the baseline never changes inside a
+    # cycle. A re-baseline never revives a run.
     def record_rebaseline(expected_previous:, expected_next:, reason:)
       locked do
-        state = read_state
-        if state
-          expire!(state)
-          raise Error, 'A growth claim is active; re-baseline after it commits, fails or expires' if state['active_claim']
-        end
+        state = load_state
+        expire!(state)
+        save(state)
+        raise Error, 'A growth claim is active; re-baseline after it commits, fails or expires' if state['active_claim']
         @instance.send(:append_rebaseline, expected_previous: expected_previous, expected_next: expected_next, reason: reason)
       end
     end
 
-    def expire!(state)
-      return unless state['active_claim'] && Time.iso8601(state['active_claim']['expires_at']) <= @clock.call
-      finish!(state, 'expired', 'Worker lease expired; consumed budget is not refunded')
-      save(state)
-    end
-
-    def live_claim!(state, token)
-      expire!(state)
-      raise Error, 'Growth is stopped' if state['stopped']
-      claim = state['active_claim']
-      raise Error, 'Missing, stale or invalid claim' unless token.is_a?(String) && claim && claim['claim_token'] == token
-      claim
-    end
-
-    def finish!(state, outcome, reason)
-      claim = state['active_claim']; entry = state['requests'].fetch(claim['request_id'])
-      entry['state'] = outcome
-      state['last_result'] = { 'state' => outcome, 'request_id' => claim['request_id'], 'reason' => reason, 'at' => timestamp,
-        'partial_writes_possible' => !!entry['evidence_sha256'] }
-      state['active_claim'] = nil
-    end
-
     def public_state(state)
+      live = state['live']
       claim = state['active_claim']
-      online = claim && !state['stopped'] && Time.iso8601(claim['expires_at']) > @clock.call && Time.iso8601(claim['heartbeat_at']) > @clock.call - 60
-      { 'schema_version' => 1, 'configured' => true, 'max_cycles' => state['max_cycles'], 'used_cycles' => state['used_cycles'],
-        'remaining_cycles' => state['max_cycles'] - state['used_cycles'], 'stopped' => state['stopped'], 'queue' => state['queue'],
-        'active_claim' => claim&.reject { |k, _| k == 'claim_token' }, 'last_result' => state['last_result'],
-        'worker_online' => !!online, 'worker_signal' => (online ? 'recent_heartbeat' : (claim ? 'stale_or_expired' : 'no_claim')), 'always_on' => false, 'stop_reason' => state['stop_reason'] }
+      online = claim && Time.iso8601(claim['expires_at']) > now && Time.iso8601(claim['heartbeat_at']) > now - 60
+      cycles = live&.dig('stop', 'cycles')
+      legacy = legacy_state
+      { 'schema_version' => 2, 'live' => !live.nil?, 'configured' => !live.nil?, 'stopped' => live.nil?,
+        'run' => live && live.slice('run_id', 'started_at', 'stop', 'claims', 'requests', 'owner_words'),
+        'used_cycles' => live ? live['claims'] : 0, 'max_cycles' => cycles,
+        'remaining_cycles' => cycles && live ? [cycles - live['claims'], 0].max : nil,
+        'queue' => state['queue'], 'active_claim' => claim&.reject { |k, _| k.include?('token') },
+        'last_result' => state['last_result'], 'ended_runs' => state['ended'].last(5).reverse,
+        'worker_online' => !!online, 'worker_signal' => (online ? 'recent_heartbeat' : (claim ? 'stale_or_expired' : 'no_claim')),
+        'always_on' => false, 'cycle_limit' => nil,
+        'limit_note' => 'Kairomone_Core sets no limit on the cycles in a life; an operator policy, when declared, limits claims for the whole host.',
+        'policy' => Policy.new(host_root: @instance.host_root, clock: @clock).status,
+        'legacy_budget' => legacy && { 'max_cycles' => legacy['max_cycles'], 'used_cycles' => legacy['used_cycles'], 'note' => 'The 0.6 growth budget, kept as a record; 0.8 grows through runs' } }
+    end
+  end
+
+  # The two growth writes, each under the instance lock (taken inside the
+  # growth lock, per the lock order).
+  class Instance
+    def growth_record_intent!(intent, id)
+      with_lock do
+        ensure_writable!('L1')
+        ensure_writable!('L2')
+        record_identities!([], chain, also: [['L1', id], ['L2', id]], with: [intent])
+      end
+    end
+
+    # Writes the entry with these exact bytes unless it is present with them.
+    def growth_write!(layer, id, raw)
+      with_lock do
+        ensure_writable!(layer)
+        if layer == 'L2'
+          relative = "context/#{L2_SESSION}/#{id}/#{id}.md"
+          if File.exist?(Paths.checked(root, relative))
+            raise Error, 'A different growth evidence entry already exists; manual recovery required' unless Paths.read(root, relative) == raw.b
+          else
+            write_l2_raw!(id, raw)
+          end
+          next { success: true }
+        end
+        relative = "knowledge/#{id}/#{id}.md"
+        if File.exist?(Paths.checked(root, relative))
+          raise Error, 'A different growth knowledge entry already exists; manual recovery required' unless Paths.read(root, relative) == raw.b
+          recorded = recorded?(id, Digest::SHA256.hexdigest(raw), chain)
+          next { success: recorded, recorded_on_chain: recorded, preserved: true }
+        end
+        before = chain
+        raise Error, "Cannot write knowledge: dedicated ledger is #{before.load_state}" unless %i[absent readable].include?(before.load_state)
+        BodyHistory.close!(before, -> { chain })
+        write_l1_raw(id, raw, 'Kairomone growth cycle commit')
+      end
     end
   end
 end

@@ -1,6 +1,17 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 # Independent regression review. All data is synthetic and confined to temporary roots.
+#
+# Kairomone 0.8 (design log/kairomone_core_0_8_design_v0.6_FROZEN_20261023.md):
+# growth goes through owner-started runs (Inv 2, M6) — the 0.6 lifetime
+# budget (configure, max_cycles, already_used, resume) is gone, and Core sets
+# no cycle limit. Each growth check below keeps its 0.6 intent under runs:
+# an expired lease fails closed and is not refunded; the owner's stop ends the
+# run and nothing revives it; evidence stays inert and a commit retry is
+# idempotent; a restore ends live runs; a commit writes the L2 evidence
+# before the L1 entry, so a failure leaves the evidence and an abandoned
+# intent; runs.json stays bounded. A restore makes a separate listed twin
+# (Inv 1, M15); a move to a fresh host copies the archive key.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'kairomone'
@@ -61,10 +72,11 @@ class KairomoneIndependentIntegrationTest < Minitest::Test
     assert_equal saved, File.binread(File.join(@store.root, 'profession.json'))
     backup = @store.create_backup
     @store.restore_backup(file: backup[:file], target_id: 'review_restore')
-    copy = Kairomone::Instance.new(host_root: @host, restored_id: 'review_restore')
+    copy = Kairomone::Instance.new(host_root: @host, kairomone: 'review_restore')
     assert_equal 'researcher', copy.profession_status[:selected_id]
     assert_equal @store.progression_status, copy.progression_status
-    assert_raises(Kairomone::Error) { copy.select_profession(id: 'generalist') }
+    copy.select_profession(id: 'generalist')
+    assert_equal 'researcher', @store.profession_status[:selected_id], 'the twin is a separate individual'
   end
 
   def test_fresh_host_restore_resumes_without_overwriting_origin
@@ -73,6 +85,7 @@ class KairomoneIndependentIntegrationTest < Minitest::Test
     backup = @store.create_backup
     original = File.binread(File.join(@store.root, 'storage/blockchain.json'))
     Dir.mktmpdir('kairomone-independent-restore-') do |target|
+      FileUtils.cp_r(File.join(@host, 'kairomone-keys'), target) # the owner copies the archive key
       FileUtils.mkdir_p(File.join(target, 'kairomone-inbox'))
       FileUtils.cp(backup[:path], File.join(target, 'kairomone-inbox', backup[:file]))
       copy = Kairomone::Instance.new(host_root: target)
@@ -103,104 +116,119 @@ class KairomoneIndependentIntegrationTest
         'excerpt_sha256' => Digest::SHA256.hexdigest(excerpt) }] }
   end
 
-  def queue(id = 'review_cycle')
-    growth.request(request_id: id, topic: 'Synthetic independent review', max_cycles: 10, already_used: 3)
+  def run!(cycles: 10)
+    @run ||= growth.run_start(owner_words: 'Synthetic review run', cycles: cycles)
   end
 
-  def test_immutable_prior_budget_and_expired_worker_fails_closed
-    queue
-    claim = growth.claim(worker_id: 'review_worker', lease_seconds: 10)
-    assert_equal 4, claim['used_cycles']
+  def step = { run_id: @run[:run_id], token: @run[:token] }
+
+  def queue(id = 'review_cycle', cycles: 10)
+    run!(cycles: cycles)
+    growth.request(**step, request_id: id, topic: 'Synthetic independent review')
+  end
+
+  def claim(lease_seconds: 300) = growth.claim(**step, worker_id: 'review_worker', lease_seconds: lease_seconds)
+  def commit(token, payload = evidence) = growth.commit(**step, claim_token: token, evidence: payload)
+
+  def test_expired_worker_fails_closed_and_the_claim_is_not_refunded
+    queue(cycles: 1)
+    claimed = claim(lease_seconds: 10)
+    assert_equal 1, claimed['used_cycles']
     @now += 9
-    growth.heartbeat(claim_token: claim['claim_token'])
+    growth.heartbeat(**step, claim_token: claimed['claim_token'])
     @now += 2
     refute growth.status['worker_online']
-    assert_raises(Kairomone::Error) { growth.commit(claim_token: claim['claim_token'], evidence: evidence) }
-    assert_equal 4, growth.status['used_cycles']
+    assert_raises(Kairomone::Error) { commit(claimed['claim_token']) }
     assert_equal 0, @store.status[:knowledge][:count]
-    assert_raises(Kairomone::Error) { growth.request(request_id: 'reset', topic: 'Reset', max_cycles: 10, already_used: 0) }
-    assert_raises(Kairomone::Error) { growth.claim(worker_id: 'another') }
+    refute growth.status['live'], 'the expired claim used the run\'s one cycle, so the run ended'
+    assert_equal 'count_reached', growth.status['ended_runs'].first['reason']
+    assert_raises(Kairomone::Error) { growth.request(**step, request_id: 'reset', topic: 'Reset') }
+    assert_raises(Kairomone::Error) { claim }
   end
 
-  def test_stop_invalidates_claim_and_requires_explicit_resume
+  def test_owner_stop_invalidates_claim_and_nothing_revives_the_run
     queue
-    claim = growth.claim(worker_id: 'review_worker')
-    growth.stop(reason: 'User stop fixture')
-    assert_raises(Kairomone::Error) { growth.commit(claim_token: claim['claim_token'], evidence: evidence) }
+    claimed = claim
+    growth.run_stop(reason: 'User stop fixture')
+    assert_raises(Kairomone::Error) { commit(claimed['claim_token']) }
     assert_raises(Kairomone::Error) { queue('after_stop') }
-    assert_equal 4, growth.status['used_cycles']
+    assert_equal 'owner_stop', growth.status['ended_runs'].first['reason']
     assert_equal 0, @store.status[:knowledge][:count]
+    fresh = growth.run_start(owner_words: 'A new run', cycles: 1)
+    refute_equal @run[:run_id], fresh[:run_id]
   end
 
   def test_evidence_is_inert_and_commit_retry_is_idempotent
     queue
-    claim = growth.claim(worker_id: 'review_worker')
-    result = growth.commit(claim_token: claim['claim_token'], evidence: evidence)
+    claimed = claim
+    result = commit(claimed['claim_token'])
     assert_equal 'completed', result['state']
     snapshot = @store.status
     assert_equal 1, snapshot[:knowledge][:count]
     assert_equal 1, snapshot[:observations][:count]
     assert snapshot[:integrity][:valid]
-    retry_result = growth.commit(claim_token: claim['claim_token'], evidence: evidence)
+    retry_result = commit(claimed['claim_token'])
     assert retry_result['preserved']
     assert_equal snapshot[:progression], @store.progression_status
     changed = evidence; changed['finding'] = 'Changed'
-    assert_raises(Kairomone::Error) { growth.commit(claim_token: claim['claim_token'], evidence: changed) }
-    assert_equal 4, growth.status['used_cycles']
+    assert_raises(Kairomone::Error) { commit(claimed['claim_token'], changed) }
+    assert_equal 1, growth.status['used_cycles']
     refute growth.status['always_on']
     refute growth.status['worker_online']
   end
 
-  def test_growth_backup_restore_invalidates_live_authority_preserving_budget
+  def test_growth_backup_restore_ends_live_runs_in_the_copy_only
     queue
-    claim = growth.claim(worker_id: 'review_worker')
+    claimed = claim
     archive = @store.create_backup
     @store.restore_backup(file: archive[:file], target_id: 'growth_review')
-    copy = Kairomone::Instance.new(host_root: @host, restored_id: 'growth_review')
+    copy = Kairomone::Instance.new(host_root: @host, kairomone: 'growth_review')
     restored = Kairomone::Autonomy.new(instance: copy, clock: -> { @now }).status
-    assert_equal 4, restored['used_cycles']
-    assert restored['stopped']
+    refute restored['live']
+    assert_equal 'restored', restored['ended_runs'].first['reason']
+    assert restored['ended_runs'].first['archived']
     assert_nil restored['active_claim']
     assert_nil restored['queue']
     refute restored['worker_online']
-    assert_equal claim['active_claim'], growth.status['active_claim'], 'Restoring must not interrupt original instance'
+    assert_equal claimed['active_claim'], growth.status['active_claim'], 'Restoring must not interrupt the original'
   end
 end
 
 class KairomoneIndependentIntegrationTest
-  def test_stopped_partial_commit_never_resumes_and_preserves_pending_evidence
+  def test_failed_l1_write_leaves_the_evidence_and_an_abandoned_intent
     queue
-    claim = growth.claim(worker_id: 'review_worker')
-    @store.define_singleton_method(:observe) { |**_args| raise Kairomone::Error, 'Injected L2 disk failure' }
-    assert_raises(Kairomone::Error) { growth.commit(claim_token: claim['claim_token'], evidence: evidence) }
-    assert_equal 1, @store.status[:knowledge][:count], 'Partial canonical L1 must remain inspectable'
-    assert_equal 0, @store.status[:observations][:count]
-    growth.stop(reason: 'Stop after uncertain partial work')
-    @store.singleton_class.remove_method(:observe)
-    assert_raises(Kairomone::Error) { growth.commit(claim_token: claim['claim_token'], evidence: evidence) }
-    assert_equal 0, @store.status[:observations][:count]
-    assert_equal 4, growth.status['used_cycles']
-    assert growth.status['stopped']
+    claimed = claim
+    @store.define_singleton_method(:write_l1_raw) { |*_args| raise Kairomone::Error, 'Injected L1 disk failure' }
+    assert_raises(Kairomone::Error) { commit(claimed['claim_token']) }
+    assert_equal 0, @store.status[:knowledge][:count], 'no growth L1 without its evidence, and none was written'
+    assert_equal 1, @store.status[:observations][:count], 'the L2 evidence landed first'
+    growth.run_stop(reason: 'Stop after uncertain partial work')
+    @store.singleton_class.remove_method(:write_l1_raw)
+    assert_raises(Kairomone::Error) { commit(claimed['claim_token']) }
+    assert_equal 0, @store.status[:knowledge][:count]
+    assert_equal 'abandoned', growth.status['last_result']['state']
+    assert_equal 10, @store.progression_status[:total_xp], 'the entry that landed counts under its identity'
+    refute growth.status['live']
   end
 
   def test_source_credentials_local_addresses_and_payload_commands_are_refused
     queue
-    claim = growth.claim(worker_id: 'review_worker')
+    claimed = claim
     ['http://example.com/source', 'https://user:password@example.com/source', 'https://127.0.0.1/source', 'https://host.internal/source'].each do |url|
       payload = evidence; payload['sources'][0]['url'] = url
-      assert_raises(Kairomone::Error) { growth.commit(claim_token: claim['claim_token'], evidence: payload) }
+      assert_raises(Kairomone::Error) { commit(claimed['claim_token'], payload) }
     end
     payload = evidence; payload['command'] = 'delete-all'
-    assert_raises(Kairomone::Error) { growth.commit(claim_token: claim['claim_token'], evidence: payload) }
+    assert_raises(Kairomone::Error) { commit(claimed['claim_token'], payload) }
     assert_equal 0, @store.status[:knowledge][:count]
   end
 
   def test_old_archive_without_profession_or_growth_remains_compatible
     archive = @store.create_backup
     json = JSON.parse(File.read(archive[:path]))
-    refute json['files'].any? { |f| ['profession.json', 'growth/state.json'].include?(f['path']) }
+    refute json['files'].any? { |f| ['profession.json', 'growth/state.json', 'growth/runs.json'].include?(f['path']) }
     @store.restore_backup(file: archive[:file], target_id: 'old_basic')
-    copy = Kairomone::Instance.new(host_root: @host, restored_id: 'old_basic')
+    copy = Kairomone::Instance.new(host_root: @host, kairomone: 'old_basic')
     assert_nil copy.profession_status[:selected_id]
     refute Kairomone::Autonomy.new(instance: copy).status['configured']
     assert_equal 0, copy.progression_status[:total_xp]
@@ -208,46 +236,48 @@ class KairomoneIndependentIntegrationTest
 end
 
 class KairomoneIndependentIntegrationTest
-  def test_repeated_cancelled_queue_refuses_before_corrupting_history
-    20.times do |i|
-      growth.request(request_id: "cancel_#{i}", topic: 'Synthetic cancelled request', max_cycles: 10, already_used: 3, resume: true)
-      growth.stop
+  def test_many_stopped_runs_keep_the_run_history_bounded
+    60.times do |i|
+      @run = nil
+      queue("cancel_#{i}")
+      growth.run_stop(reason: 'Synthetic stop')
     end
-    assert_raises(Kairomone::Error) { growth.request(request_id: 'cancel_overflow', topic: 'Overflow', max_cycles: 10, already_used: 3, resume: true) }
-    assert_equal 3, growth.status['used_cycles']
-    assert growth.status['stopped']
+    state = JSON.parse(File.read(File.join(@store.root, 'growth/runs.json')))
+    assert_operator state['requests'].length, :<=, Kairomone::Autonomy::REQUESTS_KEEP
+    assert_operator state['ended'].length, :<=, Kairomone::Autonomy::ENDED_KEEP
+    assert_equal 'interrupted', state['requests'].last['state']
+    refute growth.status['live']
   end
 
-  def test_configuring_historical_budget_does_not_queue_or_claim_work
-    state = growth.configure(max_cycles: 10, already_used: 3)
-    assert_equal 3, state['used_cycles']
-    assert_equal 7, state['remaining_cycles']
-    assert state['stopped']
+  def test_starting_a_run_does_not_queue_or_claim_work
+    run!
+    state = growth.status
+    assert state['live']
+    assert_equal 0, state['used_cycles']
     assert_nil state['queue']
     assert_nil state['active_claim']
-    assert_raises(Kairomone::Error) { growth.configure(max_cycles: 10, already_used: 0) }
-    assert_raises(Kairomone::Error) { growth.claim(worker_id: 'review_worker') }
+    assert_raises(Kairomone::Error) { growth.run_start(owner_words: 'Second', cycles: 1) }
+    assert_raises(Kairomone::Error) { claim }
   end
 end
 
 class KairomoneIndependentIntegrationTest
   def test_repeated_growth_content_with_new_request_and_retrieval_time_does_not_multiply_xp
     queue('same_evidence_one')
-    first = growth.claim(worker_id: 'review_worker')
-    growth.commit(claim_token: first['claim_token'], evidence: evidence)
+    first = claim
+    commit(first['claim_token'])
     original_xp = @store.progression_status[:total_xp]
-    queue('same_evidence_two')
-    second = growth.claim(worker_id: 'review_worker')
+    growth.request(**step, request_id: 'same_evidence_two', topic: 'Synthetic independent review')
+    second = claim
     refreshed = evidence
     refreshed['sources'][0]['retrieved_at'] = '2026-10-13T11:30:00Z'
     refreshed['sources'][0]['retrieval_reference'] = 'synthetic_fixture_refreshed'
-    growth.commit(claim_token: second['claim_token'], evidence: refreshed)
+    commit(second['claim_token'], refreshed)
     assert_equal original_xp, @store.progression_status[:total_xp], 'Request IDs and refreshed retrieval metadata cannot multiply content XP'
-    assert_equal 5, growth.status['used_cycles'], 'Attempts still consume the real bounded budget'
+    assert_equal 2, growth.status['used_cycles'], 'Attempts still count as claims of the run'
     archive = @store.create_backup
     @store.restore_backup(file: archive[:file], target_id: 'normalized_growth')
-    restored = Kairomone::Instance.new(host_root: @host, restored_id: 'normalized_growth')
+    restored = Kairomone::Instance.new(host_root: @host, kairomone: 'normalized_growth')
     assert_equal original_xp, restored.progression_status[:total_xp], 'Restore preserves trusted content normalization'
-    assert_equal 5, restored.autonomy.status['used_cycles']
   end
 end

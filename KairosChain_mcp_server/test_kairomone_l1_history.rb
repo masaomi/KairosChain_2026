@@ -5,6 +5,10 @@
 # host/instance directories. Runs on every supported core: on a core without
 # body history, a dot an earlier Kairomone activated elsewhere is simulated by
 # the activation record core would have left on its ledger.
+#
+# Kairomone 0.8 (design log/kairomone_core_0_8_design_v0.6_FROZEN_20261023.md):
+# a backup is signed with the host's archive key, and a move to a fresh host
+# restores as stored once the owner copies that key there (M15).
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'kairomone'
@@ -138,6 +142,7 @@ check('a backup restore of an activated dot records the switch-off on its first 
     backup = store.create_backup
     Dir.mktmpdir('kairomone-l1h-restore-') do |new_host|
       FileUtils.cp_r(File.join(old_host, 'skills'), File.join(new_host, 'skills'))
+      FileUtils.cp_r(File.join(old_host, 'kairomone-keys'), new_host) # the owner copies the archive key
       FileUtils.mkdir_p(File.join(new_host, 'kairomone-inbox'))
       FileUtils.cp(backup[:path], File.join(new_host, 'kairomone-inbox', backup[:file]))
       recovered = Kairomone::Instance.new(host_root: new_host)

@@ -87,7 +87,8 @@ class TestKairomoneUi < Minitest::Test
     assert result[:initialized]
     output = result.fetch(:html_path)
     # Instance resolves the host root with realpath (macOS: /var -> /private/var).
-    assert_equal File.join(File.realpath(@tmpdir), 'kairomone', 'exports', 'status.html'), output
+    # Kairomone 0.8 (design v0.6 M1): init lists the individual under kairomones/<id>/.
+    assert_equal File.join(File.realpath(@tmpdir), 'kairomones', 'synthetic_test_dot', 'exports', 'status.html'), output
     payload = JSON.parse(script_bodies(File.read(output)).first.last)
     assert_equal 0, payload.dig('knowledge', 'count')
     assert_equal true, payload.dig('knowledge', 'available')

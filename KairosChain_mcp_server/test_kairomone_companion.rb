@@ -5,13 +5,23 @@ require 'kairomone'
 require 'minitest/autorun'
 require 'tmpdir'
 require 'open3'
+require_relative 'templates/skillsets/kairomone/test/legacy_fixture'
 
+# Kairomone 0.8 (design log/kairomone_core_0_8_design_v0.6_FROZEN_20261023.md):
+# companion settings are those of an individual made before 0.8 here, so the
+# fixture builds that legacy slot as 0.6.1's init left it (M1: 0.8 never
+# creates one; Inv 1, Inv 4: it keeps working in place and its direction and
+# personality stay in force), on a host with L0 so a run can start. A restore
+# makes a separate, writable listed twin (Inv 1, M15) instead of a read-only
+# copy; a move to a fresh host copies the archive key. Direction is captured
+# per request inside an owner-started run (Inv 2, M6).
 class KairomoneCompanionTest < Minitest::Test
   def setup
     @host = Dir.mktmpdir('kairomone-companion-')
     KairosMcp.data_dir = @host
-    @store = Kairomone::Instance.new
-    @store.init(dot_id: 'fixed_id', display_name: 'Original')
+    FileUtils.mkdir_p(File.join(@host, 'skills'))
+    File.write(File.join(@host, 'skills/kairos.md'), '# synthetic philosophy')
+    @store = KairomoneLegacyFixture.slot!(@host, dot_id: 'fixed_id', display_name: 'Original')
   end
   def teardown
     FileUtils.remove_entry(@host)
@@ -94,12 +104,15 @@ class KairomoneCompanionTest < Minitest::Test
     backup = @store.create_backup
     assert backup[:verified]
     @store.restore_backup(file: backup[:file], target_id: 'copy')
-    restored = Kairomone::Instance.new(host_root: @host, restored_id: 'copy')
+    restored = Kairomone::Instance.new(host_root: @host, kairomone: 'copy')
     assert_equal @store.companion_status, restored.companion_status
     assert_equal 1, restored.status[:chat_memory][:count]
     assert_equal 0, restored.progression_status[:total_xp]
-    assert_raises(Kairomone::Error) { restored.configure_companion(request_id: 'no', expected_revision: 1, display_name: 'No') }
+    original = @store.companion_status
+    restored.configure_companion(request_id: 'twin_only', expected_revision: 1, display_name: 'Twin')
+    assert_equal original, @store.companion_status, 'the twin is a separate individual'
     Dir.mktmpdir('companion-new-') do |fresh|
+      FileUtils.cp_r(File.join(@host, 'kairomone-keys'), fresh) # the owner copies the archive key
       FileUtils.mkdir_p(File.join(fresh, 'kairomone-inbox'))
       FileUtils.cp(backup[:path], File.join(fresh, 'kairomone-inbox', backup[:file]))
       active = Kairomone::Instance.new(host_root: fresh)
@@ -156,18 +169,21 @@ class KairomoneCompanionTest < Minitest::Test
     @store.revoke_companion_memory
     backup = @store.create_backup
     @store.restore_backup(file: backup[:file], target_id: 'revoked')
-    assert_equal false, Kairomone::Instance.new(host_root: @host, restored_id: 'revoked').companion_status[:companion]['memory_enabled']
+    assert_equal false, Kairomone::Instance.new(host_root: @host, kairomone: 'revoked').companion_status[:companion]['memory_enabled']
   end
 
   def test_direction_is_captured_for_new_request_not_retroactively
-    @store.autonomy.request(request_id: 'cycle_one', topic: 'Evidence', resume: true)
+    run = @store.autonomy.run_start(owner_words: 'Fixture run', cycles: 5)
+    step = { run_id: run[:run_id], token: run[:token] }
+    @store.autonomy.request(**step, request_id: 'cycle_one', topic: 'Evidence')
     first = @store.autonomy.status['queue']['companion']
     assert_equal 0, first['revision']
     @store.configure_companion(request_id: 'direction', expected_revision: 0, direction: { 'preset' => 'research', 'text' => 'New topic' })
     assert_equal first, @store.autonomy.status['queue']['companion']
-    assert @store.autonomy.request(request_id: 'cycle_one', topic: 'Evidence', resume: true)['preserved']
-    @store.autonomy.stop
-    @store.autonomy.request(request_id: 'cycle_two', topic: 'New evidence', resume: true)
+    assert @store.autonomy.request(**step, request_id: 'cycle_one', topic: 'Evidence')['preserved']
+    @store.autonomy.run_stop(reason: 'Fixture stop')
+    run = @store.autonomy.run_start(owner_words: 'Fixture run two', cycles: 5)
+    @store.autonomy.request(run_id: run[:run_id], token: run[:token], request_id: 'cycle_two', topic: 'New evidence')
     assert_equal 1, @store.autonomy.status['queue']['companion']['revision']
     assert_equal 'New topic', @store.autonomy.status['queue']['companion']['direction']['text']
   end

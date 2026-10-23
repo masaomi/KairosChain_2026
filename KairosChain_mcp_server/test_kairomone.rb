@@ -3,6 +3,19 @@
 
 # All writes go to temporary host/instance directories. No existing personal
 # records, source L0, installed profiles, or connected services are touched.
+#
+# Kairomone 0.8 (design log/kairomone_core_0_8_design_v0.6_FROZEN_20261023.md):
+# init makes the host's individual under kairomones/<id>/ through the registry
+# (M1), and its ledger opens with its identity, baseline and profile records
+# (M5), so it has a ledger from birth and no profile.json; every L1/L2 write
+# records the entry's XP identity first (Inv 3), which adds a block. A restore
+# makes a separate listed individual (a twin under target_id, identity kept)
+# instead of a read-only copy, appends kairomone_restored and keeps the
+# archived blocks; only an archive signed with this host's key restores
+# through the library and MCP path, so a move to another host copies the
+# archive key or goes through the terminal confirmation (Inv 1, M15). The
+# swallowed-failure check now fails only the knowledge_update append, since
+# the identity record before it must land for the write to start.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'kairomone'
@@ -59,7 +72,7 @@ def populate(store)
 end
 
 def host_files(host)
-  Dir.glob(File.join(host, '**/*'), File::FNM_DOTMATCH).select { |path| File.file?(path) && !path.start_with?(File.join(host, 'kairomone') + '/') && !path.start_with?(File.join(host, 'kairomone-restored') + '/') }.to_h { |path| [path.delete_prefix(host + '/'), File.binread(path)] }
+  Dir.glob(File.join(host, '**/*'), File::FNM_DOTMATCH).select { |path| File.file?(path) && !path.start_with?(File.join(host, 'kairomone') + '/') && !path.start_with?(File.join(host, 'kairomones') + '/') && !path.start_with?(File.join(host, 'kairomone-restored') + '/') }.to_h { |path| [path.delete_prefix(host + '/'), File.binread(path)] }
 end
 
 def rewrite_archive(store, file)
@@ -71,11 +84,14 @@ end
 
 check('repeat initialization preserves profile and dot binding') do
   fixture do |store, _|
-    before = File.binread(File.join(store.root, 'profile.json'))
+    ledger = File.join(store.root, 'storage/blockchain.json')
+    before = File.binread(ledger)
     result = store.init(dot_id: 'my_dot', display_name: 'Different ignored name')
     assert result[:preserved] && !result[:initialized]
-    assert before == File.binread(File.join(store.root, 'profile.json'))
+    assert result[:profile]['name'] == 'My dot 🌿'
+    assert before == File.binread(ledger)
     refuses { store.init(dot_id: 'other_dot', display_name: 'Other') }
+    assert Kairomone::Host.new.listing.map { |l| l[:listing_id] } == ['my_dot']
   end
 end
 
@@ -87,7 +103,8 @@ check('canonical L1/L2 unicode roundtrip; host L0 and auto-commit state untouche
     assert item[:content].include?('知識 🌿') && item[:recorded]
     assert store.knowledge_provider.is_a?(KairosMcp::KnowledgeProvider)
     assert store.context_manager.is_a?(KairosMcp::ContextManager)
-    assert store.chain.valid? && store.chain.chain.length == 2
+    # genesis, the entry records, and identity + update for L1, identity for L2
+    assert store.chain.valid? && store.chain.chain.length == 5
     status = store.status
     assert status[:knowledge][:count] == 1 && status[:observations][:count] == 1
     assert status[:integrity][:host_l0][:state] == 'unchanged'
@@ -132,9 +149,12 @@ end
 
 check('upstream swallowed ledger write failure is reported pending, not success') do
   fixture do |original, host|
-    failing = Class.new(KairosMcp::Storage::FileBackend) do
-      def save_all_blocks(_blocks)
-        raise KairosMcp::Storage::Error, 'simulated disk write failure'
+    failing = Class.new(Kairomone::AtomicLedgerBackend) do
+      def save_all_blocks(blocks)
+        last = blocks.last
+        data = last.is_a?(Hash) ? (last[:data] || last['data']) : last.data
+        raise KairosMcp::Storage::Error, 'simulated disk write failure' if Array(data).any? { |d| d.include?('"knowledge_update"') }
+        super
       end
     end.new(storage_dir: File.join(original.root, 'storage'), blockchain_file: File.join(original.root, 'storage/blockchain.json'), action_log_file: File.join(original.root, 'storage/action_log.jsonl'))
     store = Kairomone::Instance.new(host_root: host, backend: failing)
@@ -162,35 +182,45 @@ check('content tampering and missing L1 files fail correspondence') do
   end
 end
 
-check('owned backup verifies and restores byte-identically to a new read-only target') do
+check('owned backup verifies and restores byte-identically as a separate listed twin') do
   fixture do |store, host|
     populate(store)
     File.write(File.join(host, 'private-account-token.txt'), 'NEVER_IN_BACKUP')
     File.write(File.join(store.root, 'storage/private-token.txt'), 'NEVER_IN_BACKUP')
     backup = store.create_backup
-    assert backup[:verified]
+    assert backup[:verified] && backup[:signed_by_this_host]
     raw = File.binread(backup[:path])
     assert !raw.include?('NEVER_IN_BACKUP') && !raw.include?('private-token')
+    original_ledger = File.binread(File.join(store.root, 'storage/blockchain.json'))
     restore = store.restore_backup(file: backup[:file], target_id: 'recovered')
-    assert restore[:restored] && !restore[:active_instance_changed]
-    recovered = Kairomone::Instance.new(host_root: host, restored_id: 'recovered')
+    assert restore[:restored] && restore[:kairomone] == { listing_id: 'recovered', identity: 'my_dot' }
+    recovered = Kairomone::Instance.new(host_root: host, kairomone: 'recovered')
     assert recovered.status[:integrity][:valid]
     assert recovered.read_knowledge(id: 'first')[:content] == store.read_knowledge(id: 'first')[:content]
     files = JSON.parse(raw)['files']
-    files.each { |entry| assert File.binread(File.join(restore[:path], entry['path'])) == Base64.strict_decode64(entry['content_base64']) }
+    files.each do |entry|
+      next if entry['path'] == 'storage/blockchain.json'
+      assert File.binread(File.join(restore[:path], entry['path'])) == Base64.strict_decode64(entry['content_base64'])
+    end
+    archived = JSON.parse(Base64.strict_decode64(files.find { |f| f['path'] == 'storage/blockchain.json' }['content_base64']))
+    now = JSON.parse(File.read(File.join(restore[:path], 'storage/blockchain.json')))
+    assert now.first(archived.length) == archived, 'the archived blocks are kept as they were'
+    assert JSON.parse(now.last['data'].first)['type'] == 'kairomone_restored'
     refuses { store.restore_backup(file: backup[:file], target_id: 'recovered') }
-    refuses { recovered.observe(title: 'No', content: 'Cannot write') }
+    assert recovered.observe(title: 'Twin', content: 'Written to the twin only')[:success]
+    assert File.binread(File.join(store.root, 'storage/blockchain.json')) == original_ledger, 'the original is untouched'
     refuses { store.restore_backup(file: backup[:file], target_id: '../escape') }
   end
 end
 
-check('empty initialized instance can roundtrip without inventing a ledger') do
+check('empty initialized instance roundtrips with only its entry records') do
   fixture do |store, host|
     backup = store.create_backup
     store.restore_backup(file: backup[:file], target_id: 'empty')
-    restored = Kairomone::Instance.new(host_root: host, restored_id: 'empty')
-    assert restored.status[:integrity][:state] == 'absent'
-    assert !File.exist?(File.join(restored.root, 'storage/blockchain.json'))
+    restored = Kairomone::Instance.new(host_root: host, kairomone: 'empty')
+    assert restored.status[:integrity][:state] == 'readable'
+    types = restored.chain.chain.drop(1).flat_map { |b| b.data.map { |d| JSON.parse(d)['type'] } }
+    assert types == %w[kairomone_identity kairomone_baseline kairomone_profile kairomone_restored], types.inspect
   end
 end
 
@@ -201,7 +231,7 @@ check('archive checksum tamper refuses without creating the target') do
     rewrite_archive(store, backup[:file]) { |a| a['files'][0]['content_base64'] = Base64.strict_encode64('tampered') }
     refuses { store.verify_backup(file: backup[:file]) }
     refuses { store.restore_backup(file: backup[:file], target_id: 'bad') }
-    assert !File.exist?(File.join(host, 'kairomone-restored/bad'))
+    assert !File.exist?(File.join(host, 'kairomones/bad'))
   end
 end
 
@@ -222,7 +252,7 @@ check('archive traversal, duplicates, symlink metadata and oversized entries are
       rewrite_archive(store, backup[:file], &attack)
       refuses { store.restore_backup(file: backup[:file], target_id: 'attack') }
       assert !File.exist?(File.join(host, 'outside'))
-      assert !File.exist?(File.join(host, 'kairomone-restored/attack'))
+      assert !File.exist?(File.join(host, 'kairomones/attack'))
     end
     refuses { store.verify_backup(file: '../profile.json') }
     refuses { store.verify_backup(file: '/tmp/backup.kairomone.json') }
@@ -241,6 +271,7 @@ check('symlink and hardlink writes cannot escape through the store or ledger') d
   fixture do |store, host|
     sentinel = File.join(host, 'sentinel')
     File.write(sentinel, 'unchanged')
+    File.unlink(File.join(store.root, 'storage/blockchain.json'))
     File.link(sentinel, File.join(store.root, 'storage/blockchain.json'))
     refuses { store.create_knowledge(id: 'escape', title: 'a', content: 'b') }
     assert File.read(sentinel) == 'unchanged'
@@ -362,13 +393,13 @@ check('CLI restore and restore-new refuse without a controlling terminal and res
     backup = run.call(host, 'backup', 'create').first
     result, status = run.call(host, 'backup', 'restore', '--file', backup['file'], '--target-id', 'cli_restore')
     assert !status.success? && result['success'] == false && result['error'].include?('needs a terminal'), result.inspect
-    assert !File.exist?(File.join(host, 'kairomone-restored', 'cli_restore'))
+    assert !File.exist?(File.join(host, 'kairomones', 'cli_restore'))
     Dir.mktmpdir('kairomone-cli-notty-new-') do |new_host|
       FileUtils.mkdir_p(File.join(new_host, 'kairomone-inbox'))
       FileUtils.cp(backup['path'], File.join(new_host, 'kairomone-inbox', backup['file']))
       result, status = run.call(new_host, 'backup', 'restore-new', '--file', backup['file'], '--dot-id', 'cli_dot')
       assert !status.success? && result['success'] == false && result['error'].include?('needs a terminal'), result.inspect
-      assert !File.exist?(File.join(new_host, 'kairomone'))
+      assert !File.exist?(File.join(new_host, 'kairomones', 'cli_dot'))
     end
   end
 end
@@ -383,8 +414,10 @@ check('portable fresh-host recovery resumes canonical writes and preserves the o
       FileUtils.mkdir_p(File.join(new_host, 'kairomone-inbox'))
       FileUtils.cp(backup[:path], File.join(new_host, 'kairomone-inbox', backup[:file]))
       recovered = Kairomone::Instance.new(host_root: new_host)
+      refuses { recovered.restore_new(file: backup[:file], dot_id: 'my_dot') } # not signed by the new host's key
+      FileUtils.cp_r(File.join(old_host, 'kairomone-keys'), new_host) # the owner copies the archive key
       refuses { recovered.restore_new(file: backup[:file], dot_id: 'wrong_dot') }
-      assert !File.exist?(recovered.root)
+      assert Kairomone::Host.new(host_root: new_host).listing.empty?
       result = recovered.restore_new(file: backup[:file], dot_id: 'my_dot')
       assert result[:success] && result[:active]
       assert result[:integrity][:host_l0][:state] == 'unchanged'
@@ -407,14 +440,18 @@ check('fresh-host recovery reports changed L0 honestly and leaves it untouched')
       FileUtils.mkdir_p(File.join(host, 'skills'))
       File.write(File.join(host, 'skills/kairos.rb'), '# Different host law')
       File.write(File.join(host, 'skills/kairos.md'), '# Different host philosophy')
-      FileUtils.mkdir_p(File.join(host, 'kairomone-inbox'))
-      FileUtils.cp(backup[:path], File.join(host, 'kairomone-inbox', backup[:file]))
-      recovered = Kairomone::Instance.new(host_root: host)
-      result = recovered.restore_new(file: backup[:file], dot_id: 'my_dot')
+      bytes = File.binread(backup[:path])
+      shown = nil
+      # Another machine's archive restores only after the owner sees its free
+      # text and confirms (the terminal path); declining restores nothing.
+      refuses { Kairomone::Host.new(host_root: host).restore(bytes, trust: ->(lines) { shown = lines; false }, expected_identity: 'my_dot') }
+      assert shown.any? { |line| line.include?('日本語 <test>') } && Kairomone::Host.new(host_root: host).listing.empty?
+      result = Kairomone::Host.new(host_root: host).restore(bytes, trust: ->(_lines) { true }, expected_identity: 'my_dot')
+      assert result[:trust] == 'owner_confirmed'
       assert result[:integrity][:host_l0][:state] == 'changed' && result[:l0_warning]
       assert File.read(File.join(host, 'skills/kairos.rb')) == '# Different host law'
       assert File.read(File.join(host, 'skills/kairos.md')) == '# Different host philosophy'
-      assert recovered.profile['host_l0_baseline'] == store.profile['host_l0_baseline']
+      assert Kairomone::Instance.new(host_root: host, kairomone: 'my_dot').initial_baseline == store.initial_baseline
     end
   end
 end

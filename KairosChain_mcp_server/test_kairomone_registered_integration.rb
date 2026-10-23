@@ -2,6 +2,16 @@
 
 # Independent end-to-end regression: only fresh temporary hosts are touched.
 # Uses the real public Skillset loader, ToolRegistry, canonical providers, and CLI.
+#
+# Kairomone 0.8 (design log/kairomone_core_0_8_design_v0.6_FROZEN_20261023.md):
+# init lists the individual under kairomones/<id>/ (M1) with a profile version
+# instead of profile.json (M4); kairomone_list is a ninth tool (M3); with two
+# individuals on the host (after a restore) every call names one (M2); a
+# restore makes a separate listed twin that appends its own record (Inv 1,
+# M15); backups are signed with the host's archive key (kairomone-keys/, a
+# host-level Kairomone file like the inbox), and the fresh host restores the
+# archive as stored once the owner copies that key there; each L1 create adds
+# an identity record before its update block (Inv 3).
 
 require 'json'
 require 'tmpdir'
@@ -76,35 +86,37 @@ Dir.mktmpdir('kairomone-independent-') do |tmp|
   check('real Skillset loads installed package') { ss.valid? && ss.load! && ss.loaded? }
   reg=KairosMcp::ToolRegistry.new
   names=reg.list_tools.map{|t|t[:name]}.grep(/^kairomone_/).sort
-  check('all eight tools registered by real ToolRegistry') { names==%w[kairomone_backup kairomone_companion kairomone_growth kairomone_init kairomone_knowledge kairomone_observe kairomone_profession kairomone_status] }
-  base=tree(host,exclude:%w[kairomone kairomone-restored])
+  check('all nine tools registered by real ToolRegistry') { names==%w[kairomone_backup kairomone_companion kairomone_growth kairomone_init kairomone_knowledge kairomone_list kairomone_observe kairomone_profession kairomone_status] }
+  outside=%w[kairomone kairomones kairomone-restored kairomone-keys]
+  base=tree(host,exclude:outside)
+  own=File.join(host,'kairomones','review_dot')
   pending=KairosMcp::StateCommit::PendingChanges.all
   check('host auto state-commit enabled') { KairosMcp::SkillsConfig.state_commit_enabled? && KairosMcp::SkillsConfig.state_commit_auto_enabled? }
   hostile="芽 <script>window.pwned=true</script> & \" <img onerror='alert(1)'>"
   init=invoke(reg,'kairomone_init',{'dot_id'=>'review_dot','display_name'=>hostile})
   check('tool initializes owned profile') { init['success'] && init['initialized'] }
-  original=tree(File.join(host,'kairomone'))
+  original=tree(own)
   repeat=invoke(reg,'kairomone_init',{'dot_id'=>'review_dot','display_name'=>'replacement'})
-  check('repeated init byte-preserves all owned content') { repeat['preserved'] && tree(File.join(host,'kairomone'))==original }
+  check('repeated init byte-preserves all owned content') { repeat['preserved'] && tree(own)==original }
   check('different dot id refused') { invoke(reg,'kairomone_init',{'dot_id'=>'other','display_name'=>'Other'})['success']==false }
   %w[../escape /tmp/escape . .. A slash/name].each do |id|
     check("unsafe knowledge ID refused: #{id}") { invoke(reg,'kairomone_knowledge',{'command'=>'create','id'=>id,'title'=>'unsafe','content'=>'unsafe'})['success']==false }
   end
   obs=invoke(reg,'kairomone_observe',{'title'=>hostile,'content'=>"Body of observation\n日本語"})
   check('L2 canonical observation saved without chain record') { obs['success'] && obs['canonical'] && obs['recorded_on_chain']==false }
-  check('L2 uses canonical ContextManager directory') { File.file?(File.join(host,'kairomone','context','kairomone',obs['id'],obs['id']+'.md')) }
+  check('L2 uses canonical ContextManager directory') { File.file?(File.join(own,'context','kairomone',obs['id'],obs['id']+'.md')) }
   create_args={'command'=>'create','id'=>'review_knowledge','title'=>hostile,'content'=>"Knowledge body.\n日本語"}
   know=invoke(reg,'kairomone_knowledge',create_args)
   check('L1 successful only with verified chain record') { know['success'] && know['canonical'] && know['recorded_on_chain'] && !know['pending'] }
   got=invoke(reg,'kairomone_knowledge',{'command'=>'get','id'=>'review_knowledge'})
   check('L1 get returns exact user content and recording') { got['success'] && got['content']==create_args['content'] && got['recorded'] }
-  owned_before=tree(File.join(host,'kairomone'))
+  owned_before=tree(own)
   repeat=invoke(reg,'kairomone_knowledge',create_args)
-  check('identical L1 retry adds no files or ledger blocks') { repeat['preserved'] && tree(File.join(host,'kairomone'))==owned_before }
+  check('identical L1 retry adds no files or ledger blocks') { repeat['preserved'] && tree(own)==owned_before }
   conflict=invoke(reg,'kairomone_knowledge',create_args.merge('content'=>'replacement'))
-  check('existing L1 overwrite refused byte-for-byte') { conflict['success']==false && tree(File.join(host,'kairomone'))==owned_before }
+  check('existing L1 overwrite refused byte-for-byte') { conflict['success']==false && tree(own)==owned_before }
   check('host global pending state-commit unchanged') { KairosMcp::StateCommit::PendingChanges.all==pending }
-  check('host L0/config/knowledge/context/ledger unchanged by runtime tools') { tree(host,exclude:%w[kairomone kairomone-restored])==base }
+  check('host L0/config/knowledge/context/ledger unchanged by runtime tools') { tree(host,exclude:outside)==base }
   provider=KairosMcp::KnowledgeProvider.new(nil,vector_search_enabled:false)
   check('host knowledge provider does not discover owned user entry') { provider.get('review_knowledge').nil? }
   st=invoke(reg,'kairomone_status',{'render_html'=>true})
@@ -117,36 +129,38 @@ Dir.mktmpdir('kairomone-independent-') do |tmp|
   check('owned backup creates and verifies') { backup['success'] && backup['verified'] }
   file=backup.fetch('file')
   archive=JSON.parse(File.read(backup.fetch('path')))
-  check('backup only includes profile, canonical records, owned ledger') { archive['files'].map{|x|x['path']}.sort==['profile.json','storage/blockchain.json',"context/kairomone/#{obs['id']}/#{obs['id']}.md",'knowledge/review_knowledge/review_knowledge.md'].sort }
+  check('backup only includes profile, canonical records, owned ledger') { archive['files'].map{|x|x['path']}.sort==["profile/#{st.dig('profile','sha256')}.json",'storage/blockchain.json',"context/kairomone/#{obs['id']}/#{obs['id']}.md",'knowledge/review_knowledge/review_knowledge.md'].sort }
+  check('backup is signed with the host archive key, which it never carries') { archive.dig('signature','algorithm')=='HMAC-SHA256' && File.file?(File.join(host,'kairomone-keys','archive.key')) && !File.read(backup.fetch('path')).include?(Base64.strict_encode64(File.binread(File.join(host,'kairomone-keys','archive.key')))) }
   check('backup verification succeeds through registered tool') { invoke(reg,'kairomone_backup',{'command'=>'verify','file'=>file})['verified'] }
-  active=tree(File.join(host,'kairomone'))
+  active=tree(own)
   restore=invoke(reg,'kairomone_backup',{'command'=>'restore','file'=>file,'target_id'=>'recovery'})
-  check('restore publishes new inactive target') { restore['success'] && restore['active_instance_changed']==false }
-  check('restore leaves active instance byte-identical') { active==tree(File.join(host,'kairomone')) }
+  check('restore publishes a separate listed twin') { restore['success'] && restore.dig('kairomone','listing_id')=='recovery' && restore.dig('kairomone','identity')=='review_dot' }
+  check('restore leaves the source individual byte-identical') { active==tree(own) }
   restored=tree(restore.fetch('path'))
-  check('restored canonical status validates via real tool') { invoke(reg,'kairomone_status',{'instance'=>'recovery'}).dig('integrity','valid')==true }
-  repeat=invoke(reg,'kairomone_backup',{'command'=>'restore','file'=>file,'target_id'=>'recovery'})
+  check('restored canonical status validates via real tool') { invoke(reg,'kairomone_status',{'kairomone'=>'recovery'}).dig('integrity','valid')==true }
+  check('with two individuals a write without a name is refused and a read lists them') { invoke(reg,'kairomone_observe',{'title'=>'x','content'=>'y'})['success']==false && invoke(reg,'kairomone_status',{})['kairomones'].map{|k|k['listing_id']}==%w[recovery review_dot] }
+  repeat=invoke(reg,'kairomone_backup',{'command'=>'restore','kairomone'=>'review_dot','file'=>file,'target_id'=>'recovery'})
   check('restore never overwrites existing target') { repeat['success']==false && tree(restore['path'])==restored }
-  check('traversal restore target refused') { invoke(reg,'kairomone_backup',{'command'=>'restore','file'=>file,'target_id'=>'../escape'})['success']==false }
-  check('traversal backup filename refused') { invoke(reg,'kairomone_backup',{'command'=>'verify','file'=>'../'+file})['success']==false }
+  check('traversal restore target refused') { invoke(reg,'kairomone_backup',{'command'=>'restore','kairomone'=>'review_dot','file'=>file,'target_id'=>'../escape'})['success']==false }
+  check('traversal backup filename refused') { invoke(reg,'kairomone_backup',{'command'=>'verify','kairomone'=>'review_dot','file'=>'../'+file})['success']==false }
   tampered=Marshal.load(Marshal.dump(archive)); tampered['files'].first['content_base64']=Base64.strict_encode64('tamper')
-  File.write(File.join(host,'kairomone','backups','tampered.kairomone.json'),JSON.generate(tampered))
-  check('tampered backup rejected before restore publication') { invoke(reg,'kairomone_backup',{'command'=>'restore','file'=>'tampered.kairomone.json','target_id'=>'bad_restore'})['success']==false && !File.exist?(File.join(host,'kairomone-restored','bad_restore')) }
+  File.write(File.join(own,'backups','tampered.kairomone.json'),JSON.generate(tampered))
+  check('tampered backup rejected before restore publication') { invoke(reg,'kairomone_backup',{'command'=>'restore','kairomone'=>'review_dot','file'=>'tampered.kairomone.json','target_id'=>'bad_restore'})['success']==false && !File.exist?(File.join(host,'kairomones','bad_restore')) }
   traversed=Marshal.load(Marshal.dump(archive)); traversed['files'].first['path']='../escape'
   traversed['manifest_sha256']=Digest::SHA256.hexdigest(JSON.generate(traversed['files'].map{|e|e.slice('path','size','sha256')}))
-  File.write(File.join(host,'kairomone','backups','traversal.kairomone.json'),JSON.generate(traversed))
-  check('checksum-recomputed archive traversal rejected') { invoke(reg,'kairomone_backup',{'command'=>'restore','file'=>'traversal.kairomone.json','target_id'=>'bad_path'})['success']==false && !File.exist?(File.join(host,'kairomone-restored','bad_path')) }
-  source_ledger=File.join(host,'kairomone','storage','blockchain.json'); ledger=File.binread(source_ledger)
+  File.write(File.join(own,'backups','traversal.kairomone.json'),JSON.generate(traversed))
+  check('checksum-recomputed archive traversal rejected') { invoke(reg,'kairomone_backup',{'command'=>'restore','kairomone'=>'review_dot','file'=>'traversal.kairomone.json','target_id'=>'bad_path'})['success']==false && !File.exist?(File.join(host,'kairomones','bad_path')) }
+  source_ledger=File.join(own,'storage','blockchain.json'); ledger=File.binread(source_ledger)
   File.write(source_ledger,'corrupt')
-  check('corrupt owned ledger reported invalid') { corrupt=invoke(reg,'kairomone_status'); corrupt.dig('integrity','valid')==false && corrupt.dig('integrity','state')!='readable' }
-  check('L1 fails closed on corrupt ledger without content write') { invoke(reg,'kairomone_knowledge',create_args.merge('id'=>'blocked'))['success']==false && !File.exist?(File.join(host,'kairomone','knowledge','blocked')) && File.read(source_ledger)=='corrupt' }
+  check('corrupt owned ledger reported invalid') { corrupt=invoke(reg,'kairomone_status',{'kairomone'=>'review_dot'}); corrupt.dig('integrity','valid')==false && corrupt.dig('integrity','state')!='readable' }
+  check('L1 fails closed on corrupt ledger without content write') { invoke(reg,'kairomone_knowledge',create_args.merge('id'=>'blocked','kairomone'=>'review_dot'))['success']==false && !File.exist?(File.join(own,'knowledge','blocked')) && File.read(source_ledger)=='corrupt' }
   File.binwrite(source_ledger,ledger)
   user_reg=KairosMcp::ToolRegistry.new(user_context:{user:'test',role:'owner'})
   check('authenticated multiuser invocation refused clearly') { r=invoke(user_reg,'kairomone_status'); r['success']==false && r['error'].include?('multiuser') }
   cli=File.join(plugin,'scripts','kairomone.rb')
-  out,err,process=Open3.capture3({'KAIROS_DATA_DIR'=>host},RbConfig.ruby,'-I',File.join(CORE,'lib'),cli,'status')
+  out,err,process=Open3.capture3({'KAIROS_DATA_DIR'=>host},RbConfig.ruby,'-I',File.join(CORE,'lib'),cli,'status','--kairomone','review_dot')
   check('installed-package CLI uses unchanged public core load path') { process.success? && JSON.parse(out).dig('integrity','valid')==true }
-  check('host bytes remain identical after backup/restore/CLI') { tree(host,exclude:%w[kairomone kairomone-restored])==base }
+  check('host bytes remain identical after backup/restore/CLI') { tree(host,exclude:outside)==base }
 
 
   # Recover the portable archive into an entirely fresh active instance, then
@@ -157,6 +171,8 @@ Dir.mktmpdir('kairomone-independent-') do |tmp|
   new_cli = File.join(new_host, 'skillsets/kairomone/scripts/kairomone.rb')
   inbox = File.join(new_host, 'kairomone-inbox')
   FileUtils.mkdir_p(inbox)
+  FileUtils.cp_r(File.join(host, 'kairomone-keys'), new_host) # the owner copies the archive key
+  recovered_root = File.join(new_host, 'kairomones', 'review_dot')
   FileUtils.cp(backup['path'], File.join(inbox, file))
   inbox_hash = Digest::SHA256.file(File.join(inbox, file)).hexdigest
   new_host_base = tree(new_host)
@@ -182,17 +198,19 @@ Dir.mktmpdir('kairomone-independent-') do |tmp|
   end
   wrong, outcome, = run_recovered.call('backup', 'restore-new', '--file', file, '--dot-id', 'wrong_dot')
   check('fresh-host recovery checks the expected dot identity before activation') do
-    !outcome.success? && wrong['success'] == false && !File.exist?(File.join(new_host, 'kairomone'))
+    !outcome.success? && wrong['success'] == false && !File.exist?(recovered_root)
   end
   bad, outcome, = run_recovered.call('backup', 'restore-new', '--file', '../' + file, '--dot-id', 'review_dot')
   check('fresh-host recovery refuses source traversal') do
-    !outcome.success? && bad['success'] == false && !File.exist?(File.join(new_host, 'kairomone'))
+    !outcome.success? && bad['success'] == false && !File.exist?(recovered_root)
   end
   portable, outcome, errors = run_recovered.call('backup', 'restore-new', '--file', file, '--dot-id', 'review_dot')
-  check("fresh-host CLI restores a verified active instance: #{errors}") { outcome.success? && portable['success'] && portable['active'] }
-  check('fresh-host recovery byte-preserves every archived canonical file') do
+  check("fresh-host CLI restores a verified active instance: #{errors}") { outcome.success? && portable['success'] && portable['active'] && portable['trust'] == 'signed' }
+  check('fresh-host recovery byte-preserves every archived canonical file and archived block') do
     archive['files'].all? do |entry|
-      File.binread(File.join(new_host, 'kairomone', entry['path'])) == Base64.strict_decode64(entry['content_base64'])
+      stored = Base64.strict_decode64(entry['content_base64'])
+      now = File.binread(File.join(recovered_root, entry['path']))
+      entry['path'] == 'storage/blockchain.json' ? JSON.parse(now).first(JSON.parse(stored).length) == JSON.parse(stored) : now == stored
     end
   end
   new_entry, outcome, = run_recovered.call('knowledge', 'create', '--id', 'after_recovery', '--title', 'Recovered', '--content', 'New canonical knowledge')
@@ -204,16 +222,16 @@ Dir.mktmpdir('kairomone-independent-') do |tmp|
     outcome.success? && recovered_status.dig('knowledge', 'count') == 2 &&
       recovered_status.dig('observations', 'count') == 2 && recovered_status.dig('integrity', 'valid')
   end
-  active_recovered = tree(File.join(new_host, 'kairomone'))
+  active_recovered = tree(recovered_root)
   denied, outcome, = run_recovered.call('backup', 'restore-new', '--file', file, '--dot-id', 'review_dot')
   check('fresh-host restore refuses to overwrite a now-existing active instance') do
-    !outcome.success? && denied['success'] == false && active_recovered == tree(File.join(new_host, 'kairomone'))
+    !outcome.success? && denied['success'] == false && active_recovered == tree(recovered_root)
   end
   check('recovery preserves its source archive and every original-host byte') do
     inbox_hash == Digest::SHA256.file(File.join(inbox, file)).hexdigest && original_host == tree(host)
   end
   check('recovery adds no host core or L0 configuration') do
-    new_host_base == tree(new_host, exclude: %w[kairomone kairomone-restored .kairomone-restore.lock])
+    new_host_base == tree(new_host, exclude: %w[kairomone kairomones kairomone-restored .kairomone-restore.lock])
   end
   KairosMcp.data_dir = host
 
@@ -249,7 +267,8 @@ Dir.mktmpdir('kairomone-independent-') do |tmp|
       Thread.new { Kairomone::Instance.new(host_root:host).create_knowledge(id:"entry_#{n}",title:"Entry #{n}",content:"Content #{n}") }
     end.map(&:value)
     s=i.status
-    check('concurrent independent instances serialize 12 L1 creations') { results.all?{|r|r[:success]} && s.dig(:knowledge,:count)==12 && s.dig(:integrity,:block_count)==13 && s.dig(:integrity,:valid) && s.dig(:integrity,:pending_count)==0 }
+    # genesis, the entry records, then an identity record and an update block per creation
+    check('concurrent independent instances serialize 12 L1 creations') { results.all?{|r|r[:success]} && s.dig(:knowledge,:count)==12 && s.dig(:integrity,:block_count)==26 && s.dig(:integrity,:valid) && s.dig(:integrity,:pending_count)==0 }
   end
 
 end

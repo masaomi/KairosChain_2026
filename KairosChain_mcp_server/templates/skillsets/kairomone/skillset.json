@@ -2,7 +2,7 @@
   "name": "kairomone",
   "version": "0.6.1",
   "min_core_version": "3.92.0",
-  "description": "Kairomone: a single-owner companion that grows through owned L1/L2 and a bounded, evidence-backed growth protocol, driven by the host assistant over MCP. Portable companion settings, bounded retrieval and consent-gated zero-XP chat summaries. An owner-started loopback console page relays one supervised Claude Code session with per-request permission answers. No L0 changes or built-in LLM/scheduler.",
+  "description": "Kairomone: single-owner companions — any number per host — that grow through owned L1/L2 and owner-started, evidence-backed growth runs, driven by the host assistant over MCP. Signed backups restore as new listed individuals. Portable companion settings, bounded retrieval and consent-gated zero-XP chat summaries. An owner-started loopback console page relays one supervised Claude Code session with per-request permission answers. No L0 changes or built-in LLM/scheduler.",
   "author": "Kairomone contributors",
   "layer": "L1",
   "depends_on": [],
@@ -19,9 +19,13 @@
     "companion_settings",
     "bounded_chat_context",
     "consented_chat_memory",
-    "owner_console"
+    "owner_console",
+    "many_individuals",
+    "growth_runs",
+    "signed_backups"
   ],
   "tool_classes": [
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::List",
     "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Init",
     "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Status",
     "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Observe",

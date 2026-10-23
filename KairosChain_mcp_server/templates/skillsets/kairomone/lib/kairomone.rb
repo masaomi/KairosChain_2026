@@ -12,8 +12,17 @@ require 'kairos_mcp/knowledge_provider'
 require 'kairos_mcp/context_manager'
 require 'kairos_mcp/storage/file_backend'
 require 'kairos_mcp/skills_config'
+
+module Kairomone
+  class Error < StandardError; end
+end
+
 require_relative 'kairomone/paths'
+require_relative 'kairomone/ledger'
+require_relative 'kairomone/host'
 require_relative 'kairomone/instance'
+require_relative 'kairomone/profile'
+require_relative 'kairomone/policy'
 require_relative 'kairomone/backup'
 require_relative 'kairomone/baseline'
 require_relative 'kairomone/progression'
@@ -23,5 +32,4 @@ require_relative 'kairomone/companion'
 module Kairomone
   VERSION = '0.6.1'
   PACKAGE_ROOT = File.expand_path('..', __dir__)
-  class Error < StandardError; end
 end

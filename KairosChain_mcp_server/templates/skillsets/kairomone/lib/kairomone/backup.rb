@@ -1,196 +1,276 @@
 # frozen_string_literal: true
 
-module Kairomone
-  class Instance
-    ARCHIVE_LIMIT = 32 * 1024 * 1024
-    TOTAL_LIMIT = 20 * 1024 * 1024
-    LEDGER_LIMIT = 16 * 1024 * 1024
-    ARCHIVE_FORMAT = 'kairomone-owned-backup'
+require 'openssl'
 
+module Kairomone
+  # The host's archive key (design v0.6 M15, option A): 32 random bytes made at
+  # the first backup, outside every individual and never in an archive. A
+  # version-2 backup carries HMAC-SHA256(key, manifest_sha256) and the key's
+  # fingerprint; whoever holds the key can sign an archive this host restores
+  # without asking. A lost key turns the owner's own backups into unsigned
+  # archives, restored at a terminal.
+  module ArchiveKey
+    PATH = 'kairomone-keys/archive.key'
+
+    module_function
+
+    def load(host_root, create: false)
+      path = Paths.checked(host_root, PATH)
+      unless File.exist?(path) || File.symlink?(path)
+        return nil unless create
+
+        Paths.mkdir(host_root, File.dirname(PATH))
+        begin
+          File.open(path, File::WRONLY | File::CREAT | File::EXCL, 0o600) { |f| f.write(SecureRandom.random_bytes(32)); f.flush; f.fsync }
+        rescue Errno::EEXIST
+          nil # another backup made it first
+        end
+      end
+      key = Paths.read(host_root, PATH, limit: 32)
+      raise Error, "The archive key #{PATH} is not 32 bytes; inspect it" unless key.bytesize == 32
+
+      key
+    end
+
+    def fingerprint(key) = Digest::SHA256.hexdigest(key)
+    def sign(key, manifest_sha256) = OpenSSL::HMAC.hexdigest('SHA256', key, manifest_sha256)
+
+    def valid?(archive, key)
+      sig = archive['signature']
+      return false unless key && archive['version'] == 2 && sig.is_a?(Hash) && sig['algorithm'] == 'HMAC-SHA256'
+      return false unless sig['key_sha256'] == fingerprint(key) && sig['value'].is_a?(String) && sig['value'].bytesize == 64
+
+      OpenSSL.fixed_length_secure_compare(sig['value'], sign(key, archive['manifest_sha256'].to_s))
+    end
+  end
+
+  class Instance
+    ARCHIVE_FORMAT = 'kairomone-owned-backup'
+    FILE_LIMIT = 1_048_576
+    LEDGER_LIMIT = 16 * 1024 * 1024
+    TOTAL_LIMIT = 64 * 1024 * 1024
+    ARCHIVE_LIMIT = 96 * 1024 * 1024
+    LEDGER_PATH = 'storage/blockchain.json'
+    # One path set serves backup and restore (M15). Lock files, temporary
+    # files, backups/, exports/ and l1_history/ are outside it: never carried,
+    # never looked at by restore.
+    FIXED_PATHS = ['profile.json', 'profession.json', 'growth/state.json', 'growth/runs.json', 'transplants.json',
+                   'companion/state.json', 'companion/memory-gate.json', LEDGER_PATH].freeze
+    PIECE_DIRS = { 'profile' => '.json', 'professions' => '.json', 'art' => '.svg', 'proposals' => '.json' }.freeze
+    PIECE_KINDS = { 'kairomone_profile' => 'profile', 'kairomone_profession' => 'professions', 'kairomone_art' => 'art' }.freeze
+
+    def self.backup_path?(relative)
+      return false unless relative.is_a?(String)
+      return true if FIXED_PATHS.include?(relative)
+
+      parts = relative.split('/')
+      if parts.length == 3 && parts[0] == 'knowledge'
+        return Paths::ID.match?(parts[1]) && parts[2] == "#{parts[1]}.md"
+      end
+      if parts.length == 4 && parts[0] == 'context' && [L2_SESSION, CHAT_SESSION].include?(parts[1])
+        return Paths::ID.match?(parts[2]) && parts[3] == "#{parts[2]}.md"
+      end
+      if parts.length == 2 && PIECE_DIRS.key?(parts[0])
+        return parts[1].match?(/\A[0-9a-f]{64}#{Regexp.escape(PIECE_DIRS[parts[0]])}\z/)
+      end
+      false
+    end
+
+    # Creates a version-2 backup in this individual's backups/ and verifies
+    # the file just written. Refused, listing them, when a piece the ledger
+    # records as accepted is absent and not recorded missing.
     def create_backup
-      autonomy.synchronize do
+      written = autonomy.synchronize do
         with_lock do
           ensure_initialized!
           raise Error, 'Restored targets are read-only' if @restored
           snapshot = status
           backup_ready!(snapshot)
-          paths = ['profile.json']
-          paths << MEMORY_GATE_PATH if File.exist?(Paths.checked(root, MEMORY_GATE_PATH))
-          paths << COMPANION_PATH if File.exist?(Paths.checked(root, COMPANION_PATH))
-          paths += entry_ids("context/#{CHAT_SESSION}", optional: true).map { |id| "context/#{CHAT_SESSION}/#{id}/#{id}.md" }
-          paths << 'profession.json' if File.exist?(Paths.checked(root, 'profession.json'))
-          paths << Autonomy::STATE_PATH if File.exist?(Paths.checked(root, Autonomy::STATE_PATH))
-          paths += entry_ids('knowledge').map { |id| "knowledge/#{id}/#{id}.md" }
-          paths += entry_ids("context/#{L2_SESSION}", optional: true).map { |id| "context/#{L2_SESSION}/#{id}/#{id}.md" }
-          paths << 'storage/blockchain.json' if File.exist?(Paths.checked(root, 'storage/blockchain.json'))
+          ledger = chain
+          absent = absent_accepted_pieces(ledger)
+          unless absent.empty?
+            raise Error, "Backup refused: accepted pieces are absent (#{absent.map { |p| "#{p['kind']} #{p['sha256'][0, 12]}" }.join(', ')}). " \
+                         'If they are lost, record them at a terminal: ruby .kairos/skillsets/kairomone/scripts/kairomone.rb backup missing ...'
+          end
           total = 0
-          files = paths.sort.map do |relative|
-            bytes = Paths.read(root, relative, limit: relative == 'storage/blockchain.json' ? LEDGER_LIMIT : 1_048_576)
+          files = backup_paths.map do |relative|
+            bytes = Paths.read(root, relative, limit: relative == LEDGER_PATH ? LEDGER_LIMIT : FILE_LIMIT)
             total += bytes.bytesize
-            raise Error, 'Owned backup exceeds 20 MiB total limit' if total > TOTAL_LIMIT
+            raise Error, 'Owned backup exceeds the 64 MiB total limit' if total > TOTAL_LIMIT
             { 'path' => relative, 'size' => bytes.bytesize, 'sha256' => Digest::SHA256.hexdigest(bytes), 'content_base64' => Base64.strict_encode64(bytes) }
           end
-          archive = { 'format' => ARCHIVE_FORMAT, 'version' => 1, 'created_at' => Time.now.utc.iso8601,
-                      'scope' => BACKUP_SCOPE, 'excluded' => BACKUP_EXCLUDED, 'files' => files,
-                      'manifest_sha256' => manifest_hash(files) }
+          key = ArchiveKey.load(host_root, create: true)
+          manifest = self.class.manifest_hash(files)
+          archive = { 'format' => ARCHIVE_FORMAT, 'version' => 2, 'created_at' => Time.now.utc.iso8601,
+                      'identity' => identity(ledger), 'listing_id' => listing_id,
+                      'scope' => BACKUP_SCOPE, 'excluded' => BACKUP_EXCLUDED, 'files' => files, 'manifest_sha256' => manifest,
+                      'signature' => { 'algorithm' => 'HMAC-SHA256', 'key_sha256' => ArchiveKey.fingerprint(key), 'value' => ArchiveKey.sign(key, manifest) } }
           bytes = JSON.pretty_generate(archive) + "\n"
-          raise Error, 'Encoded backup exceeds 32 MiB limit' if bytes.bytesize > ARCHIVE_LIMIT
+          raise Error, 'Encoded backup exceeds the 96 MiB limit' if bytes.bytesize > ARCHIVE_LIMIT
           name = "kairomone-#{Time.now.utc.strftime('%Y%m%dT%H%M%SZ')}-#{SecureRandom.hex(4)}.kairomone.json"
-          path = Paths.write(root, "backups/#{name}", bytes)
-          # Verify the bytes just delivered, not only the in-memory source.
-          verify_backup(file: name).merge(success: true, file: name, path: path, scope: BACKUP_SCOPE, excluded: BACKUP_EXCLUDED)
+          [name, Paths.write(root, "backups/#{name}", bytes)]
+        end
+      end
+      name, path = written
+      # Verify the bytes just delivered, not only the in-memory source. The
+      # registry lock this takes is never taken while an individual lock is held.
+      verify_backup(file: name).merge(success: true, file: name, path: path, scope: BACKUP_SCOPE, excluded: BACKUP_EXCLUDED, kairomone: address)
+    end
+
+    # Offline check of one of this individual's backups in a staging area.
+    def verify_backup(file:)
+      bytes = read_archive_file(file, inbox: false)
+      @host.with_registry_lock do
+        archive, files = self.class.load_archive(bytes)
+        @host.stage do |staged|
+          staged.place_archive_files!(files)
+          snapshot = staged.status
+          staged.send(:backup_ready!, snapshot)
+          absent = archive['version'] == 2 ? staged.send(:absent_accepted_pieces, staged.chain) : []
+          raise Error, 'The archive lacks accepted pieces its ledger names' unless absent.empty?
+
+          { success: true, verified: true, file: file, file_count: files.length, version: archive['version'],
+            manifest_sha256: archive['manifest_sha256'], integrity: snapshot[:integrity],
+            signed_by_this_host: ArchiveKey.valid?(archive, ArchiveKey.load(host_root)),
+            authenticity: 'SHA-256 consistency, and an HMAC signature when this host made it; the archive is not encrypted' }
         end
       end
     end
 
-    # Explicit portable recovery into a fresh active host. The caller selects
-    # KAIROS_DATA_DIR outside tool arguments and deliberately places an archive
-    # in its fixed inbox; no arbitrary read or write path is accepted.
+    # Restores one of this individual's own backups as a separate listed
+    # individual (its twin) under target_id. Only an archive signed with this
+    # host's key restores this way.
+    def restore_backup(file:, target_id:)
+      Paths.id!(target_id)
+      raise Error, 'Restored targets are read-only' if @restored
+      @host.restore(read_archive_file(file, inbox: false), listing_id: target_id, trust: :signed)
+    end
+
+    # Restores an archive the owner placed in <data_dir>/kairomone-inbox/,
+    # listed under its identity, which must be the expected one.
     def restore_new(file:, dot_id:)
       Paths.id!(dot_id)
       raise Error, 'Restored inspection targets cannot activate another instance' if @restored
-      FileUtils.mkdir_p(host_root, mode: 0o700)
-      lock_path = Paths.checked(host_root, '.kairomone-restore.lock')
-      Paths.regular_file!(lock_path, optional: true, limit: 1_048_576)
-      File.open(lock_path, File::RDWR | File::CREAT, 0o600) do |lock|
-        lock.flock(File::LOCK_EX)
-        raise Error, 'Active Kairomone path already exists; fresh-host restore never overwrites it' if File.exist?(Paths.checked(host_root, 'kairomone'))
-        archive, files = load_archive(file, inbox: true)
-        outcome = nil
-        stage_archive(files) do |staged|
-          snapshot = staged.status
-          backup_ready!(snapshot)
-          raise Error, 'Backup dot_id does not match the explicitly expected dot_id' unless snapshot[:profile]['dot_id'] == dot_id
-          raise Error, 'Active Kairomone path already exists; no data was overwritten' if File.exist?(Paths.checked(host_root, 'kairomone'))
-          staged.send(:reset_restored_growth!)
-          File.rename(staged.root, root)
-          l0 = snapshot[:integrity][:host_l0]
-          outcome = { success: true, restored: true, active: true, dot_id: dot_id, path: root,
-                      source: 'fixed kairomone-inbox', manifest_sha256: archive['manifest_sha256'],
-                      integrity: snapshot[:integrity],
-                      warning: 'Backup is unencrypted and may contain private user-authored text. Original L0 baseline is preserved; host L0 is not installed or modified.' }
-          outcome[:l0_warning] = "Current host L0 comparison is #{l0[:state]}; review the two-file fingerprint scope before continuing" unless l0[:state] == 'unchanged'
-        end
-        outcome
-      end
-    end
-
-    def verify_backup(file:)
-      archive, files = load_archive(file)
-      # Verification is offline and uses a temporary owned staging directory.
-      # It does not alter the live profile, knowledge, context or ledger.
-      result = stage_archive(files) do |staged|
-        snapshot = staged.status
-        backup_ready!(snapshot)
-        { success: true, verified: true, file: file, file_count: files.length,
-          manifest_sha256: archive['manifest_sha256'], integrity: snapshot[:integrity],
-          authenticity: 'Local SHA-256 consistency only; this archive is not signed or encrypted' }
-      end
+      result = @host.restore(read_archive_file(file, inbox: true), expected_identity: dot_id, trust: :signed)
+      @root ||= result[:path]
       result
     end
 
-    def restore_backup(file:, target_id:)
-      Paths.id!(target_id)
-      with_lock do
-        ensure_initialized!
-        raise Error, 'Restored targets are read-only' if @restored
-        target = Paths.checked(host_root, "kairomone-restored/#{target_id}")
-        raise Error, 'Restore target already exists; no data was overwritten' if File.exist?(target)
-        archive, files = load_archive(file)
-        restored = nil
-        stage_archive(files) do |staged|
-          snapshot = staged.status
-          backup_ready!(snapshot)
-          # The target name is fixed beneath the host; archive entries cannot
-          # choose it. A restore is a separate, read-only recovery copy.
-          raise Error, 'Restore target already exists; no data was overwritten' if File.exist?(target)
-          staged.send(:reset_restored_growth!)
-          File.rename(staged.root, target)
-          restored = { success: true, restored: true, target_id: target_id, path: target,
-                       active_instance_changed: false, file_count: files.length,
-                       manifest_sha256: archive['manifest_sha256'],
-                       instruction: 'Inspect with status --instance TARGET_ID. Activation or migration is a separate operator decision.' }
-        end
-        restored
-      end
+    # Writes archive files into a staging root (no OS extractor: no symlinks,
+    # hardlinks, devices, traversal or archive-chosen directories).
+    def place_archive_files!(files)
+      STORE_DIRS.each { |dir| Paths.mkdir(root, dir) }
+      files.each { |relative, bytes| Paths.write(root, relative, bytes) }
     end
 
-    private
-
-    def reset_restored_growth!
-      return unless File.exist?(Paths.checked(root, Autonomy::STATE_PATH))
-      original = JSON.parse(Paths.read(root, Autonomy::STATE_PATH))
-      value = Autonomy.restore_state(original)
-      Paths.write(root, Autonomy::STATE_PATH, JSON.pretty_generate(value) + "\n", replace: true)
-    end
-
-    def manifest_hash(files)
+    def self.manifest_hash(files)
       Digest::SHA256.hexdigest(JSON.generate(files.map { |entry| entry.slice('path', 'size', 'sha256') }))
     end
 
-    def load_archive(file, inbox: false)
-      raise Error, 'Backup filename must be a basename ending in .kairomone.json' unless file.is_a?(String) && Paths::BACKUP_NAME.match?(file)
-      bytes = inbox ? Paths.read(host_root, "kairomone-inbox/#{file}", limit: ARCHIVE_LIMIT) : Paths.read(root, "backups/#{file}", limit: ARCHIVE_LIMIT)
+    # Integrity only (manifest, every file's hash, path set, sizes, UTF-8):
+    # nothing in an archive is judged by rules newer than its data.
+    def self.load_archive(bytes)
       archive = JSON.parse(bytes)
-      raise Error, 'Unsupported backup format' unless archive.is_a?(Hash) && archive['format'] == ARCHIVE_FORMAT && archive['version'] == 1
+      raise Error, 'Unsupported backup format' unless archive.is_a?(Hash) && archive['format'] == ARCHIVE_FORMAT && [1, 2].include?(archive['version'])
       files = archive['files']
-      raise Error, 'Invalid backup file count' unless files.is_a?(Array) && files.length.between?(1, MAX_ENTRIES * 2 + 206)
+      raise Error, 'Invalid backup file count' unless files.is_a?(Array) && files.length.between?(1, MAX_ENTRIES * 4 + 4_000)
       seen = {}
       total = 0
       decoded = files.map do |entry|
         raise Error, 'Invalid archive entry' unless entry.is_a?(Hash) && entry.keys.sort == %w[content_base64 path sha256 size]
         relative = entry['path']
-        raise Error, 'Forbidden or duplicate archive path' unless allowed_backup_path?(relative) && !seen[relative]
+        raise Error, 'Forbidden or duplicate archive path' unless backup_path?(relative) && !seen[relative]
         seen[relative] = true
         size = entry['size']
-        maximum = relative == 'storage/blockchain.json' ? LEDGER_LIMIT : 1_048_576
+        maximum = relative == LEDGER_PATH ? LEDGER_LIMIT : FILE_LIMIT
         raise Error, 'Invalid archive entry size' unless size.is_a?(Integer) && size.between?(0, maximum)
         total += size
-        raise Error, 'Backup expands beyond 20 MiB limit' if total > TOTAL_LIMIT
+        raise Error, 'Backup expands beyond the 64 MiB limit' if total > TOTAL_LIMIT
         encoded = entry['content_base64']
         raise Error, 'Invalid base64 payload' unless encoded.is_a?(String) && encoded.bytesize <= ((maximum + 2) / 3) * 4
         contents = Base64.strict_decode64(encoded)
         raise Error, 'Backup checksum or size mismatch' unless contents.bytesize == size && Digest::SHA256.hexdigest(contents) == entry['sha256']
+        raise Error, "Archive file #{relative} is not UTF-8 text" unless contents.dup.force_encoding(Encoding::UTF_8).valid_encoding?
         [relative, contents]
       end
-      raise Error, 'Backup profile is missing' unless seen['profile.json']
+      raise Error, 'Backup holds neither a profile nor a ledger' unless seen['profile.json'] || seen[LEDGER_PATH]
       raise Error, 'Backup manifest checksum mismatch' unless manifest_hash(files) == archive['manifest_sha256']
       [archive, decoded]
     rescue JSON::ParserError, ArgumentError => e
       raise Error, "Invalid backup: #{e.message}"
     end
 
-    def allowed_backup_path?(relative)
-      return false unless relative.is_a?(String)
-      return true if %w[profile.json profession.json growth/state.json storage/blockchain.json companion/state.json companion/memory-gate.json].include?(relative)
-      parts = relative.split('/')
-      if parts.length == 3 && parts[0] == 'knowledge'
-        id = parts[1]
-        return Paths::ID.match?(id) && parts[2] == "#{id}.md"
+    # The owner records accepted pieces as lost, at a terminal, so a backup
+    # can proceed without them (M15).
+    def record_missing_interactive(pieces:, reason:, tty_in:, tty_out:, nonce: self.class.rebaseline_nonce)
+      reason = text!(reason, 'reason', 512)
+      say = ->(line) { tty_out.puts tty_safe(line) }
+      autonomy.synchronize do
+        with_lock do
+          ensure_writable!('L2')
+          absent = absent_accepted_pieces(chain)
+          wanted = pieces.map { |p| { 'kind' => p[:kind] || p['kind'], 'sha256' => p[:sha256] || p['sha256'] } }
+          unknown = wanted - absent
+          raise Error, "Not absent accepted pieces: #{unknown.map { |p| "#{p['kind']} #{p['sha256']}" }.join(', ')}" unless unknown.empty? && !wanted.empty?
+
+          say.call "Kairomone: #{listing_id} (#{name})"
+          wanted.each { |p| say.call "  lost #{p['kind']} #{p['sha256']}" }
+          say.call "Reason:   #{reason}"
+          tty_out.print "Type #{nonce} to record these pieces as lost (anything else cancels): "
+          tty_out.flush
+          unless tty_in.gets.to_s.strip == nonce
+            say.call 'Cancelled. Nothing was recorded.'
+            next { success: false, recorded: false, reason: 'nonce_mismatch' }
+          end
+          block = Records.append!(chain, [{ 'type' => 'kairomone_missing', 'pieces' => wanted, 'reason' => reason }], -> { chain })
+          say.call "Recorded as block ##{block.index}."
+          { success: true, recorded: true, block: block.index, pieces: wanted, kairomone: address }
+        end
       end
-      if parts.length == 4 && parts[0] == 'context' && [L2_SESSION, CHAT_SESSION].include?(parts[1])
-        id = parts[2]
-        return Paths::ID.match?(id) && parts[3] == "#{id}.md"
-      end
-      false
     end
 
-    def stage_archive(files)
-      # No OS archive extractor is invoked: no symlinks, hardlinks, devices,
-      # executable entries, traversal paths, or archive-selected directories.
-      Paths.mkdir(host_root, 'kairomone-restored')
-      stage_id = "stage_#{SecureRandom.hex(16)}"
-      stage_path = Paths.checked(host_root, "kairomone-restored/#{stage_id}")
-      Dir.mkdir(stage_path, 0o700)
-      begin
-        %w[knowledge context storage backups exports].each { |dir| Paths.mkdir(stage_path, dir) }
-        files.each { |relative, bytes| Paths.write(stage_path, relative, bytes) }
-        staged = self.class.new(host_root: host_root, restored_id: stage_id)
-        # Parsing profile, knowledge and ledger happens after containment and
-        # byte limits, before publishing a target directory.
-        yield staged
-      ensure
-        FileUtils.remove_entry_secure(stage_path) if File.directory?(stage_path) && !File.symlink?(stage_path)
+    private
+
+    def read_archive_file(file, inbox:)
+      raise Error, 'Backup filename must be a basename ending in .kairomone.json' unless file.is_a?(String) && Paths::BACKUP_NAME.match?(file)
+      inbox ? Paths.read(host_root, "kairomone-inbox/#{file}", limit: ARCHIVE_LIMIT) : Paths.read(root, "backups/#{file}", limit: ARCHIVE_LIMIT)
+    end
+
+    # Exactly the files of the path set that exist.
+    def backup_paths
+      paths = FIXED_PATHS.select { |relative| File.exist?(Paths.checked(root, relative)) }
+      paths += entry_ids('knowledge').map { |id| "knowledge/#{id}/#{id}.md" }
+      [L2_SESSION, CHAT_SESSION].each do |session|
+        paths += entry_ids("context/#{session}", optional: true).map { |id| "context/#{session}/#{id}/#{id}.md" }
+      end
+      PIECE_DIRS.each_key do |dir|
+        path = Paths.checked(root, dir)
+        next unless File.directory?(path)
+
+        Dir.children(path).sort.each do |name|
+          relative = "#{dir}/#{name}"
+          paths << relative if self.class.backup_path?(relative) && File.file?(Paths.checked(root, relative))
+        end
+      end
+      paths.sort
+    end
+
+    # Accepted pieces (profile versions, professions, drawings) whose files
+    # are absent and that no kairomone_missing or kairomone_restored record
+    # excuses.
+    def absent_accepted_pieces(ledger)
+      accepted = []
+      excused = []
+      Records.each(ledger) do |record, _|
+        if (dir = PIECE_KINDS[record['type']]) && Progression::SHA.match?(record['sha256'].to_s)
+          accepted << { 'kind' => dir, 'sha256' => record['sha256'] }
+        elsif %w[kairomone_missing kairomone_restored].include?(record['type'])
+          key = record['type'] == 'kairomone_missing' ? 'pieces' : 'missing'
+          Array(record[key]).each { |p| excused << { 'kind' => p['kind'], 'sha256' => p['sha256'] } if p.is_a?(Hash) }
+        end
+      end
+      accepted.uniq.reject do |p|
+        excused.include?(p) || File.file?(Paths.checked(root, "#{p['kind']}/#{p['sha256']}#{PIECE_DIRS[p['kind']]}"))
       end
     end
 
@@ -202,6 +282,102 @@ module Kairomone
       integrity = snapshot[:integrity]
       state_ok = integrity[:state] == 'readable' || (integrity[:state] == 'absent' && snapshot[:knowledge][:count].zero?)
       raise Error, 'Cannot back up or restore: corrupt, unreadable or unrecorded canonical data' unless state_ok && integrity[:pending_count].zero?
+    end
+  end
+
+  class Host
+    # A staging root that cleanup never meets: the caller holds the registry
+    # lock. Nothing in it is listed; it is removed when the block ends.
+    def stage
+      raise Error, 'Staging needs the registry lock' unless @registry_locked
+
+      Paths.mkdir(host_root, STAGING)
+      path = Paths.checked(host_root, "#{STAGING}/s#{SecureRandom.hex(12)}")
+      Dir.mkdir(path, 0o700)
+      begin
+        yield Instance.new(host_root: host_root, root: path)
+      ensure
+        FileUtils.remove_entry_secure(path) if File.directory?(path) && !File.symlink?(path)
+      end
+    end
+
+    # Restores an archive as a new listed individual (Inv 1, M15). trust:
+    # :signed (MCP and library: only an archive signed with this host's key)
+    # or a callable that is shown the archive's free text at a terminal and
+    # answers whether the owner confirmed. A trusted archive restores as
+    # stored: integrity only, assembled in staging, kairomone_restored
+    # appended, live runs ended, listed by one rename.
+    def restore(bytes, trust:, listing_id: nil, expected_identity: nil)
+      Paths.id!(listing_id) if listing_id
+      with_registry_lock do
+        archive, files = Instance.load_archive(bytes)
+        signed = ArchiveKey.valid?(archive, ArchiveKey.load(host_root))
+        if !signed && trust == :signed
+          raise Error, 'This archive is not signed with this host\'s archive key (a 0.6.1 backup, another machine\'s, or one signed by a lost key). ' \
+                       'Restore it in your own terminal, where its free text is shown first: ruby .kairos/skillsets/kairomone/scripts/kairomone.rb backup restore --file NAME'
+        end
+        listed = nil
+        missing = []
+        path = assemble(listing_id) do |staged|
+          staged.place_archive_files!(files)
+          snapshot = staged.status
+          staged.send(:backup_ready!, snapshot)
+          identity = staged.identity
+          raise Error, "The archive holds #{identity}, not the expected #{expected_identity}" if expected_identity && identity != expected_identity
+          listed = listing_id || identity
+          if listed?(listed)
+            raise Error, "#{listed} is already listed on this host; name another listing ID for this restore (its identity stays #{identity})"
+          end
+          absent = staged.send(:absent_accepted_pieces, staged.chain)
+          if archive['version'] == 2
+            raise Error, "The archive lacks accepted pieces its ledger names (#{absent.length}); refused" unless absent.empty?
+          else
+            missing = absent # what an older archive lacks is reported, never invented
+          end
+          unless signed
+            confirmed = trust.respond_to?(:call) && trust.call(staged.restore_summary(archive, missing))
+            raise Error, 'Cancelled. Nothing was restored.' unless confirmed
+          end
+          Records.append!(staged.chain, [{ 'type' => 'kairomone_restored', 'manifest_sha256' => archive['manifest_sha256'],
+                                           'archive_version' => archive['version'], 'listing_id' => listed,
+                                           'trust' => signed ? 'signed' : 'owner_confirmed', 'missing' => missing }], -> { staged.chain })
+          staged.autonomy.end_runs_for_restore!
+          listed
+        end
+        restored = Instance.new(host_root: host_root, root: path)
+        l0 = restored.status[:integrity][:host_l0]
+        outcome = { success: true, restored: true, active: true, kairomone: restored.address, path: path,
+                    manifest_sha256: archive['manifest_sha256'], archive_version: archive['version'],
+                    trust: signed ? 'signed' : 'owner_confirmed', missing: missing, integrity: restored.status[:integrity],
+                    warning: 'Backups are unencrypted and may contain private user-authored text. The archived L0 baseline is kept; host L0 is not installed or modified.' }
+        outcome[:l0_warning] = "Current host L0 comparison is #{l0[:state]}; growth needs the owner's re-baseline at a terminal" unless l0[:state] == 'unchanged'
+        outcome
+      end
+    end
+  end
+
+  class Instance
+    # What a terminal restore shows before the owner confirms an unsigned
+    # archive (M15): profile, direction, personality, the count and titles of
+    # chat summaries and owner-written entries, and lineage.
+    def restore_summary(archive, missing)
+      companion = companion_status[:companion]
+      chats = verified_chat_entries.map { |e| e.description.to_s }
+      owned = knowledge_entries.reject { |e| e['id'].start_with?('growth_') }.map { |e| "L1 #{e['title']}" } +
+              observation_entries.reject { |e| e['id'].start_with?('growth_') }.map { |e| "L2 #{e['title']}" }
+      lineage = Records.of_type(chain, 'kairomone_lineage').map { |r| "#{r['kind']} from #{Array(r['sources']).map { |s| s['identity'] }.join(' + ')}" }
+      p = profile
+      lines = ["Archive version #{archive['version']}, manifest #{archive['manifest_sha256'][0, 16]}…, not signed by this host",
+               "Kairomone: #{identity} (#{p['display_name'] || p['name']})",
+               "Profile: #{JSON.generate(p.reject { |k, _| %w[dot_id display_name host_l0_baseline].include?(k) })}",
+               "Direction: #{companion['direction']['preset']} — #{companion['direction']['text']}",
+               "Personality: #{companion['personality']}",
+               "Chat summaries: #{chats.length}"] +
+              chats.map { |t| "  - #{t}" } +
+              ["Owner-written entries: #{owned.length}"] + owned.map { |t| "  - #{t}" } +
+              ["Lineage: #{lineage.empty? ? 'none recorded' : lineage.join('; ')}"]
+      lines << "Accepted pieces this archive lacks (restored without them): #{missing.length}" unless missing.empty?
+      lines.map { |l| tty_safe(l) }
     end
   end
 end
