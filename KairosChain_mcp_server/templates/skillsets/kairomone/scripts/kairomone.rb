@@ -16,7 +16,7 @@ end
 options = {}
 parser = OptionParser.new do |p|
   p.banner = 'Usage: kairomone.rb list|init|status|observe|growth status|run-start|run-stop|run-status|request|claim|heartbeat|commit|fail|' \
-             'profession list|select|knowledge create|get|list|backup create|verify|restore|restore-new|missing|l0 rebaseline [options]'
+             'profession list|select|knowledge create|get|list|transplant|pending-transplants|art get|backup create|verify|restore|restore-new|missing|l0 rebaseline [options]'
   p.on('--kairomone ID', 'Listing ID of the Kairomone (needed for writes when the host lists several)') { |v| options[:kairomone] = v }
   p.on('--json-stdin', 'Read companion arguments as bounded JSON, never shell text') { options[:json_stdin] = true }
   p.on('--dot-id ID') { |v| options[:dot_id] = v }
@@ -41,7 +41,7 @@ parser = OptionParser.new do |p|
   p.on('--claim-token TOKEN') { |v| options[:claim_token] = v }
   p.on('--reason TEXT') { |v| options[:reason] = v }
   p.on('--kind KIND', 'missing: profile, professions or art') { |v| options[:kind] = v }
-  p.on('--sha256 HEX', 'missing: the lost piece') { |v| options[:sha256] = v }
+  p.on('--sha256 HEX', 'missing: the lost piece; art get: an accepted drawing') { |v| options[:sha256] = v }
   p.on('--evidence-json JSON') { |v| options[:evidence] = JSON.parse(v) }
   p.on('--html', 'Generate fixed offline status.html snapshot') { options[:render_html] = true }
   p.on('-h', '--help') { puts p; exit }
@@ -65,7 +65,7 @@ begin
     text
   end
   command = ARGV.shift
-  subcommand = ARGV.shift if %w[knowledge backup profession growth companion l0].include?(command)
+  subcommand = ARGV.shift if %w[knowledge backup profession growth companion l0 art].include?(command)
   parser.parse!(ARGV)
   raise Kairomone::Error, "Unexpected arguments: #{ARGV.join(' ')}" unless ARGV.empty?
   raise Kairomone::Error, '--instance is available only for read-only status' if options[:instance] && command != 'status'
@@ -101,7 +101,7 @@ begin
   end
   raise Kairomone::Error, '--json-stdin is companion-only' if options[:json_stdin]
   growth = -> { store.call.autonomy }
-  reads = [['status', nil], ['knowledge', 'get'], ['knowledge', 'list'], ['profession', 'list'], ['growth', 'status'], ['backup', 'verify']]
+  reads = [['status', nil], ['knowledge', 'get'], ['knowledge', 'list'], ['knowledge', 'pending-transplants'], ['art', 'get'], ['profession', 'list'], ['growth', 'status'], ['backup', 'verify']]
   result = begin
     case [command, subcommand]
            when ['list', nil] then { success: true, kairomones: host.summaries }
@@ -111,6 +111,9 @@ begin
            when ['knowledge', 'create'] then store.call.create_knowledge(id: options[:id], title: options[:title], content: options[:content])
            when ['knowledge', 'get'] then store.call.read_knowledge(id: options[:id])
            when ['knowledge', 'list'] then store.call.list_knowledge
+           when ['knowledge', 'transplant'] then store.call.transplant_knowledge(id: options[:id])
+           when ['knowledge', 'pending-transplants'] then store.call.pending_transplants
+           when ['art', 'get'] then store.call.art_get(sha256: options[:sha256])
            when ['profession', 'list'] then { success: true, profession: store.call.profession_status }
            when ['profession', 'select'] then store.call.select_profession(id: options[:id])
            when ['growth', 'status'] then growth.call.status

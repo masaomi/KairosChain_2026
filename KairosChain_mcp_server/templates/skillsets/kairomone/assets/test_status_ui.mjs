@@ -167,5 +167,25 @@ assert.equal(view.nodes.get('growth-state').textContent, 'Not verified');
 assert.equal((template.match(/<button\b/g) || []).length, 2, 'only functional language controls; no pretend start/stop/select buttons');
 assert(template.includes('Level is not an intelligence or personality score.'));
 assert(template.includes('Read-only snapshot. You cannot start or stop growth here.'));
-console.log('PASS: offline/CSP, XSS text sinks, safe source links, JA/EN, actual counts, progression/stages/cap, profession selection/catalog, growth budget/states, missing/malformed snapshots.');
+// Art (Kairomone 0.8, Inv 6): only an image from a base64 SVG data: URI; anything else leaves the built-in creature.
+assert(template.includes("img-src data:;"), 'images only from data: URIs');
+const egg = 'data:image/svg+xml;base64,PHN2Zy8+';
+const drawn = structuredClone(growth); drawn.art = {shown: 'drawing', due: true, data_uri: egg, waiting: [{proposal: 'ab'.repeat(32), data_uri: egg}, {proposal: 'cd'.repeat(32), data_uri: 'javascript:alert(1)'}]};
+view = execute(drawn); view.nodes.get('lang-en').click();
+assert.equal(view.nodes.get('art-image').getAttribute('src'), egg);
+assert.equal(view.nodes.get('art-image').hidden, false);
+assert.equal(view.nodes.get('art-image').getAttribute('alt'), 'The accepted drawing');
+assert.equal(view.nodes.get('creature').getAttribute('class'), 'creature art-replaced');
+assert.equal(view.nodes.get('art-due').hidden, false);
+assert.equal(view.nodes.get('art-waiting-0').getAttribute('src'), egg);
+assert.equal(view.nodes.get('art-waiting-1').hidden, true, 'a non-image URI is never set');
+assert.equal(view.nodes.get('art-waiting-1').getAttribute('src'), undefined);
+for (const uri of ['javascript:alert(1)', 'data:text/html;base64,PHN2Zy8+', 'data:image/svg+xml,<svg onload=alert(1)>', 'https://example.org/a.svg', 42]) {
+  const data = structuredClone(growth); data.art = {shown: 'drawing', data_uri: uri};
+  const result = execute(data);
+  assert.equal(result.nodes.get('art-image').getAttribute('src'), undefined, String(uri));
+  assert.equal(result.nodes.get('art-image').hidden, true);
+  assert.equal(result.nodes.get('creature').getAttribute('class'), 'creature');
+}
+console.log('PASS: offline/CSP, XSS text sinks, safe source links, JA/EN, actual counts, progression/stages/cap, profession selection/catalog, growth budget/states, missing/malformed snapshots, art as data: images only.');
 console.log('Layout has static 320px safeguards; use test_status_browser.mjs for real-browser verification.');

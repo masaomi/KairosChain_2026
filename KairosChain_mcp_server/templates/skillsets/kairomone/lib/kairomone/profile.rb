@@ -116,7 +116,7 @@ module Kairomone
   end
 
   class Instance
-    PROPOSAL_LIMIT = 64 * 1024
+    PROPOSAL_LIMIT = 256 * 1024 # a drawing of 64 KiB, JSON-escaped, fits
     PROPOSALS_SHOWN = 10
 
     # { sha256:, piece: } of the latest accepted profile version whose file is
@@ -198,7 +198,16 @@ module Kairomone
                 elsif doc['kind'] == 'profession_offer' && sha != open_offer then 'superseded'
                 else 'waiting'
                 end
-        { 'proposal' => sha, 'state' => state, 'accepted' => %w[accepted chosen].include?(state) }.merge(doc)
+        item = { 'proposal' => sha, 'state' => state, 'accepted' => %w[accepted chosen].include?(state) }.merge(doc)
+        # A drawing leaves only if it passes the art check now (Inv 6).
+        if doc['kind'] == 'art'
+          begin
+            Art.check!(doc['svg'])
+          rescue Error => e
+            item = item.merge('svg' => nil, 'art_check' => e.message)
+          end
+        end
+        item
       end
       items = items.sort_by { |i| i['proposed_at'] || i['offered_at'] || '' }.reverse
       waiting, done = items.partition { |i| i['state'] == 'waiting' }

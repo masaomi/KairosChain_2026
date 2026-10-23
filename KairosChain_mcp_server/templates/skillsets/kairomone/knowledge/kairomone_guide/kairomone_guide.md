@@ -1,7 +1,7 @@
 ---
 name: kairomone_guide
 description: Operate Kairomone FreeTier basic safely through its dedicated canonical providers and explicit tools.
-version: '0.4.0'
+version: '0.5.0'
 layer: L1
 tags: [kairomone, basic, local]
 ---
@@ -79,6 +79,34 @@ propose it again.
 
 Stages follow the level: egg (1–4), hatchling (5–19), young (20–99), adult
 (100–499), legend (500–999).
+
+## Drawings and transplants
+
+A Kairomone is shown with the built-in egg until the owner accepts a drawing.
+At hatch (level 5) and at each later stage a drawing is due: the assistant
+draws the character from its profile — always an anthropomorphised, cute
+character of its kind — as static SVG and proposes it (`kairomone_art
+propose`); it takes effect only when the owner accepts it. The art check admits
+only static vector drawing: the elements svg, g, path, circle, ellipse, rect,
+line, polyline, polygon, defs, linearGradient, radialGradient, stop, clipPath,
+title and desc in the SVG namespace; geometric and presentation attributes;
+`url(#…)` only to ids inside the drawing; a viewBox; at most 64 KiB, 32 levels
+of nesting and 4,000 elements. It runs again each time a drawing leaves — the
+status page, `kairomone_art get`, the proposal list — and a drawing that fails
+it then is shown as the egg. Pages show drawings only as images. The check
+makes a drawing inert, not well drawn.
+
+`kairomone_knowledge transplant` copies one of a Kairomone's L1 entries into
+the host's own L1, only when the owner asks for that entry. It goes through the
+host's canonical knowledge path, under host governance, as a new host entry
+named `kairomone_<16 hex>` with a generated description and the tag
+`kairomone_transplant`; the entry's ID, title and origin (learned or
+owner-written, and the archive it was restored from) go into the body, under a
+notice when it holds outside content. It is done only when the host chain shows
+its record; until then it is pending, the Kairomone's ledger records nothing,
+and the same transplant asked again completes it (`pending_transplants` lists
+the open ones). The Kairomone keeps its entry, and its ledger records the
+transplant.
 
 Text content is limited to 16 KiB per write; titles to 512 bytes. This release
 allows 1,000 L1 entries and 1,000 L2 observations and provides no automatic pruning

@@ -11,7 +11,7 @@ description: >
 
 # Kairomone
 
-Nine MCP tools, all prefixed `kairomone_`, operate the Kairomones this host holds: one made before 0.8
+Twelve MCP tools, all prefixed `kairomone_`, operate the Kairomones this host holds: one made before 0.8
 in `.kairos/kairomone/`, and any number under `.kairos/kairomones/<listing_id>/`. Each has its own L1, L2
 and ledger; the host's `knowledge_get` does not see them. This session is the only worker: there is no
 built-in LLM, scheduler or background process.
@@ -181,6 +181,16 @@ when declared, limits claims for the whole host. The full procedure is
   what it may do.
 - Stages follow the level: egg 卵 (1–4), hatchling 幼体 (5–19), young 若者 (20–99), adult 成体 (100–499),
   legend 伝説 (500–999).
+- At hatch (level 5) and at each later stage a drawing is due (`due` in `kairomone_art get` and in status).
+  Draw the Kairomone from its profile — an anthropomorphised, cute character of its kind — as static SVG with
+  a viewBox, using only the elements and attributes `kairomone_art` names (no style, href, event handler,
+  text outside title and desc, or reference outside the drawing), then `propose`. The owner sees a waiting
+  drawing as an image on the status page (`kairomone_status(render_html: true)`); `accept` only after they
+  accept it in the conversation. A drawing that fails the check is shown as the egg.
+- `kairomone_knowledge transplant` copies one entry into the host's own L1, only when the owner names that
+  entry and asks for it. The host entry's name, description and tags are generated; never edit them. A
+  `pending` result means the host chain does not show the record yet: ask the same transplant again later
+  (`pending_transplants` lists the open ones).
 
 ## Status, profession, backup
 

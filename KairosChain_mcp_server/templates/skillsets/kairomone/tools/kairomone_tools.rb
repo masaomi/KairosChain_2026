@@ -150,9 +150,9 @@ module KairosMcp
 
         class Knowledge < Base
           def name; 'kairomone_knowledge'; end
-          def description; 'Create, get or list a Kairomone\'s dedicated canonical L1 knowledge. Create only on explicit user instruction; never overwrite an existing ID. Success requires a verified matching canonical ledger hash. This dedicated store is not searched by host knowledge_get.'; end
+          def description; 'Create, get or list a Kairomone\'s dedicated canonical L1 knowledge. Create only on explicit user instruction; never overwrite an existing ID. Success requires a verified matching canonical ledger hash. This dedicated store is not searched by host knowledge_get. transplant copies one entry into the host\'s own L1, only when the owner asked for that entry, through the host\'s canonical knowledge path under a generated name; it is done when the host chain shows the record, else pending (the same transplant retried completes it); pending_transplants lists the open ones. The Kairomone keeps its entry.'; end
           def input_schema
-            { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: %w[create get list] },
+            { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: %w[create get list transplant pending_transplants] },
               id: { type: 'string' }, title: { type: 'string' }, content: { type: 'string' } }, required: ['command'], additionalProperties: false }
           end
           def call(args)
@@ -161,7 +161,29 @@ module KairosMcp
               when 'create' then instance(args).create_knowledge(id: args['id'], title: args['title'], content: args['content'])
               when 'get' then instance(args, read: true).read_knowledge(id: args['id'])
               when 'list' then instance(args, read: true).list_knowledge
-              else raise ::Kairomone::Error, 'Expected create, get or list'
+              when 'transplant' then instance(args).transplant_knowledge(id: args['id'])
+              when 'pending_transplants' then instance(args, read: true).pending_transplants
+              else raise ::Kairomone::Error, 'Expected create, get, list, transplant or pending_transplants'
+              end
+            end
+          end
+        end
+
+        class Art < Base
+          def name; 'kairomone_art'; end
+          def description; 'A Kairomone\'s drawing: an anthropomorphised, cute character of its kind, drawn by you from its profile as static SVG. propose checks the drawing (svg, g, path, circle, ellipse, rect, line, polyline, polygon, defs, gradients, stop, clipPath, title, desc; geometric and presentation attributes; viewBox; no style, href, event handlers or outside references; at most 64 KiB) and stores it as a proposal, which changes nothing; accept puts it in force only when the owner accepted it in the conversation; get returns the drawing in force (or a named one) checked again, or the built-in egg. A drawing is due at hatch (level 5) and at each later stage.'; end
+          def input_schema
+            { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: %w[propose accept get] },
+              svg: { type: 'string', description: 'propose: the drawing as SVG text' }, proposal: { type: 'string', description: 'accept: the proposal sha256' },
+              sha256: { type: 'string', description: 'get: an accepted drawing (default: the one in force)' } }, required: ['command'], additionalProperties: false }
+          end
+          def call(args)
+            output do
+              case args['command']
+              when 'propose' then instance(args).propose_art(svg: args['svg'])
+              when 'accept' then instance(args).accept_art(proposal: args['proposal'])
+              when 'get' then instance(args, read: true).art_get(sha256: args['sha256'])
+              else raise ::Kairomone::Error, 'Expected propose, accept or get'
               end
             end
           end

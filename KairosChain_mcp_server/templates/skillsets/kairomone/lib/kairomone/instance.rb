@@ -1,6 +1,18 @@
 # frozen_string_literal: true
 
 module Kairomone
+  # Records an existing entry's creation through a canonical provider's own
+  # recording path, for an entry whose file landed while its record did not
+  # (the provider deliberately swallows recording errors).
+  module ExistingRecord
+    def record_existing!(name, raw, reason)
+      unless respond_to?(:record_hash_reference, true) && method(:record_hash_reference).parameters.map(&:last).include?(:next_hash)
+        raise Error, "This KairosChain core cannot complete an existing entry's record; inspect status before retrying"
+      end
+      record_hash_reference(name: name, action: 'create', prev_hash: nil, next_hash: Digest::SHA256.hexdigest(raw), reason: reason)
+    end
+  end
+
   # The canonical provider performs creation and hash recording. Its optional
   # state-commit hook uses global host paths even with an injected backend;
   # suppress that hook for this explicitly isolated instance. No core patches,
@@ -20,15 +32,7 @@ module Kairomone
 
     public
 
-    # Records an existing entry's creation through the provider's own
-    # recording path, for an entry whose file landed while its record did not
-    # (the provider deliberately swallows recording errors).
-    def record_existing!(name, raw, reason)
-      unless respond_to?(:record_hash_reference, true) && method(:record_hash_reference).parameters.map(&:last).include?(:next_hash)
-        raise Error, "This KairosChain core cannot complete an existing entry's record; inspect status before retrying"
-      end
-      record_hash_reference(name: name, action: 'create', prev_hash: nil, next_hash: Digest::SHA256.hexdigest(raw), reason: reason)
-    end
+    include ExistingRecord
   end
 
   # Kairomone before 0.6.1 let core 3.94+ activate L1 body history on the dot,
@@ -397,6 +401,9 @@ module Kairomone
       result[:profession] = profession_status(progression: result[:progression])
       result[:companion] = companion_status[:companion]
       result[:chat_memory] = { count: verified_chat_entries.length, pending_count: companion_state['memories'].values.count { |m| m['state'] == 'reserved' }, xp_eligible: false }
+      # The page carries drawings as data: images, checked as they leave (Inv 6).
+      result[:art] = art_view(ledger, data: render_html)
+      result[:art] = result[:art].merge(waiting: art_waiting) if render_html
       result[:html_path] = render_status(result) if render_html
       result
     rescue StandardError => e
