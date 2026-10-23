@@ -87,6 +87,15 @@ class Kairomone08ExchangeTest < Minitest::Test
     refute Dir.exist?(File.join(@host, 'kairomone-outbox')) && Dir.glob(File.join(@host, 'kairomone-outbox', '*.json')).any?
   end
 
+  def test_an_entry_changed_on_disk_since_the_preview_refuses_the_write
+    store = rich
+    preview = store.exchange_preview(include: %w[owner_written])
+    path = File.join(store.root, 'knowledge/tea/tea.md')
+    File.write(path, File.read(path).sub('steamed', 'roasted'))
+    error = assert_raises(Kairomone::Error) { store.exchange_export(file_sha256: preview[:file_sha256]) }
+    assert_match(/no longer rebuilds/, error.message)
+  end
+
   def test_only_chosen_content_goes_in_and_never_the_private_parts
     store = rich
     first, items = all_pages(store, include: %w[owner_written])
@@ -134,6 +143,7 @@ class Kairomone08ExchangeTest < Minitest::Test
     # Received pieces wait; the copy is an egg under its listing ID.
     assert_equal 'copy', copy.name
     refute copy.profile['profile_present']
+    assert_equal [], Kairomone::Records.of_type(copy.chain, 'kairomone_profile'), 'no profile is in force before the owner accepts one'
     assert_equal 'egg', copy.art_get[:shown]
     waiting = copy.proposals[:proposals].select { |p| p['state'] == 'waiting' }.map { |p| p['kind'] }.sort
     assert_equal %w[art profession profile], waiting
@@ -191,11 +201,22 @@ class Kairomone08ExchangeTest < Minitest::Test
     store = rich
     _preview, out = export_and_place(store, include: %w[learned])
     inbox = File.join(@host, 'kairomone-inbox', out[:file])
-    doc = JSON.parse(File.read(inbox))
-    doc['entries'].first['evidence']['evidence']['knowledge']['content'] = 'Forged synthesis'
-    doc['manifest_sha256'] = Kairomone::Exchange.manifest(doc)
-    File.write(inbox, Kairomone::Exchange.bytes(doc))
-    assert_raises(Kairomone::Error) { Kairomone::Host.new.import_exchange(file: out[:file], listing_id: 'copy') }
+    original = JSON.parse(File.read(inbox))
+    autonomy = store.autonomy
+    forge = lambda do |rehash: false, body: false|
+      doc = JSON.parse(JSON.generate(original))
+      entry = doc['entries'].first
+      entry['evidence']['evidence']['knowledge']['content'] = 'Forged synthesis'
+      digest = Digest::SHA256.hexdigest(JSON.generate(entry['evidence']['evidence']))
+      entry['evidence']['evidence_sha256'] = digest if rehash
+      entry['content'] = autonomy.send(:knowledge_body, entry['evidence']['evidence'], digest) if body
+      doc['manifest_sha256'] = Kairomone::Exchange.manifest(doc)
+      File.write(inbox, Kairomone::Exchange.bytes(doc))
+      assert_raises(Kairomone::Error) { Kairomone::Host.new.import_exchange(file: out[:file], listing_id: 'copy') }.message
+    end
+    assert_match(/does not match its hash/, forge.call)
+    assert_match(/not what its evidence says/, forge.call(rehash: true))
+    assert_match(/does not match its evidence/, forge.call(rehash: true, body: true))
     refute_includes listing, 'copy'
   end
 

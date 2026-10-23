@@ -127,6 +127,14 @@ class Kairomone08FusionTest < Minitest::Test
     end
   end
 
+  def test_a_plan_from_stale_material_is_refused
+    a, = parents
+    heads, entries = material
+    a.create_knowledge(id: 'later', title: 'Later', content: 'Written after the material was read')
+    error = assert_raises(Kairomone::Error) { propose(heads, entries) }
+    assert_match(/heads/, error.message)
+  end
+
   def test_self_fusion_is_refused
     parents
     error = assert_raises(Kairomone::Error) { Kairomone::Host.new.fusion_material(parents: %w[alpha alpha]) }
