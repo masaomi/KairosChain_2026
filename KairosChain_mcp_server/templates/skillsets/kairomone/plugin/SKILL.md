@@ -168,9 +168,10 @@ when declared, limits claims for the whole host. The full procedure is
   first profession (a template from `kairomone_profession templates`, or a drafted one whose `focus` is up to
   8 subject IDs from `kairomone_profession subjects` and whose `habits` take one value each for sources,
   depth, reflection and stance). Draw from `kairomone_profile material` (the host instruction mode, read
-  only), host L2 read with the host's own tools, the owner's free text or checkboxes, or a character starter.
-  Every Kairomone is an anthropomorphised, cute character of its kind (animal, plant, insect, human,
-  imaginary creature, stone, angel, monster). Show both to the owner in full; only when they accept them in
+  only; called without `kairomone` before the host lists one, or when it lists several), host L2 read with the
+  host's own tools, the owner's free text or checkboxes, or a character starter. Every Kairomone is an
+  anthropomorphised, cute character of its kind; `kind` is one of the IDs `animal`, `plant`, `insect`, `human`,
+  `imaginary` (an imaginary creature), `stone`, `angel`, `monster`. Show both to the owner in full; only when they accept them in
   the conversation call `kairomone_create(kairomone:, profile:, profession:, material_kind:)`.
 - A changed profile — a new name included — is `kairomone_profile propose`, shown in full, then `accept`
   with the proposal only after the owner accepts it. Proposals change nothing; `proposals` shows them all.

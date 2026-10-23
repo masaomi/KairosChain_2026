@@ -6,13 +6,15 @@ module Kairomone
   # Text the composer writes (profiles, professions): bounded, without control
   # or format characters, and checked for credentials when it is accepted.
   module ComposedText
-    CREDENTIAL = /(?:\b(?:sk|ghp|github_pat)-?[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|\bBearer\s+\S{12,}|\b(?:password|api[_ -]?key|access[_ -]?token)\s*[:=]\s*\S+)/i
+    # Key-shaped tokens carry a digit after their prefix's separator, so
+    # ordinary hyphenated words ("sky-blue-and-silver-fur") are not caught.
+    CREDENTIAL = /(?:\b(?:sk|ghp|github_pat)[-_](?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{20,}|\bghp_[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|\bBearer\s+\S{12,}|\b(?:password|api[_ -]?key|access[_ -]?token)\s*[:=]\s*\S+)/i
 
     module_function
 
     def field!(value, label, max, allow_empty: false)
       ok = value.is_a?(String) && value.valid_encoding? && value.bytesize <= max && (allow_empty || !value.strip.empty?) &&
-           !value.match?(/[\p{Cc}\p{Cf}\u2028\u2029]/)
+           !value.match?(/[[\p{Cc}\p{Cf}\u2028\u2029]&&[^\u200C\u200D]]/) # joiners in emoji sequences are allowed
       raise Error, "#{label} must be text of at most #{max} bytes without control characters" unless ok
 
       value.strip
@@ -41,6 +43,9 @@ module Kairomone
     FIELDS = %w[name kind kind_label appearance personality voice interests origin created_at].freeze
     ORIGINS = %w[init create proposal legacy import fusion].freeze
     MATERIAL_KINDS = %w[instruction_mode host_l2 free_text checkboxes template legacy none].freeze
+    NAME_MAX = 256 # as the 0.6 display name and kairomone_init
+    MATERIAL_LIMIT = 24 * 1024
+    MODE_FILES = { 'developer' => 'kairos.md', 'user' => 'kairos_quickguide.md', 'tutorial' => 'kairos_tutorial.md' }.freeze
 
     module_function
 
@@ -65,7 +70,7 @@ module Kairomone
       raise Error, 'origin must be a known origin' unless ORIGINS.include?(origin)
       raise Error, 'material_sha256 must be a sha256 hex digest' unless material_sha256.nil? || Progression::SHA.match?(material_sha256.to_s)
 
-      { 'schema_version' => 2, 'name' => ComposedText.field!(f['name'], 'name', 80), 'kind' => kind,
+      { 'schema_version' => 2, 'name' => ComposedText.field!(f['name'], 'name', NAME_MAX), 'kind' => kind,
         'kind_label' => ComposedText.field!(f.fetch('kind_label', ''), 'kind_label', 80, allow_empty: true),
         'appearance' => ComposedText.field!(f.fetch('appearance', ''), 'appearance', 1000, allow_empty: true),
         'personality' => ComposedText.list!(f.fetch('personality', []), 'personality', 8, 80),
@@ -81,18 +86,38 @@ module Kairomone
       raise Error, "material_kind none names no material, so it takes no material_sha256" if kind == 'none' && sha256
     end
 
+    # The host's active instruction mode, read only: its name, sha256 and a
+    # bounded text the composer may draft a profile from (M9).
+    def instruction_mode_material(host_root)
+      config_path = Paths.checked(host_root, 'skills/config.yml')
+      mode = 'tutorial'
+      if File.file?(config_path)
+        config = YAML.safe_load(Paths.read(host_root, 'skills/config.yml', limit: 262_144)) rescue nil
+        mode = config['instructions_mode'].to_s if config.is_a?(Hash) && config['instructions_mode'].to_s.match?(/\A[a-z][a-z0-9_-]{0,63}\z/)
+      end
+      file = MODE_FILES.fetch(mode, "#{mode}.md")
+      relative = "skills/#{file}"
+      return { name: mode, present: false } unless File.file?(Paths.checked(host_root, relative))
+
+      bytes = Paths.read(host_root, relative, limit: 4 * 1024 * 1024)
+      text = bytes.dup.force_encoding(Encoding::UTF_8)
+      return { name: mode, present: true, sha256: Digest::SHA256.hexdigest(bytes), text: nil, note: 'not UTF-8' } unless text.valid_encoding?
+
+      shown = text.byteslice(0, MATERIAL_LIMIT).scrub('')
+      { name: mode, present: true, sha256: Digest::SHA256.hexdigest(bytes), text: shown, truncated: shown.bytesize < bytes.bytesize }
+    end
+
     def valid?(value)
       value.is_a?(Hash) && value['schema_version'] == 2 && (value.keys - ['schema_version']).sort == FIELDS.sort &&
-        value['name'].is_a?(String) && !value['name'].strip.empty? && value['name'].bytesize <= 256
+        value['name'].is_a?(String) && !value['name'].strip.empty? && value['name'].bytesize <= NAME_MAX
     end
 
     def texts(piece) = [piece['name'], piece['kind_label'], piece['appearance'], piece['voice'], *piece['personality'], *piece['interests']]
   end
 
   class Instance
-    MATERIAL_LIMIT = 24 * 1024
     PROPOSAL_LIMIT = 64 * 1024
-    MODE_FILES = { 'developer' => 'kairos.md', 'user' => 'kairos_quickguide.md', 'tutorial' => 'kairos_tutorial.md' }.freeze
+    PROPOSALS_SHOWN = 10
 
     # { sha256:, piece: } of the latest accepted profile version whose file is
     # present and well formed, or nil. A version the ledger accepts but the
@@ -157,21 +182,30 @@ module Kairomone
       end
     end
 
-    # Every proposal in full, with whether it was accepted.
+    # Proposals in full, newest first, each with its state: waiting for the
+    # owner, accepted or chosen, or superseded (an offer the owner can no
+    # longer choose: not the latest from the profession in force).
     def proposals
       ensure_initialized!
       ledger = chain
       accepted = Records.each(ledger).filter_map { |r, _| r['proposal_sha256'] }
       chosen_offers = Records.of_type(ledger, 'kairomone_profession').filter_map { |r| r['offer_sha256'] }
+      open_offer = current_offer(ledger, current_profession(ledger)[:id])&.fetch(:sha)
       items = piece_files('proposals').filter_map do |sha|
         doc = read_proposal(sha) or next
-        { 'proposal' => sha, 'accepted' => accepted.include?(sha) || chosen_offers.include?(sha) }.merge(doc)
+        state = if accepted.include?(sha) then 'accepted'
+                elsif chosen_offers.include?(sha) then 'chosen'
+                elsif doc['kind'] == 'profession_offer' && sha != open_offer then 'superseded'
+                else 'waiting'
+                end
+        { 'proposal' => sha, 'state' => state, 'accepted' => %w[accepted chosen].include?(state) }.merge(doc)
       end
-      # Newest first: every proposal still waiting, then the last ten answered.
       items = items.sort_by { |i| i['proposed_at'] || i['offered_at'] || '' }.reverse
-      waiting, answered = items.partition { |i| !i['accepted'] }
-      { success: true, kairomone: address, proposals: waiting + answered.first(10), answered_total: answered.length,
-        note: 'Waiting proposals in full, newest first, then the ten latest answered ones; accepted profile versions are in history.' }
+      waiting, done = items.partition { |i| i['state'] == 'waiting' }
+      { success: true, kairomone: address, proposals: waiting.first(PROPOSALS_SHOWN) + done.first(PROPOSALS_SHOWN),
+        waiting_total: waiting.length, answered_total: done.length,
+        note: "The #{PROPOSALS_SHOWN} newest waiting proposals in full, then the #{PROPOSALS_SHOWN} newest answered or superseded ones; " \
+              'accepted profile versions are in history.' }
     end
 
     # The owner accepts a proposed profile. Its text is judged by the rules
@@ -184,7 +218,7 @@ module Kairomone
         ensure_writable!('L2')
         ledger = chain
         if (prior = Records.of_type(ledger, 'kairomone_profile').find { |r| r['proposal_sha256'] == proposal })
-          next { success: true, preserved: true, sha256: prior['sha256'], kairomone: address }
+          next { success: true, accepted: true, preserved: true, sha256: prior['sha256'], profile: profile, kairomone: address }
         end
         doc = read_proposal(proposal) or raise Error, 'No such proposal'
         raise Error, 'This proposal is not a profile' unless doc['kind'] == 'profile'
@@ -227,6 +261,8 @@ module Kairomone
     end
 
     def read_proposal(sha)
+      return nil unless Progression::SHA.match?(sha.to_s)
+
       relative = "proposals/#{sha}.json"
       return nil unless File.file?(Paths.checked(root, relative))
 
@@ -244,23 +280,6 @@ module Kairomone
       Dir.children(path).sort.filter_map { |n| n.delete_suffix('.json') if n.match?(/\A[0-9a-f]{64}\.json\z/) }
     end
 
-    def instruction_mode_material
-      config_path = Paths.checked(host_root, 'skills/config.yml')
-      mode = 'tutorial'
-      if File.file?(config_path)
-        config = YAML.safe_load(Paths.read(host_root, 'skills/config.yml', limit: 262_144)) rescue nil
-        mode = config['instructions_mode'].to_s if config.is_a?(Hash) && config['instructions_mode'].to_s.match?(/\A[a-z][a-z0-9_-]{0,63}\z/)
-      end
-      file = MODE_FILES.fetch(mode, "#{mode}.md")
-      relative = "skills/#{file}"
-      return { name: mode, present: false } unless File.file?(Paths.checked(host_root, relative))
-
-      bytes = Paths.read(host_root, relative, limit: 4 * 1024 * 1024)
-      text = bytes.dup.force_encoding(Encoding::UTF_8)
-      return { name: mode, present: true, sha256: Digest::SHA256.hexdigest(bytes), text: nil, note: 'not UTF-8' } unless text.valid_encoding?
-
-      shown = text.byteslice(0, MATERIAL_LIMIT).scrub('')
-      { name: mode, present: true, sha256: Digest::SHA256.hexdigest(bytes), text: shown, truncated: shown.bytesize < bytes.bytesize }
-    end
+    def instruction_mode_material = Profile.instruction_mode_material(host_root)
   end
 end

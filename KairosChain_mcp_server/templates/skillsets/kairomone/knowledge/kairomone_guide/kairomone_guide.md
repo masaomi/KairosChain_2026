@@ -45,10 +45,12 @@ intelligence or proven skill. Actual research requires the host assistant.
 
 ## Profiles and professions
 
-A profile version holds a name, a kind (animal, plant, insect, human, imaginary
-creature, stone, angel, monster, or unknown), a kind label, appearance,
-personality traits, voice and interests. The host assistant composes it — from
-`kairomone_profile material` (the host's instruction mode, read only), host L2,
+A profile version holds a name, a kind (one of the IDs `animal`, `plant`,
+`insect`, `human`, `imaginary` for an imaginary creature, `stone`, `angel`,
+`monster` or `unknown`), a kind label, appearance, personality traits, voice
+and interests. The host assistant composes it — from `kairomone_profile
+material` (the host's instruction mode, read only; without `kairomone` on a
+host that does not list exactly one, the host's material for a new one), host L2,
 the owner's own words or checkboxes, or a character starter — and it waits as a
 proposal until the owner accepts it; acceptance records its hash and where its
 material came from (kind and hash, never the material). Versions append; the

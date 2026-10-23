@@ -78,6 +78,17 @@ module Kairomone
       all.first[:root]
     end
 
+    # What the composer may draft a new Kairomone's profile from, before any
+    # individual is named (M9): the host's instruction mode, read only, and
+    # the character starters. Seeds belong to an individual (its profile
+    # material).
+    def profile_material
+      { success: true, instruction_mode: Profile.instruction_mode_material(host_root),
+        kinds: Vocabulary.characters, material_kinds: Profile::MATERIAL_KINDS, kairomones: summaries,
+        note: 'Draft a profile from this material and show it to the owner in full; a new Kairomone is made only from the ' \
+              'profile and first profession they accept (kairomone_create). Name a Kairomone for its own material and seeds.' }
+    end
+
     # Summary of every listed individual, for reads that name none.
     def summaries
       listing.map do |l|
@@ -113,8 +124,10 @@ module Kairomone
         if File.exist?(legacy) || File.symlink?(legacy)
           raise Error, "#{legacy} exists but is not readable as a Kairomone made before 0.8; nothing was made. Inspect it first"
         end
+        name = ComposedText.field!(display_name, 'display_name', Profile::NAME_MAX)
+        ComposedText.guard!([name])
         root = assemble(dot_id) do |staged|
-          staged.open_new!(identity: dot_id, origin: 'create', listing_id: dot_id, name: display_name)
+          staged.open_new!(identity: dot_id, origin: 'create', listing_id: dot_id, name: name)
         end
         store = Instance.new(host_root: host_root, root: root)
         { success: true, initialized: true, preserved: false, root: root, profile: store.profile }

@@ -39,7 +39,8 @@ module Kairomone
 
     def subject_id(id)
       aliases = load('subjects.json')['aliases'] || {}
-      id = aliases.fetch(id, id) if id.is_a?(String)
+      # A retired ID points at its successor, which may itself be retired.
+      8.times { id = aliases.fetch(id, id) if id.is_a?(String) }
       subjects.key?(id) ? id : nil
     end
 

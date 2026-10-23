@@ -8,14 +8,6 @@ module Kairomone
     XP_PER_LEVEL = 20
     L1_XP = 50
     L2_XP = 10
-    PROFESSIONS = [
-      { id: 'generalist', name: 'Generalist', unlock_level: 1, topics: [] },
-      { id: 'researcher', name: 'Researcher', unlock_level: 5, topics: %w[research evidence verification] },
-      { id: 'builder', name: 'Builder', unlock_level: 10, topics: %w[software design testing] },
-      { id: 'strategist', name: 'Strategist', unlock_level: 20, topics: %w[planning decisions tradeoffs] },
-      { id: 'guardian', name: 'Guardian', unlock_level: 30, topics: %w[safety reliability privacy] },
-      { id: 'creator', name: 'Creator', unlock_level: 40, topics: %w[writing storytelling creativity] }
-    ].map { |item| item[:topics].freeze; item.freeze }.freeze
     SHA = /\A[0-9a-f]{64}\z/
 
     def self.fingerprint(content)

@@ -150,7 +150,7 @@ module Kairomone
         if (prior = Records.of_type(ledger, 'kairomone_profession').find { |r| r['offer_sha256'] == offer })
           raise Error, 'This offer was already answered with another profession' unless prior['index'] == index
 
-          next { success: true, preserved: true, sha256: prior['sha256'], kairomone: address }
+          next { success: true, chosen: true, preserved: true, sha256: prior['sha256'], profession: profession_status, kairomone: address }
         end
         current = current_profession(ledger)
         latest = current_offer(ledger, current[:id])

@@ -24,9 +24,10 @@ module Kairomone
     # recording path, for an entry whose file landed while its record did not
     # (the provider deliberately swallows recording errors).
     def record_existing!(name, raw, reason)
+      unless respond_to?(:record_hash_reference, true) && method(:record_hash_reference).parameters.map(&:last).include?(:next_hash)
+        raise Error, "This KairosChain core cannot complete an existing entry's record; inspect status before retrying"
+      end
       record_hash_reference(name: name, action: 'create', prev_hash: nil, next_hash: Digest::SHA256.hexdigest(raw), reason: reason)
-    rescue NoMethodError, ArgumentError => e
-      raise Error, "This KairosChain core cannot complete an existing entry's record (#{e.class}); inspect status before retrying"
     end
   end
 
@@ -151,8 +152,7 @@ module Kairomone
     # individual init made or preserved.
     def init(dot_id:, display_name:)
       Paths.id!(dot_id)
-      title = ComposedText.field!(text!(display_name, 'display_name', 256), 'display_name', 256)
-      ComposedText.guard!([title])
+      title = text!(display_name, 'display_name', 256) # the composed-text rules apply when a new one is made (Host#init)
       raise Error, 'Restored targets are read-only; activation is a separate operator decision' if @restored
 
       result = @host.init(dot_id: dot_id, display_name: title)

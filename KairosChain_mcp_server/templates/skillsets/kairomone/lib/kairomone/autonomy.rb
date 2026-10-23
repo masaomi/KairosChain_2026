@@ -109,30 +109,30 @@ module Kairomone
     end
 
     # The request carries what steers the cycle (Inv 4, M4): the owner's
-    # direction and, from the current profession, only the focus names and
-    # habit values the shipped vocabularies hold now.
+    # direction, once, in its companion snapshot and, in its context, only the
+    # focus names and habit values of the current profession the shipped
+    # vocabularies hold now.
     def request(run_id:, token:, request_id:, topic:, profession_id: nil, bias_applied: false)
       id!(request_id)
       text!(topic, 'topic', 512)
       raise Error, 'bias_applied must be boolean' unless [true, false].include?(bias_applied)
 
       locked do
-        # Read under the growth lock: what the request pins is the profession
-        # in force when it is queued.
+        state = load_state
+        live = step!(state, run_id, token)
+        # Read under the growth lock, once the run is stepped: what the
+        # request pins is the profession in force when it is queued.
         profession = @instance.profession_status
         unless profession_id.nil? || [profession[:effective_id], profession.dig(:current, :id)].include?(profession_id)
           raise Error, 'Profession must match the current profession'
         end
         raise Error, 'Profession bias needs focus subjects in the current profession' if bias_applied && profession.dig(:current, :focus).empty?
 
-        state = load_state
         proposal = { 'request_id' => request_id, 'topic' => topic, 'profession_id' => profession[:effective_id], 'bias_applied' => bias_applied }
         existing = state['requests'].find { |r| r['request_id'] == request_id }
         if existing && existing['run_id'] == run_id && existing['request'].reject { |k, _| %w[companion context].include?(k) } == proposal && existing['state'] == 'queued'
-          step!(state, run_id, token)
           next public_state(state).merge('preserved' => true, 'kairomone' => @instance.address)
         end
-        live = step!(state, run_id, token)
         raise Error, 'request_id already used' if existing || request_id_used?(request_id)
         raise Error, 'A request or claim is already pending' if state['queue'] || state['active_claim']
         raise Error, 'No further cycle can be admitted in this run' unless admissible?(live)
@@ -145,8 +145,7 @@ module Kairomone
 
         snapshot = @instance.companion_status[:companion]
         proposal['companion'] = { 'revision' => snapshot['revision'], 'direction' => snapshot['direction'] }
-        proposal['context'] = { 'direction' => snapshot['direction'],
-                                'profession' => profession[:current].slice(:focus, :habits).transform_keys(&:to_s) }
+        proposal['context'] = { 'profession' => profession[:current].slice(:focus, :habits).transform_keys(&:to_s) }
         live['requests'] = total
         live['biased'] = biased
         state['queue'] = proposal.merge('run_id' => run_id)

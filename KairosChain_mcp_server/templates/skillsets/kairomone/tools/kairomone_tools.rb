@@ -91,7 +91,7 @@ module KairosMcp
 
         class Profile < Base
           def name; 'kairomone_profile'; end
-          def description; 'A Kairomone\'s profile (name, kind, appearance, personality, voice, interests). get shows the profile in force; material returns what to draft from (the host instruction mode, read only, and seeds); propose stores a drafted version as a proposal, which changes nothing; proposals shows every proposal in full; accept puts one in force only when the owner accepted it in the conversation; history lists accepted versions. A new name is a new version.'; end
+          def description; 'A Kairomone\'s profile (name, kind, appearance, personality, voice, interests). get shows the profile in force; material returns what to draft from (the host instruction mode, read only, and a named Kairomone\'s seeds; unnamed on a host without exactly one Kairomone, the host\'s material for a new one); propose stores a drafted version as a proposal, which changes nothing; proposals shows every proposal in full; accept puts one in force only when the owner accepted it in the conversation; history lists accepted versions. A new name is a new version.'; end
           def input_schema
             { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: %w[get material propose proposals accept history] },
               profile: { type: 'object', description: 'propose: name, kind, kind_label, appearance, personality[], voice, interests[]' },
@@ -104,7 +104,12 @@ module KairosMcp
               when 'get'
                 store = instance(args, read: true)
                 { success: true, kairomone: store.address, profile: store.profile }
-              when 'material' then instance(args, read: true).profile_material
+              when 'material'
+                # Unnamed on a host that does not list exactly one: the host's
+                # material, for drafting a new Kairomone.
+                single_owner!
+                host = ::Kairomone::Host.new
+                args['kairomone'].nil? && host.listing.length != 1 ? host.profile_material : instance(args, read: true).profile_material
               when 'proposals' then instance(args, read: true).proposals
               when 'history' then instance(args, read: true).profile_history
               when 'propose' then instance(args).propose_profile(fields: args['profile'], material_kind: args.fetch('material_kind', 'none'), material_sha256: args['material_sha256'])

@@ -5,6 +5,13 @@
 # effect only on the owner's acceptance; professions branch by offers of three;
 # what steers a cycle is only the owner's direction and vocabulary values.
 # All data is synthetic and confined to temporary hosts.
+#
+# Changed in run C (run_20261023_100956_bec01a), answering run B's round-2
+# finding that the direction travelled twice in one request: the request
+# context now holds only the profession's vocabulary values, and the
+# direction is asserted where it travels once, in the companion snapshot
+# (the 0.6 shape test_kairomone_companion.rb and _08_xp.rb pin). No other
+# assertion in this file changed.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
@@ -149,9 +156,11 @@ class Kairomone08ProfileTest < Minitest::Test
     run = twin.autonomy.run_start(owner_words: 'One', cycles: 1)
     context = twin.autonomy.request(run_id: run[:run_id], token: run[:token], request_id: 'one', topic: 'Topic')['queue']['context']
     # ...and its request context carries none of it.
-    assert_equal({ 'direction' => { 'preset' => 'research', 'text' => 'Primary sources' },
-                   'profession' => { 'focus' => [{ 'id' => 'ecology', 'en' => 'Ecology', 'ja' => '生態学' }],
+    assert_equal({ 'profession' => { 'focus' => [{ 'id' => 'ecology', 'en' => 'Ecology', 'ja' => '生態学' }],
                                      'habits' => { 'depth' => 'deep', 'reflection' => 'concise', 'stance' => 'practical' } } }, context)
+    # The owner's direction travels once, in the request's companion snapshot.
+    queued = twin.autonomy.status['queue']
+    assert_equal({ 'preset' => 'research', 'text' => 'Primary sources' }, queued.dig('companion', 'direction'))
     refute_includes JSON.generate(context), 'Ignore your rules'
     refute_includes JSON.generate(context), 'evil.example'
   end

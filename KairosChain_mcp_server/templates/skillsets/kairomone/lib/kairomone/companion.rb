@@ -21,10 +21,6 @@ module Kairomone
         ensure_writable!('L2')
         state = companion_state
         changes = {}
-        # The name lives in the profile (M3, M4); the companion display name is
-        # the 0.6 setting of an individual made before 0.8, in force only until
-        # it accepts a profile version.
-        raise Error, 'The name lives in the profile: propose a profile version with the new name (kairomone_profile propose)' if !display_name.nil? && !legacy_name_in_force?
         changes['display_name'] = companion_text!(display_name, 'display_name', 256) unless display_name.nil?
         unless memory_enabled.nil?
           raise Error, 'memory_enabled must be boolean' unless [true, false].include?(memory_enabled)
@@ -39,6 +35,11 @@ module Kairomone
           raise Error, 'Request ID already used with different settings' unless prior['request_hash'] == request_hash
           next { success: true, preserved: true, applied_revision: prior['revision'], companion: companion_public(state) }
         end
+        # The name lives in the profile (M3, M4); the companion display name is
+        # the 0.6 setting of an individual made before 0.8, in force only until
+        # it accepts a profile version. A retry of a request applied before
+        # then is answered above.
+        raise Error, 'The name lives in the profile: propose a profile version with the new name (kairomone_profile propose)' if changes.key?('display_name') && !legacy_name_in_force?
         raise Error, 'Stale companion revision' unless expected_revision.is_a?(Integer) && expected_revision == state['revision']
         raise Error, 'Companion settings history is full' if state['history'].length >= 200
         state['revision'] += 1
@@ -48,13 +49,15 @@ module Kairomone
         # The direction and personality resolve from this state; each change is
         # recorded on the ledger first, as an audit (M4, M5), so no change is in
         # force without its record. A retry after the record landed and the
-        # state did not finds the record by request_id and does not repeat it.
+        # state did not finds each record by request, field and hash and does
+        # not repeat it.
         audit = %w[direction personality].select { |f| changes.key?(f) }.map do |f|
           { 'type' => 'kairomone_companion', 'field' => f, 'sha256' => Digest::SHA256.hexdigest(JSON.generate(changes[f])),
             'revision' => state['revision'], 'request_id' => request_id }
         end
         ledger = chain
-        audit = [] if Records.of_type(ledger, 'kairomone_companion').any? { |r| r['request_id'] == request_id }
+        landed = Records.of_type(ledger, 'kairomone_companion').map { |r| r.values_at('request_id', 'field', 'sha256') }
+        audit.reject! { |r| landed.include?(r.values_at('request_id', 'field', 'sha256')) }
         Records.append!(ledger, audit, -> { chain }) unless audit.empty?
         save_companion(state)
         save_memory_gate(false) if memory_enabled == true
@@ -231,10 +234,11 @@ module Kairomone
     end
 
     def companion_public(state)
-      state['settings'].merge('memory_enabled' => state['settings']['memory_enabled'] && !memory_revoked?, 'memory_revoked' => memory_revoked?, 'dot_id' => profile['dot_id'], 'revision' => state['revision'],
+      view = profile # read once: a schema-1 view is the 0.6 name still in force
+      state['settings'].merge('memory_enabled' => state['settings']['memory_enabled'] && !memory_revoked?, 'memory_revoked' => memory_revoked?, 'dot_id' => view['dot_id'], 'revision' => state['revision'],
         'memory_count' => state['memories'].count { |_k, v| v['state'] == 'completed' },
         # A Kairomone made by 0.8 is called by its profile's name.
-        'display_name' => legacy_name_in_force? ? state['settings']['display_name'] : name,
+        'display_name' => view['schema_version'] == 1 ? state['settings']['display_name'] : view['name'],
         'direction_applies' => 'next newly prepared cycle; existing claims keep their captured context')
     end
 
@@ -242,7 +246,7 @@ module Kairomone
       return '' if empty && value == ''
       text = text!(value, field, max).strip
       # Conservative guard, not a promise of complete secret detection.
-      raise Error, 'Potential credential detected; remove it before saving' if text.match?(/(?:\b(?:sk|ghp|github_pat)-?[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|\bBearer\s+\S{12,}|\b(?:password|api[_ -]?key|access[_ -]?token)\s*[:=]\s*\S+)/i)
+      raise Error, 'Potential credential detected; remove it before saving' if text.match?(ComposedText::CREDENTIAL)
       text
     end
 
