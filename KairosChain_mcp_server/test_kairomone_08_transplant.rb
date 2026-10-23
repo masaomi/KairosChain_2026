@@ -7,6 +7,13 @@
 # shows the record, else pending with nothing on the individual's ledger; an
 # identical retry completes it; only generated text reaches projected fields.
 # All data is synthetic and confined to temporary hosts.
+#
+# Changed in run D (run_20261023_130838_773740), answering run C's round-2
+# finding that a pending transplant result said success: false with no
+# error: test_an_unrecorded_host_write_is_pending_and_an_identical_retry_completes_it
+# gains one assertion, that the pending result's error starts "Pending: ...
+# written to the host L1". test_a_learned_entry_carries_the_outside_content_notice
+# and the other tests are unchanged; no assertion was removed or loosened.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
