@@ -12,6 +12,15 @@
 # before the L1 entry, so a failure leaves the evidence and an abandoned
 # intent; runs.json stays bounded. A restore makes a separate listed twin
 # (Inv 1, M15); a move to a fresh host copies the archive key.
+# The 0.6 check that a restored copy could not select a profession belonged to
+# 0.6's read-only recovery copies under kairomone-restored/, which 0.8 no
+# longer makes. The design's Boundary section reads: "Restoring an archive
+# whose identity the host already lists makes a twin under another listing ID;
+# the twin's ledger records the restore." Inv 1: an individual enters a host
+# "by creation, restore, import or fusion" and "becomes listed", and "an
+# operation on one individual reads or writes nothing of another". So the
+# twin chooses its own profession like any listed individual, and the check
+# that stays is that its choice leaves the original's selection unchanged.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'kairomone'
@@ -75,8 +84,11 @@ class KairomoneIndependentIntegrationTest < Minitest::Test
     copy = Kairomone::Instance.new(host_root: @host, kairomone: 'review_restore')
     assert_equal 'researcher', copy.profession_status[:selected_id]
     assert_equal @store.progression_status, copy.progression_status
-    copy.select_profession(id: 'generalist')
+    # The twin is listed like any individual (Inv 1, Boundary): its choice is
+    # its own and leaves the original's selection unchanged.
+    assert_equal 'generalist', copy.select_profession(id: 'generalist')[:profession][:selected_id]
     assert_equal 'researcher', @store.profession_status[:selected_id], 'the twin is a separate individual'
+    assert_equal saved, File.binread(File.join(@store.root, 'profession.json'))
   end
 
   def test_fresh_host_restore_resumes_without_overwriting_origin

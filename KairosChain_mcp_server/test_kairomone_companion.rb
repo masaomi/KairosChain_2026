@@ -99,7 +99,7 @@ class KairomoneCompanionTest < Minitest::Test
     assert_raises(Kairomone::Error) { @store.companion_context(query: 'examples') }
     assert @store.status[:error]
   end
-  def test_backup_restore_and_restored_write_denied
+  def test_backup_restore_makes_an_independent_twin
     enable; remember
     backup = @store.create_backup
     assert backup[:verified]
