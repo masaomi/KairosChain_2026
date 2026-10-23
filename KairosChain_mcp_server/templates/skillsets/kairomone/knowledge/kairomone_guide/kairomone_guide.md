@@ -49,8 +49,8 @@ A profile version holds a name, a kind (one of the IDs `animal`, `plant`,
 `insect`, `human`, `imaginary` for an imaginary creature, `stone`, `angel`,
 `monster` or `unknown`), a kind label, appearance, personality traits, voice
 and interests. The host assistant composes it — from `kairomone_profile
-material` (the host's instruction mode, read only; without `kairomone` on a
-host that does not list exactly one, the host's material for a new one), host L2,
+material` (the host's instruction mode, read only; without `kairomone` the
+host's material for a new one, with it that Kairomone's seeds as well), host L2,
 the owner's own words or checkboxes, or a character starter — and it waits as a
 proposal until the owner accepts it; acceptance records its hash and where its
 material came from (kind and hash, never the material). Versions append; the
@@ -164,7 +164,9 @@ The local chain is a consistency check, not proof of external authenticity.
 Someone able to rewrite all files can recompute hashes. L2 is mutable contextual
 content and has no chain attestation.
 
-No tool changes host L0, instruction mode, host knowledge or host ledger.
+No tool changes host L0 or the instruction mode. Host knowledge and the host
+ledger change only through `kairomone_knowledge transplant`, which adds one new
+host L1 entry, and its record, for an entry the owner asked for.
 Initialization fingerprints only the existing host `skills/kairos.rb` and
 `skills/kairos.md`. The status compares them with the baseline in force and calls
 the result unchanged (identical files and hashes), changed, or unavailable; it

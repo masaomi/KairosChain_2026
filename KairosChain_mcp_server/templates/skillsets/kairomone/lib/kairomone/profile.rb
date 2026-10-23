@@ -199,22 +199,16 @@ module Kairomone
                 else 'waiting'
                 end
         item = { 'proposal' => sha, 'state' => state, 'accepted' => %w[accepted chosen].include?(state) }.merge(doc)
-        # A drawing leaves only if it passes the art check now (Inv 6).
-        if doc['kind'] == 'art'
-          begin
-            Art.check!(doc['svg'])
-          rescue Error => e
-            item = item.merge('svg' => nil, 'art_check' => e.message)
-          end
-        end
-        item
+        # A drawing is listed by reference; the owner sees it as an image on
+        # the status page.
+        doc['kind'] == 'art' ? item.except('svg').merge('bytes' => doc['svg'].to_s.bytesize) : item
       end
       items = items.sort_by { |i| i['proposed_at'] || i['offered_at'] || '' }.reverse
       waiting, done = items.partition { |i| i['state'] == 'waiting' }
       { success: true, kairomone: address, proposals: waiting.first(PROPOSALS_SHOWN) + done.first(PROPOSALS_SHOWN),
         waiting_total: waiting.length, answered_total: done.length,
-        note: "The #{PROPOSALS_SHOWN} newest waiting proposals in full, then the #{PROPOSALS_SHOWN} newest answered or superseded ones; " \
-              'accepted profile versions are in history.' }
+        note: "The #{PROPOSALS_SHOWN} newest waiting proposals in full (drawings by reference), then the #{PROPOSALS_SHOWN} newest " \
+              'answered or superseded ones; accepted profile versions are in history.' }
     end
 
     # The owner accepts a proposed profile. Its text is judged by the rules

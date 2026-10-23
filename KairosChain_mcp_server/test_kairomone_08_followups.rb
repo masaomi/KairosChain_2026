@@ -105,7 +105,9 @@ class Kairomone08FollowupsTest < Minitest::Test
     refute empty.key?('seeds')
     create('one')
     single = tool('Profile', { 'command' => 'material' })
-    assert_equal 'Momo', single.dig('seeds', 'name')
+    refute single.key?('seeds'), 'unnamed is always the material for a new one'
+    assert_equal %w[one], single['kairomones'].map { |k| k['listing_id'] }
+    assert_equal 'Momo', tool('Profile', { 'command' => 'material', 'kairomone' => 'one' }).dig('seeds', 'name')
     create('two')
     several = tool('Profile', { 'command' => 'material' })
     assert_equal %w[one two], several['kairomones'].map { |k| k['listing_id'] }

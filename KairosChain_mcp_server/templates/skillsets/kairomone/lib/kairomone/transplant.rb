@@ -34,21 +34,30 @@ module Kairomone
         raise Error, 'Only an entry whose ledger record is verified can be transplanted; inspect status' unless item[:recorded]
 
         host_name = transplant_name(item[:hash], ledger)
-        if (done = Records.of_type(ledger, 'kairomone_transplant').find { |r| r['host_name'] == host_name })
-          next { success: true, transplanted: true, preserved: true, entry: id, host_name: host_name, sha256: done['sha256'],
-                 host_block_hash: done['host_block_hash'], kairomone: address }
-        end
         intents = load_transplants
         intent = intents.find { |t| t['host_name'] == host_name }
+        if (done = Records.of_type(ledger, 'kairomone_transplant').find { |r| r['host_name'] == host_name })
+          # An intent left by an interruption after the record is dropped.
+          save_transplants(intents - [intent]) if intent
+          next { success: true, transplanted: true, preserved: true, entry: id, host_name: host_name, sha256: done['sha256'],
+                 host_block_hash: done['host_block_hash'], kairomone: address,
+                 note: 'A copy under host governance: this Kairomone keeps its entry, and its ledger records the transplant.' }
+        end
         content = intent ? intent['content'] : transplant_content(id, item, host_name, ledger)
         sha = Digest::SHA256.hexdigest(content)
-        state = host_chain.load_state
-        raise Error, "The host chain is #{state}; nothing was written" unless %i[absent readable].include?(state)
+        before = host_chain
+        raise Error, "The host chain is #{before.load_state}; nothing was written" unless %i[absent readable].include?(before.load_state)
 
         provider = HostKnowledgeProvider.new(nil)
         existing = provider.get(host_name)
         own = existing && provider.owned?(existing) && host_entry_bytes(provider, host_name) == content.b
-        raise Error, "#{host_name} already resolves to other knowledge on this host; nothing was written" if existing && !own
+        if existing && !own
+          # A pending transplant whose host name now holds other knowledge can
+          # never complete: its intent is dropped, and nothing was recorded.
+          save_transplants(intents - [intent]) if intent
+          raise Error, "#{host_name} already resolves to other knowledge on this host; nothing was written" \
+                       "#{intent ? ' and the pending transplant is dropped' : ''}"
+        end
 
         unless intent
           raise Error, "#{TRANSPLANTS_MAX} transplants are pending; complete them first" if intents.length >= TRANSPLANTS_MAX
@@ -61,10 +70,10 @@ module Kairomone
           created = provider.create(host_name, content, reason: "Kairomone transplant of #{listing_id}/#{id}, asked by the owner")
           raise Error, "The host refused the entry: #{created[:error]}; the transplant stays pending" unless created[:success]
         end
-        block = host_record(host_name, sha)
+        block = existing ? host_record(before, host_name, sha) : host_record(host_chain, host_name, sha)
         if block.nil? && existing
           provider.record_existing!(host_name, content, "Kairomone transplant of #{listing_id}/#{id}: completing the record of the entry written earlier")
-          block = host_record(host_name, sha)
+          block = host_record(host_chain, host_name, sha)
         end
         unless block
           next { success: false, pending: true, entry: id, host_name: host_name, sha256: sha, kairomone: address,
@@ -95,16 +104,17 @@ module Kairomone
     end
 
     # The description and tags are generated (they are what the host projects
-    # into instruction files); the entry ID, title and origin go into the body,
-    # the title with control characters other than tab and newline escaped,
-    # under the outside-content notice when it applies.
+    # into instruction files); the entry ID, origin and title go into the body,
+    # under the outside-content notice when it applies. The title, with
+    # control characters other than tab and newline escaped, comes after the
+    # lines Kairomone writes, so no line of it can stand among them.
     def transplant_content(id, item, host_name, ledger)
       origin = transplant_origin(id, item[:hash], ledger)
       title = item[:title].to_s.gsub(/[\p{Cc}\p{Cf}\u2028\u2029&&[^\t\n]]/) { |c| format('\\u%04X', c.ord) }
       lines = []
       lines.push("> #{TRANSPLANT_NOTICE}", '') if origin[:outside]
-      lines.push("Kairomone entry: #{id}", "Title: #{title}", "Origin: #{origin[:text]}",
-                 "From: Kairomone #{listing_id} (identity #{identity(ledger)})", '', item[:content].to_s)
+      lines.push("Kairomone entry: #{id}", "Origin: #{origin[:text]}", "From: Kairomone #{listing_id} (identity #{identity(ledger)})",
+                 "Title: #{title}", '', item[:content].to_s)
       KairosMcp::AnthropicSkillParser.generate_content(
         { 'name' => host_name, 'description' => "Kairomone transplant #{host_name.delete_prefix('kairomone_')}", 'version' => '1.0.0',
           'layer' => 'L1', 'tags' => ['kairomone_transplant'] }, lines.join("\n")
@@ -134,20 +144,18 @@ module Kairomone
 
     # The block whose latest knowledge_update for this name is a create with
     # these bytes, or nil.
-    def host_record(name, sha)
-      ledger = host_chain
+    def host_record(ledger, name, sha)
       return nil unless ledger.load_state == :readable
 
-      found = nil
-      ledger.chain.each do |block|
-        Array(block.data).each do |raw|
+      ledger.chain.reverse_each do |block|
+        Array(block.data).reverse_each do |raw|
           event = JSON.parse(raw) rescue nil
           next unless event.is_a?(Hash) && event['type'] == 'knowledge_update' && event['knowledge_id'] == name
 
-          found = event['action'] == 'create' && event['next_hash'] == sha ? block : nil
+          return event['action'] == 'create' && event['next_hash'] == sha ? block : nil
         end
       end
-      found
+      nil
     end
 
     def host_entry_bytes(provider, name)

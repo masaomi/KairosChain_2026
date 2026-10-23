@@ -401,10 +401,10 @@ module Kairomone
       result[:profession] = profession_status(progression: result[:progression])
       result[:companion] = companion_status[:companion]
       result[:chat_memory] = { count: verified_chat_entries.length, pending_count: companion_state['memories'].values.count { |m| m['state'] == 'reserved' }, xp_eligible: false }
-      # The page carries drawings as data: images, checked as they leave (Inv 6).
-      result[:art] = art_view(ledger, data: render_html)
-      result[:art] = result[:art].merge(waiting: art_waiting) if render_html
-      result[:html_path] = render_status(result) if render_html
+      result[:art] = art_view(ledger, level: result[:progression][:level])
+      # Only the page carries drawings, as data: images checked as they leave
+      # (Inv 6); the result returned to the caller names them.
+      result[:html_path] = render_status(result.merge(art: art_page(ledger, result[:progression][:level]))) if render_html
       result
     rescue StandardError => e
       raise unless defined?(result) && result

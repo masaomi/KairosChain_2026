@@ -55,11 +55,13 @@ module Kairomone
 
       document = begin
         REXML::Document.new(text)
-      rescue REXML::ParseException, RuntimeError => e
+      rescue StandardError => e
         raise Error, "A drawing must parse as XML (#{e.message.lines.first.to_s.strip})"
       end
       root = document.root or raise Error, 'A drawing has an svg root element'
       raise Error, 'A drawing has an svg root element' unless root.name == 'svg'
+      # REXML refuses anything beside the root but the declaration, comments
+      # and white space; the walk below starts at the root.
 
       viewbox = root.attributes['viewBox'].to_s.strip.split(/[\s,]+/)
       unless viewbox.length == 4 && viewbox.all? { |n| n.match?(/\A-?(?:\d+\.?\d*|\.\d+)\z/) } && viewbox[2].to_f.positive? && viewbox[3].to_f.positive?
@@ -140,13 +142,15 @@ module Kairomone
         proposal = write_piece('proposals', { 'kind' => 'art', 'svg' => text, 'sha256' => Digest::SHA256.hexdigest(text.b),
                                               'stage' => stage, 'proposed_at' => Time.now.utc.iso8601 })
         { success: true, proposal: proposal, sha256: Digest::SHA256.hexdigest(text.b), stage: stage, kairomone: address,
-          note: 'Show the owner this drawing as an image. It takes effect only when they accept it (kairomone_art accept).' }
+          note: 'The owner sees a waiting drawing as an image on the status page (kairomone_status render_html). ' \
+                'It takes effect only when they accept it (kairomone_art accept).' }
       end
     end
 
     # The owner accepts a proposed drawing: checked again by the rules current
-    # now, written as art/<sha256>.svg, then its acceptance record appended.
-    # Accepting the same proposal again changes nothing.
+    # now, written as art/<sha256>.svg, then its acceptance record appended
+    # with the stage it is accepted at, the stage it answers (M7). Accepting
+    # the same proposal again changes nothing.
     def accept_art(proposal:)
       raise Error, 'proposal must be a proposal sha256' unless Progression::SHA.match?(proposal.to_s)
 
@@ -169,14 +173,16 @@ module Kairomone
         else
           Paths.write(root, relative, text)
         end
+        level = progression_status(ledger)[:level]
         Records.append!(ledger, [{ 'type' => 'kairomone_art', 'sha256' => sha, 'origin' => 'proposal', 'proposal_sha256' => proposal,
-                                   'stage' => doc['stage'] }], -> { chain })
-        { success: true, accepted: true, sha256: sha, art: art_view, kairomone: address }
+                                   'stage' => Vocabulary.stage(level)['id'] }], -> { chain })
+        { success: true, accepted: true, sha256: sha, art: art_view(chain, level: level), kairomone: address }
       end
     end
 
     # A drawing as it leaves: the one named (it must be accepted and pass the
-    # check now), or the current one, or the egg in place of one that fails.
+    # check now), or the one shown, which is the egg in place of one that
+    # fails. The markup comes last; pages build their image from it.
     def art_get(sha256: nil)
       ensure_initialized!
       ledger = chain
@@ -190,18 +196,22 @@ module Kairomone
         rescue Error => e
           raise Error, "This drawing does not pass the art check now and is not given out (#{e.message})"
         end
-        return { success: true, kairomone: address, shown: 'drawing', sha256: sha256, svg: text, data_uri: Art.data_uri(text) }
+        return { success: true, kairomone: address, shown: 'drawing', sha256: sha256, svg: text }
       end
-      view = art_view(ledger, data: true)
-      svg = view[:shown] == 'drawing' ? art_text(view[:sha256]) : Art::EGG
-      { success: true, kairomone: address, svg: svg }.merge(view)
+      view, text = art_shown(ledger)
+      { success: true, kairomone: address }.merge(view).merge(svg: text)
     end
 
-    # What a page or status shows: the latest accepted drawing that is present
-    # and passes the check now, else the egg; and whether a drawing is due
-    # (at hatch and at each later stage, M7).
-    def art_view(ledger = chain, data: false)
-      stage = Vocabulary.stage(progression_status(ledger)[:level])['id']
+    # What is shown: the latest accepted drawing that is present and passes
+    # the check now, else the egg; and whether a drawing is due (at hatch and
+    # at each later stage, M7).
+    def art_view(ledger = chain, level: nil) = art_shown(ledger, level).first
+
+    private
+
+    # [view, the text shown]: the text is the one that passed the check.
+    def art_shown(ledger, level = nil)
+      stage = Vocabulary.stage(level || progression_status(ledger)[:level])['id']
       records = Records.of_type(ledger, 'kairomone_art')
       view = { shown: 'egg', sha256: nil, stage: stage, due: stage != 'egg' && records.none? { |r| r['stage'] == stage } }
       records.reverse_each do |record|
@@ -212,21 +222,26 @@ module Kairomone
           view[:refused] ||= { sha256: record['sha256'], reason: e.message }
           next
         end
-        view = view.merge(shown: 'drawing', sha256: record['sha256'])
-        break
+        return [view.merge(shown: 'drawing', sha256: record['sha256']), text]
       end
-      return view unless data
-
-      view.merge(data_uri: Art.data_uri(view[:shown] == 'drawing' ? art_text(view[:sha256]) : Art::EGG))
+      [view, Art::EGG]
     end
 
-    private
+    # What a page shows: the drawing as a data: image, and the newest
+    # drawings waiting for the owner that pass the check now.
+    def art_page(ledger, level, limit: 3)
+      view, text = art_shown(ledger, level)
+      answered = Records.of_type(ledger, 'kairomone_art').filter_map { |r| r['proposal_sha256'] }
+      waiting = piece_files('proposals').filter_map do |sha|
+        next if answered.include?(sha)
 
-    # The newest drawings waiting for the owner that pass the check now, as
-    # images for a page.
-    def art_waiting(limit: 3)
-      proposals[:proposals].select { |p| p['kind'] == 'art' && p['state'] == 'waiting' && p['svg'] }.first(limit)
-                           .map { |p| { proposal: p['proposal'], stage: p['stage'], data_uri: Art.data_uri(p['svg']) } }
+        doc = read_proposal(sha)
+        [sha, doc] if doc && doc['kind'] == 'art'
+      end
+      shown = waiting.sort_by { |sha, doc| [doc['proposed_at'].to_s, sha] }.reverse.lazy
+                     .select { |_sha, doc| Art.valid?(doc['svg']) }.first(limit)
+                     .map { |sha, doc| { proposal: sha, stage: doc['stage'], data_uri: Art.data_uri(doc['svg']) } }
+      view.merge(data_uri: Art.data_uri(text), waiting: shown)
     end
 
     def art_text(sha)

@@ -105,6 +105,7 @@ class Kairomone08ArtTest < Minitest::Test
       'no namespace' => '<svg viewBox="0 0 10 10"/>',
       'a zero-sized viewBox' => %(<svg #{NS} viewBox="0 0 0 10"/>),
       'another root' => %(<g #{NS}/>),
+      'text beside the root' => "#{svg('')}trailing",
       'a reused id' => svg('<g id="a"/><g id="a"/>'),
       'not XML' => '<svg'
     }
@@ -120,7 +121,8 @@ class Kairomone08ArtTest < Minitest::Test
     assert_equal proposed[:sha256], accepted[:sha256]
     shown = store.art_get
     assert_equal ['drawing', proposed[:sha256], FOX], shown.values_at(:shown, :sha256, :svg)
-    assert_equal "data:image/svg+xml;base64,#{Base64.strict_encode64(FOX)}", shown[:data_uri]
+    refute shown.key?(:data_uri), 'the drawing leaves once, as markup'
+    assert_equal :svg, shown.keys.last, 'the markup comes after what describes it'
     record = Kairomone::Records.of_type(store.chain, 'kairomone_art').last
     assert_equal({ 'sha256' => proposed[:sha256], 'origin' => 'proposal', 'stage' => 'egg' }, record.slice('sha256', 'origin', 'stage'))
     again = store.accept_art(proposal: proposed[:proposal])
@@ -150,16 +152,51 @@ class Kairomone08ArtTest < Minitest::Test
     assert_includes html, Base64.strict_encode64(Kairomone::Art::EGG)
   end
 
-  def test_a_proposal_that_fails_the_check_now_is_listed_without_its_drawing
+  def test_drawings_are_listed_by_reference_and_one_that_fails_is_not_accepted
     store = create
+    good = store.propose_art(svg: FOX)[:proposal]
+    bad = svg('<script/>')
     store.send(:with_lock) do
-      bad = svg('<script/>')
       store.send(:write_piece, 'proposals', { 'kind' => 'art', 'svg' => bad, 'sha256' => Digest::SHA256.hexdigest(bad), 'stage' => 'egg', 'proposed_at' => Time.now.utc.iso8601 })
     end
-    listed = store.proposals[:proposals].find { |p| p['kind'] == 'art' }
-    assert_nil listed['svg']
-    assert_match(/script/, listed['art_check'])
-    assert_raises(Kairomone::Error) { store.accept_art(proposal: listed['proposal']) }
+    listed = store.proposals[:proposals].select { |p| p['kind'] == 'art' }
+    assert_equal 2, listed.length
+    listed.each { |p| refute p.key?('svg'), 'no markup in the list' }
+    assert_equal FOX.bytesize, listed.find { |p| p['proposal'] == good }['bytes']
+    refused = listed.find { |p| p['proposal'] != good }['proposal']
+    assert_raises(Kairomone::Error) { store.accept_art(proposal: refused) }
+    html = File.read(store.status(render_html: true)[:html_path])
+    payload = JSON.parse(html[%r{<script id="kairomone-status" type="application/json">(.*?)</script>}m, 1])
+    assert_equal [good], payload.dig('art', 'waiting').map { |w| w['proposal'] }, 'only a drawing that passes reaches the page'
+  end
+
+  def test_a_drawing_waiting_behind_many_profile_drafts_still_reaches_the_page
+    store = create
+    # Proposed before the twelve drafts that follow it.
+    drawing = store.send(:with_lock) do
+      store.send(:write_piece, 'proposals', { 'kind' => 'art', 'svg' => FOX, 'sha256' => Digest::SHA256.hexdigest(FOX), 'stage' => 'egg',
+                                              'proposed_at' => '2026-01-01T00:00:00Z' })
+    end
+    12.times { |i| store.propose_profile(fields: PROFILE.merge('name' => "Draft #{i}")) }
+    listed = store.proposals
+    assert_equal 13, listed[:waiting_total]
+    refute_includes listed[:proposals].map { |p| p['proposal'] }, drawing, 'the list shows the ten newest of thirteen'
+    html = File.read(store.status(render_html: true)[:html_path])
+    payload = JSON.parse(html[%r{<script id="kairomone-status" type="application/json">(.*?)</script>}m, 1])
+    assert_equal [drawing], payload.dig('art', 'waiting').map { |w| w['proposal'] }
+  end
+
+  def test_a_drawing_at_the_size_bound_goes_through_every_path
+    store = create
+    big = svg("<desc>#{'a' * (65_536 - svg('<desc></desc>').bytesize)}</desc>")
+    assert_equal 65_536, big.bytesize
+    sha = store.accept_art(proposal: store.propose_art(svg: big)[:proposal])[:sha256]
+    named = store.art_get(sha256: sha)
+    assert_equal big, named[:svg]
+    refute named.key?(:data_uri), 'the drawing leaves once, as markup'
+    assert_equal ['drawing', sha], store.art_get.values_at(:shown, :sha256)
+    html = File.read(store.status(render_html: true)[:html_path])
+    assert_includes html, Base64.strict_encode64(big)
   end
 
   def test_art_is_due_at_hatch_and_at_each_later_stage
@@ -168,11 +205,17 @@ class Kairomone08ArtTest < Minitest::Test
     grow_to(store, 5)
     view = store.art_get
     assert_equal ['hatchling', true], view.values_at(:stage, :due)
-    store.accept_art(proposal: store.propose_art(svg: FOX)[:proposal])
+    early = store.propose_art(svg: FOX)[:proposal]
+    store.accept_art(proposal: store.propose_art(svg: Kairomone::Art::EGG)[:proposal])
     refute store.art_get[:due]
     assert_equal 'hatchling', Kairomone::Records.of_type(store.chain, 'kairomone_art').last['stage']
     grow_to(store, 20)
     assert store.art_get[:due], 'young needs its own drawing'
+    # A drawing proposed at hatch and accepted now answers the stage it is
+    # accepted at.
+    store.accept_art(proposal: early)
+    assert_equal 'young', Kairomone::Records.of_type(store.chain, 'kairomone_art').last['stage']
+    refute store.art_get[:due]
   end
 
   def test_the_page_shows_art_only_as_an_image
@@ -182,7 +225,9 @@ class Kairomone08ArtTest < Minitest::Test
     status = store.status
     assert_equal 'drawing', status[:art][:shown]
     refute status[:art].key?(:data_uri), 'the JSON status carries no image'
-    html = File.read(store.status(render_html: true)[:html_path])
+    rendered = store.status(render_html: true)
+    assert_equal %i[shown sha256 stage due], rendered[:art].keys, 'the page has the images; the result names them'
+    html = File.read(rendered[:html_path])
     assert_includes html, "img-src data:;"
     payload = JSON.parse(html[%r{<script id="kairomone-status" type="application/json">(.*?)</script>}m, 1])
     assert_equal "data:image/svg+xml;base64,#{Base64.strict_encode64(FOX)}", payload.dig('art', 'data_uri')

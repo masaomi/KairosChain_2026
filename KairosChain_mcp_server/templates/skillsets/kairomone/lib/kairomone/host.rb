@@ -78,10 +78,9 @@ module Kairomone
       all.first[:root]
     end
 
-    # What the composer may draft a new Kairomone's profile from, before any
-    # individual is named (M9): the host's instruction mode, read only, and
-    # the character starters. Seeds belong to an individual (its profile
-    # material).
+    # What the composer may draft a new Kairomone's profile from (M9): the
+    # host's instruction mode, read only, and the character starters. Seeds
+    # belong to an individual (its profile material).
     def profile_material
       { success: true, instruction_mode: Profile.instruction_mode_material(host_root),
         kinds: Vocabulary.characters, material_kinds: Profile::MATERIAL_KINDS, kairomones: summaries,
