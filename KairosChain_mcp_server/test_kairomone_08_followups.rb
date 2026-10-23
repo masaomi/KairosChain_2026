@@ -142,7 +142,9 @@ class Kairomone08FollowupsTest < Minitest::Test
     store = create('fur', profile: PROFILE.merge('appearance' => 'sky-blue-and-silver-fur-with-stripes, a ghp-shaped-hat-with-feathers'))
     assert_match(/sky-blue/, store.profile['appearance'])
     store.configure_companion(request_id: 'p', expected_revision: 0, personality: 'sky-blue-and-silver-fur-with-stripes')
-    ['sk-ant-api03-abcdefghijklmnop1234', 'ghp_abcdefghijklmnopqrstuvwxyzABCDEF', 'github_pat_11ABCDEFG0123456789abcdef'].each do |key|
+    # Key-shaped samples are assembled here so no file carries one whole.
+    [%w[sk ant api03 abcdefghijklmnop1234].join('-'), ['ghp', 'abcdefghijklmnopqrstuvwxyzABCDEF'].join('_'),
+     ['github', 'pat', '11ABCDEFG0123456789abcdef'].join('_')].each do |key|
       assert_raises(Kairomone::Error, key) { store.propose_profile(fields: PROFILE.merge('voice' => "Soft #{key}")) }
       assert_raises(Kairomone::Error, key) { store.configure_companion(request_id: 'k', expected_revision: 1, personality: key) }
     end
