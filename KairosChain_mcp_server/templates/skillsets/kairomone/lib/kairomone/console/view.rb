@@ -19,10 +19,7 @@ module Kairomone
         base = { 'data_dir' => data_dir, 'kairomones' => listed, 'shown' => shown, 'kinds' => kinds, 'templates' => templates }
         return base.merge('status' => Instance.new(host_root: data_dir, bind: false).status) if shown.nil?
 
-        Paths.id!(shown)
-        raise Error, "No Kairomone is listed as #{shown} on this host" unless listed.any? { |l| l['listing_id'] == shown }
-
-        store = Instance.new(host_root: data_dir, kairomone: shown)
+        store = Instance.new(host_root: data_dir, kairomone: shown) # refuses an ID the host does not list
         status = store.status
         base.merge('status' => status, 'waiting' => waiting(store, status))
       end
