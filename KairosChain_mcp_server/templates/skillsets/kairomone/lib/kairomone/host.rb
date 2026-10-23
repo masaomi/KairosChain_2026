@@ -126,8 +126,7 @@ module Kairomone
     # profession: { 'template' => id } or a drafted profession.
     def create(listing_id:, profile:, profession:, material_kind: 'none', material_sha256: nil)
       Paths.id!(listing_id)
-      raise Error, "material_kind must be one of #{Profile::MATERIAL_KINDS.join(', ')}" unless Profile::MATERIAL_KINDS.include?(material_kind)
-
+      Profile.material!(material_kind, material_sha256)
       piece = Profile.build(profile, origin: 'create', material_sha256: material_sha256)
       ComposedText.guard!(Profile.texts(piece))
       first = if profession.is_a?(Hash) && profession.transform_keys(&:to_s).keys == ['template']
@@ -138,6 +137,15 @@ module Kairomone
               end
       ComposedText.guard!(Profession.texts(first))
       with_registry_lock do
+        # A retry after a lost acknowledgement finds the Kairomone it made:
+        # same identity, same profile and first profession (times aside).
+        if (same = listing.find { |l| l[:listing_id] == listing_id })
+          made = Instance.new(host_root: host_root, root: same[:root])
+          if made.created_with?(listing_id, piece, first)
+            next { success: true, created: false, preserved: true, kairomone: made.address, profile: made.profile,
+                   profession: made.profession_status[:current] }
+          end
+        end
         root = assemble(listing_id) do |staged|
           staged.open_new!(identity: listing_id, origin: 'create', listing_id: listing_id, profile_piece: piece, profession_piece: first,
                            material: { 'material_kind' => material_kind, 'material_sha256' => material_sha256 })

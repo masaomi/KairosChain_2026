@@ -50,15 +50,19 @@ module Kairomone
     end
 
     def from_template(template)
-      { 'schema_version' => 1, 'name' => template['name'], 'description' => template['description'], 'focus' => template['focus'],
-        'habits' => template['habits'], 'parents' => [], 'tier' => 0, 'origin' => 'template' }
+      { 'schema_version' => 1, 'name' => template['name'], 'description' => template['description'], 'focus' => template['focus'].dup,
+        'habits' => template['habits'].dup, 'parents' => [], 'tier' => 0, 'origin' => 'template' }
     end
 
     # Shape only: a stored piece is read as it was stored; its values are
     # judged against the vocabularies when they leave (Vocabulary.request_context).
     def shape?(piece)
-      piece.is_a?(Hash) && (piece.keys - ['schema_version']).sort == FIELDS.sort && piece['name'].is_a?(String) &&
-        piece['focus'].is_a?(Array) && piece['habits'].is_a?(Hash) && piece['parents'].is_a?(Array) && piece['tier'].is_a?(Integer)
+      text = ->(v, max) { v.is_a?(String) && v.bytesize <= max && v.valid_encoding? && !v.match?(/[\p{Cc}\p{Cf}]/) }
+      piece.is_a?(Hash) && (piece.keys - ['schema_version']).sort == FIELDS.sort && text.call(piece['name'], 80) &&
+        text.call(piece['description'], 600) && piece['focus'].is_a?(Array) && piece['focus'].all? { |f| f.is_a?(String) } &&
+        piece['habits'].is_a?(Hash) && piece['habits'].values.all? { |v| v.is_a?(String) } &&
+        piece['parents'].is_a?(Array) && piece['parents'].all? { |p| PARENT.match?(p.to_s) && p.is_a?(String) } &&
+        piece['tier'].is_a?(Integer) && piece['tier'].between?(0, TIER_MAX)
     end
 
     def texts(piece) = [piece['name'], piece['description']]
@@ -123,6 +127,7 @@ module Kairomone
         raise Error, 'An offer holds exactly three professions' unless candidates.is_a?(Array) && candidates.length == 3
 
         pieces = candidates.map { |c| Profession.build(c, parents: [current[:id]], tier: tier + 1, origin: 'branch') }
+        ComposedText.guard!(pieces.flat_map { |p| Profession.texts(p) }) # offers stay on disk and travel in backups
         raise Error, 'The three professions need three different names' unless pieces.map { |p| p['name'] }.uniq.length == pieces.length
 
         doc = { 'kind' => 'profession_offer', 'from' => current[:id], 'tier' => tier + 1, 'level' => level,

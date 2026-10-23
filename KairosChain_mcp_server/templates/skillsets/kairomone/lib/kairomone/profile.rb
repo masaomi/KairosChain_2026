@@ -74,6 +74,13 @@ module Kairomone
         'origin' => { 'kind' => origin, 'material_sha256' => material_sha256 }, 'created_at' => Time.now.utc.iso8601 }
     end
 
+    # Where the material came from: 'none' carries no hash.
+    def material!(kind, sha256)
+      raise Error, "material_kind must be one of #{MATERIAL_KINDS.join(', ')}" unless MATERIAL_KINDS.include?(kind)
+      raise Error, 'material_sha256 must be a sha256 hex digest' unless sha256.nil? || Progression::SHA.match?(sha256.to_s)
+      raise Error, "material_kind none names no material, so it takes no material_sha256" if kind == 'none' && sha256
+    end
+
     def valid?(value)
       value.is_a?(Hash) && value['schema_version'] == 2 && (value.keys - ['schema_version']).sort == FIELDS.sort &&
         value['name'].is_a?(String) && !value['name'].strip.empty? && value['name'].bytesize <= 256
@@ -111,18 +118,36 @@ module Kairomone
       legacy = legacy_profile
       companion = companion_status[:companion]
       { success: true, kairomone: address, instruction_mode: mode,
-        seeds: { name: legacy ? (companion['display_name'] || legacy['display_name']) : name, legacy_profile: legacy,
+        seeds: { name: companion['display_name'] || name, legacy_profile: legacy,
                  personality: companion['personality'], direction: companion['direction'] },
         kinds: Vocabulary.characters, material_kinds: Profile::MATERIAL_KINDS,
         note: 'Draft a profile from this material and show it to the owner in full; it takes effect only when they accept it. ' \
               'The name lives in the profile.' }
     end
 
+    # Whether this Kairomone was created with this identity, profile and first
+    # profession (the creation retry check; creation times are not compared).
+    def created_with?(wanted_identity, wanted_profile, wanted_profession)
+      ledger = chain
+      return false unless identity(ledger) == wanted_identity
+
+      made = Records.of_type(ledger, 'kairomone_profile').first
+      first = Records.of_type(ledger, 'kairomone_profession').first
+      return false unless made && first && made['origin'] == 'create' && first['origin'] == 'create'
+
+      stored = profile_piece(made['sha256'])&.fetch(:piece)
+      stored_profession = profession_piece(first['sha256'])
+      strip = ->(h) { h&.reject { |k, _| %w[created_at].include?(k) } }
+      strip.call(stored) == strip.call(wanted_profile) && stored_profession == wanted_profession
+    end
+
     # Stores what the composer drafted as a proposal; nothing takes effect.
     def propose_profile(fields:, material_kind: 'none', material_sha256: nil)
-      raise Error, "material_kind must be one of #{Profile::MATERIAL_KINDS.join(', ')}" unless Profile::MATERIAL_KINDS.include?(material_kind)
-
+      Profile.material!(material_kind, material_sha256)
       piece = Profile.build(fields, origin: 'proposal', material_sha256: material_sha256)
+      # A draft that carries a credential is refused before it is stored:
+      # proposals stay on disk and travel in backups.
+      ComposedText.guard!(Profile.texts(piece))
       with_lock do
         ensure_writable!('L2')
         sha = write_piece('proposals', { 'kind' => 'profile', 'piece' => piece, 'material_kind' => material_kind,
@@ -142,7 +167,11 @@ module Kairomone
         doc = read_proposal(sha) or next
         { 'proposal' => sha, 'accepted' => accepted.include?(sha) || chosen_offers.include?(sha) }.merge(doc)
       end
-      { success: true, kairomone: address, proposals: items }
+      # Newest first: every proposal still waiting, then the last ten answered.
+      items = items.sort_by { |i| i['proposed_at'] || i['offered_at'] || '' }.reverse
+      waiting, answered = items.partition { |i| !i['accepted'] }
+      { success: true, kairomone: address, proposals: waiting + answered.first(10), answered_total: answered.length,
+        note: 'Waiting proposals in full, newest first, then the ten latest answered ones; accepted profile versions are in history.' }
     end
 
     # The owner accepts a proposed profile. Its text is judged by the rules

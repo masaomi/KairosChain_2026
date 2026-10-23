@@ -232,7 +232,7 @@ module KairosMcp
           end
           def call(args)
             output do
-              read = %w[status run_status].include?(args['command'])
+              read = args['command'] == 'status' # run_status records ends: it names its Kairomone like a write
               store = instance(args, read: read)
               growth = store.autonomy
               case args['command']

@@ -67,8 +67,13 @@ owner picks one or asks for three new ones, and the chosen one records its
 parent, so every Kairomone carries a profession lineage. The six 0.6
 professions remain as templates. A growth request carries only the owner's
 direction and the profession's focus names and habit values that the shipped
-vocabularies hold at that moment; nothing else stored reaches a cycle, and a
-profession never changes a tool, permission, limit, run or L0.
+vocabularies hold at that moment; nothing else stored reaches a cycle's request.
+A profession's name and description are display text: status shows them, and
+they never enter a request. A profession never changes a tool, permission,
+limit, run or L0. Any template may be the first profession a Kairomone is
+created with; the 0.6 unlock levels apply only to selecting a template later.
+An accepted version is never accepted again: to return to an earlier version,
+propose it again.
 
 Stages follow the level: egg (1–4), hatchling (5–19), young (20–99), adult
 (100–499), legend (500–999).

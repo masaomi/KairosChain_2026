@@ -91,7 +91,7 @@ begin
     raise Kairomone::Error, 'Companion input must be an object' unless input.is_a?(Hash)
     methods = { 'status' => :companion_status, 'history' => :companion_history, 'configure' => :configure_companion, 'context' => :companion_context, 'remember' => :remember_companion, 'recover' => :recover_companion_memory, 'revoke' => :revoke_companion_memory }
     method = methods[subcommand]
-    raise Kairomone::Error, 'Expected companion status, configure, context, remember, recover or revoke' unless method
+    raise Kairomone::Error, 'Expected companion status, history, configure, context, remember, recover or revoke' unless method
     target = store.call
     allowed = target.method(method).parameters.map { |_kind, key| key.to_s }
     raise Kairomone::Error, 'Unexpected companion input fields' unless (input.keys - allowed).empty?

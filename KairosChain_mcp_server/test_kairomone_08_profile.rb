@@ -201,4 +201,119 @@ class Kairomone08ProfileTest < Minitest::Test
     assert_equal 0, store.status[:integrity][:pending_count]
     assert store.create_backup[:verified]
   end
+
+  # Run B review round 1.
+
+  def test_after_a_legacy_individual_accepts_a_version_its_name_lives_in_the_profile
+    legacy = KairomoneLegacyFixture.slot!(@host, dot_id: 'old_one', display_name: 'Old one')
+    legacy.configure_companion(request_id: 'named', expected_revision: 0, display_name: 'Pochi')
+    assert_equal 'Pochi', legacy.companion_status[:companion]['display_name']
+    proposal = legacy.propose_profile(fields: { 'name' => 'Hana', 'kind' => 'plant' }, material_kind: 'legacy')
+    legacy.accept_profile(proposal: proposal[:proposal])
+    assert_equal 'Hana', legacy.companion_status[:companion]['display_name']
+    assert_equal 'Hana', legacy.profile_material[:seeds][:name]
+    assert_raises(Kairomone::Error) { legacy.configure_companion(request_id: 'again', expected_revision: 1, display_name: 'Pochi') }
+  end
+
+  def test_a_settings_change_is_never_in_force_without_its_audit_record
+    store = create
+    store.define_singleton_method(:save_companion) { |_state| raise Kairomone::Error, 'Injected disk failure' }
+    assert_raises(Kairomone::Error) { store.configure_companion(request_id: 'dir', expected_revision: 0, direction: { 'preset' => 'evidence', 'text' => '' }) }
+    store.singleton_class.remove_method(:save_companion)
+    assert_equal 'balanced', store.companion_status[:companion]['direction']['preset']
+    store.configure_companion(request_id: 'dir', expected_revision: 0, direction: { 'preset' => 'evidence', 'text' => '' })
+    assert_equal 'evidence', store.companion_status[:companion]['direction']['preset']
+    assert_equal 1, Kairomone::Records.of_type(store.chain, 'kairomone_companion').count { |r| r['request_id'] == 'dir' }
+    File.write(File.join(store.root, 'storage/blockchain.json'), '{broken')
+    assert_raises(Kairomone::Error) { store.configure_companion(request_id: 'dir2', expected_revision: 1, personality: 'Calm') }
+    refute_equal 'Calm', JSON.parse(File.read(File.join(store.root, 'companion/state.json')))['settings']['personality']
+  end
+
+  def test_a_create_retry_finds_what_it_made
+    create
+    again = Kairomone::Host.new.create(listing_id: 'momo', profile: PROFILE, profession: { 'template' => 'researcher' }, material_kind: 'free_text')
+    assert again[:preserved]
+    assert_equal ['momo'], listing
+    assert_raises(Kairomone::Error) { create('momo', profile: PROFILE.merge('name' => 'Different')) }
+    assert_raises(Kairomone::Error) { create('momo', profession: { 'template' => 'creator' }) }
+  end
+
+  def test_both_forms_of_the_current_profession_are_accepted_in_a_request
+    store = Kairomone::Instance.new(bind: false)
+    store.init(dot_id: 'plain', display_name: 'Plain')
+    run = store.autonomy.run_start(owner_words: 'Two', cycles: 2)
+    step = { run_id: run[:run_id], token: run[:token] }
+    assert store.autonomy.request(**step, request_id: 'by_template', topic: 'Topic', profession_id: 'template:generalist')
+    store.autonomy.run_stop
+    run = store.autonomy.run_start(owner_words: 'Two', cycles: 2)
+    assert store.autonomy.request(run_id: run[:run_id], token: run[:token], request_id: 'by_id', topic: 'Topic', profession_id: 'generalist')
+    assert_raises(Kairomone::Error) { store.autonomy.run_status(run_id: 'not-a-run') }
+  end
+
+  def test_a_draft_with_a_credential_is_refused_before_it_is_stored
+    store = create
+    assert_raises(Kairomone::Error) { store.propose_profile(fields: PROFILE.merge('voice' => 'password: hunter22'), material_kind: 'free_text') }
+    grow_to(store, 10)
+    assert_raises(Kairomone::Error) { store.offer_professions(candidates: candidates('Cred').tap { |c| c[0] = c[0].merge('description' => 'api_key=abcdefgh123') }) }
+    assert_equal [], store.proposals[:proposals]
+    assert_raises(Kairomone::Error) { store.propose_profile(fields: PROFILE, material_kind: 'none', material_sha256: 'a' * 64) }
+  end
+
+  def test_a_twin_keeps_the_lineage_and_the_open_offer
+    store = create
+    grow_to(store, 10)
+    offer = store.offer_professions(candidates: candidates('First'))
+    store.choose_profession(offer: offer[:offer], index: 0)
+    grow_to(store, 30)
+    open_offer = store.offer_professions(candidates: candidates('Second'))
+    backup = store.create_backup
+    store.restore_backup(file: backup[:file], target_id: 'twin')
+    twin = Kairomone::Instance.new(host_root: @host, kairomone: 'twin')
+    status = twin.profession_status
+    assert_equal 'First 0', status[:current][:name]
+    assert_equal store.profession_status[:lineage], status[:lineage]
+    assert_equal open_offer[:offer], status[:branch][:offer][:offer]
+    assert twin.choose_profession(offer: open_offer[:offer], index: 2)[:chosen]
+    assert_equal 'First 0', store.profession_status[:current][:name], 'the twin chose for itself'
+  end
+
+  def test_a_stored_piece_of_the_wrong_shape_is_not_in_force
+    store = create
+    odd = { 'schema_version' => 1, 'name' => 'Odd', 'description' => '', 'focus' => [], 'habits' => {}, 'parents' => [42], 'tier' => -1, 'origin' => 'import' }
+    store.send(:with_lock) do
+      sha = store.send(:write_piece, 'professions', odd)
+      Kairomone::Records.append!(store.chain, [{ 'type' => 'kairomone_profession', 'sha256' => sha, 'origin' => 'import', 'parents' => [] }], -> { store.chain })
+    end
+    assert_equal 'Researcher', store.profession_status[:current][:name], 'the earlier piece stays in force'
+  end
+
+  def test_the_tools_create_propose_accept_and_read_the_vocabularies
+    created = tool(:Create, 'kairomone' => 'momo', 'profile' => PROFILE, 'profession' => { 'template' => 'creator' }, 'material_kind' => 'checkboxes')
+    assert created['success'], created.inspect
+    assert_equal 'Creator', created.dig('profession', 'name')
+    proposed = tool(:Profile, 'command' => 'propose', 'profile' => PROFILE.merge('name' => 'Momoka'))
+    assert_equal 'Momo', tool(:Profile, 'command' => 'get').dig('profile', 'name')
+    accepted = tool(:Profile, 'command' => 'accept', 'proposal' => proposed['proposal'])
+    assert_equal 'Momoka', accepted.dig('profile', 'name')
+    assert_equal 6, tool(:Profession, 'command' => 'templates')['templates'].length
+    assert_equal 208, tool(:Profession, 'command' => 'subjects')['subjects'].length
+    assert_equal 'Creator', tool(:Profession, 'command' => 'status').dig('profession', 'current', 'name')
+  end
+
+  def test_an_installed_package_reads_its_vocabularies
+    require 'kairos_mcp/skillset_manager'
+    package = File.expand_path('templates/skillsets/kairomone', __dir__)
+    KairosMcp::SkillSetManager.new(skillsets_dir: File.join(@host, 'skillsets')).install(package)
+    installed = File.join(@host, 'skillsets/kairomone')
+    assert File.file?(File.join(installed, 'templates/subjects.json')), 'the vocabularies ship with the package'
+    script = <<~'RUBY'
+      require 'kairos_mcp'; require 'kairos_mcp/skillset'; require 'kairos_mcp/tool_registry'; require 'json'
+      KairosMcp::Skillset.new(File.join(KairosMcp.data_dir, 'skillsets/kairomone')).load!
+      reg = KairosMcp::ToolRegistry.new
+      puts reg.call_tool('kairomone_profession', { 'command' => 'templates' }).first[:text]
+    RUBY
+    out, err, status = Open3.capture3({ 'KAIROS_DATA_DIR' => @host }, RbConfig.ruby, '-I', File.expand_path('lib', __dir__), '-e', script)
+    assert status.success?, err
+    assert_equal 6, JSON.parse(out)['templates'].length
+  end
 end

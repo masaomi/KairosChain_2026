@@ -87,6 +87,8 @@ module Kairomone
     # With run_id it answers for that run: a tick of an ended run's interval
     # loop sees it ended even when the owner has started another.
     def run_status(run_id: nil)
+      raise Error, 'run_id names a run as run_YYYYMMDDTHHMMSSZ_xxxxxxxx' unless run_id.nil? || RUN_ID.match?(run_id.to_s)
+
       locked do
         state = load_state
         reconcile!(state)
@@ -114,11 +116,15 @@ module Kairomone
       text!(topic, 'topic', 512)
       raise Error, 'bias_applied must be boolean' unless [true, false].include?(bias_applied)
 
-      profession = @instance.profession_status
-      raise Error, 'Profession must match the current profession' unless profession_id.nil? || profession_id == profession[:effective_id]
-      raise Error, 'Profession bias needs focus subjects in the current profession' if bias_applied && profession.dig(:current, :focus).empty?
-
       locked do
+        # Read under the growth lock: what the request pins is the profession
+        # in force when it is queued.
+        profession = @instance.profession_status
+        unless profession_id.nil? || [profession[:effective_id], profession.dig(:current, :id)].include?(profession_id)
+          raise Error, 'Profession must match the current profession'
+        end
+        raise Error, 'Profession bias needs focus subjects in the current profession' if bias_applied && profession.dig(:current, :focus).empty?
+
         state = load_state
         proposal = { 'request_id' => request_id, 'topic' => topic, 'profession_id' => profession[:effective_id], 'bias_applied' => bias_applied }
         existing = state['requests'].find { |r| r['request_id'] == request_id }
@@ -725,7 +731,7 @@ module Kairomone
           if File.exist?(Paths.checked(root, relative))
             raise Error, 'A different growth evidence entry already exists; manual recovery required' unless Paths.read(root, relative) == raw.b
           else
-            raise Error, no_room if observation_entries.length >= MAX_ENTRIES
+            raise Error, no_room if entry_ids("context/#{L2_SESSION}", optional: true).length >= MAX_ENTRIES
             write_l2_raw!(id, raw)
           end
           next { success: true }
@@ -735,7 +741,11 @@ module Kairomone
           raise Error, 'A different growth knowledge entry already exists; manual recovery required' unless Paths.read(root, relative) == raw.b
           hash = Digest::SHA256.hexdigest(raw)
           # The file landed and its record did not: the retry completes the record.
-          knowledge_provider.record_existing!(id, raw, 'Kairomone growth cycle commit (retry)') unless recorded?(id, hash, chain)
+          unless recorded?(id, hash, chain)
+            state = chain.load_state
+            raise Error, "Cannot complete the knowledge record: the ledger is #{state}" unless %i[absent readable].include?(state)
+            knowledge_provider.record_existing!(id, raw, 'Kairomone growth cycle commit (retry)')
+          end
           recorded = recorded?(id, hash, chain)
           next { success: recorded, recorded_on_chain: recorded, preserved: true }
         end
