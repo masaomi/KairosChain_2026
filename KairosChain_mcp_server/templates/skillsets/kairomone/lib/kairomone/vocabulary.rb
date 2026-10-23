@@ -54,6 +54,9 @@ module Kairomone
       STAGES.reverse.find { |s| level >= s['from'] }
     end
 
+    # The order of a stage ID (egg 0 … legend 4); an unknown ID ranks below all.
+    def stage_rank(id) = STAGES.index { |s| s['id'] == id } || -1
+
     # The level at which a profession of this tier offers its branches.
     def branch_level(tier) = BRANCH_LEVELS[tier]
 

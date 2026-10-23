@@ -196,6 +196,7 @@ module Kairomone
         state = if accepted.include?(sha) then 'accepted'
                 elsif chosen_offers.include?(sha) then 'chosen'
                 elsif doc['kind'] == 'profession_offer' && sha != open_offer then 'superseded'
+                elsif doc['kind'] == 'art' && art_superseded?(doc, ledger) then 'superseded'
                 else 'waiting'
                 end
         item = { 'proposal' => sha, 'state' => state, 'accepted' => %w[accepted chosen].include?(state) }.merge(doc)

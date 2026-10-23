@@ -1,12 +1,10 @@
 # frozen_string_literal: true
 
-require 'rexml/document'
-
 module Kairomone
   # Art is inert (design v0.6 Inv 6, M8): a drawing is static vector markup
   # that runs, reacts and refers to nothing outside itself. The check below is
   # an allowlist, run when a drawing is proposed, when it is accepted and each
-  # time it leaves (a page, kairomone_art get, a proposal listing); a drawing
+  # time it leaves (a page, kairomone_art get); a drawing
   # that fails it then is not given out and the built-in egg is shown. Pages
   # show art only as an image (a data: URI), never as markup.
   module Art
@@ -53,6 +51,12 @@ module Kairomone
       raise Error, 'A drawing has no processing instructions' if body.include?('<?')
       raise Error, 'A drawing has no document type or declarations' if body.match?(/<!(?!--|\[CDATA\[)/)
 
+      # Loaded here, so a Ruby without the rexml gem loses only drawings.
+      begin
+        require 'rexml/document'
+      rescue LoadError
+        raise Error, 'Drawings need the rexml gem, which this Ruby does not provide; art is unavailable on this host'
+      end
       document = begin
         REXML::Document.new(text)
       rescue StandardError => e
@@ -209,12 +213,13 @@ module Kairomone
 
     private
 
-    # [view, the text shown]: the text is the one that passed the check.
+    # [view, the text shown]: the text is the one that passed the check. A
+    # drawing is due unless the one shown was accepted at the current stage;
+    # an accepted drawing that is absent or fails the check answers nothing.
     def art_shown(ledger, level = nil)
       stage = Vocabulary.stage(level || progression_status(ledger)[:level])['id']
-      records = Records.of_type(ledger, 'kairomone_art')
-      view = { shown: 'egg', sha256: nil, stage: stage, due: stage != 'egg' && records.none? { |r| r['stage'] == stage } }
-      records.reverse_each do |record|
+      view = { shown: 'egg', sha256: nil, stage: stage, due: stage != 'egg' }
+      Records.of_type(ledger, 'kairomone_art').reverse_each do |record|
         text = art_text(record['sha256']) or next
         begin
           Art.check!(text)
@@ -222,9 +227,16 @@ module Kairomone
           view[:refused] ||= { sha256: record['sha256'], reason: e.message }
           next
         end
-        return [view.merge(shown: 'drawing', sha256: record['sha256']), text]
+        return [view.merge(shown: 'drawing', sha256: record['sha256'], due: stage != 'egg' && record['stage'] != stage), text]
       end
       [view, Art::EGG]
+    end
+
+    # A drawing stops waiting once a drawing is accepted for its stage or a
+    # later one; it can still be accepted by name.
+    def art_superseded?(doc, ledger)
+      rank = Vocabulary.stage_rank(doc['stage'])
+      Records.of_type(ledger, 'kairomone_art').any? { |r| Vocabulary.stage_rank(r['stage']) >= rank }
     end
 
     # What a page shows: the drawing as a data: image, and the newest
@@ -236,7 +248,7 @@ module Kairomone
         next if answered.include?(sha)
 
         doc = read_proposal(sha)
-        [sha, doc] if doc && doc['kind'] == 'art'
+        [sha, doc] if doc && doc['kind'] == 'art' && !art_superseded?(doc, ledger)
       end
       shown = waiting.sort_by { |sha, doc| [doc['proposed_at'].to_s, sha] }.reverse.lazy
                      .select { |_sha, doc| Art.valid?(doc['svg']) }.first(limit)

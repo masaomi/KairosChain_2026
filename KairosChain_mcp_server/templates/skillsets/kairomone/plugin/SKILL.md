@@ -183,7 +183,8 @@ when declared, limits claims for the whole host. The full procedure is
   what it may do.
 - Stages follow the level: egg 卵 (1–4), hatchling 幼体 (5–19), young 若者 (20–99), adult 成体 (100–499),
   legend 伝説 (500–999).
-- At hatch (level 5) and at each later stage a drawing is due (`due` in `kairomone_art get` and in status).
+- At hatch (level 5) and at each later stage a drawing is due (`art.due` in `kairomone_status`; `kairomone_art get`
+  returns the drawing's markup as well).
   Draw the Kairomone from its profile — an anthropomorphised, cute character of its kind — as static SVG with
   a viewBox, using only the elements and attributes `kairomone_art` names (no style, href, event handler,
   text outside title and desc, or reference outside the drawing), then `propose`. The owner sees a waiting

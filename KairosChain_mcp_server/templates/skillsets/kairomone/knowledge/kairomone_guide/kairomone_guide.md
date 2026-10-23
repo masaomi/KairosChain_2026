@@ -92,9 +92,11 @@ line, polyline, polygon, defs, linearGradient, radialGradient, stop, clipPath,
 title and desc in the SVG namespace; geometric and presentation attributes;
 `url(#…)` only to ids inside the drawing; a viewBox; at most 64 KiB, 32 levels
 of nesting and 4,000 elements. It runs again each time a drawing leaves — the
-status page, `kairomone_art get`, the proposal list — and a drawing that fails
-it then is shown as the egg. Pages show drawings only as images. The check
-makes a drawing inert, not well drawn.
+status page and `kairomone_art get` — and a drawing that fails it then is shown
+as the egg, and a drawing for the stage is due again. The proposal list names
+drawings without their markup. A drawing stops waiting once one is accepted for
+its stage or a later one. Pages show drawings only as images. The check makes a
+drawing inert, not well drawn.
 
 `kairomone_knowledge transplant` copies one of a Kairomone's L1 entries into
 the host's own L1, only when the owner asks for that entry. It goes through the

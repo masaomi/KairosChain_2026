@@ -155,6 +155,7 @@ class Kairomone08TransplantTest < Minitest::Test
     pending = with_host_recording_lost { store.transplant_knowledge(id: 'tea') }
     refute pending[:success]
     assert pending[:pending]
+    assert_match(/\APending: .* written to the host L1/, pending[:error], 'a pending result says what happened')
     name = pending[:host_name]
     assert File.exist?(host_file(name)), 'the entry landed'
     assert_equal [], host_events(name), 'its record did not'

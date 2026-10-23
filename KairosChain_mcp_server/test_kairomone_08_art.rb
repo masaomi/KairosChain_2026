@@ -68,6 +68,15 @@ class Kairomone08ArtTest < Minitest::Test
     assert Kairomone::Art.valid?(svg("<desc>#{'a' * (65_536 - filler.bytesize)}</desc>"))
   end
 
+  def test_the_parser_is_loaded_only_when_a_drawing_is_checked
+    lib = File.expand_path('lib', __dir__)
+    skillset = File.expand_path('templates/skillsets/kairomone/lib', __dir__)
+    out, status = Open3.capture2e(RbConfig.ruby, '-I', lib, '-I', skillset, '-e',
+                                  'require "kairomone"; print(defined?(REXML) ? "loaded" : "absent"); Kairomone::Art.check!(Kairomone::Art::EGG); print(defined?(REXML) ? " loaded" : " absent")')
+    assert status.success?, out
+    assert_equal 'absent loaded', out, 'a Ruby without rexml loses only drawings'
+  end
+
   def test_each_forbidden_construct_is_refused
     nested = (1..33).reduce('<rect width="1" height="1"/>') { |inner, _| "<g>#{inner}</g>" }
     crowded = '<g/>' * 4_000 # with the root, one element too many, in 16 KB
@@ -129,6 +138,32 @@ class Kairomone08ArtTest < Minitest::Test
     assert again[:preserved]
     assert_equal 1, Kairomone::Records.of_type(store.chain, 'kairomone_art').length
     assert_raises(Kairomone::Error) { store.propose_art(svg: svg('<script/>')) }
+  end
+
+  def test_drawings_passed_over_stop_waiting_and_can_still_be_accepted_by_name
+    store = create
+    grow_to(store, 5)
+    drafts = 3.times.map { |i| store.propose_art(svg: Kairomone::Art::EGG.sub('Kairomone egg', "Draft #{i}"))[:proposal] }
+    store.accept_art(proposal: drafts[1])
+    states = store.proposals[:proposals].select { |p| p['kind'] == 'art' }.to_h { |p| [p['proposal'], p['state']] }
+    assert_equal({ drafts[0] => 'superseded', drafts[1] => 'accepted', drafts[2] => 'superseded' }, states)
+    html = File.read(store.status(render_html: true)[:html_path])
+    payload = JSON.parse(html[%r{<script id="kairomone-status" type="application/json">(.*?)</script>}m, 1])
+    assert_equal [], payload.dig('art', 'waiting'), 'drafts passed over are not shown as waiting'
+    grow_to(store, 20)
+    fresh = store.propose_art(svg: FOX)[:proposal]
+    assert_equal 'waiting', store.proposals[:proposals].find { |p| p['proposal'] == fresh }['state'], 'a later stage waits again'
+    assert store.accept_art(proposal: drafts[0])[:accepted], 'a passed-over drawing is still accepted when the owner names it'
+  end
+
+  def test_a_stage_whose_drawing_no_longer_passes_is_due_again
+    store = create
+    grow_to(store, 5)
+    sha = store.accept_art(proposal: store.propose_art(svg: FOX)[:proposal])[:sha256]
+    refute store.art_get[:due]
+    File.write(File.join(store.root, "art/#{sha}.svg"), FOX.sub('<title>', '<image href="x"/><title>'))
+    view = store.art_get
+    assert_equal ['egg', true], view.values_at(:shown, :due)
   end
 
   def test_a_drawing_that_fails_the_check_now_is_shown_as_the_egg_and_not_given_out
@@ -221,6 +256,7 @@ class Kairomone08ArtTest < Minitest::Test
   def test_the_page_shows_art_only_as_an_image
     store = create
     store.accept_art(proposal: store.propose_art(svg: FOX)[:proposal])
+    grow_to(store, 5)
     waiting = store.propose_art(svg: Kairomone::Art::EGG.sub('Kairomone egg', 'Second drawing'))[:proposal]
     status = store.status
     assert_equal 'drawing', status[:art][:shown]
