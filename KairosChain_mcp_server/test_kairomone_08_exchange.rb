@@ -58,7 +58,7 @@ class Kairomone08ExchangeTest < Minitest::Test
 
   def all_pages(store, **args)
     first = store.exchange_preview(**args)
-    items = first[:items] + (2..first[:pages]).flat_map { |n| store.exchange_preview(**args, page: n)[:items] }
+    items = first[:items] + (2..first[:pages]).flat_map { |n| store.exchange_preview(file_sha256: first[:file_sha256], page: n)[:items] }
     [first, items]
   end
 
@@ -76,6 +76,32 @@ class Kairomone08ExchangeTest < Minitest::Test
     assert_equal preview[:file_sha256], Digest::SHA256.file(out[:path]).hexdigest
     assert_match(%r{/kairomone-outbox/momo-\d{8}T\d{6}Z-[0-9a-f]{8}\.kairomone-exchange\.json\z}, out[:path])
     assert_raises(Kairomone::Error) { store.exchange_export(file_sha256: preview[:file_sha256]) }
+  end
+
+  def test_every_page_belongs_to_the_one_file_previewed
+    store = rich
+    3.times { |i| store.create_knowledge(id: "long_#{i}", title: "Long #{i}", content: "#{i} " + ('x' * 15_000)) }
+    first = store.exchange_preview(include: %w[owner_written learned])
+    assert_operator first[:pages], :>=, 3
+    later = (2..first[:pages]).map { |n| store.exchange_preview(file_sha256: first[:file_sha256], page: n) }
+    assert(later.all? { |page| page[:file_sha256] == first[:file_sha256] })
+    shown = (first[:items] + later.flat_map { |page| page[:items] }).select { |i| i['item'] == 'entry' }.map { |i| i['id'] }
+    assert_equal %w[growth_moss long_0 long_1 long_2 tea], shown
+    assert_raises(Kairomone::Error) { store.exchange_preview(include: %w[owner_written], page: 2) }
+    out = store.exchange_export(file_sha256: first[:file_sha256])
+    assert_equal shown, JSON.parse(File.read(out[:path]))['entries'].map { |e| e['id'] }
+  end
+
+  def test_a_learned_entry_without_its_evidence_stays_out
+    store = rich
+    path = File.join(store.root, 'context/kairomone/growth_moss/growth_moss.md')
+    File.write(path, File.read(path).sub('untrusted_research_evidence', 'something_else'))
+    first, items = all_pages(store, include: %w[learned owner_written])
+    assert_equal ['tea'], items.select { |i| i['item'] == 'entry' }.map { |i| i['id'] }
+    left = items.find { |i| i['item'] == 'left_out' }
+    assert_equal 'growth_moss', left['id']
+    assert_match(/evidence is absent/, left['reason'])
+    assert_equal 1, first[:left_out]['entries']
   end
 
   def test_a_moved_ledger_head_refuses_the_write
@@ -100,7 +126,8 @@ class Kairomone08ExchangeTest < Minitest::Test
     store = rich
     first, items = all_pages(store, include: %w[owner_written])
     assert_equal ['tea'], items.select { |i| i['item'] == 'entry' }.map { |i| i['id'] }
-    assert_equal ['growth_moss'], first[:left_out][:entries].map { |e| e['id'] }
+    assert_equal ['growth_moss'], items.select { |i| i['item'] == 'left_out' }.map { |e| e['id'] }
+    assert_equal 1, first[:left_out]['entries']
     _preview, out = export_and_place(store, include: %w[learned owner_written])
     text = File.read(out[:path])
     doc = JSON.parse(text)
@@ -191,6 +218,23 @@ class Kairomone08ExchangeTest < Minitest::Test
     error = assert_raises(Kairomone::Error) { Kairomone::Host.new.import_exchange(file: out[:file], listing_id: 'copy') }
     assert_match(/does not match its content/, error.message)
     refute_includes listing, 'copy', 'nothing listed and no ID used'
+    # The kind the file names does not change the rule.
+    %w[learned inherited].each do |kind|
+      doc['entries'].first['kind'] = kind
+      doc['xp_basis'].first['counted'] = false if kind == 'inherited'
+      doc['manifest_sha256'] = Kairomone::Exchange.manifest(doc)
+      File.write(inbox, Kairomone::Exchange.bytes(doc))
+      assert_raises(Kairomone::Error, kind) { Kairomone::Host.new.import_exchange(file: out[:file], listing_id: 'copy') }
+    end
+    doc['entries'].first['kind'] = 'inherited'
+    doc['entries'].first['content'] = 'Green tea is steamed.'
+    doc['xp_basis'].first['counted'] = true
+    doc['manifest_sha256'] = Kairomone::Exchange.manifest(doc)
+    File.write(inbox, Kairomone::Exchange.bytes(doc))
+    error = assert_raises(Kairomone::Error) { Kairomone::Host.new.import_exchange(file: out[:file], listing_id: 'copy') }
+    assert_match(/inherited knowledge never counts/, error.message)
+    doc['entries'].first['kind'] = 'owner_written'
+    doc['entries'].first['content'] = 'Something else entirely'
     doc['entries'].first['content'] = 'Green tea is steamed.'
     File.write(inbox, Kairomone::Exchange.bytes(doc))
     error = assert_raises(Kairomone::Error) { Kairomone::Host.new.import_exchange(file: out[:file], listing_id: 'copy') }
@@ -217,6 +261,47 @@ class Kairomone08ExchangeTest < Minitest::Test
     assert_match(/does not match its hash/, forge.call)
     assert_match(/not what its evidence says/, forge.call(rehash: true))
     assert_match(/does not match its evidence/, forge.call(rehash: true, body: true))
+    refute_includes listing, 'copy'
+  end
+
+  def test_an_uncounted_learned_entry_is_held_only_under_its_own_identity
+    store = rich
+    _preview, out = export_and_place(store, include: %w[learned])
+    inbox = File.join(@host, 'kairomone-inbox', out[:file])
+    doc = JSON.parse(File.read(inbox))
+    doc['xp_basis'].each { |b| b['counted'] = false }
+    doc['xp_basis'].first['identity'] = Digest::SHA256.hexdigest('Content someone wants never to count')
+    doc['manifest_sha256'] = Kairomone::Exchange.manifest(doc)
+    File.write(inbox, Kairomone::Exchange.bytes(doc))
+    error = assert_raises(Kairomone::Error) { Kairomone::Host.new.import_exchange(file: out[:file], listing_id: 'copy') }
+    assert_match(/does not match its evidence/, error.message)
+  end
+
+  def test_an_import_refuses_oversized_lists_and_its_source_identity
+    store = rich
+    _preview, out = export_and_place(store, include: %w[owner_written])
+    inbox = File.join(@host, 'kairomone-inbox', out[:file])
+    original = JSON.parse(File.read(inbox))
+    error = assert_raises(Kairomone::Error) { Kairomone::Host.new.import_exchange(file: out[:file], listing_id: 'momo') }
+    assert_match(/new Kairomone/, error.message)
+    [->(d) { d['pieces']['professions'] = Array.new(65) { d['pieces']['professions'].first } },
+     ->(d) { d['source']['name'] = { 'not' => 'text' } },
+     ->(d) { d['lineage'] = Array.new(65) { { 'kind' => 'exchange', 'sources' => [] } } }].each do |change|
+      doc = JSON.parse(JSON.generate(original))
+      change.call(doc)
+      doc['manifest_sha256'] = Kairomone::Exchange.manifest(doc)
+      File.write(inbox, Kairomone::Exchange.bytes(doc))
+      assert_raises(Kairomone::Error) { Kairomone::Host.new.import_exchange(file: out[:file], listing_id: 'copy') }
+    end
+    refute_includes listing, 'copy'
+  end
+
+  def test_host_governance_applies_to_an_import
+    store = rich
+    _preview, out = export_and_place(store, include: %w[owner_written])
+    File.write(File.join(@host, 'skills/config.yml'), { 'layers' => { 'L1' => { 'enabled' => true, 'mutable' => false } } }.to_yaml)
+    error = assert_raises(Kairomone::Error) { Kairomone::Host.new.import_exchange(file: out[:file], listing_id: 'copy') }
+    assert_match(/governance/, error.message)
     refute_includes listing, 'copy'
   end
 

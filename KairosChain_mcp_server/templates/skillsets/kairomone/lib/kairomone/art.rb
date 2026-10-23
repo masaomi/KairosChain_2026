@@ -213,9 +213,10 @@ module Kairomone
 
     private
 
-    # [view, the text shown]: the text is the one that passed the check. A
-    # drawing is due unless the one shown was accepted at the current stage;
-    # an accepted drawing that is absent or fails the check answers nothing.
+    # [view, the text shown, the rank of the stage the shown drawing answers
+    # (-1 for the egg)]: the text is the one that passed the check. An
+    # accepted drawing that is absent or fails the check answers nothing, so
+    # a drawing is due unless the one shown answers the current stage.
     def art_shown(ledger, level = nil)
       stage = Vocabulary.stage(level || progression_status(ledger)[:level])['id']
       view = { shown: 'egg', sha256: nil, stage: stage, due: stage != 'egg' }
@@ -227,28 +228,26 @@ module Kairomone
           view[:refused] ||= { sha256: record['sha256'], reason: e.message }
           next
         end
-        return [view.merge(shown: 'drawing', sha256: record['sha256'], due: stage != 'egg' && record['stage'] != stage), text]
+        rank = Vocabulary.stage_rank(record['stage'])
+        return [view.merge(shown: 'drawing', sha256: record['sha256'], due: stage != 'egg' && rank < Vocabulary.stage_rank(stage)), text, rank]
       end
-      [view, Art::EGG]
+      [view, Art::EGG, -1]
     end
 
-    # A drawing stops waiting once a drawing is accepted for its stage or a
+    # A drawing stops waiting once the drawing shown answers its stage or a
     # later one; it can still be accepted by name.
-    def art_superseded?(doc, ledger)
-      rank = Vocabulary.stage_rank(doc['stage'])
-      Records.of_type(ledger, 'kairomone_art').any? { |r| Vocabulary.stage_rank(r['stage']) >= rank }
-    end
+    def art_superseded?(doc, shown_rank) = shown_rank >= Vocabulary.stage_rank(doc['stage'])
 
     # What a page shows: the drawing as a data: image, and the newest
     # drawings waiting for the owner that pass the check now.
     def art_page(ledger, level, limit: 3)
-      view, text = art_shown(ledger, level)
-      answered = Records.of_type(ledger, 'kairomone_art').filter_map { |r| r['proposal_sha256'] }
+      view, text, shown_rank = art_shown(ledger, level)
+      answered = Set.new(Records.of_type(ledger, 'kairomone_art').filter_map { |r| r['proposal_sha256'] })
       waiting = piece_files('proposals').filter_map do |sha|
         next if answered.include?(sha)
 
         doc = read_proposal(sha)
-        [sha, doc] if doc && doc['kind'] == 'art' && !art_superseded?(doc, ledger)
+        [sha, doc] if doc && doc['kind'] == 'art' && !art_superseded?(doc, shown_rank)
       end
       shown = waiting.sort_by { |sha, doc| [doc['proposed_at'].to_s, sha] }.reverse.lazy
                      .select { |_sha, doc| Art.valid?(doc['svg']) }.first(limit)

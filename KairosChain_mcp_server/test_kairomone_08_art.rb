@@ -6,6 +6,14 @@
 # a drawing leaves; a drawing that fails it then is shown as the egg; pages
 # show art only as an image. All data is synthetic and confined to temporary
 # hosts.
+#
+# Changed in run D (run_20261023_130838_773740), answering run C's round-2
+# findings and run D's round-1 review: tests added for the parser loaded only
+# when a drawing is checked, drawings passed over, a stage due again when its
+# drawing fails the check, and a redraw waiting on the page. One existing test
+# changed: test_the_page_shows_art_only_as_an_image proposes its waiting
+# drawing after growing to the next stage, since a drawing for the stage
+# already answered no longer waits. No assertion was removed or loosened.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
@@ -164,6 +172,24 @@ class Kairomone08ArtTest < Minitest::Test
     File.write(File.join(store.root, "art/#{sha}.svg"), FOX.sub('<title>', '<image href="x"/><title>'))
     view = store.art_get
     assert_equal ['egg', true], view.values_at(:shown, :due)
+  end
+
+  def test_when_the_stages_drawing_fails_the_check_a_new_one_waits_on_the_page
+    store = create
+    grow_to(store, 5)
+    crafted = svg('<path d="M0 0"/><script>alert(1)</script>')
+    sha = Digest::SHA256.hexdigest(crafted)
+    store.send(:with_lock) do
+      Kairomone::Paths.write(store.root, "art/#{sha}.svg", crafted)
+      Kairomone::Records.append!(store.chain, [{ 'type' => 'kairomone_art', 'sha256' => sha, 'origin' => 'import', 'stage' => 'hatchling' }], -> { store.chain })
+    end
+    view = store.art_get
+    assert_equal ['egg', true, sha], [view[:shown], view[:due], view.dig(:refused, :sha256)], 'a drawing that fails answers nothing'
+    redraw = store.propose_art(svg: FOX)[:proposal]
+    assert_equal 'waiting', store.proposals[:proposals].find { |p| p['proposal'] == redraw }['state']
+    html = File.read(store.status(render_html: true)[:html_path])
+    payload = JSON.parse(html[%r{<script id="kairomone-status" type="application/json">(.*?)</script>}m, 1])
+    assert_equal [redraw], payload.dig('art', 'waiting').map { |w| w['proposal'] }, 'the owner sees the redraw before accepting it'
   end
 
   def test_a_drawing_that_fails_the_check_now_is_shown_as_the_egg_and_not_given_out

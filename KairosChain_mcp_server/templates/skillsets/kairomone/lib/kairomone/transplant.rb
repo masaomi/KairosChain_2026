@@ -78,7 +78,8 @@ module Kairomone
         unless block
           next { success: false, pending: true, entry: id, host_name: host_name, sha256: sha, kairomone: address,
                  error: "Pending: #{host_name} is written to the host L1 but the host chain does not show its record, so nothing is " \
-                        'recorded on this Kairomone. The same transplant asked again completes it (pending_transplants lists it).' }
+                        'recorded on this Kairomone.',
+                 note: 'The same transplant asked again completes it (kairomone_knowledge pending_transplants lists it).' }
         end
 
         Records.append!(ledger, [{ 'type' => 'kairomone_transplant', 'entry' => id, 'entry_sha256' => item[:hash], 'host_name' => host_name,

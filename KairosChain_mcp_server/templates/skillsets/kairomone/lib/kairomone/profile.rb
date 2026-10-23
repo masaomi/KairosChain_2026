@@ -191,12 +191,13 @@ module Kairomone
       accepted = Records.each(ledger).filter_map { |r, _| r['proposal_sha256'] }
       chosen_offers = Records.of_type(ledger, 'kairomone_profession').filter_map { |r| r['offer_sha256'] }
       open_offer = current_offer(ledger, current_profession(ledger)[:id])&.fetch(:sha)
+      shown_rank = nil # the drawing shown is checked once, when a drawing is listed
       items = piece_files('proposals').filter_map do |sha|
         doc = read_proposal(sha) or next
         state = if accepted.include?(sha) then 'accepted'
                 elsif chosen_offers.include?(sha) then 'chosen'
                 elsif doc['kind'] == 'profession_offer' && sha != open_offer then 'superseded'
-                elsif doc['kind'] == 'art' && art_superseded?(doc, ledger) then 'superseded'
+                elsif doc['kind'] == 'art' && art_superseded?(doc, shown_rank ||= art_shown(ledger)[2]) then 'superseded'
                 else 'waiting'
                 end
         item = { 'proposal' => sha, 'state' => state, 'accepted' => %w[accepted chosen].include?(state) }.merge(doc)

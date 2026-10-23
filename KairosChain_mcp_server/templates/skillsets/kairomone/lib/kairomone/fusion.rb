@@ -30,17 +30,7 @@ module Kairomone
                    'profession' => parent.profession_status[:current].slice(:id, :name, :focus, :habits) }
         items += parent.send(:fusion_entries, ledger).map { |e| { 'item' => 'entry', 'parent' => parent.listing_id }.merge(e) }
       end
-      pages = [[]]
-      size = 0
-      items.each do |item|
-        bytes = JSON.generate(item).bytesize
-        if size + bytes > Fusion::PAGE_BYTES && !pages.last.empty?
-          pages << []
-          size = 0
-        end
-        pages.last << item
-        size += bytes
-      end
+      pages = fusion_pages(items)
       raise Error, "page runs from 1 to #{pages.length}" if page > pages.length
 
       { success: true, parents: [a.listing_id, b.listing_id], heads: heads, page: page, pages: pages.length, items: pages[page - 1],
@@ -76,31 +66,48 @@ module Kairomone
       Paths.mkdir(host_root, Fusion::PLANS)
       relative = "#{Fusion::PLANS}/#{sha}.json"
       Paths.write(host_root, relative, bytes) unless File.exist?(Paths.checked(host_root, relative))
-      fusion_summary(plan: sha).merge(note: 'Show the owner this summary. The child is made only when they accept the plan with one candidate.')
+      fusion_summary(plan: sha).merge(note: 'Show the owner every page of this summary (summary with the plan and page). The child is made ' \
+                                              'only when they accept the plan with one candidate.')
     end
 
-    # What the owner accepts a plan from: what is kept, merged and dropped,
-    # the titles that remain, the draft profile and the three candidates.
-    def fusion_summary(plan:)
+    # What the owner accepts a plan from: the counts of what is kept, merged
+    # and dropped, the draft profile and the three candidates on every page;
+    # paged, each child entry in full with the parent entries it came from,
+    # and each parent entry dropped.
+    def fusion_summary(plan:, page: 1)
+      raise Error, 'page is a positive integer' unless page.is_a?(Integer) && page.positive?
+
       doc = fusion_plan(plan)
-      cited = doc['entries'].flat_map { |e| e['sources'].map { |s| [s['parent'], s['entry_id']] } }.uniq
+      cited = Set.new(doc['entries'].flat_map { |e| e['sources'].map { |s| [s['parent'], s['entry_id']] } })
       dropped = doc['parents'].flat_map do |id|
         Instance.new(host_root: host_root, kairomone: id).send(:fusion_entries).reject { |e| cited.include?([id, e['id']]) }
-                .map { |e| { 'parent' => id, 'id' => e['id'], 'title' => e['title'] } }
+                .map { |e| { 'item' => 'dropped', 'parent' => id, 'id' => e['id'], 'title' => e['title'] } }
       end
+      items = doc['entries'].map { |e| { 'item' => 'child_entry' }.merge(e) } + dropped
+      pages = fusion_pages(items)
+      raise Error, "page runs from 1 to #{pages.length}" if page > pages.length
+
       { success: true, plan: plan, parents: doc['parents'], child: doc['child'],
         kept: doc['entries'].count { |e| e['mode'] == 'keep' }, merged: doc['entries'].count { |e| e['mode'] == 'merge' }, dropped: dropped.length,
-        titles: doc['entries'].map { |e| e['title'] }, dropped_entries: dropped, profile: doc['profile'],
-        candidates: doc['candidates'].map { |c| c.slice('name', 'description', 'focus', 'habits') } }
+        profile: doc['profile'], candidates: doc['candidates'].map { |c| c.slice('name', 'description', 'focus', 'habits') },
+        page: page, pages: pages.length, items: pages[page - 1] }
     end
 
     # Makes the child when the owner accepts the plan with one candidate.
     def fusion_accept(plan:, candidate:)
       raise Error, 'candidate is 0, 1 or 2' unless [0, 1, 2].include?(candidate)
 
+      governed!('L1')
       with_registry_lock do
         doc = fusion_plan(plan)
         a, b = fusion_parents(doc['parents'])
+        # The pieces are judged by the rules current now, as every accept is.
+        piece = Profile.build(doc['profile'].is_a?(Hash) ? doc['profile'].slice(*Exchange::PROFILE_FIELDS) : {}, origin: 'fusion')
+        ComposedText.guard!(Profile.texts(piece))
+        chosen = doc['candidates'][candidate]
+        profession = Profession.build(chosen.is_a?(Hash) ? chosen.slice('name', 'description', 'focus', 'habits') : {},
+                                      parents: [a, b].map { |p| p.profession_status[:current][:id] }, tier: 0, origin: 'fusion')
+        ComposedText.guard!(Profession.texts(profession))
         first, second = [a, b].sort_by(&:listing_id)
         first.send(:with_lock) do
           second.send(:with_lock) do
@@ -110,9 +117,11 @@ module Kairomone
             sources_of = { a.listing_id => a, b.listing_id => b }.to_h { |id, parent| [id, parent.send(:fusion_entries).to_h { |e| [e['id'], e] }] }
             fusion_plan_entries!(doc['entries'], sources_of)
             path = assemble(doc['child']) do |staged|
-              staged.fuse_into!(doc, plan, doc['candidates'][candidate], [a, b], sources_of)
+              staged.fuse_into!(doc.merge('profile' => piece), plan, profession, [a, b], sources_of)
               doc['child']
             end
+            relative = "#{Fusion::PLANS}/#{plan}.json"
+            File.delete(Paths.checked(host_root, relative)) if File.file?(Paths.checked(host_root, relative))
             child = Instance.new(host_root: host_root, root: path)
             { success: true, fused: true, kairomone: child.address, parents: doc['parents'], level: child.progression_status[:level],
               entries: doc['entries'].length, note: 'Both parents are unchanged. The child is an egg; its drawing is due at hatch.' }
@@ -122,6 +131,21 @@ module Kairomone
     end
 
     private
+
+    def fusion_pages(items)
+      pages = [[]]
+      size = 0
+      items.each do |item|
+        bytes = JSON.generate(item).bytesize
+        if size + bytes > Fusion::PAGE_BYTES && !pages.last.empty?
+          pages << []
+          size = 0
+        end
+        pages.last << item
+        size += bytes
+      end
+      pages
+    end
 
     def fusion_parents(parents)
       ids = Array(parents)

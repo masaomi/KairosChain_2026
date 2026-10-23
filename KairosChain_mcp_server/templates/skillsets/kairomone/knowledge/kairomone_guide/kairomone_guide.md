@@ -94,8 +94,8 @@ title and desc in the SVG namespace; geometric and presentation attributes;
 of nesting and 4,000 elements. It runs again each time a drawing leaves — the
 status page and `kairomone_art get` — and a drawing that fails it then is shown
 as the egg, and a drawing for the stage is due again. The proposal list names
-drawings without their markup. A drawing stops waiting once one is accepted for
-its stage or a later one. Pages show drawings only as images. The check makes a
+drawings without their markup. A drawing stops waiting once the drawing shown
+answers its stage or a later one. Pages show drawings only as images. The check makes a
 drawing inert, not well drawn.
 
 `kairomone_knowledge transplant` copies one of a Kairomone's L1 entries into
@@ -115,18 +115,22 @@ transplant.
 
 `kairomone_exchange` hands someone a labelled copy. The owner chooses what goes
 in — learned, owner-written and inherited knowledge, by title — and `preview`
-shows every piece the file will carry in full, paged under one file sha256: the
+shows every piece the file will carry in full, paged under one file sha256
+(later pages are asked for with that sha256): the
 current profile, the professions, the drawings that pass the art check, the
 chosen entries, a learned entry's evidence (without its request, so no topic or
-direction) and the lineage. `export` writes exactly that file to
+direction; a learned entry whose evidence is absent stays out) and the
+lineage, and lists what is left out. `export` writes exactly that file to
 `kairomone-outbox/`, and is refused if anything on the Kairomone changed since
 the preview; the Kairomone itself does not change. Chat memories, growth state,
-backups, the ledger, the direction and personality, composition material and
-host references never go in. The file is unencrypted. `import` takes a file the
+backups, the ledger, the companion's direction and personality settings,
+composition material and host references never go in. The file is unencrypted. `import` takes a file the
 owner placed in `kairomone-inbox/` and makes a new Kairomone under a listing ID
-the owner names, which is also its new identity. Its knowledge is outside
-content and keeps the XP basis it carried, so a copy has exactly the level its
-content gives; an identity that does not match its content refuses the file.
+the owner names, which is also its new identity (not the source's). Its
+knowledge is outside content and keeps the XP basis it carried, held identities
+included, so a copy has exactly the level its content gives: an entry's identity
+must be the fingerprint of its content, or match the evidence it carries, or the
+file is refused. Host governance applies to the new entries.
 The received profile, professions and drawings wait as proposals (a received
 profession is accepted with `kairomone_profession accept`), and the ledger
 records every piece received and the file's manifest.
@@ -135,10 +139,13 @@ records every piece received and the file's manifest.
 `material` pages both parents' knowledge with each entry's hash and whether it
 is outside content; `propose` stores the assistant's plan (the child's listing
 ID, a draft profile, three profession candidates, and the child's entries, each
-kept from one parent entry or merged from several); `summary` shows what is
-kept, merged and dropped, the titles that remain, the profile and the
-candidates; `accept` with one candidate makes the child, refused when a parent
-changed since the plan or a cited entry no longer holds the cited content. The
+kept from one parent entry or merged from several); `summary` pages each child
+entry in full with the parent entries it came from and each parent entry
+dropped, with the counts, the profile and the candidates; `accept` with one
+candidate makes the child, judging the profile and profession by the rules
+current then, refused when a parent changed since the plan or a cited entry no
+longer holds the cited content. A plan stays in `kairomone-fusion/` until it is
+accepted. The
 child starts at level 1 as an egg with no L2; its inherited knowledge is held
 and never counts, nor does the same content learned again; a merged entry is
 outside content when any of its sources is; its lineage and first profession

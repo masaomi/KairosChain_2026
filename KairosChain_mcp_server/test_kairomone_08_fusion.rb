@@ -66,10 +66,14 @@ class Kairomone08FusionTest < Minitest::Test
     heads, entries = material
     summary = propose(heads, entries)
     assert_equal [1, 1, 1], summary.values_at(:kept, :merged, :dropped), 'summary counts match the plan'
-    assert_equal [%w[alpha moss]], summary[:dropped_entries].map { |d| [d['parent'], d['id']] }
-    assert_equal %w[Tea Ferns], summary[:titles]
+    assert_equal [%w[alpha moss]], summary[:items].select { |i| i['item'] == 'dropped' }.map { |d| [d['parent'], d['id']] }
+    child_items = summary[:items].select { |i| i['item'] == 'child_entry' }
+    assert_equal %w[Tea Ferns], child_items.map { |i| i['title'] }
+    assert_equal 'Green tea is steamed and brewed at 70 degrees.', child_items.first['content'], 'the owner sees each merged text'
+    assert_equal [%w[alpha tea], %w[beta tea]], child_items.first['sources'].map { |s| [s['parent'], s['entry_id']] }
     done = Kairomone::Host.new.fusion_accept(plan: summary[:plan], candidate: 1)
     assert done[:fused], done.inspect
+    refute File.exist?(File.join(@host, 'kairomone-fusion', "#{summary[:plan]}.json")), 'an accepted plan is removed'
     child = Kairomone::Instance.new(host_root: @host, kairomone: 'pip')
     assert_equal 1, child.progression_status[:level]
     assert_equal 0, child.progression_status[:total_xp]
@@ -133,6 +137,57 @@ class Kairomone08FusionTest < Minitest::Test
     a.create_knowledge(id: 'later', title: 'Later', content: 'Written after the material was read')
     error = assert_raises(Kairomone::Error) { propose(heads, entries) }
     assert_match(/heads/, error.message)
+  end
+
+  def test_accept_judges_the_pieces_by_the_rules_current_then
+    parents
+    heads, entries = material
+    plan = propose(heads, entries)[:plan]
+    real = Kairomone::Vocabulary.method(:subject_id)
+    Kairomone::Vocabulary.define_singleton_method(:subject_id) { |id| id == 'botany' ? nil : real.call(id) }
+    error = assert_raises(Kairomone::Error) { Kairomone::Host.new.fusion_accept(plan: plan, candidate: 0) }
+    assert_match(/botany/, error.message)
+    refute_includes listing, 'pip'
+  ensure
+    Kairomone::Vocabulary.define_singleton_method(:subject_id, real) if real
+  end
+
+  def test_accept_judges_the_profile_by_the_rules_current_then
+    parents
+    heads, entries = material
+    plan = propose(heads, entries)[:plan]
+    real = Kairomone::Vocabulary.method(:kinds)
+    Kairomone::Vocabulary.define_singleton_method(:kinds) { real.call - ['imaginary'] }
+    assert_raises(Kairomone::Error) { Kairomone::Host.new.fusion_accept(plan: plan, candidate: 0) }
+    refute_includes listing, 'pip'
+  ensure
+    Kairomone::Vocabulary.define_singleton_method(:kinds, real) if real
+  end
+
+  def test_the_child_is_a_new_identity_and_host_governance_applies
+    parents
+    heads, entries = material
+    error = assert_raises(Kairomone::Error) { propose(heads, entries, child: 'alpha') }
+    assert_match(/already listed/, error.message)
+    plan = propose(heads, entries)[:plan]
+    File.write(File.join(@host, 'skills/config.yml'), { 'layers' => { 'L1' => { 'enabled' => false } } }.to_yaml)
+    error = assert_raises(Kairomone::Error) { Kairomone::Host.new.fusion_accept(plan: plan, candidate: 0) }
+    assert_match(/governance/, error.message)
+    refute_includes listing, 'pip'
+  end
+
+  def test_a_copy_of_a_fused_child_still_holds_its_parents_content
+    parents
+    heads, entries = material
+    Kairomone::Host.new.fusion_accept(plan: propose(heads, entries)[:plan], candidate: 0)
+    child = Kairomone::Instance.new(host_root: @host, kairomone: 'pip')
+    out = child.exchange_export(file_sha256: child.exchange_preview(include: %w[inherited])[:file_sha256])
+    FileUtils.mkdir_p(File.join(@host, 'kairomone-inbox'))
+    FileUtils.cp(out[:path], File.join(@host, 'kairomone-inbox', out[:file]))
+    Kairomone::Host.new.import_exchange(file: out[:file], listing_id: 'pip_copy')
+    copy = Kairomone::Instance.new(host_root: @host, kairomone: 'pip_copy')
+    copy.create_knowledge(id: 'again', title: 'Tea again', content: 'Brew green tea at 70 degrees.')
+    assert_equal 0, copy.progression_status[:unique_l1], 'the parents\' source is held in the copy too'
   end
 
   def test_self_fusion_is_refused
