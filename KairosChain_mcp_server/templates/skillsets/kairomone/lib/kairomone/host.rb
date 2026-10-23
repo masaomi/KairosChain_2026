@@ -121,6 +121,32 @@ module Kairomone
       end
     end
 
+    # kairomone_create: a new Kairomone from the profile and first profession
+    # the owner accepted in the conversation (creation is their acceptance).
+    # profession: { 'template' => id } or a drafted profession.
+    def create(listing_id:, profile:, profession:, material_kind: 'none', material_sha256: nil)
+      Paths.id!(listing_id)
+      raise Error, "material_kind must be one of #{Profile::MATERIAL_KINDS.join(', ')}" unless Profile::MATERIAL_KINDS.include?(material_kind)
+
+      piece = Profile.build(profile, origin: 'create', material_sha256: material_sha256)
+      ComposedText.guard!(Profile.texts(piece))
+      first = if profession.is_a?(Hash) && profession.transform_keys(&:to_s).keys == ['template']
+                template = Vocabulary.template(profession.transform_keys(&:to_s)['template']) or raise Error, 'Unknown profession template'
+                Profession.from_template(template).merge('origin' => 'create', 'parents' => ["template:#{template['id']}"])
+              else
+                Profession.build(profession, parents: [], tier: 0, origin: 'create')
+              end
+      ComposedText.guard!(Profession.texts(first))
+      with_registry_lock do
+        root = assemble(listing_id) do |staged|
+          staged.open_new!(identity: listing_id, origin: 'create', listing_id: listing_id, profile_piece: piece, profession_piece: first,
+                           material: { 'material_kind' => material_kind, 'material_sha256' => material_sha256 })
+        end
+        store = Instance.new(host_root: host_root, root: root)
+        { success: true, created: true, kairomone: store.address, profile: store.profile, profession: store.profession_status[:current] }
+      end
+    end
+
     # Assembles an individual under kairomones/.staging/<random>/ and lists it
     # as kairomones/<listing_id>/ by one rename. Must be called with the
     # registry lock held. The block receives the staged Instance (and, when no

@@ -17,6 +17,15 @@ module Kairomone
     def keep_bodies!(*_bodies)
       nil
     end
+
+    public
+
+    # Records an existing entry's creation through the provider's own
+    # recording path, for an entry whose file landed while its record did not
+    # (the provider deliberately swallows recording errors).
+    def record_existing!(name, raw, reason)
+      record_hash_reference(name: name, action: 'create', prev_hash: nil, next_hash: Digest::SHA256.hexdigest(raw), reason: reason)
+    end
   end
 
   # Kairomone before 0.6.1 let core 3.94+ activate L1 body history on the dot,
@@ -149,17 +158,23 @@ module Kairomone
     end
 
     # Fills a staged directory: the store's directories, the first profile
-    # version, and the ledger records that open every 0.8 individual (Inv 1,
-    # M5) — identity, baseline at entry, and the profile acceptance.
-    def open_new!(identity:, origin:, listing_id:, name:, baseline: l0_fingerprints)
+    # version (and first profession), and the ledger records that open every
+    # 0.8 individual (Inv 1, M5) — identity, baseline at entry, and the
+    # acceptance of what it was created with. Creation is that acceptance.
+    def open_new!(identity:, origin:, listing_id:, name: nil, profile_piece: nil, profession_piece: nil, material: nil, baseline: l0_fingerprints)
       Paths.id!(identity)
       Paths.id!(listing_id)
       STORE_DIRS.each { |dir| Paths.mkdir(root, dir) }
       with_lock { nil } # the instance lock file exists from birth, as 0.6 left it
-      sha = write_piece('profile', Profile.initial(name: name, origin: origin))
-      Records.append!(chain, [{ 'type' => 'kairomone_identity', 'identity' => identity, 'origin' => origin, 'listing_id' => listing_id },
-                              { 'type' => 'kairomone_baseline', 'files' => baseline },
-                              { 'type' => 'kairomone_profile', 'sha256' => sha, 'origin' => origin }], -> { chain })
+      sha = write_piece('profile', profile_piece || Profile.initial(name: name, origin: origin))
+      records = [{ 'type' => 'kairomone_identity', 'identity' => identity, 'origin' => origin, 'listing_id' => listing_id },
+                 { 'type' => 'kairomone_baseline', 'files' => baseline },
+                 { 'type' => 'kairomone_profile', 'sha256' => sha, 'origin' => origin }.merge(material || {})]
+      if profession_piece
+        records << { 'type' => 'kairomone_profession', 'sha256' => write_piece('professions', profession_piece), 'origin' => origin,
+                     'parents' => profession_piece['parents'] }
+      end
+      Records.append!(chain, records, -> { chain })
     end
 
     # The individual's identity: its kairomone_identity record, or the
@@ -223,7 +238,8 @@ module Kairomone
     end
 
     def name
-      profile['schema_version'] == 1 ? profile['display_name'] : profile['name']
+      view = profile
+      view['schema_version'] == 1 ? view['display_name'] : view['name']
     end
 
     def legacy_profile

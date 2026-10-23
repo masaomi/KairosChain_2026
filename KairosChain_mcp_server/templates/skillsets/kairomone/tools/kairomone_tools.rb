@@ -69,6 +69,52 @@ module KairosMcp
           end
         end
 
+        class Create < Base
+          def name; 'kairomone_create'; end
+          def description; 'Make a new Kairomone from the profile and first profession the owner accepted in this conversation (creation is their acceptance): show both to the owner in full first. profession is {template: ID} (kairomone_profession templates) or a drafted profession whose focus and habits come from the shipped vocabularies. The listing ID becomes its permanent identity.'; end
+          def input_schema
+            { type: 'object', properties: {
+              kairomone: { type: 'string', description: 'Listing ID and identity of the new Kairomone' },
+              profile: { type: 'object', description: 'name, kind, kind_label, appearance, personality[], voice, interests[]' },
+              profession: { type: 'object', description: '{template: ID} or {name, description, focus[], habits{sources, depth, reflection, stance}}' },
+              material_kind: { type: 'string', enum: ::Kairomone::Profile::MATERIAL_KINDS }, material_sha256: { type: 'string' }
+            }, required: %w[kairomone profile profession], additionalProperties: false }
+          end
+          def call(args)
+            output do
+              single_owner!
+              ::Kairomone::Host.new.create(listing_id: args['kairomone'], profile: args['profile'], profession: args['profession'],
+                                           material_kind: args.fetch('material_kind', 'none'), material_sha256: args['material_sha256'])
+            end
+          end
+        end
+
+        class Profile < Base
+          def name; 'kairomone_profile'; end
+          def description; 'A Kairomone\'s profile (name, kind, appearance, personality, voice, interests). get shows the profile in force; material returns what to draft from (the host instruction mode, read only, and seeds); propose stores a drafted version as a proposal, which changes nothing; proposals shows every proposal in full; accept puts one in force only when the owner accepted it in the conversation; history lists accepted versions. A new name is a new version.'; end
+          def input_schema
+            { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: %w[get material propose proposals accept history] },
+              profile: { type: 'object', description: 'propose: name, kind, kind_label, appearance, personality[], voice, interests[]' },
+              material_kind: { type: 'string', enum: ::Kairomone::Profile::MATERIAL_KINDS }, material_sha256: { type: 'string' },
+              proposal: { type: 'string', description: 'accept: the proposal sha256' } }, required: ['command'], additionalProperties: false }
+          end
+          def call(args)
+            output do
+              case args['command']
+              when 'get'
+                store = instance(args, read: true)
+                { success: true, kairomone: store.address, profile: store.profile }
+              when 'material' then instance(args, read: true).profile_material
+              when 'proposals' then instance(args, read: true).proposals
+              when 'history' then instance(args, read: true).profile_history
+              when 'propose' then instance(args).propose_profile(fields: args['profile'], material_kind: args.fetch('material_kind', 'none'), material_sha256: args['material_sha256'])
+              when 'accept' then instance(args).accept_profile(proposal: args['proposal'])
+              else raise ::Kairomone::Error, 'Expected get, material, propose, proposals, accept or history'
+              end
+            end
+          end
+        end
+
         class Status < Base
           def name; 'kairomone_status'; end
           def description; 'Read a Kairomone\'s profile, level, profession, growth runs, canonical L1/L2 counts and locally verified ledger status; optionally generate an offline HTML snapshot at its fixed exports/status.html path. Without kairomone on a host with several, returns the list.'; end
@@ -118,26 +164,33 @@ module KairosMcp
 
         class Profession < Base
           def name; 'kairomone_profession'; end
-          def description; 'List profession unlocks or explicitly select an unlocked profession for a Kairomone. A profession biases learning topics only; permissions, limits and L0 stay unchanged.'; end
+          def description; 'A Kairomone\'s profession: what and how it learns, never what it may do. status shows the profession in force, its lineage and whether a branch is due (levels 10, 30, 100, 300, 600); offer stores exactly three professions derived from the current one, which change nothing; choose puts one in force only when the owner chose it in the conversation (or offer again for three new ones); templates and subjects list the shipped vocabularies; list and select keep the 0.6 template selection.'; end
           def input_schema
-            { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: %w[list select] }, id: { type: 'string' } }, required: ['command'], additionalProperties: false }
+            { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: %w[status offer choose templates subjects list select] },
+              candidates: { type: 'array', items: { type: 'object' }, description: 'offer: three {name, description, focus[], habits{sources, depth, reflection, stance}}' },
+              offer: { type: 'string', description: 'choose: the offer sha256' }, index: { type: 'integer', minimum: 0, maximum: 2 },
+              id: { type: 'string', description: 'select: a template ID' } }, required: ['command'], additionalProperties: false }
           end
           def call(args)
             output do
               case args['command']
-              when 'list'
+              when 'status', 'list'
                 store = instance(args, read: true)
                 { success: true, profession: store.profession_status, kairomone: store.address }
+              when 'offer' then instance(args).offer_professions(candidates: args['candidates'])
+              when 'choose' then instance(args).choose_profession(offer: args['offer'], index: args['index'])
               when 'select' then instance(args).select_profession(id: args['id'])
-              else raise ::Kairomone::Error, 'Expected list or select'
+              when 'templates' then { success: true, templates: ::Kairomone::Vocabulary.templates, habits: ::Kairomone::Vocabulary::HABITS }
+              when 'subjects' then { success: true, subjects: ::Kairomone::Vocabulary.subjects, habits: ::Kairomone::Vocabulary::HABITS, kinds: ::Kairomone::Vocabulary.characters }
+              else raise ::Kairomone::Error, 'Expected status, offer, choose, templates, subjects, list or select'
               end
             end
           end
         end
 
         class Companion < Base
-          COMMANDS = { 'status' => :companion_status, 'configure' => :configure_companion, 'context' => :companion_context, 'remember' => :remember_companion, 'recover' => :recover_companion_memory, 'revoke' => :revoke_companion_memory }.freeze
-          READS = %w[status context].freeze
+          COMMANDS = { 'status' => :companion_status, 'history' => :companion_history, 'configure' => :configure_companion, 'context' => :companion_context, 'remember' => :remember_companion, 'recover' => :recover_companion_memory, 'revoke' => :revoke_companion_memory }.freeze
+          READS = %w[status history context].freeze
 
           def name; 'kairomone_companion'; end
           def description; 'Read or explicitly configure a Kairomone\'s companion settings; retrieve bounded context or ingest a reviewed summary only with current global and conversation consent. No model invocation, L0 change, XP award or automatic L1 promotion.'; end
@@ -179,7 +232,7 @@ module KairosMcp
           end
           def call(args)
             output do
-              read = args['command'] == 'status'
+              read = %w[status run_status].include?(args['command'])
               store = instance(args, read: read)
               growth = store.autonomy
               case args['command']
@@ -187,7 +240,7 @@ module KairosMcp
               when 'run_start' then growth.run_start(owner_words: args['owner_words'], cycles: args['cycles'], end_at: args['end_at'])
               when 'run_stop' then growth.run_stop(reason: args.fetch('reason', 'Owner stop'))
               when 'run_status' then growth.run_status(run_id: args['run_id'])
-              when 'request' then growth.request(run_id: args['run_id'], token: args['token'], request_id: args['request_id'], topic: args['topic'], profession_id: args.fetch('profession_id', 'generalist'), bias_applied: args.fetch('bias_applied', false))
+              when 'request' then growth.request(run_id: args['run_id'], token: args['token'], request_id: args['request_id'], topic: args['topic'], profession_id: args['profession_id'], bias_applied: args.fetch('bias_applied', false))
               when 'claim' then growth.claim(run_id: args['run_id'], token: args['token'], worker_id: args['worker_id'], lease_seconds: args.fetch('lease_seconds', 300))
               when 'heartbeat' then growth.heartbeat(run_id: args['run_id'], token: args['token'], claim_token: args['claim_token'])
               when 'commit' then growth.commit(run_id: args['run_id'], token: args['token'], claim_token: args['claim_token'], evidence: args['evidence'])

@@ -27,6 +27,8 @@
   "tool_classes": [
     "KairosMcp::SkillSets::KairomoneSkillSet::Tools::List",
     "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Init",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Create",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Profile",
     "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Status",
     "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Observe",
     "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Knowledge",

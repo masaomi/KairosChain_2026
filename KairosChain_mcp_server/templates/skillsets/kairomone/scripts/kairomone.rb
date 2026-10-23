@@ -89,7 +89,7 @@ begin
       raise Kairomone::Error, 'Invalid companion JSON'
     end
     raise Kairomone::Error, 'Companion input must be an object' unless input.is_a?(Hash)
-    methods = { 'status' => :companion_status, 'configure' => :configure_companion, 'context' => :companion_context, 'remember' => :remember_companion, 'recover' => :recover_companion_memory, 'revoke' => :revoke_companion_memory }
+    methods = { 'status' => :companion_status, 'history' => :companion_history, 'configure' => :configure_companion, 'context' => :companion_context, 'remember' => :remember_companion, 'recover' => :recover_companion_memory, 'revoke' => :revoke_companion_memory }
     method = methods[subcommand]
     raise Kairomone::Error, 'Expected companion status, configure, context, remember, recover or revoke' unless method
     target = store.call
@@ -117,7 +117,7 @@ begin
            when ['growth', 'run-start'] then growth.call.run_start(owner_words: options[:owner_words], cycles: options[:cycles], end_at: options[:end_at])
            when ['growth', 'run-stop'] then growth.call.run_stop(reason: options.fetch(:reason, 'Owner stop'))
            when ['growth', 'run-status'] then growth.call.run_status(run_id: options[:run_id])
-           when ['growth', 'request'] then growth.call.request(run_id: options[:run_id], token: options[:token], request_id: options[:request_id], topic: options[:topic], profession_id: options.fetch(:profession_id, 'generalist'), bias_applied: options.fetch(:bias_applied, false))
+           when ['growth', 'request'] then growth.call.request(run_id: options[:run_id], token: options[:token], request_id: options[:request_id], topic: options[:topic], profession_id: options[:profession_id], bias_applied: options.fetch(:bias_applied, false))
            when ['growth', 'claim'] then growth.call.claim(run_id: options[:run_id], token: options[:token], worker_id: options[:worker_id], lease_seconds: options.fetch(:lease_seconds, 300))
            when ['growth', 'heartbeat'] then growth.call.heartbeat(run_id: options[:run_id], token: options[:token], claim_token: options[:claim_token])
            when ['growth', 'commit'] then growth.call.commit(run_id: options[:run_id], token: options[:token], claim_token: options[:claim_token], evidence: options[:evidence])

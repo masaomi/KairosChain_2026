@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "note": "The six Kairomone 0.6 professions as templates. A 0.6 selection reads as its template. A profession changes what and how a Kairomone learns, never what it may do.",
+  "templates": [
+    {
+      "id": "generalist",
+      "unlock_level": 1,
+      "name": "Generalist",
+      "description": "Learns broadly, following the owner's direction.",
+      "focus": [],
+      "habits": {
+        "sources": "mixed",
+        "depth": "survey",
+        "reflection": "concise",
+        "stance": "practical"
+      }
+    },
+    {
+      "id": "researcher",
+      "unlock_level": 5,
+      "name": "Researcher",
+      "description": "Looks for evidence and checks it.",
+      "focus": [
+        "research_methods",
+        "evidence",
+        "verification"
+      ],
+      "habits": {
+        "sources": "primary",
+        "depth": "deep",
+        "reflection": "analytical",
+        "stance": "critical"
+      }
+    },
+    {
+      "id": "builder",
+      "unlock_level": 10,
+      "name": "Builder",
+      "description": "Learns how things are made and tested.",
+      "focus": [
+        "software_engineering",
+        "software_design",
+        "software_testing"
+      ],
+      "habits": {
+        "sources": "official",
+        "depth": "focused",
+        "reflection": "concise",
+        "stance": "practical"
+      }
+    },
+    {
+      "id": "strategist",
+      "unlock_level": 20,
+      "name": "Strategist",
+      "description": "Learns how plans and decisions are weighed.",
+      "focus": [
+        "planning",
+        "decision_making",
+        "tradeoffs"
+      ],
+      "habits": {
+        "sources": "mixed",
+        "depth": "focused",
+        "reflection": "analytical",
+        "stance": "theoretical"
+      }
+    },
+    {
+      "id": "guardian",
+      "unlock_level": 30,
+      "name": "Guardian",
+      "description": "Learns what keeps people and systems safe.",
+      "focus": [
+        "safety",
+        "reliability",
+        "privacy"
+      ],
+      "habits": {
+        "sources": "official",
+        "depth": "deep",
+        "reflection": "questioning",
+        "stance": "critical"
+      }
+    },
+    {
+      "id": "creator",
+      "unlock_level": 40,
+      "name": "Creator",
+      "description": "Learns from stories, writing and making.",
+      "focus": [
+        "writing",
+        "storytelling",
+        "creativity"
+      ],
+      "habits": {
+        "sources": "community",
+        "depth": "focused",
+        "reflection": "narrative",
+        "stance": "creative"
+      }
+    }
+  ]
+}

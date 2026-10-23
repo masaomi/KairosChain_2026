@@ -5,7 +5,8 @@
 #
 # Kairomone 0.8 (design log/kairomone_core_0_8_design_v0.6_FROZEN_20261023.md):
 # init lists the individual under kairomones/<id>/ (M1) with a profile version
-# instead of profile.json (M4); kairomone_list is a ninth tool (M3); with two
+# instead of profile.json (M4); kairomone_list, kairomone_create and
+# kairomone_profile join the tools (M3); with two
 # individuals on the host (after a restore) every call names one (M2); a
 # restore makes a separate listed twin that appends its own record (Inv 1,
 # M15); backups are signed with the host's archive key (kairomone-keys/, a
@@ -86,7 +87,7 @@ Dir.mktmpdir('kairomone-independent-') do |tmp|
   check('real Skillset loads installed package') { ss.valid? && ss.load! && ss.loaded? }
   reg=KairosMcp::ToolRegistry.new
   names=reg.list_tools.map{|t|t[:name]}.grep(/^kairomone_/).sort
-  check('all nine tools registered by real ToolRegistry') { names==%w[kairomone_backup kairomone_companion kairomone_growth kairomone_init kairomone_knowledge kairomone_list kairomone_observe kairomone_profession kairomone_status] }
+  check('all eleven tools registered by real ToolRegistry') { names==%w[kairomone_backup kairomone_companion kairomone_create kairomone_growth kairomone_init kairomone_knowledge kairomone_list kairomone_observe kairomone_profession kairomone_profile kairomone_status] }
   outside=%w[kairomone kairomones kairomone-restored kairomone-keys]
   base=tree(host,exclude:outside)
   own=File.join(host,'kairomones','review_dot')

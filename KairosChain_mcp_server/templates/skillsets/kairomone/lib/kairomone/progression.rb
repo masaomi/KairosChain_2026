@@ -28,7 +28,7 @@ module Kairomone
       xp = l1.length * L1_XP + l2.length * L2_XP
       level = [1 + xp / XP_PER_LEVEL, LEVEL_CAP].min
       capped = level == LEVEL_CAP
-      { level: level, level_cap: LEVEL_CAP, total_xp: xp,
+      { level: level, level_cap: LEVEL_CAP, total_xp: xp, stage: Vocabulary.stage(level),
         xp_into_level: capped ? 0 : xp % XP_PER_LEVEL,
         xp_for_next_level: capped ? nil : XP_PER_LEVEL,
         xp_to_next_level: capped ? 0 : XP_PER_LEVEL - xp % XP_PER_LEVEL,
@@ -157,61 +157,6 @@ module Kairomone
 
       records = all.empty? ? [] : [{ 'type' => 'kairomone_xp', 'entries' => all }]
       Records.append!(ledger, records + with, -> { chain })
-    end
-  end
-
-  class Instance
-    def profession_status(progression: nil)
-      ensure_initialized!
-      selection = profession_selection
-      level = (progression || progression_status)[:level]
-      catalog = Progression::PROFESSIONS.map { |item| item.merge(unlocked: level >= item[:unlock_level]) }
-      selected = catalog.find { |item| item[:id] == selection['selected_id'] }
-      active = selected && selected[:unlocked] ? selected : catalog.first
-      { selected_id: selection['selected_id'], effective_id: active[:id], name: active[:name],
-        selection_required: selection['selected_id'].nil?, selected_unlocked: !!(selected && selected[:unlocked]),
-        catalog: catalog, learning_bias: { topics: active[:topics], max_topic_fraction: 0.5 },
-        note: 'A profession biases bounded learning topics only; it never changes permissions, limits or L0.' }
-    end
-
-    def select_profession(id:)
-      raise Error, 'Unknown profession ID' unless Progression::PROFESSIONS.any? { |item| item[:id] == id }
-      with_lock do
-        ensure_initialized!
-        raise Error, 'Restored targets are read-only' if @restored
-        status = profession_status
-        choice = status[:catalog].find { |item| item[:id] == id }
-        raise Error, "Profession unlocks at level #{choice[:unlock_level]}" unless choice[:unlocked]
-        previous = profession_selection
-        preserved = previous['selected_id'] == id
-        unless preserved
-          value = { 'schema_version' => 1, 'selected_id' => id, 'selected_at' => Time.now.utc.iso8601 }
-          Paths.write(root, 'profession.json', JSON.pretty_generate(value) + "\n", replace: true)
-        end
-        { success: true, preserved: preserved, profession: profession_status, kairomone: address }
-      end
-    end
-
-    def validate_profession!(value)
-      valid = value.is_a?(Hash) && value.keys.sort == %w[schema_version selected_at selected_id] &&
-        value['schema_version'] == 1 && Progression::PROFESSIONS.any? { |item| item[:id] == value['selected_id'] }
-      raise Error, 'Invalid profession selection' unless valid
-      Time.iso8601(value.fetch('selected_at'))
-      true
-    rescue ArgumentError, TypeError
-      raise Error, 'Invalid profession selection timestamp'
-    end
-
-    private
-
-    def profession_selection
-      path = Paths.checked(root, 'profession.json')
-      return { 'selected_id' => nil } unless File.exist?(path)
-      value = JSON.parse(Paths.read(root, 'profession.json', limit: 4096))
-      validate_profession!(value)
-      value
-    rescue JSON::ParserError => e
-      raise Error, "Invalid profession selection: #{e.message}"
     end
   end
 end

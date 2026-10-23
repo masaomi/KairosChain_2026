@@ -3,7 +3,9 @@
 # Kairomone 0.8, growth runs (design log/kairomone_core_0_8_design_v0.6_FROZEN_20261023.md,
 # Inv 2, M6): a run the owner started is the only place autonomy exists; it
 # ends once; the operator policy is counted for the whole host. All data is
-# synthetic and confined to temporary hosts.
+# synthetic and confined to temporary hosts. run_status(run_id:) reports the
+# named run under this_run and leaves the top-level fields to the run that is
+# live now (run A review: one key with two meanings).
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
@@ -292,8 +294,9 @@ class Kairomone08RunsTest < Minitest::Test
     growth.run_stop(reason: 'Done')
     second = start(cycles: 1)
     named = growth.run_status(run_id: first[:run_id])
-    assert_equal false, named['live']
-    assert_equal 'ended: owner_stop', named['this_run']
-    assert growth.run_status(run_id: second[:run_id])['live']
+    assert_equal({ 'run_id' => first[:run_id], 'live' => false, 'ended' => 'owner_stop', 'ended_at' => named['this_run']['ended_at'] }, named['this_run'])
+    assert named['live'], 'the top-level state still describes the run that is live now'
+    assert growth.run_status(run_id: second[:run_id])['this_run']['live']
+    assert_nil growth.run_status(run_id: 'run_20200101T000000Z_00000000')['this_run']['ended']
   end
 end

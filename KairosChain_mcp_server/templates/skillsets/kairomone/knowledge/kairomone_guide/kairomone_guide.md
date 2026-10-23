@@ -20,10 +20,12 @@ intelligence or proven skill. Actual research requires the host assistant.
 
 ## Start and use
 
-1. Call `kairomone_init(dot_id: "my_dot", display_name: "My dot")` once to make
-   the host's first Kairomone. Repeating the call preserves it, its name,
-   timestamps and data. It is refused while other Kairomones live on the host.
-   `kairomone_list` shows the Kairomones the host holds; every tool that acts on
+1. Make a Kairomone with `kairomone_create(kairomone:, profile:, profession:)`
+   from the profile and first profession the owner accepted (creation is their
+   acceptance; see Profiles and professions below), or with the one-individual
+   shorthand `kairomone_init(dot_id: "my_dot", display_name: "My dot")`, which
+   gives the host's first Kairomone just a name and is refused while others live
+   here. `kairomone_list` shows the Kairomones the host holds; every tool that acts on
    one Kairomone takes `kairomone: <listing_id>`, which may be omitted while the
    host lists exactly one. With several, a write without it is refused and a read
    returns the list.
@@ -40,6 +42,36 @@ intelligence or proven skill. Actual research requires the host assistant.
 5. Call `kairomone_status(render_html: true)` to write a standalone offline HTML
    snapshot at the instance's fixed `exports/status.html`. No server, network,
    background refresh or Site is created. Regenerate to refresh it.
+
+## Profiles and professions
+
+A profile version holds a name, a kind (animal, plant, insect, human, imaginary
+creature, stone, angel, monster, or unknown), a kind label, appearance,
+personality traits, voice and interests. The host assistant composes it — from
+`kairomone_profile material` (the host's instruction mode, read only), host L2,
+the owner's own words or checkboxes, or a character starter — and it waits as a
+proposal until the owner accepts it; acceptance records its hash and where its
+material came from (kind and hash, never the material). Versions append; the
+latest accepted one is in force, and a new name is a new version. A Kairomone
+made before 0.8 keeps its schema-1 profile until a version is accepted, and its
+0.6 companion name seeds the first name proposal.
+
+A profession is a name, a description, up to eight focus subjects from the
+shipped vocabulary (`kairomone_profession subjects`, about 200 subjects in
+English and Japanese) and one value each for four habits: sources (primary,
+official, encyclopedic, news, community, mixed), depth (survey, focused, deep),
+reflection (concise, analytical, narrative, questioning) and stance (practical,
+theoretical, critical, creative). At levels 10, 30, 100, 300 and 600 the
+assistant offers exactly three professions derived from the current one; the
+owner picks one or asks for three new ones, and the chosen one records its
+parent, so every Kairomone carries a profession lineage. The six 0.6
+professions remain as templates. A growth request carries only the owner's
+direction and the profession's focus names and habit values that the shipped
+vocabularies hold at that moment; nothing else stored reaches a cycle, and a
+profession never changes a tool, permission, limit, run or L0.
+
+Stages follow the level: egg (1–4), hatchling (5–19), young (20–99), adult
+(100–499), legend (500–999).
 
 Text content is limited to 16 KiB per write; titles to 512 bytes. This release
 allows 1,000 L1 entries and 1,000 L2 observations and provides no automatic pruning

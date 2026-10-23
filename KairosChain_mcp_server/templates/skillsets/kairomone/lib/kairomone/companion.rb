@@ -21,6 +21,9 @@ module Kairomone
         ensure_writable!('L2')
         state = companion_state
         changes = {}
+        # The name lives in the profile (M3, M4); the companion display name is
+        # the 0.6 setting of an individual made before 0.8.
+        raise Error, 'The name lives in the profile: propose a profile version with the new name (kairomone_profile propose)' if !display_name.nil? && legacy_profile.nil?
         changes['display_name'] = companion_text!(display_name, 'display_name', 256) unless display_name.nil?
         unless memory_enabled.nil?
           raise Error, 'memory_enabled must be boolean' unless [true, false].include?(memory_enabled)
@@ -43,11 +46,24 @@ module Kairomone
                               'at' => Time.now.utc.iso8601, 'settings' => state['settings'].dup }
         save_companion(state)
         save_memory_gate(false) if memory_enabled == true
+        # The direction and personality resolve from this state; each change is
+        # also recorded on the ledger, as an audit (M4, M5).
+        audit = %w[direction personality].select { |f| changes.key?(f) }.map do |f|
+          { 'type' => 'kairomone_companion', 'field' => f, 'sha256' => Digest::SHA256.hexdigest(JSON.generate(changes[f])), 'revision' => state['revision'] }
+        end
+        Records.append!(chain, audit, -> { chain }) unless audit.empty?
         { success: true, preserved: false, applied_revision: state['revision'], companion: companion_public(state) }
       end
     end
 
     # Capacity-independent fail-closed OFF switch. Does not erase saved memory.
+    # The history of settings changes, only on this explicit request (M4).
+    def companion_history
+      ensure_initialized!
+      state = companion_state
+      { success: true, revision: state['revision'], history: state['history'] }
+    end
+
     def revoke_companion_memory
       with_lock do
         ensure_initialized!
@@ -204,7 +220,9 @@ module Kairomone
 
     def companion_public(state)
       state['settings'].merge('memory_enabled' => state['settings']['memory_enabled'] && !memory_revoked?, 'memory_revoked' => memory_revoked?, 'dot_id' => profile['dot_id'], 'revision' => state['revision'],
-        'history' => state['history'], 'memory_count' => state['memories'].count { |_k, v| v['state'] == 'completed' },
+        'memory_count' => state['memories'].count { |_k, v| v['state'] == 'completed' },
+        # A Kairomone made by 0.8 is called by its profile's name.
+        'display_name' => legacy_profile ? state['settings']['display_name'] : name,
         'direction_applies' => 'next newly prepared cycle; existing claims keep their captured context')
     end
 

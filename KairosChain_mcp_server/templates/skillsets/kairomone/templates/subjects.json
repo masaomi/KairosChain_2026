@@ -1,0 +1,1047 @@
+{
+  "schema_version": 1,
+  "note": "Learning subjects a profession may focus on. IDs are append-only: an ID is never reused, and a retired ID stays in aliases pointing at its successor.",
+  "subjects": [
+    {
+      "id": "mathematics",
+      "en": "Mathematics",
+      "ja": "数学"
+    },
+    {
+      "id": "algebra",
+      "en": "Algebra",
+      "ja": "代数"
+    },
+    {
+      "id": "geometry",
+      "en": "Geometry",
+      "ja": "幾何学"
+    },
+    {
+      "id": "calculus",
+      "en": "Calculus",
+      "ja": "微積分"
+    },
+    {
+      "id": "statistics",
+      "en": "Statistics",
+      "ja": "統計学"
+    },
+    {
+      "id": "probability",
+      "en": "Probability",
+      "ja": "確率論"
+    },
+    {
+      "id": "logic",
+      "en": "Logic",
+      "ja": "論理学"
+    },
+    {
+      "id": "number_theory",
+      "en": "Number theory",
+      "ja": "数論"
+    },
+    {
+      "id": "discrete_mathematics",
+      "en": "Discrete mathematics",
+      "ja": "離散数学"
+    },
+    {
+      "id": "physics",
+      "en": "Physics",
+      "ja": "物理学"
+    },
+    {
+      "id": "mechanics",
+      "en": "Mechanics",
+      "ja": "力学"
+    },
+    {
+      "id": "thermodynamics",
+      "en": "Thermodynamics",
+      "ja": "熱力学"
+    },
+    {
+      "id": "electromagnetism",
+      "en": "Electromagnetism",
+      "ja": "電磁気学"
+    },
+    {
+      "id": "optics",
+      "en": "Optics",
+      "ja": "光学"
+    },
+    {
+      "id": "quantum_physics",
+      "en": "Quantum physics",
+      "ja": "量子物理学"
+    },
+    {
+      "id": "relativity",
+      "en": "Relativity",
+      "ja": "相対性理論"
+    },
+    {
+      "id": "astronomy",
+      "en": "Astronomy",
+      "ja": "天文学"
+    },
+    {
+      "id": "astrophysics",
+      "en": "Astrophysics",
+      "ja": "宇宙物理学"
+    },
+    {
+      "id": "cosmology",
+      "en": "Cosmology",
+      "ja": "宇宙論"
+    },
+    {
+      "id": "chemistry",
+      "en": "Chemistry",
+      "ja": "化学"
+    },
+    {
+      "id": "organic_chemistry",
+      "en": "Organic chemistry",
+      "ja": "有機化学"
+    },
+    {
+      "id": "inorganic_chemistry",
+      "en": "Inorganic chemistry",
+      "ja": "無機化学"
+    },
+    {
+      "id": "biochemistry",
+      "en": "Biochemistry",
+      "ja": "生化学"
+    },
+    {
+      "id": "materials_science",
+      "en": "Materials science",
+      "ja": "材料科学"
+    },
+    {
+      "id": "biology",
+      "en": "Biology",
+      "ja": "生物学"
+    },
+    {
+      "id": "cell_biology",
+      "en": "Cell biology",
+      "ja": "細胞生物学"
+    },
+    {
+      "id": "molecular_biology",
+      "en": "Molecular biology",
+      "ja": "分子生物学"
+    },
+    {
+      "id": "genetics",
+      "en": "Genetics",
+      "ja": "遺伝学"
+    },
+    {
+      "id": "genomics",
+      "en": "Genomics",
+      "ja": "ゲノム科学"
+    },
+    {
+      "id": "evolution",
+      "en": "Evolution",
+      "ja": "進化"
+    },
+    {
+      "id": "ecology",
+      "en": "Ecology",
+      "ja": "生態学"
+    },
+    {
+      "id": "microbiology",
+      "en": "Microbiology",
+      "ja": "微生物学"
+    },
+    {
+      "id": "botany",
+      "en": "Botany",
+      "ja": "植物学"
+    },
+    {
+      "id": "zoology",
+      "en": "Zoology",
+      "ja": "動物学"
+    },
+    {
+      "id": "entomology",
+      "en": "Entomology",
+      "ja": "昆虫学"
+    },
+    {
+      "id": "marine_biology",
+      "en": "Marine biology",
+      "ja": "海洋生物学"
+    },
+    {
+      "id": "neuroscience",
+      "en": "Neuroscience",
+      "ja": "神経科学"
+    },
+    {
+      "id": "immunology",
+      "en": "Immunology",
+      "ja": "免疫学"
+    },
+    {
+      "id": "physiology",
+      "en": "Physiology",
+      "ja": "生理学"
+    },
+    {
+      "id": "anatomy",
+      "en": "Anatomy",
+      "ja": "解剖学"
+    },
+    {
+      "id": "bioinformatics",
+      "en": "Bioinformatics",
+      "ja": "バイオインフォマティクス"
+    },
+    {
+      "id": "earth_science",
+      "en": "Earth science",
+      "ja": "地球科学"
+    },
+    {
+      "id": "geology",
+      "en": "Geology",
+      "ja": "地質学"
+    },
+    {
+      "id": "mineralogy",
+      "en": "Mineralogy",
+      "ja": "鉱物学"
+    },
+    {
+      "id": "meteorology",
+      "en": "Meteorology",
+      "ja": "気象学"
+    },
+    {
+      "id": "climate_science",
+      "en": "Climate science",
+      "ja": "気候科学"
+    },
+    {
+      "id": "oceanography",
+      "en": "Oceanography",
+      "ja": "海洋学"
+    },
+    {
+      "id": "volcanology",
+      "en": "Volcanology",
+      "ja": "火山学"
+    },
+    {
+      "id": "seismology",
+      "en": "Seismology",
+      "ja": "地震学"
+    },
+    {
+      "id": "environmental_science",
+      "en": "Environmental science",
+      "ja": "環境科学"
+    },
+    {
+      "id": "medicine",
+      "en": "Medicine",
+      "ja": "医学"
+    },
+    {
+      "id": "public_health",
+      "en": "Public health",
+      "ja": "公衆衛生"
+    },
+    {
+      "id": "nutrition",
+      "en": "Nutrition",
+      "ja": "栄養学"
+    },
+    {
+      "id": "pharmacology",
+      "en": "Pharmacology",
+      "ja": "薬理学"
+    },
+    {
+      "id": "psychology",
+      "en": "Psychology",
+      "ja": "心理学"
+    },
+    {
+      "id": "cognitive_science",
+      "en": "Cognitive science",
+      "ja": "認知科学"
+    },
+    {
+      "id": "developmental_psychology",
+      "en": "Developmental psychology",
+      "ja": "発達心理学"
+    },
+    {
+      "id": "social_psychology",
+      "en": "Social psychology",
+      "ja": "社会心理学"
+    },
+    {
+      "id": "sleep",
+      "en": "Sleep",
+      "ja": "睡眠"
+    },
+    {
+      "id": "exercise_science",
+      "en": "Exercise science",
+      "ja": "運動科学"
+    },
+    {
+      "id": "computer_science",
+      "en": "Computer science",
+      "ja": "計算機科学"
+    },
+    {
+      "id": "algorithms",
+      "en": "Algorithms",
+      "ja": "アルゴリズム"
+    },
+    {
+      "id": "data_structures",
+      "en": "Data structures",
+      "ja": "データ構造"
+    },
+    {
+      "id": "programming_languages",
+      "en": "Programming languages",
+      "ja": "プログラミング言語"
+    },
+    {
+      "id": "software_engineering",
+      "en": "Software engineering",
+      "ja": "ソフトウェア工学"
+    },
+    {
+      "id": "software_design",
+      "en": "Software design",
+      "ja": "ソフトウェア設計"
+    },
+    {
+      "id": "software_testing",
+      "en": "Software testing",
+      "ja": "ソフトウェアテスト"
+    },
+    {
+      "id": "operating_systems",
+      "en": "Operating systems",
+      "ja": "オペレーティングシステム"
+    },
+    {
+      "id": "databases",
+      "en": "Databases",
+      "ja": "データベース"
+    },
+    {
+      "id": "networking",
+      "en": "Networking",
+      "ja": "ネットワーク"
+    },
+    {
+      "id": "distributed_systems",
+      "en": "Distributed systems",
+      "ja": "分散システム"
+    },
+    {
+      "id": "security",
+      "en": "Computer security",
+      "ja": "コンピューターセキュリティ"
+    },
+    {
+      "id": "cryptography",
+      "en": "Cryptography",
+      "ja": "暗号"
+    },
+    {
+      "id": "privacy",
+      "en": "Privacy",
+      "ja": "プライバシー"
+    },
+    {
+      "id": "artificial_intelligence",
+      "en": "Artificial intelligence",
+      "ja": "人工知能"
+    },
+    {
+      "id": "machine_learning",
+      "en": "Machine learning",
+      "ja": "機械学習"
+    },
+    {
+      "id": "natural_language_processing",
+      "en": "Natural language processing",
+      "ja": "自然言語処理"
+    },
+    {
+      "id": "computer_vision",
+      "en": "Computer vision",
+      "ja": "コンピュータービジョン"
+    },
+    {
+      "id": "robotics",
+      "en": "Robotics",
+      "ja": "ロボット工学"
+    },
+    {
+      "id": "human_computer_interaction",
+      "en": "Human-computer interaction",
+      "ja": "ヒューマンコンピューターインタラクション"
+    },
+    {
+      "id": "data_science",
+      "en": "Data science",
+      "ja": "データサイエンス"
+    },
+    {
+      "id": "visualization",
+      "en": "Visualization",
+      "ja": "可視化"
+    },
+    {
+      "id": "blockchain",
+      "en": "Blockchain",
+      "ja": "ブロックチェーン"
+    },
+    {
+      "id": "open_source",
+      "en": "Open source",
+      "ja": "オープンソース"
+    },
+    {
+      "id": "web_development",
+      "en": "Web development",
+      "ja": "ウェブ開発"
+    },
+    {
+      "id": "reliability",
+      "en": "Reliability engineering",
+      "ja": "信頼性工学"
+    },
+    {
+      "id": "electrical_engineering",
+      "en": "Electrical engineering",
+      "ja": "電気工学"
+    },
+    {
+      "id": "electronics",
+      "en": "Electronics",
+      "ja": "電子工学"
+    },
+    {
+      "id": "mechanical_engineering",
+      "en": "Mechanical engineering",
+      "ja": "機械工学"
+    },
+    {
+      "id": "civil_engineering",
+      "en": "Civil engineering",
+      "ja": "土木工学"
+    },
+    {
+      "id": "architecture",
+      "en": "Architecture",
+      "ja": "建築"
+    },
+    {
+      "id": "energy",
+      "en": "Energy",
+      "ja": "エネルギー"
+    },
+    {
+      "id": "renewable_energy",
+      "en": "Renewable energy",
+      "ja": "再生可能エネルギー"
+    },
+    {
+      "id": "transportation",
+      "en": "Transportation",
+      "ja": "交通"
+    },
+    {
+      "id": "manufacturing",
+      "en": "Manufacturing",
+      "ja": "ものづくり"
+    },
+    {
+      "id": "aerospace",
+      "en": "Aerospace",
+      "ja": "航空宇宙"
+    },
+    {
+      "id": "history",
+      "en": "History",
+      "ja": "歴史"
+    },
+    {
+      "id": "ancient_history",
+      "en": "Ancient history",
+      "ja": "古代史"
+    },
+    {
+      "id": "medieval_history",
+      "en": "Medieval history",
+      "ja": "中世史"
+    },
+    {
+      "id": "modern_history",
+      "en": "Modern history",
+      "ja": "近現代史"
+    },
+    {
+      "id": "history_of_science",
+      "en": "History of science",
+      "ja": "科学史"
+    },
+    {
+      "id": "archaeology",
+      "en": "Archaeology",
+      "ja": "考古学"
+    },
+    {
+      "id": "anthropology",
+      "en": "Anthropology",
+      "ja": "人類学"
+    },
+    {
+      "id": "sociology",
+      "en": "Sociology",
+      "ja": "社会学"
+    },
+    {
+      "id": "economics",
+      "en": "Economics",
+      "ja": "経済学"
+    },
+    {
+      "id": "microeconomics",
+      "en": "Microeconomics",
+      "ja": "ミクロ経済学"
+    },
+    {
+      "id": "macroeconomics",
+      "en": "Macroeconomics",
+      "ja": "マクロ経済学"
+    },
+    {
+      "id": "behavioral_economics",
+      "en": "Behavioral economics",
+      "ja": "行動経済学"
+    },
+    {
+      "id": "finance",
+      "en": "Finance",
+      "ja": "金融"
+    },
+    {
+      "id": "accounting",
+      "en": "Accounting",
+      "ja": "会計"
+    },
+    {
+      "id": "business",
+      "en": "Business",
+      "ja": "ビジネス"
+    },
+    {
+      "id": "entrepreneurship",
+      "en": "Entrepreneurship",
+      "ja": "起業"
+    },
+    {
+      "id": "management",
+      "en": "Management",
+      "ja": "経営管理"
+    },
+    {
+      "id": "marketing",
+      "en": "Marketing",
+      "ja": "マーケティング"
+    },
+    {
+      "id": "negotiation",
+      "en": "Negotiation",
+      "ja": "交渉"
+    },
+    {
+      "id": "political_science",
+      "en": "Political science",
+      "ja": "政治学"
+    },
+    {
+      "id": "law",
+      "en": "Law",
+      "ja": "法学"
+    },
+    {
+      "id": "international_relations",
+      "en": "International relations",
+      "ja": "国際関係"
+    },
+    {
+      "id": "public_policy",
+      "en": "Public policy",
+      "ja": "公共政策"
+    },
+    {
+      "id": "governance",
+      "en": "Governance",
+      "ja": "ガバナンス"
+    },
+    {
+      "id": "ethics",
+      "en": "Ethics",
+      "ja": "倫理学"
+    },
+    {
+      "id": "philosophy",
+      "en": "Philosophy",
+      "ja": "哲学"
+    },
+    {
+      "id": "philosophy_of_mind",
+      "en": "Philosophy of mind",
+      "ja": "心の哲学"
+    },
+    {
+      "id": "philosophy_of_science",
+      "en": "Philosophy of science",
+      "ja": "科学哲学"
+    },
+    {
+      "id": "epistemology",
+      "en": "Epistemology",
+      "ja": "認識論"
+    },
+    {
+      "id": "metaphysics",
+      "en": "Metaphysics",
+      "ja": "形而上学"
+    },
+    {
+      "id": "phenomenology",
+      "en": "Phenomenology",
+      "ja": "現象学"
+    },
+    {
+      "id": "eastern_philosophy",
+      "en": "Eastern philosophy",
+      "ja": "東洋哲学"
+    },
+    {
+      "id": "buddhism",
+      "en": "Buddhism",
+      "ja": "仏教"
+    },
+    {
+      "id": "religion",
+      "en": "Religion",
+      "ja": "宗教学"
+    },
+    {
+      "id": "mythology",
+      "en": "Mythology",
+      "ja": "神話"
+    },
+    {
+      "id": "linguistics",
+      "en": "Linguistics",
+      "ja": "言語学"
+    },
+    {
+      "id": "language_learning",
+      "en": "Language learning",
+      "ja": "語学学習"
+    },
+    {
+      "id": "japanese_language",
+      "en": "Japanese language",
+      "ja": "日本語"
+    },
+    {
+      "id": "english_language",
+      "en": "English language",
+      "ja": "英語"
+    },
+    {
+      "id": "translation",
+      "en": "Translation",
+      "ja": "翻訳"
+    },
+    {
+      "id": "literature",
+      "en": "Literature",
+      "ja": "文学"
+    },
+    {
+      "id": "poetry",
+      "en": "Poetry",
+      "ja": "詩"
+    },
+    {
+      "id": "storytelling",
+      "en": "Storytelling",
+      "ja": "物語"
+    },
+    {
+      "id": "writing",
+      "en": "Writing",
+      "ja": "執筆"
+    },
+    {
+      "id": "creative_writing",
+      "en": "Creative writing",
+      "ja": "創作"
+    },
+    {
+      "id": "journalism",
+      "en": "Journalism",
+      "ja": "ジャーナリズム"
+    },
+    {
+      "id": "rhetoric",
+      "en": "Rhetoric",
+      "ja": "修辞学"
+    },
+    {
+      "id": "education",
+      "en": "Education",
+      "ja": "教育"
+    },
+    {
+      "id": "learning_science",
+      "en": "Learning science",
+      "ja": "学習科学"
+    },
+    {
+      "id": "teaching",
+      "en": "Teaching",
+      "ja": "教えること"
+    },
+    {
+      "id": "art",
+      "en": "Art",
+      "ja": "美術"
+    },
+    {
+      "id": "art_history",
+      "en": "Art history",
+      "ja": "美術史"
+    },
+    {
+      "id": "painting",
+      "en": "Painting",
+      "ja": "絵画"
+    },
+    {
+      "id": "drawing",
+      "en": "Drawing",
+      "ja": "素描"
+    },
+    {
+      "id": "sculpture",
+      "en": "Sculpture",
+      "ja": "彫刻"
+    },
+    {
+      "id": "photography",
+      "en": "Photography",
+      "ja": "写真"
+    },
+    {
+      "id": "design",
+      "en": "Design",
+      "ja": "デザイン"
+    },
+    {
+      "id": "graphic_design",
+      "en": "Graphic design",
+      "ja": "グラフィックデザイン"
+    },
+    {
+      "id": "typography",
+      "en": "Typography",
+      "ja": "タイポグラフィ"
+    },
+    {
+      "id": "music",
+      "en": "Music",
+      "ja": "音楽"
+    },
+    {
+      "id": "music_theory",
+      "en": "Music theory",
+      "ja": "音楽理論"
+    },
+    {
+      "id": "composition",
+      "en": "Musical composition",
+      "ja": "作曲"
+    },
+    {
+      "id": "film",
+      "en": "Film",
+      "ja": "映画"
+    },
+    {
+      "id": "theater",
+      "en": "Theater",
+      "ja": "演劇"
+    },
+    {
+      "id": "dance",
+      "en": "Dance",
+      "ja": "ダンス"
+    },
+    {
+      "id": "games",
+      "en": "Games",
+      "ja": "ゲーム"
+    },
+    {
+      "id": "game_design",
+      "en": "Game design",
+      "ja": "ゲームデザイン"
+    },
+    {
+      "id": "animation",
+      "en": "Animation",
+      "ja": "アニメーション"
+    },
+    {
+      "id": "crafts",
+      "en": "Crafts",
+      "ja": "工芸"
+    },
+    {
+      "id": "fashion",
+      "en": "Fashion",
+      "ja": "ファッション"
+    },
+    {
+      "id": "cooking",
+      "en": "Cooking",
+      "ja": "料理"
+    },
+    {
+      "id": "food_science",
+      "en": "Food science",
+      "ja": "食品科学"
+    },
+    {
+      "id": "gardening",
+      "en": "Gardening",
+      "ja": "園芸"
+    },
+    {
+      "id": "agriculture",
+      "en": "Agriculture",
+      "ja": "農業"
+    },
+    {
+      "id": "forestry",
+      "en": "Forestry",
+      "ja": "林業"
+    },
+    {
+      "id": "animals_and_pets",
+      "en": "Animals and pets",
+      "ja": "動物とペット"
+    },
+    {
+      "id": "travel",
+      "en": "Travel",
+      "ja": "旅"
+    },
+    {
+      "id": "geography",
+      "en": "Geography",
+      "ja": "地理"
+    },
+    {
+      "id": "cartography",
+      "en": "Cartography",
+      "ja": "地図学"
+    },
+    {
+      "id": "urban_planning",
+      "en": "Urban planning",
+      "ja": "都市計画"
+    },
+    {
+      "id": "sustainability",
+      "en": "Sustainability",
+      "ja": "持続可能性"
+    },
+    {
+      "id": "health",
+      "en": "Health",
+      "ja": "健康"
+    },
+    {
+      "id": "mental_health",
+      "en": "Mental health",
+      "ja": "心の健康"
+    },
+    {
+      "id": "mindfulness",
+      "en": "Mindfulness",
+      "ja": "マインドフルネス"
+    },
+    {
+      "id": "sports",
+      "en": "Sports",
+      "ja": "スポーツ"
+    },
+    {
+      "id": "outdoor_activities",
+      "en": "Outdoor activities",
+      "ja": "野外活動"
+    },
+    {
+      "id": "personal_finance",
+      "en": "Personal finance",
+      "ja": "家計"
+    },
+    {
+      "id": "productivity",
+      "en": "Productivity",
+      "ja": "仕事の進め方"
+    },
+    {
+      "id": "habits",
+      "en": "Habits",
+      "ja": "習慣"
+    },
+    {
+      "id": "communication",
+      "en": "Communication",
+      "ja": "コミュニケーション"
+    },
+    {
+      "id": "relationships",
+      "en": "Relationships",
+      "ja": "人間関係"
+    },
+    {
+      "id": "parenting",
+      "en": "Parenting",
+      "ja": "子育て"
+    },
+    {
+      "id": "decision_making",
+      "en": "Decision making",
+      "ja": "意思決定"
+    },
+    {
+      "id": "planning",
+      "en": "Planning",
+      "ja": "計画"
+    },
+    {
+      "id": "tradeoffs",
+      "en": "Tradeoffs",
+      "ja": "二律背反の扱い"
+    },
+    {
+      "id": "risk",
+      "en": "Risk",
+      "ja": "リスク"
+    },
+    {
+      "id": "safety",
+      "en": "Safety",
+      "ja": "安全"
+    },
+    {
+      "id": "research_methods",
+      "en": "Research methods",
+      "ja": "研究方法"
+    },
+    {
+      "id": "evidence",
+      "en": "Evidence",
+      "ja": "根拠"
+    },
+    {
+      "id": "verification",
+      "en": "Verification",
+      "ja": "検証"
+    },
+    {
+      "id": "reproducibility",
+      "en": "Reproducibility",
+      "ja": "再現性"
+    },
+    {
+      "id": "open_science",
+      "en": "Open science",
+      "ja": "オープンサイエンス"
+    },
+    {
+      "id": "scientific_method",
+      "en": "Scientific method",
+      "ja": "科学的方法"
+    },
+    {
+      "id": "critical_thinking",
+      "en": "Critical thinking",
+      "ja": "批判的思考"
+    },
+    {
+      "id": "creativity",
+      "en": "Creativity",
+      "ja": "創造性"
+    },
+    {
+      "id": "problem_solving",
+      "en": "Problem solving",
+      "ja": "問題解決"
+    },
+    {
+      "id": "systems_thinking",
+      "en": "Systems thinking",
+      "ja": "システム思考"
+    },
+    {
+      "id": "complexity",
+      "en": "Complexity",
+      "ja": "複雑系"
+    },
+    {
+      "id": "information_theory",
+      "en": "Information theory",
+      "ja": "情報理論"
+    },
+    {
+      "id": "cybernetics",
+      "en": "Cybernetics",
+      "ja": "サイバネティクス"
+    },
+    {
+      "id": "futures",
+      "en": "Futures studies",
+      "ja": "未来研究"
+    },
+    {
+      "id": "space_exploration",
+      "en": "Space exploration",
+      "ja": "宇宙探査"
+    }
+  ],
+  "aliases": {}
+}

@@ -93,29 +93,36 @@ module Kairomone
         save(state)
         out = public_state(state).merge('kairomone' => @instance.address)
         if run_id
-          live = state.dig('live', 'run_id') == run_id
-          ended = state['ended'].reverse.find { |r| r['run_id'] == run_id }
-          out = out.merge('run_id' => run_id, 'live' => live, 'this_run' => live ? 'live' : (ended ? "ended: #{ended['reason']}" : 'not a run of this Kairomone'))
+          # This run's own state, beside the state of whichever run is live:
+          # the runs file keeps the last 20 ended runs, the ledger keeps all.
+          recorded = ledger_runs(@instance.chain)[run_id]
+          this = if state.dig('live', 'run_id') == run_id then { 'live' => true }
+                 elsif recorded&.dig('end') then { 'live' => false, 'ended' => recorded['end']['reason'], 'ended_at' => recorded['end']['at'] }
+                 else { 'live' => false, 'ended' => nil, 'note' => 'no run with this ID on this Kairomone' }
+                 end
+          out = out.merge('this_run' => { 'run_id' => run_id }.merge(this))
         end
         out
       end
     end
 
-    def request(run_id:, token:, request_id:, topic:, profession_id: 'generalist', bias_applied: false)
+    # The request carries what steers the cycle (Inv 4, M4): the owner's
+    # direction and, from the current profession, only the focus names and
+    # habit values the shipped vocabularies hold now.
+    def request(run_id:, token:, request_id:, topic:, profession_id: nil, bias_applied: false)
       id!(request_id)
       text!(topic, 'topic', 512)
-      Paths.id!(profession_id)
       raise Error, 'bias_applied must be boolean' unless [true, false].include?(bias_applied)
 
       profession = @instance.profession_status
-      raise Error, 'Profession must match the selected instance profession' unless profession_id == profession[:effective_id]
-      raise Error, 'Profession bias needs selected profession topics' if bias_applied && Array(profession.dig(:learning_bias, :topics)).empty?
+      raise Error, 'Profession must match the current profession' unless profession_id.nil? || profession_id == profession[:effective_id]
+      raise Error, 'Profession bias needs focus subjects in the current profession' if bias_applied && profession.dig(:current, :focus).empty?
 
       locked do
         state = load_state
-        proposal = { 'request_id' => request_id, 'topic' => topic, 'profession_id' => profession_id, 'bias_applied' => bias_applied }
+        proposal = { 'request_id' => request_id, 'topic' => topic, 'profession_id' => profession[:effective_id], 'bias_applied' => bias_applied }
         existing = state['requests'].find { |r| r['request_id'] == request_id }
-        if existing && existing['run_id'] == run_id && existing['request'].reject { |k, _| k == 'companion' } == proposal && existing['state'] == 'queued'
+        if existing && existing['run_id'] == run_id && existing['request'].reject { |k, _| %w[companion context].include?(k) } == proposal && existing['state'] == 'queued'
           step!(state, run_id, token)
           next public_state(state).merge('preserved' => true, 'kairomone' => @instance.address)
         end
@@ -132,6 +139,8 @@ module Kairomone
 
         snapshot = @instance.companion_status[:companion]
         proposal['companion'] = { 'revision' => snapshot['revision'], 'direction' => snapshot['direction'] }
+        proposal['context'] = { 'direction' => snapshot['direction'],
+                                'profession' => profession[:current].slice(:focus, :habits).transform_keys(&:to_s) }
         live['requests'] = total
         live['biased'] = biased
         state['queue'] = proposal.merge('run_id' => run_id)
@@ -177,7 +186,14 @@ module Kairomone
           raise Error, "#{e.message}. Run #{run_id} has ended."
         end
         save(claimed)
-        public_state(claimed).merge('claim_token' => claim_token, 'kairomone' => @instance.address)
+        # The claim is saved and counted: its token reaches the worker even if
+        # the status around it cannot be read.
+        out = begin
+          public_state(claimed).merge('kairomone' => @instance.address)
+        rescue StandardError => e
+          { 'status_error' => e.message }
+        end
+        out.merge('claim_token' => claim_token)
       end
     end
 
@@ -246,6 +262,7 @@ module Kairomone
         entry['result'] = result
         state['last_result'] = result
         state['active_claim'] = nil
+        save(state) # the cycle is complete whatever recording the run's end does next
         conclude!(state)
         save(state)
         result.merge('kairomone' => @instance.address)
@@ -702,11 +719,13 @@ module Kairomone
     def growth_write!(layer, id, raw)
       with_lock do
         ensure_writable!(layer)
+        no_room = 'No room for this cycle: an individual holds at most 1,000 L1 and 1,000 L2 entries'
         if layer == 'L2'
           relative = "context/#{L2_SESSION}/#{id}/#{id}.md"
           if File.exist?(Paths.checked(root, relative))
             raise Error, 'A different growth evidence entry already exists; manual recovery required' unless Paths.read(root, relative) == raw.b
           else
+            raise Error, no_room if observation_entries.length >= MAX_ENTRIES
             write_l2_raw!(id, raw)
           end
           next { success: true }
@@ -714,9 +733,13 @@ module Kairomone
         relative = "knowledge/#{id}/#{id}.md"
         if File.exist?(Paths.checked(root, relative))
           raise Error, 'A different growth knowledge entry already exists; manual recovery required' unless Paths.read(root, relative) == raw.b
-          recorded = recorded?(id, Digest::SHA256.hexdigest(raw), chain)
+          hash = Digest::SHA256.hexdigest(raw)
+          # The file landed and its record did not: the retry completes the record.
+          knowledge_provider.record_existing!(id, raw, 'Kairomone growth cycle commit (retry)') unless recorded?(id, hash, chain)
+          recorded = recorded?(id, hash, chain)
           next { success: recorded, recorded_on_chain: recorded, preserved: true }
         end
+        raise Error, no_room if entry_ids('knowledge').length >= MAX_ENTRIES
         before = chain
         raise Error, "Cannot write knowledge: dedicated ledger is #{before.load_state}" unless %i[absent readable].include?(before.load_state)
         BodyHistory.close!(before, -> { chain })

@@ -102,11 +102,12 @@ when declared, limits claims for the whole host. The full procedure is
   ended one without the owner's words.
 - To learn at an interval, after `run_start` use Claude Code's `/loop` with a recipe that names the
   Kairomone, the run and the token, for example
-  `/loop 30m Kairomone growth tick: kairomone=<listing_id> run_id=<run_id> token=<token>. Call kairomone_growth run_status first; if the run is not live, report it and ask the owner to end this loop; otherwise do one cycle as in bounded-growth.md.`
-  Each tick calls `run_status` first; when the run is not live, it only reports and asks the owner to end
+  `/loop 30m Kairomone growth tick: kairomone=<listing_id> run_id=<run_id> token=<token>. Call kairomone_growth run_status with this kairomone and run_id first; if this_run.live is false, report this_run.ended and ask the owner to end this loop; otherwise do one cycle as in bounded-growth.md.`
+  Each tick calls `run_status` with its `run_id` first; when `this_run.live` is false, it only reports and asks the owner to end
   the loop. The loop lasts only while this session is open.
-- One cycle: `run_status` → `request` (a fresh `request_id`, the topic, `profession_id` = the effective
-  profession from `kairomone_profession list`) → `claim` (`lease_seconds: 900`) → research → `heartbeat`
+- One cycle: `run_status` → `request` (a fresh `request_id` and the topic; the request carries the owner's
+  direction and the current profession's focus and habits, which steer the research) → `claim`
+  (`lease_seconds: 900`) → research → `heartbeat`
   → `commit`, or `fail` with an honest reason. A claim is admitted only while the run's claims are fewer
   than its count and before its end time; a lease never runs past the end time.
 - A run ends at the owner's stop (`run_stop`: any session, no token), at its end time, when its count is
@@ -160,6 +161,25 @@ when declared, limits claims for the whole host. The full procedure is
 - A commit refused for a malformed field can be corrected and sent again on the same claim while the lease
   remains and the run is live. After commit, report the topic, the outcome and the run's
   `remaining_cycles` (or its end time).
+
+## Creating, profile, profession
+
+- A new Kairomone: draft its profile (name, kind, kind_label, appearance, personality, voice, interests) and a
+  first profession (a template from `kairomone_profession templates`, or a drafted one whose `focus` is up to
+  8 subject IDs from `kairomone_profession subjects` and whose `habits` take one value each for sources,
+  depth, reflection and stance). Draw from `kairomone_profile material` (the host instruction mode, read
+  only), host L2 read with the host's own tools, the owner's free text or checkboxes, or a character starter.
+  Every Kairomone is an anthropomorphised, cute character of its kind (animal, plant, insect, human,
+  imaginary creature, stone, angel, monster). Show both to the owner in full; only when they accept them in
+  the conversation call `kairomone_create(kairomone:, profile:, profession:, material_kind:)`.
+- A changed profile — a new name included — is `kairomone_profile propose`, shown in full, then `accept`
+  with the proposal only after the owner accepts it. Proposals change nothing; `proposals` shows them all.
+- At levels 10, 30, 100, 300 and 600 a branch is due (`kairomone_profession status`): offer exactly three
+  professions derived from the current one (`offer`), show all three, and `choose` only the one the owner
+  picks; if none fits, offer three new ones. A profession changes what and how the Kairomone learns, never
+  what it may do.
+- Stages follow the level: egg 卵 (1–4), hatchling 幼体 (5–19), young 若者 (20–99), adult 成体 (100–499),
+  legend 伝説 (500–999).
 
 ## Status, profession, backup
 

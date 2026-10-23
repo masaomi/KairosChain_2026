@@ -14,7 +14,10 @@ require_relative 'templates/skillsets/kairomone/test/legacy_fixture'
 # personality stay in force), on a host with L0 so a run can start. A restore
 # makes a separate, writable listed twin (Inv 1, M15) instead of a read-only
 # copy; a move to a fresh host copies the archive key. Direction is captured
-# per request inside an owner-started run (Inv 2, M6).
+# per request inside an owner-started run (Inv 2, M6). Settings outputs return
+# the resolved values; their history comes only from the explicit history
+# command (M4), and each direction or personality change is also recorded on
+# the ledger as kairomone_companion (M5).
 class KairomoneCompanionTest < Minitest::Test
   def setup
     @host = Dir.mktmpdir('kairomone-companion-')
@@ -44,7 +47,10 @@ class KairomoneCompanionTest < Minitest::Test
     assert_equal 'Named Kairomon', changed[:companion]['display_name']
     assert_equal before, @store.progression_status
     assert_equal profile, File.binread(File.join(@store.root, 'profile.json'))
-    assert_equal 1, changed[:companion]['history'].length
+    refute changed[:companion].key?('history'), 'history only on request'
+    assert_equal 1, @store.companion_history[:history].length
+    audit = Kairomone::Records.of_type(@store.chain, 'kairomone_companion')
+    assert_equal ['direction'], audit.map { |r| r['field'] }
     assert @store.configure_companion(request_id: 'rename', expected_revision: 0, display_name: 'Named Kairomon', direction: { 'preset' => 'research', 'text' => 'Read primary sources' })[:preserved]
     assert_raises(Kairomone::Error) { @store.configure_companion(request_id: 'rename', expected_revision: 0, display_name: 'Other') }
     assert_raises(Kairomone::Error) { @store.configure_companion(request_id: 'stale', expected_revision: 0, display_name: 'Other') }
