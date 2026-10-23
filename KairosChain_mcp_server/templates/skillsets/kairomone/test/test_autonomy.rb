@@ -35,52 +35,55 @@ module AutonomyTests
     Dir.mktmpdir('kairomone-autonomy-test-') do |host|
       KairosMcp.data_dir = host
       KairosMcp::Initializer.run(quiet: true)
-      instance = Kairomone::Instance.new(host_root: host)
+      instance = Kairomone::Instance.new(host_root: host, bind: false)
       instance.init(dot_id: 'fixture', display_name: 'Fixture')
       now = Time.now.utc
       autonomy = Kairomone::Autonomy.new(instance: instance, clock: -> { now })
-      state = autonomy.configure(max_cycles: 10, already_used: 3)
-      check('configure preserves stopped previous3 remaining7') { state['stopped'] && state['used_cycles'] == 3 && state['remaining_cycles'] == 7 && state['queue'].nil? }
-      check('immutable cap') { refused { autonomy.configure(max_cycles: 9, already_used: 3) } }
-      check('explicit resume required') { refused { autonomy.request(request_id: 'one', topic: 'Evidence', already_used: 3) } }
-      autonomy.request(request_id: 'one', topic: 'Evidence', already_used: 3, resume: true)
-      token = autonomy.claim(worker_id: 'test_worker', lease_seconds: 100)['claim_token']
-      check('claim consumes attempt') { autonomy.status['used_cycles'] == 4 }
-      check('parallel second claim refused') { refused { autonomy.claim(worker_id: 'other_worker') } }
+      check('no step before the owner starts a run') { refused { autonomy.request(run_id: 'run_20261013T120000Z_00000000', token: '0' * 48, request_id: 'one', topic: 'Evidence') } }
+      check('a run needs a stop condition') { refused { autonomy.run_start(owner_words: 'Grow') } }
+      run = autonomy.run_start(owner_words: 'Grow twelve times', cycles: 12)
+      step = { run_id: run[:run_id], token: run[:token] }
+      check('start recorded on the ledger before the run is live') { Kairomone::Records.of_type(instance.chain, 'kairomone_run').map { |r| r['action'] } == ['start'] && autonomy.status['live'] }
+      check('a second run of the same Kairomone refused while one is live') { refused { autonomy.run_start(owner_words: 'Another', cycles: 1) } }
+      check('a step without the token refused') { refused { autonomy.request(run_id: run[:run_id], token: 'f' * 48, request_id: 'one', topic: 'Evidence') } }
+      autonomy.request(**step, request_id: 'one', topic: 'Evidence')
+      token = autonomy.claim(**step, worker_id: 'test_worker', lease_seconds: 100)['claim_token']
+      check('claim counts toward the run') { autonomy.status['used_cycles'] == 1 }
+      check('parallel second claim refused') { refused { autonomy.claim(**step, worker_id: 'other_worker') } }
       e = evidence(now)
       bad = Marshal.load(Marshal.dump(e)); bad['sources'][0]['excerpt_sha256'] = '0' * 64
-      check('wrong source digest refused without writes') { refused { autonomy.commit(claim_token: token, evidence: bad) } && instance.list_knowledge[:items].empty? }
+      check('wrong source digest refused without writes') { refused { autonomy.commit(**step, claim_token: token, evidence: bad) } && instance.list_knowledge[:items].empty? }
       bad = Marshal.load(Marshal.dump(e)); bad['execute'] = 'delete everything'
-      check('unknown command field refused') { refused { autonomy.commit(claim_token: token, evidence: bad) } }
+      check('unknown command field refused') { refused { autonomy.commit(**step, claim_token: token, evidence: bad) } }
       %w[https://localhost./source https://foo.internal./source https://foo.local./source https://foo.localhost./source https://127.0.0.1./source].each do |url|
         bad = Marshal.load(Marshal.dump(e)); bad['sources'][0]['url'] = url
-        check("trailing-dot private source rejected: #{url}") { refused { autonomy.commit(claim_token: token, evidence: bad) } && instance.list_knowledge[:items].empty? }
+        check("trailing-dot private source rejected: #{url}") { refused { autonomy.commit(**step, claim_token: token, evidence: bad) } && instance.list_knowledge[:items].empty? }
       end
-      result = autonomy.commit(claim_token: token, evidence: e)
+      result = autonomy.commit(**step, claim_token: token, evidence: e)
       check('actual canonical L1 plus L2 writes') { result['state'] == 'completed' && instance.list_knowledge[:items].length == 1 && instance.observation_entries.length == 1 && instance.read_knowledge(id: result['l1_id'])[:recorded] }
-      check('retry idempotent') { autonomy.commit(claim_token: token, evidence: e)['preserved'] && instance.observation_entries.length == 1 }
-      check('source injection never changes cap or L0') { autonomy.status['max_cycles'] == 10 && instance.status[:integrity][:host_l0][:state] == 'unchanged' }
-      autonomy.request(request_id: 'two', topic: 'Dead worker', already_used: 3)
-      token = autonomy.claim(worker_id: 'test_worker', lease_seconds: 2)['claim_token']
+      check('intent recorded before the entries') { Kairomone::Records.of_type(instance.chain, 'kairomone_growth_completed').map { |r| r['request_id'] } == ['one'] }
+      check('retry idempotent') { autonomy.commit(**step, claim_token: token, evidence: e)['preserved'] && instance.observation_entries.length == 1 }
+      check('source injection never changes the run or L0') { autonomy.status['max_cycles'] == 12 && instance.status[:integrity][:host_l0][:state] == 'unchanged' }
+      autonomy.request(**step, request_id: 'two', topic: 'Dead worker')
+      token = autonomy.claim(**step, worker_id: 'test_worker', lease_seconds: 2)['claim_token']
       now += 3
       check('expired claim offline') { !autonomy.status['worker_online'] }
-      check('expired commit rejected') { refused { autonomy.commit(claim_token: token, evidence: evidence(now)) } }
-      check('expiry consumes attempt and never requeues') { autonomy.status['used_cycles'] == 5 && autonomy.status['queue'].nil? && autonomy.status['last_result']['state'] == 'expired' }
-      autonomy.request(request_id: 'three', topic: 'Stop', already_used: 3)
-      token = autonomy.claim(worker_id: 'test_worker')['claim_token']
-      autonomy.stop(reason: 'User stop')
-      check('stop rejects commit') { refused { autonomy.commit(claim_token: token, evidence: evidence(now)) } && instance.observation_entries.length == 1 }
-      state = JSON.parse(File.read(File.join(instance.root, 'growth/state.json')))
-      restored = Kairomone::Autonomy.restore_state(state)
-      check('restore stopped budget preserved') { restored['stopped'] && restored['used_cycles'] == 6 && restored['active_claim'].nil? }
-      corrupt = Marshal.load(Marshal.dump(state)); corrupt['used_cycles'] = 3
-      check('forged budget count rejected') { refused { Kairomone::Autonomy.validate_backup_state!(corrupt) } }
-      %w[four five six seven].each do |id|
-        autonomy.request(request_id: id, topic: 'Bound', already_used: 3, resume: true)
-        t = autonomy.claim(worker_id: 'test_worker')['claim_token']
-        autonomy.fail(claim_token: t, reason: 'Fixture failure')
+      check('expired commit rejected') { refused { autonomy.commit(**step, claim_token: token, evidence: evidence(now)) } }
+      check('expiry counts the claim and never requeues') { autonomy.status['used_cycles'] == 2 && autonomy.status['queue'].nil? && autonomy.status['last_result']['state'] == 'expired' }
+      (3..12).each do |n|
+        autonomy.request(**step, request_id: "cycle_#{n}", topic: "Bound #{n}")
+        t = autonomy.claim(**step, worker_id: 'test_worker')['claim_token']
+        autonomy.fail(**step, claim_token: t, reason: 'Fixture failure')
       end
-      check('hardcap includes failures and old attempts') { autonomy.status['used_cycles'] == 10 && refused { autonomy.request(request_id: 'eight', topic: 'No more', already_used: 3, resume: true) } }
+      check('more than ten cycles without a policy; the count ends the run') { !autonomy.status['live'] && autonomy.status['ended_runs'].first['claims'] == 12 && autonomy.status['ended_runs'].first['reason'] == 'count_reached' }
+      check('nothing revives an ended run') { refused { autonomy.request(**step, request_id: 'thirteen', topic: 'No more') } }
+      run = autonomy.run_start(owner_words: 'Stop me', cycles: 3)
+      step = { run_id: run[:run_id], token: run[:token] }
+      autonomy.request(**step, request_id: 'stopped', topic: 'Stop')
+      token = autonomy.claim(**step, worker_id: 'test_worker')['claim_token']
+      autonomy.run_stop(reason: 'User stop')
+      check('the owner\'s stop rejects commit') { refused { autonomy.commit(**step, claim_token: token, evidence: evidence(now)) } && instance.observation_entries.length == 1 }
+      check('the stop is on the ledger') { Kairomone::Records.of_type(instance.chain, 'kairomone_run').select { |r| r['action'] == 'end' }.map { |r| r['reason'] }.last == 'owner_stop' }
     end
   end
 end

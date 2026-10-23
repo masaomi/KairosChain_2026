@@ -202,17 +202,18 @@ module Kairomone
     end
 
     # The schema-1 profile of an individual made before 0.8 (read only), or
-    # the current 0.8 profile as a view.
+    # the current 0.8 profile as a view. Without a current profile (its pieces
+    # lost or not yet accepted) the individual is an egg under its listing ID.
     def profile
       legacy = legacy_profile
       current = current_profile_piece
       return legacy if legacy && current.nil?
-      raise Error, 'Run kairomone_init first' unless current || legacy
+      raise Error, 'Run kairomone_init first' unless initialized?
 
       piece = current ? current[:piece] : {}
-      name = piece['name'] || legacy&.fetch('display_name')
+      name = piece['name'] || legacy&.fetch('display_name') || listing_id
       { 'schema_version' => 2, 'identity' => identity, 'listing_id' => listing_id, 'name' => name,
-        'dot_id' => identity, 'display_name' => name, 'sha256' => current&.fetch(:sha256) }
+        'dot_id' => identity, 'display_name' => name, 'sha256' => current&.fetch(:sha256), 'profile_present' => !current.nil? }
         .merge(piece.slice(*Profile::FIELDS - %w[name]))
     end
 
