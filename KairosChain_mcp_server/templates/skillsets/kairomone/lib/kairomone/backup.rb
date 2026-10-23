@@ -19,11 +19,14 @@ module Kairomone
       unless File.exist?(path) || File.symlink?(path)
         return nil unless create
 
+        # Made under a lock and renamed into place whole: the key path never
+        # holds a partial key, and a concurrent first backup finds the one key.
         Paths.mkdir(host_root, File.dirname(PATH))
-        begin
-          File.open(path, File::WRONLY | File::CREAT | File::EXCL, 0o600) { |f| f.write(SecureRandom.random_bytes(32)); f.flush; f.fsync }
-        rescue Errno::EEXIST
-          nil # another backup made it first
+        lock = Paths.checked(host_root, "#{File.dirname(PATH)}/.lock")
+        Paths.regular_file!(lock, optional: true, limit: 1024)
+        File.open(lock, File::RDWR | File::CREAT, 0o600) do |io|
+          io.flock(File::LOCK_EX)
+          Paths.write(host_root, PATH, SecureRandom.random_bytes(32)) unless File.exist?(path) || File.symlink?(path)
         end
       end
       key = Paths.read(host_root, PATH, limit: 32)
@@ -101,6 +104,8 @@ module Kairomone
           end
           key = ArchiveKey.load(host_root, create: true)
           manifest = self.class.manifest_hash(files)
+          # identity and listing_id are informational: the signature covers the
+          # manifest only, and restore reads the identity from the files.
           archive = { 'format' => ARCHIVE_FORMAT, 'version' => 2, 'created_at' => Time.now.utc.iso8601,
                       'identity' => identity(ledger), 'listing_id' => listing_id,
                       'scope' => BACKUP_SCOPE, 'excluded' => BACKUP_EXCLUDED, 'files' => files, 'manifest_sha256' => manifest,
@@ -141,17 +146,20 @@ module Kairomone
     # individual (its twin) under target_id. Only an archive signed with this
     # host's key restores this way.
     def restore_backup(file:, target_id:)
+      raise Error, "Name a target_id: this backup's Kairomone (#{identity}) is already listed, so its copy is listed under another ID" if target_id.nil?
       Paths.id!(target_id)
       raise Error, 'Restored targets are read-only' if @restored
       @host.restore(read_archive_file(file, inbox: false), listing_id: target_id, trust: :signed)
     end
 
-    # Restores an archive the owner placed in <data_dir>/kairomone-inbox/,
-    # listed under its identity, which must be the expected one.
-    def restore_new(file:, dot_id:)
+    # Restores an archive the owner placed in <data_dir>/kairomone-inbox/. Its
+    # identity must be the expected one; it is listed under that identity, or
+    # under target_id when the identity is already listed.
+    def restore_new(file:, dot_id:, target_id: nil)
       Paths.id!(dot_id)
+      Paths.id!(target_id) if target_id
       raise Error, 'Restored inspection targets cannot activate another instance' if @restored
-      result = @host.restore(read_archive_file(file, inbox: true), expected_identity: dot_id, trust: :signed)
+      result = @host.restore(read_archive_file(file, inbox: true), expected_identity: dot_id, listing_id: target_id, trust: :signed)
       @root ||= result[:path]
       result
     end
@@ -314,7 +322,10 @@ module Kairomone
         signed = ArchiveKey.valid?(archive, ArchiveKey.load(host_root))
         if !signed && trust == :signed
           raise Error, 'This archive is not signed with this host\'s archive key (a 0.6.1 backup, another machine\'s, or one signed by a lost key). ' \
-                       'Restore it in your own terminal, where its free text is shown first: ruby .kairos/skillsets/kairomone/scripts/kairomone.rb backup restore --file NAME'
+                       'The owner restores it in their own terminal, where its free text is shown first: for a file in kairomone-inbox/, ' \
+                       'ruby .kairos/skillsets/kairomone/scripts/kairomone.rb backup restore-new --file NAME --dot-id IDENTITY; for a file in ' \
+                       'a Kairomone\'s backups/, ... backup restore --kairomone LISTING_ID --file NAME. Add --target-id NEW_ID when the ' \
+                       'identity is already listed.'
         end
         listed = nil
         missing = []
@@ -345,10 +356,11 @@ module Kairomone
           listed
         end
         restored = Instance.new(host_root: host_root, root: path)
-        l0 = restored.status[:integrity][:host_l0]
+        integrity = restored.status[:integrity]
+        l0 = integrity[:host_l0] || {}
         outcome = { success: true, restored: true, active: true, kairomone: restored.address, path: path,
                     manifest_sha256: archive['manifest_sha256'], archive_version: archive['version'],
-                    trust: signed ? 'signed' : 'owner_confirmed', missing: missing, integrity: restored.status[:integrity],
+                    trust: signed ? 'signed' : 'owner_confirmed', missing: missing, integrity: integrity,
                     warning: 'Backups are unencrypted and may contain private user-authored text. The archived L0 baseline is kept; host L0 is not installed or modified.' }
         outcome[:l0_warning] = "Current host L0 comparison is #{l0[:state]}; growth needs the owner's re-baseline at a terminal" unless l0[:state] == 'unchanged'
         outcome
@@ -363,8 +375,14 @@ module Kairomone
     def restore_summary(archive, missing)
       companion = companion_status[:companion]
       chats = verified_chat_entries.map { |e| e.description.to_s }
-      owned = knowledge_entries.reject { |e| e['id'].start_with?('growth_') }.map { |e| "L1 #{e['title']}" } +
-              observation_entries.reject { |e| e['id'].start_with?('growth_') }.map { |e| "L2 #{e['title']}" }
+      # An entry is a growth entry only when a recorded cycle names it (its
+      # ledger intent, or a completed request of the 0.6 growth state); an ID
+      # alone does not take an entry off this screen.
+      growth = Records.of_type(chain, 'kairomone_growth_completed').flat_map { |r| [r['l1_id'], r['l2_id']] }
+      legacy = autonomy.send(:legacy_state)
+      growth += legacy['requests'].values.select { |r| r['state'] == 'completed' }.flat_map { |r| [r.dig('result', 'l1_id'), r.dig('result', 'l2_id')] } if legacy
+      owned = knowledge_entries.reject { |e| growth.include?(e['id']) }.map { |e| "L1 #{e['title']}" } +
+              observation_entries.reject { |e| growth.include?(e['id']) }.map { |e| "L2 #{e['title']}" }
       lineage = Records.of_type(chain, 'kairomone_lineage').map { |r| "#{r['kind']} from #{Array(r['sources']).map { |s| s['identity'] }.join(' + ')}" }
       p = profile
       lines = ["Archive version #{archive['version']}, manifest #{archive['manifest_sha256'][0, 16]}…, not signed by this host",

@@ -26,7 +26,15 @@ module Kairomone
     def admit!
       with_lock do
         policy = read_policy
-        counts = read_counter
+        counts = begin
+          read_counter
+        rescue PolicyRefusal
+          raise if policy
+
+          # No policy: claims are unlimited, so an unreadable counter refuses
+          # nothing; it is left as it is (rewriting it could lower the count).
+          next { counted: false, window_used: nil, note: 'The host claim counter is unreadable and was left as it is' }
+        end
         now = @clock.call.utc
         if policy
           used = counts.fetch(key(policy['window'], now), 0)

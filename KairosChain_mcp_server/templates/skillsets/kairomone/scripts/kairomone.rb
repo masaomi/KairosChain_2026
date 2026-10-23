@@ -25,7 +25,6 @@ parser = OptionParser.new do |p|
   p.on('--content TEXT') { |v| options[:content] = v }
   p.on('--id ID') { |v| options[:id] = v }
   p.on('--file BASENAME') { |v| options[:file] = v }
-  p.on('--from-inbox', 'restore: the file is in the host kairomone-inbox, not this Kairomone\'s backups directory') { options[:from_inbox] = true }
   p.on('--target-id ID', 'restore: listing ID for the restored Kairomone') { |v| options[:target_id] = v }
   p.on('--instance ID', 'status: a listed Kairomone, or a 0.6 read-only recovery copy') { |v| options[:instance] = v }
   p.on('--owner-words TEXT') { |v| options[:owner_words] = v }
@@ -102,15 +101,12 @@ begin
   end
   raise Kairomone::Error, '--json-stdin is companion-only' if options[:json_stdin]
   growth = -> { store.call.autonomy }
-  result = case [command, subcommand]
+  reads = [['status', nil], ['knowledge', 'get'], ['knowledge', 'list'], ['profession', 'list'], ['growth', 'status'], ['backup', 'verify']]
+  result = begin
+    case [command, subcommand]
            when ['list', nil] then { success: true, kairomones: host.summaries }
            when ['init', nil] then Kairomone::Instance.new(bind: false).init(dot_id: options[:dot_id], display_name: options[:display_name])
-           when ['status', nil]
-             begin
-               store.call.status(render_html: options[:render_html] == true)
-             rescue Kairomone::AmbiguousError
-               { success: true, several: true, kairomones: host.summaries, note: 'Name one with --kairomone ID' }
-             end
+           when ['status', nil] then store.call.status(render_html: options[:render_html] == true)
            when ['observe', nil] then store.call.observe(title: options[:title], content: options[:content])
            when ['knowledge', 'create'] then store.call.create_knowledge(id: options[:id], title: options[:title], content: options[:content])
            when ['knowledge', 'get'] then store.call.read_knowledge(id: options[:id])
@@ -138,7 +134,9 @@ begin
              begin
                file = options[:file]
                raise Kairomone::Error, 'Backup filename must be a basename ending in .kairomone.json' unless file.is_a?(String) && Kairomone::Paths::BACKUP_NAME.match?(file)
-               bytes = if subcommand == 'restore' && !options[:from_inbox]
+               # restore: a file in the named Kairomone's backups/; restore-new: a
+               # file in the host kairomone-inbox/, checked against --dot-id.
+               bytes = if subcommand == 'restore'
                          Kairomone::Paths.read(store.call.root, "backups/#{file}", limit: Kairomone::Instance::ARCHIVE_LIMIT)
                        else
                          Kairomone::Paths.read(host.host_root, "kairomone-inbox/#{file}", limit: Kairomone::Instance::ARCHIVE_LIMIT)
@@ -175,6 +173,11 @@ begin
              end
            else raise Kairomone::Error, parser.to_s
            end
+  rescue Kairomone::AmbiguousError
+    raise unless reads.include?([command, subcommand])
+
+    { success: true, several: true, kairomones: host.summaries, note: 'Several Kairomones live here; name one with --kairomone ID' }
+  end
   puts JSON.pretty_generate(result)
   exit 1 if result[:success] == false || result[:error]
 rescue StandardError => e

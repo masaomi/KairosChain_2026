@@ -22,8 +22,8 @@ owner ─ this session ─ kairomone_* tools ─┬─ .kairos/kairomone/       
                                                                                ledger, growth/runs.json)
 ```
 
-`kairomone_list` shows them. Every tool takes `kairomone: <listing_id>`. While the host lists exactly one,
-it may be omitted; with several, every write must name one (a write without it is refused) and a read
+`kairomone_list` shows them. Every tool that acts on one Kairomone takes `kairomone: <listing_id>`. While the
+host lists exactly one, it may be omitted; with several, every write must name one (a write without it is refused) and a read
 without it returns the list. Each write result says which Kairomone it changed.
 
 ## Standing rules
@@ -95,7 +95,8 @@ when declared, limits claims for the whole host. The full procedure is
 
 - Start a run only on the owner's words in this session, and pass those words:
   `kairomone_growth(command: "run_start", kairomone:, owner_words: "<their words>", cycles: N, end_at:
-  "<ISO 8601 with zone>")` (either stop condition, or both). It returns `run_id` and `token`. The token is
+  "<ISO 8601 with zone, e.g. 2026-10-24T00:00:00+02:00>")` (either stop condition, or both; a time without a
+  zone is refused). It returns `run_id` and `token`. The token is
   this session's handle for the run: every `request`, `claim`, `heartbeat`, `commit` and `fail` carries
   `run_id` and `token`. Never start a run on your own initiative, and never start a new one to continue an
   ended one without the owner's words.
@@ -169,12 +170,17 @@ when declared, limits claims for the whole host. The full procedure is
 - `kairomone_backup(command: "create")` then `verify` with the returned basename. A backup is signed with
   this host's archive key (`kairomone-keys/archive.key`, never inside a backup). Backups are unencrypted
   and may contain private text; do not send them anywhere unless the owner asks.
-- `kairomone_backup(command: "restore", file:, target_id:)` restores a backup as a new Kairomone (a twin
-  under `target_id` when its identity is already listed), only when the owner asks, and only an archive
-  this host signed. Any other archive — a 0.6.1 backup, another machine's — restores only in the owner's
-  own terminal (`scripts/kairomone.rb backup restore-new --file NAME --dot-id ID`), which shows its free
-  text and chat summaries and waits for the owner to type a code. Never run that restore yourself, not
-  through a pseudo-terminal either. A restore ends the restored Kairomone's live runs.
+- Restores run only when the owner asks, and here only for an archive this host signed:
+  `kairomone_backup(command: "restore", kairomone:, file:, target_id:)` takes a file in that Kairomone's
+  backups directory and lists the copy as a twin under `target_id`; `restore_new` takes a file the owner
+  placed in `kairomone-inbox/`, the identity it must hold (`dot_id`), and `target_id` when that identity is
+  already listed. Any other archive — a 0.6.1 backup, another machine's — restores only in the owner's own
+  terminal, which shows its free text and chat summaries and waits for them to type a code: hand them
+  `ruby .kairos/skillsets/kairomone/scripts/kairomone.rb backup restore-new --file NAME --dot-id IDENTITY`
+  (for a file in kairomone-inbox/) or `... backup restore --kairomone LISTING_ID --file NAME --target-id NEW_ID`
+  (for a file in a Kairomone's backups/), adding `--target-id` when the identity is already listed. Never run
+  that restore yourself, not through a pseudo-terminal either. A restore ends the restored Kairomone's live
+  runs.
 
 ## The owner console
 

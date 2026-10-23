@@ -64,7 +64,7 @@ class Kairomone08RegistryTest < Minitest::Test
     store.init(dot_id: 'alpha', display_name: 'Alpha')
     assert store.init(dot_id: 'alpha', display_name: 'Ignored')[:preserved]
     error = assert_raises(Kairomone::Error) { Kairomone::Instance.new(bind: false).init(dot_id: 'beta', display_name: 'Beta') }
-    assert_match(/kairomone_create/, error.message)
+    assert_match(/only a host's first Kairomone, and 1 already live here \(alpha\)/, error.message)
     assert_equal ['alpha'], listing
   end
 
@@ -229,5 +229,40 @@ class Kairomone08RegistryTest < Minitest::Test
     assert_equal 'owner_confirmed', restored['trust']
     assert_equal 1, restored['archive_version']
     assert_equal 'masai_two', restored['listing_id']
+  end
+
+  def test_init_refuses_when_an_unreadable_legacy_directory_exists
+    FileUtils.mkdir_p(File.join(@host, 'kairomone/knowledge'))
+    File.write(File.join(@host, 'kairomone/profile.json'), '{not a profile')
+    assert_empty listing
+    error = assert_raises(Kairomone::Error) { Kairomone::Instance.new(bind: false).init(dot_id: 'fresh', display_name: 'Fresh') }
+    assert_match(/not readable as a Kairomone made before 0.8/, error.message)
+    refute File.exist?(File.join(@host, 'kairomones/fresh'))
+  end
+
+  def test_a_stray_directory_under_kairomones_is_not_listed
+    make('alpha')
+    FileUtils.mkdir_p(File.join(@host, 'kairomones/notes'))
+    assert_equal ['alpha'], listing
+    assert tool(:Observe, 'title' => 'Still one', 'content' => 'The stray directory makes no second individual')['success']
+  end
+
+  def test_status_names_a_listed_kairomone_through_instance_too
+    make('alpha')
+    make('beta')
+    assert_equal 'beta', tool(:Status, 'instance' => 'beta').dig('kairomone', 'listing_id')
+    assert_equal false, tool(:Status, 'instance' => 'beta', 'kairomone' => 'alpha')['success']
+  end
+
+  def test_status_reports_an_unreadable_ledger_of_an_08_individual
+    alpha = make('alpha')
+    alpha.create_knowledge(id: 'note', title: 'Note', content: 'Body')
+    File.write(File.join(alpha.root, 'storage/blockchain.json'), '{broken')
+    status = Kairomone::Instance.new(host_root: @host, root: alpha.root).status
+    assert_equal 'unreadable', status[:integrity][:state], 'the ledger state core reads, not a generic failure'
+    assert_equal 'Identity unavailable: the ledger is unreadable', status[:error]
+    assert_equal 1, status[:integrity][:pending_count], 'the entry whose record cannot be read is listed as pending'
+    assert(status[:integrity][:details].any? { |d| d.include?('Identity unavailable') })
+    assert_equal 'alpha', status[:kairomone][:listing_id]
   end
 end

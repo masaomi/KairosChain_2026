@@ -202,13 +202,12 @@ module Kairomone
         ledger = @instance.chain
         intent = growth_intents(ledger)[request_id]
         raise Error, 'Retry evidence differs from the recorded commit intent' if intent && intent['evidence_sha256'] != digest
-        raise Error, 'Retry evidence differs from the persisted commit intent' if entry['evidence_sha256'] && entry['evidence_sha256'] != digest
 
-        entry['evidence_sha256'] = digest
-        entry['state'] = claim['state'] = 'committing'
-        save(state)
         request = entry['request']
         unless intent
+          # Entries written since the request may have used the room.
+          raise Error, 'No room for this cycle: an individual holds at most 1,000 L1 and 1,000 L2 entries' unless @instance.room_for_cycle?
+
           plan = growth_plan(request, normalized, digest, timestamp)
           intent = { 'type' => 'kairomone_growth_completed', 'request_id' => request_id, 'run_id' => live['run_id'],
                      'created_at' => plan[:created_at], 'evidence_sha256' => digest, 'l1_id' => plan[:id], 'l2_id' => plan[:id],
@@ -216,6 +215,10 @@ module Kairomone
                      'l1_sha256' => Digest::SHA256.hexdigest(plan[:l1_raw]), 'l2_sha256' => Digest::SHA256.hexdigest(plan[:l2_raw]) }
           @instance.growth_record_intent!(intent, plan[:id])
         end
+        # The cycle is committing only once its intent is on the ledger.
+        entry['evidence_sha256'] = digest
+        entry['state'] = claim['state'] = 'committing'
+        save(state)
         plan = growth_plan(request, normalized, digest, intent['created_at'])
         unless Digest::SHA256.hexdigest(plan[:l1_raw]) == intent['l1_sha256'] && Digest::SHA256.hexdigest(plan[:l2_raw]) == intent['l2_sha256']
           raise Error, 'The recorded intent cannot be rebuilt byte for byte; inspect status'
@@ -290,17 +293,14 @@ module Kairomone
     # are shown as archived. Called on the staged copy.
     def end_runs_for_restore!
       state = load_state
+      live_id = state.dig('live', 'run_id')
       ledger_runs(@instance.chain).each do |run_id, r|
         next if r['end']
 
-        append_end!(run_id, 'restored', 'This individual was restored from an archive; its runs ended', claims: state.dig('live', 'claims'))
+        append_end!(run_id, 'restored', 'This individual was restored from an archive; its runs ended',
+                    claims: run_id == live_id ? state.dig('live', 'claims') : nil)
       end
-      if (live = state['live'])
-        state['ended'] << { 'run_id' => live['run_id'], 'started_at' => live['started_at'], 'ended_at' => timestamp,
-                            'reason' => 'restored', 'claims' => live['claims'], 'stop' => live['stop'] }
-      end
-      [state['active_claim'], state['queue']].compact.each { |r| (e = request_entry(state, r['request_id'])) && e['state'] = 'interrupted' }
-      state['live'] = state['queue'] = state['active_claim'] = nil
+      close_state!(state, 'restored')
       state['ended'].each { |run| run['archived'] = true }
       state['ended'] = state['ended'].last(ENDED_KEEP)
       save(state)
@@ -614,12 +614,18 @@ module Kairomone
       value
     end
 
+    # A time with a date, a clock time and an explicit zone: a time without a
+    # zone would be read in the server's zone, which can differ from the
+    # owner's and move the owner's stop condition.
+    ZONED_TIME = /\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})\z/
+
     def parse_time!(value, label)
-      raise Error, "#{label} must be an ISO 8601 time" unless value.is_a?(String)
+      message = "#{label} must be an ISO 8601 time with a zone (for example 2026-10-24T00:00:00+02:00)"
+      raise Error, message unless value.is_a?(String) && ZONED_TIME.match?(value)
 
       Time.iso8601(value).utc
     rescue ArgumentError
-      raise Error, "#{label} must be an ISO 8601 time with a zone (for example 2026-10-24T00:00:00+02:00)"
+      raise Error, message
     end
 
     def id!(id)

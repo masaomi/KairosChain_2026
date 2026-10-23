@@ -171,12 +171,12 @@ class Kairomone08BackupTest < Minitest::Test
     File.write(File.join(inbox, 'foreign.kairomone.json'), JSON.generate(resign(Marshal.load(Marshal.dump(archive)), SecureRandom.random_bytes(32))))
     File.write(File.join(inbox, 'own.kairomone.json'), JSON.generate(archive))
     %w[unsigned foreign].each do |name|
-      result = tool(:Backup, 'command' => 'restore', 'source' => 'inbox', 'file' => "#{name}.kairomone.json", 'target_id' => "#{name}_copy")
+      result = tool(:Backup, 'command' => 'restore_new', 'file' => "#{name}.kairomone.json", 'dot_id' => 'alpha', 'target_id' => "#{name}_copy")
       assert_equal false, result['success'], name
       assert_match(/not signed with this host's archive key/, result['error'])
     end
     assert_equal ['alpha'], listing
-    result = tool(:Backup, 'command' => 'restore', 'source' => 'inbox', 'file' => 'own.kairomone.json', 'target_id' => 'own_copy')
+    result = tool(:Backup, 'command' => 'restore_new', 'file' => 'own.kairomone.json', 'dot_id' => 'alpha', 'target_id' => 'own_copy')
     assert result['success'], result.inspect
     assert_equal %w[alpha own_copy], listing
   end
@@ -218,5 +218,29 @@ class Kairomone08BackupTest < Minitest::Test
       assert_includes restored, '"trust": "owner_confirmed"'
       assert_equal ['alpha'], Kairomone::Host.new(host_root: other).listing.map { |l| l[:listing_id] }
     end
+  end
+
+  def test_the_terminal_summary_shows_entries_named_like_growth_that_no_cycle_recorded
+    alpha = make('alpha')
+    alpha.create_knowledge(id: 'growth_hidden', title: 'Text the archive author wants unseen', content: 'Body')
+    one = alpha.create_backup
+    archive = archive_of(one)
+    archive.delete('signature')
+    shown = nil
+    Kairomone::Host.new.restore(JSON.generate(archive), trust: ->(lines) { shown = lines; false }, listing_id: 'copy') rescue nil
+    assert(shown.any? { |l| l.include?('Text the archive author wants unseen') }, shown.inspect)
+  end
+
+  def test_restore_new_takes_a_target_id_when_the_identity_is_listed
+    alpha = make('alpha')
+    backup = alpha.create_backup
+    FileUtils.mkdir_p(File.join(@host, 'kairomone-inbox'))
+    FileUtils.cp(backup[:path], File.join(@host, 'kairomone-inbox', backup[:file]))
+    refused = tool(:Backup, 'command' => 'restore_new', 'file' => backup[:file], 'dot_id' => 'alpha')
+    assert_match(/already listed/, refused['error'])
+    restored = tool(:Backup, 'command' => 'restore_new', 'file' => backup[:file], 'dot_id' => 'alpha', 'target_id' => 'alpha_copy')
+    assert restored['success'], restored.inspect
+    assert_equal({ 'listing_id' => 'alpha_copy', 'identity' => 'alpha' }, restored['kairomone'])
+    assert_match(/Name a target_id/, tool(:Backup, 'kairomone' => 'alpha', 'command' => 'restore', 'file' => backup[:file])['error'])
   end
 end

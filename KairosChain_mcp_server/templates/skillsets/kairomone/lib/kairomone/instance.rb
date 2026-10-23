@@ -167,6 +167,8 @@ module Kairomone
     def identity(ledger = nil)
       legacy = legacy_profile
       return legacy['dot_id'] if legacy
+      # It never changes, so it is read from the ledger once per directory.
+      return @identity_of[1] if @identity_of && @identity_of[0] == @root
 
       ledger ||= chain
       raise Error, "Identity unavailable: the ledger is #{ledger.load_state}" unless ledger.load_state == :readable
@@ -174,6 +176,7 @@ module Kairomone
       record = Records.of_type(ledger, 'kairomone_identity').first
       raise Error, 'Not a Kairomone: no identity on its ledger' unless record && Paths::ID.match?(record['identity'].to_s)
 
+      @identity_of = [@root, record['identity']]
       record['identity']
     end
 
@@ -181,11 +184,13 @@ module Kairomone
     def initial_baseline(ledger = nil)
       legacy = legacy_profile
       return legacy['host_l0_baseline'] if legacy
+      return @baseline_of[1] if @baseline_of && @baseline_of[0] == @root
 
       ledger ||= chain
       record = Records.of_type(ledger, 'kairomone_baseline').first
       raise Error, 'L0 baseline unavailable: no baseline on the ledger' unless record && baseline_map?(record['files'], allow_empty: true)
 
+      @baseline_of = [@root, record['files']]
       record['files']
     end
 
@@ -326,8 +331,14 @@ module Kairomone
       result[:initialized] = true
       ensure_store_dirs!
       ledger = chain
-      result[:profile] = profile
-      result[:kairomone] = { listing_id: listing_id, identity: identity(ledger), legacy_slot: legacy_slot? }
+      begin
+        result[:profile] = profile
+        result[:kairomone] = { listing_id: listing_id, identity: identity(ledger), legacy_slot: legacy_slot? }
+      rescue Error => e
+        # A ledger that cannot be read still gets its integrity report below.
+        result[:kairomone] = { listing_id: legacy_slot? ? nil : File.basename(root), identity: nil, legacy_slot: legacy_slot? }
+        identity_error = e.message
+      end
       knowledge = knowledge_entries(ledger)
       observations = observation_entries
       missing_ids = ledger_knowledge_ids(ledger) - knowledge.map { |entry| entry['id'] }
@@ -337,6 +348,7 @@ module Kairomone
       details = ['L1 and L2 are read through dedicated canonical providers. Host knowledge_get does not search this instance.',
                  'The chain check is local consistency, not independent authenticity. L2 observations are not chain-recorded.']
       details << 'L1/ledger correspondence is incomplete: content is missing or has no matching current canonical ledger hash.' if pending.positive?
+      details << identity_error if identity_error
       l0 = l0_fingerprints
       begin
         effective = effective_l0_baseline(ledger)
@@ -358,6 +370,8 @@ module Kairomone
                              block_count: ledger.chain.length, latest_hash: ledger.latest_block&.hash,
                              pending_count: pending, details: details,
                              host_l0: { state: l0_state, scope: L0_FILES, baseline: expected, current: l0, baseline_source: baseline_source } }
+      integrity_done = true
+      raise Error, identity_error if identity_error
       result[:growth] = autonomy.status
       result[:autonomy] = result[:growth]
       result[:progression] = progression_status(ledger)
@@ -368,8 +382,12 @@ module Kairomone
       result
     rescue StandardError => e
       raise unless defined?(result) && result
-      result[:integrity] = { state: 'unreadable', valid: false, block_count: 0, latest_hash: nil,
-                             pending_count: 0, details: ["Status could not be fully verified: #{e.message}"] }
+      note = "Status could not be fully verified: #{e.message}"
+      result[:integrity] = if integrity_done
+                             result[:integrity].merge(valid: false, details: result[:integrity][:details] + [note])
+                           else
+                             { state: 'unreadable', valid: false, block_count: 0, latest_hash: nil, pending_count: 0, details: [note] }
+                           end
       result[:error] = e.message
       result
     end

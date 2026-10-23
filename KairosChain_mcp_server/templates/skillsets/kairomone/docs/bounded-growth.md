@@ -17,7 +17,7 @@ This is a local persistence protocol, not an LLM, web retriever, scheduler or al
 
 `Kairomone::Autonomy.new(instance: instance)` exposes:
 
-- `run_start(owner_words:, cycles: nil, end_at: nil)` → `run_id`, `token`. Refused while a run of that Kairomone is live, and while host L0 differs from its baseline in force.
+- `run_start(owner_words:, cycles: nil, end_at: nil)` → `run_id`, `token`. `end_at` is an ISO 8601 time with an explicit zone (`2026-10-24T00:00:00+02:00` or `...Z`); a time without one is refused, since the server's zone may differ from the owner's. Refused while a run of that Kairomone is live, and while host L0 differs from its baseline in force.
 - `run_stop(reason:)`, `run_status` (also records what time has decided: an expired lease, a passed end time, a used count, an interrupted `run_start`), `status` (read only).
 - `request(run_id:, token:, request_id:, topic:, profession_id: 'generalist', bias_applied: false)`. `profession_id` must equal the effective profession. A request is refused when no cycle can be admitted, and when the Kairomone has no room for the cycle's L1 and L2 entries (1,000 each). The companion direction is pinned into the request at this moment. Request IDs are unique against the ledger and the entries present.
 - `claim(run_id:, token:, worker_id:, lease_seconds: 300)` (maximum 900; an assistant worker should use 900) returns the claim token. A second worker is refused.

@@ -49,6 +49,8 @@ module Kairomone
 
           root = Paths.checked(host_root, "#{REGISTRY}/#{name}")
           next unless File.directory?(root) && !File.symlink?(root)
+          # An individual has a ledger (or, restored from 0.6.1, a profile).
+          next unless %w[storage/blockchain.json profile.json].any? { |f| File.file?(Paths.checked(host_root, "#{REGISTRY}/#{name}/#{f}")) }
 
           found << { listing_id: name, root: root, legacy: false }
         end
@@ -104,8 +106,12 @@ module Kairomone
           next { success: true, initialized: false, preserved: true, root: same[:root], profile: store.profile }
         end
         unless all.empty?
-          raise Error, "kairomone_init makes this host's one Kairomone, and #{all.length} already live here " \
-                       "(#{all.map { |l| l[:listing_id] }.join(', ')}); make another with kairomone_create"
+          raise Error, "kairomone_init makes only a host's first Kairomone, and #{all.length} already live here " \
+                       "(#{all.map { |l| l[:listing_id] }.join(', ')})"
+        end
+        legacy = Paths.checked(host_root, LEGACY)
+        if File.exist?(legacy) || File.symlink?(legacy)
+          raise Error, "#{legacy} exists but is not readable as a Kairomone made before 0.8; nothing was made. Inspect it first"
         end
         root = assemble(dot_id) do |staged|
           staged.open_new!(identity: dot_id, origin: 'create', listing_id: dot_id, name: display_name)

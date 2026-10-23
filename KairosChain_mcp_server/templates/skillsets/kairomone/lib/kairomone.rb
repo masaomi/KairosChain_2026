@@ -30,6 +30,6 @@ require_relative 'kairomone/autonomy'
 require_relative 'kairomone/companion'
 
 module Kairomone
-  VERSION = '0.6.1'
+  VERSION = '0.8.0.pre1'
   PACKAGE_ROOT = File.expand_path('..', __dir__)
 end

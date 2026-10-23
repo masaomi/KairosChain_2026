@@ -73,10 +73,16 @@ module KairosMcp
           def name; 'kairomone_status'; end
           def description; 'Read a Kairomone\'s profile, level, profession, growth runs, canonical L1/L2 counts and locally verified ledger status; optionally generate an offline HTML snapshot at its fixed exports/status.html path. Without kairomone on a host with several, returns the list.'; end
           def input_schema
-            { type: 'object', properties: { kairomone: KAIROMONE, render_html: { type: 'boolean' }, instance: { type: 'string', description: 'A 0.6 read-only recovery copy under kairomone-restored/ to inspect' } }, additionalProperties: false }
+            { type: 'object', properties: { kairomone: KAIROMONE, render_html: { type: 'boolean' }, instance: { type: 'string', description: 'A listed Kairomone, or a 0.6 read-only recovery copy under kairomone-restored/, to inspect' } }, additionalProperties: false }
           end
           def call(args)
-            output { instance(args, read: true, restored_id: args['instance']).status(render_html: args['render_html'] == true) }
+            output do
+              raise ::Kairomone::Error, 'Give kairomone or instance, not both' if args['kairomone'] && args['instance']
+              # instance: a listed Kairomone, or else a 0.6 read-only recovery copy.
+              listed = args['instance'] && ::Kairomone::Host.new.listed?(args['instance'])
+              target = listed ? instance(args.merge('kairomone' => args['instance']), read: true) : instance(args, read: true, restored_id: args['instance'])
+              target.status(render_html: args['render_html'] == true)
+            end
           end
         end
 
@@ -160,7 +166,7 @@ module KairosMcp
           def input_schema
             { type: 'object', properties: {
               kairomone: KAIROMONE,
-              command: { type: 'string', enum: %w[status run_start run_stop run_status request claim heartbeat commit fail] },
+              command: { type: 'string', enum: %w[status run_start run_stop run_status request claim heartbeat commit fail], description: 'configure and stop (0.6) are gone: runs replace them' },
               owner_words: { type: 'string', description: 'run_start: the owner\'s own words asking for the run (at most 512 bytes)' },
               cycles: { type: 'integer', minimum: 1 }, end_at: { type: 'string', description: 'ISO 8601 time with zone' },
               run_id: { type: 'string' }, token: { type: 'string' },
@@ -185,6 +191,8 @@ module KairosMcp
               when 'heartbeat' then growth.heartbeat(run_id: args['run_id'], token: args['token'], claim_token: args['claim_token'])
               when 'commit' then growth.commit(run_id: args['run_id'], token: args['token'], claim_token: args['claim_token'], evidence: args['evidence'])
               when 'fail' then growth.fail(run_id: args['run_id'], token: args['token'], claim_token: args['claim_token'], reason: args['reason'])
+              when 'configure', 'stop'
+                raise ::Kairomone::Error, "growth #{args['command']} belonged to the 0.6 lifetime budget, which 0.8 removed; use run_start / run_stop"
               else raise ::Kairomone::Error, 'Unknown growth command'
               end
             end
@@ -193,12 +201,11 @@ module KairosMcp
 
         class Backup < Base
           def name; 'kairomone_backup'; end
-          def description; 'Create or verify a Kairomone backup (signed with this host\'s archive key), or restore one as a new listed Kairomone. Here only an archive this host signed restores; any other (a 0.6.1 backup, another machine\'s) restores only in the owner\'s own terminal, where its free text is shown first. A restore whose identity is already listed needs target_id. Backups are unencrypted and may hold private text.'; end
+          def description; 'Create or verify a Kairomone backup (signed with this host\'s archive key), or restore one as a new listed Kairomone: restore takes a file in that Kairomone\'s backups directory and a target_id (its identity is listed, so the copy is a twin); restore_new takes a file in the host kairomone-inbox and the identity it must hold (dot_id), with target_id when that identity is already listed. Here only an archive this host signed restores; any other (a 0.6.1 backup, another machine\'s) restores only in the owner\'s own terminal, where its free text is shown first. Backups are unencrypted and may hold private text.'; end
           def input_schema
             { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: %w[create verify restore restore_new] },
-              file: { type: 'string', description: 'Backup basename: in this Kairomone\'s backups directory (source backups) or the host kairomone-inbox (source inbox, and restore_new)' },
-              source: { type: 'string', enum: %w[backups inbox], description: 'restore: where the file is (default: this Kairomone\'s backups directory)' },
-              target_id: { type: 'string', description: 'restore: listing ID for the restored Kairomone (needed when its identity is already listed)' },
+              file: { type: 'string', description: 'Backup basename: in this Kairomone\'s backups directory (restore, verify) or the host kairomone-inbox (restore_new)' },
+              target_id: { type: 'string', description: 'Listing ID for the restored Kairomone: needed by restore, and by restore_new when the identity is already listed' },
               dot_id: { type: 'string', description: 'restore_new: the identity the archive must hold' } }, required: ['command'], additionalProperties: false }
           end
           def call(args)
@@ -206,27 +213,13 @@ module KairosMcp
               case args['command']
               when 'create' then instance(args).create_backup
               when 'verify' then instance(args, read: true).verify_backup(file: args['file'])
-              when 'restore'
-                single_owner!
-                if args['source'] != 'inbox'
-                  instance(args).restore_backup(file: args['file'], target_id: args['target_id'])
-                else
-                  bytes = ::Kairomone::Paths.read(::Kairomone::Host.new.host_root, "kairomone-inbox/#{inbox_name!(args['file'])}", limit: ::Kairomone::Instance::ARCHIVE_LIMIT)
-                  ::Kairomone::Host.new.restore(bytes, trust: :signed, listing_id: args['target_id'])
-                end
+              when 'restore' then instance(args).restore_backup(file: args['file'], target_id: args['target_id'])
               when 'restore_new'
                 single_owner!
-                ::Kairomone::Instance.new(bind: false).restore_new(file: args['file'], dot_id: args['dot_id'])
+                ::Kairomone::Instance.new(bind: false).restore_new(file: args['file'], dot_id: args['dot_id'], target_id: args['target_id'])
               else raise ::Kairomone::Error, 'Expected create, verify, restore or restore_new'
               end
             end
-          end
-
-          private
-
-          def inbox_name!(file)
-            raise ::Kairomone::Error, 'Backup filename must be a basename ending in .kairomone.json' unless file.is_a?(String) && ::Kairomone::Paths::BACKUP_NAME.match?(file)
-            file
           end
         end
       end

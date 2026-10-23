@@ -23,9 +23,10 @@ intelligence or proven skill. Actual research requires the host assistant.
 1. Call `kairomone_init(dot_id: "my_dot", display_name: "My dot")` once to make
    the host's first Kairomone. Repeating the call preserves it, its name,
    timestamps and data. It is refused while other Kairomones live on the host.
-   `kairomone_list` shows the Kairomones the host holds; every tool takes
-   `kairomone: <listing_id>`, which may be omitted while the host lists exactly
-   one. With several, a write without it is refused and a read returns the list.
+   `kairomone_list` shows the Kairomones the host holds; every tool that acts on
+   one Kairomone takes `kairomone: <listing_id>`, which may be omitted while the
+   host lists exactly one. With several, a write without it is refused and a read
+   returns the list.
 2. Use `kairomone_observe(title:, content:)` to save an explicitly chosen L2
    observation. ContextManager stores an ordinary canonical L2 document. This
    does not claim that the observation is verified knowledge or that it is
@@ -157,10 +158,11 @@ not promise safe concurrent editing by other processes that ignore these locks.
    from the old host (whoever holds the key can sign archives that host
    restores without asking).
 3. Call `kairomone_backup(command: "restore_new", file: "BASENAME",
-   dot_id: "EXPECTED_IDENTITY")` for a signed archive, or, at a terminal, CLI
-   `backup restore-new --file BASENAME --dot-id EXPECTED_IDENTITY` (it refuses
-   without one, and asks for confirmation when the archive is not signed by this
-   host).
+   dot_id: "EXPECTED_IDENTITY")` for a signed archive (with `target_id` when
+   that identity is already listed), or, at a terminal, CLI
+   `backup restore-new --file BASENAME --dot-id EXPECTED_IDENTITY [--target-id NEW_ID]`
+   (it refuses without a terminal, and asks for confirmation when the archive is
+   not signed by this host).
 4. Inspect returned integrity/L0 comparison and `kairomone_status`, then use the
    regular tools. The restored Kairomone is listed only after every archive,
    ledger and expected-identity check passes.

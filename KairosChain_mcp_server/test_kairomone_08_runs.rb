@@ -222,4 +222,41 @@ class Kairomone08RunsTest < Minitest::Test
     assert_equal ['count_reached'], ends
     assert_equal 1200, state['ended'].last['claims']
   end
+
+  def test_an_end_time_without_a_zone_is_refused
+    ['2026-10-23T18:00:00', '2026-10-24', '2026-10-23 18:00:00+02:00'].each do |value|
+      error = assert_raises(Kairomone::Error) { growth.run_start(owner_words: 'Until tonight', end_at: value) }
+      assert_match(/with a zone/, error.message)
+    end
+    assert start(end_at: '2026-10-23T15:00:00+02:00')
+    assert_equal '2026-10-23T13:00:00Z', run_records.first.dig('stop', 'end_at')
+  end
+
+  def test_an_unreadable_counter_refuses_nothing_without_a_policy
+    FileUtils.mkdir_p(File.join(@host, 'kairomone-policy'))
+    File.write(File.join(@host, 'kairomone-policy/counter.json'), '{broken')
+    step = start(cycles: 2)
+    assert claim_one(step, 'one'), 'absent policy means unlimited, whatever the counter says'
+    assert_equal '{broken', File.read(File.join(@host, 'kairomone-policy/counter.json')), 'the count is never rewritten lower'
+    assert growth.status['live']
+    write_policy(JSON.generate('max_claims' => 10, 'window' => 'lifetime'))
+    step2 = start(cycles: 2, store: make('beta'))
+    error = assert_raises(Kairomone::Error) { claim_one(step2, 'two', store: Kairomone::Instance.new(host_root: @host, kairomone: 'beta')) }
+    assert_match(/counter is unreadable/, error.message)
+  end
+
+  def test_a_restore_records_the_live_runs_claims_only_on_that_run
+    orphan = { 'type' => 'kairomone_run', 'run_id' => 'run_20261023T115900Z_0badf00d', 'action' => 'start',
+               'stop' => { 'cycles' => 1, 'end_at' => nil }, 'owner_words' => 'Interrupted', 'baseline' => {}, 'at' => (@now - 60).iso8601 }
+    step = start(cycles: 5)
+    claim_one(step, 'one')
+    Kairomone::Records.append!(@store.chain, [orphan], -> { @store.chain })
+    backup = @store.create_backup
+    @store.restore_backup(file: backup[:file], target_id: 'twin')
+    twin = Kairomone::Instance.new(host_root: @host, kairomone: 'twin')
+    ended = run_records(twin).select { |r| r['action'] == 'end' }.to_h { |r| [r['run_id'], r] }
+    assert_equal 1, ended[step[:run_id]]['claims']
+    refute ended['run_20261023T115900Z_0badf00d'].key?('claims')
+    assert_equal 'interrupted', growth(twin).status['last_result']['state']
+  end
 end
