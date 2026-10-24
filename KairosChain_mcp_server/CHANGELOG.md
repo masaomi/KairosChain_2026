@@ -6,6 +6,33 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.98.0] - 2026-10-24
+
+### Added — L1 `photo_song_slideshow`: photos → song → slideshow or music video
+
+A shipped L1 knowledge entry for turning a set of photos into a song and then into a video: the agent
+writes the lyrics, the person makes the song (SUNO or similar), and the entry carries everything after.
+
+- **Slideshow mode**: photos out of WhatsApp Desktop with readable names (`whatsapp_media.rb`), a
+  150-photo survey for about 10k tokens and duplicate detection (`survey_photos.rb`), tempo fitted to the
+  kick drum (`analyze_audio.rb`), line timing of the person's own lyrics by speech recognition
+  (`align_lyrics.rb`), and a beat-cut HTML player plus an MP4 without shake (`build_slideshow.rb`,
+  `check_motion.rb`).
+- **MV mode**: a canvas page (`assets/mv/mv_engine.js`, `mv_template.html`, `scenes.example.js`) with 20
+  scenes — split screens, twin clocks, a phone receiving photos, polaroids dropping on the beat, a heart
+  window over two faces, portrait clips side by side, a candle, a flame writing the title, every photo
+  forming a heart — plus light leaks, bokeh, bloom, letterbox and word-by-word lyrics. `mv_render.rb`
+  drives headless Chrome frame by frame, so the MP4 equals the paused preview; it renders resumable
+  20-second segments keyed by content, re-renders only a stated range (`--keep-outside`), and writes
+  1080p and 720p copies (`--light`). `mv_assets.rb` prepares pictures, cuts characters out of sticker
+  sheets and cuts video clips, refusing any output that could land on a source file.
+- `align_lyrics.rb` writes word times, re-recognises quiet passages on their own (`--extra-pass`), warns
+  when the recording is probably a different song, and reuses a transcript only for the same recording.
+
+Ruby standard library only; ffmpeg, ImageMagick 7, Google Chrome and a speech recogniser (`whisper-cli`
+or `mlx_whisper`) are external commands. Two rounds of multi-LLM review; the second round's findings
+were fixed after the round and checked by the author only.
+
 ## [3.97.0] - 2026-10-23
 
 ### Security — Meeting Place agent ids can no longer be taken over (hestia 0.3.0, mmp 1.2.0, skillset_exchange 0.2.0)
