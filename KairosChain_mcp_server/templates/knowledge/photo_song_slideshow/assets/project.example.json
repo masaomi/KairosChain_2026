@@ -1,0 +1,32 @@
+{
+  "title": "Switchbacks (Valley to Ridge)",
+  "photo_dir": "photos",
+  "audio": "photos/Switchbacks.mp3",
+  "beats": "beats.json",
+  "lyrics": "lyrics_timed.json",
+  "out_html": "photos/slideshow.html",
+  "out_mp4": "photos/Switchbacks.mp4",
+  "size": [1920, 1080],
+  "fps": 30,
+  "zoom": 0.06,
+  "caption_seconds": 3.5,
+  "intro": [
+    {"kind": "title", "image": "2026-06-14_14-02-10_051.jpg", "beats": 16,
+     "lines": [["Switchbacks", "heavy", 170], ["(Valley to Ridge)", "demi", 70],
+               ["Saturday Walkers · 14 June 2026", "medium", 40]]},
+    {"kind": "card", "image": "route.png", "crop": [0, 80, 945, 1830], "beats": 20,
+     "lines": [["Valley – Ridge – Hut", "demi", 64], ["12.1 km · 940 m up · 610 m down", "medium", 44],
+               ["Somewhere", "regular", 36]]}
+  ],
+  "photos": [
+    {"file": "2026-06-14_08-41-02_001.jpg", "beats": 2, "caption": "Early train · 14 June 2026"},
+    "2026-06-14_09-10-44_002.jpg:2",
+    "2026-06-14_09-11-02_003.jpg:1",
+    "2026-06-14_09-11-05_004.jpg:1",
+    {"file": "2026-06-14_11-20-31_017.jpg", "beats": 4, "caption": "The ridge"},
+    "2026-06-14_16-02-12_060.jpg:2"
+  ],
+  "end": {"seconds": 6.0,
+          "lines": [["See you on the next one.", "heavy", 84], ["Saturday Walkers", "demi", 52],
+                    ["Valley – Ridge – Hut · 14 June 2026", "medium", 38]]}
+}

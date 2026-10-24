@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MV</title>
+<!-- Copy next to the project's assets/ folder as mv.html, with mv_engine.js and a scenes.js beside it.
+     Open in a browser to watch (Space pause, arrows +-5 s, F full screen, mv.html#t=60 opens at 60 s).
+     scripts/mv_render.rb drives the same page with ?render to write stills and the MP4. -->
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { position: absolute; inset: 0; width: 100vw; height: 100vh; object-fit: contain; display: block; }
+  body.render canvas { width: 1920px; height: 1080px; object-fit: fill; }
+  #ui { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 22px; display: flex; gap: 14px; align-items: center;
+        background: linear-gradient(transparent, rgba(0,0,0,.75)); color: #f5e9d8; font: 14px "Avenir Next", sans-serif; transition: opacity .6s; }
+  #ui.hide { opacity: 0; }
+  #ui button { background: none; border: 1px solid rgba(255,235,210,.5); color: inherit; border-radius: 20px; padding: 5px 14px; cursor: pointer; font: inherit; }
+  #seek { flex: 1; accent-color: #f3c66b; }
+  #start { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+           background: radial-gradient(circle at 50% 45%, #2a1b3d 0%, #07050c 70%); color: #f7ead6; cursor: pointer; }
+  #start h1 { font: 400 64px Didot, "Bodoni 72", serif; letter-spacing: 6px; margin: 0; }
+  #start p { font: italic 26px "Hoefler Text", serif; margin: 0; opacity: .8; }
+  #start .btn { font: 18px "Avenir Next", sans-serif; letter-spacing: 4px; border: 1px solid #f3c66b; color: #f3c66b; padding: 12px 34px; border-radius: 40px; }
+  #start .load { font: 13px "Avenir Next", sans-serif; opacity: .6; }
+  body.render #ui, body.render #start { display: none; }
+</style>
+<script src="assets/data.js"></script>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<audio id="song" preload="auto"></audio>
+<div id="start"><h1></h1><p></p><div class="btn">▶ PLAY</div><div class="load" id="load">loading…</div></div>
+<div id="ui" class="hide"><button id="pp">❚❚</button><span id="tm">0:00</span><input id="seek" type="range" min="0" step="0.01" value="0"><span id="dur"></span><button id="fs">⛶</button></div>
+<script src="mv_engine.js"></script>
+<script src="scenes.js"></script>
+</body>
+</html>

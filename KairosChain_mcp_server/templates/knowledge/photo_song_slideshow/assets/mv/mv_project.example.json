@@ -1,0 +1,15 @@
+{
+  "out": "assets",
+  "photos": ["../trip_photos", "../extras"],
+  "skip": ["broken_export.jpg"],
+  "backgrounds": { "dir": "../generated_backgrounds", "replace": { "1": "background_v2.jpg" } },
+  "stickers": { "her": "../extras/her_sticker_sheet.png", "him": "../extras/his_sticker_sheet.jpg", "pet": "../extras/pet_sticker_sheet.png" },
+  "videos": [
+    { "key": "clip_evening", "src": "../trip_photos/IMG_0013.MOV", "from": 0, "dur": 8.5 },
+    { "key": "clip_river", "src": "../trip_photos/IMG_0001.MOV", "from": 0, "dur": 11.0 },
+    { "key": "clip_a", "src": "../trip_photos/IMG_0041.MOV", "from": 0.8, "dur": 13.0 },
+    { "key": "clip_b", "src": "../trip_photos/IMG_0039.MOV", "from": 84.5, "dur": 13.0 },
+    { "key": "clip_c", "src": "../trip_photos/IMG_0047.MOV", "from": 0, "dur": 13.0 }
+  ],
+  "stills": [ { "key": "photo_dusk", "src": "../trip_photos/IMG_0013.MOV", "at": 6.2 } ]
+}
