@@ -378,7 +378,7 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     modeKnown: false, modeWord: null, modeSource: null, modeAt: null, modeRequest: null, modeBusy: false,
     sessionId: null, resumed: false, name: 'Kairomone',
     statusTimer: null, statusBusy: false, statusAgain: false,
-    shown: null, listed: '', names: {}, placed: '', prefix: '', vocab: false
+    shown: null, listed: '', names: {}, placed: '', prefix: '', vocab: false, factsOf: null
   };
   var tools = new Map();
   var pending = new Map();
@@ -1052,7 +1052,8 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
       if (state.shown !== asked) { state.statusAgain = true; return; }
       renderStatus(res.data);
     }).catch(function () {
-      text('st-at', '状態を読み込めませんでした。');
+      text('st-at', state.factsOf && state.factsOf === state.shown ? '状態を読み込めませんでした。表示は前回取得したものです。'
+        : '状態を読み込めませんでした。「更新」で読み直せます。');
     }).then(function () {
       state.statusBusy = false;
       if (state.statusAgain) { state.statusAgain = false; scheduleStatus(0); }
@@ -1081,6 +1082,9 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
       });
     }
     var shown = ID.test(str(payload.shown)) ? payload.shown : null;
+    // The one the owner chose could not be read: it stays chosen, so the
+    // next refresh asks for it again instead of moving to the first listed.
+    if (!shown && typeof payload.error === 'string' && has(state.names, state.shown)) shown = state.shown;
     state.shown = shown;
     if (shown) $('kairomone-select').value = shown;
   }
@@ -1172,13 +1176,11 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     var s = valid ? data : {}, profile = obj(s.profile), companion = obj(s.companion), kairomone = obj(s.kairomone);
     renderSwitcher(payload);
     renderVocab(payload);
-    var name = str(companion.display_name, str(profile.display_name, str(state.shown, 'Kairomone')));
-    var identity = str(kairomone.identity, '未確認');
+    var name = str(companion.display_name, str(profile.display_name, has(state.names, state.shown) ? state.names[state.shown] : str(state.shown, 'Kairomone')));
     state.name = name;
     text('kairomone-name', name); text('st-name', name);
-    text('kairomone-id', identity); text('st-kairomone-id', identity);
+    showId(str(state.shown, str(kairomone.listing_id, '未確認')), str(kairomone.identity));
     text('data-dir', dir); text('st-data-dir', dir);
-    text('st-root', str(obj(s.storage).data_root, '未確認'));
     var problems = [];
     if (typeof payload.error === 'string' && payload.error) problems.push('状態を読み取れませんでした: ' + payload.error);
     if (typeof payload.notice === 'string' && payload.notice) problems.push(payload.notice);
@@ -1190,11 +1192,28 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     problems.forEach(function (problem) { warn.appendChild(el('p', '', problem)); });
     warn.hidden = !problems.length;
 
-    var p = obj(s.progression);
+    renderWaiting(payload.waiting);
+    renderFacts(s);
+    state.factsOf = valid ? state.shown : null;
+    text('st-at', '取得: ' + (typeof s.generated_at === 'string' ? clock(s.generated_at) : '不明'));
+    refreshControls();
+  }
+  // 識別子 is the listing ID: the one the tools take and the placed text
+  // names. A twin restored from a backup keeps its original's identity, so
+  // that is shown beside it, never in its place.
+  function showId(listing, identity) {
+    text('kairomone-id', listing);
+    text('st-kairomone-id', identity && identity !== listing ? listing + '（控えから戻した双子。同一性: ' + identity + '）' : listing);
+  }
+  // The card's facts about one Kairomone. A switch empties them (renderFacts
+  // of {}) before asking for the one chosen, so the one left is never shown
+  // under the new name, and a read that fails leaves them empty.
+  function renderFacts(s) {
+    text('st-root', str(obj(s.storage).data_root, '未確認'));
+    var p = obj(s.progression), companion = obj(s.companion);
     var validLevel = Number.isSafeInteger(p.level) && p.level >= 1 && p.level <= 999 && p.level_cap === 999;
     var stage = validLevel ? str(obj(p.stage).ja) : '';
     text('st-stage', stage ? '成長段階: ' + stage : '成長段階は未確認');
-    renderWaiting(payload.waiting);
     text('st-level', validLevel ? String(p.level) : '—');
     text('st-xp', count(p.total_xp));
     var knowledge = obj(s.knowledge), observations = obj(s.observations);
@@ -1229,8 +1248,6 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     text('st-used', live ? count(g.used_cycles) : '—');
     text('st-max', live ? (g.max_cycles === null ? '決めていない' : count(g.max_cycles)) : '—');
     text('st-remaining', live ? (g.remaining_cycles === null ? '—' : count(g.remaining_cycles)) : '—');
-    text('st-at', '取得: ' + (typeof s.generated_at === 'string' ? clock(s.generated_at) : '不明'));
-    refreshControls();
   }
 
   function bind() {
@@ -1256,6 +1273,12 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
       $('wait-list').appendChild(el('li', '', '読み込んでいます…'));
       $('art').hidden = true;
       text('kairomone-name', state.name); text('st-name', state.name);
+      showId(id, '');
+      clear($('st-warn'));
+      $('st-warn').hidden = true;
+      renderFacts({});
+      state.factsOf = null;
+      text('st-at', '読み込んでいます…');
       scheduleStatus(0);
     });
     $('create-place').addEventListener('click', placeCreate);

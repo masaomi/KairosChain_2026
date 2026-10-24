@@ -223,13 +223,16 @@ class Kairomone08ExchangeFollowupsTest < Minitest::Test
     assert_equal child.profession_status[:lineage], twin.profession_status[:lineage]
   end
 
-  def test_a_fusion_retry_names_the_profession_its_child_has
+  def test_a_fusion_retry_with_another_candidate_is_refused_and_names_what_was_made
     _a, _b = parents
     plan = propose[:plan]
-    Kairomone::Host.new.fusion_accept(plan: plan, candidate: 0)
-    again = Kairomone::Host.new.fusion_accept(plan: plan, candidate: 2)
-    assert_equal [true, 'Gardener'], again.values_at(:preserved, :profession)
-    assert_match(/the candidate named now was not applied/, again[:note])
+    first = Kairomone::Host.new.fusion_accept(plan: plan, candidate: 0)
+    child = first[:kairomone][:listing_id]
+    error = assert_raises(Kairomone::Error) { Kairomone::Host.new.fusion_accept(plan: plan, candidate: 2) }
+    assert_equal "This plan already made #{child}, whose profession is Gardener; it was made with candidate 0, so candidate 2 is not applied. " \
+                 'Nothing changed.', error.message
+    again = Kairomone::Host.new.fusion_accept(plan: plan, candidate: 0)
+    assert_equal [true, true, 'Gardener', first[:kairomone]], again.values_at(:success, :preserved, :profession, :kairomone)
   end
 
   def test_a_kept_entry_over_the_bound_is_told_to_stay_out
@@ -331,5 +334,25 @@ class Kairomone08ExchangeFollowupsTest < Minitest::Test
     assert store.exchange_preview(file_sha256: first[:file_sha256], page: 2)[:items].any?, 'a page does not need the whole file'
     File.write(File.join(@host, 'kairomone-previews', "#{first[:file_sha256]}.p2.json"), '[]')
     assert_match(/does not match its sha256/, assert_raises(Kairomone::Error) { store.exchange_preview(file_sha256: first[:file_sha256], page: 2) }.message)
+  end
+
+  def test_an_export_refuses_when_the_pages_shown_are_not_the_file_it_writes
+    store = create('momo')
+    store.create_knowledge(id: 'tea', title: 'Tea', content: 'Steep green tea for two minutes.')
+    first = store.exchange_preview(include: %w[owner_written])
+    # The preview's page and its index are rewritten together, so every page
+    # still matches the index: the owner would be shown text the file lacks.
+    dir = File.join(@host, 'kairomone-previews')
+    page = JSON.parse(File.read(File.join(dir, "#{first[:file_sha256]}.p1.json")))
+    page.find { |i| i['item'] == 'entry' }['content'] = 'Steep green tea for ten minutes.'
+    File.write(File.join(dir, "#{first[:file_sha256]}.p1.json"), JSON.generate(page))
+    index = JSON.parse(File.read(File.join(dir, "#{first[:file_sha256]}.json")))
+    index['pages'][0] = Digest::SHA256.hexdigest(JSON.generate(page))
+    File.write(File.join(dir, "#{first[:file_sha256]}.json"), JSON.generate(index))
+    shown = store.exchange_preview(file_sha256: first[:file_sha256], page: 1)[:items].find { |i| i['item'] == 'entry' }
+    assert_equal 'Steep green tea for ten minutes.', shown['content'], 'the rewritten page is what a page read shows'
+    error = assert_raises(Kairomone::Error) { store.exchange_export(file_sha256: first[:file_sha256]) }
+    assert_match(/not what the preview pages showed/, error.message)
+    refute Dir.exist?(File.join(@host, 'kairomone-outbox')) && Dir.children(File.join(@host, 'kairomone-outbox')).any?, 'nothing is written'
   end
 end

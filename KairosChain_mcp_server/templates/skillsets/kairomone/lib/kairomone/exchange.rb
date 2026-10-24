@@ -112,12 +112,11 @@ module Kairomone
           # The importer's integrity and shape checks, run on the bytes the
           # export would write: no file is offered that an import refuses.
           begin
-            Exchange.load(bytes)
+            pages = exchange_file_pages(bytes, left_out['entries'])
           rescue Error => e
             raise Error, "An import would refuse this file (#{e.message}); include less"
           end
           sha = Digest::SHA256.hexdigest(bytes)
-          pages = exchange_pages(doc, left_out['entries']).map { |items| JSON.generate(items) }
           @host.send(:prune_exchange_previews!)
           Paths.mkdir(host_root, Exchange::PREVIEWS)
           pages.each_with_index { |page, i| Paths.write(host_root, "#{Exchange::PREVIEWS}/#{sha}.p#{i + 1}.json", page, replace: true) }
@@ -149,9 +148,13 @@ module Kairomone
           unless inputs['ledger_head'] == ledger.latest_block&.hash
             raise Error, 'This Kairomone changed since the preview (a live run, a write); stop the run or preview again'
           end
-          doc, = exchange_document(inputs, ledger)
+          doc, left_out = exchange_document(inputs, ledger)
           bytes = Exchange.bytes(doc)
           raise Error, 'The file no longer rebuilds as previewed; preview again' unless Digest::SHA256.hexdigest(bytes) == file_sha256
+          # The pages the owner was shown are checked against these bytes,
+          # not only against the index the preview kept beside them.
+          shown = exchange_file_pages(bytes, left_out['entries']).map { |page| Digest::SHA256.hexdigest(page) }
+          raise Error, 'The file to be written is not what the preview pages showed; preview again' unless shown == inputs['pages']
 
           Paths.mkdir(host_root, Exchange::OUTBOX)
           name = "#{listing_id}-#{Time.now.utc.strftime('%Y%m%dT%H%M%SZ')}-#{SecureRandom.hex(4)}.kairomone-exchange.json"
@@ -368,6 +371,12 @@ module Kairomone
         left_out: left_out.reject { |k, _| k == 'entries' }.merge('entries' => left_out['entries'].length),
         note: 'Show the owner every page in full (later pages: preview with this file_sha256 and page). The file is written only by ' \
               'export with this file_sha256, and only while nothing on this Kairomone has changed since; the preview expires after 24 hours.' }
+    end
+
+    # The pages of a file, built from its bytes as an importer reads them,
+    # so what the owner is shown is what the file carries.
+    def exchange_file_pages(bytes, left_out_entries)
+      exchange_pages(Exchange.load(bytes), left_out_entries).map { |items| JSON.generate(items) }
     end
 
     def exchange_pages(doc, left_out = [])

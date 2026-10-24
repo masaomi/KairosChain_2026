@@ -78,7 +78,8 @@ function page() {
   const fetch = (url, init = {}) => {
     if (url === '/session') return Promise.resolve(answer(200, { session: SESSION }));
     if (url.startsWith('/events')) return new Promise(() => {}); // the long poll never returns here
-    return new Promise((resolve) => requests.push({ url, method: init.method, resolve: (data) => resolve(answer(200, data)) }));
+    return new Promise((resolve) => requests.push({ url, method: init.method, resolve: (data) => resolve(answer(200, data)),
+                                                     fail: () => resolve(answer(500, { error: 'stand-in failure' })) }));
   };
   const context = {
     document: doc, fetch, setTimeout, clearTimeout, TextEncoder, AbortController, console,
@@ -92,12 +93,14 @@ function page() {
   return { doc, requests, $: (id) => doc.getElementById(id) };
 }
 
-const fixture = (shown, name, proposal) => ({
+const fixture = (shown, name, proposal, identity = shown) => ({
   data_dir: '/fixture', shown,
-  kairomones: [{ listing_id: 'momo', name: 'Momo' }, { listing_id: 'pip', name: 'Pip' }],
+  kairomones: [{ listing_id: 'momo', name: 'Momo' }, { listing_id: 'pip', name: 'Pip' }, { listing_id: 'twin', name: 'Momo' }],
   kinds: [{ kind: 'animal', label: '動物', traits: ['curious'] }], templates: [{ id: 'researcher', name: 'Researcher' }],
-  status: { schema_version: 1, initialized: true, profile: { display_name: name }, kairomone: { listing_id: shown, identity: shown },
-            progression: { level: 1, level_cap: 999, stage: { id: 'egg', ja: '卵' } } },
+  status: { schema_version: 1, initialized: true, profile: { display_name: name }, kairomone: { listing_id: shown, identity },
+            progression: { level: 7, level_cap: 999, total_xp: 70, stage: { id: 'egg', ja: '卵' } },
+            integrity: { state: 'readable', valid: true, block_count: 12, pending_count: 0, host_l0: { state: 'unchanged' } },
+            autonomy: { live: true, used_cycles: 2, max_cycles: 5, remaining_cycles: 3 } },
   waiting: { art: { waiting: [] }, proposals: [{ proposal: proposal, kind: 'profile', name, sha256: 'c'.repeat(64) }] }
 });
 const statusRequests = (p) => p.requests.filter((r) => r.url.startsWith('/status'));
@@ -167,4 +170,49 @@ async function booted() {
   p.$('export-place').fire('click');
   assert.equal(p.$('message').value, 'Kairomone「Momo」（識別子: momo）を書き出す前の下見を見せて。入れる知識の種類: 学んだもの（learned）、あなたが書いたもの（owner_written）');
   console.log('PASS: placed text names the IDs the tools take');
+}
+
+// The card's facts belong to the Kairomone named above them: a switch empties
+// them, a failed read leaves them empty, and one the host cannot read stays chosen.
+{
+  const p = await booted();
+  assert.deepEqual(['st-level', 'st-integrity', 'st-used'].map((id) => p.$(id).textContent), ['7', 'ローカルチェーンの検証に合格', '2']);
+  p.$('kairomone-select').value = 'pip';
+  p.$('kairomone-select').fire('change');
+  const cleared = ['st-level', 'st-xp', 'st-integrity', 'st-blocks', 'st-l0', 'st-used', 'st-max', 'st-remaining', 'kairomone-id'].map((id) => p.$(id).textContent);
+  assert.deepEqual(cleared, ['—', '—', '未確認', '—', '未確認', '—', '—', '—', 'pip'], 'nothing about momo stays under the name Pip');
+  await sleep(20);
+  const asked = statusRequests(p)[1];
+  assert.equal(asked.url, '/status?kairomone=pip');
+  asked.fail();
+  await sleep(20);
+  assert.equal(p.$('st-level').textContent, '—', 'a failed read leaves the facts empty');
+  assert.equal(p.$('st-at').textContent, '状態を読み込めませんでした。「更新」で読み直せます。');
+  // The console answers for a Kairomone it cannot read with the listing and no one shown.
+  p.$('status-refresh').fire('click');
+  await sleep(20);
+  statusRequests(p)[2].resolve({ data_dir: '/fixture', kairomones: fixture('momo').kairomones, shown: null, status: null, error: 'pip: unreadable' });
+  await sleep(20);
+  assert.equal(p.$('kairomone-select').value, 'pip', 'the one chosen stays chosen');
+  assert.equal(p.$('kairomone-name').textContent, 'Pip');
+  assert.equal(p.$('st-integrity').textContent, '未確認');
+  p.$('status-refresh').fire('click');
+  await sleep(20);
+  assert.equal(statusRequests(p)[3].url, '/status?kairomone=pip', 'and is asked for again, not the first listed');
+  console.log('PASS: the facts shown belong to the Kairomone named');
+}
+
+// 識別子 is the listing ID the placed text names; a twin's identity is shown beside it.
+{
+  const p = await booted();
+  p.$('kairomone-select').value = 'twin';
+  p.$('kairomone-select').fire('change');
+  await sleep(20);
+  statusRequests(p)[1].resolve(fixture('twin', 'Momo', '3'.repeat(64), 'momo'));
+  await sleep(20);
+  assert.equal(p.$('kairomone-id').textContent, 'twin');
+  assert.equal(p.$('st-kairomone-id').textContent, 'twin（控えから戻した双子。同一性: momo）');
+  p.doc.querySelectorAll('button.q')[0].fire('click');
+  assert.equal(p.$('message').value, 'Kairomone「Momo」（識別子: twin）のいまの状態を教えて', 'the header and the placed text name the same ID');
+  console.log('PASS: the header names the ID the placed text names');
 }

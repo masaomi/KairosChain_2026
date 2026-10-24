@@ -105,7 +105,8 @@ module Kairomone
     end
 
     # Makes the child when the owner accepts the plan with one candidate.
-    # Accepting a plan again after it made its child returns that child.
+    # Accepting a plan again after it made its child returns that child when
+    # the candidate is the one it was made with, and is refused otherwise.
     def fusion_accept(plan:, candidate:)
       raise Error, 'candidate is 0, 1 or 2' unless [0, 1, 2].include?(candidate)
       raise Error, 'plan must be a plan sha256' unless Progression::SHA.match?(plan.to_s)
@@ -120,8 +121,14 @@ module Kairomone
         made = present ? (listed?(doc['child']) && fused_from(plan, [doc['child']])) : fused_from(plan)
         if made
           current = made.profession_status[:current][:name]
+          applied = Records.of_type(made.chain, 'kairomone_lineage').first['candidate']
+          unless applied == candidate
+            raise Error, "This plan already made #{made.listing_id}, whose profession is #{current}; " +
+                         (applied.nil? ? 'which candidate it was made with is not recorded' : "it was made with candidate #{applied}") +
+                         ", so candidate #{candidate} is not applied. Nothing changed."
+          end
           next { success: true, fused: true, preserved: true, kairomone: made.address, level: made.progression_status[:level], profession: current,
-                 note: "This plan already made this child, whose profession is #{current}; nothing changed, and the candidate named now was not applied." }
+                 note: "This plan already made this child with candidate #{candidate}, and its profession is #{current}; nothing changed." }
         end
         doc ||= fusion_plan(plan)
         a, b = fusion_parents(doc['parents'])
@@ -145,7 +152,7 @@ module Kairomone
             lineage_pieces = [a, b].flat_map { |p| p.send(:profession_ancestry, [p.profession_status[:current][:id]], limit: 64).map { |sha, _| [sha, p.root] } }
                                    .uniq(&:first)
             path = assemble(doc['child']) do |staged|
-              staged.fuse_into!(doc.merge('profile' => piece), plan, profession, [a, b], sources_of, lineage_pieces)
+              staged.fuse_into!(doc.merge('profile' => piece, 'candidate' => candidate), plan, profession, [a, b], sources_of, lineage_pieces)
               doc['child']
             end
             relative = "#{Fusion::PLANS}/#{plan}.json"
@@ -293,7 +300,10 @@ module Kairomone
       origins = { 'kind' => 'fusion_sources', 'plan_sha256' => plan_sha, 'parents' => plan['parents'], 'heads' => plan['heads'],
                   'entries' => plan['entries'].map { |e| e.slice('id', 'mode', 'sources') } }
       origins_sha = Digest::SHA256.hexdigest(JSON.pretty_generate(origins) + "\n")
+      # The candidate the owner accepted is recorded, so a retry can tell
+      # whether it asks for what was made.
       lineage = { 'type' => 'kairomone_lineage', 'kind' => 'fusion', 'plan_sha256' => plan_sha, 'entries_sha256' => origins_sha,
+                  'candidate' => plan.fetch('candidate'),
                   'sources' => parents.map { |p| { 'identity' => p.identity, 'listing_id' => p.listing_id, 'name' => p.name, 'ledger_head' => plan['heads'][p.listing_id] } } }
       open_new!(identity: child, origin: 'fusion', listing_id: child, profile_piece: plan['profile'], profession_piece: profession, lineage: lineage)
       raise Error, 'The fusion sources could not be kept' unless write_piece(Fusion::SOURCES, origins) == origins_sha
