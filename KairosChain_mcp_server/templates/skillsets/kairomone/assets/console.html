@@ -378,7 +378,7 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     modeKnown: false, modeWord: null, modeSource: null, modeAt: null, modeRequest: null, modeBusy: false,
     sessionId: null, resumed: false, name: 'Kairomone',
     statusTimer: null, statusBusy: false, statusAgain: false,
-    shown: null, listed: '', names: {}, placed: '', prefix: '', vocab: false, factsOf: null
+    shown: null, listed: '', names: {}, placed: '', prefix: '', vocab: false, factsOf: null, factsAt: '不明'
   };
   var tools = new Map();
   var pending = new Map();
@@ -1052,8 +1052,12 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
       if (state.shown !== asked) { state.statusAgain = true; return; }
       renderStatus(res.data);
     }).catch(function () {
-      text('st-at', state.factsOf && state.factsOf === state.shown ? '状態を読み込めませんでした。表示は前回取得したものです。'
-        : '状態を読み込めませんでした。「更新」で読み直せます。');
+      if (state.factsOf && state.factsOf === state.shown) {
+        text('st-at', '状態を読み込めませんでした。表示は ' + state.factsAt + ' に取得したものです。');
+        return;
+      }
+      text('st-at', '状態を読み込めませんでした。「更新」で読み直せます。');
+      unknownWaiting();
     }).then(function () {
       state.statusBusy = false;
       if (state.statusAgain) { state.statusAgain = false; scheduleStatus(0); }
@@ -1168,7 +1172,8 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
       list.appendChild(li);
       items += 1;
     });
-    if (!items) list.appendChild(el('li', '', '待っている案はありません'));
+    // A Kairomone shown without its waiting list was not read for it: unknown, not none.
+    if (!items) list.appendChild(el('li', '', waiting && typeof waiting === 'object' || !state.shown ? '待っている案はありません' : '待っている案を確かめられませんでした'));
   }
   function renderStatus(payload) {
     var data = payload.status, dir = str(payload.data_dir, '未確認');
@@ -1184,7 +1189,8 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     var problems = [];
     if (typeof payload.error === 'string' && payload.error) problems.push('状態を読み取れませんでした: ' + payload.error);
     if (typeof payload.notice === 'string' && payload.notice) problems.push(payload.notice);
-    if (!valid) problems.push('この状態のデータは読み取れません（形式が違います）。');
+    // A status the server could not read is explained by its error; only a status that came in another shape is called that.
+    if (!valid && (data != null || !(typeof payload.error === 'string' && payload.error))) problems.push('この状態のデータは読み取れません（形式が違います）。');
     if (s.initialized === false) problems.push('相棒のプロフィールはまだ初期化されていません。');
     if (typeof s.error === 'string' && s.error) problems.push('状態を一部しか確認できませんでした: ' + s.error);
     var warn = $('st-warn');
@@ -1195,15 +1201,21 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     renderWaiting(payload.waiting);
     renderFacts(s);
     state.factsOf = valid ? state.shown : null;
-    text('st-at', '取得: ' + (typeof s.generated_at === 'string' ? clock(s.generated_at) : '不明'));
+    state.factsAt = typeof s.generated_at === 'string' ? clock(s.generated_at) : '不明';
+    text('st-at', '取得: ' + state.factsAt);
     refreshControls();
+  }
+  // What waits for one that was not read is unknown, never "nothing".
+  function unknownWaiting() {
+    clear($('wait-list'));
+    $('wait-list').appendChild(el('li', '', '待っている案を確かめられませんでした'));
   }
   // 識別子 is the listing ID: the one the tools take and the placed text
   // names. A twin restored from a backup keeps its original's identity, so
   // that is shown beside it, never in its place.
   function showId(listing, identity) {
     text('kairomone-id', listing);
-    text('st-kairomone-id', identity && identity !== listing ? listing + '（控えから戻した双子。同一性: ' + identity + '）' : listing);
+    text('st-kairomone-id', identity && identity !== listing ? listing + '（控えから戻した個体で、もとの個体の識別子 ' + identity + ' を受け継いでいます）' : listing);
   }
   // The card's facts about one Kairomone. A switch empties them (renderFacts
   // of {}) before asking for the one chosen, so the one left is never shown

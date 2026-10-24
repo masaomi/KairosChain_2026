@@ -188,6 +188,7 @@ async function booted() {
   await sleep(20);
   assert.equal(p.$('st-level').textContent, '—', 'a failed read leaves the facts empty');
   assert.equal(p.$('st-at').textContent, '状態を読み込めませんでした。「更新」で読み直せます。');
+  assert.equal(p.$('wait-list').textContent, '待っている案を確かめられませんでした', 'what waits for one not read is unknown');
   // The console answers for a Kairomone it cannot read with the listing and no one shown.
   p.$('status-refresh').fire('click');
   await sleep(20);
@@ -196,10 +197,26 @@ async function booted() {
   assert.equal(p.$('kairomone-select').value, 'pip', 'the one chosen stays chosen');
   assert.equal(p.$('kairomone-name').textContent, 'Pip');
   assert.equal(p.$('st-integrity').textContent, '未確認');
+  assert.equal(p.$('wait-list').textContent, '待っている案を確かめられませんでした', 'not "nothing waits"');
+  assert.equal(p.$('st-warn').textContent, '状態を読み取れませんでした: pip: unreadable', 'the real cause, and no second, false one');
   p.$('status-refresh').fire('click');
   await sleep(20);
   assert.equal(statusRequests(p)[3].url, '/status?kairomone=pip', 'and is asked for again, not the first listed');
   console.log('PASS: the facts shown belong to the Kairomone named');
+}
+
+// A failed refresh of the one already shown keeps its facts and says when they were read.
+{
+  const p = await booted();
+  const read = p.$('st-at').textContent;
+  assert.match(read, /^取得: /);
+  p.$('status-refresh').fire('click');
+  await sleep(20);
+  statusRequests(p)[1].fail();
+  await sleep(20);
+  assert.equal(p.$('st-level').textContent, '7', 'the facts are still momo\'s own');
+  assert.equal(p.$('st-at').textContent, `状態を読み込めませんでした。表示は ${read.slice('取得: '.length)} に取得したものです。`);
+  console.log('PASS: a failed refresh says the facts are from the earlier read');
 }
 
 // 識別子 is the listing ID the placed text names; a twin's identity is shown beside it.
@@ -211,7 +228,7 @@ async function booted() {
   statusRequests(p)[1].resolve(fixture('twin', 'Momo', '3'.repeat(64), 'momo'));
   await sleep(20);
   assert.equal(p.$('kairomone-id').textContent, 'twin');
-  assert.equal(p.$('st-kairomone-id').textContent, 'twin（控えから戻した双子。同一性: momo）');
+  assert.equal(p.$('st-kairomone-id').textContent, 'twin（控えから戻した個体で、もとの個体の識別子 momo を受け継いでいます）');
   p.doc.querySelectorAll('button.q')[0].fire('click');
   assert.equal(p.$('message').value, 'Kairomone「Momo」（識別子: twin）のいまの状態を教えて', 'the header and the placed text name the same ID');
   console.log('PASS: the header names the ID the placed text names');

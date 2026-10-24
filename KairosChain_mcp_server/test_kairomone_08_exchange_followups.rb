@@ -352,7 +352,7 @@ class Kairomone08ExchangeFollowupsTest < Minitest::Test
     shown = store.exchange_preview(file_sha256: first[:file_sha256], page: 1)[:items].find { |i| i['item'] == 'entry' }
     assert_equal 'Steep green tea for ten minutes.', shown['content'], 'the rewritten page is what a page read shows'
     error = assert_raises(Kairomone::Error) { store.exchange_export(file_sha256: first[:file_sha256]) }
-    assert_match(/not what the preview pages showed/, error.message)
+    assert_match(/no longer matches what export would write/, error.message)
     refute Dir.exist?(File.join(@host, 'kairomone-outbox')) && Dir.children(File.join(@host, 'kairomone-outbox')).any?, 'nothing is written'
   end
 end

@@ -75,7 +75,7 @@ class Kairomone08ConsoleTest < Minitest::Test
   def test_the_page_logic_on_a_stand_in_dom
     out, status = Open3.capture2e('node', File.expand_path('templates/skillsets/kairomone/assets/test_console_logic.mjs', __dir__))
     assert status.success?, out
-    assert_equal 5, out.scan(/^PASS: /).length, out
+    assert_equal 6, out.scan(/^PASS: /).length, out
   rescue Errno::ENOENT
     skip 'node is not available here'
   end

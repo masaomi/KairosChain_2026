@@ -154,7 +154,7 @@ module Kairomone
           # The pages the owner was shown are checked against these bytes,
           # not only against the index the preview kept beside them.
           shown = exchange_file_pages(bytes, left_out['entries']).map { |page| Digest::SHA256.hexdigest(page) }
-          raise Error, 'The file to be written is not what the preview pages showed; preview again' unless shown == inputs['pages']
+          raise Error, 'What the preview showed no longer matches what export would write; preview again' unless shown == inputs['pages']
 
           Paths.mkdir(host_root, Exchange::OUTBOX)
           name = "#{listing_id}-#{Time.now.utc.strftime('%Y%m%dT%H%M%SZ')}-#{SecureRandom.hex(4)}.kairomone-exchange.json"
