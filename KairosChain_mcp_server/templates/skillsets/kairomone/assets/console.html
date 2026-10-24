@@ -260,12 +260,13 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
       <section class="card panel" aria-labelledby="create-title">
         <h2 id="create-title">新しい Kairomone</h2>
         <p class="caption">選んだことを入れた依頼の文を入力欄に置きます。Claude がプロフィールと最初の職業の案を作り、あなたが見てから決めます。</p>
-        <fieldset id="create-kinds"><legend>種類</legend></fieldset>
+        <fieldset id="create-kinds"><legend>種類（一つ）</legend></fieldset>
         <fieldset id="create-traits"><legend>性格・好きなこと</legend></fieldset>
         <label class="wide">最初の職業の雛形<select id="create-template"><option value="">おまかせ</option></select></label>
         <label class="wide">識別子（英小文字・数字・_ -、空なら Claude に任せる）<input type="text" id="create-id" maxlength="64" autocomplete="off"></label>
         <label class="wide">ほかに伝えたいこと<textarea id="create-free" rows="2" maxlength="2000"></textarea></label>
         <button type="button" id="create-place" class="panel-button" disabled>依頼の文を置く</button>
+        <p id="create-msg" class="caption" role="status" hidden></p>
       </section>
       <section class="card panel" aria-labelledby="export-title">
         <h2 id="export-title">書き出しの下見</h2>
@@ -286,7 +287,7 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
         <p>バックアップからの復元は、Kairomone の道具（kairomone_backup）からは、どのモードでもできません。コマンド行の復元は端末を必要としますが、擬似端末を開くシェルの命令なら実行でき、確認ありでは、Claude Code が読み取りだけと判断した命令を除き、その命令は実行前に問われます。復元は端末の Claude Code セッションで行ってください。</p>
         <h3>この画面の弱さ</h3>
         <ul>
-          <li>学習には <code>curl</code> が要るので、Claude はシェルを使えます。シェルはあなたと同じ権限で動き、相棒のファイル（<code>.kairos/kairomone/</code> の下）を書き換えることも、コンソールを止めても動き続けるプロセスを作ることもできます。相棒のファイルにシェルで触れないよう Claude を縛っているのは、Kairomone の決まり（<code>SKILL.md</code>）です。</li>
+          <li>学習には <code>curl</code> が要るので、Claude はシェルを使えます。シェルはあなたと同じ権限で動き、相棒のファイル（<code>.kairos/kairomones/</code> の下、0.8 より前に作った相棒は <code>.kairos/kairomone/</code> の下）を書き換えることも、コンソールを止めても動き続けるプロセスを作ることもできます。相棒のファイルにシェルで触れないよう Claude を縛っているのは、Kairomone の決まり（<code>SKILL.md</code>）です。</li>
           <li>起動時の点検が見るのは Kairomone のパッケージだけです。同じデータの場所にある別の SkillSet は同じサーバーの中で動き、Kairomone の道具を置き換えることができます。</li>
           <li>確認ありでも、Claude Code が「読むだけ」と判断した命令は問われずに実行されます（実行したことはこの画面に出ます）。auto では何も問われません。</li>
           <li>端末のセッションでは、許可の問いに答えるのは Claude が入力できない端末です。この画面はそれより弱い仕組みです。この画面の合言葉は Claude に渡していませんが、あなたと同じ権限で動くプロセスが探せば、読める可能性はあります。</li>
@@ -377,7 +378,7 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     modeKnown: false, modeWord: null, modeSource: null, modeAt: null, modeRequest: null, modeBusy: false,
     sessionId: null, resumed: false, name: 'Kairomone',
     statusTimer: null, statusBusy: false, statusAgain: false,
-    shown: null, listed: '', placed: '', vocab: false
+    shown: null, listed: '', names: {}, placed: '', prefix: '', vocab: false
   };
   var tools = new Map();
   var pending = new Map();
@@ -991,8 +992,9 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
   // owner typed stays; text a button placed and the owner left is replaced.
   function place(value) {
     var box = $('message'), current = box.value;
-    var untouched = !current.trim() || current === state.placed;
-    box.value = untouched ? value : current.replace(/\s+$/, '') + '\n' + value;
+    // What the owner wrote since the last placed text is kept in front of it.
+    if (current !== state.placed) state.prefix = current.trim() ? current.replace(/\s+$/, '') : '';
+    box.value = state.prefix ? state.prefix + '\n' + value : value;
     state.placed = box.value;
     if (box.disabled) return;
     box.focus();
@@ -1010,17 +1012,23 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
       .map(function (box) { return box.value; });
   }
   function placeCreate() {
-    var id = $('create-id').value.trim(), template = $('create-template');
-    var kinds = checked('create-kinds'), traits = checked('create-traits');
+    var id = $('create-id').value.trim(), template = $('create-template'), msg = $('create-msg');
+    if (id && !ID.test(id)) {
+      msg.textContent = '識別子は英小文字で始め、英小文字・数字・_ - で 64 文字までです。空にすると Claude に任せます。';
+      msg.hidden = false;
+      return;
+    }
+    msg.hidden = true;
+    var kind = $('create-kinds').querySelector('input[type=radio]:checked'), traits = checked('create-traits');
     placeKey('create', {
-      kind: kinds.length ? kinds.join('、') : 'おまかせ', traits: traits.length ? traits.join('、') : 'おまかせ',
-      template: template.value ? template.options[template.selectedIndex].textContent : 'おまかせ',
-      id: ID.test(id) ? id : 'あなたが決めて', free: $('create-free').value.trim() || 'なし'
+      kind: kind ? kind.getAttribute('data-label') + '（' + kind.value + '）' : 'おまかせ', traits: traits.length ? traits.join('、') : 'おまかせ',
+      template: template.value ? template.options[template.selectedIndex].textContent + '（' + template.value + '）' : 'おまかせ',
+      id: id || 'あなたが決めて', free: $('create-free').value.trim() || 'なし'
     });
   }
   function placeExport() {
     var kinds = checked('export-kinds');
-    placeKey('exportPreview', { kinds: kinds.length ? kinds.map(function (k) { return KIND_WORDS[k]; }).join('、') : 'なし（知識は入れない）' });
+    placeKey('exportPreview', { kinds: kinds.length ? kinds.map(function (k) { return KIND_WORDS[k] + '（' + k + '）'; }).join('、') : 'なし（知識は入れない）' });
   }
 
   // Status follows instance.rb#status (schema version 1) and status.html's rules:
@@ -1035,9 +1043,13 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     if (state.statusBusy) { state.statusAgain = true; return; }
     state.statusBusy = true;
     text('st-at', '読み込んでいます…');
-    api('GET', '/status' + (state.shown ? '?kairomone=' + encodeURIComponent(state.shown) : '')).then(function (res) {
+    var asked = state.shown;
+    api('GET', '/status' + (asked ? '?kairomone=' + encodeURIComponent(asked) : '')).then(function (res) {
       if (res.status === 403) return;
       if (!res.ok || !res.data || typeof res.data !== 'object' || Array.isArray(res.data)) throw new Error('status ' + res.status);
+      // The owner switched while this was in flight: it is about another
+      // Kairomone, so it is dropped and the one now chosen is asked for.
+      if (state.shown !== asked) { state.statusAgain = true; return; }
       renderStatus(res.data);
     }).catch(function () {
       text('st-at', '状態を読み込めませんでした。');
@@ -1055,6 +1067,8 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
   function renderSwitcher(payload) {
     var listed = Array.isArray(payload.kairomones) ? payload.kairomones.filter(function (k) { return k && ID.test(str(k.listing_id)); }) : [];
     var key = listed.map(function (k) { return k.listing_id + '\u0000' + str(k.name); }).join('\u0001');
+    state.names = {};
+    listed.forEach(function (k) { state.names[k.listing_id] = str(k.name, k.listing_id); });
     if (key !== state.listed) {
       state.listed = key;
       var select = $('kairomone-select');
@@ -1077,7 +1091,7 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     payload.kinds.forEach(function (k) {
       if (!k || !str(k.kind)) return;
       var label = el('label'), box = el('input');
-      box.type = 'checkbox'; box.value = str(k.label, k.kind);
+      box.type = 'radio'; box.name = 'create-kind'; box.value = k.kind; box.setAttribute('data-label', str(k.label, k.kind));
       label.appendChild(box); label.appendChild(document.createTextNode(str(k.label, k.kind)));
       $('create-kinds').appendChild(label);
       (Array.isArray(k.traits) ? k.traits : []).forEach(function (t) { if (typeof t === 'string' && t && traits.indexOf(t) < 0) traits.push(t); });
@@ -1167,6 +1181,7 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
     text('st-root', str(obj(s.storage).data_root, '未確認'));
     var problems = [];
     if (typeof payload.error === 'string' && payload.error) problems.push('状態を読み取れませんでした: ' + payload.error);
+    if (typeof payload.notice === 'string' && payload.notice) problems.push(payload.notice);
     if (!valid) problems.push('この状態のデータは読み取れません（形式が違います）。');
     if (s.initialized === false) problems.push('相棒のプロフィールはまだ初期化されていません。');
     if (typeof s.error === 'string' && s.error) problems.push('状態を一部しか確認できませんでした: ' + s.error);
@@ -1236,6 +1251,11 @@ code.block{display:block;margin:6px 0 0;padding:9px 11px;background:#f8f6ee;bord
       var id = $('kairomone-select').value;
       if (!ID.test(id)) return;
       state.shown = id;
+      state.name = has(state.names, id) ? state.names[id] : id;
+      clear($('wait-list'));
+      $('wait-list').appendChild(el('li', '', '読み込んでいます…'));
+      $('art').hidden = true;
+      text('kairomone-name', state.name); text('st-name', state.name);
       scheduleStatus(0);
     });
     $('create-place').addEventListener('click', placeCreate);

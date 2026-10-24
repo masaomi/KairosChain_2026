@@ -14,7 +14,7 @@ module Kairomone
   # received pieces wait as proposals (Inv 4).
   module Exchange
     FORMAT = 'kairomone-exchange'
-    VERSION = 1
+    VERSION = 2 # 1 was written by 0.8.0.pre1, before the renderer and the profession roles
     NAME = /\A[A-Za-z0-9][A-Za-z0-9_.-]{0,150}\.kairomone-exchange\.json\z/
     OUTBOX = 'kairomone-outbox'
     PREVIEWS = 'kairomone-previews' # host-private: never inside the hand-off folder
@@ -41,7 +41,8 @@ module Kairomone
     # What the pieces and entries say is judged when they are stored.
     def load(bytes)
       doc = JSON.parse(bytes)
-      raise Error, 'Not a Kairomone exchange file' unless doc.is_a?(Hash) && doc['format'] == FORMAT && doc['version'] == VERSION
+      raise Error, 'Not a Kairomone exchange file' unless doc.is_a?(Hash) && doc['format'] == FORMAT
+      raise Error, "This exchange file is format #{doc['version']} (Kairomone 0.8.0.pre1 wrote format 1); export it again with Kairomone #{Kairomone::VERSION}" unless doc['version'] == VERSION
       raise Error, 'Unexpected exchange file fields' unless doc.keys.sort == TOP.sort
       raise Error, 'Exchange file manifest mismatch' unless manifest(doc) == doc['manifest_sha256']
 
@@ -273,14 +274,14 @@ module Kairomone
       end
       doc = { 'format' => Exchange::FORMAT, 'version' => Exchange::VERSION, 'renderer' => Autonomy::KNOWLEDGE_RENDERER,
               'source' => { 'identity' => identity(ledger), 'name' => name, 'ledger_head' => inputs['ledger_head'], 'exported_at' => inputs['exported_at'] },
-              'includes' => inputs['includes'], 'pieces' => exchange_pieces(ledger), 'entries' => entries, 'xp_basis' => xp,
+              'includes' => inputs['includes'], 'pieces' => (pieces, pieces_left = exchange_pieces(ledger)).first, 'entries' => entries, 'xp_basis' => xp,
               'lineage' => exchange_lineage(ledger) }
       doc['manifest_sha256'] = Exchange.manifest(doc)
       taken = Set.new(chosen.map { |b, _| b['id'] })
       left = eligible.reject { |b, _| taken.include?(b['id']) }.map do |b, kind, _|
         { 'id' => b['id'], 'kind' => kind, 'title' => provider.get(b['id']).description.to_s }.merge(reasons[b['id']] ? { 'reason' => reasons[b['id']] } : {})
       end
-      left_out = { 'entries' => left, 'observations' => observation_entries.length - entries.count { |e| e['evidence'] },
+      left_out = { 'entries' => left, 'pieces' => pieces_left, 'observations' => observation_entries.length - entries.count { |e| e['evidence'] },
                    'chat_memories' => verified_chat_entries.length,
                    'never' => 'Chat memories, growth state, backups, the ledger, the companion\'s direction and personality settings, ' \
                               'composition material and host references never go in.' }
@@ -294,26 +295,35 @@ module Kairomone
       end.first(Exchange::PIECES_MAX)
     end
 
-    # The current profile's fields, the accepted professions with every
-    # ancestor present (so the lineage reads the same where they arrive), and
-    # the accepted drawings that pass the art check now, each with the stage
-    # it answers. Material hashes stay. More than an import reads is not cut
-    # here: the preview refuses it (Exchange.load).
+    # The current profile's fields; the profession in force (role current)
+    # with its ancestry present here (role lineage, nearest first, so its
+    # lineage reads the same where it arrives); for each stage, the latest
+    # accepted drawing that passes the art check now. Material hashes stay.
+    # => [pieces, what was left out of them and why].
     def exchange_pieces(ledger)
       current = current_profile_piece(ledger)
       profile = if current then current[:piece].slice(*Exchange::PROFILE_FIELDS)
                 elsif (legacy = legacy_profile) then { 'name' => legacy['display_name'], 'kind' => 'unknown' }
                 end
-      accepted = Records.of_type(ledger, 'kairomone_profession').map { |r| r['sha256'] }.uniq
-      professions = profession_ancestry(accepted, limit: Exchange::PIECES_MAX + 1).map do |sha, piece|
-        { 'sha256' => sha }.merge(piece.slice(*Exchange::PROFESSION_FIELDS))
+      in_force = current_profession(ledger)
+      line = in_force[:record] ? profession_ancestry([in_force[:id]], limit: Exchange::PIECES_MAX) : []
+      professions = line.each_with_index.map do |(sha, piece), i|
+        { 'sha256' => sha, 'role' => i.zero? ? 'current' : 'lineage' }.merge(piece.slice(*Exchange::PROFESSION_FIELDS))
       end
-      stages = Records.of_type(ledger, 'kairomone_art').to_h { |r| [r['sha256'], r['stage']] }
-      art = stages.filter_map do |sha, stage|
-        text = art_text(sha)
-        text && Art.valid?(text) ? { 'sha256' => sha, 'svg' => text, 'stage' => stage.to_s } : nil
+      drawings = Records.of_type(ledger, 'kairomone_art')
+      by_stage = {}
+      drawings.reverse_each do |r|
+        stage = r['stage'].to_s
+        next if by_stage.key?(stage)
+
+        text = art_text(r['sha256'])
+        by_stage[stage] = { 'sha256' => r['sha256'], 'svg' => text, 'stage' => stage } if text && Art.valid?(text)
       end
-      { 'profile' => profile, 'professions' => professions, 'art' => art }
+      art = by_stage.values.sort_by { |a| Vocabulary.stage_rank(a['stage']) }
+      left = { 'drawings' => drawings.map { |r| r['sha256'] }.uniq.length - art.length,
+               'note' => 'Only the profession in force travels as a proposal, with its ancestry for its lineage (at most ' \
+                         "#{Exchange::PIECES_MAX}); each stage sends its latest accepted drawing that passes the art check." }
+      [{ 'profile' => profile, 'professions' => professions, 'art' => art }, left]
     end
 
     # A growth entry's evidence without its request (no topic, no direction).
@@ -345,7 +355,9 @@ module Kairomone
       inputs = JSON.parse(Paths.read(host_root, "#{relative}.json", limit: 4 * 1_048_576))
       raise Error, 'This preview is of another Kairomone' unless inputs['listing_id'] == listing_id
 
-      pages = Array(inputs['pages'])
+      raise Error, 'This preview was made by an earlier version; preview again' unless inputs['pages'].is_a?(Array) && !inputs['pages'].empty?
+
+      pages = inputs['pages']
       raise Error, "page runs from 1 to #{pages.length}" if page > pages.length
 
       text = Paths.read(host_root, "#{relative}.p#{page}.json", limit: Exchange::FILE_LIMIT)
@@ -418,6 +430,10 @@ module Kairomone
 
           ComposedText.guard!(Profession.texts(piece))
           write_piece('professions', piece) # present for lineage; in force only by an acceptance record (Inv 4)
+          # An ancestor travels so the lineage reads the same; only the
+          # profession the source held waits for the owner.
+          next if p['role'] == 'lineage'
+
           sha = write_piece('proposals', { 'kind' => 'profession', 'piece' => piece, 'received_sha256' => p['sha256'], 'proposed_at' => now })
           received << { 'kind' => 'profession', 'proposal' => sha }
         rescue Error => e

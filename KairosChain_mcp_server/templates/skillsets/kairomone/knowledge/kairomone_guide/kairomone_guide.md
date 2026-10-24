@@ -130,7 +130,8 @@ transplant.
 ## Exchange and fusion
 
 `kairomone_exchange` hands someone a labelled copy. The owner chooses what goes
-in — learned, owner-written and inherited knowledge, by title — and `preview`
+in — learned, owner-written, received (counted content that came from another
+Kairomone by exchange) and inherited knowledge, by title — and `preview`
 shows every piece the file will carry in full, paged under one file sha256
 (later pages are asked for with that sha256): the
 current profile, the professions, the drawings that pass the art check, the

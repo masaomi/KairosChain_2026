@@ -115,14 +115,23 @@ class Kairomone08ExchangeFollowupsTest < Minitest::Test
     assert_equal counts.first, counts.last, "ledger passes for 3 and 12 entries: #{counts.inspect}"
   end
 
-  def test_a_preview_refuses_a_file_an_import_would_refuse
+  def test_a_long_life_of_drawings_still_exports_one_per_stage
     store = create('momo')
     Kairomone::Exchange::PIECES_MAX.succ.times do |i|
       svg = Kairomone::Art::EGG.sub('rx="34"', "rx=\"#{i + 1}\"")
       store.accept_art(proposal: store.propose_art(svg: svg)[:proposal])
     end
+    first = store.exchange_preview(include: %w[owner_written])
+    drawings = first[:items].select { |i| i['item'] == 'drawing' }
+    assert_equal [%w[egg 65]], drawings.map { |d| [d['stage'], d['svg'][/rx="(\d+)"/, 1]] }, 'the latest drawing of the one stage'
+    assert_equal Kairomone::Exchange::PIECES_MAX, first[:left_out]['pieces']['drawings']
+  end
+
+  def test_a_preview_refuses_a_file_an_import_would_refuse
+    store = create('momo')
+    store.define_singleton_method(:exchange_lineage) { |_ledger| Array.new(Kairomone::Exchange::PIECES_MAX + 1) { { 'kind' => 'exchange', 'sources' => [] } } }
     error = assert_raises(Kairomone::Error) { store.exchange_preview(include: %w[owner_written]) }
-    assert_match(/An import would refuse this file .*at most 64 professions and 64 drawings/, error.message)
+    assert_match(/An import would refuse this file \(Invalid exchange lineage\)/, error.message)
     refute Dir.exist?(File.join(@host, 'kairomone-previews')) && Dir.children(File.join(@host, 'kairomone-previews')).any?
   end
 
@@ -149,6 +158,15 @@ class Kairomone08ExchangeFollowupsTest < Minitest::Test
     left = first[:items].find { |i| i['item'] == 'left_out' }
     assert_equal 'growth_moss', left['id']
     assert_match(/does not match its hash, so an importer could not check it/, left['reason'])
+  end
+
+  def test_a_malformed_retrieval_time_leaves_the_entry_out_with_a_reason
+    store = create('momo')
+    one_cycle(store, 'moss')
+    path = File.join(store.root, 'context/kairomone/growth_moss/growth_moss.md')
+    File.write(path, File.read(path).sub(/"retrieved_at": "[^"]+"/, '"retrieved_at": "not a time"'))
+    left = store.exchange_preview(include: %w[learned])[:items].find { |i| i['item'] == 'left_out' }
+    assert_match(/not what a cycle accepts .*so an importer could not check it/, left['reason'])
   end
 
   def test_a_file_from_another_renderer_or_with_oversized_evidence_is_refused
@@ -181,6 +199,53 @@ class Kairomone08ExchangeFollowupsTest < Minitest::Test
     assert_equal sent, heir.profession_status[:current][:id], 'the received profession keeps its sha256'
     assert_equal 'import', Kairomone::Records.of_type(heir.chain, 'kairomone_profession').last['origin']
     assert_equal lineage, heir.profession_status[:lineage]
+  end
+
+  def test_an_import_offers_only_the_profession_the_source_held
+    _a, _b = parents
+    Kairomone::Host.new.fusion_accept(plan: propose[:plan], candidate: 0)
+    child = Kairomone::Instance.new(host_root: @host, kairomone: 'pip')
+    import(export_and_place(child, include: []), 'heir')
+    heir = Kairomone::Instance.new(host_root: @host, kairomone: 'heir')
+    waiting = heir.proposals[:proposals].select { |p| p['kind'] == 'profession' && p['state'] == 'waiting' }
+    assert_equal ['Gardener'], waiting.map { |p| p.dig('piece', 'name') }, 'ancestors travel for the lineage only'
+  end
+
+  def test_a_fused_child_backs_up_and_restores_with_where_its_entries_came_from
+    _a, _b = parents
+    Kairomone::Host.new.fusion_accept(plan: propose[:plan], candidate: 0)
+    child = Kairomone::Instance.new(host_root: @host, kairomone: 'pip')
+    backup = child.create_backup
+    assert child.restore_backup(file: backup[:file], target_id: 'twin')[:success]
+    twin = Kairomone::Instance.new(host_root: @host, kairomone: 'twin')
+    record = Kairomone::Records.of_type(twin.chain, 'kairomone_lineage').first
+    assert File.file?(File.join(twin.root, 'lineage', "#{record['entries_sha256']}.json"))
+    assert_equal child.profession_status[:lineage], twin.profession_status[:lineage]
+  end
+
+  def test_a_fusion_retry_names_the_profession_its_child_has
+    _a, _b = parents
+    plan = propose[:plan]
+    Kairomone::Host.new.fusion_accept(plan: plan, candidate: 0)
+    again = Kairomone::Host.new.fusion_accept(plan: plan, candidate: 2)
+    assert_equal [true, 'Gardener'], again.values_at(:preserved, :profession)
+    assert_match(/the candidate named now was not applied/, again[:note])
+  end
+
+  def test_a_kept_entry_over_the_bound_is_told_to_stay_out
+    many = Array.new(256) { |i| Digest::SHA256.hexdigest("held #{i}") }
+    sources_of = { 'a' => { 'x' => { 'sha256' => 'a' * 64, 'identity' => 'b' * 64, 'holds' => many, 'title' => 'X', 'body' => 'X body' } } }
+    entries = [{ 'id' => 'x', 'mode' => 'keep', 'sources' => [{ 'parent' => 'a', 'entry_id' => 'x', 'sha256' => 'a' * 64 }] }]
+    error = assert_raises(Kairomone::Error) { Kairomone::Host.new.send(:fusion_plan_entries!, entries, sources_of) }
+    assert_match(/would hold 257 .*too many to be inherited again; leave it out/, error.message)
+  end
+
+  def test_a_file_in_the_earlier_format_is_refused_by_name
+    store = create('momo')
+    store.create_knowledge(id: 'tea', title: 'Tea notes', content: 'Green tea is steamed.')
+    file = export_and_place(store, include: %w[owner_written])
+    rewrite(file) { |doc| doc['version'] = 1 }
+    assert_match(/format 1 \(Kairomone 0\.8\.0\.pre1 wrote format 1\); export it again/, assert_raises(Kairomone::Error) { import(file, 'copy') }.message)
   end
 
   def test_a_received_profession_that_does_not_match_its_sha256_waits_nowhere

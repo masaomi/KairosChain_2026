@@ -192,10 +192,10 @@ module KairosMcp
 
         class Exchange < Base
           def name; 'kairomone_exchange'; end
-          def description; 'Hand a labelled copy of a Kairomone to someone else, or bring one in. preview: the owner chooses what goes in (include: learned, owner_written, inherited; optionally entry_ids) and is shown every piece the file will carry, in full and paged, under one file_sha256; show every page (later pages: preview with that file_sha256 and page). export (file_sha256) writes exactly that file to kairomone-outbox/ and changes nothing on the Kairomone; it is refused if anything changed since the preview. Chat memories, growth state, backups, the ledger, the companion\'s direction and personality settings, material and host references never go in. import (file in kairomone-inbox/, kairomone: the new listing ID, which is also its identity) makes a new Kairomone whose knowledge is outside content and whose received profile, professions and drawings wait as proposals. Only on the owner\'s request.'; end
+          def description; 'Hand a labelled copy of a Kairomone to someone else, or bring one in. preview: the owner chooses what goes in (include: learned, owner_written, received, inherited — received is counted content that came from another Kairomone; optionally entry_ids) and is shown every piece the file will carry, in full and paged, under one file_sha256; show every page (later pages: preview with that file_sha256 and page). export (file_sha256) writes exactly that file to kairomone-outbox/ and changes nothing on the Kairomone; it is refused if anything changed since the preview. Chat memories, growth state, backups, the ledger, the companion\'s direction and personality settings, material and host references never go in. import (file in kairomone-inbox/, kairomone: the new listing ID, which is also its identity) makes a new Kairomone whose knowledge is outside content and whose received profile, professions and drawings wait as proposals. Only on the owner\'s request.'; end
           def input_schema
             { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: %w[preview export import] },
-              include: { type: 'array', items: { type: 'string', enum: %w[learned owner_written inherited] } },
+              include: { type: 'array', items: { type: 'string', enum: ::Kairomone::Exchange::KINDS } },
               entry_ids: { type: 'array', items: { type: 'string' } }, page: { type: 'integer', minimum: 1 },
               file_sha256: { type: 'string' }, file: { type: 'string', description: 'import: a basename in kairomone-inbox/' } },
               required: ['command'], additionalProperties: false }
@@ -219,10 +219,11 @@ module KairosMcp
 
         class Fusion < Base
           def name; 'kairomone_fusion'; end
-          def description; 'Make a new Kairomone from two, changing neither, only on the owner\'s request. material (parents: two listing IDs) pages both parents\' L1 with each entry\'s sha256, identity and outside flag, and their ledger heads. propose stores your plan: kairomone (the child\'s listing ID and identity), profile (a draft, an anthropomorphised cute character), candidates (exactly three professions, focus from the subject vocabulary), entries ({id, title, content, mode: keep|merge, sources: [{parent, entry_id, sha256}]}) and heads (as material showed them); nothing takes effect. summary (plan, page) shows the counts, the profile and the candidates, and pages each child entry in full with the parent entries it came from and each parent entry dropped; show every page to the owner. accept (plan, candidate: 0-2) makes the child when the owner accepted the plan: level 1, an egg, no L2, its inherited knowledge held and never counted.'; end
+          def description; 'Make a new Kairomone from two, changing neither, only on the owner\'s request. material (parents: two listing IDs; bodies: false for titles, hashes and sizes only) pages both parents\' L1 with each entry\'s sha256, identity and outside flag, and their ledger heads. propose stores your plan: kairomone (the child\'s listing ID and identity), profile (a draft, an anthropomorphised cute character), candidates (exactly three professions, focus from the subject vocabulary), entries ({id, mode: keep|merge, sources: [{parent, entry_id, sha256}], title, content}; a kept entry may leave out title and content, which are copied from its one source) and heads (as material showed them); nothing takes effect. summary (plan, page) shows the counts, the profile and the candidates, and pages each child entry in full with the parent entries it came from and each parent entry dropped; show every page to the owner. accept (plan, candidate: 0-2) makes the child when the owner accepted the plan: level 1, an egg, no L2, its inherited knowledge held and never counted.'; end
           def input_schema
             { type: 'object', properties: { command: { type: 'string', enum: %w[material propose summary accept] },
               parents: { type: 'array', items: { type: 'string' } }, page: { type: 'integer', minimum: 1 },
+              bodies: { type: 'boolean', description: 'material: false gives titles, hashes and sizes without bodies' },
               kairomone: { type: 'string', description: 'propose: the child\'s listing ID and identity' },
               profile: { type: 'object' }, candidates: { type: 'array', items: { type: 'object' } },
               entries: { type: 'array', items: { type: 'object' } }, heads: { type: 'object' },
@@ -234,7 +235,7 @@ module KairosMcp
               single_owner!
               host = ::Kairomone::Host.new
               case args['command']
-              when 'material' then host.fusion_material(parents: args['parents'], page: args.fetch('page', 1))
+              when 'material' then host.fusion_material(parents: args['parents'], page: args.fetch('page', 1), bodies: args.fetch('bodies', true))
               when 'propose'
                 host.fusion_propose(parents: args['parents'], child: args['kairomone'], profile: args['profile'], candidates: args['candidates'],
                                     entries: args['entries'], heads: args['heads'])

@@ -155,8 +155,8 @@ module Kairomone
 
     # An ID given under its 0.8 name or under the name it had before 0.8
     # (dot_id, when a Kairomone was called a dot); either is read, not both.
-    def self.renamed_id!(current, older, field)
-      raise Error, "Give #{field} (dot_id is its older name), not both" if current && older && current != older
+    def self.renamed_id!(current, older, field, older_name = 'dot_id')
+      raise Error, "Give #{field} (#{older_name} is its older name), not both" if current && older && current != older
       raise Error, "#{field} is required" if current.nil? && older.nil?
 
       Paths.id!(current || older)

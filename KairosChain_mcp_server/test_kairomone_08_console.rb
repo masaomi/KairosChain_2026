@@ -54,8 +54,30 @@ class Kairomone08ConsoleTest < Minitest::Test
     assert_equal 'momo', first.dig('status', 'kairomone', 'listing_id')
     other = view('pip')
     assert_equal ['pip', 'Pip'], [other['shown'], other.dig('status', 'profile', 'display_name')]
-    assert_raises(Kairomone::Error) { view('nobody') }
-    assert_raises(Kairomone::Error) { view('../momo') }
+    gone = view('nobody')
+    assert_equal ['momo', 'nobody is not listed on this host; showing momo'], gone.values_at('shown', 'notice'), 'an ID no longer listed falls back'
+    assert_equal 'momo', view('../momo')['shown']
+  end
+
+  def test_a_failure_for_the_one_shown_still_lists_every_individual
+    create('momo')
+    create('pip', 'Pip')
+    original = Kairomone::Console::View.method(:waiting)
+    Kairomone::Console::View.define_singleton_method(:waiting) { |*| raise Kairomone::Error, 'a damaged proposal' }
+    payload = view('pip')
+    assert_equal [%w[momo pip], 'pip', nil], [payload['kairomones'].map { |k| k['listing_id'] }, payload['shown'], payload['waiting']]
+    assert_match(/a damaged proposal/, payload['error'])
+    assert_equal 'Pip', payload.dig('status', 'profile', 'display_name'), 'its status still comes'
+  ensure
+    Kairomone::Console::View.define_singleton_method(:waiting, original) if original
+  end
+
+  def test_the_page_logic_on_a_stand_in_dom
+    out, status = Open3.capture2e('node', File.expand_path('templates/skillsets/kairomone/assets/test_console_logic.mjs', __dir__))
+    assert status.success?, out
+    assert_equal 3, out.scan(/^PASS: /).length, out
+  rescue Errno::ENOENT
+    skip 'node is not available here'
   end
 
   def test_a_host_without_individuals_shows_none
@@ -127,6 +149,19 @@ class Kairomone08ConsoleTest < Minitest::Test
     # The words filled in come from fixed tables with the same rule.
     words = script[/var KIND_WORDS = \{(.*?)\};/m, 1] + script[/var PIECE_WORDS = \{(.*?)\};/m, 1]
     refute_match ACCEPTANCE, words
+  end
+
+  def test_the_tools_take_what_the_page_offers
+    exchange = Kairomone08Support::TOOLS::Exchange.new(nil).input_schema
+    assert_equal Kairomone::Exchange::KINDS, exchange.dig(:properties, :include, :items, :enum)
+    assert_includes Kairomone::Exchange::KINDS, 'received'
+    fusion = Kairomone08Support::TOOLS::Fusion.new(nil).input_schema
+    assert_equal 'boolean', fusion.dig(:properties, :bodies, :type)
+    create('alpha').create_knowledge(id: 'tea', title: 'Tea', content: 'Green tea is steamed.')
+    create('beta')
+    light = tool('Fusion', { 'command' => 'material', 'parents' => %w[alpha beta], 'bodies' => false })
+    entries = light['items'].select { |i| i['item'] == 'entry' }
+    assert_equal [[false, true]], entries.map { |e| [e.key?('body'), e['bytes'].positive?] }, 'the tool passes bodies: false through'
   end
 
   def test_the_page_names_every_tool_and_no_dot

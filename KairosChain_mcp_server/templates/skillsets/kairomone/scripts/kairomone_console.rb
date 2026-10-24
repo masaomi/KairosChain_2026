@@ -113,7 +113,13 @@ stops = Queue.new
 status_reader = lambda do |kairomone = nil|
   Kairomone::Console::View.payload(project.data_dir, kairomone)
 rescue StandardError => e
-  { 'data_dir' => project.data_dir, 'kairomones' => [], 'shown' => kairomone, 'status' => nil, 'error' => e.message }
+  # A failure for the one shown still returns the listing, so the page can switch away.
+  listed = begin
+    Kairomone::Host.new(host_root: project.data_dir).summaries.map { |s| s.transform_keys(&:to_s) }
+  rescue StandardError
+    []
+  end
+  { 'data_dir' => project.data_dir, 'kairomones' => listed, 'shown' => nil, 'status' => nil, 'error' => e.message }
 end
 
 server = nil

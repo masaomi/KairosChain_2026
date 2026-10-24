@@ -153,7 +153,7 @@ begin
                  tty.flush
                  tty.gets.to_s.strip == nonce
                end
-               expected = subcommand == 'restore-new' ? Kairomone::Instance.renamed_id!(options[:identity], options[:dot_id], '--identity') : nil
+               expected = subcommand == 'restore-new' ? Kairomone::Instance.renamed_id!(options[:identity], options[:dot_id], '--identity', '--dot-id') : nil
                host.restore(bytes, trust: confirm, listing_id: options[:target_id], expected_identity: expected)
              ensure
                tty.close

@@ -11,17 +11,25 @@ module Kairomone
     module View
       module_function
 
-      # kairomone: the listing ID the page shows; nil shows the first listed.
+      # kairomone: the listing ID the page shows; nil, or one the host no
+      # longer lists, shows the first listed. The listing comes back whatever
+      # fails for the one shown, so the page can always switch away from it.
       def payload(data_dir, kairomone = nil)
         host = Host.new(host_root: data_dir)
         listed = host.summaries.map { |s| s.transform_keys(&:to_s) }
-        shown = kairomone || listed.first&.fetch('listing_id')
+        ids = listed.map { |l| l['listing_id'] }
+        shown = ids.include?(kairomone) ? kairomone : ids.first
         base = { 'data_dir' => data_dir, 'kairomones' => listed, 'shown' => shown, 'kinds' => kinds, 'templates' => templates }
+        base['notice'] = "#{kairomone} is not listed on this host; showing #{shown || 'none'}" if kairomone && kairomone != shown
         return base.merge('status' => Instance.new(host_root: data_dir, bind: false).status) if shown.nil?
 
-        store = Instance.new(host_root: data_dir, kairomone: shown) # refuses an ID the host does not list
+        store = Instance.new(host_root: data_dir, kairomone: shown)
         status = store.status
-        base.merge('status' => status, 'waiting' => waiting(store, status))
+        begin
+          base.merge('status' => status, 'waiting' => waiting(store, status))
+        rescue StandardError => e
+          base.merge('status' => status, 'waiting' => nil, 'error' => "What waits for the owner could not be read: #{e.message}")
+        end
       end
 
       def waiting(store, status)

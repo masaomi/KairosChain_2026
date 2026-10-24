@@ -112,11 +112,18 @@ module Kairomone
 
       governed!('L1')
       with_registry_lock do
-        if (made = fused_from(plan))
-          next { success: true, fused: true, preserved: true, kairomone: made.address, level: made.progression_status[:level],
-                 note: 'This plan already made this child; nothing changed.' }
+        # A used plan is removed, so a retry finds the child by its lineage:
+        # every listed one when the plan is gone, only the planned child
+        # when the plan is still here.
+        present = File.file?(Paths.checked(host_root, "#{Fusion::PLANS}/#{plan}.json"))
+        doc = present ? fusion_plan(plan) : nil
+        made = present ? (listed?(doc['child']) && fused_from(plan, [doc['child']])) : fused_from(plan)
+        if made
+          current = made.profession_status[:current][:name]
+          next { success: true, fused: true, preserved: true, kairomone: made.address, level: made.progression_status[:level], profession: current,
+                 note: "This plan already made this child, whose profession is #{current}; nothing changed, and the candidate named now was not applied." }
         end
-        doc = fusion_plan(plan)
+        doc ||= fusion_plan(plan)
         a, b = fusion_parents(doc['parents'])
         # The pieces are judged by the rules current now, as every accept is.
         piece = Profile.build(doc['profile'].is_a?(Hash) ? doc['profile'].slice(*Exchange::PROFILE_FIELDS) : {}, origin: 'fusion')
@@ -135,7 +142,8 @@ module Kairomone
             fusion_plan_entries!(doc['entries'], sources_of)
             # The parents' professions travel with the child so its lineage
             # reads both lines; they are in force only by its own record.
-            lineage_pieces = [a, b].flat_map { |p| p.send(:profession_ancestry, [p.profession_status[:current][:id]], limit: 64) }.uniq(&:first)
+            lineage_pieces = [a, b].flat_map { |p| p.send(:profession_ancestry, [p.profession_status[:current][:id]], limit: 64).map { |sha, _| [sha, p.root] } }
+                                   .uniq(&:first)
             path = assemble(doc['child']) do |staged|
               staged.fuse_into!(doc.merge('profile' => piece), plan, profession, [a, b], sources_of, lineage_pieces)
               doc['child']
@@ -180,10 +188,11 @@ module Kairomone
       pages
     end
 
-    # The listed individual a plan made, if any (a retry after the plan was
-    # used).
-    def fused_from(plan)
+    # The listed individual (among ids, or all) a plan made, if any.
+    def fused_from(plan, ids = nil)
       listing.each do |l|
+        next if ids && !ids.include?(l[:listing_id])
+
         store = Instance.new(host_root: host_root, root: l[:root])
         record = Records.of_type(store.chain, 'kairomone_lineage').first
         return store if record && record['kind'] == 'fusion' && record['plan_sha256'] == plan
@@ -252,7 +261,8 @@ module Kairomone
         end
         holds = cited.flat_map { |c| [c['identity'], *c['holds']] }.uniq
         if holds.length > Fusion::HOLDS_MAX
-          raise Error, "Entry #{e['id']} would hold #{holds.length} identities, over the #{Fusion::HOLDS_MAX} an entry holds; merge fewer sources into it"
+          remedy = e['mode'] == 'keep' ? 'its source already holds too many to be inherited again; leave it out' : 'merge fewer sources into it'
+          raise Error, "Entry #{e['id']} would hold #{holds.length} identities, over the #{Fusion::HOLDS_MAX} an entry holds; #{remedy}"
         end
 
         if e['mode'] == 'keep'
@@ -288,7 +298,11 @@ module Kairomone
       open_new!(identity: child, origin: 'fusion', listing_id: child, profile_piece: plan['profile'], profession_piece: profession, lineage: lineage)
       raise Error, 'The fusion sources could not be kept' unless write_piece(Fusion::SOURCES, origins) == origins_sha
 
-      lineage_pieces.each { |_sha, piece| write_piece('professions', piece) }
+      # Copied byte for byte, so each piece keeps the sha256 its descendants name.
+      lineage_pieces.each do |sha, parent_root|
+        relative = "professions/#{sha}.json"
+        Paths.write(root, relative, Paths.read(parent_root, relative, limit: 65_536)) unless File.exist?(Paths.checked(root, relative))
+      end
       ledger = chain
       writes = plan['entries'].map do |e|
         raw = document(e['id'], e['title'], e['content'], 'L1', now)
