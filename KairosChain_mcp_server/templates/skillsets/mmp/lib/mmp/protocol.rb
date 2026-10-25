@@ -120,6 +120,27 @@ module MMP
       end.compact
     end
 
+    # What the card advertises (I1): protocol-loader extensions whose
+    # knowledge file the operator marked public. Actions registered by
+    # SkillSets through register_handler are never advertised.
+    def public_extension_info
+      return [] unless @protocol_loader
+      @protocol_loader.extensions.filter_map do |ext_name|
+        proto = @protocol_loader.loaded_protocols[ext_name]
+        next unless proto && proto[:public]
+        { name: ext_name, version: proto[:version], actions: proto[:actions] }
+      end
+    end
+
+    def public_supported_actions(declared)
+      loader = if @protocol_loader
+                 @protocol_loader.loaded_protocols.values.select { |p| p[:public] }.flat_map { |p| p[:actions] }
+               else
+                 []
+               end
+      (Array(declared) + loader).uniq
+    end
+
     def create_introduce
       intro = @identity.introduce
       intro[:extensions] = @supported_extensions
@@ -192,9 +213,11 @@ module MMP
             { status: 'error', action: action, message: 'Handler execution failed' }
           end
         else
+          # Only what the card advertises: actions registered by SkillSets
+          # are not listed to a peer (secure MMP v1, I1).
           { status: 'action_not_supported', action: action,
             message: "Action '#{action}' is recognized but has no handler.",
-            available_actions: supported_actions }
+            available_actions: public_supported_actions(@identity.capabilities_info[:supported_actions]) }
         end
       end
     end
@@ -209,7 +232,7 @@ module MMP
     end
 
     def find_skill(skill_id)
-      @identity.introduce[:skills]&.find { |s| s[:id] == skill_id || s[:name] == skill_id }
+      @identity.public_skills.find { |s| s[:id] == skill_id || s[:name] == skill_id }
     end
 
     def process_introduce(msg_data)

@@ -1,7 +1,7 @@
 ---
 name: meeting_protocol_wire_spec
 description: Language-neutral wire protocol specification for MMP
-version: 1.0.0
+version: 1.1.0
 type: protocol_specification
 layer: L1
 tags: [mmp, wire-protocol, specification, interoperability]
@@ -106,20 +106,39 @@ Returns the agent's self-introduction.
 }
 ```
 
+Disclosure (1.1.0): `skills` lists only entries the operator marked public (frontmatter `public: true`, or `public_by_default`), and no entry carries a filesystem path. `exchangeable_skillsets` lists only SkillSets with a valid publication record for their current content (§8, Admission). `capabilities.supported_actions` lists the actions declared in configuration plus those of public protocol-extension files; actions registered at runtime by other components are not advertised.
+
 #### POST /meeting/v1/introduce
 
-Receive introduction from a peer agent.
+Receive introduction from a peer agent and, when the identity verifies, issue a session.
 
-**Request Body**: MMP message envelope with `action: "introduce"`
+**Request Body** (1.1.0 minimal form; a full GET-style introduce is also accepted):
+```json
+{
+  "identity": { /* identity object, as in GET */ },
+  "public_key": "PEM",
+  "identity_signature": "base64 PKCS#1 v1.5 over the identity JSON",
+  "direct_proof": {               // REQUIRED by a listener with an admission policy
+    "audience": "http://host:port", // the origin the sender dialed (normalized)
+    "agent_id": "string",         // the sender's instance_id
+    "issued_at": "YYYY-MM-DDTHH:MM:SSZ",
+    "nonce": "32 lowercase hex"
+  },
+  "direct_proof_signature": "base64 RSA-PSS over kairos-mmp-direct/1, audience, agent_id, issued_at, nonce"
+}
+```
 
 **Response** `200 OK`:
 ```json
 {
   "status": "received",
-  "peer_identity": { /* same as GET introduce response */ },
-  "result": { /* protocol processing result */ }
+  "peer_identity": { /* the card; minimal form under an admission policy */ },
+  "identity_verified": true,
+  "session_token": "string"       // Bearer token for the authenticated endpoints
 }
 ```
+
+**Refusals under an admission policy** (`403` unless noted): `proof_invalid` (`400` for a malformed body), `proof_stale` (with `server_time`, `earliest_acceptable_at`), `proof_wrong_audience` (with `expected_audience`), `admission_refused` (with the presented `key_sha256`). A sender MUST NOT re-date a proof from these fields; it MAY retry once after waiting, signing with its own clock.
 
 ### 3.2 Skill Discovery & Exchange
 
@@ -279,8 +298,7 @@ Get detailed metadata for a specific SkillSet.
 
 **Error Responses**:
 - `400 Bad Request`: Missing `name` parameter
-- `403 Forbidden`: SkillSet contains executable code (not exchangeable)
-- `404 Not Found`: SkillSet not found
+- `404 Not Found`: SkillSet not found, not exchangeable, or not published — one identical body for all three
 
 #### POST /meeting/v1/skillset_content
 
@@ -311,8 +329,8 @@ Request and receive a packaged SkillSet archive.
 
 **Error Responses**:
 - `400 Bad Request`: Missing `name` parameter
-- `403 Forbidden`: SkillSet not exchangeable or exchange disabled
-- `404 Not Found`: SkillSet not found
+- `403 Forbidden`: SkillSet exchange disabled
+- `404 Not Found`: SkillSet not found, not exchangeable, or not published — one identical body for all three
 
 ### 3.4 Generic Message & Reflection
 
@@ -425,8 +443,13 @@ All error responses follow a standard format:
 | HTTP Status | Error Code | Description |
 |-------------|------------|-------------|
 | 400 | `missing_param` | Required parameter missing |
-| 403 | `not_exchangeable` | SkillSet contains executable code |
+| 400 | `invalid_body` | POST body is not a JSON object |
+| 401 | `invalid_or_expired_token` | Unknown, expired, or (under an admission policy) foreign-issued token |
+| 403 | `admission_refused` | The key is not admitted, or admission cannot be decided now |
+| 403 | `admission_revoked` | The session's key stopped being admitted; the token is revoked |
+| 403 | `proof_invalid` / `proof_stale` / `proof_wrong_audience` | Direct proof refused (§3.1) |
 | 403 | `skillset_exchange_disabled` | SkillSet exchange not enabled |
+| 413 | `body_too_large` | POST body above the listener's limit (a listener MAY refuse it at the transport, before parsing, without a JSON body) |
 | 404 | `not_found` | Resource not found |
 | 404 | `content_unavailable` | Skill content cannot be retrieved |
 | 500 | `internal_error` | Unexpected server error |
@@ -489,6 +512,14 @@ MMP versions follow Semantic Versioning (SemVer): `MAJOR.MINOR.PATCH`
 - Hash mismatch MUST result in rejection with `SecurityError`
 - Content hashes use SHA-256 (hex-encoded, lowercase)
 
+### Admission (1.1.0)
+
+A listener started with an admission policy other than `open` issues a session only for a key the policy admits, presented with a fresh, single-use direct proof addressed to one of its origins (proof window: 300 s back, 30 s ahead, and not earlier than 30 s after the listener started; nonces single-use). It honours only sessions it issued itself and decides again on every authenticated request. Whatever the policy cannot read or verify admits nothing. A listener without a policy keeps the 1.0.0 behaviour.
+
+Bodies handed to protocol extensions never carry peer-supplied keys beginning `_authenticated` or `_admitted`; the listener sets `_authenticated_peer_id`, `_authenticated_peer_key_sha256` (SHA-256 of the key's DER, under a proof only) and `_admitted_as` itself.
+
+MMP carries no execution authority: what a receiving instance does with a message is decided by its own harness under its own permissions.
+
 ### Rate Limiting
 
 Implementations SHOULD apply rate limiting:
@@ -541,6 +572,9 @@ Extensions MUST NOT:
 - [ ] Enforce knowledge-only constraint for exchangeable SkillSets
 - [ ] Return standard error format for all error responses
 - [ ] Include `protocol_version` in introduce responses
+- [ ] Disclose only operator-marked public skills and published SkillSets, never filesystem paths (§3.1)
+- [ ] Answer not-served and unknown SkillSet names identically (§3.3)
+- [ ] Under an admission policy, require a fresh single-use direct proof and re-decide per request (§8)
 
 ### SHOULD (Recommended)
 
@@ -554,4 +588,3 @@ Extensions MUST NOT:
 - [ ] Support protocol extensions
 - [ ] Implement reflection/feedback mechanism
 - [ ] Record SkillSet events to blockchain based on layer
-- [ ] Support configurable public/private skill visibility

@@ -18,6 +18,11 @@ module MMP
   # yield a valid registration signature.
   module RegistrationProof
     PROTOCOL = 'kairos-mmp-register/1'
+    # Direct-mode admission proof (secure MMP v1): same fields, a different
+    # first line, so a registration proof never verifies as a direct proof
+    # and the reverse.
+    DIRECT_PROTOCOL = 'kairos-mmp-direct/1'
+    PROTOCOLS = [PROTOCOL, DIRECT_PROTOCOL].freeze
     MIN_RSA_BITS = 2048
     RSA_EXPONENT = 65_537
     LOOPBACK_HOSTS = %w[localhost 127.0.0.1 [::1] ::1].freeze
@@ -88,11 +93,13 @@ module MMP
     end
 
     # The exact bytes that are signed. Raises ArgumentError on malformed fields
-    # so that no field can smuggle a newline into the message.
-    def message(fields)
+    # so that no field can smuggle a newline into the message, and on a
+    # protocol outside PROTOCOLS so this is never a generic signer.
+    def message(fields, protocol: PROTOCOL)
+      raise ArgumentError, "unknown proof protocol #{protocol.inspect}" unless PROTOCOLS.include?(protocol)
       raise ArgumentError, 'malformed registration proof fields' if field_error(fields)
 
-      [PROTOCOL, fields['audience'], fields['agent_id'], fields['issued_at'], fields['nonce']].join("\n")
+      [protocol, fields['audience'], fields['agent_id'], fields['issued_at'], fields['nonce']].join("\n")
     end
 
     def issued_at_time(fields)
@@ -102,17 +109,17 @@ module MMP
     end
 
     # Sign with RSA-PSS (SHA-256, MGF1 SHA-256, salt length = digest length).
-    def sign(private_key, fields)
-      sig = private_key.sign_pss('SHA256', message(fields), salt_length: :digest, mgf1_hash: 'SHA256')
+    def sign(private_key, fields, protocol: PROTOCOL)
+      sig = private_key.sign_pss('SHA256', message(fields, protocol: protocol), salt_length: :digest, mgf1_hash: 'SHA256')
       Base64.strict_encode64(sig)
     end
 
-    def verify(public_key_pem, fields, signature)
+    def verify(public_key_pem, fields, signature, protocol: PROTOCOL)
       key = parse_key(public_key_pem)
       return false unless key
 
       raw = Base64.strict_decode64(signature.to_s)
-      key.verify_pss('SHA256', raw, message(fields), salt_length: :digest, mgf1_hash: 'SHA256')
+      key.verify_pss('SHA256', raw, message(fields, protocol: protocol), salt_length: :digest, mgf1_hash: 'SHA256')
     rescue ArgumentError, OpenSSL::PKey::PKeyError
       false
     end

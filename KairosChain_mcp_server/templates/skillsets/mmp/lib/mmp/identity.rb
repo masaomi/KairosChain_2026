@@ -13,17 +13,21 @@ module MMP
 
     attr_reader :config
 
-    def initialize(workspace_root: nil, config: nil)
+    # @param auto_generate_key [Boolean] create keys/mmp_keypair.pem when it is
+    #   missing. A listener under an admission policy passes false, so a probe
+    #   can never mint a new identity for this instance (secure MMP v1).
+    def initialize(workspace_root: nil, config: nil, auto_generate_key: true)
       @workspace_root = workspace_root
       @config = config || MMP.load_config
       @crypto = nil
+      @auto_generate_key = auto_generate_key
     end
 
     def introduce
       intro_data = {
         identity: identity_info,
         capabilities: capabilities_info,
-        skills: available_skills,
+        skills: public_skill_entries,
         exchangeable_skillsets: exchangeable_skillset_info,
         constraints: constraints_info,
         exchange_policy: exchange_policy,
@@ -57,8 +61,27 @@ module MMP
       info
     end
 
+    # The one public L1 set (I1). Entries keep :path for reading content
+    # in-process; nothing built from this for the wire may carry it.
     def public_skills
       available_skills.select { |s| s[:public] }
+    end
+
+    # Public L1 entries as they go on the wire: no filesystem path.
+    def public_skill_entries
+      public_skills.map { |s| s.reject { |k, _| k == :path } }
+    end
+
+    # The smallest introduce a direct-mode peer needs: who we are, our key and
+    # the signature over our identity. Nothing about skills or SkillSets.
+    def minimal_introduce
+      intro = { identity: identity_info, timestamp: Time.now.utc.iso8601 }
+      if crypto_available?
+        intro[:public_key] = crypto.export_public_key
+        intro[:key_fingerprint] = crypto.key_fingerprint
+        intro[:identity_signature] = crypto.sign(JSON.generate(intro[:identity], sort_keys: true))
+      end
+      intro
     end
 
     def instance_id
@@ -146,18 +169,65 @@ module MMP
       skills = []
       knowledge_dir = knowledge_path
       if knowledge_dir && File.directory?(knowledge_dir)
+        entry_public = {}
         Dir.glob(File.join(knowledge_dir, '**', '*.md')).each do |file|
-          skill = parse_skill_file(file, 'L1')
+          skill = parse_skill_file(file, 'L1', entry_public: entry_public, knowledge_dir: knowledge_dir)
           skills << skill if skill
         end
       end
       skills
     end
 
-    def parse_skill_file(file_path, layer)
+    # Publicity belongs to an L1 entry, decided by its main file
+    # (knowledge/<entry>/<entry>.md): its own `public:` key, else
+    # public_by_default. Other files under the entry inherit that decision
+    # and can only narrow it (a `public:` that is not true), never widen it.
+    # Any file that opens front matter it cannot read is private, as main
+    # file or sub-document.
+    def entry_public?(file_path, knowledge_dir, cache)
+      relative = file_path.sub(%r{\A#{Regexp.escape(knowledge_dir)}/}, '')
+      entry = relative.split('/').first
+      return false if entry.nil? || entry == File.basename(file_path) # a loose file outside any entry
+
+      cache.fetch(entry) do
+        main = File.join(knowledge_dir, entry, "#{entry}.md")
+        cache[entry] = File.file?(main) && own_publicity(frontmatter_of(File.read(main)))
+      end
+    end
+
+    # Whether a file is public by its own front matter alone.
+    def own_publicity(fm)
+      case fm
+      when :none then public_by_default?
+      when Hash then fm.key?('public') ? fm['public'] == true : public_by_default?
+      else false
+      end
+    end
+
+    # A file's front matter: a Hash, :none when it has none, or :unreadable
+    # when it opens one that does not read as a Hash — a YAML error, a Date
+    # value, no closing ---. Whatever precedes the first visible ASCII
+    # character (BOMs, NUL, whitespace, any invisible or non-ASCII run) is
+    # skipped before looking for ---: what counts is the shape, not a list
+    # of characters to strip.
+    def frontmatter_of(content)
+      text = content.sub(/\A[^\x21-\x7E]+/, '')
+      return :none unless text.start_with?('---')
+
+      fm = extract_frontmatter(text)
+      fm.is_a?(Hash) ? fm : :unreadable
+    end
+
+    def parse_skill_file(file_path, layer, entry_public: {}, knowledge_dir: nil)
       content = File.read(file_path)
-      frontmatter = extract_frontmatter(content)
-      is_public = frontmatter&.key?('public') ? frontmatter['public'] == true : public_by_default?
+      fm = frontmatter_of(content)
+      frontmatter = fm.is_a?(Hash) ? fm : nil
+      is_public = if knowledge_dir
+                    entry_public?(file_path, knowledge_dir, entry_public) &&
+                      fm != :unreadable && !(frontmatter&.key?('public') && frontmatter['public'] != true)
+                  else
+                    own_publicity(fm)
+                  end
 
       {
         id: generate_skill_id(file_path),
@@ -206,8 +276,15 @@ module MMP
       return [] unless defined?(KairosMcp)
 
       require 'kairos_mcp/skillset_manager'
+      begin
+        require 'kairos_mcp/admission_records'
+      rescue LoadError
+        return []
+      end
+
       manager = KairosMcp::SkillSetManager.new
-      manager.all_skillsets.select(&:exchangeable?).map do |ss|
+      records = KairosMcp::AdmissionRecords.for_data_dir
+      manager.all_skillsets.select { |ss| ss.exchangeable? && records.published?(ss.name, ss.content_hash) }.map do |ss|
         { name: ss.name, version: ss.version, layer: ss.layer.to_s,
           description: ss.description, content_hash: ss.content_hash }
       end
@@ -223,13 +300,21 @@ module MMP
 
     # Crypto key management for identity signing (H2 fix)
     def crypto_available?
-      return !@crypto.nil? if @crypto_checked
+      # A missing key is not latched when this identity may not create one:
+      # once the key file appears (created by another process) it is used.
+      return !@crypto.nil? if @crypto_checked && (@crypto || @auto_generate_key)
 
       @crypto_checked = true
+      keypair_path = File.join(keypair_dir, 'mmp_keypair.pem')
+      return false unless @auto_generate_key || File.exist?(keypair_path)
+
       @crypto = begin
-        keypair_path = File.join(keypair_dir, 'mmp_keypair.pem')
-        c = MMP::Crypto.new(keypair_path: keypair_path, auto_generate: true)
+        c = MMP::Crypto.new(keypair_path: keypair_path, auto_generate: @auto_generate_key)
         unless File.exist?(keypair_path)
+          # The file vanished after the check: an identity that may not
+          # create keys mints none.
+          raise 'keypair file disappeared while loading' unless @auto_generate_key
+
           FileUtils.mkdir_p(keypair_dir)
           # The Place-facing id is born with the key, and written first so a
           # crash between the two writes never leaves a key without its id.

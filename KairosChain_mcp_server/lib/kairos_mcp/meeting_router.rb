@@ -15,18 +15,54 @@ module KairosMcp
       'Cache-Control' => 'no-cache'
     }.freeze
 
-    def initialize
+    # Largest POST body accepted on /meeting/v1/* (secure MMP v1). An encrypted
+    # peer message of the sender's maximum size fits; the sender checks the
+    # encrypted size it is about to send.
+    MAX_BODY_BYTES = 256 * 1024
+
+    # Keys the router alone sets on messages it hands to extension handlers.
+    RESERVED_PREFIXES = %w[_authenticated _admitted].freeze
+
+    # One answer for every SkillSet that is not served, so the private set
+    # cannot be enumerated by probing names.
+    SKILLSET_NOT_FOUND = { error: 'not_found', message: 'SkillSet not found' }.freeze
+
+    # @param admission [Hash, nil] { policy:, origins:, started_at: } from the
+    #   listener's launch arguments. nil or policy 'open' keeps the open path.
+    # mmp versions older than this lack the card, proof and admission code
+    # this router calls; with one installed, /meeting/* answers 503 rather
+    # than falling back to a card that would disclose private entries.
+    MIN_MMP_VERSION = '1.3.0'
+
+    def initialize(admission: nil)
       @protocol = nil
       @identity = nil
       @exchange = nil
       @session_store = nil
+      @admission = admission || {}
+      @direct_session = nil
+      @memo_mutex = Mutex.new
+    end
+
+    attr_reader :admission
+
+    # True when the listener was started with a policy other than open.
+    def restricted?
+      policy = @admission[:policy].to_s
+      !policy.empty? && policy != 'open'
     end
 
     def call(env)
       return unavailable_response unless mmp_available?
+      return upgrade_required_response unless mmp_current?
 
       request_method = env['REQUEST_METHOD']
       path = env['PATH_INFO']
+
+      if request_method == 'POST'
+        refused = load_body(env)
+        return refused if refused
+      end
 
       # Unauthenticated endpoints
       case [request_method, path]
@@ -74,12 +110,24 @@ module KairosMcp
       @protocol = nil
     end
 
-    # Public accessor for session store (testing)
+    # Public accessor for session store (testing). Built once under a lock:
+    # two stores would orphan the tokens issued into one of them.
     def session_store
-      @session_store ||= begin
-        require_relative '../../templates/skillsets/mmp/lib/mmp/meeting_session_store'
-        MMP::MeetingSessionStore.new
+      @session_store || @memo_mutex.synchronize do
+        @session_store ||= begin
+          require_relative '../../templates/skillsets/mmp/lib/mmp/meeting_session_store'
+          MMP::MeetingSessionStore.new
+        end
       end
+    end
+
+    # True when the installed mmp provides what this router calls.
+    def mmp_current?
+      return false unless defined?(::MMP::VERSION)
+
+      Gem::Version.new(::MMP::VERSION) >= Gem::Version.new(MIN_MMP_VERSION)
+    rescue ArgumentError
+      false
     end
 
     private
@@ -100,10 +148,18 @@ module KairosMcp
       })
     end
 
+    def upgrade_required_response
+      json_response(503, {
+        error: 'mmp_upgrade_required',
+        message: "The installed mmp SkillSet is older than #{MIN_MMP_VERSION}; run `kairos-chain upgrade --apply`."
+      })
+    end
+
     def identity
       @identity ||= ::MMP::Identity.new(
         workspace_root: KairosMcp.data_dir,
-        config: ::MMP.load_config
+        config: ::MMP.load_config,
+        auto_generate_key: !restricted?
       )
     end
 
@@ -146,27 +202,34 @@ module KairosMcp
 
     # GET /meeting/v1/introduce - Return self-introduction
     def handle_get_introduce
+      json_response(200, card)
+    end
+
+    # The public card (I1): public L1 entries without paths, published
+    # SkillSets, and only the actions the operator declared plus public
+    # protocol-loader extensions — never actions registered by SkillSets.
+    def card
       intro = identity.introduce
-      # Inject protocol extension information from ProtocolLoader
-      ext_info = protocol.extension_info
-      if ext_info.any?
-        intro[:capabilities] = identity.capabilities_info(extensions: ext_info)
-        intro[:capabilities][:supported_actions] = protocol.supported_actions
-      end
-      json_response(200, intro)
+      declared = identity.capabilities_info[:supported_actions]
+      ext_info = protocol.public_extension_info
+      intro[:capabilities] = identity.capabilities_info(extensions: ext_info)
+      intro[:capabilities][:supported_actions] = protocol.public_supported_actions(declared)
+      intro
     end
 
     # POST /meeting/v1/introduce - Receive introduction from peer
     # If RSA signature verification succeeds, a session token is issued.
+    # Under a restricted policy, issuance belongs to MMP::DirectSession.
     def handle_post_introduce(env)
-      body = parse_body(env)
+      body = env['meeting.body']
+      return handle_restricted_introduce(env, body) if restricted?
 
       # Signature verification (H2 fix: verify identity if signed)
       verified = false
-      peer_id = body.dig('identity', 'instance_id')
+      peer_id = body['identity'].is_a?(Hash) ? body['identity']['instance_id'] : nil
       public_key = body['public_key']
 
-      if public_key && body['identity_signature'] && body['identity']
+      if public_key.is_a?(String) && body['identity_signature'].is_a?(String) && body['identity'].is_a?(Hash)
         begin
           canonical = JSON.generate(body['identity'], sort_keys: true)
           crypto = MMP::Crypto.new(auto_generate: false)
@@ -180,7 +243,7 @@ module KairosMcp
 
       response = {
         status: 'received',
-        peer_identity: identity.introduce,
+        peer_identity: card,
         identity_verified: verified,
         result: result
       }
@@ -197,7 +260,10 @@ module KairosMcp
     # POST /meeting/v1/goodbye - Revoke session token
     def handle_goodbye(env)
       token = extract_bearer_token(env)
-      if token
+      if token && restricted? && session_store.session_record(token)&.dig(:issuer) != 'mmp.direct'
+        # Under an admission policy this router ends only sessions it issued.
+        json_response(401, { error: 'invalid_or_expired_token', message: 'Unknown session' })
+      elsif token
         session_store.revoke(token)
         json_response(200, { status: 'goodbye', message: 'Session ended' })
       else
@@ -205,12 +271,46 @@ module KairosMcp
       end
     end
 
+    def handle_restricted_introduce(env, body)
+      session = direct_session
+      return json_response(403, { error: 'admission_refused' }) unless session
+
+      status, response = session.admit(body, remote_addr: env['REMOTE_ADDR'])
+      response = response.merge(peer_identity: identity.minimal_introduce) if status == 200
+      json_response(status, response)
+    end
+
+    # MMP::DirectSession for this listener's policy, or nil when the installed
+    # mmp does not provide it (then nothing is admitted).
+    def direct_session
+      return nil unless defined?(::MMP::DirectSession) && defined?(::MMP::Admission)
+
+      return @direct_session if @direct_session
+
+      store = session_store # resolved outside the lock it also takes
+      @memo_mutex.synchronize do
+        # One instance, so one nonce store: two would let a proof be used twice.
+        @direct_session ||= ::MMP::DirectSession.new(
+          policy: @admission[:policy],
+          origins: @admission[:origins],
+          started_at: @admission[:started_at] || Time.now.utc,
+          session_store: store
+        )
+      end
+    end
+
     # POST /meeting/v1/message - Generic MMP message handler
-    # Injects authenticated peer_id to prevent from: spoofing in extended handlers.
+    # Hands extension handlers a fresh Hash: the peer's fields without any
+    # reserved key, then the router's own attribution merged last (I3).
     def handle_message(env)
-      body = parse_body(env)
-      body['_authenticated_peer_id'] = env['meeting.authenticated_peer_id']
-      result = protocol.process_message(body)
+      body = env['meeting.body']
+      message = body.reject { |k, _| RESERVED_PREFIXES.any? { |prefix| k.to_s.start_with?(prefix) } }
+      message = message.merge(
+        '_authenticated_peer_id' => env['meeting.authenticated_peer_id'],
+        '_authenticated_peer_key_sha256' => env['meeting.authenticated_key_sha256'],
+        '_admitted_as' => env['meeting.admitted_as']
+      )
+      result = protocol.process_message(message)
       json_response(200, result)
     end
 
@@ -262,14 +362,14 @@ module KairosMcp
 
     # POST /meeting/v1/skill_content - Send skill content to requester
     def handle_skill_content(env)
-      body = parse_body(env)
+      body = env['meeting.body']
       skill_id = body['skill_id'] || body[:skill_id]
 
       unless skill_id
         return json_response(400, { error: 'missing_param', message: 'skill_id is required' })
       end
 
-      skills = identity.introduce[:skills] || []
+      skills = identity.public_skills
       skill = skills.find { |s| s[:id] == skill_id || s[:name] == skill_id }
 
       unless skill
@@ -299,7 +399,7 @@ module KairosMcp
 
     # POST /meeting/v1/request_skill - Receive a skill request
     def handle_request_skill(env)
-      body = parse_body(env)
+      body = env['meeting.body']
       result = protocol.process_message({
         action: 'request_skill',
         from: body['from'] || body[:from],
@@ -311,7 +411,7 @@ module KairosMcp
 
     # POST /meeting/v1/reflect - Receive a reflection message
     def handle_reflect(env)
-      body = parse_body(env)
+      body = env['meeting.body']
       result = protocol.process_message({
         action: 'reflect',
         from: body['from'] || body[:from],
@@ -327,7 +427,7 @@ module KairosMcp
       return skillset_exchange_disabled_response unless skillset_exchange_enabled?
 
       manager = skillset_manager
-      exchangeable = manager.all_skillsets.select(&:exchangeable?)
+      exchangeable = manager.all_skillsets.select { |ss| served_skillset?(ss) }
 
       skillsets = exchangeable.map do |ss|
         {
@@ -357,15 +457,7 @@ module KairosMcp
 
       manager = skillset_manager
       skillset = manager.find_skillset(name)
-
-      unless skillset
-        return json_response(404, { error: 'not_found', message: "SkillSet not found: #{name}" })
-      end
-
-      unless skillset.exchangeable?
-        return json_response(403, { error: 'not_exchangeable',
-                                    message: "SkillSet '#{name}' contains executable code and cannot be exchanged" })
-      end
+      return json_response(404, SKILLSET_NOT_FOUND) unless served_skillset?(skillset)
 
       json_response(200, {
         metadata: {
@@ -388,7 +480,7 @@ module KairosMcp
     def handle_skillset_content(env)
       return skillset_exchange_disabled_response unless skillset_exchange_enabled?
 
-      body = parse_body(env)
+      body = env['meeting.body']
       name = body['name'] || body[:name]
 
       unless name
@@ -396,14 +488,32 @@ module KairosMcp
       end
 
       manager = skillset_manager
+      return json_response(404, SKILLSET_NOT_FOUND) unless served_skillset?(manager.find_skillset(name))
+
       begin
         pkg = manager.package(name)
+        # Publication is checked again against the content actually packaged,
+        # so a change between the first check and packaging serves nothing.
+        require_relative 'admission_records'
+        unless AdmissionRecords.for_data_dir.published?(name, pkg[:content_hash])
+          return json_response(404, SKILLSET_NOT_FOUND)
+        end
+
         json_response(200, { skillset_package: pkg })
-      rescue SecurityError => e
-        json_response(403, { error: 'not_exchangeable', message: e.message })
-      rescue ArgumentError => e
-        json_response(404, { error: 'not_found', message: e.message })
+      rescue SecurityError, ArgumentError
+        json_response(404, SKILLSET_NOT_FOUND)
       end
+    end
+
+    # Served in direct mode only when exchangeable and its latest signed
+    # publication record names its current content (I1, I4).
+    def served_skillset?(skillset)
+      return false unless skillset&.exchangeable?
+
+      require_relative 'admission_records'
+      AdmissionRecords.for_data_dir.published?(skillset.name, skillset.content_hash)
+    rescue StandardError
+      false
     end
 
     def skillset_manager
@@ -455,8 +565,39 @@ module KairosMcp
         })
       end
 
+      if restricted?
+        refused = authorize_restricted(env, token)
+        return refused if refused
+      else
+        record = session_store.session_record(token)
+        env['meeting.authenticated_key_sha256'] = record && record[:key_sha256]
+      end
+
       env['meeting.authenticated_peer_id'] = peer_id
       nil # Authentication passed
+    end
+
+    # Under a restricted policy only sessions this router issued count, and
+    # each request is decided again (I2). Tokens from other issuers (a Meeting
+    # Place on the same host) are refused and never revoked.
+    def authorize_restricted(env, token)
+      record = session_store.session_record(token)
+      unless record && record[:issuer] == 'mmp.direct'
+        return json_response(401, { error: 'invalid_or_expired_token', message: 'Re-introduce to obtain a new token.' })
+      end
+
+      session = direct_session
+      return json_response(403, { error: 'admission_refused' }) unless session
+
+      result = session.authorize(record)
+      unless result[:ok]
+        session_store.revoke(token) if result[:revoke]
+        return json_response(result[:status], { error: result[:error] })
+      end
+
+      env['meeting.authenticated_key_sha256'] = result[:key_sha256]
+      env['meeting.admitted_as'] = result[:admitted_as]
+      nil
     end
 
     def extract_bearer_token(env)
@@ -468,13 +609,34 @@ module KairosMcp
 
     # --- Helpers ---
 
-    def parse_body(env)
-      body = env['rack.input']&.read
-      return {} if body.nil? || body.empty?
+    # Reads and parses a POST body into env['meeting.body'] (always a Hash).
+    # Returns an error response for an oversized body or one that is not a
+    # JSON object; nil when the body is usable.
+    def load_body(env)
+      declared = env['CONTENT_LENGTH'].to_i
+      if declared > MAX_BODY_BYTES
+        return json_response(413, { error: 'body_too_large', max_bytes: MAX_BODY_BYTES })
+      end
 
-      JSON.parse(body, symbolize_names: false)
-    rescue JSON::ParserError
-      {}
+      raw = env['rack.input']&.read(MAX_BODY_BYTES + 1).to_s
+      if raw.bytesize > MAX_BODY_BYTES
+        return json_response(413, { error: 'body_too_large', max_bytes: MAX_BODY_BYTES })
+      end
+
+      if raw.strip.empty?
+        env['meeting.body'] = {}
+        return nil
+      end
+
+      parsed = begin
+        JSON.parse(raw, symbolize_names: false)
+      rescue JSON::ParserError
+        nil
+      end
+      return json_response(400, { error: 'invalid_body', message: 'Body must be a JSON object' }) unless parsed.is_a?(Hash)
+
+      env['meeting.body'] = parsed
+      nil
     end
 
     def parse_query(env)

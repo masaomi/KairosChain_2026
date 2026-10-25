@@ -290,6 +290,34 @@ when 'skillset'
       exit 1
     end
 
+  when 'publish', 'unpublish'
+    # Secure MMP v1: a signed chain record decides which SkillSets direct-mode
+    # peers may fetch. Operator command — the agent's MCP tools cannot publish.
+    name = ARGV.shift
+    unless name
+      $stderr.puts "Usage: kairos-chain skillset #{action} <name> [--data-dir DIR]"
+      exit 1
+    end
+    require 'kairos_mcp/admission_commands'
+    begin
+      result = KairosMcp::AdmissionCommands.public_send(action, name)
+      puts "Data dir: #{result[:data_dir]}"
+      puts "Ledger:   #{result[:ledger]}"
+      puts "Key:      #{result[:key_sha256]}"
+      if result[:recorded]
+        puts "#{action == 'publish' ? 'Published' : 'Unpublished'} '#{name}' (record seq #{result[:record]['seq']}, content #{result[:record]['content_hash'][0, 16]}…)"
+      else
+        puts "Nothing recorded: #{result[:reason]}"
+      end
+    rescue KairosMcp::AdmissionRecords::Error => e
+      $stderr.puts "Error: #{e.message}"
+      exit 1
+    rescue StandardError => e
+      $stderr.puts "Error: #{e.class}: #{e.message}"
+      $stderr.puts "It is not known whether the record landed; re-run `kairos-chain skillset #{action} #{name}` — it says so if it is already recorded."
+      exit 1
+    end
+
   when 'install-archive'
     source = ARGV.shift
     archive_json = if source && source != '-'
@@ -329,6 +357,88 @@ when 'skillset'
     puts "  info <name>                        Show SkillSet details"
     puts "  package <name>                     Package a knowledge-only SkillSet as JSON archive"
     puts "  install-archive <file|->           Install a SkillSet from JSON archive"
+    puts "  publish <name>                     Let direct-mode MMP peers fetch this SkillSet (signed record)"
+    puts "  unpublish <name>                   Stop serving it to direct-mode peers"
+  end
+  exit
+
+when 'peer'
+  # Secure MMP v1 admission records. Operator commands: run them yourself
+  # (in a terminal or with `!` in Claude Code); the agent may only revoke.
+  ARGV.shift
+  $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
+  require 'kairos_mcp'
+  if (idx = ARGV.index('--data-dir'))
+    KairosMcp.data_dir = File.expand_path(ARGV[idx + 1])
+    ARGV.delete_at(idx + 1)
+    ARGV.delete_at(idx)
+  end
+  require 'kairos_mcp/admission_commands'
+
+  print_context = lambda do |r|
+    puts "Data dir: #{r[:data_dir]}"
+    puts "Ledger:   #{r[:ledger]}"
+    puts "Key:      #{r[:key_sha256] || '(no MMP keypair — nothing can be recorded)'}"
+  end
+
+  group = ARGV.shift
+  action = ARGV.shift
+  begin
+    case [group, action]
+    when %w[pin add]
+      alias_name = ARGV.shift
+      key = ARGV.shift
+      url = (idx = ARGV.index('--url')) ? ARGV[idx + 1] : nil
+      unless alias_name && key && url
+        $stderr.puts 'Usage: kairos-chain peer pin add <alias> <key_sha256> --url http://HOST:PORT [--data-dir DIR]'
+        exit 1
+      end
+      r = KairosMcp::AdmissionCommands.pin_add(alias_name, key, url: url)
+      print_context.call(r)
+      if r[:recorded]
+        puts "Pinned #{alias_name} = #{r[:record]['key_sha256']} at #{r[:record]['url']} (record seq #{r[:record]['seq']})"
+        puts "  Replaces #{r[:replaces]} for this alias." if r[:replaces]
+      else
+        puts "Nothing recorded: #{r[:reason]}"
+      end
+    when %w[pin revoke]
+      target = ARGV.shift
+      unless target
+        $stderr.puts 'Usage: kairos-chain peer pin revoke <alias|key_sha256> [--data-dir DIR]'
+        exit 1
+      end
+      r = KairosMcp::AdmissionCommands.pin_revoke(target)
+      print_context.call(r)
+      puts "Revoked #{r[:record]['alias']} = #{r[:record]['key_sha256']} (record seq #{r[:record]['seq']})"
+    when %w[pin list], ['pin', nil]
+      r = KairosMcp::AdmissionCommands.pin_list
+      print_context.call(r)
+      puts "Records:  #{r[:status]}#{r[:cause] ? " (#{r[:cause]})" : ''}"
+      if r[:pins].empty?
+        puts 'No admitted pins.'
+      else
+        r[:pins].each { |p| puts "  #{p['alias'].ljust(16)} #{p['key_sha256']}  #{p['url']}  since #{p['added_at']}" }
+      end
+      unless r[:ignored_records].empty?
+        puts "Ignored records (unsigned, other key, out of sequence): #{r[:ignored_records].size}"
+        r[:ignored_records].last(5).each { |i| puts "  block #{i['block']} #{i['type']}: #{i['reason']}" }
+      end
+    else
+      puts 'Usage: kairos-chain peer pin <add|revoke|list> ...'
+      puts ''
+      puts '  pin add <alias> <key_sha256> --url http://HOST:PORT   Admit this key (signed chain record)'
+      puts '  pin revoke <alias|key_sha256>                        Stop admitting it'
+      puts '  pin list                                             Show admitted keys'
+      puts ''
+      puts 'A listener enforces pins only when started with --admission pinned.'
+    end
+  rescue KairosMcp::AdmissionRecords::Error => e
+    $stderr.puts "Error: #{e.message}"
+    exit 1
+  rescue StandardError => e
+    $stderr.puts "Error: #{e.class}: #{e.message}"
+    $stderr.puts 'It is not known whether a record landed; re-run `kairos-chain peer pin list` to see.'
+    exit 1
   end
   exit
 
@@ -840,6 +950,18 @@ OptionParser.new do |opts|
     options[:tls] = true
   end
 
+  opts.on('--meeting-only', 'With --http: serve only /meeting/v1/* and /health (no /mcp, /admin, /place)') do
+    options[:meeting_only] = true
+  end
+
+  opts.on('--admission POLICY', 'With --http: direct-mode admission policy (open, or a decider such as pinned)') do |policy|
+    options[:admission] = policy
+  end
+
+  opts.on('--origin URL', 'With --admission: an origin peers dial to reach this listener (repeatable)') do |url|
+    (options[:origins] ||= []) << url
+  end
+
   opts.on('--gen-cert', 'Generate a self-signed TLS cert/key for --tls and exit') do
     options[:gen_cert] = true
   end
@@ -1083,6 +1205,19 @@ if options[:init_admin]
   exit
 end
 
+# Listener flags mean nothing without --http; refuse rather than start stdio.
+if !options[:http] && (options[:meeting_only] || options[:admission] || options[:origins])
+  $stderr.puts '[ERROR] --meeting-only, --admission and --origin apply only with --http.'
+  exit 1
+end
+
+# A meeting-only listener never creates a data directory: a mistyped
+# --data-dir would otherwise start an empty instance with a fresh key.
+if options[:http] && options[:meeting_only] && !KairosMcp.initialized?
+  $stderr.puts "[ERROR] --meeting-only: no initialized data directory at #{KairosMcp.data_dir}; refusing to create one."
+  exit 1
+end
+
 # Auto-initialize if data directory doesn't exist
 unless KairosMcp.initialized?
   $stderr.puts "[KairosChain] Data directory not initialized at: #{KairosMcp.data_dir}"
@@ -1095,11 +1230,24 @@ end
 if options[:http]
   require 'kairos_mcp/http_server'
 
+  origins = Array(options[:origins]).map do |url|
+    require 'kairos_mcp/admission_commands'
+    normalized = KairosMcp::AdmissionCommands.normalize_origin(url)
+    unless normalized
+      $stderr.puts "[ERROR] --origin #{url.inspect} is not http(s)://host[:port]"
+      exit 1
+    end
+    normalized
+  end
+
   server = KairosMcp::HttpServer.new(
     port: options[:port],
     host: options[:host],
     token_store_path: options[:token_store],
-    tls: options[:tls]
+    tls: options[:tls],
+    meeting_only: options[:meeting_only],
+    admission: options[:admission],
+    origins: origins
   )
   server.run
 else

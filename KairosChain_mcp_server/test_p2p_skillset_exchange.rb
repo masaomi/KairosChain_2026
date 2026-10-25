@@ -539,6 +539,23 @@ section('5. SkillSet Exchange via MMP') do
 
   # GET /meeting/v1/skillsets (requires auth)
   token_skillset = obtain_session_token(router_a, dir_a)
+
+  # Secure MMP v1: an exchangeable SkillSet is served only after a signed
+  # publication record names its current content.
+  status, _headers, body = router_a.call(mock_env('GET', '/meeting/v1/skillset_details',
+    query: 'name=test_knowledge_pack', bearer_token: token_skillset
+  ))
+  unpublished_404 = body.first
+  assert('unpublished exchangeable SkillSet: skillset_details returns 404') { status == 404 }
+  status, _headers, body = router_a.call(mock_env('GET', '/meeting/v1/skillsets', bearer_token: token_skillset))
+  assert('unpublished SkillSet not in skillsets list') {
+    JSON.parse(body.first, symbolize_names: true)[:skillsets].none? { |s| s[:name] == 'test_knowledge_pack' }
+  }
+  require 'kairos_mcp/admission_commands'
+  KairosMcp::AdmissionRecords.reset_instances!
+  pub = KairosMcp::AdmissionCommands.publish('test_knowledge_pack')
+  assert('publish records a signed publication') { pub[:recorded] && pub[:record]['seq'] == 1 }
+
   status, _headers, body = router_a.call(mock_env('GET', '/meeting/v1/skillsets', bearer_token: token_skillset))
   ss_list = JSON.parse(body.first, symbolize_names: true)
   assert('GET skillsets returns 200') { status == 200 }
@@ -566,7 +583,8 @@ section('5. SkillSet Exchange via MMP') do
   status, _headers, _body = router_a.call(mock_env('GET', '/meeting/v1/skillset_details',
     query: 'name=mmp', bearer_token: token_skillset
   ))
-  assert('MMP skillset_details returns 403') { status == 403 }
+  assert('MMP skillset_details returns 404') { status == 404 }
+  assert('not-exchangeable and unpublished answer with the same body') { _body.first == unpublished_404 }
 
   # POST /meeting/v1/skillset_content
   status, _headers, body = router_a.call(mock_env('POST', '/meeting/v1/skillset_content',
@@ -582,7 +600,7 @@ section('5. SkillSet Exchange via MMP') do
   status, _headers, _body = router_a.call(mock_env('POST', '/meeting/v1/skillset_content',
     body: { name: 'mmp' }, bearer_token: token_skillset
   ))
-  assert('MMP skillset_content returns 403') { status == 403 }
+  assert('MMP skillset_content returns 404') { status == 404 }
 
   # 5.5 Agent B installs the received SkillSet archive
   KairosMcp.data_dir = dir_b

@@ -19,8 +19,8 @@ module MMP
     DEFAULT_RATE_LIMIT_PER_MINUTE = 100
 
     Session = Struct.new(
-      :peer_id, :public_key, :pubkey_hash, :issuer, :token, :created_at,
-      :last_activity, :request_count, :request_window_start,
+      :peer_id, :public_key, :pubkey_hash, :issuer, :key_sha256, :admitted_as,
+      :token, :created_at, :last_activity, :request_count, :request_window_start,
       keyword_init: true
     )
 
@@ -43,7 +43,10 @@ module MMP
     # @param pubkey_hash [String, nil] SHA256 hex of public key (for Service Grant)
     # @param issuer [String, nil] Which component issued the session (a Meeting
     #   Place honours only its own; sessions from other issuers carry theirs or nil)
-    def create_session(peer_id, public_key, pubkey_hash: nil, issuer: nil)
+    # @param key_sha256 [String, nil] SHA-256 of the key's DER, set for sessions
+    #   issued under a direct-mode proof (distinct from the PEM-based pubkey_hash)
+    # @param admitted_as [String, nil] The admission policy's name for the key
+    def create_session(peer_id, public_key, pubkey_hash: nil, issuer: nil, key_sha256: nil, admitted_as: nil)
       token = SecureRandom.hex(32)
       now = Time.now
       @mutex.synchronize do
@@ -52,6 +55,8 @@ module MMP
           public_key: public_key,
           pubkey_hash: pubkey_hash,
           issuer: issuer,
+          key_sha256: key_sha256,
+          admitted_as: admitted_as,
           token: token,
           created_at: now,
           last_activity: now,
@@ -157,6 +162,20 @@ module MMP
       @mutex.synchronize do
         session = @sessions[token]
         session&.pubkey_hash
+      end
+    end
+
+    # Snapshot of a live session's identity fields, or nil.
+    #
+    # @param token [String] Bearer token
+    # @return [Hash, nil] { peer_id:, issuer:, key_sha256:, admitted_as: }
+    def session_record(token)
+      @mutex.synchronize do
+        session = @sessions[token]
+        next nil unless session && Time.now - session.created_at <= @ttl
+
+        { peer_id: session.peer_id, issuer: session.issuer,
+          key_sha256: session.key_sha256, admitted_as: session.admitted_as }
       end
     end
 

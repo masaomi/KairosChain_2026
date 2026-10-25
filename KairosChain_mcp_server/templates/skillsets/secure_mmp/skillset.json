@@ -1,0 +1,16 @@
+{
+  "name": "secure_mmp",
+  "version": "0.1.0",
+  "description": "Secure MMP v1: admit only pinned keys in MMP direct mode (decider 'pinned' for --admission pinned), keep a bounded list of refused knocks, and let the agent list or revoke pins — never add them",
+  "author": "Masaomi Hatakeyama",
+  "layer": "L1",
+  "min_core_version": "3.99.0",
+  "depends_on": [
+    {"name": "mmp", "version": ">= 1.3.0"}
+  ],
+  "provides": ["mmp_admission_pinned"],
+  "tool_classes": [
+    "KairosMcp::SkillSets::SecureMmp::Tools::PeerPin"
+  ],
+  "knowledge_dirs": ["knowledge/secure_mmp_admission"]
+}

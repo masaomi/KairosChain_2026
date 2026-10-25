@@ -104,11 +104,33 @@ module MMP
       peer.status
     end
 
+    # Codes a refused introduce may carry (secure MMP v1); anything else is
+    # reported as 'unrecognized', because the answer is not authenticated.
+    REFUSAL_CODES = %w[proof_stale proof_wrong_audience proof_invalid admission_refused admission_revoked].freeze
+    # The receiver's restart margin is 30 s; one more second covers the
+    # truncation of its clock to whole seconds.
+    STALE_RETRY_MAX_SECONDS = 32
+
+    # Sends the minimal introduce (identity, key, identity signature) plus a
+    # direct-mode proof for the peer's origin. A receiver without an admission
+    # policy ignores the proof; one with a policy requires it.
+    #
+    # On refusal returns { status: 'refused', http_status:, code:, key_sha256:,
+    # unverified: true } — only codes from REFUSAL_CODES and a 64-hex key.
     def introduce_to(peer_id)
       peer = @peers[peer_id]
       return nil unless peer
-      my_intro = @identity.introduce
-      response = http_post("#{peer.url}/meeting/v1/introduce", my_intro)
+
+      status, response = post_introduce(peer)
+      if status == 403 && response.is_a?(Hash) && response[:error] == 'proof_stale'
+        wait = stale_wait_seconds(response)
+        if wait
+          sleep(wait)
+          status, response = post_introduce(peer)
+        end
+      end
+      return refusal(status, response) unless status && status >= 200 && status < 300
+
       if response && response[:status] == 'received'
         peer.introduction = response[:peer_identity] if response[:peer_identity]
         peer.session_token = response[:session_token] if response[:session_token]
@@ -117,6 +139,45 @@ module MMP
       end
       response
     end
+
+    def post_introduce(peer)
+      body = @identity.respond_to?(:minimal_introduce) ? @identity.minimal_introduce : @identity.introduce
+      audience = MMP::RegistrationProof.normalize_origin(peer.url)
+      crypto = @identity.respond_to?(:crypto) ? @identity.crypto : nil
+      agent_id = body.dig(:identity, :instance_id)
+      if audience && agent_id && crypto&.has_keypair?
+        # Always our own clock: a proof is never re-dated from an answer.
+        proof = MMP::RegistrationProof.build(audience: audience, agent_id: agent_id)
+        body = body.merge(direct_proof: proof,
+                          direct_proof_signature: crypto.sign_registration(proof, protocol: MMP::RegistrationProof::DIRECT_PROTOCOL))
+      end
+      http_post_with_status("#{peer.url}/meeting/v1/introduce", body)
+    end
+
+    # How long to wait before one retry, from the receiver's own statement of
+    # its clock and its earliest acceptable time; nil when unusable.
+    def stale_wait_seconds(response)
+      server = Time.iso8601(response[:server_time].to_s)
+      earliest = Time.iso8601(response[:earliest_acceptable_at].to_s)
+      wait = (earliest - server) + 1
+      wait.between?(0, STALE_RETRY_MAX_SECONDS) ? wait : nil
+    rescue ArgumentError
+      nil
+    end
+
+    def refusal(status, response)
+      code = response.is_a?(Hash) ? response[:error].to_s : ''
+      key = response.is_a?(Hash) ? response[:key_sha256].to_s : ''
+      {
+        status: 'refused',
+        http_status: status,
+        code: REFUSAL_CODES.include?(code) ? code : 'unrecognized',
+        key_sha256: key.match?(/\A[0-9a-f]{64}\z/) ? key : nil,
+        unverified: true
+      }
+    end
+
+    private :post_introduce, :stale_wait_seconds, :refusal
 
     def send_message(peer_id, message)
       peer = @peers[peer_id]
@@ -243,6 +304,29 @@ module MMP
     rescue StandardError => e
       $stderr.puts "[PeerManager] HTTP POST #{url} failed: #{e.message}"
       nil
+    end
+
+    # [status, parsed body or nil]; status nil when nothing came back.
+    def http_post_with_status(url, data, headers: {})
+      uri = URI.parse(url)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.open_timeout = @timeout
+      http.read_timeout = @timeout
+      request = Net::HTTP::Post.new(uri.request_uri)
+      request['Content-Type'] = 'application/json'
+      request['Accept'] = 'application/json'
+      headers.each { |k, v| request[k] = v }
+      request.body = JSON.generate(data)
+      response = http.request(request)
+      parsed = begin
+        JSON.parse(response.body.to_s, symbolize_names: true)
+      rescue JSON::ParserError
+        nil
+      end
+      [response.code.to_i, parsed]
+    rescue StandardError => e
+      $stderr.puts "[PeerManager] HTTP POST #{url} failed: #{e.message}"
+      [nil, nil]
     end
 
     def parse_time(time_str)

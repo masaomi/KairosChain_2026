@@ -41,13 +41,22 @@ module KairosMcp
     }.freeze
 
     attr_reader :port, :host, :token_store, :authenticator, :admin_router,
-                :meeting_router, :place_router, :tls
+                :meeting_router, :place_router, :tls, :meeting_only, :admission_config
 
-    def initialize(port: nil, host: nil, token_store_path: nil, tls: nil)
+    WILDCARD_HOSTS = ['0.0.0.0', '::', '[::]', ''].freeze
+
+    # @param meeting_only [Boolean, nil] serve only /meeting/v1/* and /health
+    #   (secure MMP v1, I5); nil reads http.meeting_only from config
+    # @param admission [String, nil] direct-mode admission policy from
+    #   --admission ('open' or a decider name); nil keeps today's open path
+    # @param origins [Array<String>, nil] origins a direct proof may address
+    def initialize(port: nil, host: nil, token_store_path: nil, tls: nil,
+                   meeting_only: nil, admission: nil, origins: nil)
       http_config = SkillsConfig.load['http'] || {}
 
       @port = port || http_config['port'] || DEFAULT_PORT
       @host = host || http_config['host'] || DEFAULT_HOST
+      @meeting_only = meeting_only.nil? ? http_config['meeting_only'] == true : meeting_only
 
       # TLS is opt-in and delegated to Puma/OpenSSL (Prop 2: execution
       # substrate). `tls: true` from the CLI (--tls) overrides the config.
@@ -55,7 +64,7 @@ module KairosMcp
 
       # SkillSets must load BEFORE TokenStore.create so that plugins
       # (e.g. Multiuser) can register alternative backends first.
-      eager_load_skillsets
+      @meeting_only ? load_meeting_skillsets : eager_load_skillsets
 
       store_path = token_store_path || http_config['token_store']
       if store_path && !File.absolute_path?(store_path)
@@ -68,8 +77,49 @@ module KairosMcp
       )
       @authenticator = Auth::Authenticator.new(@token_store)
       @admin_router = Admin::Router.new(token_store: @token_store, authenticator: @authenticator)
-      @meeting_router = MeetingRouter.new
+      @admission_config = {
+        policy: admission&.to_s,
+        origins: Array(origins).empty? ? [own_origin].compact : Array(origins),
+        started_at: nil
+      }
+      @meeting_router = MeetingRouter.new(admission: @admission_config)
       @place_router = nil
+    end
+
+    # The origin a peer dials to reach this listener, or nil for a wildcard bind.
+    def own_origin
+      return nil if WILDCARD_HOSTS.include?(@host.to_s)
+
+      host = @host.to_s
+      host = "[#{host}]" if host.include?(':') && !host.start_with?('[')
+      require_relative 'admission_commands'
+      # Normalized exactly as senders normalize the origin they dial.
+      AdmissionCommands.normalize_origin("#{@tls.scheme}://#{host}:#{@port}")
+    end
+
+    # Meeting-only listeners load mmp and every enabled SkillSet that depends
+    # on it (that is where ext: handlers and admission deciders register),
+    # each on its own, so one failing SkillSet cannot take the listener down.
+    def load_meeting_skillsets
+      require_relative 'skillset_manager'
+      @skillset_load_failures = {}
+      @skillsets_loaded = []
+      SkillSetManager.new.enabled_skillsets.each do |ss|
+        next unless ss.name == 'mmp' || ss.depends_on.include?('mmp')
+
+        begin
+          if ss.load! == false
+            @skillset_load_failures[ss.name] = 'skipped (needs a newer core)'
+          else
+            @skillsets_loaded << ss.name
+          end
+        rescue StandardError, ScriptError => e
+          @skillset_load_failures[ss.name] = "#{e.class}: #{e.message}"
+          $stderr.puts "[HttpServer] SkillSet '#{ss.name}' failed to load: #{e.class}: #{e.message}"
+        end
+      end
+    rescue StandardError => e
+      $stderr.puts "[HttpServer] SkillSet discovery: #{e.message}"
     end
 
     # Load SkillSets at startup so /meeting/* endpoints work immediately.
@@ -86,9 +136,11 @@ module KairosMcp
       KairosMcp.http_server = self
       check_dependencies!
       check_tls!
-      check_tokens!
+      @meeting_only ? check_meeting_only! : check_tokens!
+      check_admission!
       check_version_mismatch
-      auto_start_meeting_place
+      auto_start_meeting_place unless @meeting_only
+      @admission_config[:started_at] = Time.now.utc
 
       app = build_rack_app
       server = self
@@ -97,19 +149,32 @@ module KairosMcp
       log "Listening on #{@tls.scheme}://#{@host}:#{@port}"
       log "TLS: #{@tls.enabled? ? "enabled (cert: #{@tls.cert_path})" : 'disabled (plain HTTP)'}"
       log_tls_expiry
-      log "MCP endpoint: POST /mcp"
+      log "MCP endpoint: POST /mcp" unless @meeting_only
       log "Health check: GET /health"
-      log "Admin UI:     GET /admin"
+      if @meeting_only
+        log "Meeting-only: /mcp, /admin and /place are not served"
+        log "SkillSets:    #{(@skillsets_loaded || []).join(', ')}"
+      else
+        log "Admin UI:     GET /admin"
+      end
       log "MMP P2P:      /meeting/v1/*"
+      log "Admission:    #{admission_summary}"
+      unless @meeting_router.send(:mmp_current?)
+        $stderr.puts "[WARN] The installed mmp SkillSet is older than #{MeetingRouter::MIN_MMP_VERSION}: " \
+                     '/meeting/* answers 503 until `kairos-chain upgrade --apply`.'
+      end
       log "Place API:    /place/v1/*" if @place_router
 
       require 'puma'
       require 'puma/configuration'
       require 'puma/launcher'
 
+      body_limit = @meeting_only ? MeetingRouter::MAX_BODY_BYTES : nil
       puma_config = Puma::Configuration.new do |config|
         config.bind server.bind_uri
         config.app app
+        # Refused by Puma before buffering, so no peer can fill the disk.
+        config.http_content_length_limit(body_limit) if body_limit
         config.workers 0
         config.threads 1, 5
         config.environment 'production'
@@ -140,6 +205,15 @@ module KairosMcp
       ->(env) do
         request_method = env['REQUEST_METHOD']
         path = env['PATH_INFO']
+
+        # Meeting-only listener (I5): no owner endpoint exists at all.
+        if server.meeting_only
+          return server.meeting_router.call(env) if path.start_with?('/meeting/')
+          return server.handle_health if request_method == 'GET' && path == '/health'
+
+          return server.json_response(404, error: 'meeting_only',
+                                           message: 'This listener serves /meeting/v1/* only.')
+        end
 
         # Admin UI routes
         if path.start_with?('/admin')
@@ -426,6 +500,13 @@ module KairosMcp
       begin
         require 'puma'
         require 'rack'
+        if @meeting_only
+          require 'puma/configuration'
+          unless Puma::DSL.method_defined?(:http_content_length_limit)
+            $stderr.puts "[ERROR] --meeting-only needs Puma >= 6.1 (for its body-size limit); found #{Puma::Const::PUMA_VERSION}."
+            exit 1
+          end
+        end
       rescue LoadError => e
         $stderr.puts <<~MSG
           [ERROR] HTTP transport requires puma and rack gems.
@@ -441,6 +522,59 @@ module KairosMcp
         MSG
         exit 1
       end
+    end
+
+    # I5: with no owner endpoint the thing worth guarding is admission. A
+    # meeting-only listener on a reachable address needs an explicit policy.
+    def check_meeting_only!
+      return if loopback_only? || !@admission_config[:policy].to_s.empty?
+
+      $stderr.puts <<~MSG
+        [ERROR] Refusing to start: --meeting-only on a network-reachable address
+        (host=#{@host}) needs an explicit admission policy.
+
+        Start with --admission pinned (only keys pinned with `kairos-chain peer pin add`),
+        or --admission open to accept any peer as before.
+
+      MSG
+      exit 1
+    end
+
+    # A restricted policy needs an origin proofs can address; the decider's
+    # absence is not fatal (nothing is admitted) but is said loudly.
+    def check_admission!
+      policy = @admission_config[:policy].to_s
+      return if policy.empty? || policy == 'open'
+
+      if @admission_config[:origins].empty?
+        $stderr.puts <<~MSG
+          [ERROR] Refusing to start: admission policy '#{policy}' on a wildcard bind
+          (host=#{@host}) has no origin a peer's proof could address.
+          Bind a specific address with --host, or name it with --origin URL.
+
+        MSG
+        exit 1
+      end
+    end
+
+    def admission_summary
+      policy = @admission_config[:policy].to_s
+      return 'open (no --admission; any self-signed peer gets a session)' if policy.empty?
+      return 'open (declared)' if policy == 'open'
+
+      unless defined?(::MMP::Admission) && ::MMP::Admission.registered?(policy)
+        failed = (@skillset_load_failures || {}).map { |n, e| "#{n}: #{e}" }.join('; ')
+        return "#{policy} — CLOSED: no decider registered for '#{policy}'#{failed.empty? ? '' : " (failed: #{failed})"}"
+      end
+
+      require_relative 'admission_records'
+      state = AdmissionRecords.for_data_dir.state
+      return "#{policy} — CLOSED: #{state.status} #{state.cause}" unless state.ok?
+
+      pins = AdmissionRecords.for_data_dir.admitted_pins.size
+      "#{policy} — #{pins} pin#{pins == 1 ? '' : 's'}; origins #{@admission_config[:origins].join(', ')}"
+    rescue StandardError => e
+      "#{policy} — CLOSED: #{e.class}: #{e.message}"
     end
 
     def check_tokens!

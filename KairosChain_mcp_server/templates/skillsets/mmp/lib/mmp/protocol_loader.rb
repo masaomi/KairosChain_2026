@@ -89,7 +89,7 @@ module MMP
     def load_protocol_file(file_path)
       content = File.read(file_path); metadata = parse_frontmatter(file_path); return nil unless metadata
       name = metadata['name']; return nil unless name
-      protocol = { name: name, file_path: file_path, layer: metadata['layer'] || 'L2', type: metadata['type'], version: metadata['version'] || '1.0.0', bootstrap: metadata['bootstrap'] == true, immutable: metadata['immutable'] == true, actions: metadata['actions'] || [], extends: metadata['extends'], requires: metadata['requires'] || [], description: metadata['description'], content_hash: Digest::SHA256.hexdigest(content), loaded_at: Time.now.utc.iso8601 }
+      protocol = { name: name, file_path: file_path, layer: metadata['layer'] || 'L2', type: metadata['type'], version: metadata['version'] || '1.0.0', bootstrap: metadata['bootstrap'] == true, immutable: metadata['immutable'] == true, actions: metadata['actions'] || [], extends: metadata['extends'], requires: metadata['requires'] || [], description: metadata['description'], public: metadata['public'] == true, content_hash: Digest::SHA256.hexdigest(content), loaded_at: Time.now.utc.iso8601 }
       if @loaded_protocols.key?(name)
         existing = @loaded_protocols[name]
         warn "[MMP::ProtocolLoader] Protocol name collision: '#{name}' already loaded from #{existing[:file_path]}, skipping #{file_path}"
