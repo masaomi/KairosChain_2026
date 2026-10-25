@@ -6,6 +6,49 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.99.0] - 2026-10-25
+
+### Security — Secure MMP v1: MMP direct mode discloses only what is public, and can admit only pinned keys (mmp 1.3.0, secure_mmp 0.1.0)
+
+MMP direct mode listed every L1 entry with its file path to unauthenticated peers, served the body of a
+private entry to anyone holding a session, and took a static identity signature — published and identical
+every time — as proof of who a peer is. This release makes it safe to leave direct mode listening between
+two machines.
+
+- **Disclosure.** Listing, details, content, the card and every introduce draw from one public set, and no
+  response carries a filesystem path. A name that is not served is answered exactly as an unknown name.
+  Publicity belongs to an L1 entry and is decided by its main file (`public: true`, or `public_by_default`
+  in `meeting.yml`); other files under the entry inherit it and can only narrow it. A file whose front
+  matter is opened but cannot be read is private.
+- **Admission.** `kairos-chain --http --admission pinned` issues direct-mode sessions only to keys the
+  pinned decider admits, presented with a fresh, single-use proof addressed to this listener
+  (`--origin URL`, repeatable). Whatever the policy cannot read or verify admits nobody, and only sessions
+  the listener issued are honoured. Without `--admission` a listener behaves as before.
+- **Records.** Pins and SkillSet publications are chain records signed by the instance's MMP key, forming
+  their own sequence (each names the one before), verified in core. A copy of an earlier record counts for
+  nothing; a record signed by another key is ignored and logged once. They are written by operator
+  commands — `kairos-chain peer pin add <alias> <key_sha256> --url URL`, `peer pin revoke`, `peer pin
+  list`, `skillset publish|unpublish <name>` — which never generate a key. The `peer_pin` MCP tool can list,
+  revoke and show refused knocks, never add.
+- **Meeting-only listener.** `--http --meeting-only` serves only `/meeting/v1/*` and `/health`, loads every
+  enabled SkillSet that depends on mmp, and limits request bodies to 256 KiB (needs Puma's
+  `http_content_length_limit`). On a non-loopback address it starts only with an explicit `--admission`.
+- **secure_mmp 0.1.0** ships as a gem template and is not installed automatically: install it by name.
+
+**Upgrade notes**
+
+- Per-entry publicity can make sub-documents of existing `public: true` entries public: a Meeting Place
+  host with public entries exposes their other files after upgrading. Mark sub-documents `public: false`
+  where needed.
+- SkillSets are not served in direct mode until published (`kairos-chain skillset publish <name>`).
+  Nothing is published by the upgrade.
+- Under this core, mmp below 1.3.0 answers `503 mmp_upgrade_required` on `/meeting/*`. Upgrade the mmp
+  SkillSet together with the gem, and run gem ≥ 3.99.0 in every process that uses a data dir before
+  upgrading it.
+
+Design frozen at v0.4 after three design-review rounds; six implementation-review rounds, the last
+(codex) approving with no blocking finding.
+
 ## [3.98.0] - 2026-10-24
 
 ### Added — L1 `photo_song_slideshow`: photos → song → slideshow or music video
