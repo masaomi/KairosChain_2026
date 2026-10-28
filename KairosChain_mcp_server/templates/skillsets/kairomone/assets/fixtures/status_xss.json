@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "product": "Kairomone",
+  "version": "0.1.0",
+  "generated_at": "2026-01-01T00:00:00Z",
+  "initialized": true,
+  "profile": {
+    "dot_id": "synthetic-fixture-only",
+    "display_name": "Synthetic mossling </script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    ",
+    "supply_profile": "basic",
+    "created_at": "2026-01-01T00:00:00Z"
+  },
+  "storage": {
+    "scope": "synthetic fixture only",
+    "data_root": "/synthetic/no-user-data"
+  },
+  "knowledge": {
+    "count": 1,
+    "available": true,
+    "items": [
+      {
+        "id": "synthetic-knowledge",
+        "title": "Knowledge </script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    ",
+        "hash": "synthetic-not-a-digest",
+        "recorded": false,
+        "snippet": "\" onmouseover=\"alert(1) </script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    "
+      }
+    ]
+  },
+  "observations": {
+    "count": 1,
+    "available": true,
+    "recent": [
+      {
+        "id": "synthetic-observation",
+        "title": "Observation </script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    ",
+        "created_at": "2026-01-01T00:00:00Z",
+        "snippet": "</script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    "
+      }
+    ]
+  },
+  "integrity": {
+    "state": "readable",
+    "valid": true,
+    "block_count": 1,
+    "latest_hash": "synthetic-not-a-digest",
+    "pending_count": 0,
+    "details": [
+      "Synthetic test data, not a real chain check.",
+      "</script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    "
+    ]
+  },
+  "backup": {
+    "scope": [
+      "Synthetic data only",
+      "</script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    "
+    ],
+    "excluded": [
+      "Not a real backup",
+      "</script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    "
+    ]
+  },
+  "instructions": {
+    "refresh": "kairomone_status(render_html: true)",
+    "cli": "ruby <installed-skillset>/scripts/kairomone.rb status --html"
+  }
+}

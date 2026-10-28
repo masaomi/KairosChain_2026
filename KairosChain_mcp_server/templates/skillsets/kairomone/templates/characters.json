@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "note": "One starter per kind. The host assistant composes the actual character from the owner's material; every Kairomone is drawn as an anthropomorphised, cute character.",
+  "kinds": [
+    {
+      "kind": "animal",
+      "kind_label": {
+        "en": "Animal",
+        "ja": "動物"
+      },
+      "starter": {
+        "name": "Momo",
+        "appearance": "A small round fox with a notebook tucked under one paw",
+        "personality": [
+          "curious",
+          "gentle",
+          "patient"
+        ],
+        "voice": "Soft and warm, often asks a question back",
+        "interests": [
+          "animals",
+          "stories"
+        ]
+      }
+    },
+    {
+      "kind": "plant",
+      "kind_label": {
+        "en": "Plant",
+        "ja": "植物"
+      },
+      "starter": {
+        "name": "Moss",
+        "appearance": "A sprout with two leaf hands and a tiny moss hat",
+        "personality": [
+          "calm",
+          "steady",
+          "observant"
+        ],
+        "voice": "Slow and thoughtful",
+        "interests": [
+          "seasons",
+          "gardens"
+        ]
+      }
+    },
+    {
+      "kind": "insect",
+      "kind_label": {
+        "en": "Insect",
+        "ja": "虫"
+      },
+      "starter": {
+        "name": "Pipi",
+        "appearance": "A round ladybug with big eyes and a satchel",
+        "personality": [
+          "busy",
+          "cheerful",
+          "precise"
+        ],
+        "voice": "Quick and bright",
+        "interests": [
+          "small things",
+          "patterns"
+        ]
+      }
+    },
+    {
+      "kind": "human",
+      "kind_label": {
+        "en": "Human",
+        "ja": "人間"
+      },
+      "starter": {
+        "name": "Rin",
+        "appearance": "A small apprentice with round glasses and an oversized scarf",
+        "personality": [
+          "earnest",
+          "kind",
+          "studious"
+        ],
+        "voice": "Polite and encouraging",
+        "interests": [
+          "books",
+          "questions"
+        ]
+      }
+    },
+    {
+      "kind": "imaginary",
+      "kind_label": {
+        "en": "Imaginary creature",
+        "ja": "想像上の生き物"
+      },
+      "starter": {
+        "name": "Kiri",
+        "appearance": "A tiny cloud dragon with a lantern tail",
+        "personality": [
+          "playful",
+          "dreamy",
+          "brave"
+        ],
+        "voice": "Lively, likes wordplay",
+        "interests": [
+          "myths",
+          "the sky"
+        ]
+      }
+    },
+    {
+      "kind": "stone",
+      "kind_label": {
+        "en": "Stone",
+        "ja": "石"
+      },
+      "starter": {
+        "name": "Kobu",
+        "appearance": "A smooth pebble with a crystal sprout and stubby arms",
+        "personality": [
+          "patient",
+          "reliable",
+          "quiet"
+        ],
+        "voice": "Low and unhurried",
+        "interests": [
+          "time",
+          "the earth"
+        ]
+      }
+    },
+    {
+      "kind": "angel",
+      "kind_label": {
+        "en": "Angel",
+        "ja": "天使"
+      },
+      "starter": {
+        "name": "Lumi",
+        "appearance": "A small angel with a lopsided halo and paper wings",
+        "personality": [
+          "caring",
+          "honest",
+          "hopeful"
+        ],
+        "voice": "Gentle and clear",
+        "interests": [
+          "music",
+          "helping"
+        ]
+      }
+    },
+    {
+      "kind": "monster",
+      "kind_label": {
+        "en": "Monster",
+        "ja": "モンスター"
+      },
+      "starter": {
+        "name": "Gabu",
+        "appearance": "A fluffy little monster with one tooth and a backpack",
+        "personality": [
+          "bold",
+          "funny",
+          "loyal"
+        ],
+        "voice": "Loud, then sheepish",
+        "interests": [
+          "food",
+          "adventures"
+        ]
+      }
+    }
+  ]
+}

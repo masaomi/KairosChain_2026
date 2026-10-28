@@ -1,0 +1,54 @@
+{
+  "name": "kairomone",
+  "version": "0.8.0",
+  "min_core_version": "3.92.0",
+  "description": "Kairomone: single-owner companions — any number per host — that grow through owned L1/L2 and owner-started, evidence-backed growth runs, driven by the host assistant over MCP. Signed backups restore as new listed individuals. Drawings the owner accepts are checked static SVG shown only as images; an entry the owner names can be copied into the host L1 through its canonical knowledge path. Portable companion settings, bounded retrieval and consent-gated zero-XP chat summaries. An owner-started loopback console page relays one supervised Claude Code session with per-request permission answers. No L0 changes or built-in LLM/scheduler.",
+  "author": "Kairomone contributors",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": [
+    "kairomone_basic",
+    "owned_knowledge",
+    "owned_observations",
+    "status_snapshot",
+    "owned_backup_restore",
+    "derived_progression",
+    "explicit_professions",
+    "bounded_evidence_growth",
+    "owner_l0_rebaseline",
+    "companion_settings",
+    "bounded_chat_context",
+    "consented_chat_memory",
+    "owner_console",
+    "many_individuals",
+    "growth_runs",
+    "signed_backups",
+    "inert_art",
+    "knowledge_transplant",
+    "labelled_exchange",
+    "fusion"
+  ],
+  "tool_classes": [
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::List",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Init",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Create",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Profile",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Art",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Status",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Observe",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Knowledge",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Backup",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Exchange",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Fusion",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Profession",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Growth",
+    "KairosMcp::SkillSets::KairomoneSkillSet::Tools::Companion"
+  ],
+  "config_files": [],
+  "knowledge_dirs": [
+    "knowledge/kairomone_guide"
+  ],
+  "plugin": {
+    "skill_md": "plugin/SKILL.md"
+  }
+}
