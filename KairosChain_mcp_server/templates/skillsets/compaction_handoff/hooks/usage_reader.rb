@@ -48,14 +48,18 @@ module CompactionHandoffHook
 
       rec = JSON.parse(line)
       return nil unless rec.is_a?(Hash) && rec['type'] == 'assistant' && rec['isSidechain'] != true
+      # A record the host made up (an API error, a refused prompt) is not a
+      # context size: all-zero usage, or the model named "<synthetic>".
+      return nil if rec.dig('message', 'model') == '<synthetic>' || rec['isApiErrorMessage'] == true
 
       u = rec.dig('message', 'usage')
       return nil unless u.is_a?(Hash)
 
       parts = %w[input_tokens cache_creation_input_tokens cache_read_input_tokens].map { |k| u[k] }
-      return nil unless parts.all? { |v| v.nil? || v.is_a?(Integer) } && parts.any?(Integer)
+      return nil unless parts.all? { |v| v.nil? || v.is_a?(Integer) }
 
-      parts.sum(&:to_i)
+      total = parts.sum(&:to_i)
+      total.positive? ? total : nil
     rescue JSON::ParserError
       nil
     end

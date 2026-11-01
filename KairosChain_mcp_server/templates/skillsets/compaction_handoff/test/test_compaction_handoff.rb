@@ -42,11 +42,15 @@ class TestCompactionHandoff < Minitest::Test
                                                                'l2_tag' => tag } }))
   end
 
-  def assistant(tokens, sidechain: false)
+  def assistant(tokens, sidechain: false, model: 'claude-opus-5-5')
+    usage = if tokens.zero?
+              { 'input_tokens' => 0, 'cache_creation_input_tokens' => 0, 'cache_read_input_tokens' => 0 }
+            else
+              { 'input_tokens' => 2, 'cache_creation_input_tokens' => 100, 'cache_read_input_tokens' => tokens - 102 }
+            end
     File.open(@transcript, 'a') do |f|
       f.puts(JSON.generate({ 'type' => 'assistant', 'isSidechain' => sidechain,
-                             'message' => { 'usage' => { 'input_tokens' => 2, 'cache_creation_input_tokens' => 100,
-                                                         'cache_read_input_tokens' => tokens - 102 } } }))
+                             'message' => { 'model' => model, 'usage' => usage } }))
     end
   end
 
@@ -159,6 +163,25 @@ class TestCompactionHandoff < Minitest::Test
     assert_nil state['first_request_at']
   end
 
+  def test_zero_or_synthetic_usage_is_not_a_compaction
+    assistant(80_000)
+    turn
+    assistant(0)
+    turn
+    assistant(5_000, model: '<synthetic>')
+    turn
+    assert_equal 1, state['cycle']
+    refute_nil state['first_request_at']
+  end
+
+  def test_request_continues_once_started_even_when_usage_cannot_be_read
+    assistant(80_000)
+    turn
+    File.write(@transcript, '')
+    ctx = context_of(turn[0])
+    assert_includes ctx, 'nearing auto-compaction'
+  end
+
   def test_malformed_session_id_and_config_never_block_a_prompt
     assistant(80_000)
     out, err, code = turn(sid: 'not-an-id')
@@ -236,6 +259,21 @@ class TestCompactionHandoff < Minitest::Test
     assert_includes File.read(fallback_files.first), 'answer: proceed'
   end
 
+  def test_unreadable_transcript_does_not_block
+    _, err, code = pre('auto', transcript: File.join(@tmp, 'missing.jsonl'))
+    assert_equal 0, code
+    assert_includes err, 'transcript unreadable'
+  end
+
+  def test_two_attempts_in_one_second_leave_two_records
+    assistant(90_000)
+    pre('auto')
+    pre('auto')
+    assert_equal 2, fallback_files.size
+    answers = fallback_files.map { |f| File.read(f)[/answer: (\w+)/, 1] }.sort
+    assert_equal %w[block proceed], answers
+  end
+
   def test_unreadable_config_does_not_block
     File.write(@config, 'compaction_handoff: {compact_at_tokens: 5}')
     _, err, code = pre('auto')
@@ -274,11 +312,44 @@ class TestCompactionHandoff < Minitest::Test
     assert_includes ctx, 'No fallback record'
   end
 
-  def test_notice_with_unreadable_config_still_reaches_the_session
+  def test_notice_with_unreadable_config_still_reaches_the_session_and_ends_the_cycle
+    assistant(50_000)
+    turn
     File.write(@config, '{')
     out, _, code = after
     assert_equal 0, code
     assert_includes context_of(out), "compaction_handoff_session: #{@sid}"
+    assert_equal 2, state['cycle']
+  end
+
+  def test_subagent_compaction_leaves_the_main_cycle_alone
+    assistant(80_000)
+    turn
+    sub = File.join(@tmp, 'project', @sid, 'subagents', 'agent-y.jsonl')
+    FileUtils.mkdir_p(File.dirname(sub))
+    File.write(sub, "{}\n")
+    out, _, code = run_hook('after_compact.rb', { 'session_id' => @sid, 'transcript_path' => sub })
+    assert_equal 0, code
+    assert_includes context_of(out), 'subagent'
+    assert_equal 1, state['cycle']
+    refute_nil state['first_request_at']
+  end
+
+  def test_a_fallback_from_an_earlier_cycle_is_not_presented_as_this_compactions
+    assistant(50_000)
+    turn
+    pre('manual')
+    old = Time.now - 3600
+    File.utime(old, old, fallback_files.first)
+    sleep 1.1
+    assistant(55_000)
+    turn
+    state_file = File.join(@data, 'storage', 'compaction_handoff', 'sessions', "#{@sid}.json")
+    s = JSON.parse(File.read(state_file))
+    s['cycle_started_at'] = (Time.now - 60).utc.iso8601
+    File.write(state_file, JSON.generate(s))
+    ctx = context_of(after[0])
+    assert_includes ctx, 'No fallback record was written for this compaction'
   end
 
   def test_notice_with_unreadable_session_id_warns_against_borrowing
@@ -290,9 +361,19 @@ class TestCompactionHandoff < Minitest::Test
   end
 
   def test_handoff_from_an_earlier_cycle_is_marked
+    assistant(50_000)
+    turn
     save_handoff(at: Time.now - 3600)
     ctx = context_of(after[0])
-    assert_includes ctx, 'earlier cycle'
+    assert_includes ctx, 'from an earlier cycle'
+  end
+
+  def test_without_state_a_handoff_is_not_called_earlier
+    save_handoff
+    sleep 1.1
+    ctx = context_of(after[0])
+    assert_includes ctx, 'Read your handoff first'
+    refute_includes ctx, 'earlier cycle'
   end
 
   # --- projection -------------------------------------------------------------

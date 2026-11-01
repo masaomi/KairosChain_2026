@@ -39,13 +39,17 @@ begin
   usage = H::UsageReader.read(input['transcript_path'], from: state['cycle_offset'])
   H.observe_usage!(state, usage)
 
-  wanted = state['urgent'] || (usage && usage[:tokens] >= cfg[:request_point])
-  if wanted
+  # A block sets first_request_at as well as urgent, so the request also
+  # follows a block whatever the usage figure says.
+  wanted = state['first_request_at'] || (usage && usage[:tokens] >= cfg[:request_point])
+  # Once a fresh save was seen in this cycle, L2 is not searched again.
+  if wanted && !state['saved_at']
     state['first_request_at'] ||= H.now
     manager = H.l2(dir)
     found, near = H.handoffs(manager, dir, cfg[:tag], sid)
     if H.fresh?(found.first, state)
       state['urgent'] = false
+      state['saved_at'] = found.first[:written_at].iso8601
     else
       H.emit('UserPromptSubmit', request_text(cfg, sid, state, usage, near))
     end

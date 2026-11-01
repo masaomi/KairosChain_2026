@@ -46,6 +46,8 @@ begin
   sid = H.session_id(input)
   exit 0 if H.subagent?(input)
 
+  raise H::Unreadable, 'transcript unreadable' unless File.readable?(input['transcript_path'].to_s)
+
   dir = H.data_dir
   cfg = H.config
   state = H.load_state(dir, sid)
@@ -62,14 +64,15 @@ begin
     answer = 'block' if H.save_state(dir, sid, state)
   end
 
-  name = "#{H.fallback_prefix(cfg[:tag], sid)}#{Time.now.utc.strftime('%Y%m%d%H%M%S')}"
+  t = Time.now.utc
+  name = "#{H.fallback_prefix(cfg[:tag], sid)}#{t.strftime('%Y%m%d%H%M%S')}_#{format('%06d', t.usec)}_#{Process.pid}"
   session = "compaction_handoff_#{Time.now.utc.strftime('%Y%m%d')}"
   result = manager.save_context(session, name, fallback_content(name, sid, input, usage, answer, latest))
   warn "compaction_handoff: fallback record not written (#{result[:error]})" unless result[:success]
 rescue H::Unreadable => e
   warn "compaction_handoff: #{e.message}; not blocking"
 rescue StandardError, LoadError => e
-  warn "compaction_handoff: #{e.class}: #{e.message[0, 200]}; not blocking"
+  warn "compaction_handoff: #{e.class}: #{e.message[0, 200]}#{answer == 'block' ? '' : '; not blocking'}"
 end
 
 if answer == 'block'

@@ -13,8 +13,8 @@ module CompactionHandoffHook
   CONFIG_FILE = File.expand_path('../config/compaction_handoff.yml', __dir__)
   TAG_FORMAT = /\A[a-z][a-z0-9_]{0,40}\z/
   # A usage figure below this share of the previous one is taken as a
-  # compaction that actually happened (INV-7). A false end costs at most one
-  # more request and one more block; a missed end would carry a stale save.
+  # compaction that actually happened (INV-7). Only real context sizes count
+  # (UsageReader drops zero and synthetic records), so an API error is not one.
   DROP_RATIO = 0.5
   FRONTMATTER_KEY = 'compaction_handoff_session'
 
@@ -75,7 +75,7 @@ module CompactionHandoffHook
 
   def fresh_state
     { 'cycle' => 1, 'cycle_started_at' => now, 'cycle_offset' => 0, 'first_request_at' => nil,
-      'blocked' => false, 'urgent' => false, 'last_usage' => nil }
+      'blocked' => false, 'urgent' => false, 'last_usage' => nil, 'saved_at' => nil }
   end
 
   def load_state(dir, sid)
@@ -116,6 +116,7 @@ module CompactionHandoffHook
     state['blocked'] = false
     state['urgent'] = false
     state['last_usage'] = nil
+    state['saved_at'] = nil
     state['cycle_reason'] = reason
     state
   end
