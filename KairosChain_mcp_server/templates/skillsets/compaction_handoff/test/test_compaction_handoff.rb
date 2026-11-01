@@ -16,7 +16,7 @@ require 'kairos_mcp/context_manager'
 class TestCompactionHandoff < Minitest::Test
   ROOT = File.expand_path('..', __dir__)
   LIB = File.expand_path('../../../../lib', __dir__)
-  SECRET = 'sk-THIS-MUST-NEVER-REACH-L2'
+  SENTINEL = 'conversation-text-sentinel-7f3a'
 
   def setup
     @tmp = Dir.mktmpdir('ch')
@@ -186,7 +186,7 @@ class TestCompactionHandoff < Minitest::Test
   end
 
   def test_auto_without_fresh_save_is_blocked_once_per_cycle
-    user_text("my key is #{SECRET}")
+    user_text("peer wrote #{SENTINEL}")
     assistant(90_000)
     _, err, code = pre('auto')
     assert_equal 2, code
@@ -194,7 +194,7 @@ class TestCompactionHandoff < Minitest::Test
     assert state['blocked']
     blocked = fallback_files.find { |f| File.read(f).include?('answer: block') }
     refute_nil blocked
-    refute_includes File.read(blocked), SECRET
+    refute_includes File.read(blocked), SENTINEL
     sleep 1.1
     _, _, code = pre('auto')
     assert_equal 0, code, 'the second attempt in a cycle proceeds'
