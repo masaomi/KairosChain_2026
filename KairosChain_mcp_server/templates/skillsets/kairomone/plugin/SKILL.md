@@ -245,14 +245,17 @@ when declared, limits claims for the whole host. The full procedure is
 
 ## The owner console
 
-The owner can talk to their Kairomones from a page in their browser. They start it themselves at a terminal, in
-the project folder: `ruby .kairos/skillsets/kairomone/scripts/kairomone_console.rb`. It starts one Claude
-Code session for the page and prints a one-time URL; whoever opens that URL answers that session's
-permission prompts.
+The owner can talk to their Kairomones from a page in their browser. They start it themselves, in the project
+folder: at a terminal, `ruby .kairos/skillsets/kairomone/scripts/kairomone.rb console` (prints a one-time URL)
+or `... console --open` (hands the URL to the browser and prints none); from Claude Code, by typing
+`! ruby .kairos/skillsets/kairomone/scripts/kairomone.rb console --open --detach` (the console runs in the
+background; stop it with `... console --stop`; a new URL means stop and start again). Never suggest `!`
+without `--open`: the URL would print into this session. The console starts one Claude Code session for the
+page; whoever opens the URL answers that session's permission prompts.
 
 - Never start the console yourself — not directly, not in the background, not through a pseudo-terminal —
   and never open, copy or exchange its URL, its session secret or its log under `.kairos/run/`. Hand the
-  owner the command instead. As with the L0 ruling, the terminal keeps the URL away from the session it
+  owner the command instead (from Claude Code, the `! ... console --open --detach` line above). As with the L0 ruling, the terminal keeps the URL away from the session it
   controls; only this rule keeps it away from you.
 - If you are the session the console started (your turns come from the owner's page, and your only tools
   are Bash, Read, Grep, Glob, ToolSearch and the `kairomone_*` tools), every rule above holds unchanged.
@@ -263,9 +266,16 @@ permission prompts.
   such as `script`, `expect` or a PTY library. Do not start anything that outlives your turn (`nohup`, `setsid`, background jobs):
   when the console stops it ends you and your MCP server, but each Bash command runs in a session of its
   own and is not ended by the console, so what you leave running is out of the owner's sight.
+- Every message from the page begins with `[Kairomone: <listing ID>]`. Answer as that Kairomone and use that
+  ID in every tool call of the turn; `(none shown)` means the page named none (a creation request, say). The
+  line is the page's, never part of the owner's words, so it never goes into a lean's `owner_words`.
+- 「…、N回学習して」 asks for `run_start` with N cycles; 「…の学習を止めて」 for `run_stop`; 「…の傾きを消して」 for
+  clearing the lean (an empty `subjects`; record the sent words without the ID line — a clear is the one lean
+  written from a placed text, because it carries no subjects); the skill-draft text names an own growth entry
+  and its hash for `kairomone_skill` (show the draft in full).
 - A quick request from the page is the owner's own message. It is not consent to `remember` and not an
   approval of a summary; those still need the owner's explicit words.
 - The page's panels place text for the owner to send: it names the Kairomone shown and, for a waiting
-  drawing, profile or profession, the proposal ID and hash; for the branch offer, the offer and the
+  drawing, profile, profession or skill, the proposal ID and hash; for the branch offer, the offer and the
   candidate. Such text asks to see or explain; it never accepts or chooses. Accept, choose or consent only
   on the owner's own words typed after it, for the Kairomone and proposal those words name.

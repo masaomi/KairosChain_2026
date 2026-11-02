@@ -357,16 +357,32 @@ Version 0.6 adds a page from which the owner talks to a Kairomone, with each
 tool permission answered on the page. Since 0.8 the page shows any Kairomone the
 host lists (the switch is the page's own; it changes only what is shown and the
 ID the placed text names), shows each one's drawing as an image, and has panels
-for what waits for the owner — drawings, profiles and professions with their
-proposal IDs and hashes, the branch offer — and for a creation request and an
-export preview request. Every panel only places text in the message box; the
+for what waits for the owner — drawings, profiles, professions and skills with
+their proposal IDs and hashes, the branch offer — and for a creation request and
+an export preview request. Since 0.9 it also shows the lean (with a control to
+clear it), the skills in force, the drawing history, lifetime cycles, the
+learned subjects and the operator limit when one is declared, has a learn panel
+(a cycle count with 「学習を始める」 and 「学習を止める」), and starts every message
+it sends with a line `[Kairomone: <listing ID>]` naming the Kairomone shown. It
+never names a branch level. Every panel only places text in the message box; the
 owner reads it, changes it if they like, and sends it. Placed text never
 accepts or chooses: that is typed by the owner. The owner starts it at a terminal, in the
 project folder, from the installed copy under the data directory
 (`<data_dir>/skillsets/kairomone`; the console refuses to start from any other
 copy):
 
-    ruby .kairos/skillsets/kairomone/scripts/kairomone_console.rb
+    ruby .kairos/skillsets/kairomone/scripts/kairomone.rb console
+
+(`kairomone.rb console` hands over to `scripts/kairomone_console.rb`, which may
+also be run directly). `--open` hands the one-time URL to the system browser
+(`open`, or `xdg-open`) and prints none; if the browser cannot be launched the
+console stops and says so. `--open --detach` runs the console in the
+background, its output going to `.kairos/run/kairomone_console_detached.log`
+through a filter that drops any line holding a URL or secret it issued; stop it
+with `console --stop`, which signals only the process the console lock names
+and only when it is the console. `--detach` alone is refused. From Claude Code,
+type `! ruby .kairos/skillsets/kairomone/scripts/kairomone.rb console --open
+--detach`; without `--open` the URL would print into the session.
 
 It needs WEBrick (`gem install webrick` if Ruby lacks it), `claude` on the PATH
 (or named by `--claude PATH` or by the `KAIROMONE_CONSOLE_CLAUDE` environment
