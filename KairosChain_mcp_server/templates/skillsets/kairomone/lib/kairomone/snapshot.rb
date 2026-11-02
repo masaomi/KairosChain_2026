@@ -10,24 +10,47 @@ module Kairomone
   # and its sources' URLs. Nothing else: never a cycle's request (its topic
   # included), any other entry, chat, the direction, the lean, skills, a
   # waiting proposal, a local path or anything secret. Every text is checked
-  # as the page is assembled; one that fails is left out and counted in
-  # withheld.
+  # as the page is assembled — a drawing's markup too, since its title and
+  # desc are text whoever holds the file can read — by the credential guard
+  # and for a local path (the markers below and this host's own directory);
+  # one that fails is left out and counted in withheld. Instance#render_status
+  # writes only this.
   module Snapshot
     SCHEMA = 'kairomone-snapshot-1'
     DRAWINGS_MAX = 30
     CYCLES_MAX = 100
     # The local-path markers the check refuses (file: in any case).
     LOCAL_PATHS = %w[/Users/ /home/ ~/].freeze
+    DATA_URI = 'data:image/svg+xml;base64,'
 
     module_function
 
     # A text the snapshot may carry: not a credential by the guard, and
-    # naming no local path.
-    def public_text?(value)
-      value.is_a?(String) && value.valid_encoding? && !value.match?(ComposedText::CREDENTIAL) && !local_path?(value)
+    # naming no local path — neither a marker above nor one of roots.
+    def public_text?(value, roots = [])
+      value.is_a?(String) && value.valid_encoding? && !value.match?(ComposedText::CREDENTIAL) && !local_path?(value, roots)
     end
 
-    def local_path?(value) = LOCAL_PATHS.any? { |marker| value.include?(marker) } || value.match?(/file:/i)
+    def local_path?(value, roots = [])
+      LOCAL_PATHS.any? { |marker| value.include?(marker) } || value.match?(/file:/i) || roots.any? { |r| value.include?(r) }
+    end
+
+    # This host's own directory, which holds every individual's files, where
+    # the markers above miss it (macOS temporary and external volumes, a
+    # server's data directory), with its /private-less form on macOS. A
+    # one-segment root such as /data is left to the markers, since as text it
+    # would also match the path of a public address.
+    def local_roots(host_root)
+      return [] unless host_root.is_a?(String) && host_root.split('/').count { |s| !s.empty? } >= 2
+
+      [host_root, (host_root.delete_prefix('/private') if host_root.start_with?('/private/'))].compact
+    end
+
+    # The markup an Art.data_uri image holds.
+    def svg_of(uri) = Base64.strict_decode64(uri.delete_prefix(DATA_URI)).force_encoding(Encoding::UTF_8)
+
+    # A stage the vocabulary holds, as { id, en, ja }; anything else is nil.
+    def stage_names(id) = Vocabulary.stage_named(id)&.slice('id', 'en', 'ja')
   end
 
   class Instance
@@ -36,20 +59,38 @@ module Kairomone
       ensure_initialized!
       ledger = chain
       withheld = 0
+      roots = Snapshot.local_roots(host_root)
       check = lambda do |text|
         next nil if text.nil?
-        next text if Snapshot.public_text?(text)
+        next text if Snapshot.public_text?(text, roots)
 
         withheld += 1
         nil
+      end
+      # A drawing is checked once, by its markup and its form, wherever it is
+      # shown (the hero and the history may show the same one; the same bytes
+      # accepted again under another form are another drawing here).
+      drawings_seen = {}
+      drawing = lambda do |sha, svg, form|
+        drawings_seen[[sha, form]] ||= begin
+          uri = if svg.nil? then nil
+                elsif Snapshot.public_text?(svg, roots) then Art.data_uri(svg)
+                else
+                  withheld += 1
+                  nil
+                end
+          [uri, check.call(form)]
+        end
       end
 
       level = progression_status(ledger)[:level]
       view, text, = art_shown(ledger, level)
       drawings = art_history(ledger, images: true, last: Snapshot::DRAWINGS_MAX).map do |d|
-        { 'data_uri' => d['data_uri'], 'missing' => d['missing'], 'form' => check.call(d['form']), 'stage' => d['stage'],
+        uri, form = drawing.call(d['sha256'], d['data_uri'] && Snapshot.svg_of(d['data_uri']), d['form'])
+        { 'data_uri' => uri, 'missing' => uri.nil?, 'form' => form, 'stage' => Snapshot.stage_names(d['stage']),
           'level' => d['level'], 'milestone' => d['milestone'] }.compact
       end
+      shown_uri, shown_form = view[:shown] == 'drawing' ? drawing.call(view[:sha256], text, view[:form]) : [Art.data_uri(text), nil]
       status = profession_status
       growth = own_growth(ledger)
       entries = knowledge_entries(ledger).to_h { |e| [e['id'], e] }
@@ -63,7 +104,7 @@ module Kairomone
       # shown here; each URL is checked once.
       checked_urls = {}
       public_url = lambda do |url|
-        checked_urls[url] = Snapshot.public_text?(url) unless checked_urls.key?(url)
+        checked_urls[url] = Snapshot.public_text?(url, roots) unless checked_urls.key?(url)
         checked_urls[url]
       end
       cycles.each { |c| c[:urls].each { |u| sources << u if public_url.call(u) } }
@@ -79,11 +120,14 @@ module Kairomone
           'sources' => c[:urls].select { |u| public_url.call(u) } }
       end
       name = check.call(self.name)
+      # chosen tells "no profession yet" from a profession whose name was
+      # left out.
       { 'schema' => Snapshot::SCHEMA, 'product' => 'Kairomone', 'version' => VERSION, 'generated_at' => Time.now.utc.iso8601,
         'name' => name, 'level' => level, 'stage' => Vocabulary.stage(level).slice('id', 'en', 'ja'),
-        'drawing' => { 'shown' => view[:shown], 'data_uri' => Art.data_uri(text), 'form' => check.call(view[:form]) }.compact,
+        'drawing' => { 'shown' => view[:shown], 'data_uri' => shown_uri, 'form' => shown_form }.compact,
         'drawings' => drawings,
-        'profession' => { 'name' => check.call(status[:name]), 'lineage' => status[:lineage].filter_map { |l| check.call(l[:name]) } },
+        'profession' => { 'chosen' => !status[:current].nil?, 'name' => check.call(status[:name]),
+                          'lineage' => status[:lineage].filter_map { |l| check.call(l[:name]) } },
         'counts' => { 'lifetime_cycles' => growth[:unknown] ? nil : growth[:cycles].length, 'learned_sources' => sources.length,
                       'own_growth_l1' => growth[:cycles].length, 'own_growth_l2' => growth[:cycles].count { |c| c['l2_own'] } },
         'cycles' => shown, 'withheld' => withheld }

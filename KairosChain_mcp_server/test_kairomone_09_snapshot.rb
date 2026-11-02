@@ -117,7 +117,7 @@ class Kairomone09SnapshotTest < Minitest::Test
     snap = legacy.status_public
     assert_equal [{ 'subjects' => [], 'title' => 'Old synthesis', 'synthesis' => 'What 0.6 learned', 'finding' => 'Old finding',
                     'sources' => ['https://example.com/old'] }], snap['cycles']
-    assert_equal({ 'name' => 'Generalist', 'lineage' => [] }, snap['profession'])
+    assert_equal({ 'chosen' => true, 'name' => 'Generalist', 'lineage' => [] }, snap['profession'])
     assert_equal 'Old one', snap['name']
     refute_includes JSON.generate(snap), 'SECRET old topic'
   end
@@ -144,8 +144,62 @@ class Kairomone09SnapshotTest < Minitest::Test
     store.define_singleton_method(:own_growth) { |*| { cycles: [], unknown: 'the ledger is unreadable' } }
     snap = store.status_public
     assert_nil snap['counts']['lifetime_cycles']
-    assert_equal({ 'name' => nil, 'lineage' => [] }, snap['profession'])
+    assert_equal({ 'chosen' => false, 'name' => nil, 'lineage' => [] }, snap['profession'], 'no profession yet')
     assert_equal 'egg', snap['drawing']['shown']
     assert_match(%r{\Adata:image/svg\+xml;base64,}, snap['drawing']['data_uri'])
+  end
+
+  # The page tells "no profession yet" from a profession whose name failed
+  # the check by chosen.
+  def test_a_profession_whose_name_fails_is_chosen_without_a_name
+    store = create
+    store.define_singleton_method(:profession_status) do |*|
+      { current: { id: 'x' }, name: 'Keeper of /home/someone', lineage: [{ id: 'p', name: 'Parent' }, { id: 'q', name: 'password: hunter22' }] }
+    end
+    snap = store.status_public
+    assert_equal({ 'chosen' => true, 'name' => nil, 'lineage' => ['Parent'] }, snap['profession'])
+    assert_equal 2, snap['withheld']
+  end
+
+  # A drawing's stage reaches the page as the names the vocabulary holds (for
+  # a drawing recorded before 0.9, which the page labels by stage); a stage
+  # the vocabulary does not hold is never passed as text.
+  def test_drawing_stages_are_names_and_a_crafted_stage_is_dropped
+    store = create
+    old = Kairomone::Art::EGG.sub('Kairomone egg', 'An 0.8 drawing')
+    odd = Kairomone::Art::EGG.sub('Kairomone egg', 'A crafted record')
+    store.send(:with_lock) do
+      [[old, 'hatchling'], [odd, 'SECRET-STAGE <b>']].each do |svg, stage|
+        sha = Digest::SHA256.hexdigest(svg)
+        Kairomone::Paths.write(store.root, "art/#{sha}.svg", svg)
+        Kairomone::Records.append!(store.chain, [{ 'type' => 'kairomone_art', 'sha256' => sha, 'origin' => 'import', 'stage' => stage }], -> { store.chain })
+      end
+    end
+    grow_to(store, 10)
+    store.accept_art(proposal: store.propose_art(svg: FORM_SVG, form: 'A fox at ten')[:proposal])
+    snap = store.status_public
+    old_d, odd_d, new_d = snap['drawings']
+    assert_equal [{ 'id' => 'hatchling', 'en' => 'Hatchling', 'ja' => '幼体' }, nil], old_d.values_at('stage', 'level'), 'a 0.8 drawing by its stage only'
+    refute odd_d.key?('stage')
+    refute_includes JSON.generate(snap), 'SECRET-STAGE'
+    level = store.progression_status[:level]
+    assert_equal [level, Kairomone::Vocabulary.milestone(level), 'A fox at ten', false], new_d.values_at('level', 'milestone', 'form', 'missing')
+    assert_equal 'hatchling', new_d.dig('stage', 'id')
+  end
+
+  FORM_SVG = Kairomone::Art::EGG.sub('Kairomone egg', 'A fox at ten')
+
+  # This host's own directory is a local path wherever it lives (here a
+  # temporary directory the markers alone would miss).
+  def test_the_host_directory_is_a_local_path
+    store = create
+    one_cycle(store, 'stored', content: "Kept under #{store.root}/notes", finding: "See #{store.host_root.delete_prefix('/private')}/x")
+    snap = store.status_public
+    assert_equal [nil, nil], snap['cycles'].first.values_at('synthesis', 'finding')
+    assert_equal 2, snap['withheld']
+    assert_equal [], Kairomone::Snapshot.local_roots('/data'), 'a one-segment root would match public addresses'
+    assert_equal ['/srv/kairos'], Kairomone::Snapshot.local_roots('/srv/kairos')
+    assert_equal ['/private/var/folders/x', '/var/folders/x'], Kairomone::Snapshot.local_roots('/private/var/folders/x')
+    assert Kairomone::Snapshot.public_text?('https://example.org/data/report'), 'an address is not refused for its path'
   end
 end
