@@ -78,7 +78,8 @@ Kairomone::Instance.new(host_root: data, bind: false).init(kairomone_id: 'consol
 
 // Speaks the stream-json measured on 2026-10-21 (log/kairomone_console_probes_20261021/).
 // Owner messages are scripts: PLAIN <text>, ASKJSON <spec>, ASK2 [<spec>, <spec>],
-// XSS, FOREIGN, HOLD. A spec is {"tool","display_name","description","input","then"}:
+// XSS, FOREIGN, HOLD, after the line naming the Kairomone shown that the page
+// puts first (0.9 N7; recorded in ../reports/to.jsonl). A spec is {"tool","display_name","description","input","then"}:
 // "then" is asked right after the first is answered, as the CLI does for the next
 // tool use. Files in ../reports switch the k-th mode answer: hold_mode_<k> holds
 // it until release_mode_<k>, echo_word_<k> replaces its word, echo_error_<k>
@@ -199,6 +200,9 @@ class Fake
 
   def turn(message)
     text = text_of(message.dig('message', 'content'))
+    to = text[/\A\[Kairomone: ([^\]\n]*)\]\n/, 1]
+    append('to.jsonl', { 'to' => to })
+    text = text.sub(/\A\[Kairomone: [^\]\n]*\]\n/, '')
     @n += 1
     @in_turn = true
     emit(init_line)
@@ -1027,6 +1031,84 @@ test('a revoked tab learns it is signed out, and a new tab replays the pending r
     assert.deepEqual(answer.response.response.updatedInput, { command: 'ls', description: 'List' });
     await assertCleanPage(old.page, old.rec, con.origin);
     await assertCleanPage(next.page, next.rec, con.origin);
+  });
+});
+
+test('every message the page sends begins with the line naming the Kairomone shown, and replies carry its drawing', { timeout: 120000 }, async () => {
+  await withConsole({}, async ({ host, con, context }) => {
+    const { page, rec } = await openPage(context, con.url);
+    await waitBoxOpen(page);
+    assert.equal(await page.locator('#send-to').textContent(), '送る会話の先頭に「[Kairomone: console_dot]」の 1 行が付き、Console fixture（console_dot）への会話になります。');
+    await send(page, host, 'PLAIN こんにちは');
+    const [sent] = await userLines(host);
+    const content = sent.message.content;
+    const textOf = typeof content === 'string' ? content : content.map((b) => b.text).join('');
+    assert.equal(textOf, '[Kairomone: console_dot]\nPLAIN こんにちは', 'the ID line, then the box as typed');
+    assert.deepEqual(await jsonl(host, 'to.jsonl'), [{ to: 'console_dot' }]);
+    await waitFor('the reply', async () => (await page.locator('#log li.msg.assistant').count()) === 1);
+    assert.match(await page.locator('#log li.msg.owner .to').textContent(), /^宛先: Console fixture（console_dot）$/);
+    assert.equal(await page.locator('#log li.msg.owner .body').textContent(), 'PLAIN こんにちは', 'the line is shown apart from the words');
+    const avatar = page.locator('#log li.msg.assistant img.avatar');
+    assert.match(await avatar.getAttribute('src'), /^data:image\/svg\+xml;base64,/, 'the reply has the drawing (the egg) beside it');
+    assert.equal(await avatar.isVisible(), true);
+    const posted = rec.requests.filter((r) => r.url.endsWith('/message')).map((r) => JSON.parse(r.body).text);
+    assert.deepEqual(posted, ['[Kairomone: console_dot]\nPLAIN こんにちは']);
+    await assertCleanPage(page, rec, con.origin);
+  });
+});
+
+test('the learn, lean and skills controls only place text, and the history is read once per change', { timeout: 120000 }, async () => {
+  await withConsole({}, async ({ host, con, context }) => {
+    const { page, rec } = await openPage(context, con.url);
+    await waitBoxOpen(page);
+    await waitFor('the status', async () => (await page.locator('#kairomone-id').textContent()) === 'console_dot');
+    assert.equal(await page.locator('#st-profession').textContent(), 'まだ職業はない');
+    assert.equal(await page.locator('#lean-subjects').textContent(), '傾きはありません');
+    assert.equal(await page.locator('#lean-clear').isDisabled(), true, 'no lean to clear');
+    assert.equal(await page.locator('#skill-list').textContent(), 'まだスキルはありません');
+    assert.equal(await page.locator('#skill-place').isDisabled(), true, 'no own growth entry yet');
+    assert.equal(await page.locator('#st-lifetime').textContent(), '0 回');
+    assert.equal(await page.locator('#st-policy').isHidden(), true, 'no operator limit is declared here');
+    await waitFor('the history', async () => (await page.locator('#history-list').textContent()).startsWith('まだ受け入れた絵はありません'));
+    await page.fill('#learn-cycles', '4');
+    await page.click('#learn-start');
+    assert.equal(await page.inputValue('#message'), `${WHO}、4回学習して`);
+    await page.click('#learn-stop');
+    assert.equal(await page.inputValue('#message'), `${WHO}の学習を止めて`);
+    await page.fill('#learn-cycles', '0');
+    await page.click('#learn-start');
+    assert.equal(await page.inputValue('#message'), `${WHO}の学習を止めて`, 'an invalid count is not placed');
+    assert.match(await page.locator('#learn-msg').textContent(), /1 から 999/);
+    const histories = () => rec.requests.filter((r) => new URL(r.url).pathname === '/art-history').length;
+    assert.equal(histories(), 1, 'the history is read once on load');
+    await page.click('#status-refresh');
+    await waitFor('the refresh', async () => (await page.locator('#st-at').textContent()).startsWith('取得'));
+    await sleep(500);
+    assert.equal(histories(), 1, 'and not again while its digest holds');
+    await sleep(800);
+    assert.equal(rec.requests.filter((r) => r.url.endsWith('/message')).length, 0, 'no control sends');
+    assert.deepEqual(await userLines(host), [], 'the child received no message');
+    await assertCleanPage(page, rec, con.origin);
+  });
+});
+
+test('three columns on a wide window, one on a narrow one', { timeout: 120000 }, async () => {
+  await withConsole({}, async ({ con, context }) => {
+    const { page, rec } = await openPage(context, null);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(con.url);
+    await waitBoxOpen(page);
+    const boxes = () => page.evaluate(() => ['.left', '.convo', '.side'].map((sel) => {
+      const r = document.querySelector(sel).getBoundingClientRect();
+      return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width) };
+    }));
+    const [left, convo, side] = await boxes();
+    assert.ok(left.x < convo.x && convo.x < side.x && left.y === convo.y && convo.y === side.y, `side by side: ${JSON.stringify([left, convo, side])}`);
+    await page.setViewportSize({ width: 900, height: 900 });
+    await sleep(200);
+    const [l2, c2, s2] = await boxes();
+    assert.ok(l2.y < c2.y && c2.y < s2.y && l2.x === c2.x, `stacked: ${JSON.stringify([l2, c2, s2])}`);
+    await assertCleanPage(page, rec, con.origin);
   });
 });
 

@@ -121,6 +121,7 @@ rescue StandardError => e
   end
   { 'data_dir' => project.data_dir, 'kairomones' => listed, 'shown' => nil, 'status' => nil, 'error' => e.message }
 end
+art_reader = ->(kairomone) { Kairomone::Console::View.art_history(project.data_dir, kairomone) }
 
 server = nil
 writer = nil
@@ -141,7 +142,7 @@ stop = lambda do |by|
 end
 
 begin
-  server = Kairomone::Console::Server.new(session: session, secret: secret, status_reader: status_reader,
+  server = Kairomone::Console::Server.new(session: session, secret: secret, status_reader: status_reader, art_reader: art_reader,
                                            page_path: File.join(project.package_root, 'assets', 'console.html'),
                                            port: options[:port], on_stop: ->(by) { stops << by.to_s }).start
   %w[INT TERM HUP].each { |signal| trap(signal) { stops << signal.downcase } }

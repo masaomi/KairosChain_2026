@@ -60,13 +60,70 @@ needed by the runtime or these tests.
 `console.html` is served only by `scripts/kairomone_console.rb`, at `GET /` on
 `127.0.0.1`. Unlike `status.html` it is live: it long-polls the console and
 sends the owner's messages, permission answers and mode changes. It is never
-written to the instance or rendered with data.
+written to the instance or rendered with data. It writes nothing itself:
+every control places text in the message box for the owner to read, change
+and send, and the hosted session does what that text asks.
+
+## Layout
+
+- Left: the individual shown — its drawing (an image only), name, the form
+  its drawing names, stage, level, profession (「まだ職業はない」 when
+  `status.profession.current` is null), XP, chat memory, L1 and L2; its lean
+  (the subjects in force and the owner's words the latest change quoted, with
+  a control placing the request to clear it); the skills in force; the record
+  state (integrity, host L0, paths).
+- Centre: the conversation. Each reply is shown with the drawing of the
+  individual its message named; permission requests and the composer with its
+  four quick requests below.
+- Right: the learn panel (a cycle count with 「学習を始める」, a stop control,
+  the live run's used / maximum / remaining, lifetime cycles, the operator
+  limit only when one is declared, learned subjects); the drawing history in
+  the order accepted (a drawing absent or failing the check is shown as
+  missing, one accepted before 0.9 by its stage); what waits (drawings,
+  profiles, professions and skills, and the open branch offer); the skills
+  panel (a request to draft a skill from a named own growth entry); the
+  export preview; the creation panel (kind, traits, ID, free text — no
+  profession); notes. The page never names a branch level or what a branch
+  holds, and offers no fixed profession list.
+
+## What the page sends
+
+Every message the page sends begins with one line naming the listing ID of
+the individual shown, which the page adds when sending:
+
+    [Kairomone: <listing ID>]
+
+or `[Kairomone: (none shown)]` when the host lists none. The box opens only
+once the first status answer has come, so the line names what the page
+shows. Switching individuals changes only what the page shows and the ID the
+line and the placed texts name; a placed text left untouched since it was
+placed goes with the switch, and what the owner typed stays.
+
+What each control places (`{who}` is `Kairomone「<name>」（識別子: <listing ID>）`;
+none carries acceptance, choice or consent wording or a branch level):
+
+| Control | Placed text |
+|---|---|
+| quick: state | `{who}のいまの状態を教えて` |
+| quick: recent | `{who}が最近覚えたことを見せて` |
+| quick: one topic | `{who}に〈話題〉について 1 回学習させて` |
+| quick: backup | `{who}のバックアップを取って、検証して` |
+| 学習を始める (N cycles, 1–999) | `{who}、{N}回学習して` |
+| 学習を止める | `{who}の学習を止めて` |
+| 傾きを消す | `{who}の傾きを消して` |
+| skill draft | `{who}の学んだ知識「{title}」（{entry ID}、sha256: {hash}）から、スキルの案を作って全部見せて` |
+| a waiting profile, profession or skill | `{who}の{プロフィール\|職業\|スキル}の案 {proposal}（中身の sha256: {hash}）を全部見せて` |
+| a waiting drawing | `{who}の絵の案 {proposal}（絵の sha256: {hash}）を見せて` |
+| an offer candidate | `{who}の職業の候補（offer {offer}）の {n} 番目「{name}」で、学び方がどう変わるか教えて` |
+| export preview | `{who}を書き出す前の下見を見せて。入れる知識の種類: {kinds}` |
+| new Kairomone | `新しい Kairomone の案を作って。種類: {kind}。性格・好きなこと: {traits}。識別子: {id}。ほかに: {free}。プロフィールの案を全部見せて` |
 
 ## Page contract
 
 - Exactly one `<style>` and one `<script>` element; no other script, no inline
   event handler or style attribute, no external resource. Every dynamic string
-  goes through `textContent`.
+  goes through `textContent`. Every image gets its source in one place, and
+  only from a `data:image/svg+xml;base64,` value; drawings are never markup.
 - The console reads the page once when it starts and pins both elements by
   SHA-256 in its Content-Security-Policy, hashed over the element text as a
   browser parses it (CR and CRLF become LF). Editing either element needs no
@@ -101,7 +158,8 @@ any decoding: `<request_id>` below is one path segment, written as
 | `GET /` | — | 200, the page |
 | `POST /session` | header `X-Kairomone-Bootstrap` | 200 `{"session"}`, or 403 (wrong, spent, or older than 10 minutes) |
 | `GET /events?after=<n>` | — | waits up to 25 s; 200 `{"events":[…],"last":<seq>}`, or 403 if the session was revoked while it waited |
-| `GET /status?kairomone=<listing ID>` | — | 200 `{"data_dir","kairomones","shown","kinds","templates","status","waiting"}`: every individual the host lists, the one shown (the one named, else the first), its schema-version-1 `status`, and `waiting` — its drawing as a `data:` image, the drawings, profiles and professions waiting for the owner with their proposal IDs and hashes, and the open branch offer; 400 for a malformed ID. An ID the host does not list shows the first listed, with `notice` saying so. Without a listed individual, `shown` is null and `status` says not initialized. When what waits cannot be read, `waiting` is null and `error` says why; when the shown individual cannot be read at all, `kairomones` still lists every individual, `shown` and `status` are null and `error` says why |
+| `GET /status?kairomone=<listing ID>` | — | 200 `{"data_dir","kairomones","shown","kinds","status","waiting","lean","skills","own_growth","own_growth_total","lifetime_cycles","lifetime_unknown","learned_subjects","art_history"}`: every individual the host lists, the one shown (the one named, else the first), its schema-version-1 `status`, and `waiting` — its drawing as a `data:` image with its form, the drawings, profiles, professions and skills waiting for the owner with their proposal IDs and hashes, and the open branch offer (each candidate's name and description); `lean` `{subjects, owner_words, request_id}`; `skills` in force `{sha256, name, description, methods, focus}`; `own_growth` — the newest 50 own growth entries `{entry_id, sha256, title}`, newest first, of `own_growth_total`; `lifetime_cycles` (null with `lifetime_unknown` `{reason, at_least}` when it cannot be established) and `learned_subjects`; `art_history` `{digest, count}`. No fixed profession list and no branch level. 400 for a malformed ID. An ID the host does not list shows the first listed, with `notice` saying so. Without a listed individual, `shown` is null, `status` says not initialized and the per-individual keys are absent. When what waits cannot be read, `waiting` is null; when the lean, skills and history cannot be read, those keys are null; `error` says why. When the shown individual cannot be read at all, `kairomones` still lists every individual, `shown` and `status` are null and `error` says why |
+| `GET /art-history?kairomone=<listing ID>` | — | 200 `{"shown","digest","drawings"}`: every accepted drawing in the order accepted `{sha256, stage, stage_name, form, level, milestone, present, valid, missing, data_uri}` (`level` and `milestone` only where its record holds them; `data_uri` only for one that passes the art check now), and the digest `/status` names for it. The page reads it once per load and again only when that digest changes. An ID the host does not list: `shown`, `digest` and `drawings` null and `error`. 400 without a well-formed ID |
 | `POST /message` | `{"text"}` | 202 `{"accepted":true}`, or 409 `{"error":"not_accepting","reason"}` |
 | `POST /permission/<request_id>` | `{"decision":"allow"\|"deny"}` | 200, 404 (not pending), 409 `answered` (already answered) or `not_allowable` (an allow for a request with `exact: false`) |
 | `POST /mode` | `{"mode":"auto"\|"ask"}` | 202, or 409 `{"error":"refused","reason"}` |

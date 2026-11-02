@@ -61,7 +61,7 @@ module Kairomone
       DRAIN_LIMIT = 1024 * 1024
       POLL_SECONDS = 25
       CHUNK_BYTES = 4 * 1024 * 1024
-      ROUTES = { '/events' => 'GET', '/status' => 'GET', '/message' => 'POST', '/mode' => 'POST',
+      ROUTES = { '/events' => 'GET', '/status' => 'GET', '/art-history' => 'GET', '/message' => 'POST', '/mode' => 'POST',
                  '/interrupt' => 'POST', '/stop' => 'POST', '/' => 'GET', '/session' => 'POST' }.freeze
       PERMISSION_PREFIX = '/permission/'
       class BodyTooLarge < StandardError; end
@@ -105,11 +105,16 @@ module Kairomone
 
       attr_reader :port
 
-      def initialize(session:, secret:, status_reader:, page_path:, port: 0, host: '127.0.0.1', on_stop: nil, poll_seconds: POLL_SECONDS)
+      # art_reader: (listing ID) => the drawing history with its images,
+      # which the page fetches only when the digest the status names differs
+      # from the one it holds (0.9 N5); without one the route is not found.
+      def initialize(session:, secret:, status_reader:, page_path:, port: 0, host: '127.0.0.1', on_stop: nil, poll_seconds: POLL_SECONDS,
+                     art_reader: nil)
         raise ArgumentError, 'The console listens on 127.0.0.1 only' unless host == '127.0.0.1'
         @session = session
         @secret = secret
         @status_reader = status_reader
+        @art_reader = art_reader
         @requested_port = port
         @host = host
         @on_stop = on_stop
@@ -189,6 +194,7 @@ module Kairomone
         case path
         when '/events' then events(req, res)
         when '/status' then status(req, res)
+        when '/art-history' then art_history(req, res)
         when '/message' then message(json_body(req), res)
         when '/mode' then mode(json_body(req), res)
         when '/interrupt' then read_body(req) && interrupt(res)
@@ -253,6 +259,21 @@ module Kairomone
           @status_reader.arity.zero? ? @status_reader.call : @status_reader.call(shown)
         rescue StandardError
           return reply(res, 500, 'error' => 'status_unavailable')
+        end
+        reply(res, 200, body)
+      end
+
+      # ?kairomone=<listing ID> names the individual whose drawing history the
+      # page asks for; the ID is required.
+      def art_history(req, res)
+        shown = req.query['kairomone']&.to_s
+        raise BadRequest unless shown && Kairomone::Paths::ID.match?(shown)
+        return reply(res, 404, 'error' => 'not_found') unless @art_reader
+
+        body = begin
+          @art_reader.call(shown)
+        rescue StandardError
+          return reply(res, 500, 'error' => 'art_history_unavailable')
         end
         reply(res, 200, body)
       end
