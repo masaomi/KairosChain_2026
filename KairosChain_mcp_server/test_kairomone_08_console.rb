@@ -10,9 +10,12 @@
 # temporary hosts.
 #
 # Changed for Kairomone 0.9 (design log/kairomone_0_9_screens_and_generated_growth_design_v0.2_20261102.md,
-# N2, N4, N5), before the console page is rebuilt: create makes a 0.9
-# individual (no profession); a drawing is proposed with its form; the page
-# names every tool but kairomone_skill, whose label comes with the rebuilt page.
+# N2, N4, N5, N7): create makes a 0.9 individual (no profession); a drawing
+# is proposed with its form; the payload drops the profession templates (no
+# fixed list is offered) and the creation panel asks for no template; the
+# page's placed texts gain the learn, stop, lean, and skill-draft requests;
+# every image source goes through one checked setter. The 0.9 additions
+# themselves are tested in test_kairomone_09_console.rb.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
@@ -80,7 +83,7 @@ class Kairomone08ConsoleTest < Minitest::Test
   def test_the_page_logic_on_a_stand_in_dom
     out, status = Open3.capture2e('node', File.expand_path('templates/skillsets/kairomone/assets/test_console_logic.mjs', __dir__))
     assert status.success?, out
-    assert_equal 6, out.scan(/^PASS: /).length, out
+    assert_equal 11, out.scan(/^PASS: /).length, out
   rescue Errno::ENOENT
     skip 'node is not available here'
   end
@@ -89,7 +92,8 @@ class Kairomone08ConsoleTest < Minitest::Test
     payload = view
     assert_equal [[], nil, false], [payload['kairomones'], payload['shown'], payload.dig('status', 'initialized')]
     refute payload.key?('waiting')
-    assert payload['kinds'].any? && payload['templates'].any?, 'the creation panel still has its starters'
+    assert payload['kinds'].any?, 'the creation panel still has its starters'
+    refute payload.key?('templates'), 'no fixed profession list is offered (0.9 N4)'
   end
 
   def test_the_drawing_and_what_waits_come_with_their_ids_and_hashes
@@ -144,7 +148,7 @@ class Kairomone08ConsoleTest < Minitest::Test
 
   def test_placed_text_names_the_individual_and_never_accepts
     table = place_table
-    assert_equal %w[status recent learn backup proposal drawing offer create exportPreview].sort, table.keys.sort
+    assert_equal %w[status recent learn backup learnRun learnStop leanClear skillDraft proposal drawing offer create exportPreview].sort, table.keys.sort
     table.each do |key, template|
       refute_match ACCEPTANCE, template, "#{key}: #{template}"
       assert_includes template, '{who}', key unless key == 'create'
@@ -175,8 +179,7 @@ class Kairomone08ConsoleTest < Minitest::Test
                                      .map { |k| k.new(nil).name }.sort
     assert_equal 15, names.length, names.inspect
     labels = script[/var TOOL_LABELS = \{(.*?)\n  \};/m, 1].scan(/(kairomone_\w+):/).flatten.sort
-    # kairomone_skill (0.9 N2) gets its label when the console page is rebuilt (0.9 N7).
-    assert_equal names - ['kairomone_skill'], labels
+    assert_equal names, labels
     refute_match(/\bdots?\b/i, File.read(PAGE).gsub(/data:[^'"]*/, ''), 'the page says Kairomone, not dot')
   end
 
@@ -184,8 +187,10 @@ class Kairomone08ConsoleTest < Minitest::Test
     page = File.read(PAGE)
     assert_equal 1, page.scan(/<img\b/).length, 'one image element in the markup: the drawing shown'
     assert_match(%r{var DATA_SVG = /\^data:image\\/svg\\\+xml;base64,}, script)
-    assert_equal 2, script.scan(/\.src = /).length
-    assert_equal 2, script.scan(/DATA_SVG\.test\(/).length, 'every image source is tested first'
+    assert_equal 1, script.scan(/\.src = /).length, 'one place sets an image source'
+    setter = script[/function setImage\(img, uri\) \{(.*?)\n  \}/m, 1] or flunk 'the page has no image setter'
+    assert_match(/if \(typeof uri === 'string' && DATA_SVG\.test\(uri\)\) \{\s*img\.src = uri;/, setter, 'every image source is tested first')
+    assert_equal 0, script.gsub(setter, '').scan(/\.src\b/).length, 'no image source is set anywhere else'
     refute_match(/innerHTML|outerHTML|insertAdjacentHTML|document\.write/, script)
   end
 end

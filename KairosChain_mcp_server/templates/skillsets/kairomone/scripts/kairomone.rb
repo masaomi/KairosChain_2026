@@ -1,6 +1,16 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+# console [--open [--detach] | --stop] (design 0.9 N8): the owner's console
+# page runs as its own program, scripts/kairomone_console.rb, so that --stop
+# can tell it by its command line. It is given this Ruby's load path as this
+# script was given it — never the checkout guess below — and finds the core
+# as it does when started directly.
+if ARGV.first == 'console'
+  require 'rbconfig'
+  exec(RbConfig.ruby, *$LOAD_PATH.flat_map { |dir| ['-I', dir] }, File.expand_path('kairomone_console.rb', __dir__), *ARGV.drop(1))
+end
+
 require 'optparse'
 # A checkout can locate its sibling core; an installed SkillSet uses the
 # installed kairos-chain gem or an explicitly provided Ruby load path (-I).
@@ -16,7 +26,8 @@ end
 options = {}
 parser = OptionParser.new do |p|
   p.banner = 'Usage: kairomone.rb list|init|status|observe|growth status|run-start|run-stop|run-status|request|claim|heartbeat|commit|fail|' \
-             'profession list|select|knowledge create|get|list|transplant|pending-transplants|art get|backup create|verify|restore|restore-new|missing|l0 rebaseline [options]'
+             'profession list|select|knowledge create|get|list|transplant|pending-transplants|art get|backup create|verify|restore|restore-new|missing|l0 rebaseline [options]' \
+             "\n       kairomone.rb console [--open [--detach] | --stop] [--project DIR] (the owner's console page; see kairomone_console.rb --help)"
   p.on('--kairomone ID', 'Listing ID of the Kairomone (needed for writes when the host lists several)') { |v| options[:kairomone] = v }
   p.on('--json-stdin', 'Read companion arguments as bounded JSON, never shell text') { options[:json_stdin] = true }
   p.on('--kairomone-id ID', 'init: identity and listing ID of the new Kairomone') { |v| options[:kairomone_id] = v }
