@@ -12,10 +12,11 @@ module Kairomone
   #
   # A cycle of 0.8 or later is its kairomone_growth_completed record, which
   # names both entries and their hashes. A cycle of 0.6 is a completed request
-  # of the 0.6 growth state (the identification restore_summary made in 0.8);
-  # its entries are its own while its L1 matches the knowledge record its
-  # write left on the ledger and both entries still rebuild from the evidence
-  # hash the 0.6 state recorded (the 0.6 progression_content rule). Received,
+  # of the 0.6 growth state whose entries are present (the identification
+  # restore_summary made in 0.8); its L1 is its own while it matches the
+  # knowledge record its write left on the ledger, and its L2 while both
+  # entries still rebuild from the evidence hash the 0.6 state recorded (the
+  # 0.6 progression_content rule), since 0.6 put no L2 hash on the ledger. Received,
   # inherited and owner-written entries never are: an import or a fusion
   # records identities, never a cycle, and an ID alone proves nothing. A cycle
   # counts only while its L1 is an own growth entry: an intent whose entries
@@ -108,10 +109,9 @@ module Kairomone
 
         body1 = knowledge_provider.get(id)&.content
         body2 = context_manager.get_context(L2_SESSION, id)&.content
-        next unless body1 && body2 && autonomy.legacy_progression_content(id: id, l1_body: body1, l2_body: body2)
-
+        rebuilds = !!(body1 && body2 && autonomy.legacy_progression_content(id: id, l1_body: body1, l2_body: body2))
         { 'generation' => '0.6', 'request_id' => request_id, 'l1_id' => id, 'l2_id' => id, 'l1_sha256' => entry['hash'],
-          'l2_own' => true, 'subjects' => [], 'methods_applied' => [] }
+          'l2_own' => rebuilds, 'subjects' => [], 'methods_applied' => [] }
       end
     end
   end
