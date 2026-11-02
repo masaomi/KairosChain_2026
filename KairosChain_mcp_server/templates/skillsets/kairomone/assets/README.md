@@ -1,53 +1,98 @@
 # Local status snapshot
 
-`status.html` is a self-contained offline template. It is not a hosted Site and
-has no login, network requests, external fonts, storage, polling or live data.
-The only controls are language switching and disclosure of included record
-titles. The original inline SVG is a small abstract moss creature.
+`status.html` is the snapshot page: a self-contained, offline, view-only page
+the owner can hand to friends who cannot run commands (design 0.9 Inv 10, N6).
+`kairomone_status(render_html: true)` and `scripts/kairomone.rb status --html`
+write it at the Kairomone's fixed `exports/status.html` (mode 0600). Both still
+return the full status to their caller; the page carries only what
+`Instance#status_public` assembles. It is not a hosted Site: no login, network
+request, external font, storage, polling, live data, link, form or input. The
+only controls are the JA/EN switch (Japanese by default) and the disclosure of
+each cycle's synthesis. It is a picture of one moment and is never synced.
+
+## What the page carries
+
+Only the public subset: what the individual publicly is and what each of its
+own growth cycles learned. Never a cycle's request or its topic, any other
+entry (owner-written, received or inherited), chat, the direction, the lean,
+skills or their sources, a waiting proposal, profile text beyond the name, a
+local path or anything secret. Every text — a drawing's markup included, since
+its title and desc are readable by whoever holds the file — passes the
+credential guard and a local-path check (`/Users/`, `/home/`, `~/`, `file:`,
+and this host's own directory) when the page is written; one that fails is left
+out and counted in `withheld`, and the page says how many were left out.
+
+Sections, in order: header (title, JA/EN); hero (the current drawing as an
+image, the name, stage and level, the line that the level measures stored
+records and not ability or feeling, and when the snapshot was written); a
+withheld note when `withheld` > 0; drawing history (every accepted drawing in
+the order accepted, labelled by its level, or by its stage for a drawing
+recorded before 0.9; one absent or failing a check is shown as missing, never as
+another); stat cards (lifetime cycles, learned sources, own growth L1 and L2);
+profession (its name, or 「まだ職業はない」 / "No profession yet", and lineage
+names nearest first); one card per own growth cycle, newest first (its learned
+subject names as its label, knowledge title, finding, the synthesis behind a
+disclosure, and source addresses as text, not links); and what the snapshot
+shows, never shows and promises.
 
 ## Renderer contract
 
 Replace the single `__KAIROMONE_STATUS_JSON__` marker inside the
-`application/json` script with serialized schema-version-1 status data. Escape
+`application/json` script with the serialized `status_public` value. Escape
 `<`, `>`, `&`, U+2028 and U+2029 as JSON Unicode escapes **before** insertion.
 Use a replacement block/callback so payload backslashes remain literal.
 Never interpolate data into the surrounding markup or executable script.
 
-The executable script has a SHA-256 Content Security Policy hash. If its bytes
-change, regenerate that hash; do not weaken `script-src` to `unsafe-inline`.
-The JSON payload does not affect the executable-script hash.
+The executable script and the one style element are each pinned by a SHA-256
+hash in the Content-Security-Policy meta (`default-src 'none'`, `connect-src
+'none'`, `img-src data:`, no `unsafe-inline`). If either element's bytes change,
+regenerate its hash; the JSON payload affects neither. From this directory:
 
-Schema fields consumed:
+    ruby -rdigest -rbase64 -e 'h = File.read(ARGV[0]); %w[script style].each { |t| puts "#{t}-src sha256-" + Base64.strict_encode64(Digest::SHA256.digest(h[%r{<#{t}>(.*?)</#{t}>}m, 1])) }' status.html
 
-- `schema_version: 1`, `generated_at`, `initialized`
-- `profile.display_name`
-- `knowledge: { available, count, items: [{ id, title, snippet? }] }`
-- `observations: { available, count, recent: [{ id, title, created_at, snippet? }] }`
-- `integrity: { state, valid, block_count, pending_count, details: [] }`
-- `backup: { scope: [], excluded: [] }`
-- `instructions: { refresh, cli }`
+Because the style is pinned, the markup holds no `style` attribute. Every
+dynamic string goes through `textContent`; images are set only from
+`data:image/svg+xml;base64,` URIs; the script creates no link, form or input.
 
-Counts are displayed only for explicitly available stores with nonnegative
-safe-integer counts. Unknown data is never presented as zero. L1/L2 must refer
-to the dedicated canonical stores, not host-wide counts. An integrity pass
-requires exactly `state: "readable"` and `valid: true`. Neither a chain pass nor
-backup scope means independent authenticity, truth, or a successful backup.
-Record titles are limited to 50 displayed entries; the reported store count
-remains the actual count. Every dynamic string uses `textContent`. Source data
-is preserved verbatim; changing the UI language does not translate source
-record titles or verification details.
+Schema `kairomone-snapshot-1` fields consumed:
+
+- `schema` (any other value, or no object, shows the read error and nothing
+  else), `version`, `generated_at`
+- `name`, `level` (1–999), `stage: { id, en, ja }`
+- `drawing: { shown: "egg" | "drawing", data_uri?, form? }`; `shown: "drawing"`
+  without `data_uri` is a drawing left out by the check
+- `drawings: [{ data_uri?, missing, form?, stage?: { id, en, ja }, level?,
+  milestone? }]`, at most the newest 30, oldest first
+- `profession: { chosen, name, lineage: [name] }`; `chosen: false` is no
+  profession yet, `chosen: true` with `name: null` is a name left out
+- `counts: { lifetime_cycles, learned_sources, own_growth_l1, own_growth_l2 }`;
+  `lifetime_cycles` is null when it cannot be established
+- `cycles: [{ subjects: [{ id, en, ja }], title, synthesis, finding, sources:
+  [url] }]`, at most the newest 100, newest first
+- `withheld`: how many texts and drawings were left out
+
+Counts are displayed only as nonnegative safe integers; unknown is never
+presented as zero. Source data is preserved verbatim; the language switch
+translates only the page's own words, never a name, title, finding or address.
 
 ## Development checks
 
 - `ruby test_kairomone_ui.rb` from `KairosChain_mcp_server/` tests the production
-  renderer, hostile JSON round trips, output location/mode and CSP digest.
+  renderer, hostile JSON round trips, output location/mode, both CSP digests,
+  that the written page holds exactly `status_public`, and that the page written
+  for a crafted individual holds no topic, direction, lean, chat, owner-written
+  entry, skill, waiting drawing, retrieval reference or local path.
+- `ruby test_kairomone_09_snapshot.rb` tests the public subset itself.
 - `node templates/skillsets/kairomone/assets/test_status_ui.mjs` runs standalone
-  dependency-free syntax, offline-resource, DOM text-sink, JA/EN, availability,
-  integrity-state and malformed-data checks.
+  dependency-free syntax, offline-resource, DOM text-sink, JA/EN, section,
+  bounds, unknown-count and malformed-data checks.
+- `KAIROMONE_BROWSER_QA=1 node templates/skillsets/kairomone/assets/test_status_browser.mjs`
+  is the optional Chromium check (widths, disclosure, CSP, no requests); it
+  needs Playwright and a Chromium and skips otherwise.
 - `fixtures/status_xss.json` contains **synthetic test data only**, including
   script-closing tags, event-handler text, angle brackets, ampersands and Unicode
-  line separators. It is not a user profile and not evidence of a verified
-  chain. Never install it as runtime state.
+  line separators. It is not an individual's snapshot. Never install it as
+  runtime state.
 
 The DOM harness is not a browser. CSS contains narrow-screen safeguards,
 44-pixel controls, visible focus states and long-string wrapping, but real
