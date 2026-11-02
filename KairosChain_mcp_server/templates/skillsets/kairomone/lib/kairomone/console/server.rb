@@ -22,6 +22,7 @@ module Kairomone
         @ttl = bootstrap_ttl
         @lock = Mutex.new
         @bootstrap = @issued_at = @session = nil
+        @issued = []
       end
 
       def issue_bootstrap
@@ -29,6 +30,8 @@ module Kairomone
           @session = nil
           @issued_at = @clock.call
           @bootstrap = SecureRandom.hex(32)
+          @issued << @bootstrap
+          @bootstrap
         end
       end
 
@@ -41,7 +44,18 @@ module Kairomone
           @bootstrap = nil
           next nil if expired
           @session = SecureRandom.hex(32)
+          @issued << @session
+          @session
         end
+      end
+
+      # Whether the text holds a value this Secret ever issued — a bootstrap
+      # or a session secret, spent and revoked ones included. The console's
+      # output filter drops such a line wherever it would go (0.9 Inv 10).
+      def holds_any?(text)
+        values = @lock.synchronize { @issued.dup }
+        text = text.to_s.b
+        values.any? { |value| text.include?(value) }
       end
 
       def valid_session?(value)

@@ -64,6 +64,52 @@ written to the instance or rendered with data. It writes nothing itself:
 every control places text in the message box for the owner to read, change
 and send, and the hosted session does what that text asks.
 
+## Starting it
+
+The owner runs it at a terminal in the project folder, directly or through
+the CLI's `console` subcommand (which runs the same script, given the Ruby
+load path it was given):
+
+    ruby .kairos/skillsets/kairomone/scripts/kairomone.rb console [--open [--detach] | --stop] [--project DIR]
+    ruby .kairos/skillsets/kairomone/scripts/kairomone_console.rb [--project DIR] [--port N] [--resume ID] [--claude PATH] [--open [--detach] | --stop]
+
+- Without `--open` it stays in the foreground and prints the one-time URL at
+  the owner's terminal, as in 0.8; Enter prints a new one (the open page is
+  signed out), Ctrl-C stops. Not for Claude Code's `!`: the URL would enter the
+  session's context.
+- `--open` hands the URL to the system browser (macOS `open`, else
+  `xdg-open`) as its one argument, with no shell, and prints only that it
+  opened; the launcher's own output goes nowhere. If the browser cannot be
+  launched, the console stops and says so, without the URL. In the foreground,
+  Enter hands a new URL to the browser.
+- `--detach` is accepted only with `--open`. The console then continues in a
+  process of its own session that keeps none of the starting process's
+  descriptors, so the starting process (and a `!` reading it) ends at once,
+  after printing one line: opened (with the stop command), or why not. The
+  detached console's standard output and error go to
+  `.kairos/run/kairomone_console_detached.log` only through a filter that
+  drops any line holding a value its secret ever issued (bootstrap or
+  session) or the shape `127.0.0.1:<port>/#`. A new URL means `--stop` and
+  start again.
+- `--stop` signals (TERM) the PID the console recorded in its lock
+  (`.kairos/run/kairomone_console.lock`), only while that lock is held and only
+  when that process's command line is a Ruby running `kairomone_console.rb`;
+  otherwise it refuses and signals nothing.
+- From Claude Code the owner types
+  `! ruby .kairos/skillsets/kairomone/scripts/kairomone.rb console --open --detach`;
+  the assistant hands that line and never runs it.
+
+In every `--open` combination no start URL or session secret reaches
+standard output, standard error, a log or a pipe. The session log
+(`kairomone_console.log`) passes the same filter in every mode. The URL is
+still visible, for the instant before the page spends it, to a same-user
+process reading the launcher's arguments.
+
+For tests only: `KAIROMONE_CONSOLE_BROWSER` names the program `--open` hands
+the URL to, the same way `KAIROMONE_CONSOLE_CLAUDE` names the claude
+executable; it selects no more than `PATH` would, from the same environment,
+and the owner has no reason to set it.
+
 ## Layout
 
 - Left: the individual shown — its drawing (an image only), name, the form
