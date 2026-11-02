@@ -1,7 +1,7 @@
 ---
 name: kairomone_guide
 description: Operate Kairomone FreeTier basic safely through its dedicated canonical providers and explicit tools.
-version: '0.8.0'
+version: '0.9.0'
 layer: L1
 tags: [kairomone, basic, local]
 ---
@@ -10,7 +10,9 @@ tags: [kairomone, basic, local]
 
 This executable SkillSet supplies a small, explicit local workflow for any
 number of Kairomones per host (called dots before 0.8). It provides
-content-derived levels, explicit professions and growth runs the owner starts.
+content-derived levels, professions generated at unannounced branches, skills
+drawn from what a Kairomone learned, a lean read from conversation, a drawing
+every ten levels and growth runs the owner starts.
 It does not supply marketplace, payment, an LLM, a continuously running worker,
 a scheduled job or self-modifying L0 features. Use kairomone_profession for
 explicit choices and kairomone_growth for owner-started runs and their
@@ -63,7 +65,8 @@ procedure is `docs/bounded-growth.md`.
 
 A profile version holds a name, a kind (one of the IDs `animal`, `plant`,
 `insect`, `human`, `imaginary` for an imaginary creature, `stone`, `angel`,
-`monster` or `unknown`), a kind label, appearance, personality traits, voice
+`monster`, `other` for any other living, imagined or inanimate thing, or
+`unknown`), a kind label, appearance, personality traits, voice
 and interests. The host assistant composes it — from `kairomone_profile
 material` (the host's instruction mode, read only; without `kairomone` the
 host's material for a new one, with it that Kairomone's seeds as well), host L2,
@@ -79,39 +82,70 @@ shipped vocabulary (`kairomone_profession subjects`, about 200 subjects in
 English and Japanese) and one value each for four habits: sources (primary,
 official, encyclopedic, news, community, mixed), depth (survey, focused, deep),
 reflection (concise, analytical, narrative, questioning) and stance (practical,
-theoretical, critical, creative). At levels 10, 30, 100, 300 and 600 the
-assistant offers exactly three professions derived from the current one; the
-owner picks one or asks for three new ones, and the chosen one records its
-parent, so every Kairomone carries a profession lineage. The six 0.6
-professions remain as templates. A growth request carries only the owner's
-direction and the profession's focus names and habit values that the shipped
-vocabularies hold at that moment; nothing else stored reaches a cycle's request.
-A profession's name and description are display text: status shows them, and
-they never enter a request. A profession never changes a tool, permission,
-limit, run or L0. Any template may be the first profession a Kairomone is
-created with; the 0.6 unlock levels apply only to selecting a template later.
-An accepted version is never accepted again: to return to an earlier version,
-propose it again.
+theoretical, critical, creative). A Kairomone starts with no profession. Branch
+levels are internal and never announced: when one is reached, `kairomone_profession
+status` shows a branch as due, and the assistant generates exactly three
+professions from the Kairomone's own profile and material, its lineage and its
+growth (`kairomone_profession material`: learned subjects, skills, its own growth
+entries); the owner picks one or asks for three new ones, and the chosen one
+records its parents, so every Kairomone carries a profession lineage. A
+Kairomone past several branch levels gets its offers one after another. No fixed
+list is offered: `templates` and `select` are refused, and a Kairomone is created
+without a profession. A 0.6 template selection still reads as its template until
+the next branch. A profession's name and description are display text: status
+shows them, and they never enter a request. A profession never changes a tool,
+permission, limit, run or L0. An accepted version is never accepted again: to
+return to an earlier version, propose it again.
+
+A skill (`kairomone_skill`) is drawn from one of the Kairomone's own growth
+entries — an entry its own cycle committed, still matching the hash recorded
+then — and holds up to four learning methods from a shipped vocabulary
+(`kairomone_skill material` lists them, e.g. find a primary source, seek a
+counterexample) and up to four focus subjects. It waits as a proposal until the
+owner accepts it; at most eight are in force; the owner retires one at any time,
+and one whose source entry changed stops being in force. Skills change how a
+Kairomone learns, never what it may do.
+
+The lean is what the assistant reads, from what the owner typed in conversation,
+about where they want the Kairomone to grow: up to eight subject IDs, written with
+`kairomone_companion lean` together with the owner's words, recorded on the
+Kairomone's ledger at every change, shown wherever the direction is shown, and
+cleared at once with an empty list. It is never written while a cycle is running
+or from text a page placed, and it steers only the choice of topics.
+
+A growth request carries only the owner's direction and closed-form values the
+shipped vocabularies hold at that moment: the profession's focus names and habit
+values, the lean's subject names, the skills' method and subject names, and the
+names of the subjects learned most; nothing else stored reaches a cycle's
+request. A request declares 1–3 subjects for its topic; a request whose subjects
+meet the profession's focus or the lean counts as steered, and at most half of a
+run's requests may be steered.
 
 Stages follow the level: egg (1–4), hatchling (5–19), young (20–99), adult
-(100–499), legend (500–999).
+(100–499), legend (500–999). Stages are names; drawings follow tenth levels.
 
 ## Drawings and transplants
 
 A Kairomone is shown with the built-in egg until the owner accepts a drawing.
-At hatch (level 5) and at each later stage a drawing is due: the assistant
-draws the character from its profile — always an anthropomorphised, cute
-character of its kind — as static SVG and proposes it (`kairomone_art
-propose`); it takes effect only when the owner accepts it. The art check admits
+At every tenth level (10, 20, 30 …) a drawing is due: the assistant draws the
+character from `kairomone_art material` — its profile in force, its level,
+profession, skills, learned subjects and the previous drawing, so that each one
+continues from the one before — always an anthropomorphised, cute character of
+whatever it is, living, imagined or inanimate, as static SVG with a short form
+(what it is now), and proposes it (`kairomone_art propose`); it takes effect only
+when the owner accepts it. A tenth level passed without a drawing is not drawn
+later. `kairomone_art history` lists every accepted drawing in order with the
+level it was drawn for (a drawing from before 0.9 with its stage); a drawing
+that is absent or fails the check is listed as missing. The art check admits
 only static vector drawing: the elements svg, g, path, circle, ellipse, rect,
 line, polyline, polygon, defs, linearGradient, radialGradient, stop, clipPath,
 title and desc in the SVG namespace; geometric and presentation attributes;
 `url(#…)` only to ids inside the drawing; a viewBox; at most 64 KiB, 32 levels
 of nesting and 4,000 elements. It runs again each time a drawing leaves — the
 status page and `kairomone_art get` — and a drawing that fails it then is shown
-as the egg, and a drawing for the stage is due again. The proposal list names
-drawings without their markup. A drawing stops waiting once the drawing shown
-answers its stage or a later one. Pages show drawings only as images. The check makes a
+as the egg, and a drawing for that tenth level is due again. The proposal list
+names drawings without their markup. A drawing stops waiting once the drawing
+shown answers its tenth level or a later one. Pages show drawings only as images. The check makes a
 drawing inert, not well drawn.
 
 `kairomone_knowledge transplant` copies one of a Kairomone's L1 entries into
