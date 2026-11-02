@@ -419,9 +419,10 @@ module Kairomone
       result[:companion] = companion_status[:companion]
       result[:chat_memory] = { count: verified_chat_entries.length, pending_count: companion_state['memories'].values.count { |m| m['state'] == 'reserved' }, xp_eligible: false }
       result[:art] = art_view(ledger, level: result[:progression][:level])
-      # Only the page carries drawings, as data: images checked as they leave
-      # (Inv 6); the result returned to the caller names them.
-      result[:html_path] = render_status(result.merge(art: art_page(ledger, result[:progression][:level]))) if render_html
+      # The page is the shareable snapshot (0.9 Inv 10, N6): it carries only
+      # status_public, never this result; drawings reach it as data: images
+      # checked as they leave (Inv 6). The caller still gets the full status.
+      result[:html_path] = render_status(status_public) if render_html
       result
     rescue StandardError => e
       raise unless defined?(result) && result
@@ -633,6 +634,9 @@ module Kairomone
       end
     end
 
+    # Writes the snapshot page: the template with one JSON payload (what
+    # status_public assembled) in place of its marker, escaped so that it
+    # cannot close its script element or end a line in JavaScript.
     def render_status(snapshot)
       raise Error, 'Restored targets are read-only; inspect JSON status instead' if @restored
       template = File.read(File.join(PACKAGE_ROOT, 'assets/status.html'), encoding: 'UTF-8')
