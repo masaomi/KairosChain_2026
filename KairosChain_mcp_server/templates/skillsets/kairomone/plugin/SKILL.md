@@ -205,7 +205,7 @@ when declared, limits claims for the whole host. The full procedure is
   character, as static SVG with a viewBox, using only the elements and attributes `kairomone_art` names (no
   style, href, event handler, text outside title and desc, or reference outside the drawing); `propose` it with
   `form`, a short display text saying what it is now. The owner sees a waiting drawing as an image on the
-  console page or the status page; `accept` only after they accept it in the conversation. A drawing that fails
+  console page (the snapshot never shows one); `accept` only after they accept it in the conversation. A drawing that fails
   the check is shown as the egg. `kairomone_art history` lists every accepted drawing in order.
 - Exchange, only when the owner asks: `kairomone_exchange preview` with what the owner chose to include, show
   every page in full (later pages: `preview` with its `file_sha256` and `page`), then `export` with that

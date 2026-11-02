@@ -41,9 +41,16 @@ intelligence or proven skill. Actual research requires the host assistant.
    This is create-only: different content at an existing ID is refused. An
    identical retry checks the saved data and ledger rather than resetting it.
 4. Retrieve through `kairomone_knowledge(command: "get", id:)` or `list`.
-5. Call `kairomone_status(render_html: true)` to write a standalone offline HTML
-   snapshot at the instance's fixed `exports/status.html`. No server, network,
-   background refresh or Site is created. Regenerate to refresh it.
+5. Call `kairomone_status(render_html: true)` to write the offline snapshot at
+   the instance's fixed `exports/status.html`. It is a page to hand to friends
+   who cannot run commands: it shows only what the Kairomone publicly is (name,
+   drawings, level, stage, profession name, counts) and what its own growth
+   cycles learned (title, synthesis, finding, learned subjects, source addresses),
+   never a cycle's topic or request, owner-written entries, chat, the direction,
+   the lean, skills or a waiting drawing. Every text is checked for credentials
+   and local paths when the page is written; one that fails is left out and
+   counted. It is one moment, not synced: no server, network, background refresh
+   or Site is created. Regenerate to refresh it.
 
 ## Growth runs and the interval recipe
 
@@ -142,7 +149,7 @@ line, polyline, polygon, defs, linearGradient, radialGradient, stop, clipPath,
 title and desc in the SVG namespace; geometric and presentation attributes;
 `url(#…)` only to ids inside the drawing; a viewBox; at most 64 KiB, 32 levels
 of nesting and 4,000 elements. It runs again each time a drawing leaves — the
-status page and `kairomone_art get` — and a drawing that fails it then is shown
+console and snapshot pages and `kairomone_art get` — and a drawing that fails it then is shown
 as the egg, and a drawing for that tenth level is due again. The proposal list
 names drawings without their markup. A drawing stops waiting once the drawing
 shown answers its tenth level or a later one. Pages show drawings only as images. The check makes a
