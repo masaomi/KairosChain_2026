@@ -80,6 +80,26 @@ class Kairomone09ArchiveTest < Minitest::Test
     assert_equal [], Kairomone::Host.new.listing.map { |l| l[:listing_id] } - ['momo']
   end
 
+  def test_a_legacy_slot_written_by_09_is_still_read_and_backed_up_by_061
+    legacy = KairomoneLegacyFixture.slot!(@host, dot_id: 'old_one', display_name: 'Old one')
+    with_061(@host, "s = Kairomone::Instance.new(host_root: host); puts JSON.generate(s.create_knowledge(id: 'early', title: 'Early', content: 'Written by 0.6.1'))")
+    before = JSON.parse(File.read(File.join(legacy.root, 'storage/blockchain.json')))
+    one_cycle(legacy, 'moss', subjects: %w[botany], methods_applied: %w[quantify])
+    lean(legacy, 'lean', 'More plants', %w[botany])
+    source = legacy.skill_material[:own_growth_entries].first.slice('entry_id', 'sha256')
+    legacy.accept_skill(proposal: legacy.propose_skill(skill: { 'name' => 'S', 'description' => 'D', 'methods' => %w[quantify], 'focus' => [], 'source' => source })[:proposal])
+    legacy.accept_art(proposal: legacy.propose_art(svg: Kairomone::Art::EGG, form: 'An old egg')[:proposal])
+    after = JSON.parse(File.read(File.join(legacy.root, 'storage/blockchain.json')))
+    assert_equal before, after.first(before.length), 'existing blocks keep their bytes and hashes'
+    seen = with_061(@host, <<~RUBY)
+      s = Kairomone::Instance.new(host_root: host)
+      st = s.status
+      b = s.create_backup
+      puts JSON.generate('error' => st[:error], 'valid' => st[:integrity][:valid], 'knowledge' => st[:knowledge][:count], 'backup' => b[:verified])
+    RUBY
+    assert_equal [nil, true, 2, true], seen.values_at('error', 'valid', 'knowledge', 'backup')
+  end
+
   def test_09_writes_archive_version_3_which_08_refuses_by_its_version
     store = create
     backup = store.create_backup

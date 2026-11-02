@@ -286,8 +286,8 @@ module Kairomone
       end
       left_out = { 'entries' => left, 'pieces' => pieces_left, 'observations' => observation_entries.length - entries.count { |e| e['evidence'] },
                    'chat_memories' => verified_chat_entries.length,
-                   'never' => 'Chat memories, growth state, backups, the ledger, the companion\'s direction and personality settings, ' \
-                              'composition material and host references never go in.' }
+                   'never' => 'Chat memories, growth state, backups, the ledger (and so the lean), skills, the companion\'s direction ' \
+                              'and personality settings, composition material and host references never go in.' }
       [doc, left_out]
     end
 

@@ -169,6 +169,13 @@ class Kairomone09LearnedTest < Minitest::Test
     assert_nil status['lifetime_cycles']
     assert_equal 1, status.dig('lifetime_unknown', 'at_least')
     assert_match(/0\.6 growth state cannot be read/, status.dig('lifetime_unknown', 'reason'))
+    state = { 'schema_version' => 1, 'max_cycles' => 10, 'initial_used' => 0, 'used_cycles' => 1, 'stopped' => true, 'queue' => nil,
+              'active_claim' => nil, 'requests' => { 'odd' => { 'state' => 'completed', 'result' => 'not a result' } }, 'last_result' => nil,
+              'stop_reason' => nil }
+    File.write(File.join(legacy.root, 'growth/state.json'), JSON.generate(state))
+    status = legacy.status[:growth]
+    assert_nil status['lifetime_cycles'], 'a completed 0.6 request whose result cannot be read is not guessed'
+    assert_match(/without a readable result/, status.dig('lifetime_unknown', 'reason'))
   end
 
   def test_received_and_owner_written_entries_are_not_cycles

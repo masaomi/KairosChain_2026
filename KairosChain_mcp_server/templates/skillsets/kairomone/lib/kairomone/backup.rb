@@ -66,8 +66,11 @@ module Kairomone
     # wrote it, never by newer ones (Inv 1): version 1 (0.6.1) restores with
     # what it holds, version 2 (0.8) must hold the 0.8 kinds, version 3 (0.9)
     # every kind, skills included.
+    # A drawing's form (0.9) is held by the proposal it was accepted from,
+    # whose sha256 its record names beside the form's: that proposal is an
+    # accepted piece too.
     PIECE_KINDS_08 = { 'kairomone_profile' => 'profile', 'kairomone_profession' => 'professions', 'kairomone_art' => 'art' }.freeze
-    PIECE_KINDS = PIECE_KINDS_08.merge('kairomone_skill' => 'skills').freeze
+    PIECE_KINDS = PIECE_KINDS_08.merge('kairomone_skill' => 'skills', 'kairomone_art_form' => 'proposals').freeze
     ARCHIVE_VERSION = 3
     SIGNED_VERSIONS = [2, 3].freeze
     # Piece directories the 0.8 path set did not hold.
@@ -294,9 +297,10 @@ module Kairomone
       paths.sort
     end
 
-    # Accepted pieces (profile versions, professions, drawings, skills —
-    # retired ones too, since versions stay readable) whose files are absent
-    # and that no kairomone_missing or kairomone_restored record excuses.
+    # Accepted pieces (profile versions, professions, drawings and the
+    # proposals holding their forms, skills — retired ones too, since
+    # versions stay readable) whose files are absent and that no
+    # kairomone_missing or kairomone_restored record excuses.
     # kinds: the piece kinds to look at (an older archive's own set).
     def absent_accepted_pieces(ledger, kinds: PIECE_KINDS)
       accepted = []
@@ -304,6 +308,10 @@ module Kairomone
       Records.each(ledger) do |record, _|
         if (dir = kinds[record['type']]) && Progression::SHA.match?(record['sha256'].to_s)
           accepted << { 'kind' => dir, 'sha256' => record['sha256'] }
+          if record['type'] == 'kairomone_art' && kinds.key?('kairomone_art_form') && Progression::SHA.match?(record['form_sha256'].to_s) &&
+             Progression::SHA.match?(record['proposal_sha256'].to_s)
+            accepted << { 'kind' => kinds['kairomone_art_form'], 'sha256' => record['proposal_sha256'] }
+          end
         elsif %w[kairomone_missing kairomone_restored].include?(record['type'])
           key = record['type'] == 'kairomone_missing' ? 'pieces' : 'missing'
           Array(record[key]).each { |p| excused << { 'kind' => p['kind'], 'sha256' => p['sha256'] } if p.is_a?(Hash) }

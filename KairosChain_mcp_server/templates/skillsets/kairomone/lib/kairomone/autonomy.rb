@@ -372,7 +372,7 @@ module Kairomone
       learned = begin
         growth = @instance.own_growth
         @instance.lifetime_cycles(growth).merge('learned_subjects' => @instance.learned_subjects(growth))
-      rescue Error => e
+      rescue StandardError => e # what cannot be read is reported as unknown, never guessed
         { 'lifetime_cycles' => nil, 'lifetime_unknown' => { 'reason' => e.message, 'at_least' => 0 }, 'learned_subjects' => [] }
       end
       out.merge(learned)

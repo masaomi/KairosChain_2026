@@ -38,7 +38,8 @@ module Kairomone
       l1 = knowledge_entries(ledger).to_h { |e| [e['id'], e] }
       l2 = observation_entries.to_h { |e| [e['id'], e] }
       legacy, legacy_fault = autonomy.legacy_growth_state
-      cycles = legacy ? legacy_own_cycles(legacy, l1, l2) : []
+      cycles, malformed = legacy ? legacy_own_cycles(legacy, l1, l2) : [[], 0]
+      legacy_fault ||= "#{malformed} completed request(s) without a readable result" if malformed.positive?
       seen = Set.new(cycles.map { |c| c['l1_id'] })
       Records.of_type(ledger, 'kairomone_growth_completed').each do |record|
         next unless record['request_id'].is_a?(String) && growth_intent?(record) && !seen.include?(record['l1_id'])
@@ -96,13 +97,14 @@ module Kairomone
 
     def string_list(value) = value.is_a?(Array) ? value.select { |v| v.is_a?(String) } : []
 
-    # The 0.6 growth state's completed requests whose entries are this
-    # individual's own, oldest first.
+    # [the 0.6 growth state's completed requests whose L1 is this
+    # individual's own, oldest first; how many completed ones cannot be read].
     def legacy_own_cycles(state, l1, l2)
-      requests = state['requests'].select { |_id, r| r.is_a?(Hash) && r['state'] == 'completed' }
-      requests.sort_by { |id, r| [r.dig('result', 'completed_at').to_s, id.to_s] }.filter_map do |request_id, r|
-        id = r.dig('result', 'l1_id')
-        next unless id.is_a?(String) && id == "growth_#{request_id}" && r.dig('result', 'l2_id') == id
+      completed = state['requests'].select { |_id, r| r.is_a?(Hash) && r['state'] == 'completed' }
+      requests = completed.select { |_id, r| r['result'].is_a?(Hash) }
+      cycles = requests.sort_by { |id, r| [r['result']['completed_at'].to_s, id.to_s] }.filter_map do |request_id, r|
+        id = r['result']['l1_id']
+        next unless id.is_a?(String) && id == "growth_#{request_id}" && r['result']['l2_id'] == id
 
         entry = l1[id]
         next unless entry && entry['recorded'] && l2[id]
@@ -113,6 +115,7 @@ module Kairomone
         { 'generation' => '0.6', 'request_id' => request_id, 'l1_id' => id, 'l2_id' => id, 'l1_sha256' => entry['hash'],
           'l2_own' => rebuilds, 'subjects' => [], 'methods_applied' => [] }
       end
+      [cycles, completed.length - requests.length]
     end
   end
 end

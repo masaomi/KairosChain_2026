@@ -7,11 +7,13 @@
 # level and milestone and its acceptance record carries stage, level, milestone
 # and form_sha256; a drawing accepted before 0.9 is shown by its stage, never
 # an invented level; the history is every accepted drawing in order, absent or
-# failing ones shown as missing; the terminal restore shows every form. All
+# failing ones shown as missing; a backup carries every accepted form (the
+# proposal holding it) or is refused; the terminal restore shows every form. All
 # data is synthetic and confined to temporary hosts.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
+require 'stringio'
 require_relative 'templates/skillsets/kairomone/test/support_09'
 
 class Kairomone09ArtTest < Minitest::Test
@@ -152,6 +154,27 @@ class Kairomone09ArtTest < Minitest::Test
     assert_includes shown, 'Drawings: 2'
     assert(shown.any? { |l| l.include?('A sleepy pebble (level 1)') }, shown.inspect)
     assert(shown.any? { |l| l.include?('(no form recorded) (stage egg)') }, shown.inspect)
+  end
+
+  def test_a_backup_carries_every_accepted_form_or_is_refused
+    store = create
+    proposed = store.propose_art(svg: drawing(1), form: 'A pebble with a scarf')
+    store.accept_art(proposal: proposed[:proposal])
+    accept_as_08(store, 2, 'egg') # a record without a form asks for no proposal
+    archive = archive_of(store.create_backup[:path])
+    assert_includes archive['files'].map { |f| f['path'] }, "proposals/#{proposed[:proposal]}.json"
+    File.delete(File.join(store.root, "proposals/#{proposed[:proposal]}.json"))
+    assert_nil store.art_history.first['form'], 'a form whose proposal is absent is not shown'
+    error = assert_raises(Kairomone::Error) { store.create_backup }
+    assert_match(/accepted pieces are absent \(proposals #{proposed[:proposal][0, 12]}\)/, error.message)
+    out = StringIO.new
+    assert store.record_missing_interactive(pieces: [{ kind: 'proposals', sha256: proposed[:proposal] }], reason: 'Lost', tty_in: StringIO.new("k7m3xp\n"),
+                                            tty_out: out, nonce: 'k7m3xp')[:recorded]
+    assert store.create_backup[:verified]
+    trimmed = archive.dup
+    trimmed['files'] = archive['files'].reject { |f| f['path'] == "proposals/#{proposed[:proposal]}.json" }
+    refused = assert_raises(Kairomone::Error) { Kairomone::Host.new.restore(JSON.generate(resign(trimmed)), trust: :signed, listing_id: 'short') }
+    assert_match(/lacks accepted pieces/, refused.message)
   end
 
   def test_the_material_continues_from_the_previous_drawing
