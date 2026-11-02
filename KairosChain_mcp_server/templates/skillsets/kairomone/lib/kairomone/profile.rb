@@ -202,7 +202,7 @@ module Kairomone
                 end
         item = { 'proposal' => sha, 'state' => state, 'accepted' => %w[accepted chosen].include?(state) }.merge(doc)
         # A drawing is listed by reference; the owner sees it as an image on
-        # the status page.
+        # the console page (the snapshot page never carries one waiting).
         doc['kind'] == 'art' ? item.except('svg').merge('bytes' => doc['svg'].to_s.bytesize) : item
       end
       items = items.sort_by { |i| i['proposed_at'] || i['offered_at'] || '' }.reverse

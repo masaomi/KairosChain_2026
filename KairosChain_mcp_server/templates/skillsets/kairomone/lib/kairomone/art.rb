@@ -161,8 +161,8 @@ module Kairomone
                                               'proposed_at' => Time.now.utc.iso8601 })
         { success: true, proposal: proposal, sha256: Digest::SHA256.hexdigest(text.b), stage: stage, level: level, milestone: milestone,
           form: shape, kairomone: address,
-          note: 'The owner sees a waiting drawing as an image on the status page (kairomone_status render_html). ' \
-                'It takes effect only when they accept it (kairomone_art accept).' }
+          note: 'The owner sees a waiting drawing as an image on the owner console page, never on the shareable snapshot ' \
+                'page. It takes effect only when they accept it (kairomone_art accept).' }
       end
     end
 

@@ -126,7 +126,7 @@ module KairosMcp
 
         class Status < Base
           def name; 'kairomone_status'; end
-          def description; 'Read a Kairomone\'s profile, level, profession, growth runs, canonical L1/L2 counts and locally verified ledger status; optionally generate an offline HTML snapshot at its fixed exports/status.html path. Without kairomone on a host with several, returns the list.'; end
+          def description; 'Read a Kairomone\'s profile, level, profession, growth runs, canonical L1/L2 counts and locally verified ledger status. render_html also writes the shareable snapshot page at its fixed exports/status.html path: offline and view-only, for people who cannot run commands, it carries only what the Kairomone publicly is and what its own growth cycles learned (never a request or its topic, the direction, the lean, chat, owner-written entries or waiting proposals); the result is still the full status. Without kairomone on a host with several, returns the list.'; end
           def input_schema
             { type: 'object', properties: { kairomone: KAIROMONE, render_html: { type: 'boolean' }, instance: { type: 'string', description: 'A listed Kairomone, or a 0.6 read-only recovery copy under kairomone-restored/, to inspect' } }, additionalProperties: false }
           end

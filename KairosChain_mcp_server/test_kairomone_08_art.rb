@@ -23,6 +23,14 @@
 # became test_art_is_due_at_every_tenth_level (a drawing answers the milestone
 # of the level it was proposed at, not the stage it is accepted at); the
 # status art view names milestone and form beside shown, sha256, stage, due.
+#
+# Changed for the Kairomone 0.9 snapshot page (same design, Inv 10, N6): the
+# page kairomone_status writes is the shareable snapshot, which never carries
+# a waiting proposal; the owner sees waiting drawings on the console page,
+# whose View reads art_page. The four tests that read waiting drawings off the
+# status page read them from art_page (console_waiting) and also assert the
+# snapshot page does not carry them; the shown drawing is read from the
+# snapshot's drawing field instead of art. No assertion was removed.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
@@ -30,6 +38,16 @@ require_relative 'templates/skillsets/kairomone/test/support_08'
 
 class Kairomone08ArtTest < Minitest::Test
   include Kairomone08Support
+
+  # What waits for the owner, as the console page receives it (its View reads
+  # art_page): the proposal IDs, newest first.
+  def console_waiting(store) = store.send(:art_page, store.chain, store.progression_status[:level])[:waiting].map { |w| w[:proposal] }
+
+  # The snapshot page carries no waiting drawing (0.9 Inv 10).
+  def refute_snapshot_carries(store, svg)
+    html = File.read(store.status(render_html: true)[:html_path])
+    refute_includes html, Base64.strict_encode64(svg), 'the snapshot page never carries a waiting drawing'
+  end
 
   PROFILE = { 'name' => 'Momo', 'kind' => 'animal', 'kind_label' => 'Fox', 'appearance' => 'A small round fox with a notebook',
               'personality' => %w[curious gentle], 'voice' => 'Soft', 'interests' => %w[stories] }.freeze
@@ -166,9 +184,7 @@ class Kairomone08ArtTest < Minitest::Test
     store.accept_art(proposal: drafts[1])
     states = store.proposals[:proposals].select { |p| p['kind'] == 'art' }.to_h { |p| [p['proposal'], p['state']] }
     assert_equal({ drafts[0] => 'superseded', drafts[1] => 'accepted', drafts[2] => 'superseded' }, states)
-    html = File.read(store.status(render_html: true)[:html_path])
-    payload = JSON.parse(html[%r{<script id="kairomone-status" type="application/json">(.*?)</script>}m, 1])
-    assert_equal [], payload.dig('art', 'waiting'), 'drafts passed over are not shown as waiting'
+    assert_equal [], console_waiting(store), 'drafts passed over are not shown as waiting'
     grow_to(store, 20)
     fresh = store.propose_art(svg: FOX, form: FORM)[:proposal]
     assert_equal 'waiting', store.proposals[:proposals].find { |p| p['proposal'] == fresh }['state'], 'a later stage waits again'
@@ -198,9 +214,8 @@ class Kairomone08ArtTest < Minitest::Test
     assert_equal ['egg', true, sha], [view[:shown], view[:due], view.dig(:refused, :sha256)], 'a drawing that fails answers nothing'
     redraw = store.propose_art(svg: FOX, form: FORM)[:proposal]
     assert_equal 'waiting', store.proposals[:proposals].find { |p| p['proposal'] == redraw }['state']
-    html = File.read(store.status(render_html: true)[:html_path])
-    payload = JSON.parse(html[%r{<script id="kairomone-status" type="application/json">(.*?)</script>}m, 1])
-    assert_equal [redraw], payload.dig('art', 'waiting').map { |w| w['proposal'] }, 'the owner sees the redraw before accepting it'
+    assert_equal [redraw], console_waiting(store), 'the owner sees the redraw before accepting it'
+    refute_snapshot_carries(store, FOX)
   end
 
   def test_a_drawing_that_fails_the_check_now_is_shown_as_the_egg_and_not_given_out
@@ -237,9 +252,8 @@ class Kairomone08ArtTest < Minitest::Test
     assert_equal FOX.bytesize, listed.find { |p| p['proposal'] == good }['bytes']
     refused = listed.find { |p| p['proposal'] != good }['proposal']
     assert_raises(Kairomone::Error) { store.accept_art(proposal: refused) }
-    html = File.read(store.status(render_html: true)[:html_path])
-    payload = JSON.parse(html[%r{<script id="kairomone-status" type="application/json">(.*?)</script>}m, 1])
-    assert_equal [good], payload.dig('art', 'waiting').map { |w| w['proposal'] }, 'only a drawing that passes reaches the page'
+    assert_equal [good], console_waiting(store), 'only a drawing that passes reaches the page'
+    refute_snapshot_carries(store, FOX)
   end
 
   def test_a_drawing_waiting_behind_many_profile_drafts_still_reaches_the_page
@@ -253,9 +267,8 @@ class Kairomone08ArtTest < Minitest::Test
     listed = store.proposals
     assert_equal 13, listed[:waiting_total]
     refute_includes listed[:proposals].map { |p| p['proposal'] }, drawing, 'the list shows the ten newest of thirteen'
-    html = File.read(store.status(render_html: true)[:html_path])
-    payload = JSON.parse(html[%r{<script id="kairomone-status" type="application/json">(.*?)</script>}m, 1])
-    assert_equal [drawing], payload.dig('art', 'waiting').map { |w| w['proposal'] }
+    assert_equal [drawing], console_waiting(store)
+    refute_snapshot_carries(store, FOX)
   end
 
   def test_a_drawing_at_the_size_bound_goes_through_every_path
@@ -309,8 +322,9 @@ class Kairomone08ArtTest < Minitest::Test
     html = File.read(rendered[:html_path])
     assert_includes html, "img-src data:;"
     payload = JSON.parse(html[%r{<script id="kairomone-status" type="application/json">(.*?)</script>}m, 1])
-    assert_equal "data:image/svg+xml;base64,#{Base64.strict_encode64(FOX)}", payload.dig('art', 'data_uri')
-    assert_equal [waiting], payload.dig('art', 'waiting').map { |w| w['proposal'] }
+    assert_equal "data:image/svg+xml;base64,#{Base64.strict_encode64(FOX)}", payload.dig('drawing', 'data_uri')
+    assert_equal [waiting], console_waiting(store)
+    refute_includes html, Base64.strict_encode64(Kairomone::Art::EGG.sub('Kairomone egg', 'Second drawing')), 'never on the snapshot page'
     refute_includes html, 'marker-momo-drawing', 'no drawing markup on the page'
     refute_match(/<img[^>]*\bsrc=/, html.gsub(%r{<script\b.*?</script>}m, ''), 'the template sets no image source itself')
   end

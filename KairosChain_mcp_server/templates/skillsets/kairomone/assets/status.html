@@ -3,17 +3,29 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-hBYA7KM8w5X/+ZvdeJn8Hdyakiu3ZpkwT3SJy7bS1zY='; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-YcCb85uh6VZnlHr7xQkK/yL3QlGvtF7VBMURRPHN6EU='; style-src 'sha256-9JN6g/bCk+p0gJWMxuUcyUymMWjF2aXWXoGfhPTNnbw='; img-src data:; connect-src 'none'; font-src 'none'; object-src 'none'; media-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
   <meta name="color-scheme" content="light">
-  <title>Kairomone · Local status</title>
+  <title>Kairomone · スナップショット</title>
   <style>
-    :root{--paper:#f3f0e7;--card:#fffcf5;--ink:#253e31;--muted:#627064;--line:#d9dfcd;--moss:#465f3c;--pale:#e7eddb;--ochre:#7e602c;--rose:#8c4942;--radius:24px}
-    *{box-sizing:border-box}html{background:var(--paper);color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:16px;line-height:1.6}body{margin:0}button{font:inherit}button:focus-visible,summary:focus-visible{outline:3px solid var(--ochre);outline-offset:4px}button{cursor:pointer}a{color:inherit}main{max-width:1080px;margin:auto;padding:28px 28px 32px}header{display:flex;gap:16px;align-items:center;justify-content:space-between;margin-bottom:28px}.brand{display:flex;gap:10px;align-items:center;font-weight:760;letter-spacing:-.035em;font-size:24px}.brand svg{width:31px;height:31px;flex-shrink:0}.brand small{display:block;color:var(--muted);font-size:10px;letter-spacing:.17em;line-height:1.1;margin-top:2px}.languages{display:flex;border:1px solid var(--line);border-radius:99px;padding:3px;gap:2px;background:var(--card);flex-shrink:0}.languages button{border:0;background:transparent;color:var(--muted);border-radius:99px;min-height:44px;min-width:48px;padding:6px 11px;font-size:14px}.languages button[aria-pressed=true]{background:var(--ink);color:var(--card)}.hero{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 245px;align-items:center;gap:24px;padding:32px 36px;background:var(--pale);border:1px solid #d3dcc6;border-radius:var(--radius)}.eyebrow{font-size:11px;letter-spacing:.13em;text-transform:uppercase;font-weight:750;color:var(--moss);margin:0 0 12px}.hero h1{font-size:clamp(30px,5vw,45px);line-height:1.23;letter-spacing:-.04em;margin:0 0 12px;font-weight:760;overflow-wrap:anywhere}.hero p.description{max-width:520px;font-size:14px;color:#45583f;margin:0}.tag{display:inline-flex;align-items:center;gap:7px;margin-top:18px;padding:6px 11px;border:1px solid #c5d0b6;border-radius:99px;font-size:12px;background:#f5f7ee;line-height:1.4}.tag span.dot{display:block;width:6px;height:6px;border-radius:50%;background:var(--moss)}.creature{width:100%;height:auto;max-width:245px;justify-self:center}.snapshot{display:flex;flex-wrap:wrap;gap:5px 12px;padding:15px 1px 22px;font-size:12px;color:var(--muted)}.snapshot strong{font-weight:650;color:var(--ink)}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.card{min-width:0;padding:24px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius)}.card h2{font-size:17px;line-height:1.4;margin:0 0 8px;letter-spacing:-.015em}.caption{font-size:13px;color:var(--muted);margin:0}.count-row{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;margin:15px 0 3px}.count{max-width:100%;overflow-wrap:anywhere;font-size:46px;line-height:1.1;letter-spacing:-.05em;font-variant-numeric:tabular-nums;font-weight:650}.unit{font-size:12px;color:var(--muted)}.availability{font-size:12px;margin:10px 0 0;color:var(--muted)}.status-badge{display:inline-flex;padding:5px 10px;border-radius:99px;background:#edece3;font-size:12px;font-weight:650;margin:6px 0 14px;overflow-wrap:anywhere}.status-badge.good{background:#e6eddd;color:#3a562b}.status-badge.warning{background:#f3e9ce;color:#725624}.status-badge.bad{background:#f5e4db;color:#7f3e36}.details{font-size:12px;color:var(--muted);margin:0;padding-left:20px;overflow-wrap:anywhere}.details li+li{margin-top:6px}.facts{display:flex;flex-wrap:wrap;gap:10px 24px;margin:16px 0 0;padding-top:12px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}.facts span{display:block}.facts strong{color:var(--ink);font-size:16px;font-variant-numeric:tabular-nums}.section-label{margin:18px 0 6px;font-size:11px;font-weight:700;color:var(--moss);letter-spacing:.07em}.record-list{list-style:none;margin:12px 0 0;padding:0}.record-list li{border-top:1px solid var(--line);padding:10px 0;font-size:13px;overflow-wrap:anywhere}.record-list li:last-child{padding-bottom:0}.record-list small{display:block;font-size:11px;color:var(--muted);margin-top:3px;white-space:pre-wrap}.records-note{font-size:11px;color:var(--muted);margin:10px 0 0}details{margin-top:15px}summary{cursor:pointer;min-height:44px;display:list-item;padding:10px 0;font-size:13px;color:var(--moss);font-weight:650}.refresh{margin-top:18px;display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:28px;background:#eae7dc}.refresh h2{font-size:17px;margin:0 0 7px}.refresh p{font-size:13px;color:var(--muted);margin:0}.command-label{display:block;font-size:11px;font-weight:650;color:var(--muted);margin:0 0 5px}.command-label:not(:first-child){margin-top:12px}code{display:block;padding:11px 13px;background:#f8f6ee;border:1px solid #d5d8c9;border-radius:12px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;color:#364a30}.foot{display:flex;justify-content:space-between;gap:20px;margin-top:20px;font-size:11px;color:var(--muted)}.foot p{margin:0;max-width:700px}.error,.noscript{display:block;margin:18px 0;padding:16px;background:#f5e4db;color:#7f3e36;border-radius:15px;font-size:14px}[hidden]{display:none!important}
-    .growth-grid{margin-bottom:18px}.wide{grid-column:1/-1}.level-line{display:flex;align-items:baseline;flex-wrap:wrap;gap:10px;margin:12px 0}.level-line strong{font-size:40px;line-height:1.2;letter-spacing:-.04em}.progress-track{width:100%;height:10px;accent-color:var(--moss);display:block;margin:12px 0}.catalog{list-style:none;padding:0;margin:12px 0;display:grid;grid-template-columns:1fr 1fr;gap:8px}.catalog li{border:1px solid var(--line);padding:10px 12px;border-radius:12px;font-size:12px;overflow-wrap:anywhere}.catalog small{display:block;color:var(--muted)}.catalog .selected{border-color:var(--moss);background:var(--pale)}.catalog .locked{border-style:dashed}.readonly{padding:10px 12px;background:var(--pale);border-radius:12px;margin-top:15px;font-size:12px}.source-list a{overflow-wrap:anywhere}.source-list a:focus-visible{outline:3px solid var(--ochre);outline-offset:3px}.creature-wrap{text-align:center;min-width:0}.creature-wrap .caption{font-size:11px}.creature [data-part]{display:none}.creature[data-stage=sprout] [data-part=leaves],.creature[data-stage=grove] [data-part=leaves],.creature[data-stage=canopy] [data-part=leaves],.creature[data-stage=ancient] [data-part=leaves],.creature[data-stage=grove] [data-part=branches],.creature[data-stage=canopy] [data-part=branches],.creature[data-stage=ancient] [data-part=branches],.creature[data-stage=canopy] [data-part=crown],.creature[data-stage=ancient] [data-part=crown],.creature[data-stage=ancient] [data-part=stars]{display:inline}.creature[data-stage=seed] .moss-body{transform:translate(20px,34px) scale(.82)}.creature[data-stage=unknown]{opacity:.6}.creature.art-replaced{display:none}.art-image{display:block;margin:auto}.art-waiting{display:flex;gap:8px;justify-content:center;margin-top:8px}.art-thumb{width:64px;height:64px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
-    @media(max-width:700px){main{padding:20px 18px 26px}header{margin-bottom:20px}.hero{grid-template-columns:minmax(0,1fr) 125px;gap:6px;padding:24px}.hero h1{font-size:31px}.hero p.description{font-size:13px}.creature{width:140px;max-width:100%}.grid{gap:14px}.card{padding:20px}.refresh{grid-template-columns:1fr;gap:18px}.foot{display:block}.foot p+p{margin-top:8px}}
-    @media(max-width:480px){main{padding:18px 16px 24px}.brand{font-size:21px}.brand svg{width:26px;height:26px}.brand small{font-size:8px}.languages button{min-width:44px;padding:6px 8px}.hero{grid-template-columns:1fr;padding:24px 22px;gap:8px}.hero-copy{order:1}.creature-wrap{order:0}.catalog{grid-template-columns:1fr}.creature{width:158px;max-height:133px;order:0}.hero h1{font-size:30px}.hero p.description{font-size:13px}.eyebrow{font-size:10px;margin-bottom:9px}.grid{grid-template-columns:1fr}.snapshot{padding:14px 1px 18px}.card{border-radius:20px}.foot{font-size:11px}}
-    @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important}}
-    @media print{html{background:white}.languages{display:none}main{padding:0}.hero,.card{break-inside:avoid}.foot{display:block}.grid{gap:10px}.card{padding:16px}details:not([open]) .record-list{display:block}}
+    :root{--paper:#f3f0e7;--card:#fffcf5;--ink:#253e31;--muted:#5f6d61;--line:#d9dfcd;--moss:#465f3c;--pale:#e7eddb;--leaf:#c9d6b4;--ochre:#7e602c;--sand:#e9dcc0;--radius:24px;--serif:ui-serif,"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",Georgia,serif}
+    *{box-sizing:border-box}html{background:var(--paper);color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP","Segoe UI",sans-serif;font-size:16px;line-height:1.65}body{margin:0}button{font:inherit;cursor:pointer}button:focus-visible,summary:focus-visible{outline:3px solid var(--ochre);outline-offset:4px}main{max-width:1080px;margin:auto;padding:28px 28px 36px}[hidden]{display:none!important}
+    header{display:flex;gap:16px;align-items:center;justify-content:space-between;margin-bottom:26px}.brand{display:flex;gap:10px;align-items:center;font-weight:760;letter-spacing:-.03em;font-size:23px}.brand svg{width:30px;height:30px;flex-shrink:0}.brand small{display:block;color:var(--muted);font-size:10px;letter-spacing:.18em;line-height:1.1;margin-top:2px;font-weight:650}.languages{display:flex;border:1px solid var(--line);border-radius:99px;padding:3px;gap:2px;background:var(--card);flex-shrink:0}.languages button{border:0;background:transparent;color:var(--muted);border-radius:99px;min-height:44px;min-width:48px;padding:6px 12px;font-size:14px}.languages button[aria-pressed=true]{background:var(--ink);color:var(--card)}
+    .eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:750;color:var(--moss);margin:0 0 10px}.caption{font-size:13px;color:var(--muted);margin:0}h2{font-family:var(--serif);font-size:22px;line-height:1.35;letter-spacing:-.01em;margin:0 0 6px;font-weight:700}.section{margin-top:22px}.section-head{margin:0 2px 14px}.card{min-width:0;padding:24px 26px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius)}
+    .hero{display:grid;grid-template-columns:minmax(0,1fr) 260px;align-items:center;gap:28px;padding:36px 40px;background:var(--pale);border:1px solid #d3dcc6;border-radius:32px}.hero h1{font-family:var(--serif);font-size:clamp(32px,5.4vw,50px);line-height:1.2;letter-spacing:-.02em;margin:0 0 12px;font-weight:700;overflow-wrap:anywhere}.standing{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px;margin:0 0 16px}.standing strong{font-size:18px;font-weight:700}.standing span{font-size:15px;color:#3f5537;font-variant-numeric:tabular-nums}.measure{max-width:520px;font-size:14px;color:#44583f;margin:0}.tag{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:18px;padding:6px 12px;border:1px solid #c5d0b6;border-radius:99px;font-size:12px;background:#f5f7ee;line-height:1.45;max-width:100%}.tag .dot{display:block;width:6px;height:6px;border-radius:50%;background:var(--moss);flex-shrink:0}.tag time{font-variant-numeric:tabular-nums;color:var(--muted);overflow-wrap:anywhere}
+    .portrait{margin:0;text-align:center;min-width:0}.halo{width:100%;max-width:240px;aspect-ratio:1/1;margin:auto;border-radius:50%;background:radial-gradient(circle at 50% 42%,#fbfaf3 0,#f1f3e6 55%,var(--leaf) 100%);display:flex;align-items:center;justify-content:center;border:1px solid #cbd6ba}.halo img,.halo svg{width:74%;height:74%;object-fit:contain;display:block}.portrait figcaption{font-size:12px;color:var(--muted);margin-top:10px;overflow-wrap:anywhere}
+    .notice{margin:18px 0 0;padding:14px 18px;background:#f3e9ce;color:#5f4719;border-radius:16px;font-size:13px}.error,.noscript{display:block;margin:18px 0;padding:16px;background:#f5e4db;color:#7f3e36;border-radius:15px;font-size:14px}
+    .history{list-style:none;margin:16px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:16px 14px}.history li{min-width:0;text-align:center}.frame{aspect-ratio:1/1;border:1px solid var(--line);border-radius:18px;background:#fbf9f1;display:flex;align-items:center;justify-content:center;padding:8px}.frame img{width:100%;height:100%;object-fit:contain;display:block}.missing .frame{border-style:dashed;background:transparent}.missing-mark{font-size:12px;color:var(--muted);overflow-wrap:anywhere}.when{display:block;font-size:12px;font-weight:700;margin-top:7px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.form{display:block;font-size:11px;color:var(--muted);line-height:1.45;overflow-wrap:anywhere}
+    .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.stat{min-width:0;padding:20px 22px;background:var(--card);border:1px solid var(--line);border-radius:20px}.stat-label{font-size:12px;font-weight:700;color:var(--moss);margin:0;overflow-wrap:anywhere}.stat-value{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;margin:8px 0 4px}.stat-value strong{font-size:40px;line-height:1.1;letter-spacing:-.04em;font-variant-numeric:tabular-nums;font-weight:650;overflow-wrap:anywhere;max-width:100%}.unit{font-size:12px;color:var(--muted)}.stat .caption{font-size:12px}
+    .profession-name{font-family:var(--serif);font-size:24px;font-weight:700;margin:8px 0 2px;overflow-wrap:anywhere}.label{font-size:11px;letter-spacing:.08em;color:var(--moss);font-weight:750;margin:16px 0 6px;text-transform:uppercase}.chips{list-style:none;display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0}.chip{font-size:12px;padding:3px 11px;border-radius:99px;background:var(--pale);color:var(--moss);font-weight:650;overflow-wrap:anywhere;max-width:100%}.chip.quiet{background:transparent;border:1px dashed var(--line);color:var(--muted);font-weight:500}.lineage .chip{background:var(--sand);color:#5c4520}.note{font-size:12px;color:var(--muted);margin:14px 0 0}
+    .cycles{list-style:none;margin:0;padding:0;display:grid;gap:14px}.cycle{min-width:0;padding:22px 26px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius)}.cycle h3{font-family:var(--serif);font-size:20px;line-height:1.4;margin:12px 0 0;overflow-wrap:anywhere}.finding{margin:0;font-size:15px;border-left:3px solid #d4bc78;padding-left:12px;white-space:pre-wrap;overflow-wrap:anywhere}details{margin-top:12px}summary{cursor:pointer;min-height:44px;display:list-item;padding:10px 0;font-size:13px;color:var(--moss);font-weight:700}.synthesis{white-space:pre-wrap;font-size:14px;color:#3c4d3f;margin:2px 0 0;overflow-wrap:anywhere}.sources{list-style:none;margin:0;padding:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}.sources li{overflow-wrap:anywhere;padding:3px 0;color:#44573f;user-select:all}.sources li.quiet{font-family:inherit;color:var(--muted);user-select:auto}.more{font-size:12px;color:var(--muted);margin:12px 2px 0}
+    .about{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;background:#eae7dc}.about h2{grid-column:1/-1;margin-bottom:0}.about ul{margin:0;padding-left:18px;font-size:13px;color:#3d4c40}.about li+li{margin-top:7px}.about .label{margin-top:0}
+    footer{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 20px;margin-top:20px;font-size:11px;color:var(--muted)}footer p{margin:0}
+    @media(max-width:860px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.about{grid-template-columns:1fr;gap:18px}}
+    @media(max-width:700px){main{padding:20px 18px 28px}header{margin-bottom:20px}.hero{grid-template-columns:minmax(0,1fr) 150px;gap:14px;padding:26px}.card,.cycle{padding:20px}}
+    @media(max-width:480px){main{padding:18px 16px 24px}.brand{font-size:20px}.brand svg{width:26px;height:26px}.brand small{font-size:8px}.languages button{min-width:44px;padding:6px 9px}.hero{grid-template-columns:1fr;padding:24px 20px;gap:12px}.portrait{order:-1}.halo{max-width:180px}.hero h1{font-size:31px}.stats{grid-template-columns:1fr}.stat-value strong{font-size:34px}.history{grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:12px 10px}.card,.cycle,.stat{border-radius:20px}h2{font-size:20px}}
+    @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important}}
+    @media print{html{background:white}.languages{display:none}main{padding:0}.hero,.card,.cycle,.stat{break-inside:avoid}}
   </style>
 </head>
 <body>
@@ -21,30 +33,63 @@
   <header>
     <div class="brand">
       <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 27C4 26 3 15 8 9c4 0 8 3 8 9 0-9 5-14 12-14 3 11-3 21-12 23Z" fill="#526943"/><path d="M15 27c1-8 4-13 10-19" fill="none" stroke="#f3f0e7" stroke-width="1.5" stroke-linecap="round"/></svg>
-      <div>Kairomone<small>LOCAL COMPANION</small></div>
+      <div>Kairomone<small data-i18n="brandSub">SNAPSHOT · 写し</small></div>
     </div>
     <nav class="languages" aria-label="Language / 言語"><button type="button" id="lang-ja" lang="ja" aria-pressed="true">日本語</button><button type="button" id="lang-en" lang="en" aria-pressed="false">EN</button></nav>
   </header>
-  <noscript><p class="noscript">表示には、このファイル内の JavaScript が必要です。外部通信は行いません。 / Enable JavaScript to read this offline snapshot. It makes no network requests.</p></noscript>
+  <noscript><p class="noscript">表示には、このファイルの中の JavaScript が必要です。外部との通信はしません。 / This page needs the JavaScript inside this file to show its contents. It makes no network request.</p></noscript>
   <p id="data-error" class="error" role="alert" hidden></p>
-  <section class="hero" aria-labelledby="profile-name">
-    <div class="hero-copy"><p class="eyebrow" data-i18n="eyebrow">YOUR SMALL GARDEN OF RECORDS</p><h1 id="profile-name">Kairomone</h1><p class="description" data-i18n="description">ここにあるのは、記録のいま。ローカルのデータから作った、ひとつのスナップショットです。</p><div class="tag"><span class="dot" aria-hidden="true"></span><span data-i18n="snapshotTag">オフライン・スナップショット</span></div></div>
-    <div class="creature-wrap"><svg id="creature" data-stage="unknown" class="creature" viewBox="0 0 260 220" role="img" aria-labelledby="creature-title"><title id="creature-title">A small original moss creature</title><ellipse cx="133" cy="190" rx="83" ry="12" fill="#ccd6bd"/><g data-part="leaves"><path d="M82 126c-18-29-11-58 8-73 4 25 26 34 32 62" fill="#829768"/><path d="M126 96c-13-31-2-60 20-73 3 22 20 36 9 61" fill="#566f45"/><path d="M142 97c6-27 34-42 60-32-11 21-29 34-53 41" fill="#9cad7e"/></g><g data-part="branches"><path d="M87 129Q31 110 43 69Q75 78 89 117M172 131Q226 111 225 77Q192 83 177 119" fill="#7c9463"/></g><g data-part="crown"><path d="M78 88Q51 52 87 42Q101 12 128 36Q161 7 183 36Q224 40 200 77Q151 113 78 88Z" fill="#708957"/><circle cx="91" cy="48" r="6" fill="#d4bc78"/><circle cx="179" cy="46" r="6" fill="#d4bc78"/></g><g class="moss-body"><path d="M78 114c-15 17-24 49-10 65 14 14 38 12 55 13 26 3 54 2 69-17 13-17 4-47-14-61-28-20-72-22-100 0Z" fill="#647c50"/><path d="M89 123c-9 15-15 36-5 48 13 16 62 23 85 6 18-14 12-34-1-45-21-19-57-23-79-9Z" fill="#abb991"/><ellipse cx="77" cy="181" rx="15" ry="9" fill="#526d43"/><ellipse cx="178" cy="185" rx="16" ry="8" fill="#526d43"/><path d="M77 133c-13-8-29 1-33 15 12 4 26 2 35-6" fill="#708957"/><path d="M186 142c13-7 24 0 27 14-11 6-21 3-28-6" fill="#708957"/><ellipse cx="106" cy="144" rx="4" ry="5" fill="#293f2c"/><ellipse cx="153" cy="147" rx="4" ry="5" fill="#293f2c"/><path d="M122 157c4 5 10 6 14 1" fill="none" stroke="#405338" stroke-width="3" stroke-linecap="round"/><ellipse cx="94" cy="157" rx="8" ry="4" fill="#c6b391"/><ellipse cx="165" cy="161" rx="8" ry="4" fill="#c6b391"/></g><g data-part="stars"><path d="m202 103 4-9 4 9 9 4-9 4-4 9-4-9-9-4Z" fill="#b0bb8a"/><circle cx="57" cy="88" r="4" fill="#b0bb8a"/><path d="m39 38 3-7 3 7 7 3-7 3-3 7-3-7-7-3Z" fill="#b29658"/></g></svg><img id="art-image" class="creature art-image" alt="" hidden><p id="creature-stage" class="caption"></p><p id="art-due" class="caption" hidden></p><div id="art-waiting" class="art-waiting" hidden><img id="art-waiting-0" class="art-thumb" alt="" hidden><img id="art-waiting-1" class="art-thumb" alt="" hidden><img id="art-waiting-2" class="art-thumb" alt="" hidden></div></div>
+  <div id="content">
+    <section class="hero" aria-labelledby="name">
+      <div>
+        <p class="eyebrow" data-i18n="eyebrow">記録の庭 · 観察のための写し</p>
+        <h1 id="name">Kairomone</h1>
+        <p class="standing"><strong id="hero-stage">—</strong><span id="hero-level">—</span></p>
+        <p class="measure" data-i18n="measure">レベルは、この個体が保存した記録の量をはかります。能力や気持ちをはかるものではありません。</p>
+        <p class="tag"><span class="dot" aria-hidden="true"></span><span data-i18n="snapshotTag">ひとつの時点の写し · 同期されません</span><span data-i18n="generated">書き出し</span><time id="generated-at">—</time></p>
+      </div>
+      <figure class="portrait">
+        <div class="halo"><img id="hero-image" alt="" hidden><svg id="hero-placeholder" viewBox="0 0 120 140" aria-hidden="true"><ellipse cx="60" cy="130" rx="34" ry="6" fill="#d9d3c3"/><path d="M60 8C32 8 16 52 16 82c0 27 19 44 44 44s44-17 44-44C104 52 88 8 60 8Z" fill="#f6f0df" stroke="#8a7f68" stroke-width="3" stroke-dasharray="6 6"/></svg></div>
+        <figcaption id="hero-caption"></figcaption>
+      </figure>
+    </section>
+    <p id="withheld" class="notice" role="note" hidden></p>
+    <section class="card section" aria-labelledby="history-heading">
+      <h2 id="history-heading" data-i18n="historyTitle">絵の移り変わり</h2>
+      <p class="caption" data-i18n="historyCaption"></p>
+      <ol id="history" class="history"></ol>
+      <p id="history-empty" class="caption" data-i18n="historyEmpty" hidden></p>
+    </section>
+    <section class="section" aria-labelledby="stats-heading">
+      <div class="section-head"><h2 id="stats-heading" data-i18n="statsTitle">数で見る</h2></div>
+      <div class="stats">
+        <div class="stat"><p class="stat-label" data-i18n="lifetimeLabel"></p><div class="stat-value"><strong id="count-lifetime">—</strong><span class="unit" data-i18n="cyclesUnit"></span></div><p id="lifetime-note" class="caption"></p></div>
+        <div class="stat"><p class="stat-label" data-i18n="sourcesLabel"></p><div class="stat-value"><strong id="count-sources">—</strong><span class="unit" data-i18n="sourcesUnit"></span></div><p class="caption" data-i18n="sourcesNote"></p></div>
+        <div class="stat"><p class="stat-label" data-i18n="l1Label"></p><div class="stat-value"><strong id="count-l1">—</strong><span class="unit" data-i18n="entriesUnit"></span></div><p class="caption" data-i18n="ownNote"></p></div>
+        <div class="stat"><p class="stat-label" data-i18n="l2Label"></p><div class="stat-value"><strong id="count-l2">—</strong><span class="unit" data-i18n="entriesUnit"></span></div><p class="caption" data-i18n="ownNote"></p></div>
+      </div>
+    </section>
+    <section class="card section" aria-labelledby="profession-heading">
+      <h2 id="profession-heading" data-i18n="professionTitle">職業</h2>
+      <p id="profession-name" class="profession-name">—</p>
+      <p class="label" data-i18n="lineageLabel"></p>
+      <ul id="lineage" class="chips lineage"></ul>
+      <p class="note" data-i18n="professionNote"></p>
+    </section>
+    <section class="section" aria-labelledby="cycles-heading">
+      <div class="section-head"><h2 id="cycles-heading" data-i18n="cyclesTitle">学習で得たこと</h2><p class="caption" data-i18n="cyclesCaption"></p></div>
+      <ol id="cycles" class="cycles"></ol>
+      <p id="cycles-empty" class="card caption" data-i18n="cyclesEmpty" hidden></p>
+      <p id="cycles-more" class="more" hidden></p>
+    </section>
+  </div>
+  <section class="card about section" aria-labelledby="about-heading">
+    <h2 id="about-heading" data-i18n="aboutTitle">この写しについて</h2>
+    <div><p class="label" data-i18n="showsTitle"></p><ul><li data-i18n="shows1"></li><li data-i18n="shows2"></li></ul></div>
+    <div><p class="label" data-i18n="hidesTitle"></p><ul><li data-i18n="hides1"></li><li data-i18n="hides2"></li></ul></div>
+    <div><p class="label" data-i18n="promisesTitle"></p><ul><li data-i18n="promise1"></li><li data-i18n="promise2"></li><li data-i18n="promise3"></li><li data-i18n="promise4"></li></ul></div>
   </section>
-  <div class="snapshot"><strong data-i18n="generated">最終出力</strong><time id="generated-at">—</time><span data-i18n="notLive">自動更新されません</span></div>
-  <div class="grid growth-grid">
-    <section class="card" aria-labelledby="progress-heading"><p class="eyebrow">RECORD-BASED GROWTH</p><h2 id="progress-heading" data-i18n="progressTitle"></h2><div class="level-line"><strong id="level-value">—</strong><span class="unit" data-i18n="levelCap"></span></div><p id="xp-value" class="caption"></p><progress id="xp-progress" class="progress-track" max="20" value="0" hidden aria-label="XP"></progress><p id="xp-next" class="caption"></p><div class="facts"><div><span data-i18n="uniqueL1"></span><strong id="unique-l1">—</strong></div><div><span data-i18n="uniqueL2"></span><strong id="unique-l2">—</strong></div></div><p class="records-note" data-i18n="progressNote"></p><p class="records-note" data-i18n="artNote"></p></section>
-    <section class="card" aria-labelledby="profession-heading"><p class="eyebrow">LEARNING DIRECTION</p><h2 id="profession-heading" data-i18n="professionTitle"></h2><div id="profession-state" class="status-badge"></div><p id="profession-effective" class="caption"></p><ul id="profession-catalog" class="catalog"></ul><p class="records-note" data-i18n="professionNote"></p></section>
-    <section class="card wide" aria-labelledby="growth-heading"><p class="eyebrow">BOUNDED RESEARCH</p><h2 id="growth-heading" data-i18n="growthTitle"></h2><div id="growth-state" class="status-badge"></div><p id="growth-worker" class="caption"></p><div class="facts"><div><span data-i18n="usedCycles"></span><strong id="growth-used">—</strong></div><div><span data-i18n="maxCycles"></span><strong id="growth-max">—</strong></div><div><span data-i18n="remainingCycles"></span><strong id="growth-remaining">—</strong></div></div><p class="section-label" data-i18n="lastCycle"></p><ul id="growth-last" class="details"></ul><p class="section-label" data-i18n="sourcesTitle"></p><ul id="growth-sources" class="details source-list"></ul><p class="readonly" data-i18n="readOnly"></p></section>
-  </div>
-  <div class="grid">
-    <section class="card" aria-labelledby="knowledge-heading"><p class="eyebrow">L1 / KNOWLEDGE</p><h2 id="knowledge-heading" data-i18n="knowledgeTitle">保存された知識</h2><p class="caption" data-i18n="knowledgeCaption">正規の L1 ストアにある記録</p><div class="count-row"><strong id="knowledge-count" class="count">—</strong><span class="unit" data-i18n="entries">件</span></div><p id="knowledge-availability" class="availability"></p><details id="knowledge-details" hidden><summary data-i18n="knowledgeList">知識の一覧を見る</summary><ul id="knowledge-list" class="record-list"></ul><p id="knowledge-list-note" class="records-note"></p></details></section>
-    <section class="card" aria-labelledby="observations-heading"><p class="eyebrow">L2 / OBSERVATIONS</p><h2 id="observations-heading" data-i18n="observationsTitle">保存された観察</h2><p class="caption" data-i18n="observationsCaption">正規の L2 ストアにある記録</p><div class="count-row"><strong id="observations-count" class="count">—</strong><span class="unit" data-i18n="entries">件</span></div><p id="observations-availability" class="availability"></p><details id="observations-details" hidden><summary data-i18n="observationsList">最近の観察を見る</summary><ul id="observations-list" class="record-list"></ul><p id="observations-list-note" class="records-note"></p></details></section>
-    <section class="card" aria-labelledby="integrity-heading"><p class="eyebrow">LOCAL INTEGRITY</p><h2 id="integrity-heading" data-i18n="integrityTitle">記録の整合性</h2><div id="integrity-state" class="status-badge"></div><p class="caption" data-i18n="integrityCaption">出力時点のローカルチェーン検証です。知識の正しさや、外部からの信頼を保証するものではありません。</p><ul id="integrity-details" class="details" style="margin-top:12px"></ul><div class="facts"><div><span data-i18n="blocks">ブロック数</span><strong id="block-count">—</strong></div><div><span data-i18n="pending">保留中の記録</span><strong id="pending-count">—</strong></div></div></section>
-    <section class="card" aria-labelledby="backup-heading"><p class="eyebrow">BACKUP SCOPE</p><h2 id="backup-heading" data-i18n="backupTitle">バックアップの対象</h2><p class="caption" data-i18n="backupCaption">対象範囲の表示です。バックアップの作成・復元成功を示すものではありません。</p><p class="section-label" data-i18n="included">含まれるもの</p><ul id="backup-scope" class="details"></ul><p class="section-label" data-i18n="excluded">含まれないもの</p><ul id="backup-excluded" class="details"></ul></section>
-  </div>
-  <section class="card refresh" aria-labelledby="refresh-heading"><div><h2 id="refresh-heading" data-i18n="refreshTitle">いまの記録を、もう一度。</h2><p data-i18n="refreshHelp">KairosChain で次のツール、または CLI を実行し、出力された HTML を開き直してください。この画面を再読み込みするだけでは、記録は更新されません。</p></div><div><span class="command-label" data-i18n="tool">MCP ツール</span><code id="refresh-tool">—</code><span class="command-label">CLI</span><code id="refresh-cli">—</code></div></section>
-  <footer class="foot"><p data-i18n="privacy">このファイルにはローカルのプロフィールや記録の見出しが含まれる場合があります。共有せず、安全な場所に保管してください。</p><p>FREE TIER · LOCAL ONLY</p></footer>
+  <footer><p id="footer-made"></p><p data-i18n="footerView"></p></footer>
 </main>
 <script id="kairomone-status" type="application/json">__KAIROMONE_STATUS_JSON__</script>
 <script>
@@ -52,150 +97,201 @@
   'use strict';
   var words = {
     ja: {
-      eyebrow: 'YOUR SMALL GARDEN OF RECORDS', description: 'ここにあるのは、記録のいま。ローカルのデータから作った、ひとつのスナップショットです。', snapshotTag: 'オフライン・スナップショット', generated: '最終出力', notLive: '自動更新されません', knowledgeTitle: '保存された知識', knowledgeCaption: '正規の L1 ストアにある記録', observationsTitle: '保存された観察', observationsCaption: '正規の L2 ストアにある記録', entries: '件', knowledgeList: '知識の一覧を見る', observationsList: '最近の観察を見る', integrityTitle: '記録の整合性', integrityCaption: '出力時点のローカルチェーン検証です。知識の正しさや、外部からの信頼を保証するものではありません。', blocks: 'ブロック数', pending: '保留中の記録', backupTitle: 'バックアップの対象', backupCaption: '対象範囲の表示です。バックアップの作成・復元成功を示すものではありません。', included: '含まれるもの', excluded: '含まれないもの', refreshTitle: 'いまの記録を、もう一度。', refreshHelp: 'KairosChain で次のツール、または CLI を実行し、出力された HTML を開き直してください。この画面を再読み込みするだけでは、記録は更新されません。', tool: 'MCP ツール', privacy: 'このファイルにはローカルのプロフィールや記録の見出しが含まれる場合があります。共有せず、安全な場所に保管してください。', available: '出力時点で読み取り可能', unavailable: '読み取り不可、または未確認。件数は不明です。', unknown: '未確認', countUnknown: '件数は不明です。', passed: 'ローカルチェーンの検証に合格', failed: '検証に不一致があります', absent: 'チェーンが見つかりません', unreadable: 'チェーンを読み取れません', empty: 'チェーンに記録がありません', noDetails: '詳細情報はありません', notSpecified: '未指定', untitled: '無題の記録', showing: 'このスナップショットに含まれる見出し：', uninitialized: 'プロフィールはまだ初期化されていません', error: 'このスナップショットのデータを読み取れません。CLI または MCP ツールから HTML を再生成してください。', art: '小さな、オリジナルの苔の生きもの'
+      pageTitle: 'スナップショット', brandSub: 'SNAPSHOT · 写し', eyebrow: '記録の庭 · 観察のための写し',
+      measure: 'レベルは、この個体が保存した記録の量をはかります。能力や気持ちをはかるものではありません。',
+      snapshotTag: 'ひとつの時点の写し · 同期されません', generated: '書き出し：', level: 'レベル', stageUnknown: '段階は不明',
+      drawingAlt: '承認された絵', eggAlt: 'まだ絵のない卵', eggCaption: 'まだ絵はなく、卵の姿です', drawingWithheld: 'この絵は公開の点検で除かれました', noImage: '絵を表示できません',
+      historyTitle: '絵の移り変わり', historyCaption: '持ち主が承認した絵を、承認した順に並べています。最後がいちばん新しい絵です（新しいものから30枚まで）。',
+      historyEmpty: 'まだ絵はありません。いまは卵の姿です。', missing: '見つからない', whenUnknown: '時期の記録なし',
+      statsTitle: '数で見る', lifetimeLabel: 'これまでの学習', cyclesUnit: '回', lifetimeNote: '学んだ知識がいまも残っている回だけを数えます', lifetimeUnknown: 'この時点では数えられませんでした',
+      sourcesLabel: '学んだ出どころ', sourcesUnit: '件', sourcesNote: '重なりを除いた、公開のアドレスの数',
+      l1Label: '自分で学んだ知識（L1）', l2Label: '自分の観察（L2）', entriesUnit: '件', ownNote: '自分の学習が書き、いまも記録と一致するもの',
+      professionTitle: '職業', noProfession: 'まだ職業はない', professionWithheld: '職業の名前は公開の点検で除かれました',
+      lineageLabel: '系譜（近い順）', lineageEmpty: '系譜はありません', professionNote: '職業は、何をどう学ぶかを変えます。できることや権限は変えません。',
+      cyclesTitle: '学習で得たこと', cyclesCaption: 'この個体が自分の学習で得た内容だけを、新しい順に載せています。学習の依頼や題目は載せていません。',
+      cyclesEmpty: 'まだ学習の記録はありません。', cyclesMore: '新しい {n} 件を表示しています（全 {m} 件）。',
+      noSubjects: '分野の記録なし', untitled: '無題の学習', finding: '見つけたこと', readSynthesis: '学んだ内容を読む', sources: '出どころ', noSources: '出どころの記録なし',
+      withheld: '公開の点検（資格情報とローカルのパス）に合わなかった {n} 件の文字や絵を、このページから除きました。',
+      aboutTitle: 'この写しについて', showsTitle: '載っているもの',
+      shows1: '名前、承認された絵、レベルと段階、職業の名前と系譜、学習の回数。',
+      shows2: '自分の学習ごとに得たこと：知識の題名とまとめ、見つけたこと、学んだ分野、出どころのアドレス。',
+      hidesTitle: '載っていないもの',
+      hides1: '学習の依頼とその題目、持ち主が決めた方向や傾き、会話。',
+      hides2: '持ち主が書いた記録や受け取った記録、スキルの元、承認を待っている提案、ローカルのパスや秘密。',
+      promisesTitle: '約束',
+      promise1: 'ひとつの時点の写しです。個体がこの先育っても、このファイルは変わりません（同期されません）。',
+      promise2: '外部との通信はしません。外のものを読み込まず、ボタンは言語の切り替えだけです。',
+      promise3: '出どころとまとめは、個体が取得した公開の内容を要約したものです。このファイルを受け取った人は、誰でも読めます。',
+      promise4: '書き出すときに資格情報とローカルのパスを点検しますが、私的な事柄をすべて見分けられるわけではありません。',
+      footerMade: 'Kairomone {v} が書き出しました。', footerView: '閲覧だけのページです。',
+      error: 'この写しのデータを読み取れません。持ち主に、もう一度書き出してもらってください。'
     },
     en: {
-      eyebrow: 'YOUR SMALL GARDEN OF RECORDS', description: 'A quiet view of your saved records. One snapshot, made from the data on your own machine.', snapshotTag: 'Offline snapshot', generated: 'Last generated', notLive: 'Does not update automatically', knowledgeTitle: 'Saved knowledge', knowledgeCaption: 'Records in the canonical L1 store', observationsTitle: 'Saved observations', observationsCaption: 'Records in the canonical L2 store', entries: 'records', knowledgeList: 'View knowledge titles', observationsList: 'View recent observations', integrityTitle: 'Record integrity', integrityCaption: 'A local chain check at generation time. It does not verify the truth of knowledge or establish external trust.', blocks: 'Blocks', pending: 'Pending records', backupTitle: 'What a backup covers', backupCaption: 'Scope only. This does not confirm that a backup was created or successfully restored.', included: 'INCLUDED', excluded: 'EXCLUDED', refreshTitle: 'Visit your records again.', refreshHelp: 'Run this tool in KairosChain, or use the CLI, then reopen the generated HTML. Reloading this page alone does not update its records.', tool: 'MCP TOOL', privacy: 'This file may contain local profile information and record titles. Keep it private and store it somewhere safe.', available: 'Readable at generation time', unavailable: 'Unavailable or not checked. Count is unknown.', unknown: 'Not verified', countUnknown: 'Count is unknown.', passed: 'Local chain check passed', failed: 'Integrity mismatch detected', absent: 'No chain found', unreadable: 'Chain cannot be read', empty: 'No records in the chain', noDetails: 'No further details available', notSpecified: 'Not specified', untitled: 'Untitled record', showing: 'Titles included in this snapshot: ', uninitialized: 'Profile has not been initialized', error: 'This snapshot could not be read. Generate the HTML again using the CLI or MCP tool.', art: 'A small original moss creature'
+      pageTitle: 'snapshot', brandSub: 'SNAPSHOT', eyebrow: 'A garden of records · for looking',
+      measure: 'Its level measures the records it has stored — not ability, and not feeling.',
+      snapshotTag: 'A snapshot of one moment · not synced', generated: 'Written:', level: 'Level', stageUnknown: 'Stage unknown',
+      drawingAlt: 'An accepted drawing', eggAlt: 'An egg, not yet drawn', eggCaption: 'Not drawn yet; shown as an egg', drawingWithheld: 'This drawing was left out by the public check', noImage: 'The drawing cannot be shown',
+      historyTitle: 'How it has grown', historyCaption: 'Every drawing the owner accepted, in the order accepted; the last is the newest (up to the newest thirty).',
+      historyEmpty: 'No drawing yet; it is shown as an egg.', missing: 'Missing', whenUnknown: 'Time not recorded',
+      statsTitle: 'In numbers', lifetimeLabel: 'Learning cycles so far', cyclesUnit: 'cycles', lifetimeNote: 'Counts only cycles whose knowledge is still here', lifetimeUnknown: 'Could not be counted at this moment',
+      sourcesLabel: 'Sources learned from', sourcesUnit: 'sources', sourcesNote: 'Distinct public addresses',
+      l1Label: 'Knowledge it learned (L1)', l2Label: 'Its own observations (L2)', entriesUnit: 'entries', ownNote: 'Written by its own cycles and still matching the record',
+      professionTitle: 'Profession', noProfession: 'No profession yet', professionWithheld: 'The profession’s name was left out by the public check',
+      lineageLabel: 'Lineage (nearest first)', lineageEmpty: 'No lineage', professionNote: 'A profession changes what and how it learns, never what it may do.',
+      cyclesTitle: 'What each cycle learned', cyclesCaption: 'Only what its own learning cycles gained, newest first. Requests and their topics are not included.',
+      cyclesEmpty: 'No learning cycle yet.', cyclesMore: 'Showing the newest {n} of {m}.',
+      noSubjects: 'No subjects recorded', untitled: 'Untitled', finding: 'Finding', readSynthesis: 'Read what it learned', sources: 'Sources', noSources: 'No sources recorded',
+      withheld: '{n} texts or drawings were left out of this page because they failed the public check (credentials and local paths).',
+      aboutTitle: 'About this snapshot', showsTitle: 'What it shows',
+      shows1: 'Its name, accepted drawings, level and stage, profession name and lineage, and counts.',
+      shows2: 'For each of its own learning cycles: the knowledge title and synthesis, the finding, the subjects and the source addresses.',
+      hidesTitle: 'What it never shows',
+      hides1: 'Learning requests and their topics, the owner’s direction and lean, conversation.',
+      hides2: 'Entries the owner wrote or that were received, where skills come from, proposals waiting for the owner, local paths and secrets.',
+      promisesTitle: 'Promises',
+      promise1: 'It is a picture of one moment; it does not change as the Kairomone grows (it is not synced).',
+      promise2: 'It makes no network request: it loads nothing from outside, and its only buttons switch the language.',
+      promise3: 'Sources and syntheses are public content the Kairomone fetched and summarised; whoever receives this file can read them.',
+      promise4: 'Credentials and local paths are checked when it is written, but not every private fact can be recognised.',
+      footerMade: 'Written by Kairomone {v}.', footerView: 'A view-only page.',
+      error: 'This snapshot’s data cannot be read. Ask its owner to write it again.'
     }
   };
-  var growthWords = {"ja": {"progressTitle": "記録から育つレベル", "levelCap": "/ 999 レベル", "uniqueL1": "XP 対象の固有 L1", "uniqueL2": "XP 対象の固有 L2", "progressNote": "XP は現在の正規ストアの固有内容から算出されます。レベルは知能・人格の評価ではありません。", "artNote": "姿は、持ち主が承認した絵か、絵が承認されるまでの卵です。絵は画像としてだけ表示します。", "professionTitle": "職業", "professionNote": "職業は学習テーマの偏りにのみ影響します。権限・予算・L0 は変更しません。選択には KairosChain のツールを使います。", "growthTitle": "自律学習の記録", "usedCycles": "使用済みサイクル", "maxCycles": "上限", "remainingCycles": "残り", "lastCycle": "最後のサイクル", "sourcesTitle": "情報源", "readOnly": "読み取り専用のスナップショットです。ここから開始・停止はできません。常時稼働やモデルの重み更新を示すものではありません。", "unselected": "未選択", "effective": "適用中：", "selected": "選択済み：", "unlocked": "選択可能", "locked": "未解放", "unlockAt": "解放レベル：", "totalXP": "合計 XP：", "nextXP": "次のレベルまで：", "capReached": "上限に到達", "notConfigured": "未設定", "stopped": "停止済み", "queued": "待機中", "active": "ワーカーのリースあり", "idle": "待機リクエストなし", "online": "出力時点で最近のハートビート記録あり", "offline": "出力時点でオンラインのワーカーは確認されていません", "noSources": "このスナップショットには情報源リンクがありません", "noCycle": "このスナップショットには完了・失敗記録がありません", "seed": "種", "sprout": "芽", "grove": "若木", "canopy": "樹冠", "ancient": "古木", "stageUnknown": "成長段階は未確認", "stagePrefix": "姿：", "completed": "完了", "failedCycle": "失敗", "expired": "期限切れ", "interrupted": "中断", "sourceCount": "情報源の数：", "request": "リクエスト：", "artDrawing": "承認された姿", "artEgg": "まだ姿のない卵", "artDue": "新しい段階の姿を描く時期です。", "artWaiting": "承認を待つ姿", "stage_egg": "卵", "stage_hatchling": "幼体", "stage_young": "若者", "stage_adult": "成体", "stage_legend": "伝説"}, "en": {"progressTitle": "A level grown from records", "levelCap": "/ 999 levels", "uniqueL1": "Unique L1 eligible for XP", "uniqueL2": "Unique L2 eligible for XP", "progressNote": "XP is computed from unique content in the current canonical stores. Level is not an intelligence or personality score.", "artNote": "The form is the drawing the owner accepted, or the egg until one is accepted. Drawings are shown only as images.", "professionTitle": "Profession", "professionNote": "A profession biases learning topics only. Permissions, budgets and L0 stay unchanged. Choose through the KairosChain tool.", "growthTitle": "Autonomous learning record", "usedCycles": "Cycles used", "maxCycles": "Budget limit", "remainingCycles": "Remaining", "lastCycle": "LAST CYCLE", "sourcesTitle": "SOURCES", "readOnly": "Read-only snapshot. You cannot start or stop growth here. This is not evidence of always-on activity or model-weight updates.", "unselected": "Not selected", "effective": "Effective: ", "selected": "Selected: ", "unlocked": "Available", "locked": "Locked", "unlockAt": "Unlock level: ", "totalXP": "Total XP: ", "nextXP": "XP to next level: ", "capReached": "Level cap reached", "notConfigured": "Not configured", "stopped": "Stopped", "queued": "Queued", "active": "Worker lease recorded", "idle": "No request queued", "online": "Recent heartbeat recorded at generation time", "offline": "No online worker confirmed at generation time", "noSources": "No source links included in this snapshot", "noCycle": "No completed or failed cycle included in this snapshot", "seed": "Seed", "sprout": "Sprout", "grove": "Grove", "canopy": "Canopy", "ancient": "Ancient", "stageUnknown": "Growth stage unknown", "stagePrefix": "Form: ", "completed": "Completed", "failedCycle": "Failed", "expired": "Expired", "interrupted": "Interrupted", "sourceCount": "Source count: ", "request": "Request: ", "artDrawing": "The accepted drawing", "artEgg": "An egg, not yet drawn", "artDue": "A drawing for this stage is due.", "artWaiting": "A drawing waiting for you", "stage_egg": "Egg", "stage_hatchling": "Hatchling", "stage_young": "Young", "stage_adult": "Adult", "stage_legend": "Legend"}};
-  ['ja', 'en'].forEach(function (lang) { Object.assign(words[lang], growthWords[lang]); });
+  var SCHEMA = 'kairomone-snapshot-1';
+  var IMAGE = /^data:image\/svg\+xml;base64,[A-Za-z0-9+\/]+={0,2}$/;
   var locale = 'ja';
   var snapshot = null;
   var failed = false;
   function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
-  function string(value, fallback) { return typeof value === 'string' && value.length ? value : (fallback || ''); }
+  function list(value) { return Array.isArray(value) ? value : []; }
+  function string(value) { return typeof value === 'string' && value.length ? value : ''; }
   function count(value) { return Number.isSafeInteger(value) && value >= 0 ? String(value) : '—'; }
-  function text(id, value) { document.getElementById(id).textContent = value; }
-  function empty(node) { while (node.firstChild) node.removeChild(node.firstChild); }
-  function strings(id, values, fallback) {
-    var node = document.getElementById(id);
-    empty(node);
-    var list = Array.isArray(values) ? values.filter(function (value) { return typeof value === 'string' && value.length; }) : [];
-    if (!list.length) list = [fallback];
-    list.forEach(function (value) { var li = document.createElement('li'); li.textContent = value; node.appendChild(li); });
+  function level(value) { return Number.isSafeInteger(value) && value >= 1 && value <= 999 ? value : 0; }
+  function picture(value) { return typeof value === 'string' && IMAGE.test(value) ? value : ''; }
+  function named(value) { var item = object(value); return string(item[locale]) || string(item.id); }
+  function node(id) { return document.getElementById(id); }
+  function text(id, value) { node(id).textContent = value; }
+  function show(id, visible) { node(id).hidden = !visible; }
+  function empty(parent) { while (parent.firstChild) parent.removeChild(parent.firstChild); }
+  function make(tag, className, value) {
+    var element = document.createElement(tag);
+    if (className) element.className = className;
+    if (value !== undefined) element.textContent = value;
+    return element;
   }
-  function records(id, values) {
-    var node = document.getElementById(id + '-list');
-    empty(node);
-    var list = Array.isArray(values) ? values : [];
-    list.slice(0, 50).forEach(function (value) {
-      var item = object(value), li = document.createElement('li');
-      li.textContent = string(item.title, string(item.id, words[locale].untitled));
-      var detail = string(item.snippet, string(item.created_at));
-      if (detail) { var small = document.createElement('small'); small.textContent = detail; li.appendChild(small); }
-      node.appendChild(li);
-    });
-    document.getElementById(id + '-details').hidden = !list.length;
-    text(id + '-list-note', words[locale].showing + Math.min(list.length, 50));
-  }
-  function renderGrowth(data, w) {
-    var p = object(data.progression), profession = object(data.profession), g = object(data.autonomy);
-    var validLevel = Number.isSafeInteger(p.level) && p.level >= 1 && p.level <= 999 && p.level_cap === 999;
-    var stage = validLevel ? (p.level >= 500 ? 'ancient' : p.level >= 100 ? 'canopy' : p.level >= 20 ? 'grove' : p.level >= 5 ? 'sprout' : 'seed') : 'unknown';
-    document.getElementById('creature').setAttribute('data-stage', stage);
-    text('creature-stage', stage === 'unknown' ? w.stageUnknown : w.stagePrefix + w[stage]);
-    text('creature-title', w.art + ' · ' + (stage === 'unknown' ? w.stageUnknown : w[stage]));
+  function fill(template, values) { return template.replace(/\{(\w)\}/g, function (_, key) { return values[key]; }); }
+  function when(value) { return string(value).replace('T', ' ').replace(/\.\d+/, '').replace(/Z$/, ' UTC') || '—'; }
+  function renderHero(data, w) {
+    var name = string(data.name) || 'Kairomone', lv = level(data.level), drawing = object(data.drawing);
+    var uri = picture(drawing.data_uri), drawn = drawing.shown === 'drawing', image = node('hero-image');
+    document.title = name + ' · Kairomone ' + w.pageTitle;
+    text('name', name);
+    text('hero-stage', named(data.stage) || w.stageUnknown);
+    text('hero-level', w.level + ' ' + (lv ? String(lv) : '—'));
     // Art is shown only as an image from a data: URI the snapshot holds (Inv 6).
-    var art = object(data.art), image = document.getElementById('art-image');
-    var picture = function (value) { return typeof value === 'string' && /^data:image\/svg\+xml;base64,[A-Za-z0-9+\/]+={0,2}$/.test(value) ? value : ''; };
-    var shown = picture(art.data_uri);
-    if (shown) { image.setAttribute('src', shown); image.setAttribute('alt', art.shown === 'drawing' ? w.artDrawing : w.artEgg); }
-    image.hidden = !shown;
-    var stageWord = typeof art.stage === 'string' && /^(egg|hatchling|young|adult|legend)$/.test(art.stage) ? w['stage_' + art.stage] : '';
-    if (shown) text('creature-stage', stageWord ? w.stagePrefix + stageWord : w.stageUnknown);
-    document.getElementById('creature').setAttribute('class', shown ? 'creature art-replaced' : 'creature');
-    text('art-due', art.due === true ? w.artDue : '');
-    document.getElementById('art-due').hidden = art.due !== true;
-    var waiting = Array.isArray(art.waiting) ? art.waiting : [], anyWaiting = false;
-    [0, 1, 2].forEach(function (i) {
-      var node = document.getElementById('art-waiting-' + i), item = object(waiting[i]), uri = picture(item.data_uri);
-      if (uri) { node.setAttribute('src', uri); node.setAttribute('alt', w.artWaiting + ' ' + string(item.proposal).slice(0, 8)); anyWaiting = true; }
-      node.hidden = !uri;
+    if (uri) { image.setAttribute('src', uri); image.setAttribute('alt', drawn ? string(drawing.form) || w.drawingAlt : w.eggAlt); }
+    image.hidden = !uri;
+    show('hero-placeholder', !uri);
+    text('hero-caption', drawn ? (uri ? string(drawing.form) || w.drawingAlt : w.drawingWithheld) : (uri ? w.eggCaption : w.noImage));
+    text('generated-at', when(data.generated_at));
+    node('generated-at').setAttribute('datetime', string(data.generated_at));
+  }
+  function renderHistory(data, w) {
+    var parent = node('history'), items = list(data.drawings).slice(-30);
+    empty(parent);
+    items.forEach(function (value) {
+      var item = object(value), uri = item.missing === true ? '' : picture(item.data_uri), lv = level(item.level);
+      var label = lv ? w.level + ' ' + lv : named(item.stage) || w.whenUnknown;
+      var li = make('li', uri ? 'drawing' : 'drawing missing'), frame = make('div', 'frame');
+      if (uri) {
+        var image = make('img');
+        image.setAttribute('src', uri);
+        image.setAttribute('alt', (string(item.form) || w.drawingAlt) + ' · ' + label);
+        frame.appendChild(image);
+      } else {
+        frame.appendChild(make('span', 'missing-mark', w.missing));
+      }
+      li.appendChild(frame);
+      li.appendChild(make('span', 'when', label));
+      if (string(item.form)) li.appendChild(make('span', 'form', item.form));
+      parent.appendChild(li);
     });
-    document.getElementById('art-waiting').hidden = !anyWaiting;
-    text('level-value', validLevel ? String(p.level) : '—');
-    text('xp-value', w.totalXP + count(p.total_xp));
-    text('xp-next', validLevel && p.level === 999 ? w.capReached : w.nextXP + count(p.xp_to_next_level));
-    text('unique-l1', count(p.unique_l1)); text('unique-l2', count(p.unique_l2));
-    var progress = document.getElementById('xp-progress');
-    var validProgress = validLevel && p.level < 999 && Number.isSafeInteger(p.xp_for_next_level) && p.xp_for_next_level > 0 && Number.isSafeInteger(p.xp_into_level) && p.xp_into_level >= 0 && p.xp_into_level < p.xp_for_next_level;
-    progress.hidden = !validProgress;
-    progress.setAttribute('max', validProgress ? p.xp_for_next_level : 20); progress.setAttribute('value', validProgress ? p.xp_into_level : 0);
-    var catalog = Array.isArray(profession.catalog) ? profession.catalog.slice(0, 50) : [];
-    var chosen = catalog.map(object).find(function (item) { return typeof profession.selected_id === 'string' && item.id === profession.selected_id; });
-    text('profession-state', chosen ? w.selected + string(chosen.name, profession.selected_id) : (profession.selection_required === true ? w.unselected : w.unknown));
-    text('profession-effective', w.effective + string(profession.name, w.notSpecified));
-    var list = document.getElementById('profession-catalog'); empty(list);
-    catalog.forEach(function (value) {
-      var item = object(value), li = document.createElement('li'), small = document.createElement('small');
-      li.textContent = string(item.name, string(item.id, w.notSpecified));
-      li.className = chosen && item.id === chosen.id ? 'selected' : item.unlocked === false ? 'locked' : '';
-      small.textContent = (item.unlocked === true ? w.unlocked : item.unlocked === false ? w.locked : w.unknown) + ' · ' + w.unlockAt + count(item.unlock_level);
-      li.appendChild(small); list.appendChild(li);
+    show('history-empty', !items.length);
+  }
+  function renderCounts(data, w) {
+    var counts = object(data.counts);
+    text('count-lifetime', count(counts.lifetime_cycles));
+    text('lifetime-note', count(counts.lifetime_cycles) === '—' ? w.lifetimeUnknown : w.lifetimeNote);
+    text('count-sources', count(counts.learned_sources));
+    text('count-l1', count(counts.own_growth_l1));
+    text('count-l2', count(counts.own_growth_l2));
+  }
+  function renderProfession(data, w) {
+    var profession = object(data.profession), parent = node('lineage');
+    var names = list(profession.lineage).filter(function (value) { return string(value); }).slice(0, 32);
+    text('profession-name', string(profession.name) || (profession.chosen === true ? w.professionWithheld : w.noProfession));
+    empty(parent);
+    names.forEach(function (value) { parent.appendChild(make('li', 'chip', value)); });
+    if (!names.length) parent.appendChild(make('li', 'chip quiet', w.lineageEmpty));
+  }
+  function renderCycles(data, w) {
+    var parent = node('cycles'), cycles = list(data.cycles).slice(0, 100), total = object(data.counts).own_growth_l1;
+    empty(parent);
+    cycles.forEach(function (value) {
+      var cycle = object(value), li = make('li', 'cycle'), chips = make('ul', 'chips'), sources = make('ul', 'sources');
+      var subjects = list(cycle.subjects).map(named).filter(function (name) { return name; });
+      subjects.forEach(function (name) { chips.appendChild(make('li', 'chip', name)); });
+      if (!subjects.length) chips.appendChild(make('li', 'chip quiet', w.noSubjects));
+      li.appendChild(chips);
+      li.appendChild(make('h3', '', string(cycle.title) || w.untitled));
+      if (string(cycle.finding)) {
+        li.appendChild(make('p', 'label', w.finding));
+        li.appendChild(make('p', 'finding', cycle.finding));
+      }
+      if (string(cycle.synthesis)) {
+        var details = make('details');
+        details.appendChild(make('summary', '', w.readSynthesis));
+        details.appendChild(make('p', 'synthesis', cycle.synthesis));
+        li.appendChild(details);
+      }
+      // Source addresses are text: nothing here links or loads.
+      var urls = list(cycle.sources).filter(function (url) { return string(url); }).slice(0, 50);
+      urls.forEach(function (url) { sources.appendChild(make('li', '', url)); });
+      if (!urls.length) sources.appendChild(make('li', 'quiet', w.noSources));
+      li.appendChild(make('p', 'label', w.sources));
+      li.appendChild(sources);
+      parent.appendChild(li);
     });
-    if (!catalog.length) strings('profession-catalog', [], w.notSpecified);
-    var configured = g.configured === true;
-    var state = g.configured === false ? w.notConfigured : !configured ? w.unknown : g.stopped === true ? w.stopped : g.active_claim && typeof g.active_claim === 'object' ? w.active : g.queue && typeof g.queue === 'object' ? w.queued : w.idle;
-    text('growth-state', state);
-    text('growth-worker', g.worker_online === true ? w.online : g.worker_online === false ? w.offline : w.unknown);
-    text('growth-used', configured ? count(g.used_cycles) : '—'); text('growth-max', configured ? count(g.max_cycles) : '—'); text('growth-remaining', configured ? count(g.remaining_cycles) : '—');
-    var last = object(g.last_result), details = [];
-    if (last.state) details.push(['completed', 'failed', 'expired', 'interrupted'].indexOf(last.state) >= 0 ? (last.state === 'failed' ? w.failedCycle : w[last.state]) : w.unknown);
-    if (last.partial_writes_possible === true) details.push(locale === 'ja' ? '一部の書き込みが残っている可能性があります。確認が必要です。' : 'Partial writes may remain. Review the canonical records.');
-    if (typeof last.request_id === 'string') details.push(w.request + last.request_id);
-    if (typeof last.reason === 'string') details.push(last.reason);
-    if (typeof last.completed_at === 'string' || typeof last.at === 'string') details.push(string(last.completed_at, last.at));
-    if (count(last.source_count) !== '—') details.push(w.sourceCount + count(last.source_count));
-    if (typeof g.stop_reason === 'string' && g.stop_reason) details.push(g.stop_reason);
-    strings('growth-last', details, w.noCycle);
-    var sources = document.getElementById('growth-sources'); empty(sources);
-    (Array.isArray(last.sources) ? last.sources : []).slice(0, 5).forEach(function (value) {
-      var source = object(value), url;
-      try { url = new URL(source.url); } catch (_) { return; }
-      if (url.protocol !== 'https:' || url.username || url.password || url.hash || (url.port && url.port !== '443')) return;
-      var li = document.createElement('li'), a = document.createElement('a');
-      a.textContent = string(source.title, url.href); a.setAttribute('href', url.href); a.setAttribute('rel', 'noreferrer noopener');
-      li.appendChild(a); sources.appendChild(li);
-    });
-    if (!sources.firstChild) strings('growth-sources', [], w.noSources);
+    show('cycles-empty', !cycles.length);
+    var more = Number.isSafeInteger(total) && total > cycles.length && cycles.length > 0;
+    text('cycles-more', more ? fill(w.cyclesMore, { n: cycles.length, m: total }) : '');
+    show('cycles-more', more);
   }
   function render() {
     var w = words[locale];
     document.documentElement.lang = locale;
-    document.querySelectorAll('[data-i18n]').forEach(function (node) { node.textContent = w[node.getAttribute('data-i18n')] || ''; });
-    ['ja', 'en'].forEach(function (lang) { document.getElementById('lang-' + lang).setAttribute('aria-pressed', String(locale === lang)); });
-    text('creature-title', w.art);
-    if (failed) { text('data-error', w.error); document.getElementById('data-error').hidden = false; return; }
-    var data = object(snapshot), profile = object(data.profile), knowledge = object(data.knowledge), observations = object(data.observations), integrity = object(data.integrity), backup = object(data.backup), instructions = object(data.instructions);
-    renderGrowth(data, w);
-    text('profile-name', string(data.companion && data.companion.display_name, string(profile.display_name, 'Kairomone')));
-    text('generated-at', string(data.generated_at, w.unknown));
-    document.getElementById('generated-at').setAttribute('datetime', string(data.generated_at));
-    if (data.initialized === false) { text('data-error', w.uninitialized); document.getElementById('data-error').hidden = false; }
-    [{ id: 'knowledge', value: knowledge }, { id: 'observations', value: observations }].forEach(function (entry) {
-      var known = entry.value.available === true;
-      text(entry.id + '-count', known ? count(entry.value.count) : '—');
-      text(entry.id + '-availability', known ? (count(entry.value.count) === '—' ? w.countUnknown : w.available) : w.unavailable);
-      records(entry.id, known ? (entry.id === 'knowledge' ? entry.value.items : entry.value.recent) : []);
-    });
-    var status = w.unknown, style = '';
-    if (integrity.state === 'readable' && integrity.valid === true) { status = w.passed; style = 'good'; }
-    else if (integrity.state === 'corrupt' || (integrity.state === 'readable' && integrity.valid === false)) { status = w.failed; style = 'bad'; }
-    else if (['absent', 'unreadable', 'empty'].indexOf(integrity.state) >= 0) { status = w[integrity.state]; style = 'warning'; }
-    text('integrity-state', status);
-    document.getElementById('integrity-state').className = 'status-badge' + (style ? ' ' + style : '');
-    strings('integrity-details', integrity.details, w.noDetails);
-    text('block-count', count(integrity.block_count));
-    text('pending-count', count(integrity.pending_count));
-    strings('backup-scope', backup.scope, w.notSpecified);
-    strings('backup-excluded', backup.excluded, w.notSpecified);
-    text('refresh-tool', string(instructions.refresh, w.notSpecified));
-    text('refresh-cli', string(instructions.cli, w.notSpecified));
+    document.querySelectorAll('[data-i18n]').forEach(function (element) { element.textContent = w[element.getAttribute('data-i18n')] || ''; });
+    ['ja', 'en'].forEach(function (lang) { node('lang-' + lang).setAttribute('aria-pressed', String(locale === lang)); });
+    show('content', !failed);
+    show('data-error', failed);
+    if (failed) { text('data-error', w.error); text('footer-made', ''); return; }
+    var data = object(snapshot);
+    renderHero(data, w);
+    renderHistory(data, w);
+    renderCounts(data, w);
+    renderProfession(data, w);
+    renderCycles(data, w);
+    var withheld = Number.isSafeInteger(data.withheld) && data.withheld > 0;
+    text('withheld', withheld ? fill(w.withheld, { n: data.withheld }) : '');
+    show('withheld', withheld);
+    text('footer-made', fill(w.footerMade, { v: string(data.version) || '—' }));
   }
-  try { snapshot = JSON.parse(document.getElementById('kairomone-status').textContent); if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot) || snapshot.schema_version !== 1) failed = true; } catch (_) { failed = true; }
-  document.getElementById('lang-ja').addEventListener('click', function () { locale = 'ja'; render(); });
-  document.getElementById('lang-en').addEventListener('click', function () { locale = 'en'; render(); });
+  try {
+    snapshot = JSON.parse(node('kairomone-status').textContent);
+    if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot) || snapshot.schema !== SCHEMA) failed = true;
+  } catch (_) { failed = true; }
+  node('lang-ja').addEventListener('click', function () { locale = 'ja'; render(); });
+  node('lang-en').addEventListener('click', function () { locale = 'en'; render(); });
   render();
 }());
 </script>

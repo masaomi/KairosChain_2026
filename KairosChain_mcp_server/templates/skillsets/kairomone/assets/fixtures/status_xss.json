@@ -1,67 +1,97 @@
 {
-  "schema_version": 1,
+  "schema": "kairomone-snapshot-1",
   "product": "Kairomone",
-  "version": "0.1.0",
+  "version": "0.9.0",
   "generated_at": "2026-01-01T00:00:00Z",
-  "initialized": true,
-  "profile": {
-    "dot_id": "synthetic-fixture-only",
-    "display_name": "Synthetic mossling </script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    ",
-    "supply_profile": "basic",
-    "created_at": "2026-01-01T00:00:00Z"
+  "name": "Synthetic mossling </script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    ",
+  "level": 31,
+  "stage": {
+    "id": "young",
+    "en": "Young",
+    "ja": "若者"
   },
-  "storage": {
-    "scope": "synthetic fixture only",
-    "data_root": "/synthetic/no-user-data"
+  "drawing": {
+    "shown": "drawing",
+    "data_uri": "data:image/svg+xml;base64,PHN2Zy8+",
+    "form": "Synthetic form </script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    "
   },
-  "knowledge": {
-    "count": 1,
-    "available": true,
-    "items": [
-      {
-        "id": "synthetic-knowledge",
-        "title": "Knowledge </script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    ",
-        "hash": "synthetic-not-a-digest",
-        "recorded": false,
-        "snippet": "\" onmouseover=\"alert(1) </script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    "
+  "drawings": [
+    {
+      "data_uri": "data:image/svg+xml;base64,PHN2Zy8+",
+      "missing": false,
+      "form": "Synthetic first form </script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    ",
+      "stage": {
+        "id": "hatchling",
+        "en": "Hatchling",
+        "ja": "幼体"
       }
+    },
+    {
+      "missing": true,
+      "stage": {
+        "id": "young",
+        "en": "Young",
+        "ja": "若者"
+      },
+      "level": 20,
+      "milestone": 20
+    },
+    {
+      "data_uri": "data:image/svg+xml;base64,PHN2Zy8+",
+      "missing": false,
+      "form": "Synthetic form </script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    ",
+      "stage": {
+        "id": "young",
+        "en": "Young",
+        "ja": "若者"
+      },
+      "level": 31,
+      "milestone": 30
+    }
+  ],
+  "profession": {
+    "chosen": true,
+    "name": "Synthetic profession </script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    ",
+    "lineage": [
+      "Synthetic parent </script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    ",
+      "Synthetic grandparent"
     ]
   },
-  "observations": {
-    "count": 1,
-    "available": true,
-    "recent": [
-      {
-        "id": "synthetic-observation",
-        "title": "Observation </script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    ",
-        "created_at": "2026-01-01T00:00:00Z",
-        "snippet": "</script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    "
-      }
-    ]
+  "counts": {
+    "lifetime_cycles": 2,
+    "learned_sources": 2,
+    "own_growth_l1": 2,
+    "own_growth_l2": 1
   },
-  "integrity": {
-    "state": "readable",
-    "valid": true,
-    "block_count": 1,
-    "latest_hash": "synthetic-not-a-digest",
-    "pending_count": 0,
-    "details": [
-      "Synthetic test data, not a real chain check.",
-      "</script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    "
-    ]
-  },
-  "backup": {
-    "scope": [
-      "Synthetic data only",
-      "</script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    "
-    ],
-    "excluded": [
-      "Not a real backup",
-      "</script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    "
-    ]
-  },
-  "instructions": {
-    "refresh": "kairomone_status(render_html: true)",
-    "cli": "ruby <installed-skillset>/scripts/kairomone.rb status --html"
-  }
+  "cycles": [
+    {
+      "subjects": [
+        {
+          "id": "botany",
+          "en": "Botany",
+          "ja": "植物学"
+        },
+        {
+          "id": "synthetic",
+          "en": "Subject </script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    ",
+          "ja": "分野 </script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    "
+        }
+      ],
+      "title": "Synthetic title </script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    ",
+      "synthesis": "Synthetic synthesis\nsecond line </script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    ",
+      "finding": "Synthetic finding </script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    ",
+      "sources": [
+        "https://example.org/synthetic?q=</script><script>globalThis.__KAIROMONE_XSS__=true</script><img src=x onerror=\"globalThis.__KAIROMONE_XSS__=true\"> & < >    ",
+        "javascript:globalThis.__KAIROMONE_XSS__=true"
+      ]
+    },
+    {
+      "subjects": [],
+      "title": null,
+      "synthesis": null,
+      "finding": null,
+      "sources": []
+    }
+  ],
+  "withheld": 2
 }
