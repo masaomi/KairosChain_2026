@@ -150,20 +150,20 @@ module Kairomone
               'The name lives in the profile.' }
     end
 
-    # Whether this Kairomone was created with this identity, profile and first
-    # profession (the creation retry check; creation times are not compared).
-    def created_with?(wanted_identity, wanted_profile, wanted_profession)
+    # Whether this Kairomone was created with this identity and profile, and
+    # with no profession, as 0.9 creates (the creation retry check; creation
+    # times are not compared).
+    def created_with?(wanted_identity, wanted_profile)
       ledger = chain
       return false unless identity(ledger) == wanted_identity
 
       made = Records.of_type(ledger, 'kairomone_profile').first
-      first = Records.of_type(ledger, 'kairomone_profession').first
-      return false unless made && first && made['origin'] == 'create' && first['origin'] == 'create'
+      return false unless made && made['origin'] == 'create'
+      return false if Records.of_type(ledger, 'kairomone_profession').any? { |r| r['origin'] == 'create' }
 
       stored = profile_piece(made['sha256'])&.fetch(:piece)
-      stored_profession = profession_piece(first['sha256'])
       strip = ->(h) { h&.reject { |k, _| %w[created_at].include?(k) } }
-      strip.call(stored) == strip.call(wanted_profile) && stored_profession == wanted_profession
+      strip.call(stored) == strip.call(wanted_profile)
     end
 
     # Stores what the composer drafted as a proposal; nothing takes effect.
@@ -190,7 +190,7 @@ module Kairomone
       ledger = chain
       accepted = Records.each(ledger).filter_map { |r, _| r['proposal_sha256'] }
       chosen_offers = Records.of_type(ledger, 'kairomone_profession').filter_map { |r| r['offer_sha256'] }
-      open_offer = current_offer(ledger, current_profession(ledger)[:id])&.fetch(:sha)
+      open_offer = current_offer(ledger, current_profession(ledger)&.fetch(:id))&.fetch(:sha)
       shown_rank = nil # the drawing shown is checked once, when a drawing is listed
       items = piece_files('proposals').filter_map do |sha|
         doc = read_proposal(sha) or next

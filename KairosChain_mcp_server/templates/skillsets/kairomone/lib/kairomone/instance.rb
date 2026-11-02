@@ -98,7 +98,7 @@ module Kairomone
     MAX_ENTRIES = 1_000
     L2_SESSION = 'kairomone'
     L0_FILES = %w[skills/kairos.rb skills/kairos.md].freeze
-    BACKUP_SCOPE = ['The Kairomone\'s profile versions, professions, drawings, proposals and host L0 baseline records', 'All owned canonical L1 knowledge and L2 observations, chat summaries and companion settings', 'Complete dedicated Kairomone ledger; locally verified on restore', 'Growth run history; live runs end on restore'].freeze
+    BACKUP_SCOPE = ['The Kairomone\'s profile versions, professions, drawings, skills, proposals and host L0 baseline records', 'All owned canonical L1 knowledge and L2 observations, chat summaries and companion settings', 'Complete dedicated Kairomone ledger; locally verified on restore', 'Growth run history; live runs end on restore'].freeze
     BACKUP_EXCLUDED = ['Host KC knowledge, context, ledger and L0 file contents', 'External account/token stores, environment variables and unrelated host files (private user-authored L1/L2 text is included)', 'Installed SkillSet code, HTML exports, prior backups, lock and temporary files, the host archive key'].freeze
     STORE_DIRS = %w[knowledge context storage backups exports].freeze
 

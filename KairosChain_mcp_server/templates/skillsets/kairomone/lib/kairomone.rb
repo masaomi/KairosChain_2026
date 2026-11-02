@@ -16,7 +16,7 @@ require 'kairos_mcp/skills_config'
 
 module Kairomone
   class Error < StandardError; end
-  VERSION = '0.8.0'
+  VERSION = '0.9.0'
   PACKAGE_ROOT = File.expand_path('..', __dir__)
 end
 
@@ -37,4 +37,8 @@ require_relative 'kairomone/baseline'
 require_relative 'kairomone/progression'
 require_relative 'kairomone/autonomy'
 require_relative 'kairomone/companion'
+require_relative 'kairomone/learned'
+require_relative 'kairomone/lean'
+require_relative 'kairomone/skill'
+require_relative 'kairomone/snapshot'
 

@@ -5,6 +5,10 @@
 # signed restores through MCP and the library, other archives only at a
 # terminal after their free text is shown. All data is synthetic and confined
 # to temporary hosts.
+#
+# Changed for Kairomone 0.9 (design log/kairomone_0_9_screens_and_generated_growth_design_v0.2_20261102.md,
+# N2, N9): a backup 0.9 makes is archive version 3 (skills are accepted
+# pieces), so the two assertions that a new backup is version 2 now expect 3.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
@@ -63,7 +67,7 @@ class Kairomone08BackupTest < Minitest::Test
     alpha.observe(title: 'Seen', content: 'Owner-written L2')
     remember(alpha, 'chat', 'A consented summary.')
     backup = alpha.create_backup
-    assert backup[:verified] && backup[:signed_by_this_host] && backup[:version] == 2
+    assert backup[:verified] && backup[:signed_by_this_host] && backup[:version] == 3
     paths = archive_of(backup)['files'].map { |f| f['path'] }
     assert_includes paths, "profile/#{first}.json"
     assert_includes paths, "profile/#{second}.json"
@@ -133,7 +137,7 @@ class Kairomone08BackupTest < Minitest::Test
     assert_equal 'Old one', copy.name, 'it falls back to the schema-1 profile'
     assert_equal 'old_one', copy.identity
     next_backup = copy.create_backup
-    assert next_backup[:verified] && next_backup[:version] == 2
+    assert next_backup[:verified] && next_backup[:version] == 3
     assert copy.restore_backup(file: next_backup[:file], target_id: 'old_copy_two')[:success]
   end
 

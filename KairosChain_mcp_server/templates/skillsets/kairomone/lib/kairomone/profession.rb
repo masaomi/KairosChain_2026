@@ -1,14 +1,19 @@
 # frozen_string_literal: true
 
 module Kairomone
-  # Professions (design v0.6 Inv 5, M4, M7): content-addressed pieces
-  # professions/<sha256>.json. A profession changes what and how a Kairomone
-  # learns — its focus subjects and habits reach the composer at every cycle,
-  # in closed form — never what it may do. At each branch level the composer
-  # offers exactly three professions derived from the current one; the owner
-  # picks one or asks for three new ones; every chosen profession records its
-  # parents, so each Kairomone carries a profession lineage. The six 0.6
-  # professions remain as templates, and a 0.6 selection reads as its template.
+  # Professions (design 0.8 v0.6 M4, M7; 0.9 Inv 5, N4): content-addressed
+  # pieces professions/<sha256>.json. A profession changes what and how a
+  # Kairomone learns — its focus subjects and habits reach the composer at
+  # every cycle, in closed form — never what it may do. Branch levels are
+  # internal: nothing surfaced names one before it is reached. When the level
+  # is at or past the next branch level the composer generates exactly three
+  # professions from the individual's own profile, material, lineage and
+  # growth; the owner picks one or asks for three new ones; offers come one at
+  # a time, in order, for as long as the level is at or past the next branch
+  # level. Every chosen profession records its parents. No fixed list is
+  # offered: an individual that has chosen none has none, and no template
+  # becomes its parent; a 0.6 selection still reads as its template, and a
+  # template stays readable as a lineage parent.
   module Profession
     FIELDS = %w[name description focus habits parents tier origin].freeze
     ORIGINS = %w[create branch template import fusion].freeze
@@ -66,13 +71,17 @@ module Kairomone
     end
 
     def texts(piece) = [piece['name'], piece['description']]
+
+    SELECTION_GONE = 'Kairomone 0.9 offers no fixed list of professions: a Kairomone has none until it chooses one from the three its ' \
+                     'branch offer composes from its own profile and growth (kairomone_profession status, offer, choose). The six 0.6 ' \
+                     'templates stay only so that a 0.6 selection and a lineage parent still read as they did.'
   end
 
   class Instance
     # The profession in force: the latest accepted piece that is present;
-    # without one, the 0.6 selection read as its template (when unlocked, as
-    # 0.6 did), or the generalist template.
-    # => { id:, piece:, template: (id or nil), record: (or nil) }
+    # without one, a 0.6 selection read as its template (when unlocked, as
+    # 0.6 did); without that, none (nil).
+    # => { id:, piece:, template: (id or nil), record: (or nil) } or nil
     def current_profession(ledger = nil, level: nil)
       ledger ||= chain
       Records.of_type(ledger, 'kairomone_profession').reverse_each do |record|
@@ -81,62 +90,109 @@ module Kairomone
       end
       selected = profession_selection['selected_id']
       template = selected && Vocabulary.template(selected)
+      return nil unless template
+
       level ||= progression_status(ledger)[:level]
-      template = Vocabulary.template('generalist') unless template && level >= template['unlock_level']
+      return nil unless level >= template['unlock_level']
+
       { id: "template:#{template['id']}", piece: Profession.from_template(template), template: template['id'], record: nil }
     end
 
+    # tier: the branches taken (0 with no profession), never a level. Whether
+    # a branch is due is shown; the level it opens at is not (0.9 Inv 5).
     def profession_status(progression: nil)
       ensure_initialized!
       ledger = chain
       level = (progression || progression_status(ledger))[:level]
       current = current_profession(ledger, level: level)
-      piece = current[:piece]
+      piece = current && current[:piece]
       selection = profession_selection
-      catalog = Vocabulary.templates.map do |t|
-        { id: t['id'], name: t['name'], unlock_level: t['unlock_level'], unlocked: level >= t['unlock_level'],
-          topics: Vocabulary.request_context(t)['focus'].map { |f| f['en'] } }
-      end
-      context = Vocabulary.request_context(piece)
-      next_level = Vocabulary.branch_level(piece['tier'])
-      offer = current_offer(ledger, current[:id])
-      { selected_id: selection['selected_id'], effective_id: current[:template] || current[:id], name: piece['name'],
-        selection_required: selection['selected_id'].nil? && current[:record].nil?,
-        selected_unlocked: !!(selection['selected_id'] && catalog.find { |c| c[:id] == selection['selected_id'] }&.fetch(:unlocked)),
-        catalog: catalog, learning_bias: { topics: context['focus'].map { |f| f['en'] }, max_topic_fraction: 0.5 },
-        current: { id: current[:id], name: piece['name'], description: piece['description'], focus: context['focus'],
-                   habits: context['habits'], tier: piece['tier'], parents: piece['parents'], origin: piece['origin'] },
-        lineage: profession_lineage(piece),
-        branch: { next_level: next_level, due: !next_level.nil? && level >= next_level && offer.nil?,
+      context = Vocabulary.request_context(piece || { 'focus' => [], 'habits' => Vocabulary::NO_PROFESSION_HABITS })
+      tier = piece ? piece['tier'] : 0
+      opens = Vocabulary.branch_level(tier)
+      offer = current_offer(ledger, current && current[:id])
+      { selected_id: selection['selected_id'], effective_id: current && (current[:template] || current[:id]), name: piece && piece['name'],
+        learning_bias: { topics: context['focus'].map { |f| f['en'] }, max_topic_fraction: 0.5 },
+        current: current && { id: current[:id], name: piece['name'], description: piece['description'], focus: context['focus'],
+                              habits: context['habits'], tier: piece['tier'], parents: piece['parents'], origin: piece['origin'] },
+        tier: tier, lineage: piece ? profession_lineage(piece) : [],
+        branch: { due: !opens.nil? && level >= opens && offer.nil?,
                   offer: offer && { offer: offer[:sha], candidates: offer[:doc]['candidates'] } },
-        note: 'A profession changes what and how this Kairomone learns, never what it may do: no tool, permission, limit, run or L0 changes with it.' }
+        note: 'A profession changes what and how this Kairomone learns, never what it may do: no tool, permission, limit, run or L0 changes with it.' +
+              (current ? '' : ' This Kairomone has no profession yet; it chooses one from its first branch offer.') }
     end
 
-    # The composer offers exactly three professions derived from the current
-    # one, once the branch level is reached. Nothing takes effect until the
-    # owner chooses; asking for three new ones is another offer.
+    # The composer offers exactly three professions generated from this
+    # individual's own profile and material, lineage and growth
+    # (profession_material), while the level is at or past the next branch
+    # level. Nothing takes effect until the owner chooses; asking for three
+    # new ones is another offer. An individual with no profession offers
+    # candidates whose parents are [].
     def offer_professions(candidates:)
       with_lock do
         ensure_writable!('L2')
         ledger = chain
         level = progression_status(ledger)[:level]
         current = current_profession(ledger, level: level)
-        tier = current[:piece]['tier']
-        next_level = Vocabulary.branch_level(tier) or raise Error, 'This profession has no further branch'
-        raise Error, "The next branch opens at level #{next_level}; this Kairomone is level #{level}" if level < next_level
+        tier = current ? current[:piece]['tier'] : 0
+        opens = Vocabulary.branch_level(tier)
+        raise Error, 'No branch is open for this profession' if opens.nil? || level < opens
         raise Error, 'An offer holds exactly three professions' unless candidates.is_a?(Array) && candidates.length == 3
 
-        pieces = candidates.map { |c| Profession.build(c, parents: [current[:id]], tier: tier + 1, origin: 'branch') }
+        parents = current ? [current[:id]] : []
+        pieces = candidates.map { |c| Profession.build(c, parents: parents, tier: tier + 1, origin: 'branch') }
         ComposedText.guard!(pieces.flat_map { |p| Profession.texts(p) }) # offers stay on disk and travel in backups
         raise Error, 'The three professions need three different names' unless pieces.map { |p| p['name'] }.uniq.length == pieces.length
 
-        doc = { 'kind' => 'profession_offer', 'from' => current[:id], 'tier' => tier + 1, 'level' => level,
+        from = current && current[:id]
+        doc = { 'kind' => 'profession_offer', 'from' => from, 'tier' => tier + 1, 'level' => level,
                 'candidates' => pieces, 'offered_at' => Time.now.utc.iso8601 }
         sha = write_piece('proposals', doc)
-        Records.append!(ledger, [{ 'type' => 'kairomone_offer', 'sha256' => sha, 'from' => current[:id], 'tier' => tier + 1 }], -> { chain })
+        Records.append!(ledger, [{ 'type' => 'kairomone_offer', 'sha256' => sha, 'from' => from, 'tier' => tier + 1 }], -> { chain })
         { success: true, offer: sha, candidates: pieces, kairomone: address,
           note: 'Show the owner all three. One takes effect only when they choose it; they may ask for three new ones instead.' }
       end
+    end
+
+    # What the composer generates a branch's three professions from (0.9 N4):
+    # the profile in force, the creation material's kind and hash (and the
+    # host's instruction-mode text only while its sha256 is still that hash;
+    # 0.8 stores no material text), the profession and individual lineage,
+    # the learned subjects, the skills in force and the titles of the newest
+    # own growth entries. L1 comes only from own growth entries (0.9 Inv 10).
+    def profession_material(titles: 20)
+      ensure_initialized!
+      ledger = chain
+      growth = own_growth(ledger)
+      made = Records.of_type(ledger, 'kairomone_profile').first
+      kind = made ? (made['material_kind'] || 'none') : (legacy_profile ? 'legacy' : 'none')
+      material_sha = made && Progression::SHA.match?(made['material_sha256'].to_s) ? made['material_sha256'] : nil
+      text = nil
+      text_note = if kind == 'instruction_mode' && material_sha
+                    mode = instruction_mode_material
+                    if mode[:present] && mode[:sha256] == material_sha && mode[:text]
+                      text = mode[:text]
+                      "The host's instruction mode #{mode[:name]} is still the text this Kairomone was made from"
+                    else
+                      'The instruction-mode text this Kairomone was made from is no longer available'
+                    end
+                  else
+                    'Kairomone stores no material text, only its kind and hash'
+                  end
+      names = knowledge_entries(ledger).to_h { |e| [e['id'], e['title']] }
+      status = profession_status
+      current = status[:current]
+      { success: true, kairomone: address, profile: profile,
+        material: { kind: kind, sha256: material_sha, text: text, note: text_note },
+        profession: current && current.slice(:name, :description, :focus, :habits, :tier),
+        profession_lineage: status[:lineage].map { |l| l[:name] },
+        lineage: Records.of_type(ledger, 'kairomone_lineage').map { |r| { kind: r['kind'].to_s, sources: Array(r['sources']).filter_map { |src| src['name'] if src.is_a?(Hash) } } },
+        learned_subjects: learned_subjects(growth),
+        skills: skills_in_force(ledger, growth).map { |s| skill_view(nil, s[:piece]).except('source', 'present') },
+        own_growth_titles: growth[:cycles].reverse.first(titles).map { |c| names[c['l1_id']] }.compact,
+        branch_due: status[:branch][:due],
+        note: 'Generate exactly three professions from this material — name, description, up to eight focus subject IDs and one ' \
+              'value for each habit — and offer them (kairomone_profession offer). Never tell the owner when a branch comes.' }
     end
 
     # The owner chooses one of the latest offer's three professions.
@@ -153,7 +209,7 @@ module Kairomone
           next { success: true, chosen: true, preserved: true, sha256: prior['sha256'], profession: profession_status, kairomone: address }
         end
         current = current_profession(ledger)
-        latest = current_offer(ledger, current[:id])
+        latest = current_offer(ledger, current && current[:id])
         raise Error, 'This is not the latest offer for the current profession' unless latest && latest[:sha] == offer
 
         piece = latest[:doc]['candidates'][index]
@@ -197,23 +253,10 @@ module Kairomone
       end
     end
 
-    # A 0.6 template selection (kept: a 0.6 selection reads as its template).
-    def select_profession(id:)
-      template = Vocabulary.template(id) or raise Error, 'Unknown profession ID'
-      with_lock do
-        ensure_initialized!
-        raise Error, 'Restored targets are read-only' if @restored
-        raise Error, 'This Kairomone has an accepted profession; a new one comes from its branch offers' if Records.of_type(chain, 'kairomone_profession').any?
-        level = progression_status[:level]
-        raise Error, "Profession unlocks at level #{template['unlock_level']}" unless level >= template['unlock_level']
-        previous = profession_selection
-        preserved = previous['selected_id'] == id
-        unless preserved
-          value = { 'schema_version' => 1, 'selected_id' => id, 'selected_at' => Time.now.utc.iso8601 }
-          Paths.write(root, 'profession.json', JSON.pretty_generate(value) + "\n", replace: true)
-        end
-        { success: true, preserved: preserved, profession: profession_status, kairomone: address }
-      end
+    # A 0.6 template selection is no longer made (0.9 N4); one already made
+    # still reads as its template.
+    def select_profession(id: nil)
+      raise Error, Profession::SELECTION_GONE
     end
 
     def validate_profession!(value)
@@ -251,7 +294,8 @@ module Kairomone
       Profession.shape?(piece) ? piece : nil
     end
 
-    # The latest offer made from this profession and not yet answered.
+    # The latest offer made from this profession (nil: from none) and not yet
+    # answered.
     def current_offer(ledger, from)
       answered = Records.of_type(ledger, 'kairomone_profession').filter_map { |r| r['offer_sha256'] }
       record = Records.of_type(ledger, 'kairomone_offer').reverse.find { |r| r['from'] == from }

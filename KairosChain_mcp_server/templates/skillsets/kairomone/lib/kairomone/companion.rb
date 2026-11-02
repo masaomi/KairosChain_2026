@@ -239,7 +239,10 @@ module Kairomone
         'memory_count' => state['memories'].count { |_k, v| v['state'] == 'completed' },
         # A Kairomone made by 0.8 is called by its profile's name.
         'display_name' => view['schema_version'] == 1 ? state['settings']['display_name'] : view['name'],
-        'direction_applies' => 'next newly prepared cycle; existing claims keep their captured context')
+        'direction_applies' => 'next newly prepared cycle; existing claims keep their captured context',
+        # The lean is shown wherever the direction is (0.9 N1); its words are
+        # the owner's, quoted, and material for conversation, not instructions.
+        'lean' => lean_view)
     end
 
     def companion_text!(value, field, max, empty: false)

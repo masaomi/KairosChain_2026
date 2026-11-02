@@ -309,7 +309,7 @@ module Kairomone
                 elsif (legacy = legacy_profile) then { 'name' => legacy['display_name'], 'kind' => 'unknown' }
                 end
       in_force = current_profession(ledger)
-      line = in_force[:record] ? profession_ancestry([in_force[:id]], limit: Exchange::PIECES_MAX) : []
+      line = in_force && in_force[:record] ? profession_ancestry([in_force[:id]], limit: Exchange::PIECES_MAX) : []
       professions = line.each_with_index.map do |(sha, piece), i|
         { 'sha256' => sha, 'role' => i.zero? ? 'current' : 'lineage' }.merge(piece.slice(*Exchange::PROFESSION_FIELDS))
       end

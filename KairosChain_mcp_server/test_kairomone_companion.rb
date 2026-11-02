@@ -1,4 +1,7 @@
 # frozen_string_literal: true
+#
+# Changed for Kairomone 0.9 (design log/kairomone_0_9_screens_and_generated_growth_design_v0.2_20261102.md,
+# N3): a request declares 1-3 subject IDs; each request here declares one.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'kairomone'
@@ -181,15 +184,15 @@ class KairomoneCompanionTest < Minitest::Test
   def test_direction_is_captured_for_new_request_not_retroactively
     run = @store.autonomy.run_start(owner_words: 'Fixture run', cycles: 5)
     step = { run_id: run[:run_id], token: run[:token] }
-    @store.autonomy.request(**step, request_id: 'cycle_one', topic: 'Evidence')
+    @store.autonomy.request(**step, request_id: 'cycle_one', topic: 'Evidence', subjects: %w[geology])
     first = @store.autonomy.status['queue']['companion']
     assert_equal 0, first['revision']
     @store.configure_companion(request_id: 'direction', expected_revision: 0, direction: { 'preset' => 'research', 'text' => 'New topic' })
     assert_equal first, @store.autonomy.status['queue']['companion']
-    assert @store.autonomy.request(**step, request_id: 'cycle_one', topic: 'Evidence')['preserved']
+    assert @store.autonomy.request(**step, request_id: 'cycle_one', topic: 'Evidence', subjects: %w[geology])['preserved']
     @store.autonomy.run_stop(reason: 'Fixture stop')
     run = @store.autonomy.run_start(owner_words: 'Fixture run two', cycles: 5)
-    @store.autonomy.request(run_id: run[:run_id], token: run[:token], request_id: 'cycle_two', topic: 'New evidence')
+    @store.autonomy.request(run_id: run[:run_id], token: run[:token], request_id: 'cycle_two', topic: 'New evidence', subjects: %w[geology])
     assert_equal 1, @store.autonomy.status['queue']['companion']['revision']
     assert_equal 'New topic', @store.autonomy.status['queue']['companion']['direction']['text']
   end

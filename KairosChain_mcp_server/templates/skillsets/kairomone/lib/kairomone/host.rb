@@ -85,7 +85,8 @@ module Kairomone
       { success: true, instruction_mode: Profile.instruction_mode_material(host_root),
         kinds: Vocabulary.characters, material_kinds: Profile::MATERIAL_KINDS, kairomones: summaries,
         note: 'Draft a profile from this material and show it to the owner in full; a new Kairomone is made only from the ' \
-              'profile and first profession they accept (kairomone_create). Name a Kairomone for its own material and seeds.' }
+              'profile they accept (kairomone_create), with no profession until its first branch offer. Name a Kairomone for its ' \
+              'own material and seeds.' }
     end
 
     # Summary of every listed individual, for reads that name none.
@@ -133,33 +134,26 @@ module Kairomone
       end
     end
 
-    # kairomone_create: a new Kairomone from the profile and first profession
-    # the owner accepted in the conversation (creation is their acceptance).
-    # profession: { 'template' => id } or a drafted profession.
-    def create(listing_id:, profile:, profession:, material_kind: 'none', material_sha256: nil)
+    # kairomone_create: a new Kairomone from the profile the owner accepted in
+    # the conversation (creation is their acceptance). It has no profession:
+    # its first comes from its first branch offer (0.9 Inv 5, N4).
+    def create(listing_id:, profile:, material_kind: 'none', material_sha256: nil)
       Paths.id!(listing_id)
       Profile.material!(material_kind, material_sha256)
       piece = Profile.build(profile, origin: 'create', material_sha256: material_sha256)
       ComposedText.guard!(Profile.texts(piece))
-      first = if profession.is_a?(Hash) && profession.transform_keys(&:to_s).keys == ['template']
-                template = Vocabulary.template(profession.transform_keys(&:to_s)['template']) or raise Error, 'Unknown profession template'
-                Profession.from_template(template).merge('origin' => 'create', 'parents' => ["template:#{template['id']}"])
-              else
-                Profession.build(profession, parents: [], tier: 0, origin: 'create')
-              end
-      ComposedText.guard!(Profession.texts(first))
       with_registry_lock do
         # A retry after a lost acknowledgement finds the Kairomone it made:
-        # same identity, same profile and first profession (times aside).
+        # same identity and profile (times aside).
         if (same = listing.find { |l| l[:listing_id] == listing_id })
           made = Instance.new(host_root: host_root, root: same[:root])
-          if made.created_with?(listing_id, piece, first)
+          if made.created_with?(listing_id, piece)
             next { success: true, created: false, preserved: true, kairomone: made.address, profile: made.profile,
                    profession: made.profession_status[:current] }
           end
         end
         root = assemble(listing_id) do |staged|
-          staged.open_new!(identity: listing_id, origin: 'create', listing_id: listing_id, profile_piece: piece, profession_piece: first,
+          staged.open_new!(identity: listing_id, origin: 'create', listing_id: listing_id, profile_piece: piece,
                            material: { 'material_kind' => material_kind, 'material_sha256' => material_sha256 })
         end
         store = Instance.new(host_root: host_root, root: root)

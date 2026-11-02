@@ -73,19 +73,22 @@ module KairosMcp
 
         class Create < Base
           def name; 'kairomone_create'; end
-          def description; 'Make a new Kairomone from the profile and first profession the owner accepted in this conversation (creation is their acceptance): show both to the owner in full first. profession is {template: ID} (kairomone_profession templates) or a drafted profession whose focus and habits come from the shipped vocabularies. The listing ID becomes its permanent identity.'; end
+          def description; 'Make a new Kairomone from the profile the owner accepted in this conversation (creation is their acceptance): show it to the owner in full first. It takes no profession: a new Kairomone has none until it chooses one of the three its first branch offer composes from its own growth. The listing ID becomes its permanent identity.'; end
           def input_schema
             { type: 'object', properties: {
               kairomone: { type: 'string', description: 'Listing ID and identity of the new Kairomone' },
-              profile: { type: 'object', description: 'name, kind, kind_label, appearance, personality[], voice, interests[]' },
-              profession: { type: 'object', description: '{template: ID} or {name, description, focus[], habits{sources, depth, reflection, stance}}' },
+              profile: { type: 'object', description: 'name, kind (a shipped kind or other), kind_label, appearance, personality[], voice, interests[]' },
               material_kind: { type: 'string', enum: ::Kairomone::Profile::MATERIAL_KINDS }, material_sha256: { type: 'string' }
-            }, required: %w[kairomone profile profession], additionalProperties: false }
+            }, required: %w[kairomone profile], additionalProperties: false }
           end
           def call(args)
             output do
               single_owner!
-              ::Kairomone::Host.new.create(listing_id: args['kairomone'], profile: args['profile'], profession: args['profession'],
+              if args.key?('profession')
+                template = args['profession'].is_a?(Hash) && args['profession'].key?('template')
+                raise ::Kairomone::Error, (template ? 'kairomone_create takes no {template:}. ' : 'kairomone_create takes no profession. ') + ::Kairomone::Profession::SELECTION_GONE
+              end
+              ::Kairomone::Host.new.create(listing_id: args['kairomone'], profile: args['profile'],
                                            material_kind: args.fetch('material_kind', 'none'), material_sha256: args['material_sha256'])
             end
           end
@@ -172,19 +175,23 @@ module KairosMcp
 
         class Art < Base
           def name; 'kairomone_art'; end
-          def description; 'A Kairomone\'s drawing: an anthropomorphised, cute character of its kind, drawn by you from its profile as static SVG. propose checks the drawing (svg, g, path, circle, ellipse, rect, line, polyline, polygon, defs, gradients, stop, clipPath, title, desc; geometric and presentation attributes; viewBox; no style, href, event handlers or outside references; at most 64 KiB) and stores it as a proposal, which changes nothing; accept puts it in force only when the owner accepted it in the conversation; get returns the drawing in force (or a named one) checked again, or the built-in egg. A drawing is due at hatch (level 5) and at each later stage.'; end
+          def description; 'A Kairomone\'s drawing: what the character is now — any living, imagined or inanimate thing, anthropomorphised and cute — drawn by you as static SVG, each drawing continuing from the one before. material returns what to draw from (profile, level and milestone, stage, profession, skills, learned subjects, the previous drawing and its form); propose checks the drawing (svg, g, path, circle, ellipse, rect, line, polyline, polygon, defs, gradients, stop, clipPath, title, desc; geometric and presentation attributes; viewBox; no style, href, event handlers or outside references; at most 64 KiB) with form (what it is now, at most 80 bytes) and stores it as a proposal, which changes nothing; accept puts it in force only when the owner accepted it in the conversation; get returns the drawing in force (or a named one) checked again, or the built-in egg; history lists every accepted drawing in order. A drawing is due at every tenth level (10, 20, 30, …) the drawing shown does not answer yet.'; end
           def input_schema
-            { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: %w[propose accept get] },
-              svg: { type: 'string', description: 'propose: the drawing as SVG text' }, proposal: { type: 'string', description: 'accept: the proposal sha256' },
+            { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: %w[material propose accept get history] },
+              svg: { type: 'string', description: 'propose: the drawing as SVG text' },
+              form: { type: 'string', description: 'propose: what the character is now (display text, at most 80 bytes)' },
+              proposal: { type: 'string', description: 'accept: the proposal sha256' },
               sha256: { type: 'string', description: 'get: an accepted drawing (default: the one in force)' } }, required: ['command'], additionalProperties: false }
           end
           def call(args)
             output do
               case args['command']
-              when 'propose' then instance(args).propose_art(svg: args['svg'])
+              when 'material' then instance(args, read: true).art_material
+              when 'propose' then instance(args).propose_art(svg: args['svg'], form: args['form'])
               when 'accept' then instance(args).accept_art(proposal: args['proposal'])
               when 'get' then instance(args, read: true).art_get(sha256: args['sha256'])
-              else raise ::Kairomone::Error, 'Expected propose, accept or get'
+              when 'history' then instance(args, read: true).art_history_status
+              else raise ::Kairomone::Error, 'Expected material, propose, accept, get or history'
               end
             end
           end
@@ -249,13 +256,13 @@ module KairosMcp
 
         class Profession < Base
           def name; 'kairomone_profession'; end
-          def description; 'A Kairomone\'s profession: what and how it learns, never what it may do. status shows the profession in force, its lineage and whether a branch is due (levels 10, 30, 100, 300, 600); offer stores exactly three professions derived from the current one, which change nothing; choose puts one in force only when the owner chose it in the conversation (or offer again for three new ones); accept puts a profession received by exchange in force when the owner accepted it; templates and subjects list the shipped vocabularies; list and select keep the 0.6 template selection.'; end
+          def description; 'A Kairomone\'s profession: what and how it learns, never what it may do. A Kairomone has none until it chooses one. status shows the profession in force (or none), its lineage, the branches taken (tier) and whether a branch is due; material returns what to compose a branch from (profile, creation material, lineage, learned subjects, skills, own growth titles); offer stores exactly three professions you generated from that material, which change nothing; choose puts one in force only when the owner chose it in the conversation (or offer again for three new ones); after a choice the next branch may be due at once; accept puts a profession received by exchange in force when the owner accepted it; subjects lists the subject and habit vocabularies. Never tell the owner when a branch comes. templates and select are refused: there is no fixed list.'; end
           def input_schema
-            { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: %w[status offer choose accept templates subjects list select] },
+            { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: %w[status material offer choose accept subjects list templates select] },
               candidates: { type: 'array', items: { type: 'object' }, description: 'offer: three {name, description, focus[], habits{sources, depth, reflection, stance}}' },
               offer: { type: 'string', description: 'choose: the offer sha256' }, index: { type: 'integer', minimum: 0, maximum: 2 },
               proposal: { type: 'string', description: 'accept: a received profession proposal sha256' },
-              id: { type: 'string', description: 'select: a template ID' } }, required: ['command'], additionalProperties: false }
+              id: { type: 'string', description: 'select (refused since 0.9)' } }, required: ['command'], additionalProperties: false }
           end
           def call(args)
             output do
@@ -263,24 +270,47 @@ module KairosMcp
               when 'status', 'list'
                 store = instance(args, read: true)
                 { success: true, profession: store.profession_status, kairomone: store.address }
+              when 'material' then instance(args, read: true).profession_material
               when 'offer' then instance(args).offer_professions(candidates: args['candidates'])
               when 'choose' then instance(args).choose_profession(offer: args['offer'], index: args['index'])
               when 'accept' then instance(args).accept_profession(proposal: args['proposal'])
-              when 'select' then instance(args).select_profession(id: args['id'])
-              when 'templates' then { success: true, templates: ::Kairomone::Vocabulary.templates, habits: ::Kairomone::Vocabulary::HABITS }
+              when 'templates', 'select' then raise ::Kairomone::Error, "#{args['command']} is refused. #{::Kairomone::Profession::SELECTION_GONE}"
               when 'subjects' then { success: true, subjects: ::Kairomone::Vocabulary.subjects, habits: ::Kairomone::Vocabulary::HABITS, kinds: ::Kairomone::Vocabulary.characters }
-              else raise ::Kairomone::Error, 'Expected status, offer, choose, accept, templates, subjects, list or select'
+              else raise ::Kairomone::Error, 'Expected status, material, offer, choose, accept, subjects or list'
+              end
+            end
+          end
+        end
+
+        class Skill < Base
+          def name; 'kairomone_skill'; end
+          def description; 'A Kairomone\'s skills: learning methods and subjects drawn from one of its own growth entries (L1 it learned itself, still as that cycle recorded it). A skill changes how it learns, never what it may do. material lists its own growth entries and the method vocabulary; propose stores a drafted skill {name, description, methods[1-4], focus[0-4], source{entry_id, sha256}} as a proposal, which changes nothing; accept puts it in force only when the owner accepted it in the conversation (at most eight at once); retire takes one out of force at any time (it can be accepted again); list shows every skill, whether it is in force and why not, and the drafts that wait. A skill whose source entry no longer matches is out of force.'; end
+          def input_schema
+            { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: %w[material propose accept retire list] },
+              skill: { type: 'object', description: 'propose: {name, description, methods[], focus[], source{entry_id, sha256}}' },
+              proposal: { type: 'string', description: 'accept: the proposal sha256' },
+              sha256: { type: 'string', description: 'retire: the skill sha256' } }, required: ['command'], additionalProperties: false }
+          end
+          def call(args)
+            output do
+              case args['command']
+              when 'material' then instance(args, read: true).skill_material
+              when 'propose' then instance(args).propose_skill(skill: args['skill'])
+              when 'accept' then instance(args).accept_skill(proposal: args['proposal'])
+              when 'retire' then instance(args).retire_skill(sha256: args['sha256'])
+              when 'list' then instance(args, read: true).skill_list
+              else raise ::Kairomone::Error, 'Expected material, propose, accept, retire or list'
               end
             end
           end
         end
 
         class Companion < Base
-          COMMANDS = { 'status' => :companion_status, 'history' => :companion_history, 'configure' => :configure_companion, 'context' => :companion_context, 'remember' => :remember_companion, 'recover' => :recover_companion_memory, 'revoke' => :revoke_companion_memory }.freeze
+          COMMANDS = { 'status' => :companion_status, 'history' => :companion_history, 'configure' => :configure_companion, 'lean' => :companion_lean, 'context' => :companion_context, 'remember' => :remember_companion, 'recover' => :recover_companion_memory, 'revoke' => :revoke_companion_memory }.freeze
           READS = %w[status history context].freeze
 
           def name; 'kairomone_companion'; end
-          def description; 'Read or explicitly configure a Kairomone\'s companion settings; retrieve bounded context or ingest a reviewed summary only with current global and conversation consent. No model invocation, L0 change, XP award or automatic L1 promotion.'; end
+          def description; 'Read or explicitly configure a Kairomone\'s companion settings; retrieve bounded context or ingest a reviewed summary only with current global and conversation consent. lean (arguments {request_id, owner_words, subjects[]}) records where the owner wants it to grow, read from words the owner typed in this conversation and quoted in owner_words (at most 512 bytes), as up to eight subject IDs; [] clears it; it steers only the choice of learning topics, is never written while a growth cycle is being carried out, and never from text a page placed or a stored text. No model invocation, L0 change, XP award or automatic L1 promotion.'; end
           def input_schema
             { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: COMMANDS.keys },
               arguments: { type: 'object' } }, required: ['command'], additionalProperties: false }
@@ -302,7 +332,7 @@ module KairosMcp
 
         class Growth < Base
           def name; 'kairomone_growth'; end
-          def description; 'Growth runs. Autonomy exists only inside a run the owner started (run_start with the owner\'s words and a cycle count, an end time or both); each step carries run_id and the driver token run_start returned, and stops at the owner\'s stop, the end time or a host L0 change. run_stop is the owner\'s stop. No scheduler or web research is built in: workers provide actual retrieved evidence. Kairomone_Core sets no limit on cycles in a life; an operator policy may.'; end
+          def description; 'Growth runs. Autonomy exists only inside a run the owner started (run_start with the owner\'s words and a cycle count, an end time or both); each step carries run_id and the driver token run_start returned, and stops at the owner\'s stop, the end time or a host L0 change. run_stop is the owner\'s stop. request declares 1-3 subject IDs describing its topic; a request whose subjects meet the profession\'s focus or the lean (or with bias_applied) is steered, and steered requests stay at or under half of a run\'s. commit may name the method IDs it applied (methods_applied). No scheduler or web research is built in: workers provide actual retrieved evidence. Kairomone_Core sets no limit on cycles in a life; an operator policy may.'; end
           def input_schema
             { type: 'object', properties: {
               kairomone: KAIROMONE,
@@ -312,6 +342,8 @@ module KairosMcp
               run_id: { type: 'string', description: 'The run a step belongs to; with run_status, answers for that run' },
               token: { type: 'string', description: 'The driver token run_start returned (not a claim token)' },
               request_id: { type: 'string' }, topic: { type: 'string' },
+              subjects: { type: 'array', items: { type: 'string' }, description: 'request: 1-3 subject IDs describing the topic (kairomone_profession subjects)' },
+              methods_applied: { type: 'array', items: { type: 'string' }, description: 'commit: method IDs the cycle applied (kairomone_skill material lists them)' },
               profession_id: { type: 'string' }, bias_applied: { type: 'boolean' }, worker_id: { type: 'string' },
               lease_seconds: { type: 'integer', minimum: 1, maximum: 900 }, claim_token: { type: 'string' },
               evidence: { type: 'object', description: 'Strict evidence: knowledge {title,content}, finding, uncertainty, counterexample, sources [{url,title,retrieved_at,excerpt,retrieval_reference,excerpt_sha256}]' }, reason: { type: 'string' }
@@ -327,10 +359,10 @@ module KairosMcp
               when 'run_start' then growth.run_start(owner_words: args['owner_words'], cycles: args['cycles'], end_at: args['end_at'])
               when 'run_stop' then growth.run_stop(reason: args.fetch('reason', 'Owner stop'))
               when 'run_status' then growth.run_status(run_id: args['run_id'])
-              when 'request' then growth.request(run_id: args['run_id'], token: args['token'], request_id: args['request_id'], topic: args['topic'], profession_id: args['profession_id'], bias_applied: args.fetch('bias_applied', false))
+              when 'request' then growth.request(run_id: args['run_id'], token: args['token'], request_id: args['request_id'], topic: args['topic'], subjects: args['subjects'], profession_id: args['profession_id'], bias_applied: args.fetch('bias_applied', false))
               when 'claim' then growth.claim(run_id: args['run_id'], token: args['token'], worker_id: args['worker_id'], lease_seconds: args.fetch('lease_seconds', 300))
               when 'heartbeat' then growth.heartbeat(run_id: args['run_id'], token: args['token'], claim_token: args['claim_token'])
-              when 'commit' then growth.commit(run_id: args['run_id'], token: args['token'], claim_token: args['claim_token'], evidence: args['evidence'])
+              when 'commit' then growth.commit(run_id: args['run_id'], token: args['token'], claim_token: args['claim_token'], evidence: args['evidence'], methods_applied: args['methods_applied'])
               when 'fail' then growth.fail(run_id: args['run_id'], token: args['token'], claim_token: args['claim_token'], reason: args['reason'])
               when 'configure', 'stop'
                 raise ::Kairomone::Error, "growth #{args['command']} belonged to the 0.6 lifetime budget, which 0.8 removed; use run_start / run_stop"

@@ -40,7 +40,7 @@ module Kairomone
 
     def valid?(archive, key)
       sig = archive['signature']
-      return false unless key && archive['version'] == 2 && sig.is_a?(Hash) && sig['algorithm'] == 'HMAC-SHA256'
+      return false unless key && Instance::SIGNED_VERSIONS.include?(archive['version']) && sig.is_a?(Hash) && sig['algorithm'] == 'HMAC-SHA256'
       return false unless sig['key_sha256'] == fingerprint(key) && sig['value'].is_a?(String) && sig['value'].bytesize == 64
 
       OpenSSL.fixed_length_secure_compare(sig['value'], sign(key, archive['manifest_sha256'].to_s))
@@ -59,10 +59,23 @@ module Kairomone
     # never looked at by restore.
     FIXED_PATHS = ['profile.json', 'profession.json', 'growth/state.json', 'growth/runs.json', 'transplants.json',
                    'companion/state.json', 'companion/memory-gate.json', LEDGER_PATH].freeze
-    PIECE_DIRS = { 'profile' => '.json', 'professions' => '.json', 'art' => '.svg', 'proposals' => '.json', 'lineage' => '.json' }.freeze
-    PIECE_KINDS = { 'kairomone_profile' => 'profile', 'kairomone_profession' => 'professions', 'kairomone_art' => 'art' }.freeze
+    PIECE_DIRS = { 'profile' => '.json', 'professions' => '.json', 'art' => '.svg', 'proposals' => '.json', 'lineage' => '.json',
+                   'skills' => '.json' }.freeze
+    # The accepted pieces an archive of each version must carry: the kinds
+    # its writer knew. An archive is judged by the rules of the version that
+    # wrote it, never by newer ones (Inv 1): version 1 (0.6.1) restores with
+    # what it holds, version 2 (0.8) must hold the 0.8 kinds, version 3 (0.9)
+    # every kind, skills included.
+    PIECE_KINDS_08 = { 'kairomone_profile' => 'profile', 'kairomone_profession' => 'professions', 'kairomone_art' => 'art' }.freeze
+    PIECE_KINDS = PIECE_KINDS_08.merge('kairomone_skill' => 'skills').freeze
+    ARCHIVE_VERSION = 3
+    SIGNED_VERSIONS = [2, 3].freeze
+    # Piece directories the 0.8 path set did not hold.
+    PIECE_DIRS_SINCE = { 'skills' => 3 }.freeze
 
-    def self.backup_path?(relative)
+    # version: the archive version whose path set applies (default: this
+    # Kairomone's own).
+    def self.backup_path?(relative, version = ARCHIVE_VERSION)
       return false unless relative.is_a?(String)
       return true if FIXED_PATHS.include?(relative)
 
@@ -73,13 +86,22 @@ module Kairomone
       if parts.length == 4 && parts[0] == 'context' && [L2_SESSION, CHAT_SESSION].include?(parts[1])
         return Paths::ID.match?(parts[2]) && parts[3] == "#{parts[2]}.md"
       end
-      if parts.length == 2 && PIECE_DIRS.key?(parts[0])
+      if parts.length == 2 && PIECE_DIRS.key?(parts[0]) && version >= PIECE_DIRS_SINCE.fetch(parts[0], 1)
         return parts[1].match?(/\A[0-9a-f]{64}#{Regexp.escape(PIECE_DIRS[parts[0]])}\z/)
       end
       false
     end
 
-    # Creates a version-2 backup in this individual's backups/ and verifies
+    # The accepted piece kinds an archive of this version must carry.
+    def self.required_piece_kinds(version)
+      case version
+      when 1 then {}
+      when 2 then PIECE_KINDS_08
+      else PIECE_KINDS
+      end
+    end
+
+    # Creates a version-3 backup in this individual's backups/ and verifies
     # the file just written. Refused, listing them, when a piece the ledger
     # records as accepted is absent and not recorded missing.
     def create_backup
@@ -106,7 +128,7 @@ module Kairomone
           manifest = self.class.manifest_hash(files)
           # identity and listing_id are informational: the signature covers the
           # manifest only, and restore reads the identity from the files.
-          archive = { 'format' => ARCHIVE_FORMAT, 'version' => 2, 'created_at' => Time.now.utc.iso8601,
+          archive = { 'format' => ARCHIVE_FORMAT, 'version' => ARCHIVE_VERSION, 'created_at' => Time.now.utc.iso8601,
                       'identity' => identity(ledger), 'listing_id' => listing_id,
                       'scope' => BACKUP_SCOPE, 'excluded' => BACKUP_EXCLUDED, 'files' => files, 'manifest_sha256' => manifest,
                       'signature' => { 'algorithm' => 'HMAC-SHA256', 'key_sha256' => ArchiveKey.fingerprint(key), 'value' => ArchiveKey.sign(key, manifest) } }
@@ -131,7 +153,7 @@ module Kairomone
           staged.place_archive_files!(files)
           snapshot = staged.status
           staged.send(:backup_ready!, snapshot)
-          absent = archive['version'] == 2 ? staged.send(:absent_accepted_pieces, staged.chain) : []
+          absent = staged.send(:absent_accepted_pieces, staged.chain, kinds: self.class.required_piece_kinds(archive['version']))
           raise Error, 'The archive lacks accepted pieces its ledger names' unless absent.empty?
 
           { success: true, verified: true, file: file, file_count: files.length, version: archive['version'],
@@ -180,7 +202,11 @@ module Kairomone
     # nothing in an archive is judged by rules newer than its data.
     def self.load_archive(bytes)
       archive = JSON.parse(bytes)
-      raise Error, 'Unsupported backup format' unless archive.is_a?(Hash) && archive['format'] == ARCHIVE_FORMAT && [1, 2].include?(archive['version'])
+      raise Error, 'Unsupported backup format' unless archive.is_a?(Hash) && archive['format'] == ARCHIVE_FORMAT
+      unless [1, 2, ARCHIVE_VERSION].include?(archive['version'])
+        raise Error, "This backup is archive version #{archive['version'].to_s[0, 16]}; Kairomone #{Kairomone::VERSION} reads versions 1–#{ARCHIVE_VERSION} " \
+                     '(a newer Kairomone wrote it: restore it there)'
+      end
       files = archive['files']
       raise Error, 'Invalid backup file count' unless files.is_a?(Array) && files.length.between?(1, MAX_ENTRIES * 4 + 4_000)
       seen = {}
@@ -188,7 +214,7 @@ module Kairomone
       decoded = files.map do |entry|
         raise Error, 'Invalid archive entry' unless entry.is_a?(Hash) && entry.keys.sort == %w[content_base64 path sha256 size]
         relative = entry['path']
-        raise Error, 'Forbidden or duplicate archive path' unless backup_path?(relative) && !seen[relative]
+        raise Error, 'Forbidden or duplicate archive path' unless backup_path?(relative, archive['version']) && !seen[relative]
         seen[relative] = true
         size = entry['size']
         maximum = relative == LEDGER_PATH ? LEDGER_LIMIT : FILE_LIMIT
@@ -268,14 +294,15 @@ module Kairomone
       paths.sort
     end
 
-    # Accepted pieces (profile versions, professions, drawings) whose files
-    # are absent and that no kairomone_missing or kairomone_restored record
-    # excuses.
-    def absent_accepted_pieces(ledger)
+    # Accepted pieces (profile versions, professions, drawings, skills —
+    # retired ones too, since versions stay readable) whose files are absent
+    # and that no kairomone_missing or kairomone_restored record excuses.
+    # kinds: the piece kinds to look at (an older archive's own set).
+    def absent_accepted_pieces(ledger, kinds: PIECE_KINDS)
       accepted = []
       excused = []
       Records.each(ledger) do |record, _|
-        if (dir = PIECE_KINDS[record['type']]) && Progression::SHA.match?(record['sha256'].to_s)
+        if (dir = kinds[record['type']]) && Progression::SHA.match?(record['sha256'].to_s)
           accepted << { 'kind' => dir, 'sha256' => record['sha256'] }
         elsif %w[kairomone_missing kairomone_restored].include?(record['type'])
           key = record['type'] == 'kairomone_missing' ? 'pieces' : 'missing'
@@ -367,8 +394,9 @@ module Kairomone
     private
 
     # Integrity only: the stored individual must read, hold the expected
-    # identity, take a free listing ID, and (version 2) hold every accepted
-    # piece; what a version-1 archive lacks is reported, never invented.
+    # identity, take a free listing ID, and hold every accepted piece of the
+    # kinds its version knew; what it lacks of later kinds (and what a
+    # version-1 archive lacks) is reported, never invented.
     def restore_checks(staged, archive, files, listing_id, expected_identity)
       staged.place_archive_files!(files)
       staged.send(:backup_ready!, staged.status)
@@ -376,39 +404,54 @@ module Kairomone
       raise Error, "The archive holds #{identity}, not the expected #{expected_identity}" if expected_identity && identity != expected_identity
       listed = listing_id || identity
       raise Error, "#{listed} is already listed on this host; name another listing ID for this restore (its identity stays #{identity})" if listed?(listed)
-      absent = staged.send(:absent_accepted_pieces, staged.chain)
-      raise Error, "The archive lacks accepted pieces its ledger names (#{absent.length}); refused" if archive['version'] == 2 && !absent.empty?
+      required = staged.send(:absent_accepted_pieces, staged.chain, kinds: Instance.required_piece_kinds(archive['version']))
+      raise Error, "The archive lacks accepted pieces its ledger names (#{required.length}); refused" unless required.empty?
 
-      { listed: listed, missing: archive['version'] == 2 ? [] : absent }
+      { listed: listed, missing: staged.send(:absent_accepted_pieces, staged.chain) }
     end
   end
 
   class Instance
     # What a terminal restore shows before the owner confirms an unsigned
-    # archive (M15): profile, direction, personality, the count and titles of
-    # chat summaries and owner-written entries, and lineage.
+    # archive (M15; 0.9 Inv 1): profile, direction, personality, the lean in
+    # force and its words, the count and titles of chat summaries and of the
+    # entries that are not this individual's own growth, lineage, every
+    # skill's name and description, and every drawing's form.
     def restore_summary(archive, missing)
+      ledger = chain
       companion = companion_status[:companion]
       chats = verified_chat_entries.map { |e| e.description.to_s }
-      # An entry is a growth entry only when a recorded cycle names it (its
-      # ledger intent, or a completed request of the 0.6 growth state); an ID
-      # alone does not take an entry off this screen.
-      growth = Records.of_type(chain, 'kairomone_growth_completed').flat_map { |r| [r['l1_id'], r['l2_id']] }
-      legacy = autonomy.send(:legacy_state)
-      growth += legacy['requests'].values.select { |r| r['state'] == 'completed' }.flat_map { |r| [r.dig('result', 'l1_id'), r.dig('result', 'l2_id')] } if legacy
-      owned = knowledge_entries.reject { |e| growth.include?(e['id']) }.map { |e| "L1 #{e['title']}" } +
-              observation_entries.reject { |e| growth.include?(e['id']) }.map { |e| "L2 #{e['title']}" }
-      lineage = Records.of_type(chain, 'kairomone_lineage').map { |r| "#{r['kind']} from #{Array(r['sources']).map { |s| s['identity'] }.join(' + ')}" }
+      # Only an own growth entry (Instance#own_growth) is left off this
+      # screen: an ID, or a cycle record whose entry no longer matches it,
+      # does not take an entry off it.
+      own = own_growth_entries(own_growth(ledger))
+      owned = knowledge_entries(ledger).reject { |e| own.include?(['L1', e['id']]) }.map { |e| "L1 #{e['title']}" } +
+              observation_entries.reject { |e| own.include?(['L2', e['id']]) }.map { |e| "L2 #{e['title']}" }
+      lineage = Records.of_type(ledger, 'kairomone_lineage').map { |r| "#{r['kind']} from #{Array(r['sources']).map { |s| s['identity'] }.join(' + ')}" }
+      lean = lean_view(ledger)
+      skills = skill_states(ledger).map do |sha, state|
+        piece = skill_piece(sha)
+        label = piece ? "#{piece['name']} — #{piece['description']}" : "#{sha[0, 16]}… (its file is absent)"
+        "  - #{label}#{state[:accepted] ? '' : ' (retired)'}"
+      end
+      drawings = art_history(ledger).map do |d|
+        drawn = d['level'] ? "level #{d['level']}" : "stage #{d['stage'] || 'unknown'}"
+        "  - #{d['form'] || '(no form recorded)'} (#{drawn}#{d['missing'] ? ', missing' : ''})"
+      end
       p = profile
       lines = ["Archive version #{archive['version']}, manifest #{archive['manifest_sha256'][0, 16]}…, not signed by this host",
                "Kairomone: #{identity} (#{p['display_name'] || p['name']})",
                "Profile: #{JSON.generate(p.reject { |k, _| %w[dot_id display_name host_l0_baseline].include?(k) })}",
                "Direction: #{companion['direction']['preset']} — #{companion['direction']['text']}",
                "Personality: #{companion['personality']}",
+               "Lean: #{lean['subjects'].empty? ? 'none' : lean['subjects'].map { |s| s['en'] }.join(', ')}",
+               "Lean words: #{lean['owner_words'] || 'none recorded'}",
                "Chat summaries: #{chats.length}"] +
               chats.map { |t| "  - #{t}" } +
               ["Owner-written entries: #{owned.length}"] + owned.map { |t| "  - #{t}" } +
-              ["Lineage: #{lineage.empty? ? 'none recorded' : lineage.join('; ')}"]
+              ["Lineage: #{lineage.empty? ? 'none recorded' : lineage.join('; ')}",
+               "Skills: #{skills.length}"] + skills +
+              ["Drawings: #{drawings.length}"] + drawings
       lines << "Accepted pieces this archive lacks (restored without them): #{missing.length}" unless missing.empty?
       lines.map { |l| tty_safe(l) }
     end

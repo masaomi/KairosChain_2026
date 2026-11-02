@@ -15,6 +15,11 @@
 # test_a_copy_exports_only_what_its_importer_can_check includes received as
 # well; test_a_copy_of_a_copy_keeps_its_level re-exports learned and received
 # and expects those two kinds where it expected learned and owner_written.
+#
+# Changed for Kairomone 0.9 (design log/kairomone_0_9_screens_and_generated_growth_design_v0.2_20261102.md,
+# N3, N4, N5): create builds an individual as 0.8's kairomone_create left it
+# (a researcher template profession; 0.9 creates none), a request declares
+# its subjects, and a drawing is proposed with its form.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
@@ -30,8 +35,7 @@ class Kairomone08ExchangeTest < Minitest::Test
   def teardown = FileUtils.remove_entry_secure(@host)
 
   def create(id = 'momo')
-    Kairomone::Host.new.create(listing_id: id, profile: PROFILE, profession: { 'template' => 'researcher' }, material_kind: 'free_text')
-    Kairomone::Instance.new(host_root: @host, kairomone: id)
+    create_08(id, profile: PROFILE)
   end
 
   def evidence(content = 'What the cycle learned')
@@ -45,7 +49,7 @@ class Kairomone08ExchangeTest < Minitest::Test
     growth = store.autonomy
     run = growth.run_start(owner_words: 'One cycle', cycles: 1)
     step = { run_id: run[:run_id], token: run[:token] }
-    growth.request(**step, request_id: id, topic: 'Secret topic words')
+    growth.request(**step, request_id: id, topic: 'Secret topic words', subjects: SUBJECTS)
     claim = growth.claim(**step, worker_id: 'worker')
     growth.commit(**step, claim_token: claim['claim_token'], evidence: evidence(content))
   end
@@ -60,7 +64,7 @@ class Kairomone08ExchangeTest < Minitest::Test
     store.configure_companion(request_id: 'mem', expected_revision: 1, memory_enabled: true)
     store.remember_companion(request_id: 'chat', conversation_id: 'cc_one', message_ids: ['m1'], consent_revision: 2,
                              summary: 'A private chat about the garden', memory_enabled: true)
-    store.accept_art(proposal: store.propose_art(svg: Kairomone::Art::EGG)[:proposal])
+    store.accept_art(proposal: store.propose_art(svg: Kairomone::Art::EGG, form: 'An egg')[:proposal])
     store
   end
 

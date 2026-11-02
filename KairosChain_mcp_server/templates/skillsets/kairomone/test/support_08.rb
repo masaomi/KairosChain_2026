@@ -30,6 +30,38 @@ module Kairomone08Support
     Kairomone::Instance.new(host_root: @host, kairomone: id)
   end
 
+  # An individual as Kairomone 0.8's kairomone_create left it: the profile and
+  # a first profession (a template, or a drafted one) accepted at creation.
+  # 0.9 creates without a profession (design 0.9 N4); individuals 0.8 made
+  # keep theirs, so suites about professions in force start from this.
+  def create_08(id, profile:, template: 'researcher', profession: nil, material_kind: 'free_text')
+    piece = Kairomone::Profile.build(profile, origin: 'create')
+    first = if profession
+              Kairomone::Profession.build(profession, parents: [], tier: 0, origin: 'create')
+            else
+              t = Kairomone::Vocabulary.template(template) or raise "no template #{template}"
+              Kairomone::Profession.from_template(t).merge('origin' => 'create', 'parents' => ["template:#{t['id']}"])
+            end
+    host = Kairomone::Host.new(host_root: @host)
+    host.with_registry_lock do
+      host.assemble(id) do |s|
+        s.open_new!(identity: id, origin: 'create', listing_id: id, profile_piece: piece, profession_piece: first,
+                    material: { 'material_kind' => material_kind, 'material_sha256' => nil })
+      end
+    end
+    Kairomone::Instance.new(host_root: @host, kairomone: id)
+  end
+
+  # A 0.6 template selection, written as 0.6 wrote profession.json (0.9 makes
+  # none; one already made still reads as its template).
+  def select_06(store, id)
+    File.write(File.join(store.root, 'profession.json'),
+               JSON.pretty_generate({ 'schema_version' => 1, 'selected_id' => id, 'selected_at' => Time.now.utc.iso8601 }) + "\n", perm: 0o600)
+  end
+
+  # Subjects a request declares (0.9 N3); none is in a template's focus.
+  SUBJECTS = %w[geology].freeze
+
   def tool(klass, args)
     JSON.parse(TOOLS.const_get(klass).new(nil).call(args).first[:text])
   end

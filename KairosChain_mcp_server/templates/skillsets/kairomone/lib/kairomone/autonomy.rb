@@ -32,6 +32,7 @@ module Kairomone
     REQUEST_ID = /\A[a-z][a-z0-9_-]{0,39}\z/
     RUN_ID = /\Arun_\d{8}T\d{6}Z_[0-9a-f]{8}\z/
     REQUEST_STATES = %w[queued claimed committing completed failed expired interrupted abandoned].freeze
+    SUBJECTS_MAX = 3
 
     def initialize(instance:, clock: -> { Time.now.utc })
       @instance, @clock = instance, clock
@@ -112,27 +113,34 @@ module Kairomone
       end
     end
 
-    # The request carries what steers the cycle (Inv 4, M4): the owner's
-    # direction, once, in its companion snapshot and, in its context, only the
-    # focus names and habit values of the current profession the shipped
-    # vocabularies hold now.
-    def request(run_id:, token:, request_id:, topic:, profession_id: nil, bias_applied: false)
+    # The request carries what steers the cycle (0.8 Inv 4, M4; 0.9 Inv 4,
+    # N1-N3): the owner's direction, once, in its companion snapshot and, in
+    # its context, only closed-form values the shipped vocabularies hold now
+    # (Instance#request_context). It declares 1-3 subjects describing its
+    # topic; a request is steered when those meet the profession's focus or
+    # the lean, or when bias_applied says so, and steered requests stay at or
+    # under half of a run's requests (one counter per run).
+    def request(run_id:, token:, request_id:, topic:, subjects: nil, profession_id: nil, bias_applied: false)
       id!(request_id)
       text!(topic, 'topic', 512)
       raise Error, 'bias_applied must be boolean' unless [true, false].include?(bias_applied)
 
+      declared = request_subjects!(subjects)
       locked do
         state = load_state
         live = step!(state, run_id, token)
         # Read under the growth lock, once the run is stepped: what the
         # request pins is the profession in force when it is queued.
         profession = @instance.profession_status
-        unless profession_id.nil? || [profession[:effective_id], profession.dig(:current, :id)].include?(profession_id)
-          raise Error, 'Profession must match the current profession'
+        current = profession[:current]
+        unless profession_id.nil? || (current && [profession[:effective_id], current[:id]].include?(profession_id))
+          raise Error, current ? 'Profession must match the current profession' : 'This Kairomone has no profession yet; give no profession_id'
         end
-        raise Error, 'Profession bias needs focus subjects in the current profession' if bias_applied && profession.dig(:current, :focus).empty?
+        focus = current ? current[:focus] : []
+        raise Error, 'Profession bias needs focus subjects in the current profession' if bias_applied && focus.empty?
 
-        proposal = { 'request_id' => request_id, 'topic' => topic, 'profession_id' => profession[:effective_id], 'bias_applied' => bias_applied }
+        proposal = { 'request_id' => request_id, 'topic' => topic, 'subjects' => declared, 'profession_id' => profession[:effective_id],
+                     'bias_applied' => bias_applied }
         existing = state['requests'].find { |r| r['request_id'] == request_id }
         if existing && existing['run_id'] == run_id && existing['request'].reject { |k, _| %w[companion context].include?(k) } == proposal && existing['state'] == 'queued'
           next public_state(state).merge('preserved' => true, 'kairomone' => @instance.address)
@@ -142,14 +150,19 @@ module Kairomone
         raise Error, 'No further cycle can be admitted in this run' unless admissible?(live)
         raise Error, 'No room for this cycle: an individual holds at most 1,000 L1 and 1,000 L2 entries' unless @instance.room_for_cycle?
 
-        # The profession-specific fraction of a run's requests stays at or under 1/2.
+        # The steered fraction of a run's requests stays at or under 1/2.
+        steering = focus.map { |f| f['id'] } | @instance.lean_subject_ids
+        steered = bias_applied || !(declared & steering).empty?
         total = live['requests'] + 1
-        biased = live['biased'] + (bias_applied ? 1 : 0)
-        raise Error, 'Profession bias may cover at most half of a run\'s requested topics' if biased * 2 > total
+        biased = live['biased'] + (steered ? 1 : 0)
+        if biased * 2 > total
+          raise Error, 'Steered topics (subjects meeting the profession\'s focus or the lean, or bias_applied) may cover at most half of ' \
+                       'a run\'s requests; request a topic outside them now'
+        end
 
         snapshot = @instance.companion_status[:companion]
         proposal['companion'] = { 'revision' => snapshot['revision'], 'direction' => snapshot['direction'] }
-        proposal['context'] = { 'profession' => profession[:current].slice(:focus, :habits).transform_keys(&:to_s) }
+        proposal['context'] = @instance.request_context(profession)
         live['requests'] = total
         live['biased'] = biased
         state['queue'] = proposal.merge('run_id' => run_id)
@@ -222,14 +235,20 @@ module Kairomone
     # is live completes the writes; after the run ends an unfinished intent is
     # abandoned (entries that landed count under its identities, the others
     # hold nothing).
-    def commit(run_id:, token:, claim_token:, evidence:)
+    # methods_applied (optional): the method IDs the cycle applied, from the
+    # method vocabulary; carried on its kairomone_growth_completed record, not
+    # in the evidence, whose schema and hash are unchanged (0.9 N2).
+    def commit(run_id:, token:, claim_token:, evidence:, methods_applied: nil)
       normalized = validate_evidence!(evidence)
       digest = Digest::SHA256.hexdigest(JSON.generate(normalized))
+      applied = methods_applied!(methods_applied)
       locked do
         state = load_state
         done = token_string?(claim_token) && state['requests'].find { |r| r['claim_token_sha256'] == sha(claim_token) && r['state'] == 'completed' }
         if done
           raise Error, 'Completed claim retried with different evidence' unless done['evidence_sha256'] == digest
+          recorded = growth_intents(@instance.chain)[done['request_id']]
+          raise Error, 'Completed claim retried with different methods_applied' if recorded&.key?('methods_applied') && recorded['methods_applied'] != applied
           next done['result'].merge('preserved' => true, 'kairomone' => @instance.address)
         end
         live = step!(state, run_id, token)
@@ -239,14 +258,17 @@ module Kairomone
         ledger = @instance.chain
         intent = growth_intents(ledger)[request_id]
         raise Error, 'Retry evidence differs from the recorded commit intent' if intent && intent['evidence_sha256'] != digest
+        raise Error, 'Retry methods_applied differ from the recorded commit intent' if intent&.key?('methods_applied') && intent['methods_applied'] != applied
 
         request = entry['request']
         unless intent
           plan = growth_plan(request, normalized, digest, timestamp)
+          # subjects: what the request declared (none for one queued before 0.9).
           intent = { 'type' => 'kairomone_growth_completed', 'request_id' => request_id, 'run_id' => live['run_id'],
                      'created_at' => plan[:created_at], 'evidence_sha256' => digest, 'l1_id' => plan[:id], 'l2_id' => plan[:id],
                      'l1_identity' => plan[:l1_identity], 'l2_identity' => plan[:l2_identity],
-                     'l1_sha256' => Digest::SHA256.hexdigest(plan[:l1_raw]), 'l2_sha256' => Digest::SHA256.hexdigest(plan[:l2_raw]) }
+                     'l1_sha256' => Digest::SHA256.hexdigest(plan[:l1_raw]), 'l2_sha256' => Digest::SHA256.hexdigest(plan[:l2_raw]),
+                     'subjects' => request['subjects'].is_a?(Array) ? request['subjects'] : [], 'methods_applied' => applied }
           @instance.growth_record_intent!(intent, plan[:id])
         end
         # The cycle is committing only once its intent is on the ledger.
@@ -341,10 +363,38 @@ module Kairomone
 
     def synchronize(&block) = locked(&block)
 
-    # Read only, without the growth lock: what runs.json says now. Expired
-    # claims show as stale; run_status concludes them.
+    # Read only, without the growth lock: what runs.json says now (expired
+    # claims show as stale; run_status concludes them), and what this
+    # individual learned in its life: completed cycles by the one test of
+    # Instance#own_growth and the subjects they declared (0.9 N3).
     def status
-      public_state(load_state)
+      out = public_state(load_state)
+      learned = begin
+        growth = @instance.own_growth
+        @instance.lifetime_cycles(growth).merge('learned_subjects' => @instance.learned_subjects(growth))
+      rescue Error => e
+        { 'lifetime_cycles' => nil, 'lifetime_unknown' => { 'reason' => e.message, 'at_least' => 0 }, 'learned_subjects' => [] }
+      end
+      out.merge(learned)
+    end
+
+    # Whether a claim of this individual's run is open now: claimed, and not
+    # yet committed, failed or expired. The caller holds the growth lock.
+    def claim_open?
+      claim = load_state['active_claim']
+      !!(claim && Time.iso8601(claim['expires_at']) > now)
+    end
+
+    # The 0.6 growth state: [state, nil]; [nil, nil] when there is none;
+    # [nil, why] when it is present but cannot be read.
+    def legacy_growth_state
+      return [nil, nil] unless @instance.bound? && File.exist?(Paths.checked(@instance.root, STATE_PATH))
+
+      value = JSON.parse(Paths.read(@instance.root, STATE_PATH))
+      self.class.validate_legacy_state!(value)
+      [value, nil]
+    rescue JSON::ParserError, Error => e
+      [nil, e.message]
     end
 
     # Restore ends every live run of the restored individual (M6, M15): the
@@ -701,6 +751,34 @@ module Kairomone
 
     def id!(id)
       raise Error, 'request_id must be a lowercase identifier of 1–40 characters' unless id.is_a?(String) && REQUEST_ID.match?(id)
+    end
+
+    # 1-3 subject IDs from the vocabulary, describing the topic (0.9 N3).
+    def request_subjects!(value)
+      unless value.is_a?(Array) && value.length.between?(1, SUBJECTS_MAX)
+        raise Error, "subjects: 1–#{SUBJECTS_MAX} subject IDs describing the topic (kairomone_profession subjects lists them)"
+      end
+
+      resolved = value.map do |id|
+        Vocabulary.subject_id(id) or raise Error, "subject #{id.to_s[0, 40].inspect} is not in the subject vocabulary (kairomone_profession subjects)"
+      end
+      raise Error, 'subjects repeat a subject' unless resolved.uniq.length == resolved.length
+
+      resolved
+    end
+
+    def methods_applied!(value)
+      return [] if value.nil?
+
+      limit = Vocabulary.learning_methods.length
+      raise Error, "methods_applied is a list of at most #{limit} method IDs" unless value.is_a?(Array) && value.length <= limit
+
+      resolved = value.map do |id|
+        Vocabulary.learning_method_id(id) or raise Error, "method #{id.to_s[0, 40].inspect} is not in the method vocabulary (kairomone_skill material)"
+      end
+      raise Error, 'methods_applied repeats a method' unless resolved.uniq.length == resolved.length
+
+      resolved
     end
 
     # The ruling's entry under the growth lock: an expired lease is concluded

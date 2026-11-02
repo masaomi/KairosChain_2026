@@ -6,6 +6,11 @@
 # dot had (dot_id, --dot-id) are still read; the guide carries the interval
 # recipe; the version is 0.8.0. All data is synthetic and confined to
 # temporary hosts.
+#
+# Changed for Kairomone 0.9 (design log/kairomone_0_9_screens_and_generated_growth_design_v0.2_20261102.md,
+# N9): the version is 0.9.0 in the library and skillset.json. The guide's
+# own version line is changed with the guide in the documentation step of
+# 0.9, which restores that assertion; until then it is not checked here.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
@@ -80,9 +85,8 @@ class Kairomone08RenameTest < Minitest::Test
     assert_match(/run_status .*first; if this_run\.live is false, report this_run\.ended and ask the owner to end this loop/, recipe)
   end
 
-  def test_the_version_is_0_8_0_everywhere_it_is_stated
-    assert_equal '0.8.0', Kairomone::VERSION
-    assert_equal '0.8.0', JSON.parse(File.read(File.join(PACKAGE, 'skillset.json')))['version']
-    assert_match(/^version: '0\.8\.0'$/, File.read(File.join(PACKAGE, 'knowledge/kairomone_guide/kairomone_guide.md')))
+  def test_the_version_is_0_9_0_everywhere_it_is_stated
+    assert_equal '0.9.0', Kairomone::VERSION
+    assert_equal '0.9.0', JSON.parse(File.read(File.join(PACKAGE, 'skillset.json')))['version']
   end
 end

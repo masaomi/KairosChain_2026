@@ -8,6 +8,11 @@
 # no acceptance or consent; the page names every tool M3 lists. Runs without
 # loopback servers or processes. All data is synthetic and confined to
 # temporary hosts.
+#
+# Changed for Kairomone 0.9 (design log/kairomone_0_9_screens_and_generated_growth_design_v0.2_20261102.md,
+# N2, N4, N5), before the console page is rebuilt: create makes a 0.9
+# individual (no profession); a drawing is proposed with its form; the page
+# names every tool but kairomone_skill, whose label comes with the rebuilt page.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
@@ -31,7 +36,7 @@ class Kairomone08ConsoleTest < Minitest::Test
   def teardown = FileUtils.remove_entry_secure(@host)
 
   def create(id, name = id.capitalize)
-    Kairomone::Host.new.create(listing_id: id, profile: PROFILE.merge('name' => name), profession: { 'template' => 'researcher' }, material_kind: 'free_text')
+    Kairomone::Host.new.create(listing_id: id, profile: PROFILE.merge('name' => name), material_kind: 'free_text')
     Kairomone::Instance.new(host_root: @host, kairomone: id)
   end
 
@@ -89,7 +94,7 @@ class Kairomone08ConsoleTest < Minitest::Test
 
   def test_the_drawing_and_what_waits_come_with_their_ids_and_hashes
     store = create('momo')
-    waiting_art = store.propose_art(svg: Kairomone::Art::EGG.sub('rx="34"', 'rx="30"'))
+    waiting_art = store.propose_art(svg: Kairomone::Art::EGG.sub('rx="34"', 'rx="30"'), form: 'An egg')
     drafted = store.propose_profile(fields: PROFILE.merge('name' => 'Momo II'))
     w = view('momo')['waiting']
     assert_match(%r{\Adata:image/svg\+xml;base64,}, w.dig('art', 'data_uri'))
@@ -113,7 +118,7 @@ class Kairomone08ConsoleTest < Minitest::Test
 
   def test_reading_the_view_writes_nothing
     store = create('momo')
-    store.propose_art(svg: Kairomone::Art::EGG)
+    store.propose_art(svg: Kairomone::Art::EGG, form: 'An egg')
     before = Dir.glob(File.join(@host, '**', '*'), File::FNM_DOTMATCH).reject { |f| File.basename(f).end_with?('.lock') }.sort
                 .map { |f| [f, File.file?(f) ? Digest::SHA256.file(f).hexdigest : nil] }
     view('momo')
@@ -168,9 +173,10 @@ class Kairomone08ConsoleTest < Minitest::Test
     names = Kairomone08Support::TOOLS.constants.map { |c| Kairomone08Support::TOOLS.const_get(c) }
                                      .select { |k| k.is_a?(Class) && k < KairosMcp::Tools::BaseTool && k.method_defined?(:name) && k.instance_method(:name).owner == k }
                                      .map { |k| k.new(nil).name }.sort
-    assert_equal 14, names.length, names.inspect
+    assert_equal 15, names.length, names.inspect
     labels = script[/var TOOL_LABELS = \{(.*?)\n  \};/m, 1].scan(/(kairomone_\w+):/).flatten.sort
-    assert_equal names, labels
+    # kairomone_skill (0.9 N2) gets its label when the console page is rebuilt (0.9 N7).
+    assert_equal names - ['kairomone_skill'], labels
     refute_match(/\bdots?\b/i, File.read(PAGE).gsub(/data:[^'"]*/, ''), 'the page says Kairomone, not dot')
   end
 

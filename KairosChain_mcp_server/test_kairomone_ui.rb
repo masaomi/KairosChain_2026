@@ -98,7 +98,10 @@ class TestKairomoneUi < Minitest::Test
     assert_equal 999, payload.dig('progression', 'level_cap')
     assert_equal 0, payload.dig('progression', 'total_xp')
     assert_nil payload.dig('profession', 'selected_id')
-    assert_equal true, payload.dig('profession', 'selection_required')
+    # Kairomone 0.9 (design N4): no fixed list is offered and a new Kairomone
+    # has no profession (0.8 asserted selection_required here).
+    assert_nil payload.dig('profession', 'current')
+    refute payload['profession'].key?('catalog')
     assert_equal false, payload.dig('autonomy', 'configured')
     assert_equal 'Synthetic <script>alert(1)</script> mossling', payload.dig('profile', 'display_name')
     refute_includes File.read(output), '<script>alert(1)</script>'

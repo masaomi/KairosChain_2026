@@ -16,6 +16,9 @@
 # The archive in the restore test is signed, and the owner copies the host's
 # archive key to the new host (M15) so it restores as stored. Block counts
 # are compared before and after where a run start record precedes them.
+#
+# Changed for Kairomone 0.9 (design log/kairomone_0_9_screens_and_generated_growth_design_v0.2_20261102.md,
+# N3): a request declares 1-3 subject IDs; each request here declares one.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'kairomone'
@@ -78,7 +81,7 @@ class KairomoneRebaselineTest < Minitest::Test
   def claim_one(id, lease_seconds: 60)
     growth = @store.autonomy
     @run = growth.run_start(owner_words: 'Synthetic fixture run', cycles: 10)
-    growth.request(run_id: @run[:run_id], token: @run[:token], request_id: id, topic: "Topic #{id}")
+    growth.request(run_id: @run[:run_id], token: @run[:token], request_id: id, topic: "Topic #{id}", subjects: %w[geology])
     growth.claim(run_id: @run[:run_id], token: @run[:token], worker_id: 'test_worker', lease_seconds: lease_seconds)['claim_token']
   end
 
