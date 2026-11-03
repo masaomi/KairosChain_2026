@@ -106,10 +106,12 @@ class Kairomone09LeanTest < Minitest::Test
     growth.commit(**step, claim_token: claim, evidence: evidence)
     assert lean(store, 'after_commit', 'After the commit', %w[zoology])[:changed]
     growth.request(**step, request_id: 'two', topic: 'Moss', subjects: %w[geology])
-    claim = growth.claim(**step, worker_id: 'worker', lease_seconds: 1)['claim_token']
+    # A 3 s lease: long enough that a loaded machine does not let it expire
+    # before the refusal is checked, short enough to wait out below.
+    claim = growth.claim(**step, worker_id: 'worker', lease_seconds: 3)['claim_token']
     assert_raises(Kairomone::Error) { lean(store, 'during_two', 'Still during', %w[ecology]) }
     assert lean(store, 'clear_two', '消して', [])[:changed]
-    sleep 1.2
+    sleep 3.2
     assert lean(store, 'after_expiry', 'After the lease expired', %w[ecology])[:changed], 'an expired claim is not open'
     refute_nil claim
   end
