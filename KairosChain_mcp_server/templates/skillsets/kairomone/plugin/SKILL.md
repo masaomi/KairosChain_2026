@@ -230,7 +230,10 @@ when declared, limits claims for the whole host. The full procedure is
 - `kairomone_status(render_html: true)` writes the offline snapshot at the Kairomone's `exports/status.html`;
   give the owner the path. It is meant to be handed to friends: it shows only what the Kairomone publicly is
   and what its own growth cycles learned, never a cycle's topic or request, owner-written entries, chat, the
-  direction or the lean. Levels measure stored content, not intelligence.
+  direction or the lean. Levels measure stored content, not intelligence. Write it again right before the
+  owner hands it over, and say so: a file already at that path may be older — one written before 0.9 also
+  showed knowledge and observation titles, request topics and the data path — and a snapshot is one moment,
+  never synced.
 - A profession, the lean and skills bias topics and methods, never permissions.
 - `kairomone_backup(command: "create")` then `verify` with the returned basename. A backup is signed with
   this host's archive key (`kairomone-keys/archive.key`, never inside a backup). Backups are unencrypted

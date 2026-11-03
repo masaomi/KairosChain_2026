@@ -50,7 +50,9 @@ intelligence or proven skill. Actual research requires the host assistant.
    the lean, skills or a waiting drawing. Every text is checked for credentials
    and local paths when the page is written; one that fails is left out and
    counted. It is one moment, not synced: no server, network, background refresh
-   or Site is created. Regenerate to refresh it.
+   or Site is created. Regenerate it right before handing it over: a file already
+   at that path may be older, and one written before 0.9 also showed knowledge
+   and observation titles, request topics and the data path.
 
 ## Growth runs and the interval recipe
 

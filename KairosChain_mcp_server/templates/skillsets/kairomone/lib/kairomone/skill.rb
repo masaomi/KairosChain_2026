@@ -4,14 +4,14 @@ module Kairomone
   # Skills (design 0.9 Inv 4, Inv 5, N2): content-addressed pieces
   # skills/<sha256>.json, each derived from one own growth entry
   # (Instance#own_growth) — an L1 or an L2 — and naming it, its layer and its
-  # hash. A skill holds learning
-  # methods (IDs from templates/methods.json) and subject IDs; it changes how
-  # an individual learns, never what it may do. It waits as a proposal and is
-  # in force only after the owner accepts it; the owner retires it at any
-  # time, and a skill's latest record decides, so a retired one can be
-  # accepted again. In force: accepted and not retired, its file present and
-  # of the right shape, its source still an own growth entry with that hash,
-  # and at most eight. Exchange and fusion leave skills out this round.
+  # hash. A skill holds learning methods (IDs from templates/methods.json)
+  # and subject IDs; it changes how an individual learns, never what it may
+  # do. It waits as a proposal and is in force only after the owner accepts
+  # it; the owner retires it at any time, and a skill's latest record
+  # decides, so a retired one can be accepted again. In force: accepted and
+  # not retired, its file present and of the right shape, its source still an
+  # own growth entry with that hash, and at most eight. Exchange and fusion
+  # leave skills out this round.
   module Skill
     FIELDS = %w[name description source methods focus].freeze
     LAYERS = %w[L1 L2].freeze
