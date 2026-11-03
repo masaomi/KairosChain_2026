@@ -423,8 +423,11 @@ module Kairomone
     # What a terminal restore shows before the owner confirms an unsigned
     # archive (M15; 0.9 Inv 1): profile, direction, personality, the lean in
     # force and its words, the count and titles of chat summaries and of the
-    # entries that are not this individual's own growth, lineage, every
-    # skill's name and description, and every drawing's form.
+    # entries that are not this individual's own growth, that own growth
+    # content appears on the snapshot page, lineage, every skill's name and
+    # description, every drawing's form, and the free text of every skill
+    # and drawing proposal the archive carries (waiting, answered or
+    # superseded) that those lines do not already show.
     def restore_summary(archive, missing)
       ledger = chain
       companion = companion_status[:companion]
@@ -437,15 +440,40 @@ module Kairomone
               observation_entries.reject { |e| own.include?(['L2', e['id']]) }.map { |e| "L2 #{e['title']}" }
       lineage = Records.of_type(ledger, 'kairomone_lineage').map { |r| "#{r['kind']} from #{Array(r['sources']).map { |s| s['identity'] }.join(' + ')}" }
       lean = lean_view(ledger)
+      shown_skills = Set.new
       skills = skill_states(ledger).map do |sha, state|
         piece = skill_piece(sha)
         label = piece ? "#{piece['name']} — #{piece['description']}" : "#{sha[0, 16]}… (its file is absent)"
+        shown_skills << label if piece
         "  - #{label}#{state[:accepted] ? '' : ' (retired)'}"
       end
-      drawings = art_history(ledger).map do |d|
+      history = art_history(ledger)
+      shown_forms = Set.new(history.filter_map { |d| d['form'] })
+      drawings = history.map do |d|
         drawn = d['level'] ? "level #{d['level']}" : "stage #{d['stage'] || 'unknown'}"
         "  - #{d['form'] || '(no form recorded)'} (#{drawn}#{d['missing'] ? ', missing' : ''})"
       end
+      # Proposals restore with the archive and reach the composer and the
+      # console afterwards, so their free text is shown here too, once.
+      said = { 'waiting' => 'waiting', 'accepted' => 'answered', 'chosen' => 'answered', 'superseded' => 'superseded' }
+      skill_drafts = []
+      drawing_drafts = []
+      proposal_items(ledger).sort_by { |sha, doc, _| [doc['proposed_at'].to_s, sha] }.each do |_sha, doc, state|
+        case doc['kind']
+        when 'skill'
+          piece = doc['piece'].is_a?(Hash) ? doc['piece'] : {}
+          label = "#{piece['name']} — #{piece['description']}"
+          skill_drafts << "  - #{label} (#{said[state]})" unless shown_skills.include?(label)
+        when 'art'
+          next unless doc['form'].is_a?(String) && !shown_forms.include?(doc['form'])
+
+          drawn = doc['level'].is_a?(Integer) ? "level #{doc['level']}" : "stage #{doc['stage'] || 'unknown'}"
+          drawing_drafts << "  - #{doc['form']} (#{drawn}, #{said[state]})"
+        end
+      end
+      skill_drafts.uniq!
+      drawing_drafts.uniq!
+      cycles = own.count { |layer, _| layer == 'L1' }
       p = profile
       lines = ["Archive version #{archive['version']}, manifest #{archive['manifest_sha256'][0, 16]}…, not signed by this host",
                "Kairomone: #{identity} (#{p['display_name'] || p['name']})",
@@ -457,9 +485,13 @@ module Kairomone
                "Chat summaries: #{chats.length}"] +
               chats.map { |t| "  - #{t}" } +
               ["Owner-written entries: #{owned.length}"] + owned.map { |t| "  - #{t}" } +
-              ["Lineage: #{lineage.empty? ? 'none recorded' : lineage.join('; ')}",
+              ["Own growth cycles: #{cycles} — the title, synthesis, finding and source addresses of each appear on the snapshot " \
+               'page made for sharing (kairomone_status render_html)',
+               "Lineage: #{lineage.empty? ? 'none recorded' : lineage.join('; ')}",
                "Skills: #{skills.length}"] + skills +
-              ["Drawings: #{drawings.length}"] + drawings
+              ["Skill drafts: #{skill_drafts.length}"] + skill_drafts +
+              ["Drawings: #{drawings.length}"] + drawings +
+              ["Drawing drafts: #{drawing_drafts.length}"] + drawing_drafts
       lines << "Accepted pieces this archive lacks (restored without them): #{missing.length}" unless missing.empty?
       lines.map { |l| tty_safe(l) }
     end

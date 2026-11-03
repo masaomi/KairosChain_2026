@@ -187,22 +187,7 @@ module Kairomone
     # longer choose: not the latest from the profession in force).
     def proposals
       ensure_initialized!
-      ledger = chain
-      accepted = Records.each(ledger).filter_map { |r, _| r['proposal_sha256'] }
-      chosen_offers = Records.of_type(ledger, 'kairomone_profession').filter_map { |r| r['offer_sha256'] }
-      open_offer = current_offer(ledger, current_profession(ledger)&.fetch(:id))&.fetch(:sha)
-      shown_rank = nil # the drawing shown is checked once, when a drawing is listed
-      skills = nil # the skills accepted now, read once, when a skill is listed
-      items = piece_files('proposals').filter_map do |sha|
-        doc = read_proposal(sha) or next
-        state = if accepted.include?(sha) then 'accepted'
-                elsif chosen_offers.include?(sha) then 'chosen'
-                elsif doc['kind'] == 'profession_offer' && sha != open_offer then 'superseded'
-                elsif doc['kind'] == 'art' && art_superseded?(doc, shown_rank ||= art_shown(ledger)[2]) then 'superseded'
-                elsif doc['kind'] == 'skill' && skill_answered?(doc, skills ||= Set.new(skill_states(ledger).select { |_sha, st| st[:accepted] }.keys))
-                  'accepted' # the same skill, accepted through another proposal
-                else 'waiting'
-                end
+      items = proposal_items(chain).map do |sha, doc, state|
         item = { 'proposal' => sha, 'state' => state, 'accepted' => %w[accepted chosen].include?(state) }.merge(doc)
         # A drawing is listed by reference; the owner sees it as an image on
         # the console page (the snapshot page never carries one waiting).
@@ -254,6 +239,31 @@ module Kairomone
     end
 
     private
+
+    # [[sha, doc, state]] of every proposal stored here, state one of
+    # accepted, chosen, superseded (an offer the owner can no longer choose,
+    # a drawing whose milestone the drawing shown answers) or waiting; a
+    # skill proposal holding the piece of a skill accepted now reads as
+    # accepted (it was answered through another proposal).
+    def proposal_items(ledger)
+      accepted = Records.each(ledger).filter_map { |r, _| r['proposal_sha256'] }
+      chosen_offers = Records.of_type(ledger, 'kairomone_profession').filter_map { |r| r['offer_sha256'] }
+      open_offer = current_offer(ledger, current_profession(ledger)&.fetch(:id))&.fetch(:sha)
+      shown_rank = nil # the drawing shown is checked once, when a drawing is listed
+      skills = nil # the skills accepted now, read once, when a skill is listed
+      piece_files('proposals').filter_map do |sha|
+        doc = read_proposal(sha) or next
+        state = if accepted.include?(sha) then 'accepted'
+                elsif chosen_offers.include?(sha) then 'chosen'
+                elsif doc['kind'] == 'profession_offer' && sha != open_offer then 'superseded'
+                elsif doc['kind'] == 'art' && art_superseded?(doc, shown_rank ||= art_shown(ledger)[2]) then 'superseded'
+                elsif doc['kind'] == 'skill' && skill_answered?(doc, skills ||= Set.new(skill_states(ledger).select { |_sha, st| st[:accepted] }.keys))
+                  'accepted'
+                else 'waiting'
+                end
+        [sha, doc, state]
+      end
+    end
 
     def profile_piece(sha)
       return nil unless Progression::SHA.match?(sha.to_s)

@@ -5,7 +5,9 @@
 # stored, so a crafted one may carry free text where 0.9 keeps IDs — in a
 # lean, a skill's methods and subjects, a cycle's subjects — and none of it
 # reaches the request context; an unsigned archive shows its lean words,
-# skills and drawing forms before the owner confirms; 0.9 writes archive
+# skills, drawing forms and the free text of every skill and drawing draft
+# it carries, and says that own growth content is on the snapshot page,
+# before the owner confirms; 0.9 writes archive
 # version 3, which 0.8 refuses, and reads a version-2 archive by 0.8's rules.
 # All data is synthetic and confined to temporary hosts.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
@@ -78,6 +80,59 @@ class Kairomone09ArchiveTest < Minitest::Test
     assert(shown.any? { |l| l.include?("Crafted skill — #{FREE}") }, shown.inspect)
     assert(shown.any? { |l| l.include?('A crafted egg form') }, shown.inspect)
     assert_equal [], Kairomone::Host.new.listing.map { |l| l[:listing_id] } - ['momo']
+  end
+
+  def unsigned_summary(store)
+    archive = archive_of(store.create_backup[:path])
+    archive.delete('signature') # as from another machine
+    shown = nil
+    assert_raises(Kairomone::Error) { Kairomone::Host.new.restore(JSON.generate(archive), trust: ->(lines) { shown = lines; false }, listing_id: 'copy') }
+    shown
+  end
+
+  # Proposals restore with the archive and reach the composer and the console
+  # afterwards: an archive holding only drafts shows their free text first.
+  def test_an_unsigned_archive_holding_only_waiting_drafts_shows_their_free_text
+    store = create
+    one_cycle(store, 'moss', subjects: %w[botany])
+    source = store.skill_material[:own_growth_entries].first.slice('entry_id', 'sha256')
+    store.propose_skill(skill: { 'name' => 'Waiting skill', 'description' => FREE, 'methods' => %w[quantify], 'focus' => [], 'source' => source })
+    store.propose_art(svg: Kairomone::Art::EGG, form: 'A waiting form')
+    shown = unsigned_summary(store)
+    level = store.progression_status[:level]
+    assert_includes shown, 'Skills: 0'
+    assert_includes shown, 'Skill drafts: 1'
+    assert_includes shown, "  - Waiting skill — #{FREE} (waiting)"
+    assert_includes shown, 'Drawings: 0'
+    assert_includes shown, 'Drawing drafts: 1'
+    assert_includes shown, "  - A waiting form (level #{level}, waiting)"
+    assert_includes shown, 'Own growth cycles: 1 — the title, synthesis, finding and source addresses of each appear on the snapshot ' \
+                           'page made for sharing (kairomone_status render_html)'
+  end
+
+  # Each draft is labelled by its state and shown once: what an accepted
+  # piece's line already shows is not repeated.
+  def test_the_unsigned_summary_labels_drafts_and_leaves_out_what_accepted_pieces_show
+    store = create
+    one_cycle(store, 'moss', subjects: %w[botany])
+    source = store.skill_material[:own_growth_entries].first.slice('entry_id', 'sha256')
+    draft = { 'name' => 'Accepted skill', 'description' => 'Shown once', 'methods' => %w[quantify], 'focus' => [], 'source' => source }
+    first = store.propose_skill(skill: draft)[:proposal]
+    doc = store.send(:read_proposal, first)
+    store.send(:with_lock) { store.send(:write_piece, 'proposals', doc.merge('proposed_at' => '2026-01-01T00:00:00Z')) } # the same draft again
+    store.accept_skill(proposal: first)
+    store.propose_skill(skill: draft.merge('name' => 'Another skill', 'description' => 'Still waiting'))
+    store.propose_art(svg: Kairomone::Art::EGG.sub('Kairomone egg', 'Older'), form: 'A superseded form')
+    store.accept_art(proposal: store.propose_art(svg: Kairomone::Art::EGG.sub('Kairomone egg', 'Newer'), form: 'An accepted form')[:proposal])
+    shown = unsigned_summary(store)
+    level = store.progression_status[:level]
+    assert_equal 1, shown.count { |l| l.include?('Accepted skill — Shown once') }, shown.inspect
+    assert_includes shown, '  - Accepted skill — Shown once'
+    assert_includes shown, 'Skill drafts: 1'
+    assert_includes shown, '  - Another skill — Still waiting (waiting)'
+    assert_equal 1, shown.count { |l| l.include?('An accepted form') }, shown.inspect
+    assert_includes shown, 'Drawing drafts: 1'
+    assert_includes shown, "  - A superseded form (level #{level}, superseded)"
   end
 
   def test_a_legacy_slot_written_by_09_is_still_read_and_backed_up_by_061

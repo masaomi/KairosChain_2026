@@ -312,9 +312,12 @@ signed with this host's key restores; it restores as stored (integrity checks on
 appends a `kairomone_restored` record, and ends any run that was live in it.
 Any other archive — a 0.6.1 backup, another machine's, one signed by a lost key —
 restores only through the owner's terminal command, which prints its profile,
-direction, personality, the count and titles of its chat summaries and
-owner-written entries, and its lineage, and proceeds only when the owner types
-the code it shows. Files from anyone else enter by exchange import, not restore.
+direction, personality, the lean in force and its words, the count and titles
+of its chat summaries and owner-written entries, its lineage, every skill and
+drawing form, the free text of every skill and drawing draft it carries
+(waiting, answered or superseded), and a line saying that what its own growth
+cycles learned appears on the snapshot page, and proceeds only when the owner
+types the code it shows. Files from anyone else enter by exchange import, not restore.
 An older archive restores with what it holds; what it lacks is listed, never
 invented.
 
