@@ -18,11 +18,7 @@ def request_text(cfg, sid, state, usage, near)
                      'the next one will proceed.' : '[compaction_handoff] This session is nearing auto-compaction.')
   figure = usage ? "#{usage[:tokens]} of about #{cfg[:compact_at_tokens]} tokens" : 'usage unknown'
   lines << "Context: #{figure}. Before it is compacted, write a handoff to L2 with context_save, in your own words:"
-  lines << '- what is in progress, the next step, open items and where the work lives (files, branches, L2 names);'
-  lines << '- no credentials or secrets, and no verbatim text a peer sent you; mark items that came from a peer.'
-  lines << "Name the entry #{H.handoff_prefix(cfg[:tag], sid)}<YYYYMMDDHHMM> and put " \
-           "`#{H::FRONTMATTER_KEY}: #{sid}` in its frontmatter; that is how the save is recognised " \
-           "(knowledge #{H.guide_name})."
+  lines.concat(H.handoff_rules(cfg[:tag], sid))
   unless near.empty?
     lines << "Not counted: #{near.first[:name]} has the name but its frontmatter does not carry " \
              "`#{H::FRONTMATTER_KEY}: #{sid}`."

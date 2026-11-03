@@ -1,0 +1,8 @@
+{
+  "name": "compaction-handoff",
+  "version": "0.2.0",
+  "description": "Past the compaction request point, asks the session for an L2 handoff, compacts right after that turn, then asks it to read the handoff back (KairosChain SkillSet compaction_handoff).",
+  "author": {
+    "name": "Masaomi Hatakeyama"
+  }
+}

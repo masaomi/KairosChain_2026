@@ -50,6 +50,7 @@ Gem::Specification.new do |spec|
       'bin/*',
       'templates/**/*',
       'templates/**/.*',  # Include .gitkeep files
+      'templates/**/.claude-plugin/*', # A mod's manifest: the globs above do not enter dot-folders
       'LICENSE',
       'README.md',
       'CHANGELOG.md'

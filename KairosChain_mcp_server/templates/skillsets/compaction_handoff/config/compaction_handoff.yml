@@ -1,9 +1,10 @@
 # compaction_handoff — per-instance values (operator-owned).
 compaction_handoff:
-  # Where this instance expects auto-compaction, in tokens. Set it to match the
-  # model window or Claude Code's autoCompactWindow (1M-window models compact at
-  # about 967K by default; 200K-window models at 200K). One value per project.
-  compact_at_tokens: 967000
+  # Where this instance expects compaction, in tokens. With auto-compaction off
+  # (the long-lived receiver's setting; the mod compacts instead), the model
+  # window. With it on, Claude Code's autoCompactWindow (1M-window models compact
+  # at about 967K by default; 200K-window models at 200K). One value per project.
+  compact_at_tokens: 1000000
   # The agent is asked to write its handoff from this share of compact_at_tokens.
   request_ratio: 0.7
   # Prefix of handoff and fallback names in L2: <tag>_<session8>_..., <tag>_fallback_<session8>_...

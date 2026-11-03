@@ -1,6 +1,6 @@
 {
   "_comment": [
-    "compaction_handoff (design log/compaction_handoff_design_v0.3.md in the KairosChain repository).",
+    "compaction_handoff (design log/compaction_handoff_design_v0.4.md in the KairosChain repository; the mod in mod/ drives the cycle, these hooks are its insurance).",
     "UserPromptSubmit asks the agent for an L2 handoff from the request point on; PreCompact writes a",
     "fallback record (no conversation text) and holds off one auto-compaction per cycle when no fresh",
     "handoff exists; SessionStart (matcher compact) always tells the compacted session what to read.",

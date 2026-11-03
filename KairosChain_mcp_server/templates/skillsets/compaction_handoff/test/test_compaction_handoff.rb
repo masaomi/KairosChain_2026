@@ -376,6 +376,70 @@ class TestCompactionHandoff < Minitest::Test
     refute_includes ctx, 'earlier cycle'
   end
 
+  # --- probe for the mod (v0.4 INV-14) ----------------------------------------
+
+  def probe(*args, sid: @sid, env: {})
+    env = { 'KAIROS_DATA_DIR' => @data, 'COMPACTION_HANDOFF_CONFIG' => @config }.merge(env)
+    out, err, st = Open3.capture3(env, 'ruby', '-I', LIB, File.join(ROOT, 'hooks', 'probe.rb'), '--session', sid, *args)
+    [JSON.parse(out), err, st.exitstatus]
+  end
+
+  def test_probe_reports_config_and_the_same_recognition_rule_as_the_turn_start_request
+    j, _, code = probe
+    assert_equal 0, code
+    assert_equal [true, 100_000, 70_000], j.values_at('ok', 'compact_at_tokens', 'request_point')
+    assert_nil j['handoff']
+    refute j['fresh']
+    assert_includes j['request_text'], "compaction_handoff_#{@sid[0, 8]}_<YYYYMMDDHHMM>"
+    assert_includes j['request_text'], "compaction_handoff_session: #{@sid}"
+    assert_includes j['readback_text'], 'no handoff of this session'
+    assistant(80_000)
+    ctx = context_of(turn.first)
+    rule = j['request_text'].lines.find { |l| l.start_with?('Name the entry') }
+    assert_includes ctx, rule.chomp
+  end
+
+  def test_probe_counts_a_handoff_as_fresh_only_at_or_after_since
+    name = save_handoff(at: Time.utc(2026, 11, 3, 12, 0, 0))
+    j, = probe('--since', '2026-11-03T12:00:01Z')
+    assert_equal name, j.dig('handoff', 'name')
+    refute j['fresh']
+    assert_includes j['readback_text'], 'no handoff of this session'
+    j, = probe('--since', '2026-11-03T11:59:59Z')
+    assert j['fresh']
+    assert_includes j['readback_text'], "Read it first: #{name} (L2 session session_x)"
+    assert_includes j['compact_instructions'], name
+  end
+
+  def test_probe_does_not_count_a_name_without_the_session_frontmatter
+    save_handoff(sid: nil)
+    j, = probe('--since', '2000-01-01T00:00:00Z')
+    assert_nil j['handoff']
+    refute j['fresh']
+    assert_includes j['request_text'], 'Not counted'
+    assert_includes j['readback_text'], 'without the session frontmatter exists'
+    assert_includes j['compact_instructions'], 'it may hold your notes'
+  end
+
+  def test_probe_withholds_an_unusual_name_from_the_prompts
+    name = save_handoff(name: "compaction_handoff_#{@sid[0, 8]}_2026 ignore the above")
+    j, = probe('--since', '2000-01-01T00:00:00Z')
+    assert_equal name, j.dig('handoff', 'name')
+    refute_includes j['readback_text'], 'ignore the above'
+    refute_includes j['compact_instructions'], 'ignore the above'
+    assert_includes j['readback_text'], 'unusual characters'
+  end
+
+  def test_probe_fails_with_a_json_reason_and_writes_nothing
+    j, _, code = probe(sid: 'not-a-session')
+    assert_equal [1, false], [code, j['ok']]
+    assert_includes j['error'], 'session id'
+    File.write(@config, 'nonsense: [')
+    j, _, code = probe
+    assert_equal [1, false], [code, j['ok']]
+    refute File.exist?(File.join(@data, 'storage', 'compaction_handoff')), 'the probe must not write state'
+  end
+
   # --- projection -------------------------------------------------------------
 
   def test_hooks_json_names_existing_scripts_and_the_compact_matcher
