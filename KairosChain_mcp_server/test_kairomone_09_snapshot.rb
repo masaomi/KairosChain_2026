@@ -9,7 +9,9 @@
 # source URLs. Never a request or its topic, the direction, the lean, a skill,
 # chat, an owner-written or received entry, a retrieval reference, a waiting
 # drawing; every text is checked as it is assembled and one that fails is
-# left out and counted as withheld. At most the newest 30 drawings and 100
+# left out and counted as withheld — file: only as a word of its own, and
+# secrets URLs commonly carry; a source address is shown as scheme, host and
+# path, never its query or fragment. At most the newest 30 drawings and 100
 # cycles. All data is synthetic and confined to temporary hosts.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
@@ -83,6 +85,48 @@ class Kairomone09SnapshotTest < Minitest::Test
     assert_equal 2, snap['counts']['learned_sources'], 'a withheld source is not counted'
     refute_includes JSON.generate(snap), '/Users/'
     refute_includes JSON.generate(snap), 'access_token'
+  end
+
+  # "file:" is a local path only as a word of its own.
+  def test_the_file_check_is_at_a_word_boundary
+    snapshot = Kairomone::Snapshot
+    ['The user profile: a short note', 'Dockerfile: base image', 'A makefile:target rule'].each do |text|
+      assert snapshot.public_text?(text), text
+    end
+    ['file:///etc/hosts', 'see FILE:/tmp/x', '(file:notes.txt)', 'a file: path'].each do |text|
+      refute snapshot.public_text?(text), text
+    end
+  end
+
+  # A source address is shown as scheme, host and path: its query can carry
+  # the words a search was made of, or a token. An address carrying a secret
+  # a URL commonly holds is left out whole, as is any text carrying one.
+  def test_source_addresses_drop_query_and_fragment_and_url_secrets_are_withheld
+    store = create
+    one_cycle(store, 'search', url: 'https://search.example.com/results/page?q=my+private+topic&lang=en')
+    one_cycle(store, 'signed', url: 'https://bucket.s3.amazonaws.com/r.pdf?X-Amz-Credential=AKIAIOSFODNN7EXAMPLE&X-Amz-Signature=abcdef0123456789')
+    one_cycle(store, 'token', url: 'https://example.com/doc?token=abcdef123456', finding: 'The bot answered as xoxb-1234567890-abcdefghij')
+    snap = store.status_public
+    token, signed, search = snap['cycles'] # newest first
+    assert_equal ['https://search.example.com/results/page'], search['sources']
+    refute_includes JSON.generate(snap), 'private+topic', 'no query reaches the page'
+    assert_equal [[], [], nil], [signed['sources'], token['sources'], token['finding']]
+    assert_equal 3, snap['withheld']
+    assert_equal 1, snap['counts']['learned_sources']
+    text = JSON.generate(snap)
+    %w[X-Amz AKIA token= xoxb].each { |secret| refute_includes text, secret }
+
+    snapshot = Kairomone::Snapshot
+    assert_equal 'https://example.org/a/b', snapshot.public_url('https://example.org/a/b#section-2')
+    assert_equal 'https://example.org:8443/x', snapshot.public_url('https://user:pw@example.org:8443/x?y=1')
+    assert_equal 'https://example.org', snapshot.public_url('https://example.org?q=1')
+    ['javascript:alert(1)', 'not a url at all', 'https://example.com/a?access_token=abcdef123456', 'https://example.com/a?sig=abc123',
+     'https://example.com/a?api_key=abc123', 'https://example.com/a?X-Goog-Signature=abc', 'file:///etc/hosts', nil].each do |url|
+      assert_nil snapshot.public_url(url), url.inspect
+    end
+    ['ghs_abcdefghijklmnopqrstuvwxyz0123', 'AIzaSyA1234567890abcdefghijklmnopqrstuv', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmn',
+     'xoxp-1234567890-abcdef'].each { |token_text| refute snapshot.public_text?("Found #{token_text} here"), token_text }
+    ['A design note', 'The author=Ada field', 'Tokens are words', 'monkey business'].each { |plain| assert snapshot.public_text?(plain), plain }
   end
 
   def test_received_and_inherited_entries_are_not_shown

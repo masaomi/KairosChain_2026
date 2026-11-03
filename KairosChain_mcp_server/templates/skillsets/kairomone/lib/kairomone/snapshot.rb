@@ -7,20 +7,37 @@ module Kairomone
   # (Instance#own_growth), what that cycle learned: its L1 title, the
   # evidence's knowledge.content (not the rendered L1 body, which carries
   # retrieval references), its finding, the subjects its ledger record names
-  # and its sources' URLs. Nothing else: never a cycle's request (its topic
+  # and its sources' addresses — scheme, host and path, never a query or a
+  # fragment, which can carry the words a search was made of or a token.
+  # Nothing else: never a cycle's request (its topic
   # included), any other entry, chat, the direction, the lean, skills, a
   # waiting proposal, a local path or anything secret. Every text is checked
   # as the page is assembled — a drawing's markup too, since its title and
-  # desc are text whoever holds the file can read — by the credential guard
-  # and for a local path (the markers below and this host's own directory);
-  # one that fails is left out and counted in withheld. Instance#render_status
-  # writes only this.
+  # desc are text whoever holds the file can read — by the credential guard,
+  # for secrets URLs commonly carry, and for a local path (the markers below
+  # and this host's own directory); one that fails is left out and counted in
+  # withheld. A source address is checked whole before it is shortened.
+  # Instance#render_status writes only this.
   module Snapshot
     SCHEMA = 'kairomone-snapshot-1'
     DRAWINGS_MAX = 30
     CYCLES_MAX = 100
-    # The local-path markers the check refuses (file: in any case).
+    # The local-path markers the check refuses (file: in any case, as a word
+    # of its own: "Dockerfile:" and "profile:" are not paths).
     LOCAL_PATHS = %w[/Users/ /home/ ~/].freeze
+    FILE_SCHEME = /(?<![A-Za-z0-9])file:/i
+    # Secrets a URL or a pasted token commonly carries, beyond the credential
+    # guard: signed-URL parameters, token-named parameters with a value, and
+    # well-known token prefixes. Conservative, not complete.
+    URL_SECRETS = [
+      /\bX-(?:Amz|Goog)-(?:Signature|Credential|Security-Token)\b/i,
+      /(?<![A-Za-z0-9])[\w.-]*(?:token|signature|secret|passw(?:or)?d|api[_-]?key|apikey|credential|sig|auth)=[^\s&#]+/i,
+      /\bxox[abposr]-[A-Za-z0-9-]{10,}/,
+      /\bgh[opsu]_[A-Za-z0-9]{20,}/,
+      /\bAKIA[0-9A-Z]{16}\b/,
+      /\bAIza[0-9A-Za-z_-]{35}/,
+      /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/
+    ].freeze
     DATA_URI = 'data:image/svg+xml;base64,'
 
     module_function
@@ -28,11 +45,28 @@ module Kairomone
     # A text the snapshot may carry: not a credential by the guard, and
     # naming no local path — neither a marker above nor one of roots.
     def public_text?(value, roots = [])
-      value.is_a?(String) && value.valid_encoding? && !value.match?(ComposedText::CREDENTIAL) && !local_path?(value, roots)
+      value.is_a?(String) && value.valid_encoding? && !value.match?(ComposedText::CREDENTIAL) &&
+        URL_SECRETS.none? { |pattern| value.match?(pattern) } && !local_path?(value, roots)
     end
 
     def local_path?(value, roots = [])
-      LOCAL_PATHS.any? { |marker| value.include?(marker) } || value.match?(/file:/i) || roots.any? { |r| value.include?(r) }
+      LOCAL_PATHS.any? { |marker| value.include?(marker) } || value.match?(FILE_SCHEME) || roots.any? { |r| value.include?(r) }
+    end
+
+    # How a source address is shown: scheme, host (and a port other than the
+    # scheme's own) and path — no user, query or fragment — once the whole
+    # address passes the check; nil for one that fails or is no web address.
+    def public_url(value, roots = [])
+      return nil unless public_text?(value, roots)
+
+      uri = URI.parse(value)
+      return nil unless uri.is_a?(URI::HTTP) && uri.host.is_a?(String) && !uri.host.empty?
+
+      port = uri.port && uri.port != uri.default_port ? ":#{uri.port}" : ''
+      shown = "#{uri.scheme.downcase}://#{uri.host}#{port}#{uri.path}"
+      public_text?(shown, roots) ? shown : nil
+    rescue URI::Error
+      nil
     end
 
     # This host's own directory, which holds every individual's files, where
@@ -101,23 +135,23 @@ module Kairomone
         { cycle: c, evidence: evidence, urls: urls }
       end
       # Every own cycle's public sources count, also those beyond the newest
-      # shown here; each URL is checked once.
+      # shown here, as they are shown; each URL is checked once.
       checked_urls = {}
       public_url = lambda do |url|
-        checked_urls[url] = Snapshot.public_text?(url, roots) unless checked_urls.key?(url)
+        checked_urls[url] = Snapshot.public_url(url, roots) unless checked_urls.key?(url)
         checked_urls[url]
       end
-      cycles.each { |c| c[:urls].each { |u| sources << u if public_url.call(u) } }
+      cycles.each { |c| c[:urls].each { |u| (address = public_url.call(u)) && sources << address } }
       shown = cycles.last(Snapshot::CYCLES_MAX).reverse.map do |c|
         evidence = c[:evidence] || {}
         knowledge = evidence['knowledge'].is_a?(Hash) ? evidence['knowledge'] : {}
-        dropped = c[:urls].reject { |u| public_url.call(u) }.length
+        dropped = c[:urls].count { |u| public_url.call(u).nil? }
         withheld += dropped
         { 'subjects' => Vocabulary.subject_names(c[:cycle]['subjects']),
           'title' => check.call(entries.dig(c[:cycle]['l1_id'], 'title')),
           'synthesis' => check.call(knowledge['content'].is_a?(String) ? knowledge['content'] : nil),
           'finding' => check.call(evidence['finding'].is_a?(String) ? evidence['finding'] : nil),
-          'sources' => c[:urls].select { |u| public_url.call(u) } }
+          'sources' => c[:urls].filter_map { |u| public_url.call(u) }.uniq }
       end
       name = check.call(self.name)
       # chosen tells "no profession yet" from a profession whose name was

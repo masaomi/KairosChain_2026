@@ -18,9 +18,13 @@ entry (owner-written, received or inherited), chat, the direction, the lean,
 skills or their sources, a waiting proposal, profile text beyond the name, a
 local path or anything secret. Every text — a drawing's markup included, since
 its title and desc are readable by whoever holds the file — passes the
-credential guard and a local-path check (`/Users/`, `/home/`, `~/`, `file:`,
-and this host's own directory) when the page is written; one that fails is left
-out and counted in `withheld`, and the page says how many were left out.
+credential guard, a check for secrets URLs commonly carry (signed-URL and
+token-named parameters, well-known token prefixes) and a local-path check
+(`/Users/`, `/home/`, `~/`, `file:` as a word of its own, and this host's own
+directory) when the page is written; one that fails is left out and counted in
+`withheld`, and the page says how many were left out. A source address is
+checked whole and shown as its scheme, host and path only: never its query or
+fragment, which can carry the words a search was made of or a token.
 
 Sections, in order: header (title, JA/EN); hero (the current drawing as an
 image, the name, stage and level, the line that the level measures stored
@@ -68,7 +72,8 @@ Schema `kairomone-snapshot-1` fields consumed:
 - `counts: { lifetime_cycles, learned_sources, own_growth_l1, own_growth_l2 }`;
   `lifetime_cycles` is null when it cannot be established
 - `cycles: [{ subjects: [{ id, en, ja }], title, synthesis, finding, sources:
-  [url] }]`, at most the newest 100, newest first
+  [address] }]`, at most the newest 100, newest first; an address is a URL's
+  scheme, host and path
 - `withheld`: how many texts and drawings were left out
 
 Counts are displayed only as nonnegative safe integers; unknown is never
