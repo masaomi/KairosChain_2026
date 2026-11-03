@@ -31,7 +31,7 @@ module Kairomone
     LEARNED_TOP = 12
 
     # => { cycles: [{ 'generation' => '0.6' | '0.8', 'request_id', 'l1_id',
-    #                 'l2_id', 'l1_sha256', 'l2_own', 'subjects',
+    #                 'l2_id', 'l1_sha256', 'l2_sha256', 'l2_own', 'subjects',
     #                 'methods_applied' }] (in the order they were learned),
     #      unknown: nil or why some cycles could not be established }
     def own_growth(ledger = chain)
@@ -54,7 +54,8 @@ module Kairomone
 
         seen << record['l1_id']
         cycles << { 'generation' => '0.8', 'request_id' => record['request_id'], 'l1_id' => record['l1_id'], 'l2_id' => record['l2_id'],
-                    'l1_sha256' => record['l1_sha256'], 'l2_own' => l2.dig(record['l2_id'], 'hash') == record['l2_sha256'],
+                    'l1_sha256' => record['l1_sha256'], 'l2_sha256' => record['l2_sha256'],
+                    'l2_own' => l2.dig(record['l2_id'], 'hash') == record['l2_sha256'],
                     'subjects' => string_list(record['subjects']), 'methods_applied' => string_list(record['methods_applied']) }
       end
       unknown = [legacy_fault && "the 0.6 growth state cannot be read (#{legacy_fault}), so its cycles are not established",
@@ -68,9 +69,17 @@ module Kairomone
       Set.new(growth[:cycles].flat_map { |c| [['L1', c['l1_id']]] + (c['l2_own'] ? [['L2', c['l2_id']]] : []) })
     end
 
-    # The cycle whose own L1 entry this is, with this content hash, or nil.
-    def own_growth_cycle(entry_id, sha256, growth = own_growth)
-      growth[:cycles].find { |c| c['l1_id'] == entry_id && c['l1_sha256'] == sha256 }
+    # The cycle whose own growth entry a source {entry_id, layer, sha256}
+    # names, holding that hash now — its L1, or its L2 while that is its own
+    # — or nil. A source without a layer (as 0.9 first wrote skills) names an L1.
+    def own_growth_source(source, growth = own_growth)
+      return nil unless source.is_a?(Hash)
+
+      id, sha = source.values_at('entry_id', 'sha256')
+      case source.fetch('layer', 'L1')
+      when 'L1' then growth[:cycles].find { |c| c['l1_id'] == id && c['l1_sha256'] == sha }
+      when 'L2' then growth[:cycles].find { |c| c['l2_own'] && c['l2_id'] == id && c['l2_sha256'] == sha }
+      end
     end
 
     # The number of completed cycles by the one test above, or nil with the
@@ -124,7 +133,7 @@ module Kairomone
         end
 
         { 'generation' => '0.6', 'request_id' => request_id, 'l1_id' => id, 'l2_id' => id, 'l1_sha256' => entry['hash'],
-          'l2_own' => true, 'subjects' => [], 'methods_applied' => [] }
+          'l2_sha256' => l2[id]['hash'], 'l2_own' => true, 'subjects' => [], 'methods_applied' => [] }
       end
       [cycles, completed.length - requests.length, unestablished]
     end

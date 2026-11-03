@@ -194,9 +194,9 @@ when declared, limits claims for the whole host. The full procedure is
   never name branch levels, even if you can read them in the code. A profession changes what and how the
   Kairomone learns, never what it may do.
 - Skills, only when the owner asks or agrees: from `kairomone_skill material`, draft a skill from one of the
-  Kairomone's own growth entries (up to four learning methods from the vocabulary it lists and up to four
-  subjects), `propose` it, show it in full, and `accept` only on the owner's words. At most eight are in force;
-  `retire` one when the owner asks.
+  Kairomone's own growth entries — an L1 or an L2, named as listed with its layer and hash (up to four learning
+  methods from the vocabulary it lists and up to four subjects), `propose` it, show it in full, and `accept` only
+  on the owner's words. At most eight are in force; `retire` one when the owner asks.
 - Stages follow the level: egg 卵 (1–4), hatchling 幼体 (5–19), young 若者 (20–99), adult 成体 (100–499),
   legend 伝説 (500–999).
 - At every tenth level a drawing is due (`art.due` in `kairomone_status`). Read `kairomone_art material` (the

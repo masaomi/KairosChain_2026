@@ -105,8 +105,8 @@ permission, limit, run or L0. An accepted version is never accepted again: to
 return to an earlier version, propose it again.
 
 A skill (`kairomone_skill`) is drawn from one of the Kairomone's own growth
-entries — an entry its own cycle committed, still matching the hash recorded
-then — and holds up to four learning methods from a shipped vocabulary
+entries — an L1 or L2 entry its own cycle committed, still matching the hash
+recorded then; the skill names it, its layer and its hash — and holds up to four learning methods from a shipped vocabulary
 (`kairomone_skill material` lists them, e.g. find a primary source, seek a
 counterexample) and up to four focus subjects. It waits as a proposal until the
 owner accepts it; at most eight are in force; the owner retires one at any time,

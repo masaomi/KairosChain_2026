@@ -2,7 +2,8 @@
 
 # Kairomone 0.9, skills (design log/kairomone_0_9_screens_and_generated_growth_design_v0.2_20261102.md,
 # Inv 1 note, Inv 4, Inv 5, N2): a skill is derived from one own growth entry
-# and names it and its hash; its methods and subjects come from the shipped
+# — an L1 or an L2 — and names it, its layer and its hash; a draft of a skill
+# accepted through another proposal reads as answered; its methods and subjects come from the shipped
 # vocabularies; it waits as a proposal; at most eight are in force; the owner
 # retires one at any time and the latest record decides; a skill whose source
 # no longer matches is out of force; only methods and subject names reach the
@@ -15,12 +16,14 @@ $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__
 require 'minitest/autorun'
 require 'stringio'
 require_relative 'templates/skillsets/kairomone/test/support_09'
+require 'kairomone/console'
 
 class Kairomone09SkillsTest < Minitest::Test
   include Kairomone09Support
 
-  def own_source(store, id)
-    entry = store.skill_material[:own_growth_entries].find { |e| e['entry_id'] == "growth_#{id}" } or flunk "no own growth entry growth_#{id}"
+  def own_source(store, id, layer: 'L1')
+    entry = store.skill_material[:own_growth_entries].find { |e| e['entry_id'] == "growth_#{id}" && e['layer'] == layer } or
+      flunk "no own growth entry growth_#{id} (#{layer})"
     entry.slice('entry_id', 'sha256')
   end
 
@@ -39,14 +42,68 @@ class Kairomone09SkillsTest < Minitest::Test
     assert_match(/not an own growth entry/, error.message, 'an owner-written entry is no source')
     source = own_source(store, 'moss')
     assert_raises(Kairomone::Error) { store.propose_skill(skill: skill(source.merge('sha256' => 'a' * 64))) }
-    assert_equal %w[growth_moss], store.skill_material[:own_growth_entries].map { |e| e['entry_id'] }
+    assert_equal [%w[growth_moss L1], %w[growth_moss L2]], store.skill_material[:own_growth_entries].map { |e| e.values_at('entry_id', 'layer') }
     proposed = store.propose_skill(skill: skill(source))
     assert_equal [], store.skills_in_force, 'a proposal changes nothing'
     assert store.accept_skill(proposal: proposed[:proposal])[:accepted]
     assert_equal ['Count the moss'], store.skills_in_force.map { |s| s[:piece]['name'] }
     record = records(store, 'kairomone_skill').last
-    assert_equal({ 'type' => 'kairomone_skill', 'sha256' => store.skills_in_force.first[:sha256], 'proposal_sha256' => proposed[:proposal], 'source' => source }, record)
+    assert_equal({ 'type' => 'kairomone_skill', 'sha256' => store.skills_in_force.first[:sha256], 'proposal_sha256' => proposed[:proposal],
+                   'source' => source.merge('layer' => 'L1') }, record, 'the record names the layer its source is')
     assert File.file?(File.join(store.root, "skills/#{record['sha256']}.json"))
+  end
+
+  # An own growth entry is an L1 or an L2 (design "own growth entry"); a
+  # skill may come from either, and names which. Its L2 source decides
+  # whether it is in force as its L1 source would.
+  def test_a_skill_may_come_from_an_own_growth_l2_entry_and_names_its_layer
+    store = create
+    one_cycle(store, 'moss', finding: 'Peat moss holds the most water')
+    l2 = store.skill_material[:own_growth_entries].find { |e| e['layer'] == 'L2' }
+    l2_sha = Digest::SHA256.hexdigest(File.binread(File.join(store.root, 'context/kairomone/growth_moss/growth_moss.md')))
+    assert_equal ['growth_moss', l2_sha, 'Peat moss holds the most water'], l2.values_at('entry_id', 'sha256', 'finding')
+    l1_sha = own_source(store, 'moss')['sha256']
+    [{ 'entry_id' => 'growth_moss', 'layer' => 'L1', 'sha256' => l2_sha }, { 'entry_id' => 'growth_moss', 'layer' => 'L2', 'sha256' => l1_sha },
+     { 'entry_id' => 'growth_moss', 'layer' => 'L3', 'sha256' => l2_sha }].each do |wrong|
+      assert_raises(Kairomone::Error, wrong.inspect) { store.propose_skill(skill: skill(wrong)) }
+    end
+    named = store.propose_skill(skill: skill({ 'entry_id' => 'growth_moss', 'layer' => 'L2', 'sha256' => l2_sha }, name: 'Weigh the moss'))
+    told = store.propose_skill(skill: skill({ 'entry_id' => 'growth_moss', 'sha256' => l2_sha }, name: 'Count the peat'))
+    assert_equal [{ 'entry_id' => 'growth_moss', 'layer' => 'L2', 'sha256' => l2_sha }] * 2, [named, told].map { |p| p[:piece]['source'] },
+                 'the layer is recorded, given or told by the hash'
+    sha = store.accept_skill(proposal: told[:proposal])[:sha256]
+    assert_equal ['Count the peat'], store.skills_in_force.map { |s| s[:piece]['name'] }
+    assert_equal({ 'entry_id' => 'growth_moss', 'layer' => 'L2', 'sha256' => l2_sha }, records(store, 'kairomone_skill').last['source'])
+    assert_equal 'in_force', store.skill_list[:skills].find { |s| s['sha256'] == sha }['state']
+    # Its L2 edited: no longer an own growth entry, so the skill is out of force.
+    path = File.join(store.root, 'context/kairomone/growth_moss/growth_moss.md')
+    File.write(path, File.read(path).sub('Peat moss holds the most water', 'Edited'))
+    assert_equal [], store.skills_in_force
+    listed = store.skill_list[:skills].find { |s| s['sha256'] == sha }
+    assert_equal ['out_of_force', 'its source is no longer an own growth entry with that hash'], listed.values_at('state', 'reason')
+    assert_raises(Kairomone::Error) { store.accept_skill(proposal: named[:proposal]) }
+    assert store.retire_skill(sha256: sha)[:retired]
+  end
+
+  # Two proposals of one draft hold the same piece: once one is accepted,
+  # accepting the other changes nothing, so it reads as answered in the
+  # skill list, the proposals and the console; retired, it waits again.
+  def test_a_draft_of_a_skill_accepted_through_another_proposal_reads_as_answered
+    store = create
+    one_cycle(store, 'moss')
+    first = store.propose_skill(skill: skill(own_source(store, 'moss')))[:proposal]
+    doc = store.send(:read_proposal, first)
+    second = store.send(:with_lock) { store.send(:write_piece, 'proposals', doc.merge('proposed_at' => '2026-01-01T00:00:00Z')) }
+    refute_equal first, second
+    assert_equal [first, second].sort, store.skill_list[:waiting].map { |w| w['proposal'] }.sort
+    sha = store.accept_skill(proposal: first)[:sha256]
+    assert_equal [], store.skill_list[:waiting], 'the other draft holds the accepted skill'
+    assert_equal 'accepted', store.proposals[:proposals].find { |p| p['proposal'] == second }['state']
+    waiting = JSON.parse(JSON.generate(Kairomone::Console::View.payload(@host, 'momo')))['waiting']['proposals']
+    refute_includes waiting.map { |p| p['proposal'] }, second, 'the console does not offer it'
+    assert store.accept_skill(proposal: second)[:preserved]
+    store.retire_skill(sha256: sha)
+    assert_equal [second], store.skill_list[:waiting].map { |w| w['proposal'] }, 'a retired skill can be accepted again through it'
   end
 
   def test_received_and_inherited_entries_are_no_source

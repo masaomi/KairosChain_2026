@@ -3,7 +3,8 @@
 module Kairomone
   # Skills (design 0.9 Inv 4, Inv 5, N2): content-addressed pieces
   # skills/<sha256>.json, each derived from one own growth entry
-  # (Instance#own_growth) and naming it and its hash. A skill holds learning
+  # (Instance#own_growth) — an L1 or an L2 — and naming it, its layer and its
+  # hash. A skill holds learning
   # methods (IDs from templates/methods.json) and subject IDs; it changes how
   # an individual learns, never what it may do. It waits as a proposal and is
   # in force only after the owner accepts it; the owner retires it at any
@@ -13,6 +14,7 @@ module Kairomone
   # and at most eight. Exchange and fusion leave skills out this round.
   module Skill
     FIELDS = %w[name description source methods focus].freeze
+    LAYERS = %w[L1 L2].freeze
     METHODS_MAX = 4
     FOCUS_MAX = 4
     IN_FORCE_MAX = 8
@@ -29,8 +31,9 @@ module Kairomone
       raise Error, "Unexpected skill fields: #{unknown.join(', ')}" unless unknown.empty?
 
       source = f['source'].is_a?(Hash) ? f['source'].transform_keys(&:to_s) : nil
-      unless source && source.keys.sort == %w[entry_id sha256] && Paths::ID.match?(source['entry_id'].to_s) && Progression::SHA.match?(source['sha256'].to_s)
-        raise Error, 'source is {entry_id, sha256}: one own growth entry of this Kairomone and the sha256 it holds now (kairomone_skill material)'
+      unless source && source?(source)
+        raise Error, 'source is {entry_id, layer, sha256}: one own growth entry of this Kairomone (L1 or L2) and the sha256 it holds now ' \
+                     '(kairomone_skill material); layer may be left out when the hash tells it'
       end
 
       methods = f['methods']
@@ -47,7 +50,17 @@ module Kairomone
 
       { 'schema_version' => 1, 'name' => ComposedText.field!(f['name'], 'name', 80),
         'description' => ComposedText.field!(f.fetch('description', ''), 'description', 600, allow_empty: true),
-        'source' => { 'entry_id' => source['entry_id'], 'sha256' => source['sha256'] }, 'methods' => methods, 'focus' => focus }
+        'source' => { 'entry_id' => source['entry_id'], 'layer' => source['layer'], 'sha256' => source['sha256'] }.compact,
+        'methods' => methods, 'focus' => focus }
+    end
+
+    # {entry_id, layer, sha256}, or {entry_id, sha256} as a skill stored
+    # before L2 sources names an L1 (and as a draft may leave the layer to
+    # the hash).
+    def source?(source)
+      source.is_a?(Hash) && [%w[entry_id sha256], %w[entry_id layer sha256]].include?(source.keys.sort) &&
+        Paths::ID.match?(source['entry_id'].to_s) && Progression::SHA.match?(source['sha256'].to_s) &&
+        (!source.key?('layer') || LAYERS.include?(source['layer']))
     end
 
     # Shape only: a stored piece is read as it was stored; its values are
@@ -58,8 +71,7 @@ module Kairomone
       source = piece.is_a?(Hash) ? piece['source'] : nil
       piece.is_a?(Hash) && (piece.keys - ['schema_version']).sort == FIELDS.sort && text.call(piece['name'], 80) &&
         text.call(piece['description'], 600) && list.call(piece['methods'], METHODS_MAX) && list.call(piece['focus'], FOCUS_MAX) &&
-        source.is_a?(Hash) && source.keys.sort == %w[entry_id sha256] && Paths::ID.match?(source['entry_id'].to_s) &&
-        Progression::SHA.match?(source['sha256'].to_s)
+        source?(source)
     end
 
     def texts(piece) = [piece['name'], piece['description']]
@@ -67,23 +79,31 @@ module Kairomone
 
   class Instance
     # What the composer drafts a skill from: the method vocabulary and this
-    # individual's own growth entries (L1), newest first. Read an entry in
-    # full with kairomone_knowledge get.
+    # individual's own growth entries, newest first — each cycle's L1 (read
+    # it in full with kairomone_knowledge get), then its L2 while that is its
+    # own, with the finding its evidence holds.
     def skill_material(limit: 50)
       ensure_initialized!
       ledger = chain
       growth = own_growth(ledger)
       titles = knowledge_entries(ledger).to_h { |e| [e['id'], e['title']] }
-      own = growth[:cycles].reverse.map do |c|
-        { 'entry_id' => c['l1_id'], 'sha256' => c['l1_sha256'], 'title' => titles[c['l1_id']],
-          'subjects' => Vocabulary.subject_names(c['subjects']) }
+      l2_titles = nil
+      own = growth[:cycles].reverse.flat_map do |c|
+        subjects = Vocabulary.subject_names(c['subjects'])
+        items = [{ 'entry_id' => c['l1_id'], 'layer' => 'L1', 'sha256' => c['l1_sha256'], 'title' => titles[c['l1_id']], 'subjects' => subjects }]
+        next items unless c['l2_own']
+
+        l2_titles ||= observation_entries.to_h { |e| [e['id'], e['title']] }
+        finding = own_growth_evidence(c)&.dig('finding')
+        items << { 'entry_id' => c['l2_id'], 'layer' => 'L2', 'sha256' => c['l2_sha256'], 'title' => l2_titles[c['l2_id']],
+                   'finding' => finding.is_a?(String) ? finding : nil, 'subjects' => subjects }.compact
       end
       { success: true, kairomone: address, methods: Vocabulary.learning_methods.map { |id, names| { 'id' => id }.merge(names) },
         own_growth_entries: own.first(limit), own_growth_total: own.length, in_force: skills_in_force(ledger, growth).length,
         in_force_max: Skill::IN_FORCE_MAX, unknown: growth[:unknown],
-        note: 'Draft a skill from one own growth entry: name (at most 80 bytes), description (at most 600), 1–4 methods from this ' \
-              'list, up to 4 subject IDs (kairomone_profession subjects), and source {entry_id, sha256} as listed here. Show the ' \
-              'owner the draft in full; it takes effect only when they accept it.' }
+        note: 'Draft a skill from one own growth entry, L1 or L2: name (at most 80 bytes), description (at most 600), 1–4 methods ' \
+              'from this list, up to 4 subject IDs (kairomone_profession subjects), and source {entry_id, layer, sha256} as listed ' \
+              'here. Show the owner the draft in full; it takes effect only when they accept it.' }
     end
 
     # Stores what the composer drafted as a proposal; nothing takes effect.
@@ -93,7 +113,12 @@ module Kairomone
       with_lock do
         ensure_writable!('L2')
         ledger = chain
-        source_own!(piece, own_growth(ledger))
+        growth = own_growth(ledger)
+        # The piece records the layer its source is: the one given, or the
+        # one whose own entry holds that hash.
+        layer = piece['source']['layer'] || Skill::LAYERS.find { |l| own_growth_source(piece['source'].merge('layer' => l), growth) }
+        piece['source'] = { 'entry_id' => piece['source']['entry_id'], 'layer' => layer || 'L1', 'sha256' => piece['source']['sha256'] }
+        source_own!(piece, growth)
         sha = write_piece('proposals', { 'kind' => 'skill', 'piece' => piece, 'proposed_at' => Time.now.utc.iso8601 })
         { success: true, proposal: sha, piece: piece, kairomone: address,
           note: 'Show the owner this skill in full. It takes effect only when they accept it (kairomone_skill accept).' }
@@ -162,17 +187,19 @@ module Kairomone
         piece = skill_piece(sha)
         reason = if !state[:accepted] then 'retired'
                  elsif piece.nil? then 'its file is absent or does not read as a skill'
-                 elsif !own_growth_cycle(piece['source']['entry_id'], piece['source']['sha256'], growth) then 'its source is no longer an own growth entry with that hash'
+                 elsif !own_growth_source(piece['source'], growth) then 'its source is no longer an own growth entry with that hash'
                  elsif !in_force.include?(sha) then "more than #{Skill::IN_FORCE_MAX} are accepted"
                  end
         skill_view(sha, piece).merge('state' => reason ? (state[:accepted] ? 'out_of_force' : 'retired') : 'in_force', 'reason' => reason)
       end
       answered = Set.new(Records.each(ledger).filter_map { |r, _| r['proposal_sha256'] })
+      accepted = Set.new(skill_states(ledger).select { |_sha, s| s[:accepted] }.keys)
       waiting = piece_files('proposals').filter_map do |sha|
         next if answered.include?(sha)
 
         doc = read_proposal(sha)
         next unless doc && doc['kind'] == 'skill' && Skill.shape?(doc['piece'])
+        next if skill_answered?(doc, accepted) # the same skill, accepted by another proposal
 
         skill_view(nil, doc['piece']).merge('proposal' => sha, 'proposed_at' => doc['proposed_at'])
       end
@@ -187,7 +214,7 @@ module Kairomone
         next unless state[:accepted]
 
         piece = skill_piece(sha) or next
-        next unless own_growth_cycle(piece['source']['entry_id'], piece['source']['sha256'], growth)
+        next unless own_growth_source(piece['source'], growth)
 
         { sha256: sha, piece: piece, at: state[:at] }
       end.sort_by { |s| s[:at] }.last(Skill::IN_FORCE_MAX)
@@ -206,6 +233,14 @@ module Kairomone
         states[record['sha256']] = { accepted: record['type'] == 'kairomone_skill', at: position }
       end
       states
+    end
+
+    # A skill proposal holding the very piece of a skill accepted now (by
+    # another proposal of the same draft): accepting it would change nothing,
+    # so it reads as answered, not as waiting. A retired one can be accepted
+    # again through it, so it waits.
+    def skill_answered?(doc, accepted)
+      doc['kind'] == 'skill' && doc['piece'].is_a?(Hash) && accepted.include?(Digest::SHA256.hexdigest(JSON.pretty_generate(doc['piece']) + "\n"))
     end
 
     def skill_piece(sha)
@@ -230,9 +265,10 @@ module Kairomone
     end
 
     def source_own!(piece, growth)
-      return if own_growth_cycle(piece['source']['entry_id'], piece['source']['sha256'], growth)
+      return if own_growth_source(piece['source'], growth)
 
-      raise Error, "The source #{piece['source']['entry_id']} is not an own growth entry of this Kairomone holding that sha256 (kairomone_skill material)"
+      raise Error, "The source #{piece['source']['entry_id']} (#{piece['source'].fetch('layer', 'L1')}) is not an own growth entry of this " \
+                   'Kairomone holding that sha256 (kairomone_skill material)'
     end
   end
 end

@@ -284,10 +284,10 @@ module KairosMcp
 
         class Skill < Base
           def name; 'kairomone_skill'; end
-          def description; 'A Kairomone\'s skills: learning methods and subjects drawn from one of its own growth entries (L1 it learned itself, still as that cycle recorded it). A skill changes how it learns, never what it may do. material lists its own growth entries and the method vocabulary; propose stores a drafted skill {name, description, methods[1-4], focus[0-4], source{entry_id, sha256}} as a proposal, which changes nothing; accept puts it in force only when the owner accepted it in the conversation (at most eight at once); retire takes one out of force at any time (it can be accepted again); list shows every skill, whether it is in force and why not, and the drafts that wait. A skill whose source entry no longer matches is out of force.'; end
+          def description; 'A Kairomone\'s skills: learning methods and subjects drawn from one of its own growth entries (an L1 or L2 entry it learned itself, still as that cycle recorded it). A skill changes how it learns, never what it may do. material lists its own growth entries and the method vocabulary; propose stores a drafted skill {name, description, methods[1-4], focus[0-4], source{entry_id, layer, sha256}} as a proposal, which changes nothing; accept puts it in force only when the owner accepted it in the conversation (at most eight at once); retire takes one out of force at any time (it can be accepted again); list shows every skill, whether it is in force and why not, and the drafts that wait. A skill whose source entry no longer matches is out of force.'; end
           def input_schema
             { type: 'object', properties: { kairomone: KAIROMONE, command: { type: 'string', enum: %w[material propose accept retire list] },
-              skill: { type: 'object', description: 'propose: {name, description, methods[], focus[], source{entry_id, sha256}}' },
+              skill: { type: 'object', description: 'propose: {name, description, methods[], focus[], source{entry_id, layer (L1 or L2), sha256}}' },
               proposal: { type: 'string', description: 'accept: the proposal sha256' },
               sha256: { type: 'string', description: 'retire: the skill sha256' } }, required: ['command'], additionalProperties: false }
           end

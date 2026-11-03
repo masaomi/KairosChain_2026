@@ -130,7 +130,8 @@ class Kairomone09LearnedTest < Minitest::Test
     assert_equal 6, status.dig('legacy_budget', 'used_cycles'), 'the 0.6 budget stays a record beside it'
     one_cycle(legacy, 'new_one', subjects: %w[geology])
     assert_equal 2, legacy.status[:growth]['lifetime_cycles']
-    assert_equal %w[growth_done growth_new_one], legacy.skill_material[:own_growth_entries].map { |e| e['entry_id'] }.sort
+    assert_equal [%w[growth_done L1], %w[growth_done L2], %w[growth_new_one L1], %w[growth_new_one L2]],
+                 legacy.skill_material[:own_growth_entries].map { |e| e.values_at('entry_id', 'layer') }.sort
     assert_includes legacy.own_growth_entries, ['L2', 'growth_done']
     # Its L2 no longer holds the evidence whose hash the 0.6 state recorded:
     # neither entry is established as the cycle's, so neither is its own,
