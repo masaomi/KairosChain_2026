@@ -4,10 +4,14 @@ module Kairomone
   # The lean (design 0.9 Inv 4, N1): up to eight subject IDs the composer read
   # from what the owner typed in conversation. It is the owner's conversation
   # taking effect without a separate acceptance, so it is written only from
-  # the owner's typed words, quoted, and never while a claim of this
-  # individual's run is open; each change is a ledger record holding those
-  # words and the subjects, and nothing else holds it (companion/state.json
-  # keeps its 0.6 schema). The lean in force is the latest record's subjects.
+  # the owner's typed words, quoted (text without control characters, as
+  # every composed text), and a change that steers is never written while a
+  # claim of this individual's run is open; the owner clears it at once,
+  # also then, since a clear steers nothing and the claimed cycle's context
+  # was fixed when it was requested. Each change is a ledger record holding
+  # those words and the subjects, and nothing else holds it
+  # (companion/state.json keeps its 0.6 schema). The lean in force is the
+  # latest record's subjects.
   # It reaches nothing but the choice of learning topics: the request context
   # carries the names of its subjects the vocabulary holds then, and a request
   # whose subjects meet it counts as steered. Exchange never carries it (the
@@ -21,14 +25,15 @@ module Kairomone
     # refused; a change that repeats the subjects in force appends nothing.
     def companion_lean(request_id:, owner_words:, subjects:)
       Paths.id!(request_id)
+      ComposedText.field!(owner_words, 'owner_words', LEAN_WORDS_MAX)
       words = companion_text!(owner_words, 'owner_words', LEAN_WORDS_MAX)
       wanted = lean_subjects!(subjects)
       autonomy.synchronize do
         with_lock do
           ensure_writable!('L2')
-          if autonomy.claim_open?
-            raise Error, 'A growth cycle of this Kairomone is being carried out; the lean is written only in conversation, after its claim ' \
-                         'commits, fails or expires'
+          if !wanted.empty? && autonomy.claim_open?
+            raise Error, 'A growth cycle of this Kairomone is being carried out; a lean is changed only in conversation, after its claim ' \
+                         'commits, fails or expires (clearing it, subjects [], is accepted at once)'
           end
 
           ledger = chain

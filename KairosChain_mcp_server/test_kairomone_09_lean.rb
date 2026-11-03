@@ -2,9 +2,10 @@
 
 # Kairomone 0.9, the lean (design log/kairomone_0_9_screens_and_generated_growth_design_v0.2_20261102.md,
 # Inv 4, N1, N3): the owner's conversation taking effect as up to eight
-# subject IDs; each change a ledger record holding the owner's quoted words;
-# a repeat or a retry appends nothing; cleared at once; never written while a
-# claim is open; shown wherever the direction is; reaching only the choice of
+# subject IDs; each change a ledger record holding the owner's quoted words
+# (no control characters); a repeat or a retry appends nothing; cleared at
+# once, also while a claim is open; never changed otherwise while a claim is
+# open; shown wherever the direction is; reaching only the choice of
 # learning topics (the request context and the steered share). Exchange never
 # carries it and a fused child has none. All data is synthetic and confined
 # to temporary hosts.
@@ -70,26 +71,44 @@ class Kairomone09LeanTest < Minitest::Test
     assert_raises(Kairomone::Error) { lean(store, 'empty', '   ', %w[geology]) }
     assert_raises(Kairomone::Error) { lean(store, 'cred', 'my api_key=abcdef123456 please', %w[geology]) }
     assert_raises(Kairomone::Error) { lean(store, 'Bad ID', 'Words', %w[geology]) }
+    # The owner's quoted words follow the composed-text rule: no control characters.
+    ["Words\e[31m red", "Two\nlines", "Back\rover", "Bell\a", "Line\u2028sep", "Zero\u200Bwidth", 42].each_with_index do |words, i|
+      error = assert_raises(Kairomone::Error, words.inspect) { lean(store, "ctl_#{i}", words, %w[geology]) }
+      assert_match(/without control characters/, error.message)
+    end
+    assert lean(store, 'emoji', 'Family 👨\u200D👩\u200D👧 trips', %w[geography])[:changed], 'joiners in emoji sequences are allowed'
     assert lean(store, 'eight', 'Eight things', %w[geology botany zoology ecology genetics evolution physics chemistry])[:changed]
     assert lean(store, 'bytes', 'あ' * 170, %w[geology])[:changed], '510 bytes of typed words fit'
-    assert_equal 2, records(store, 'kairomone_lean').length
+    assert_equal 3, records(store, 'kairomone_lean').length
   end
 
-  def test_a_lean_is_refused_while_a_claim_of_the_run_is_open
+  def test_a_lean_change_is_refused_while_a_claim_of_the_run_is_open_and_a_clear_is_not
     store = create
     growth = store.autonomy
     run = growth.run_start(owner_words: 'Two cycles', cycles: 2)
     step = { run_id: run[:run_id], token: run[:token] }
+    lean(store, 'first', 'Stars first', %w[astronomy])
     growth.request(**step, request_id: 'one', topic: 'Rocks', subjects: %w[geology])
     assert lean(store, 'queued', 'Between request and claim', %w[botany])[:changed], 'a queued request is not a claim'
     claim = growth.claim(**step, worker_id: 'worker', lease_seconds: 300)['claim_token']
     error = assert_raises(Kairomone::Error) { lean(store, 'during', 'During the cycle', %w[zoology]) }
     assert_match(/being carried out/, error.message)
+    assert_match(/clearing it, subjects \[\], is accepted at once/, error.message)
+    # Cleared at once (Inv 4), also during the claim: a clear steers nothing,
+    # and the claimed cycle's context was fixed when it was requested.
+    context = JSON.parse(File.read(File.join(store.root, 'growth/runs.json'))).dig('active_claim', 'context')
+    assert_equal %w[astronomy], context['lean'].map { |l| l['id'] }, 'the context holds the lean as it was requested'
+    cleared = lean(store, 'clear_during', '傾きを消して', [])
+    assert cleared[:changed]
+    assert_equal [], store.lean_subject_ids
+    assert_equal context, JSON.parse(File.read(File.join(store.root, 'growth/runs.json'))).dig('active_claim', 'context'), 'the claimed cycle is untouched'
+    assert_raises(Kairomone::Error) { lean(store, 'during_again', 'Still during', %w[zoology]) }
     growth.commit(**step, claim_token: claim, evidence: evidence)
     assert lean(store, 'after_commit', 'After the commit', %w[zoology])[:changed]
     growth.request(**step, request_id: 'two', topic: 'Moss', subjects: %w[geology])
     claim = growth.claim(**step, worker_id: 'worker', lease_seconds: 1)['claim_token']
     assert_raises(Kairomone::Error) { lean(store, 'during_two', 'Still during', %w[ecology]) }
+    assert lean(store, 'clear_two', '消して', [])[:changed]
     sleep 1.2
     assert lean(store, 'after_expiry', 'After the lease expired', %w[ecology])[:changed], 'an expired claim is not open'
     refute_nil claim

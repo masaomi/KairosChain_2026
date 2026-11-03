@@ -117,8 +117,9 @@ The lean is what the assistant reads, from what the owner typed in conversation,
 about where they want the Kairomone to grow: up to eight subject IDs, written with
 `kairomone_companion lean` together with the owner's words, recorded on the
 Kairomone's ledger at every change, shown wherever the direction is shown, and
-cleared at once with an empty list. It is never written while a cycle is running
-or from text a page placed, and it steers only the choice of topics.
+cleared at once with an empty list — also while a cycle is running, since a clear
+steers nothing. A change is never written while a cycle is running, nor from
+text a page placed, and it steers only the choice of topics.
 
 A growth request carries only the owner's direction and closed-form values the
 shipped vocabularies hold at that moment: the profession's focus names and habit
