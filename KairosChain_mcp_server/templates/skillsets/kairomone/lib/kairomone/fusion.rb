@@ -19,9 +19,14 @@ module Kairomone
 
   class Host
     # Both parents' L1 for the composer: id, title, body, sha256, recorded
-    # identity and outside flag, paged; with each parent's ledger head.
-    # bodies: false gives titles, hashes and sizes only, for a plan that
-    # keeps entries by citing them.
+    # identity, outside flag and whether it is an own growth entry of its
+    # parent, paged; with each parent's ledger head. bodies: false gives
+    # titles, hashes and sizes only, for a plan that keeps entries by citing
+    # them. Two uses, two materials (0.9 Inv 9, Inv 10): the child's entries
+    # may come from any parent entry, but the child's profile and its three
+    # profession candidates — what its snapshot shows — are composed only
+    # from each parent's composition subset: its own growth entries, learned
+    # subjects and skills in force (with its name and profession).
     def fusion_material(parents:, page: 1, bodies: true)
       a, b = fusion_parents(parents)
       raise Error, 'page is a positive integer' unless page.is_a?(Integer) && page.positive?
@@ -32,20 +37,28 @@ module Kairomone
       [a, b].each do |parent|
         ledger = parent.chain
         heads[parent.listing_id] = ledger.latest_block&.hash
+        growth = parent.own_growth(ledger)
+        own = parent.own_growth_entries(growth)
+        entries = parent.send(:fusion_entries, ledger)
+        composition = { 'own_growth_entries' => entries.filter_map { |e| e['id'] if own.include?(['L1', e['id']]) },
+                        'learned_subjects' => parent.learned_subjects(growth),
+                        'skills' => parent.skills_in_force(ledger, growth).map { |s| parent.send(:skill_view, nil, s[:piece]).except('source', 'present') } }
         items << { 'item' => 'parent', 'listing_id' => parent.listing_id, 'identity' => parent.identity(ledger), 'name' => parent.name,
-                   'profession' => parent.profession_status[:current]&.slice(:id, :name, :focus, :habits) }
-        items += parent.send(:fusion_entries, ledger).map do |e|
+                   'profession' => parent.profession_status[:current]&.slice(:id, :name, :focus, :habits), 'composition' => composition }
+        items += entries.map do |e|
           shown = bodies ? e : e.reject { |k, _| k == 'body' }.merge('bytes' => e['body'].bytesize)
-          { 'item' => 'entry', 'parent' => parent.listing_id }.merge(shown)
+          { 'item' => 'entry', 'parent' => parent.listing_id }.merge(shown).merge('own_growth' => own.include?(['L1', e['id']]))
         end
       end
       pages = fusion_pages(items)
       raise Error, "page runs from 1 to #{pages.length}" if page > pages.length
 
       { success: true, parents: [a.listing_id, b.listing_id], heads: heads, page: page, pages: pages.length, items: pages[page - 1],
-        note: 'Propose the child from this material: a draft profile, three profession candidates and its entries, each kept from ' \
-              'one parent entry or merged from several, citing them by parent, entry_id and sha256. A kept entry needs only its id, ' \
-              'mode and source: its title and body are copied from the source.' }
+        note: 'Propose the child from this material. Compose its draft profile and its three profession candidates — which its ' \
+              'snapshot shows — only from each parent\'s name, profession and composition (the entries marked own_growth, its learned ' \
+              'subjects and its skills), never from its other entries (owner-written, received or inherited). Its entries may come from ' \
+              'any parent entry, each kept from one or merged from several, citing them by parent, entry_id and sha256. A kept entry ' \
+              'needs only its id, mode and source: its title and body are copied from the source.' }
     end
 
     # Stores the composer's plan; nothing takes effect until the owner

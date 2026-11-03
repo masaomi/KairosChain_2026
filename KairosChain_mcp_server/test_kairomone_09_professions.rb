@@ -8,7 +8,9 @@
 # long as the level is at or past the next branch level; a 0.6 selection still
 # reads as its template; templates and select are refused and kairomone_create
 # takes no profession; profession material draws L1 only from own growth
-# entries. All data is synthetic and confined to temporary hosts.
+# entries, and so does what fusion material offers for the child's profile
+# and profession candidates. All data is synthetic and confined to temporary
+# hosts.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
@@ -146,6 +148,60 @@ class Kairomone09ProfessionsTest < Minitest::Test
     assert_equal ['Child 1', []], child.profession_status[:current].values_at(:name, :parents)
     again = host.fusion_accept(plan: plan[:plan], candidate: 1)
     assert again[:preserved]
+  end
+
+  def fusion_items(host, parents)
+    first = host.fusion_material(parents: parents)
+    first[:items] + (2..first[:pages]).flat_map { |n| host.fusion_material(parents: parents, page: n)[:items] }
+  end
+
+  # Fusion material has two uses (0.9 Inv 9, Inv 10): the child's entries may
+  # come from any parent entry, but its profile and its three profession
+  # candidates — what its snapshot shows — are composed only from each
+  # parent's composition subset: its own growth entries, learned subjects and
+  # skills. Owner-written, received and inherited entries are never in it.
+  def test_fusion_material_offers_only_own_growth_for_the_profile_and_candidates
+    a = create('alpha')
+    one_cycle(a, 'moss', subjects: %w[botany])
+    a.create_knowledge(id: 'diary', title: 'My clinic appointments', content: 'Owner-written')
+    source = a.skill_material[:own_growth_entries].first.slice('entry_id', 'sha256')
+    a.accept_skill(proposal: a.propose_skill(skill: { 'name' => 'Weigh the moss', 'description' => 'Measure first', 'methods' => %w[quantify],
+                                                      'focus' => %w[botany], 'source' => source })[:proposal])
+    b = create('beta')
+    one_cycle(b, 'fern', subjects: %w[zoology])
+    host = Kairomone::Host.new
+    items = fusion_items(host, %w[alpha beta])
+    flags = items.select { |i| i['item'] == 'entry' }.to_h { |e| [[e['parent'], e['id']], e['own_growth']] }
+    assert_equal({ %w[alpha diary] => false, %w[alpha growth_moss] => true, %w[beta growth_fern] => true }, flags)
+    alpha = items.find { |i| i['item'] == 'parent' && i['listing_id'] == 'alpha' }['composition']
+    assert_equal [%w[growth_moss], %w[botany], ['Weigh the moss']],
+                 [alpha['own_growth_entries'], alpha['learned_subjects'].map { |l| l['id'] }, alpha['skills'].map { |k| k['name'] }]
+    refute_includes JSON.generate(alpha), 'clinic', 'an owner-written entry is not composition material'
+    assert_match(/only from each parent's name, profession and composition/, host.fusion_material(parents: %w[alpha beta])[:note])
+
+    # copy received alpha's entries and learned one of its own; pip inherited
+    # every entry of alpha and beta.
+    out = a.exchange_export(file_sha256: a.exchange_preview(include: %w[learned owner_written])[:file_sha256])
+    FileUtils.mkdir_p(File.join(@host, 'kairomone-inbox'))
+    FileUtils.cp(out[:path], File.join(@host, 'kairomone-inbox', out[:file]))
+    host.import_exchange(file: out[:file], listing_id: 'copy')
+    one_cycle(Kairomone::Instance.new(host_root: @host, kairomone: 'copy'), 'own_copy', subjects: %w[geology])
+    plan_items = items.select { |i| i['item'] == 'entry' }
+    plan = host.fusion_propose(parents: %w[alpha beta], child: 'pip', profile: PROFILE.merge('name' => 'Pip'), candidates: candidates('Child'),
+                               entries: plan_items.map { |e| { 'id' => e['id'], 'mode' => 'keep', 'sources' => [{ 'parent' => e['parent'], 'entry_id' => e['id'], 'sha256' => e['sha256'] }] } },
+                               heads: host.fusion_material(parents: %w[alpha beta])[:heads])
+    host.fusion_accept(plan: plan[:plan], candidate: 0)
+    items = fusion_items(host, %w[pip copy])
+    flags = items.select { |i| i['item'] == 'entry' }.to_h { |e| [[e['parent'], e['id']], e['own_growth']] }
+    assert_equal({ %w[copy diary] => false, %w[copy growth_moss] => false, %w[copy growth_own_copy] => true,
+                   %w[pip diary] => false, %w[pip growth_fern] => false, %w[pip growth_moss] => false }, flags,
+                 'received and inherited entries are plan material only')
+    compositions = items.select { |i| i['item'] == 'parent' }.to_h { |p| [p['listing_id'], p['composition']] }
+    assert_equal({ 'pip' => [], 'copy' => %w[growth_own_copy] }, compositions.transform_values { |c| c['own_growth_entries'] })
+    assert_equal [[], %w[geology]], [compositions['pip']['learned_subjects'], compositions['copy']['learned_subjects'].map { |l| l['id'] }]
+    assert_equal [[], []], compositions.values.map { |c| c['skills'] }, 'skills never travel by exchange or fusion'
+    light = host.fusion_material(parents: %w[pip copy], bodies: false)[:items].select { |i| i['item'] == 'entry' }
+    assert(light.all? { |e| e.key?('own_growth') && !e.key?('body') }, 'the flags stand without bodies too')
   end
 
   def test_a_received_profession_still_waits_and_is_accepted

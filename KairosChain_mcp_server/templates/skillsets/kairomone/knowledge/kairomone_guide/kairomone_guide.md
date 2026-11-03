@@ -197,8 +197,13 @@ profession is accepted with `kairomone_profession accept`), and the ledger
 records every piece received and the file's manifest.
 
 `kairomone_fusion` makes a new Kairomone from two and changes neither.
-`material` pages both parents' knowledge with each entry's hash and whether it
-is outside content; `propose` stores the assistant's plan (the child's listing
+`material` pages both parents' knowledge with each entry's hash, whether it
+is outside content and whether it is its parent's own growth, and each parent's
+composition (its own growth entries, learned subjects and skills). Any parent
+entry may become one of the child's entries, but the child's profile and its
+three profession candidates, which its snapshot shows, are composed only from
+the parents' names, professions and compositions — never from an owner-written,
+received or inherited entry. `propose` stores the assistant's plan (the child's listing
 ID, a draft profile, three profession candidates, and the child's entries, each
 kept from one parent entry or merged from several); `summary` pages each child
 entry in full with the parent entries it came from and each parent entry

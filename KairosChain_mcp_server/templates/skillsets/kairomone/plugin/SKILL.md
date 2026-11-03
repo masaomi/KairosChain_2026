@@ -215,7 +215,10 @@ when declared, limits claims for the whole host. The full procedure is
 - Fusion, only when the owner asks: read both parents with `kairomone_fusion material`, `propose` a plan (a
   draft profile — an anthropomorphised cute character — three profession candidates and the child's entries,
   each `keep` of one parent entry or `merge` of several, citing parent, entry_id and sha256), show the owner
-  every page of its `summary` (each child entry in full), and `accept` with the candidate they chose.
+  every page of its `summary` (each child entry in full), and `accept` with the candidate they chose. Compose
+  the profile and the three candidates, which the child's snapshot shows, only from each parent's name,
+  profession and `composition` (its entries marked `own_growth`, its learned subjects and skills) — never from
+  its owner-written, received or inherited entries; any parent entry may become one of the child's entries.
 - `kairomone_knowledge transplant` copies one entry into the host's own L1, only when the owner names that
   entry and asks for it. The host entry's name, description and tags are generated; never edit them. A
   `pending` result means the host chain does not show the record yet: ask the same transplant again later
