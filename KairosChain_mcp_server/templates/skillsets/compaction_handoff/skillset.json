@@ -1,0 +1,21 @@
+{
+  "name": "compaction_handoff",
+  "version": "0.1.0",
+  "description": "Keeps a long-lived Claude Code session's work across context compaction. From a configured share of the expected compaction point, each turn start asks the agent to write a handoff to L2 with context_save (in progress, next step, open items), recognised by a name prefix and the session id in its frontmatter. Before every compaction a fallback record with figures only (no conversation text) is written to L2, and one auto-compaction per cycle is held off when no fresh handoff exists; manual compactions are never held off. After a compaction the session is always told which handoff and fallback to read, or that none was found or could be determined. Claude Code formats live in hooks/; L2 is read and written through KairosChain's own context interface. Design: log/compaction_handoff_design_v0.3.md (KairosChain repository).",
+  "author": "Masaomi Hatakeyama",
+  "layer": "L2",
+  "depends_on": [],
+  "provides": [
+    "compaction_handoff"
+  ],
+  "tool_classes": [],
+  "config_files": [
+    "config/compaction_handoff.yml"
+  ],
+  "knowledge_dirs": [
+    "knowledge/compaction_handoff_guide"
+  ],
+  "plugin": {
+    "hooks": "plugin/hooks.json"
+  }
+}
