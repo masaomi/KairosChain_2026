@@ -19,6 +19,18 @@ require 'minitest/autorun'
 require_relative 'templates/skillsets/kairomone/test/support_09'
 require 'kairomone/console'
 
+# Counts the readings of own growth (every L1 and L2 entry opened) while a
+# test asks; otherwise it only passes through.
+module Kairomone09OwnGrowthReads
+  private
+
+  def read_own_growth(*)
+    Thread.current[:kairomone_own_growth_reads] += 1 if Thread.current[:kairomone_own_growth_reads]
+    super
+  end
+end
+Kairomone::Instance.prepend(Kairomone09OwnGrowthReads)
+
 class Kairomone09ConsoleTest < Minitest::Test
   include Kairomone09Support
 
@@ -202,5 +214,33 @@ class Kairomone09ConsoleTest < Minitest::Test
     assert_includes markup[%r{<section class="convo".*?</section>\s*<aside}m], 'id="log"'
     assert_includes script, "'まだ職業はない'"
     refute_includes html, 'create-template', 'no profession template to pick'
+  end
+
+  def own_growth_reads
+    Thread.current[:kairomone_own_growth_reads] = 0
+    yield
+    Thread.current[:kairomone_own_growth_reads]
+  ensure
+    Thread.current[:kairomone_own_growth_reads] = nil
+  end
+
+  # The page polls /status; one payload, and one status, read own growth
+  # once, however many parts ask for it. Nothing is kept between calls.
+  def test_one_payload_and_one_status_read_own_growth_once
+    store = create
+    one_cycle(store, 'moss')
+    source = store.skill_material[:own_growth_entries].first.slice('entry_id', 'sha256')
+    store.accept_skill(proposal: store.propose_skill(skill: { 'name' => 'S', 'description' => 'D', 'methods' => %w[quantify], 'focus' => [],
+                                                              'source' => source })[:proposal])
+    assert_equal 1, own_growth_reads { view('momo') }, 'one console payload'
+    assert_equal 1, own_growth_reads { store.status }, 'one status'
+    assert_equal 1, own_growth_reads { store.status(render_html: true) }, 'one status with its snapshot'
+    assert_equal 2, own_growth_reads { 2.times { store.status } }, 'nothing is kept between calls'
+    before = view('momo')
+    path = File.join(store.root, 'knowledge/growth_moss/growth_moss.md')
+    File.write(path, File.read(path).sub('Learned in moss', 'Edited'))
+    after = view('momo')
+    shown = ->(payload) { [payload['own_growth_total'], payload['lifetime_cycles'], payload['skills'].length] }
+    assert_equal [[1, 1, 1], [0, 0, 0]], [shown.call(before), shown.call(after)], 'a change shows in the next payload'
   end
 end

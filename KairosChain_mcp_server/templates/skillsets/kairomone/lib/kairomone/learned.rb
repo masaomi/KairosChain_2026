@@ -36,6 +36,35 @@ module Kairomone
     #      unknown: nil or why some cycles could not be established }
     def own_growth(ledger = chain)
       ensure_initialized!
+      shared = @own_growth_shared
+      key = shared && [ledger.load_state, ledger.latest_block&.hash]
+      return shared[key] if key && shared.key?(key)
+
+      growth = read_own_growth(ledger)
+      shared[key] = growth if key
+      growth
+    end
+
+    # One reading of own growth for the length of the block: a status or a
+    # console payload asks for it in several places, and each reading opens
+    # every L1 and L2 entry. Within the block a reading is kept per ledger
+    # head; nothing is kept once the block ends, so the next call reads
+    # afresh.
+    def sharing_own_growth
+      return yield if @own_growth_shared
+
+      @own_growth_shared = {}
+      begin
+        yield
+      ensure
+        @own_growth_shared = nil
+      end
+    end
+
+    def sharing_own_growth? = !@own_growth_shared.nil?
+
+    # What own_growth returns, read now.
+    def read_own_growth(ledger)
       unless %i[readable absent].include?(ledger.load_state)
         return { cycles: [], unknown: "the ledger is #{ledger.load_state}, so no cycle can be established" }
       end
@@ -63,6 +92,7 @@ module Kairomone
                                             'evidence that cycle recorded, so they are not established as its own'].select { |r| r }
       { cycles: cycles, unknown: unknown.empty? ? nil : unknown.join('; ') }
     end
+    private :read_own_growth
 
     # [[layer, id]] of every own growth entry.
     def own_growth_entries(growth = own_growth)

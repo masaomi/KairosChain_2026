@@ -359,6 +359,10 @@ module Kairomone
     end
 
     def status(render_html: false)
+      # Growth counts, profession, art and the snapshot all ask for own
+      # growth; one reading serves the whole status (Instance#sharing_own_growth).
+      return sharing_own_growth { status(render_html: render_html) } unless sharing_own_growth?
+
       result = { schema_version: 1, product: 'Kairomone', version: VERSION,
                  generated_at: Time.now.utc.iso8601, initialized: false, profile: nil, kairomone: nil,
                  storage: { scope: 'dedicated owned canonical KairosChain instance', data_root: @root, restored_read_only: @restored },

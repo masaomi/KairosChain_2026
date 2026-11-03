@@ -33,23 +33,27 @@ module Kairomone
         return base.merge('status' => Instance.new(host_root: data_dir, bind: false).status) if shown.nil?
 
         store = Instance.new(host_root: data_dir, kairomone: shown)
-        status = store.status
-        out = base.merge('status' => status).merge(growth_counts(status))
-        errors = []
-        begin
-          out['waiting'] = waiting(store, status)
-        rescue StandardError => e
-          out['waiting'] = nil
-          errors << "What waits for the owner could not be read: #{e.message}"
+        # The status and the individual's panels read own growth from one
+        # reading per payload (the page polls /status).
+        store.sharing_own_growth do
+          status = store.status
+          out = base.merge('status' => status).merge(growth_counts(status))
+          errors = []
+          begin
+            out['waiting'] = waiting(store, status)
+          rescue StandardError => e
+            out['waiting'] = nil
+            errors << "What waits for the owner could not be read: #{e.message}"
+          end
+          begin
+            out.merge!(individual(store))
+          rescue StandardError => e
+            out.merge!('lean' => nil, 'skills' => nil, 'own_growth' => nil, 'own_growth_total' => nil, 'art_history' => nil)
+            errors << "The lean, skills and drawing history could not be read: #{e.message}"
+          end
+          out['error'] = errors.join(' ') unless errors.empty?
+          out
         end
-        begin
-          out.merge!(individual(store))
-        rescue StandardError => e
-          out.merge!('lean' => nil, 'skills' => nil, 'own_growth' => nil, 'own_growth_total' => nil, 'art_history' => nil)
-          errors << "The lean, skills and drawing history could not be read: #{e.message}"
-        end
-        out['error'] = errors.join(' ') unless errors.empty?
-        out
       end
 
       # The drawing history of one listed individual, with each drawing that
