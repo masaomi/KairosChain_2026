@@ -132,16 +132,81 @@ class Kairomone09LearnedTest < Minitest::Test
     assert_equal 2, legacy.status[:growth]['lifetime_cycles']
     assert_equal %w[growth_done growth_new_one], legacy.skill_material[:own_growth_entries].map { |e| e['entry_id'] }.sort
     assert_includes legacy.own_growth_entries, ['L2', 'growth_done']
-    # Its L2 no longer rebuilds from the evidence hash the 0.6 state recorded:
-    # the L2 is no longer its own; the L1, bound by its ledger record, still is.
+    # Its L2 no longer holds the evidence whose hash the 0.6 state recorded:
+    # neither entry is established as the cycle's, so neither is its own,
+    # and the count says it cannot be established.
     evidence_path = File.join(legacy.root, 'context/kairomone/growth_done/growth_done.md')
-    File.write(evidence_path, File.read(evidence_path).sub('Old finding', 'Edited finding'))
+    original = File.read(evidence_path)
+    File.write(evidence_path, original.sub('Old finding', 'Edited finding'))
     refute_includes legacy.own_growth_entries, ['L2', 'growth_done']
+    refute_includes legacy.own_growth_entries, ['L1', 'growth_done']
+    status = legacy.status[:growth]
+    assert_equal [nil, 1], [status['lifetime_cycles'], status.dig('lifetime_unknown', 'at_least')]
+    assert_match(/no longer rebuild from the evidence that cycle recorded/, status.dig('lifetime_unknown', 'reason'))
+    File.write(evidence_path, original)
     assert_equal 2, legacy.status[:growth]['lifetime_cycles']
-    # A 0.6 L1 no longer what its cycle recorded is not counted.
+    # A 0.6 L1 no longer what its cycle wrote is not established either.
     path = File.join(legacy.root, 'knowledge/growth_done/growth_done.md')
     File.write(path, File.read(path).sub('Synthesis an earlier Kairomone stored 1', 'Changed'))
+    refute_includes legacy.own_growth_entries, ['L1', 'growth_done']
+    assert_equal [nil, 1], legacy.status[:growth].then { |g| [g['lifetime_cycles'], g.dig('lifetime_unknown', 'at_least')] }
+  end
+
+  # 0.6 put no per-cycle L1 hash on the ledger: that the current bytes match
+  # the latest knowledge record does not make them the cycle's. A replaced L1,
+  # recorded again — its title and body, or its title alone — is not own
+  # growth: it stays off the snapshot, off skill and composition material,
+  # on the owner-written restore list, and the count says so.
+  def test_a_replaced_and_recorded_06_l1_title_and_body_is_not_its_cycles_own
+    assert_replaced_06_l1_is_not_own { |_entry| ['Private clinic notes', 'My appointments at the clinic'] }
+  end
+
+  def test_a_replaced_and_recorded_06_l1_title_alone_is_not_its_cycles_own
+    assert_replaced_06_l1_is_not_own { |entry| ['Private clinic notes', entry[:content]] }
+  end
+
+  def assert_replaced_06_l1_is_not_own
+    legacy = KairomoneLegacyFixture.slot!(@host, dot_id: 'old_one', display_name: 'Old one')
+    with_061(@host, <<~RUBY)
+      #{EVIDENCE_061}
+      s = Kairomone::Instance.new(host_root: host)
+      g = s.autonomy
+      g.configure(max_cycles: 10, already_used: 0)
+      g.request(request_id: 'done', topic: 'Done topic', max_cycles: 10, already_used: 0, resume: true)
+      c = g.claim(worker_id: 'old_worker', lease_seconds: 900)
+      g.commit(claim_token: c['claim_token'], evidence: evidence.call(1))
+      puts JSON.generate(ok: true)
+    RUBY
     assert_equal 1, legacy.status[:growth]['lifetime_cycles']
+    assert_includes legacy.own_growth_entries, ['L1', 'growth_done']
+    path = File.join(legacy.root, 'knowledge/growth_done/growth_done.md')
+    before = Digest::SHA256.hexdigest(File.binread(path))
+    title, content = yield(legacy.read_knowledge(id: 'growth_done'))
+    raw = legacy.send(:document, 'growth_done', title, content, 'L1', Time.now.utc.iso8601)
+    File.write(path, raw)
+    after = Digest::SHA256.hexdigest(raw)
+    legacy.chain.add_block([{ type: 'knowledge_update', layer: 'L1', knowledge_id: 'growth_done', action: 'update', prev_hash: before,
+                              next_hash: after }.to_json])
+    entry = legacy.knowledge_entries.find { |e| e['id'] == 'growth_done' }
+    assert_equal [title, true], entry.values_at('title', 'recorded'), 'the replacement is what the ledger last recorded'
+
+    refute_includes legacy.own_growth_entries, ['L1', 'growth_done']
+    refute_includes legacy.own_growth_entries, ['L2', 'growth_done']
+    growth = legacy.status[:growth]
+    assert_equal [nil, 0], [growth['lifetime_cycles'], growth.dig('lifetime_unknown', 'at_least')]
+    assert_match(/not established as its own/, growth.dig('lifetime_unknown', 'reason'))
+    snap = legacy.status_public
+    assert_equal [[], nil], [snap['cycles'], snap['counts']['lifetime_cycles']]
+    refute_includes JSON.generate(snap), 'Private clinic notes', 'not on the snapshot'
+    assert_equal [], legacy.skill_material[:own_growth_entries], 'no skill material'
+    error = assert_raises(Kairomone::Error) do
+      legacy.propose_skill(skill: { 'name' => 'S', 'description' => 'D', 'methods' => %w[quantify], 'focus' => [],
+                                    'source' => { 'entry_id' => 'growth_done', 'sha256' => after } })
+    end
+    assert_match(/not an own growth entry/, error.message)
+    assert_equal [], legacy.profession_material[:own_growth_titles], 'no composition material'
+    lines = legacy.restore_summary({ 'version' => 3, 'manifest_sha256' => 'a' * 64 }, [])
+    assert_includes lines, '  - L1 Private clinic notes', 'kept on the owner-written restore list'
   end
 
   def test_a_cycle_record_counts_only_while_its_entry_holds_the_hash_it_recorded

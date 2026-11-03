@@ -13,15 +13,20 @@ module Kairomone
   # A cycle of 0.8 or later is its kairomone_growth_completed record, which
   # names both entries and their hashes. A cycle of 0.6 is a completed request
   # of the 0.6 growth state whose entries are present (the identification
-  # restore_summary made in 0.8); its L1 is its own while it matches the
-  # knowledge record its write left on the ledger, and its L2 while both
-  # entries still rebuild from the evidence hash the 0.6 state recorded (the
-  # 0.6 progression_content rule), since 0.6 put no L2 hash on the ledger. Received,
-  # inherited and owner-written entries never are: an import or a fusion
-  # records identities, never a cycle, and an ID alone proves nothing. A cycle
-  # counts only while its L1 is an own growth entry: an intent whose entries
-  # never landed, a 0.6 claim that failed or expired, and the 0.6 claim
-  # counter count nothing. What cannot be read is reported as unknown.
+  # restore_summary made in 0.8). 0.6 put no per-cycle L1 hash and no L2 hash
+  # on the ledger, so its entries are its own only while that cycle's
+  # provenance is established: the L2 still holds the evidence whose hash the
+  # 0.6 state recorded, the L1 still rebuilds from it — body and title (the
+  # 0.6 progression_content rule) — and the L1 is what the ledger last
+  # recorded. A later knowledge record alone establishes nothing: a replaced
+  # L1 recorded again is not the cycle's. A 0.6 cycle whose entries are
+  # present but whose provenance is not established is not own growth, and
+  # the count of cycles is then unknown. Received, inherited and owner-written
+  # entries never are: an import or a fusion records identities, never a
+  # cycle, and an ID alone proves nothing. A cycle counts only while its L1 is
+  # an own growth entry: an intent whose entries never landed, a 0.6 claim
+  # that failed or expired, and the 0.6 claim counter count nothing. What
+  # cannot be read or established is reported as unknown.
   class Instance
     LEARNED_TOP = 12
 
@@ -38,7 +43,7 @@ module Kairomone
       l1 = knowledge_entries(ledger).to_h { |e| [e['id'], e] }
       l2 = observation_entries.to_h { |e| [e['id'], e] }
       legacy, legacy_fault = autonomy.legacy_growth_state
-      cycles, malformed = legacy ? legacy_own_cycles(legacy, l1, l2) : [[], 0]
+      cycles, malformed, unestablished = legacy ? legacy_own_cycles(legacy, l1, l2) : [[], 0, 0]
       legacy_fault ||= "#{malformed} completed request(s) without a readable result" if malformed.positive?
       seen = Set.new(cycles.map { |c| c['l1_id'] })
       Records.of_type(ledger, 'kairomone_growth_completed').each do |record|
@@ -52,8 +57,10 @@ module Kairomone
                     'l1_sha256' => record['l1_sha256'], 'l2_own' => l2.dig(record['l2_id'], 'hash') == record['l2_sha256'],
                     'subjects' => string_list(record['subjects']), 'methods_applied' => string_list(record['methods_applied']) }
       end
-      unknown = legacy_fault && "the 0.6 growth state cannot be read (#{legacy_fault}), so its cycles are not established"
-      { cycles: cycles, unknown: unknown }
+      unknown = [legacy_fault && "the 0.6 growth state cannot be read (#{legacy_fault}), so its cycles are not established",
+                 unestablished.positive? && "#{unestablished} completed 0.6 cycle(s) whose entries are present no longer rebuild from the " \
+                                            'evidence that cycle recorded, so they are not established as its own'].select { |r| r }
+      { cycles: cycles, unknown: unknown.empty? ? nil : unknown.join('; ') }
     end
 
     # [[layer, id]] of every own growth entry.
@@ -97,25 +104,45 @@ module Kairomone
 
     def string_list(value) = value.is_a?(Array) ? value.select { |v| v.is_a?(String) } : []
 
-    # [the 0.6 growth state's completed requests whose L1 is this
-    # individual's own, oldest first; how many completed ones cannot be read].
+    # [the 0.6 growth state's completed requests whose entries are this
+    # individual's own, oldest first; how many completed ones cannot be read;
+    # how many have both entries present but no established provenance].
     def legacy_own_cycles(state, l1, l2)
       completed = state['requests'].select { |_id, r| r.is_a?(Hash) && r['state'] == 'completed' }
       requests = completed.select { |_id, r| r['result'].is_a?(Hash) }
+      unestablished = 0
       cycles = requests.sort_by { |id, r| [r['result']['completed_at'].to_s, id.to_s] }.filter_map do |request_id, r|
         id = r['result']['l1_id']
         next unless id.is_a?(String) && id == "growth_#{request_id}" && r['result']['l2_id'] == id
 
         entry = l1[id]
-        next unless entry && entry['recorded'] && l2[id]
+        next unless entry && l2[id] # its knowledge is gone: nothing of it is here to count
 
-        body1 = knowledge_provider.get(id)&.content
-        body2 = context_manager.get_context(L2_SESSION, id)&.content
-        rebuilds = !!(body1 && body2 && autonomy.legacy_progression_content(id: id, l1_body: body1, l2_body: body2))
+        unless legacy_cycle_established?(id, entry)
+          unestablished += 1
+          next
+        end
+
         { 'generation' => '0.6', 'request_id' => request_id, 'l1_id' => id, 'l2_id' => id, 'l1_sha256' => entry['hash'],
-          'l2_own' => rebuilds, 'subjects' => [], 'methods_applied' => [] }
+          'l2_own' => true, 'subjects' => [], 'methods_applied' => [] }
       end
-      [cycles, completed.length - requests.length]
+      [cycles, completed.length - requests.length, unestablished]
+    end
+
+    # The 0.6 cycle's provenance: its L1 is what the ledger last recorded, and
+    # both entries rebuild from the evidence whose hash the 0.6 state holds —
+    # the L1's body by the 0.6 renderer and its title as the cycle wrote it.
+    def legacy_cycle_established?(id, entry)
+      return false unless entry['recorded']
+
+      body1 = knowledge_provider.get(id)&.content
+      body2 = context_manager.get_context(L2_SESSION, id)&.content
+      return false unless body1 && body2 && autonomy.legacy_progression_content(id: id, l1_body: body1, l2_body: body2)
+
+      title = JSON.parse(body2).dig('evidence', 'knowledge', 'title')
+      title.is_a?(String) && entry['title'].to_s.strip == title.strip
+    rescue JSON::ParserError, TypeError
+      false
     end
   end
 end
