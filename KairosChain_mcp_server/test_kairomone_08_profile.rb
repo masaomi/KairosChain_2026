@@ -12,6 +12,23 @@
 # direction is asserted where it travels once, in the companion snapshot
 # (the 0.6 shape test_kairomone_companion.rb and _08_xp.rb pin). No other
 # assertion in this file changed.
+#
+# Changed for Kairomone 0.9 (design log/kairomone_0_9_screens_and_generated_growth_design_v0.2_20261102.md,
+# Inv 5, N1-N4): kairomone_create takes no profession and refuses {template:};
+# templates and select are refused; profession status no longer names the
+# branch level. create builds an individual as 0.8's kairomone_create left it
+# (a template or drafted first profession), which 0.9 keeps reading;
+# test_create_records_the_accepted_profile_and_first_profession checks that
+# and that a 0.9 creation records no profession; the drafted-profession
+# vocabulary checks run through Profession.build, which offers use;
+# test_a_branch_offers_exactly_three... checks that the branch level is not
+# named (it asserted next_level 30); the request context also carries the
+# lean, skills and learned subjects (empty here); a create retry is a 0.9
+# creation; both forms of a 0.6 selection are accepted in a request and an
+# individual with none refuses a named one (init made a generalist before);
+# the tools test creates without a profession and finds templates refused;
+# the installed package reads its subjects (templates are refused). Requests
+# declare their subjects.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
@@ -28,9 +45,13 @@ class Kairomone08ProfileTest < Minitest::Test
   def setup = fresh_host
   def teardown = FileUtils.remove_entry_secure(@host)
 
+  # An individual 0.8 made, with the first profession it was created with.
   def create(id = 'momo', profession: { 'template' => 'researcher' }, profile: PROFILE)
-    Kairomone::Host.new.create(listing_id: id, profile: profile, profession: profession, material_kind: 'free_text')
-    Kairomone::Instance.new(host_root: @host, kairomone: id)
+    if profession.key?('template')
+      create_08(id, profile: profile, template: profession['template'])
+    else
+      create_08(id, profile: profile, profession: profession)
+    end
   end
 
   def grow_to(store, level)
@@ -41,6 +62,12 @@ class Kairomone08ProfileTest < Minitest::Test
   def candidates(prefix) = 3.times.map { |i| CRAFT.merge('name' => "#{prefix} #{i}") }
 
   def test_create_records_the_accepted_profile_and_first_profession
+    made = Kairomone::Host.new.create(listing_id: 'fresh', profile: PROFILE, material_kind: 'free_text')
+    fresh = Kairomone::Instance.new(host_root: @host, kairomone: 'fresh')
+    assert_equal %w[kairomone_identity kairomone_baseline kairomone_profile], types(fresh), '0.9 creates no profession'
+    assert_nil made[:profession]
+    assert_equal [nil, nil, [], 0], fresh.profession_status.values_at(:current, :name, :lineage, :tier)
+    # An individual 0.8 made keeps the profession it was created with.
     store = create
     assert_equal %w[kairomone_identity kairomone_baseline kairomone_profile kairomone_profession], types(store)
     profile_record = Kairomone::Records.of_type(store.chain, 'kairomone_profile').first
@@ -56,18 +83,21 @@ class Kairomone08ProfileTest < Minitest::Test
   end
 
   def test_a_drafted_profession_takes_only_vocabulary_values
-    assert create('own', profession: CRAFT)
+    assert Kairomone::Profession.build(CRAFT, parents: [], tier: 1, origin: 'branch')
     bad = [CRAFT.merge('focus' => %w[ecology not_a_subject]), CRAFT.merge('focus' => %w[ecology ecology]),
            CRAFT.merge('focus' => %w[ecology botany entomology zoology marine_biology genetics evolution microbiology genomics]),
            CRAFT.merge('habits' => CRAFT['habits'].merge('sources' => 'whatever the page says')),
            CRAFT.merge('habits' => CRAFT['habits'].reject { |k, _| k == 'stance' }), CRAFT.merge('tools' => ['Bash'])]
-    bad.each_with_index do |profession, i|
-      assert_raises(Kairomone::Error) { create("bad_#{i}", profession: profession) }
+    bad.each do |profession|
+      assert_raises(Kairomone::Error) { Kairomone::Profession.build(profession, parents: [], tier: 1, origin: 'branch') }
     end
-    assert_raises(Kairomone::Error) { create('ctl', profile: PROFILE.merge('name' => "Mo\u202Emo")) }
-    assert_raises(Kairomone::Error) { create('cred', profile: PROFILE.merge('appearance' => 'api_key=supersecret123')) }
-    assert_raises(Kairomone::Error) { create('kind', profile: PROFILE.merge('kind' => 'spaceship')) }
-    assert_equal ['own'], listing
+    fresh = ->(id, profile) { Kairomone::Host.new.create(listing_id: id, profile: profile, material_kind: 'free_text') }
+    assert fresh.call('own', PROFILE)
+    assert_raises(Kairomone::Error) { fresh.call('ctl', PROFILE.merge('name' => "Mo\u202Emo")) }
+    assert_raises(Kairomone::Error) { fresh.call('cred', PROFILE.merge('appearance' => 'api_key=supersecret123')) }
+    assert_raises(Kairomone::Error) { fresh.call('kind', PROFILE.merge('kind' => 'spaceship')) }
+    assert fresh.call('other', PROFILE.merge('kind' => 'other', 'kind_label' => 'A teapot')), 'kind other takes a free label (0.9 N5)'
+    assert_equal %w[other own], listing
   end
 
   def test_proposals_do_nothing_before_acceptance_and_a_rename_is_a_version
@@ -134,7 +164,8 @@ class Kairomone08ProfileTest < Minitest::Test
     assert_equal [first_profession, 'template:researcher'], chosen[:profession][:lineage].map { |l| l[:id] }
     assert store.choose_profession(offer: second[:offer], index: 1)[:preserved]
     assert_raises(Kairomone::Error) { store.choose_profession(offer: second[:offer], index: 2) }
-    assert_equal 30, chosen[:profession][:branch][:next_level]
+    refute chosen[:profession][:branch].key?(:next_level), 'the next branch level is not named (0.9 Inv 5)'
+    refute chosen[:profession][:branch][:due], 'and it is not reached yet'
     assert_raises(Kairomone::Error) { store.select_profession(id: 'generalist') }
   end
 
@@ -154,10 +185,11 @@ class Kairomone08ProfileTest < Minitest::Test
     store.restore_backup(file: backup[:file], target_id: 'twin')
     twin = Kairomone::Instance.new(host_root: @host, kairomone: 'twin')
     run = twin.autonomy.run_start(owner_words: 'One', cycles: 1)
-    context = twin.autonomy.request(run_id: run[:run_id], token: run[:token], request_id: 'one', topic: 'Topic')['queue']['context']
+    context = twin.autonomy.request(run_id: run[:run_id], token: run[:token], request_id: 'one', topic: 'Topic', subjects: SUBJECTS)['queue']['context']
     # ...and its request context carries none of it.
     assert_equal({ 'profession' => { 'focus' => [{ 'id' => 'ecology', 'en' => 'Ecology', 'ja' => '生態学' }],
-                                     'habits' => { 'depth' => 'deep', 'reflection' => 'concise', 'stance' => 'practical' } } }, context)
+                                     'habits' => { 'depth' => 'deep', 'reflection' => 'concise', 'stance' => 'practical' } },
+                   'lean' => [], 'skills' => [], 'learned' => [] }, context)
     # The owner's direction travels once, in the request's companion snapshot.
     queued = twin.autonomy.status['queue']
     assert_equal({ 'preset' => 'research', 'text' => 'Primary sources' }, queued.dig('companion', 'direction'))
@@ -198,7 +230,7 @@ class Kairomone08ProfileTest < Minitest::Test
     flaky = Kairomone::Instance.new(host_root: @host, kairomone: 'momo', backend: failing)
     run = flaky.autonomy.run_start(owner_words: 'One', cycles: 1)
     step = { run_id: run[:run_id], token: run[:token] }
-    flaky.autonomy.request(**step, request_id: 'one', topic: 'Topic')
+    flaky.autonomy.request(**step, request_id: 'one', topic: 'Topic', subjects: SUBJECTS)
     claim = flaky.autonomy.claim(**step, worker_id: 'worker')['claim_token']
     excerpt = 'Synthetic excerpt.'
     evidence = { 'knowledge' => { 'title' => 'Synthesis', 'content' => 'Synthetic content' }, 'finding' => 'f', 'uncertainty' => 'u', 'counterexample' => 'c',
@@ -239,23 +271,30 @@ class Kairomone08ProfileTest < Minitest::Test
   end
 
   def test_a_create_retry_finds_what_it_made
-    create
-    again = Kairomone::Host.new.create(listing_id: 'momo', profile: PROFILE, profession: { 'template' => 'researcher' }, material_kind: 'free_text')
+    first = Kairomone::Host.new.create(listing_id: 'momo', profile: PROFILE, material_kind: 'free_text')
+    again = Kairomone::Host.new.create(listing_id: 'momo', profile: PROFILE, material_kind: 'free_text')
     assert again[:preserved]
+    assert_equal first[:kairomone], again[:kairomone]
     assert_equal ['momo'], listing
-    assert_raises(Kairomone::Error) { create('momo', profile: PROFILE.merge('name' => 'Different')) }
-    assert_raises(Kairomone::Error) { create('momo', profession: { 'template' => 'creator' }) }
+    assert_raises(Kairomone::Error) { Kairomone::Host.new.create(listing_id: 'momo', profile: PROFILE.merge('name' => 'Different')) }
+    create('made_by_08')
+    assert_raises(Kairomone::Error, 'one 0.8 made with a profession is not this creation') { Kairomone::Host.new.create(listing_id: 'made_by_08', profile: PROFILE) }
   end
 
   def test_both_forms_of_the_current_profession_are_accepted_in_a_request
     store = Kairomone::Instance.new(bind: false)
     store.init(dot_id: 'plain', display_name: 'Plain')
     run = store.autonomy.run_start(owner_words: 'Two', cycles: 2)
+    error = assert_raises(Kairomone::Error) { store.autonomy.request(run_id: run[:run_id], token: run[:token], request_id: 'named', topic: 'Topic', profession_id: 'template:generalist', subjects: SUBJECTS) }
+    assert_match(/no profession yet/, error.message)
+    store.autonomy.run_stop
+    select_06(store, 'generalist') # a 0.6 selection still reads as its template
+    run = store.autonomy.run_start(owner_words: 'Two', cycles: 2)
     step = { run_id: run[:run_id], token: run[:token] }
-    assert store.autonomy.request(**step, request_id: 'by_template', topic: 'Topic', profession_id: 'template:generalist')
+    assert store.autonomy.request(**step, request_id: 'by_template', topic: 'Topic', profession_id: 'template:generalist', subjects: SUBJECTS)
     store.autonomy.run_stop
     run = store.autonomy.run_start(owner_words: 'Two', cycles: 2)
-    assert store.autonomy.request(run_id: run[:run_id], token: run[:token], request_id: 'by_id', topic: 'Topic', profession_id: 'generalist')
+    assert store.autonomy.request(run_id: run[:run_id], token: run[:token], request_id: 'by_id', topic: 'Topic', profession_id: 'generalist', subjects: SUBJECTS)
     assert_raises(Kairomone::Error) { store.autonomy.run_status(run_id: 'not-a-run') }
   end
 
@@ -297,16 +336,26 @@ class Kairomone08ProfileTest < Minitest::Test
   end
 
   def test_the_tools_create_propose_accept_and_read_the_vocabularies
-    created = tool(:Create, 'kairomone' => 'momo', 'profile' => PROFILE, 'profession' => { 'template' => 'creator' }, 'material_kind' => 'checkboxes')
+    refused = tool(:Create, 'kairomone' => 'momo', 'profile' => PROFILE, 'profession' => { 'template' => 'creator' }, 'material_kind' => 'checkboxes')
+    refute refused['success']
+    assert_match(/takes no \{template:\}.*no fixed list/, refused['error'])
+    drafted = tool(:Create, 'kairomone' => 'momo', 'profile' => PROFILE, 'profession' => CRAFT)
+    assert_match(/takes no profession/, drafted['error'])
+    assert_equal [], listing
+    created = tool(:Create, 'kairomone' => 'momo', 'profile' => PROFILE, 'material_kind' => 'checkboxes')
     assert created['success'], created.inspect
-    assert_equal 'Creator', created.dig('profession', 'name')
+    assert_nil created['profession']
     proposed = tool(:Profile, 'command' => 'propose', 'profile' => PROFILE.merge('name' => 'Momoka'))
     assert_equal 'Momo', tool(:Profile, 'command' => 'get').dig('profile', 'name')
     accepted = tool(:Profile, 'command' => 'accept', 'proposal' => proposed['proposal'])
     assert_equal 'Momoka', accepted.dig('profile', 'name')
-    assert_equal 6, tool(:Profession, 'command' => 'templates')['templates'].length
+    %w[templates select].each do |command|
+      answer = tool(:Profession, 'command' => command, 'id' => 'creator')
+      refute answer['success'], command
+      assert_match(/no fixed list of professions/, answer['error'])
+    end
     assert_equal 208, tool(:Profession, 'command' => 'subjects')['subjects'].length
-    assert_equal 'Creator', tool(:Profession, 'command' => 'status').dig('profession', 'current', 'name')
+    assert_nil tool(:Profession, 'command' => 'status').dig('profession', 'current')
   end
 
   def test_an_installed_package_reads_its_vocabularies
@@ -319,10 +368,11 @@ class Kairomone08ProfileTest < Minitest::Test
       require 'kairos_mcp'; require 'kairos_mcp/skillset'; require 'kairos_mcp/tool_registry'; require 'json'
       KairosMcp::Skillset.new(File.join(KairosMcp.data_dir, 'skillsets/kairomone')).load!
       reg = KairosMcp::ToolRegistry.new
-      puts reg.call_tool('kairomone_profession', { 'command' => 'templates' }).first[:text]
+      puts reg.call_tool('kairomone_profession', { 'command' => 'subjects' }).first[:text]
     RUBY
     out, err, status = Open3.capture3({ 'KAIROS_DATA_DIR' => @host }, RbConfig.ruby, '-I', File.expand_path('lib', __dir__), '-e', script)
     assert status.success?, err
-    assert_equal 6, JSON.parse(out)['templates'].length
+    assert_equal 208, JSON.parse(out)['subjects'].length
+    assert File.file?(File.join(installed, 'templates/methods.json')), 'the method vocabulary ships too'
   end
 end

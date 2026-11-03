@@ -11,6 +11,11 @@
 # received drawings keep their stage; plans expire by age; a fusion retry finds
 # its child; under a locked L2 no received piece is kept; preview pages are
 # read one at a time. All data is synthetic and confined to temporary hosts.
+#
+# Changed for Kairomone 0.9 (design log/kairomone_0_9_screens_and_generated_growth_design_v0.2_20261102.md,
+# N3, N4, N5): create builds an individual as 0.8's kairomone_create left it
+# (a template profession; 0.9 creates none), a request declares its subjects,
+# and a drawing is proposed with its form.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
@@ -39,9 +44,7 @@ class Kairomone08ExchangeFollowupsTest < Minitest::Test
   def teardown = FileUtils.remove_entry_secure(@host)
 
   def create(id, template = 'researcher')
-    Kairomone::Host.new.create(listing_id: id, profile: PROFILE.merge('name' => id.capitalize), profession: { 'template' => template },
-                               material_kind: 'free_text')
-    Kairomone::Instance.new(host_root: @host, kairomone: id)
+    create_08(id, profile: PROFILE.merge('name' => id.capitalize), template: template)
   end
 
   def evidence(content = 'What the cycle learned')
@@ -55,7 +58,7 @@ class Kairomone08ExchangeFollowupsTest < Minitest::Test
     growth = store.autonomy
     run = growth.run_start(owner_words: 'One cycle', cycles: 1)
     step = { run_id: run[:run_id], token: run[:token] }
-    growth.request(**step, request_id: id, topic: 'A topic')
+    growth.request(**step, request_id: id, topic: 'A topic', subjects: SUBJECTS)
     claim = growth.claim(**step, worker_id: 'worker')
     growth.commit(**step, claim_token: claim['claim_token'], evidence: evidence)
   end
@@ -119,7 +122,7 @@ class Kairomone08ExchangeFollowupsTest < Minitest::Test
     store = create('momo')
     Kairomone::Exchange::PIECES_MAX.succ.times do |i|
       svg = Kairomone::Art::EGG.sub('rx="34"', "rx=\"#{i + 1}\"")
-      store.accept_art(proposal: store.propose_art(svg: svg)[:proposal])
+      store.accept_art(proposal: store.propose_art(svg: svg, form: 'An egg')[:proposal])
     end
     first = store.exchange_preview(include: %w[owner_written])
     drawings = first[:items].select { |i| i['item'] == 'drawing' }
@@ -290,10 +293,10 @@ class Kairomone08ExchangeFollowupsTest < Minitest::Test
 
   def test_received_drawings_wait_for_the_stage_they_answered
     store = create('momo')
-    store.accept_art(proposal: store.propose_art(svg: Kairomone::Art::EGG)[:proposal])
+    store.accept_art(proposal: store.propose_art(svg: Kairomone::Art::EGG, form: 'An egg')[:proposal])
     2.times { |i| store.create_knowledge(id: "n#{i}", title: "N#{i}", content: "Note #{i}") }
     later = Kairomone::Art::EGG.sub('rx="34"', 'rx="30"')
-    store.accept_art(proposal: store.propose_art(svg: later)[:proposal])
+    store.accept_art(proposal: store.propose_art(svg: later, form: 'An egg')[:proposal])
     import(export_and_place(store, include: []), 'copy')
     copy = Kairomone::Instance.new(host_root: @host, kairomone: 'copy')
     waiting = copy.proposals[:proposals].select { |p| p['kind'] == 'art' && p['state'] == 'waiting' }

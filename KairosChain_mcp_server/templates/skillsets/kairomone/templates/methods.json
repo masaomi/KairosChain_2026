@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "note": "Learning methods a skill may hold. A skill steers how a Kairomone learns, never what it may do. IDs are append-only: an ID is never reused, and a retired ID stays in aliases pointing at its successor.",
+  "methods": [
+    { "id": "cross_check_sources", "en": "Cross-check sources", "ja": "情報源を突き合わせる" },
+    { "id": "seek_counterexample", "en": "Seek a counterexample", "ja": "反例を探す" },
+    { "id": "find_primary_source", "en": "Find the primary source", "ja": "一次資料を探す" },
+    { "id": "trace_history", "en": "Trace the history", "ja": "経緯をたどる" },
+    { "id": "compare_definitions", "en": "Compare definitions", "ja": "定義を比べる" },
+    { "id": "quantify", "en": "Quantify", "ja": "数で確かめる" },
+    { "id": "follow_citations", "en": "Follow citations", "ja": "引用をたどる" },
+    { "id": "check_methodology", "en": "Check the methodology", "ja": "方法を確かめる" },
+    { "id": "map_disagreement", "en": "Map the disagreement", "ja": "意見の分かれ目を整理する" },
+    { "id": "build_example", "en": "Build an example", "ja": "例を作る" },
+    { "id": "connect_subjects", "en": "Connect subjects", "ja": "分野をつなぐ" },
+    { "id": "question_assumptions", "en": "Question assumptions", "ja": "前提を疑う" },
+    { "id": "check_recency", "en": "Check how recent it is", "ja": "新しさを確かめる" },
+    { "id": "explain_for_beginner", "en": "Explain for a beginner", "ja": "初めての人向けに説明する" },
+    { "id": "identify_open_problems", "en": "Identify open problems", "ja": "未解決の問題を見つける" },
+    { "id": "contrast_contexts", "en": "Contrast contexts", "ja": "異なる状況を比べる" }
+  ],
+  "aliases": {}
+}

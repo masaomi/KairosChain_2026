@@ -6,6 +6,9 @@
 # synthetic and confined to temporary hosts. run_status(run_id:) reports the
 # named run under this_run and leaves the top-level fields to the run that is
 # live now (run A review: one key with two meanings).
+#
+# Changed for Kairomone 0.9 (design log/kairomone_0_9_screens_and_generated_growth_design_v0.2_20261102.md,
+# N3): a request declares 1-3 subject IDs; each request here declares one.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
@@ -39,7 +42,7 @@ class Kairomone08RunsTest < Minitest::Test
   end
 
   def claim_one(step, id, lease: 900, store: @store)
-    growth(store).request(**step, request_id: id, topic: "Topic #{id}")
+    growth(store).request(**step, request_id: id, topic: "Topic #{id}", subjects: SUBJECTS)
     growth(store).claim(**step, worker_id: 'worker', lease_seconds: lease)['claim_token']
   end
 
@@ -71,7 +74,7 @@ class Kairomone08RunsTest < Minitest::Test
   def test_a_session_without_the_token_cannot_step
     step = start(cycles: 2)
     [nil, 'f' * 48, 'not a token'].each do |token|
-      assert_raises(Kairomone::Error) { growth.request(run_id: step[:run_id], token: token, request_id: 'one', topic: 'Topic') }
+      assert_raises(Kairomone::Error) { growth.request(run_id: step[:run_id], token: token, request_id: 'one', topic: 'Topic', subjects: SUBJECTS) }
     end
     claim_token = claim_one(step, 'one')
     assert_raises(Kairomone::Error) { growth.heartbeat(run_id: step[:run_id], token: 'f' * 48, claim_token: claim_token) }
@@ -100,7 +103,7 @@ class Kairomone08RunsTest < Minitest::Test
     end
     last = claim_one(step, 'cycle_2')
     assert growth.status['live'], 'the run is live while its last admitted cycle is open'
-    assert_raises(Kairomone::Error) { growth.request(**step, request_id: 'cycle_3', topic: 'One too many') }
+    assert_raises(Kairomone::Error) { growth.request(**step, request_id: 'cycle_3', topic: 'One too many', subjects: SUBJECTS) }
     assert_empty ends
     assert_equal 'completed', growth.commit(**step, claim_token: last, evidence: evidence)['state']
     assert_equal ['count_reached'], ends
@@ -138,7 +141,7 @@ class Kairomone08RunsTest < Minitest::Test
     out = StringIO.new
     assert @store.rebaseline_l0_interactive(tty_in: StringIO.new("k7m3xp\n"), tty_out: out, reason: 'synthetic upgrade', nonce: 'k7m3xp')[:recorded]
     assert_includes out.string, 'Kairomone: alpha'
-    assert_raises(Kairomone::Error) { growth.request(**step, request_id: 'two', topic: 'Revived?') }
+    assert_raises(Kairomone::Error) { growth.request(**step, request_id: 'two', topic: 'Revived?', subjects: SUBJECTS) }
     refute growth.status['live']
     assert_equal ['host_l0_changed'], ends
     fresh = start(cycles: 1)
@@ -265,7 +268,7 @@ class Kairomone08RunsTest < Minitest::Test
   def test_a_claim_that_cannot_be_recorded_is_not_counted
     write_policy(JSON.generate('max_claims' => 5, 'window' => 'lifetime'))
     step = start(cycles: 3)
-    growth.request(**step, request_id: 'orphaned', topic: 'Topic')
+    growth.request(**step, request_id: 'orphaned', topic: 'Topic', subjects: SUBJECTS)
     path = File.join(@store.root, 'growth/runs.json')
     state = JSON.parse(File.read(path))
     state['requests'] = []

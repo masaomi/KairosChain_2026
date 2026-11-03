@@ -1,7 +1,7 @@
 ---
 name: kairomone_guide
 description: Operate Kairomone FreeTier basic safely through its dedicated canonical providers and explicit tools.
-version: '0.8.0'
+version: '0.9.0'
 layer: L1
 tags: [kairomone, basic, local]
 ---
@@ -10,7 +10,9 @@ tags: [kairomone, basic, local]
 
 This executable SkillSet supplies a small, explicit local workflow for any
 number of Kairomones per host (called dots before 0.8). It provides
-content-derived levels, explicit professions and growth runs the owner starts.
+content-derived levels, professions generated at unannounced branches, skills
+drawn from what a Kairomone learned, a lean read from conversation, a drawing
+every ten levels and growth runs the owner starts.
 It does not supply marketplace, payment, an LLM, a continuously running worker,
 a scheduled job or self-modifying L0 features. Use kairomone_profession for
 explicit choices and kairomone_growth for owner-started runs and their
@@ -39,9 +41,18 @@ intelligence or proven skill. Actual research requires the host assistant.
    This is create-only: different content at an existing ID is refused. An
    identical retry checks the saved data and ledger rather than resetting it.
 4. Retrieve through `kairomone_knowledge(command: "get", id:)` or `list`.
-5. Call `kairomone_status(render_html: true)` to write a standalone offline HTML
-   snapshot at the instance's fixed `exports/status.html`. No server, network,
-   background refresh or Site is created. Regenerate to refresh it.
+5. Call `kairomone_status(render_html: true)` to write the offline snapshot at
+   the instance's fixed `exports/status.html`. It is a page to hand to friends
+   who cannot run commands: it shows only what the Kairomone publicly is (name,
+   drawings, level, stage, profession name, counts) and what its own growth
+   cycles learned (title, synthesis, finding, learned subjects, source addresses),
+   never a cycle's topic or request, owner-written entries, chat, the direction,
+   the lean, skills or a waiting drawing. Every text is checked for credentials
+   and local paths when the page is written; one that fails is left out and
+   counted. It is one moment, not synced: no server, network, background refresh
+   or Site is created. Regenerate it right before handing it over: a file already
+   at that path may be older, and one written before 0.9 also showed knowledge
+   and observation titles, request topics and the data path.
 
 ## Growth runs and the interval recipe
 
@@ -63,7 +74,8 @@ procedure is `docs/bounded-growth.md`.
 
 A profile version holds a name, a kind (one of the IDs `animal`, `plant`,
 `insect`, `human`, `imaginary` for an imaginary creature, `stone`, `angel`,
-`monster` or `unknown`), a kind label, appearance, personality traits, voice
+`monster`, `other` for any other living, imagined or inanimate thing, or
+`unknown`), a kind label, appearance, personality traits, voice
 and interests. The host assistant composes it — from `kairomone_profile
 material` (the host's instruction mode, read only; without `kairomone` the
 host's material for a new one, with it that Kairomone's seeds as well), host L2,
@@ -79,39 +91,71 @@ shipped vocabulary (`kairomone_profession subjects`, about 200 subjects in
 English and Japanese) and one value each for four habits: sources (primary,
 official, encyclopedic, news, community, mixed), depth (survey, focused, deep),
 reflection (concise, analytical, narrative, questioning) and stance (practical,
-theoretical, critical, creative). At levels 10, 30, 100, 300 and 600 the
-assistant offers exactly three professions derived from the current one; the
-owner picks one or asks for three new ones, and the chosen one records its
-parent, so every Kairomone carries a profession lineage. The six 0.6
-professions remain as templates. A growth request carries only the owner's
-direction and the profession's focus names and habit values that the shipped
-vocabularies hold at that moment; nothing else stored reaches a cycle's request.
-A profession's name and description are display text: status shows them, and
-they never enter a request. A profession never changes a tool, permission,
-limit, run or L0. Any template may be the first profession a Kairomone is
-created with; the 0.6 unlock levels apply only to selecting a template later.
-An accepted version is never accepted again: to return to an earlier version,
-propose it again.
+theoretical, critical, creative). A Kairomone starts with no profession. Branch
+levels are internal and never announced: when one is reached, `kairomone_profession
+status` shows a branch as due, and the assistant generates exactly three
+professions from the Kairomone's own profile and material, its lineage and its
+growth (`kairomone_profession material`: learned subjects, skills, its own growth
+entries); the owner picks one or asks for three new ones, and the chosen one
+records its parents, so every Kairomone carries a profession lineage. A
+Kairomone past several branch levels gets its offers one after another. No fixed
+list is offered: `templates` and `select` are refused, and a Kairomone is created
+without a profession. A 0.6 template selection still reads as its template until
+the next branch. A profession's name and description are display text: status
+shows them, and they never enter a request. A profession never changes a tool,
+permission, limit, run or L0. An accepted version is never accepted again: to
+return to an earlier version, propose it again.
+
+A skill (`kairomone_skill`) is drawn from one of the Kairomone's own growth
+entries — an L1 or L2 entry its own cycle committed, still matching the hash
+recorded then; the skill names it, its layer and its hash — and holds up to four learning methods from a shipped vocabulary
+(`kairomone_skill material` lists them, e.g. find a primary source, seek a
+counterexample) and up to four focus subjects. It waits as a proposal until the
+owner accepts it; at most eight are in force; the owner retires one at any time,
+and one whose source entry changed stops being in force. Skills change how a
+Kairomone learns, never what it may do.
+
+The lean is what the assistant reads, from what the owner typed in conversation,
+about where they want the Kairomone to grow: up to eight subject IDs, written with
+`kairomone_companion lean` together with the owner's words, recorded on the
+Kairomone's ledger at every change, shown wherever the direction is shown, and
+cleared at once with an empty list — also while a cycle is running, since a clear
+steers nothing. A change is never written while a cycle is running, nor from
+text a page placed, and it steers only the choice of topics.
+
+A growth request carries only the owner's direction and closed-form values the
+shipped vocabularies hold at that moment: the profession's focus names and habit
+values, the lean's subject names, the skills' method and subject names, and the
+names of the subjects learned most; nothing else stored reaches a cycle's
+request. A request declares 1–3 subjects for its topic; a request whose subjects
+meet the profession's focus or the lean counts as steered, and at most half of a
+run's requests may be steered.
 
 Stages follow the level: egg (1–4), hatchling (5–19), young (20–99), adult
-(100–499), legend (500–999).
+(100–499), legend (500–999). Stages are names; drawings follow tenth levels.
 
 ## Drawings and transplants
 
 A Kairomone is shown with the built-in egg until the owner accepts a drawing.
-At hatch (level 5) and at each later stage a drawing is due: the assistant
-draws the character from its profile — always an anthropomorphised, cute
-character of its kind — as static SVG and proposes it (`kairomone_art
-propose`); it takes effect only when the owner accepts it. The art check admits
+At every tenth level (10, 20, 30 …) a drawing is due: the assistant draws the
+character from `kairomone_art material` — its profile in force, its level,
+profession, skills, learned subjects and the previous drawing, so that each one
+continues from the one before — always an anthropomorphised, cute character of
+whatever it is, living, imagined or inanimate, as static SVG with a short form
+(what it is now), and proposes it (`kairomone_art propose`); it takes effect only
+when the owner accepts it. A tenth level passed without a drawing is not drawn
+later. `kairomone_art history` lists every accepted drawing in order with the
+level it was drawn for (a drawing from before 0.9 with its stage); a drawing
+that is absent or fails the check is listed as missing. The art check admits
 only static vector drawing: the elements svg, g, path, circle, ellipse, rect,
 line, polyline, polygon, defs, linearGradient, radialGradient, stop, clipPath,
 title and desc in the SVG namespace; geometric and presentation attributes;
 `url(#…)` only to ids inside the drawing; a viewBox; at most 64 KiB, 32 levels
 of nesting and 4,000 elements. It runs again each time a drawing leaves — the
-status page and `kairomone_art get` — and a drawing that fails it then is shown
-as the egg, and a drawing for the stage is due again. The proposal list names
-drawings without their markup. A drawing stops waiting once the drawing shown
-answers its stage or a later one. Pages show drawings only as images. The check makes a
+console and snapshot pages and `kairomone_art get` — and a drawing that fails it then is shown
+as the egg, and a drawing for that tenth level is due again. The proposal list
+names drawings without their markup. A drawing stops waiting once the drawing
+shown answers its tenth level or a later one. Pages show drawings only as images. The check makes a
 drawing inert, not well drawn.
 
 `kairomone_knowledge transplant` copies one of a Kairomone's L1 entries into
@@ -156,8 +200,13 @@ profession is accepted with `kairomone_profession accept`), and the ledger
 records every piece received and the file's manifest.
 
 `kairomone_fusion` makes a new Kairomone from two and changes neither.
-`material` pages both parents' knowledge with each entry's hash and whether it
-is outside content; `propose` stores the assistant's plan (the child's listing
+`material` pages both parents' knowledge with each entry's hash, whether it
+is outside content and whether it is its parent's own growth, and each parent's
+composition (its own growth entries, learned subjects and skills). Any parent
+entry may become one of the child's entries, but the child's profile and its
+three profession candidates, which its snapshot shows, are composed only from
+the parents' names, professions and compositions — never from an owner-written,
+received or inherited entry. `propose` stores the assistant's plan (the child's listing
 ID, a draft profile, three profession candidates, and the child's entries, each
 kept from one parent entry or merged from several); `summary` pages each child
 entry in full with the parent entries it came from and each parent entry
@@ -271,9 +320,12 @@ signed with this host's key restores; it restores as stored (integrity checks on
 appends a `kairomone_restored` record, and ends any run that was live in it.
 Any other archive — a 0.6.1 backup, another machine's, one signed by a lost key —
 restores only through the owner's terminal command, which prints its profile,
-direction, personality, the count and titles of its chat summaries and
-owner-written entries, and its lineage, and proceeds only when the owner types
-the code it shows. Files from anyone else enter by exchange import, not restore.
+direction, personality, the lean in force and its words, the count and titles
+of its chat summaries and owner-written entries, its lineage, every skill and
+drawing form, the free text of every skill and drawing draft it carries
+(waiting, answered or superseded), and a line saying that what its own growth
+cycles learned appears on the snapshot page, and proceeds only when the owner
+types the code it shows. Files from anyone else enter by exchange import, not restore.
 An older archive restores with what it holds; what it lacks is listed, never
 invented.
 
@@ -316,16 +368,34 @@ Version 0.6 adds a page from which the owner talks to a Kairomone, with each
 tool permission answered on the page. Since 0.8 the page shows any Kairomone the
 host lists (the switch is the page's own; it changes only what is shown and the
 ID the placed text names), shows each one's drawing as an image, and has panels
-for what waits for the owner — drawings, profiles and professions with their
-proposal IDs and hashes, the branch offer — and for a creation request and an
-export preview request. Every panel only places text in the message box; the
+for what waits for the owner — drawings, profiles, professions and skills with
+their proposal IDs and hashes, the branch offer — and for a creation request and
+an export preview request. Since 0.9 it also shows the lean (with a control to
+clear it), the skills in force, the drawing history, lifetime cycles, the
+learned subjects and the operator limit when one is declared, has a learn panel
+(a cycle count with 「学習を始める」 and 「学習を止める」), and starts every message
+it sends with a line `[Kairomone: <listing ID>]` naming the Kairomone shown. It
+never names a branch level. Every panel only places text in the message box; the
 owner reads it, changes it if they like, and sends it. Placed text never
 accepts or chooses: that is typed by the owner. The owner starts it at a terminal, in the
 project folder, from the installed copy under the data directory
 (`<data_dir>/skillsets/kairomone`; the console refuses to start from any other
 copy):
 
-    ruby .kairos/skillsets/kairomone/scripts/kairomone_console.rb
+    ruby .kairos/skillsets/kairomone/scripts/kairomone.rb console
+
+(`kairomone.rb console` hands over to `scripts/kairomone_console.rb`, which may
+also be run directly). `--open` hands the one-time URL to the system browser
+(`open`, or `xdg-open`) and prints none; if the browser cannot be launched the
+console stops and says so. `--open --detach` runs the console in the
+background, its output going to `.kairos/run/kairomone_console_detached.log`
+through a filter that drops any line holding a URL or secret it issued; stop it
+with `console --stop`, which signals only the process the console lock names
+and only when it is the console. `--detach` alone is refused. From Claude Code,
+type `! ruby .kairos/skillsets/kairomone/scripts/kairomone.rb console --open
+--detach`. Without `--open` the console prints its URL, so it prints it only to a
+terminal: when its output is a pipe or a file (`!` in Claude Code, `| tee`,
+`> out.txt`) it refuses to start and points to `--open`.
 
 It needs WEBrick (`gem install webrick` if Ruby lacks it), `claude` on the PATH
 (or named by `--claude PATH` or by the `KAIROMONE_CONSOLE_CLAUDE` environment

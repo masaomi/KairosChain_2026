@@ -1,6 +1,16 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+# console [--open [--detach] | --stop] (design 0.9 N8): the owner's console
+# page runs as its own program, scripts/kairomone_console.rb, so that --stop
+# can tell it by its command line. It is given this Ruby's load path as this
+# script was given it — never the checkout guess below — and finds the core
+# as it does when started directly.
+if ARGV.first == 'console'
+  require 'rbconfig'
+  exec(RbConfig.ruby, *$LOAD_PATH.flat_map { |dir| ['-I', dir] }, File.expand_path('kairomone_console.rb', __dir__), *ARGV.drop(1))
+end
+
 require 'optparse'
 # A checkout can locate its sibling core; an installed SkillSet uses the
 # installed kairos-chain gem or an explicitly provided Ruby load path (-I).
@@ -16,7 +26,8 @@ end
 options = {}
 parser = OptionParser.new do |p|
   p.banner = 'Usage: kairomone.rb list|init|status|observe|growth status|run-start|run-stop|run-status|request|claim|heartbeat|commit|fail|' \
-             'profession list|select|knowledge create|get|list|transplant|pending-transplants|art get|backup create|verify|restore|restore-new|missing|l0 rebaseline [options]'
+             'profession list|select|knowledge create|get|list|transplant|pending-transplants|art get|backup create|verify|restore|restore-new|missing|l0 rebaseline [options]' \
+             "\n       kairomone.rb console [--open [--detach] | --stop] [--project DIR] (the owner's console page; see kairomone_console.rb --help)"
   p.on('--kairomone ID', 'Listing ID of the Kairomone (needed for writes when the host lists several)') { |v| options[:kairomone] = v }
   p.on('--json-stdin', 'Read companion arguments as bounded JSON, never shell text') { options[:json_stdin] = true }
   p.on('--kairomone-id ID', 'init: identity and listing ID of the new Kairomone') { |v| options[:kairomone_id] = v }
@@ -36,13 +47,15 @@ parser = OptionParser.new do |p|
   p.on('--token TOKEN') { |v| options[:token] = v }
   p.on('--request-id ID') { |v| options[:request_id] = v }
   p.on('--topic TEXT') { |v| options[:topic] = v }
+  p.on('--subjects IDS', 'request: 1-3 subject IDs, comma-separated') { |v| options[:subjects] = v.split(',').map(&:strip) }
+  p.on('--methods-applied IDS', 'commit: method IDs the cycle applied, comma-separated') { |v| options[:methods_applied] = v.split(',').map(&:strip) }
   p.on('--profession-id ID') { |v| options[:profession_id] = v }
   p.on('--bias-applied') { options[:bias_applied] = true }
   p.on('--worker-id ID') { |v| options[:worker_id] = v }
   p.on('--lease-seconds N', Integer) { |v| options[:lease_seconds] = v }
   p.on('--claim-token TOKEN') { |v| options[:claim_token] = v }
   p.on('--reason TEXT') { |v| options[:reason] = v }
-  p.on('--kind KIND', 'missing: profile, professions or art') { |v| options[:kind] = v }
+  p.on('--kind KIND', 'missing: profile, professions, art, skills or proposals (the one holding a drawing\'s form)') { |v| options[:kind] = v }
   p.on('--sha256 HEX', 'missing: the lost piece; art get: an accepted drawing') { |v| options[:sha256] = v }
   p.on('--evidence-json JSON') { |v| options[:evidence] = JSON.parse(v) }
   p.on('--html', 'Generate fixed offline status.html snapshot') { options[:render_html] = true }
@@ -91,9 +104,9 @@ begin
       raise Kairomone::Error, 'Invalid companion JSON'
     end
     raise Kairomone::Error, 'Companion input must be an object' unless input.is_a?(Hash)
-    methods = { 'status' => :companion_status, 'history' => :companion_history, 'configure' => :configure_companion, 'context' => :companion_context, 'remember' => :remember_companion, 'recover' => :recover_companion_memory, 'revoke' => :revoke_companion_memory }
+    methods = { 'status' => :companion_status, 'history' => :companion_history, 'configure' => :configure_companion, 'lean' => :companion_lean, 'context' => :companion_context, 'remember' => :remember_companion, 'recover' => :recover_companion_memory, 'revoke' => :revoke_companion_memory }
     method = methods[subcommand]
-    raise Kairomone::Error, 'Expected companion status, history, configure, context, remember, recover or revoke' unless method
+    raise Kairomone::Error, 'Expected companion status, history, configure, lean, context, remember, recover or revoke' unless method
     target = store.call
     allowed = target.method(method).parameters.map { |_kind, key| key.to_s }
     raise Kairomone::Error, 'Unexpected companion input fields' unless (input.keys - allowed).empty?
@@ -122,10 +135,10 @@ begin
            when ['growth', 'run-start'] then growth.call.run_start(owner_words: options[:owner_words], cycles: options[:cycles], end_at: options[:end_at])
            when ['growth', 'run-stop'] then growth.call.run_stop(reason: options.fetch(:reason, 'Owner stop'))
            when ['growth', 'run-status'] then growth.call.run_status(run_id: options[:run_id])
-           when ['growth', 'request'] then growth.call.request(run_id: options[:run_id], token: options[:token], request_id: options[:request_id], topic: options[:topic], profession_id: options[:profession_id], bias_applied: options.fetch(:bias_applied, false))
+           when ['growth', 'request'] then growth.call.request(run_id: options[:run_id], token: options[:token], request_id: options[:request_id], topic: options[:topic], subjects: options[:subjects], profession_id: options[:profession_id], bias_applied: options.fetch(:bias_applied, false))
            when ['growth', 'claim'] then growth.call.claim(run_id: options[:run_id], token: options[:token], worker_id: options[:worker_id], lease_seconds: options.fetch(:lease_seconds, 300))
            when ['growth', 'heartbeat'] then growth.call.heartbeat(run_id: options[:run_id], token: options[:token], claim_token: options[:claim_token])
-           when ['growth', 'commit'] then growth.call.commit(run_id: options[:run_id], token: options[:token], claim_token: options[:claim_token], evidence: options[:evidence])
+           when ['growth', 'commit'] then growth.call.commit(run_id: options[:run_id], token: options[:token], claim_token: options[:claim_token], evidence: options[:evidence], methods_applied: options[:methods_applied])
            when ['growth', 'fail'] then growth.call.fail(run_id: options[:run_id], token: options[:token], claim_token: options[:claim_token], reason: options[:reason])
            when ['growth', 'configure'], ['growth', 'stop']
              raise Kairomone::Error, "growth #{subcommand} belonged to the 0.6 lifetime budget, which 0.8 removed; use growth run-start / run-stop"

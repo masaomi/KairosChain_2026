@@ -13,22 +13,47 @@ module Kairomone
       CONFIG_LIMIT = 1_048_576
       LOCK_NAME = 'kairomone_console.lock'
       LOG_NAME = 'kairomone_console.log'
+      # What a detached console would have shown at a terminal, through its
+      # output filter (0.9 N8).
+      DETACHED_LOG_NAME = 'kairomone_console_detached.log'
       # Where Claude Code reads organization-managed settings (macOS, Linux).
       MANAGED_POLICY_DIRS = ['/Library/Application Support/ClaudeCode', '/etc/claude-code'].freeze
       # Characters Dir[] reads as a pattern rather than as part of a path.
       GLOB_CHARACTERS = /[*?\[\]{}\\]/
 
-      # Held for the console's lifetime; the kernel drops it if the console dies.
+      # Held for the console's lifetime; the kernel drops it if the console
+      # dies. The file holds the PID of the console serving, so --stop can
+      # find it (0.9 N8); a PID left by a console that died is never read,
+      # because only a held lock is.
       class Lock
         def initialize(io)
           @io = io
         end
 
+        def record_pid(pid = Process.pid)
+          @io.truncate(0)
+          @io.rewind
+          @io.write("#{pid}\n")
+          @io.flush
+          true
+        end
+
         def release
           return false if @io.closed?
+          begin
+            @io.truncate(0)
+          rescue SystemCallError, IOError
+            nil
+          end
           @io.flock(File::LOCK_UN)
           @io.close
           true
+        end
+
+        # Closes this process's descriptor and keeps the lock: after a fork
+        # the other process holds it through its own copy.
+        def leave
+          @io.close unless @io.closed?
         end
       end
 
@@ -145,6 +170,10 @@ module Kairomone
           io.close
           raise Refusal, 'Another Kairomone console is running for this folder; stop it first'
         end
+        # A console that ended without releasing (SIGKILL) left its PID here;
+        # until this one records its own, the held lock names no process, so
+        # --stop never reads the earlier one.
+        io.truncate(0)
         Lock.new(io)
       rescue SystemCallError => e
         raise Refusal, "Cannot take the console lock in #{@run_dir}: #{e.class}"
@@ -152,6 +181,31 @@ module Kairomone
 
       def log_path
         File.join(@run_dir, LOG_NAME)
+      end
+
+      def detached_log_path
+        File.join(@run_dir, DETACHED_LOG_NAME)
+      end
+
+      # The PID the running console recorded in its lock. A lock nobody holds
+      # means no console runs for this folder, whatever the file holds.
+      def running_console_pid
+        path = File.join(@run_dir, LOCK_NAME)
+        raise Refusal, "#{path} is a symlink; remove it" if File.symlink?(path)
+        raise Refusal, 'No Kairomone console is running for this folder' unless File.file?(path)
+
+        File.open(path, File::RDONLY | File::NOFOLLOW) do |io|
+          if io.flock(File::LOCK_SH | File::LOCK_NB)
+            io.flock(File::LOCK_UN)
+            raise Refusal, 'No Kairomone console is running for this folder'
+          end
+          pid = Integer(io.read(32).to_s.strip, 10, exception: false)
+          raise Refusal, 'The console lock is held but names no process yet; try again in a moment' unless pid&.positive?
+
+          pid
+        end
+      rescue SystemCallError => e
+        raise Refusal, "Cannot read the console lock in #{@run_dir}: #{e.class}"
       end
 
       # Organization-managed settings bind the child whatever the console

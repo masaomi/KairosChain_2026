@@ -13,6 +13,16 @@ require 'open3'
 # refuses it, and the terminal path still refuses its invalid profession; the
 # 0.6 lifetime budget (growth configure) is gone and the CLI starts a run
 # instead, with no limit on cycles (Inv 2, M6).
+#
+# Changed for Kairomone 0.9 (design log/kairomone_0_9_screens_and_generated_growth_design_v0.2_20261102.md,
+# Inv 5, N4): no template is selected any more and an individual without a
+# profession has none (0.8 read it as the generalist template). The 0.6
+# selections these tests need are written as 0.6 wrote profession.json
+# (select_06); test_initial_unselected_and_level_one expects no effective
+# profession; test_explicit_profession_unlock_selection_and_persistence finds
+# select refused and a 0.6 selection read as its template while unlocked,
+# and as none below its unlock level; the CLI test finds profession select
+# refused.
 class KairomoneProgressionTest < Minitest::Test
   def setup
     @host = Dir.mktmpdir('kairomone-progression-')
@@ -23,6 +33,12 @@ class KairomoneProgressionTest < Minitest::Test
 
   def teardown
     FileUtils.remove_entry(@host)
+  end
+
+  # A 0.6 template selection, as 0.6 wrote it.
+  def select_06(store, id)
+    File.write(File.join(store.root, 'profession.json'),
+               JSON.pretty_generate({ 'schema_version' => 1, 'selected_id' => id, 'selected_at' => Time.now.utc.iso8601 }) + "\n", perm: 0o600)
   end
 
   def observe(id, body)
@@ -38,7 +54,8 @@ class KairomoneProgressionTest < Minitest::Test
     assert_equal 1, snapshot[:progression][:level]
     assert_equal 0, snapshot[:progression][:total_xp]
     assert_nil snapshot[:profession][:selected_id]
-    assert_equal 'generalist', snapshot[:profession][:effective_id]
+    assert_nil snapshot[:profession][:effective_id]
+    assert_nil snapshot[:profession][:current]
     refute File.exist?(File.join(@store.root, 'profession.json'))
   end
 
@@ -83,22 +100,22 @@ class KairomoneProgressionTest < Minitest::Test
     knowledge('one', 'first')
     knowledge('two', 'second')
     assert_equal 6, @store.progression_status[:level]
-    result = @store.select_profession(id: 'researcher')
-    assert result[:success]
+    error = assert_raises(Kairomone::Error) { @store.select_profession(id: 'researcher') }
+    assert_match(/no fixed list/, error.message)
+    refute File.exist?(File.join(@store.root, 'profession.json')), 'nothing is selected'
+    select_06(@store, 'researcher')
+    result = { profession: @store.profession_status }
     assert_equal 'researcher', result[:profession][:effective_id]
     assert_equal 0.5, result[:profession][:learning_bias][:max_topic_fraction]
     refute_empty result[:profession][:learning_bias][:topics]
-    before = File.binread(File.join(@store.root, 'profession.json'))
-    assert @store.select_profession(id: 'researcher')[:preserved]
-    assert_equal before, File.binread(File.join(@store.root, 'profession.json'))
     assert_equal 'researcher', Kairomone::Instance.new.profession_status[:selected_id]
     FileUtils.remove_entry(File.join(@store.root, 'knowledge/two'))
     assert_equal 'researcher', @store.profession_status[:selected_id]
-    assert_equal 'generalist', @store.profession_status[:effective_id]
+    assert_nil @store.profession_status[:effective_id], 'below its unlock level a 0.6 selection reads as none'
   end
 
   def test_backup_restore_profession_and_legacy_absence
-    @store.select_profession(id: 'generalist')
+    select_06(@store, 'generalist')
     backup = @store.create_backup
     @store.restore_backup(file: backup[:file], target_id: 'recovered')
     restored = Kairomone::Instance.new(kairomone: 'recovered')
@@ -120,7 +137,7 @@ class KairomoneProgressionTest < Minitest::Test
   end
 
   def test_recomputed_checksum_does_not_bypass_profession_validation
-    @store.select_profession(id: 'generalist')
+    select_06(@store, 'generalist')
     archive = @store.create_backup
     path = File.join(@store.root, 'backups', archive[:file])
     data = JSON.parse(File.read(path))
@@ -152,8 +169,9 @@ class KairomoneProgressionTest < Minitest::Test
       assert process.success?, "CLI failed: #{stdout} #{stderr}"
       JSON.parse(stdout)
     end
-    result = invoke.call('profession', 'select', '--id', 'generalist')
-    assert_equal 'generalist', result.dig('profession', 'selected_id')
+    stdout, = Open3.capture3({ 'KAIROS_DATA_DIR' => @host }, RbConfig.ruby, cli, 'profession', 'select', '--id', 'generalist')
+    assert_match(/no fixed list/, JSON.parse(stdout)['error'])
+    assert_nil invoke.call('profession', 'list').dig('profession', 'current')
     stdout, = Open3.capture3({ 'KAIROS_DATA_DIR' => @host }, RbConfig.ruby, cli, 'growth', 'configure')
     assert_match(/run-start/, JSON.parse(stdout)['error'])
     result = invoke.call('growth', 'run-start', '--owner-words', 'Grow twelve times', '--cycles', '12')

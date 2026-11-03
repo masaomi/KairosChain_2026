@@ -4,6 +4,9 @@
 # Inv 1, M1, M2, M5): the registry, staging and one-step listing, addressing,
 # identity and baseline records, the legacy slot served in place and still
 # readable by 0.6.1. All data is synthetic and confined to temporary hosts.
+#
+# Changed for Kairomone 0.9 (design log/kairomone_0_9_screens_and_generated_growth_design_v0.2_20261102.md,
+# N3): a request declares 1-3 subject IDs; each request here declares one.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
@@ -178,7 +181,7 @@ class Kairomone08RegistryTest < Minitest::Test
                               summary: 'The owner likes short answers.', memory_enabled: true)
     growth = legacy.autonomy
     run = growth.run_start(owner_words: 'One cycle', cycles: 1)
-    growth.request(run_id: run[:run_id], token: run[:token], request_id: 'cycle', topic: 'Topic')
+    growth.request(run_id: run[:run_id], token: run[:token], request_id: 'cycle', topic: 'Topic', subjects: SUBJECTS)
     claim = growth.claim(run_id: run[:run_id], token: run[:token], worker_id: 'worker')
     excerpt = 'Synthetic excerpt.'
     growth.commit(run_id: run[:run_id], token: run[:token], claim_token: claim['claim_token'],

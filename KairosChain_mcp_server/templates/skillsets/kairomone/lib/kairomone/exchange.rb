@@ -286,8 +286,8 @@ module Kairomone
       end
       left_out = { 'entries' => left, 'pieces' => pieces_left, 'observations' => observation_entries.length - entries.count { |e| e['evidence'] },
                    'chat_memories' => verified_chat_entries.length,
-                   'never' => 'Chat memories, growth state, backups, the ledger, the companion\'s direction and personality settings, ' \
-                              'composition material and host references never go in.' }
+                   'never' => 'Chat memories, growth state, backups, the ledger (and so the lean), skills, the companion\'s direction ' \
+                              'and personality settings, composition material and host references never go in.' }
       [doc, left_out]
     end
 
@@ -309,7 +309,7 @@ module Kairomone
                 elsif (legacy = legacy_profile) then { 'name' => legacy['display_name'], 'kind' => 'unknown' }
                 end
       in_force = current_profession(ledger)
-      line = in_force[:record] ? profession_ancestry([in_force[:id]], limit: Exchange::PIECES_MAX) : []
+      line = in_force && in_force[:record] ? profession_ancestry([in_force[:id]], limit: Exchange::PIECES_MAX) : []
       professions = line.each_with_index.map do |(sha, piece), i|
         { 'sha256' => sha, 'role' => i.zero? ? 'current' : 'lineage' }.merge(piece.slice(*Exchange::PROFESSION_FIELDS))
       end

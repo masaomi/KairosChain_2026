@@ -8,6 +8,10 @@
 # material; one name limit; joiners allowed; fewer credential false
 # positives; retired subject IDs followed; retry result shapes.
 # All data is synthetic and confined to temporary hosts.
+#
+# Changed for Kairomone 0.9 (design log/kairomone_0_9_screens_and_generated_growth_design_v0.2_20261102.md,
+# N3, N4): create makes a 0.9 individual (no profession), and the request
+# refused for its token declares its subjects, which are checked before it.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
@@ -25,7 +29,7 @@ class Kairomone08FollowupsTest < Minitest::Test
   def teardown = FileUtils.remove_entry_secure(@host)
 
   def create(id = 'momo', profile: PROFILE)
-    Kairomone::Host.new.create(listing_id: id, profile: profile, profession: { 'template' => 'researcher' }, material_kind: 'free_text')
+    Kairomone::Host.new.create(listing_id: id, profile: profile, material_kind: 'free_text')
     Kairomone::Instance.new(host_root: @host, kairomone: id)
   end
 
@@ -68,7 +72,7 @@ class Kairomone08FollowupsTest < Minitest::Test
     store = create
     run = store.autonomy.run_start(owner_words: 'One', cycles: 1)
     error = assert_raises(Kairomone::Error) do
-      store.autonomy.request(run_id: run[:run_id], token: 'x' * 43, request_id: 'one', topic: 'Topic', profession_id: 'template:creator')
+      store.autonomy.request(run_id: run[:run_id], token: 'x' * 43, request_id: 'one', topic: 'Topic', profession_id: 'template:creator', subjects: SUBJECTS)
     end
     assert_match(/driver token/, error.message)
   end

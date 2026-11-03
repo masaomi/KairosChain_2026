@@ -21,6 +21,12 @@
 # operation on one individual reads or writes nothing of another". So the
 # twin chooses its own profession like any listed individual, and the check
 # that stays is that its choice leaves the original's selection unchanged.
+#
+# Changed for Kairomone 0.9 (design log/kairomone_0_9_screens_and_generated_growth_design_v0.2_20261102.md,
+# N3, N4): a request declares 1-3 subject IDs (each here declares one); a
+# Kairomone has no profession until it chooses one, and the 0.6 selections the
+# profession tests need are written as 0.6 wrote them (select_06), since
+# select is refused.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'kairomone'
@@ -69,16 +75,21 @@ class KairomoneIndependentIntegrationTest < Minitest::Test
     assert_raises(Kairomone::Error) { @store.create_backup }
   end
 
+  # A 0.6 template selection, as 0.6 wrote it (0.9 makes none).
+  def select_06(store, id)
+    File.write(File.join(store.root, 'profession.json'),
+               JSON.pretty_generate({ 'schema_version' => 1, 'selected_id' => id, 'selected_at' => Time.now.utc.iso8601 }) + "\n", perm: 0o600)
+  end
+
   def test_profession_requires_explicit_choice_and_preserves_it_across_backup
     assert_nil @store.profession_status[:selected_id]
-    assert @store.profession_status[:selection_required]
+    assert_nil @store.profession_status[:current], 'no profession until one is chosen'
     assert_raises(Kairomone::Error) { @store.select_profession(id: 'guardian') }
     2.times { |i| @store.create_knowledge(id: "learning_#{i}", title: 'Knowledge', content: "Distinct evidence #{i}") }
     assert_nil @store.profession_status[:selected_id], 'Unlock must not choose a profession'
-    @store.select_profession(id: 'researcher')
+    assert_raises(Kairomone::Error) { @store.select_profession(id: 'researcher') }
+    select_06(@store, 'researcher')
     saved = File.binread(File.join(@store.root, 'profession.json'))
-    assert @store.select_profession(id: 'researcher')[:preserved]
-    assert_equal saved, File.binread(File.join(@store.root, 'profession.json'))
     backup = @store.create_backup
     @store.restore_backup(file: backup[:file], target_id: 'review_restore')
     copy = Kairomone::Instance.new(host_root: @host, kairomone: 'review_restore')
@@ -86,14 +97,15 @@ class KairomoneIndependentIntegrationTest < Minitest::Test
     assert_equal @store.progression_status, copy.progression_status
     # The twin is listed like any individual (Inv 1, Boundary): its choice is
     # its own and leaves the original's selection unchanged.
-    assert_equal 'generalist', copy.select_profession(id: 'generalist')[:profession][:selected_id]
+    select_06(copy, 'generalist')
+    assert_equal 'generalist', copy.profession_status[:selected_id]
     assert_equal 'researcher', @store.profession_status[:selected_id], 'the twin is a separate individual'
     assert_equal saved, File.binread(File.join(@store.root, 'profession.json'))
   end
 
   def test_fresh_host_restore_resumes_without_overwriting_origin
     @store.create_knowledge(id: 'one', title: 'One', content: 'Stable evidence')
-    @store.select_profession(id: 'generalist')
+    select_06(@store, 'generalist')
     backup = @store.create_backup
     original = File.binread(File.join(@store.root, 'storage/blockchain.json'))
     Dir.mktmpdir('kairomone-independent-restore-') do |target|
@@ -136,7 +148,7 @@ class KairomoneIndependentIntegrationTest
 
   def queue(id = 'review_cycle', cycles: 10)
     run!(cycles: cycles)
-    growth.request(**step, request_id: id, topic: 'Synthetic independent review')
+    growth.request(**step, request_id: id, topic: 'Synthetic independent review', subjects: %w[geology])
   end
 
   def claim(lease_seconds: 300) = growth.claim(**step, worker_id: 'review_worker', lease_seconds: lease_seconds)
@@ -154,7 +166,7 @@ class KairomoneIndependentIntegrationTest
     assert_equal 0, @store.status[:knowledge][:count]
     refute growth.status['live'], 'the expired claim used the run\'s one cycle, so the run ended'
     assert_equal 'count_reached', growth.status['ended_runs'].first['reason']
-    assert_raises(Kairomone::Error) { growth.request(**step, request_id: 'reset', topic: 'Reset') }
+    assert_raises(Kairomone::Error) { growth.request(**step, request_id: 'reset', topic: 'Reset', subjects: %w[geology]) }
     assert_raises(Kairomone::Error) { claim }
   end
 
@@ -279,7 +291,7 @@ class KairomoneIndependentIntegrationTest
     first = claim
     commit(first['claim_token'])
     original_xp = @store.progression_status[:total_xp]
-    growth.request(**step, request_id: 'same_evidence_two', topic: 'Synthetic independent review')
+    growth.request(**step, request_id: 'same_evidence_two', topic: 'Synthetic independent review', subjects: %w[geology])
     second = claim
     refreshed = evidence
     refreshed['sources'][0]['retrieved_at'] = '2026-10-13T11:30:00Z'

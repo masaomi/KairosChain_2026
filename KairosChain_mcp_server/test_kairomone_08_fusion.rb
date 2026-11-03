@@ -6,6 +6,11 @@
 # knowledge is held and never counted; the summary counts match the plan; a
 # moved parent head refuses accept; self-fusion is refused; the parents are
 # unchanged. All data is synthetic and confined to temporary hosts.
+#
+# Changed for Kairomone 0.9 (design log/kairomone_0_9_screens_and_generated_growth_design_v0.2_20261102.md,
+# N3, N4): create builds parents as 0.8's kairomone_create left them (a
+# researcher template profession; 0.9 creates none), and a request declares
+# its subjects.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
@@ -25,8 +30,7 @@ class Kairomone08FusionTest < Minitest::Test
   def teardown = FileUtils.remove_entry_secure(@host)
 
   def create(id, profile = PROFILE)
-    Kairomone::Host.new.create(listing_id: id, profile: profile.merge('name' => id.capitalize), profession: { 'template' => 'researcher' }, material_kind: 'free_text')
-    Kairomone::Instance.new(host_root: @host, kairomone: id)
+    create_08(id, profile: profile.merge('name' => id.capitalize))
   end
 
   def parents
@@ -262,7 +266,7 @@ class Kairomone08FusionTest < Minitest::Test
     a, = parents
     growth = a.autonomy
     run = growth.run_start(owner_words: 'One', cycles: 1)
-    growth.request(run_id: run[:run_id], token: run[:token], request_id: 'moss', topic: 'Moss')
+    growth.request(run_id: run[:run_id], token: run[:token], request_id: 'moss', topic: 'Moss', subjects: SUBJECTS)
     claim = growth.claim(run_id: run[:run_id], token: run[:token], worker_id: 'w')
     excerpt = 'Synthetic excerpt.'
     growth.commit(run_id: run[:run_id], token: run[:token], claim_token: claim['claim_token'],

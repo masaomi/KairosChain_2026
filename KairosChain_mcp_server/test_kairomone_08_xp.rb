@@ -4,6 +4,9 @@
 # Inv 3, M5): identity records on the ledger, the 0.6 rule and its backfill,
 # the chat-receipt rule, not-counted entries and what they hold. All data is
 # synthetic and confined to temporary hosts.
+#
+# Changed for Kairomone 0.9 (design log/kairomone_0_9_screens_and_generated_growth_design_v0.2_20261102.md,
+# N3): a request declares 1-3 subject IDs; each request here declares one.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
@@ -34,7 +37,7 @@ class Kairomone08XpTest < Minitest::Test
     growth = store.autonomy
     run = growth.run_start(owner_words: 'One cycle', cycles: 1)
     step = { run_id: run[:run_id], token: run[:token] }
-    growth.request(**step, request_id: id, topic: 'Topic')
+    growth.request(**step, request_id: id, topic: 'Topic', subjects: SUBJECTS)
     claim = growth.claim(**step, worker_id: 'worker')
     growth.commit(**step, claim_token: claim['claim_token'], evidence: payload)
   end
@@ -181,7 +184,7 @@ class Kairomone08XpTest < Minitest::Test
     assert_equal 'Gentle and curious', companion['personality']
     assert_equal({ 'preset' => 'research', 'text' => 'Primary sources first' }, companion['direction'])
     run = legacy.autonomy.run_start(owner_words: 'One', cycles: 1)
-    queued = legacy.autonomy.request(run_id: run[:run_id], token: run[:token], request_id: 'directed', topic: 'Topic')['queue']
+    queued = legacy.autonomy.request(run_id: run[:run_id], token: run[:token], request_id: 'directed', topic: 'Topic', subjects: SUBJECTS)['queue']
     assert_equal 'Primary sources first', queued.dig('companion', 'direction', 'text')
   end
 end

@@ -19,9 +19,14 @@ module Kairomone
 
   class Host
     # Both parents' L1 for the composer: id, title, body, sha256, recorded
-    # identity and outside flag, paged; with each parent's ledger head.
-    # bodies: false gives titles, hashes and sizes only, for a plan that
-    # keeps entries by citing them.
+    # identity, outside flag and whether it is an own growth entry of its
+    # parent, paged; with each parent's ledger head. bodies: false gives
+    # titles, hashes and sizes only, for a plan that keeps entries by citing
+    # them. Two uses, two materials (0.9 Inv 9, Inv 10): the child's entries
+    # may come from any parent entry, but the child's profile and its three
+    # profession candidates — what its snapshot shows — are composed only
+    # from each parent's composition subset: its own growth entries, learned
+    # subjects and skills in force (with its name and profession).
     def fusion_material(parents:, page: 1, bodies: true)
       a, b = fusion_parents(parents)
       raise Error, 'page is a positive integer' unless page.is_a?(Integer) && page.positive?
@@ -32,20 +37,28 @@ module Kairomone
       [a, b].each do |parent|
         ledger = parent.chain
         heads[parent.listing_id] = ledger.latest_block&.hash
+        growth = parent.own_growth(ledger)
+        own = parent.own_growth_entries(growth)
+        entries = parent.send(:fusion_entries, ledger)
+        composition = { 'own_growth_entries' => entries.filter_map { |e| e['id'] if own.include?(['L1', e['id']]) },
+                        'learned_subjects' => parent.learned_subjects(growth),
+                        'skills' => parent.skills_in_force(ledger, growth).map { |s| parent.send(:skill_view, nil, s[:piece]).except('source', 'present') } }
         items << { 'item' => 'parent', 'listing_id' => parent.listing_id, 'identity' => parent.identity(ledger), 'name' => parent.name,
-                   'profession' => parent.profession_status[:current].slice(:id, :name, :focus, :habits) }
-        items += parent.send(:fusion_entries, ledger).map do |e|
+                   'profession' => parent.profession_status[:current]&.slice(:id, :name, :focus, :habits), 'composition' => composition }
+        items += entries.map do |e|
           shown = bodies ? e : e.reject { |k, _| k == 'body' }.merge('bytes' => e['body'].bytesize)
-          { 'item' => 'entry', 'parent' => parent.listing_id }.merge(shown)
+          { 'item' => 'entry', 'parent' => parent.listing_id }.merge(shown).merge('own_growth' => own.include?(['L1', e['id']]))
         end
       end
       pages = fusion_pages(items)
       raise Error, "page runs from 1 to #{pages.length}" if page > pages.length
 
       { success: true, parents: [a.listing_id, b.listing_id], heads: heads, page: page, pages: pages.length, items: pages[page - 1],
-        note: 'Propose the child from this material: a draft profile, three profession candidates and its entries, each kept from ' \
-              'one parent entry or merged from several, citing them by parent, entry_id and sha256. A kept entry needs only its id, ' \
-              'mode and source: its title and body are copied from the source.' }
+        note: 'Propose the child from this material. Compose its draft profile and its three profession candidates — which its ' \
+              'snapshot shows — only from each parent\'s name, profession and composition (the entries marked own_growth, its learned ' \
+              'subjects and its skills), never from its other entries (owner-written, received or inherited). Its entries may come from ' \
+              'any parent entry, each kept from one or merged from several, citing them by parent, entry_id and sha256. A kept entry ' \
+              'needs only its id, mode and source: its title and body are copied from the source.' }
     end
 
     # Stores the composer's plan; nothing takes effect until the owner
@@ -60,7 +73,7 @@ module Kairomone
 
       piece = Profile.build(profile, origin: 'fusion')
       ComposedText.guard!(Profile.texts(piece))
-      parent_professions = [a, b].map { |p| p.profession_status[:current][:id] }
+      parent_professions = fusion_parent_professions(a, b)
       raise Error, 'Offer exactly three profession candidates' unless candidates.is_a?(Array) && candidates.length == 3
 
       pieces = candidates.map { |c| Profession.build(c, parents: parent_professions, tier: 0, origin: 'fusion') }
@@ -120,7 +133,7 @@ module Kairomone
         doc = present ? fusion_plan(plan) : nil
         made = present ? (listed?(doc['child']) && fused_from(plan, [doc['child']])) : fused_from(plan)
         if made
-          current = made.profession_status[:current][:name]
+          current = made.profession_status[:current]&.fetch(:name) || 'none'
           applied = Records.of_type(made.chain, 'kairomone_lineage').first['candidate']
           unless applied == candidate
             raise Error, "This plan already made #{made.listing_id}, whose profession is #{current}; " +
@@ -137,7 +150,7 @@ module Kairomone
         ComposedText.guard!(Profile.texts(piece))
         chosen = doc['candidates'][candidate]
         profession = Profession.build(chosen.is_a?(Hash) ? chosen.slice('name', 'description', 'focus', 'habits') : {},
-                                      parents: [a, b].map { |p| p.profession_status[:current][:id] }, tier: 0, origin: 'fusion')
+                                      parents: fusion_parent_professions(a, b), tier: 0, origin: 'fusion')
         ComposedText.guard!(Profession.texts(profession))
         first, second = [a, b].sort_by(&:listing_id)
         first.send(:with_lock) do
@@ -149,7 +162,7 @@ module Kairomone
             fusion_plan_entries!(doc['entries'], sources_of)
             # The parents' professions travel with the child so its lineage
             # reads both lines; they are in force only by its own record.
-            lineage_pieces = [a, b].flat_map { |p| p.send(:profession_ancestry, [p.profession_status[:current][:id]], limit: 64).map { |sha, _| [sha, p.root] } }
+            lineage_pieces = [a, b].flat_map { |p| p.send(:profession_ancestry, fusion_parent_professions(p), limit: 64).map { |sha, _| [sha, p.root] } }
                                    .uniq(&:first)
             path = assemble(doc['child']) do |staged|
               staged.fuse_into!(doc.merge('profile' => piece, 'candidate' => candidate), plan, profession, [a, b], sources_of, lineage_pieces)
@@ -159,13 +172,19 @@ module Kairomone
             File.delete(Paths.checked(host_root, relative)) if File.file?(Paths.checked(host_root, relative))
             child = Instance.new(host_root: host_root, root: path)
             { success: true, fused: true, kairomone: child.address, parents: doc['parents'], level: child.progression_status[:level],
-              entries: doc['entries'].length, note: 'Both parents are unchanged. The child is an egg; its drawing is due at hatch.' }
+              entries: doc['entries'].length, note: 'Both parents are unchanged. The child is an egg; its first drawing is due at level 10.' }
           end
         end
       end
     end
 
     private
+
+    # The professions the parents hold, which the child's first profession
+    # names as its parents: a parent with no profession names none (0.9 N4).
+    def fusion_parent_professions(*parents)
+      parents.filter_map { |p| p.profession_status[:current]&.fetch(:id) }
+    end
 
     # Plans not accepted within a week are removed.
     def prune_fusion_plans!

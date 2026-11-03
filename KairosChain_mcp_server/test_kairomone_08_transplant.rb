@@ -14,6 +14,10 @@
 # gains one assertion, that the pending result's error starts "Pending: ...
 # written to the host L1". test_a_learned_entry_carries_the_outside_content_notice
 # and the other tests are unchanged; no assertion was removed or loosened.
+#
+# Changed for Kairomone 0.9 (design log/kairomone_0_9_screens_and_generated_growth_design_v0.2_20261102.md,
+# N3, N4): a request declares 1-3 subject IDs (each here declares one), and
+# create makes a 0.9 individual, which has no profession.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift File.expand_path('templates/skillsets/kairomone/lib', __dir__)
 require 'minitest/autorun'
@@ -29,7 +33,7 @@ class Kairomone08TransplantTest < Minitest::Test
   def teardown = FileUtils.remove_entry_secure(@host)
 
   def create(id = 'momo')
-    Kairomone::Host.new.create(listing_id: id, profile: PROFILE, profession: { 'template' => 'researcher' }, material_kind: 'free_text')
+    Kairomone::Host.new.create(listing_id: id, profile: PROFILE, material_kind: 'free_text')
     Kairomone::Instance.new(host_root: @host, kairomone: id)
   end
 
@@ -106,7 +110,7 @@ class Kairomone08TransplantTest < Minitest::Test
     store = create
     growth = store.autonomy
     run = growth.run_start(owner_words: 'One cycle', cycles: 1)
-    growth.request(run_id: run[:run_id], token: run[:token], request_id: 'tea', topic: 'Tea')
+    growth.request(run_id: run[:run_id], token: run[:token], request_id: 'tea', topic: 'Tea', subjects: SUBJECTS)
     claim = growth.claim(run_id: run[:run_id], token: run[:token], worker_id: 'worker')
     growth.commit(run_id: run[:run_id], token: run[:token], claim_token: claim['claim_token'], evidence: evidence)
     id = store.list_knowledge[:items].map { |i| i['id'] }.find { |i| i.start_with?('growth_') }
