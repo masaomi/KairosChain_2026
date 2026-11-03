@@ -9,7 +9,9 @@
 #   ruby .kairos/skillsets/kairomone/scripts/kairomone_console.rb
 #
 # It prints a one-time URL. Enter prints a new one; Ctrl-C stops. The
-# terminal shows fixed-format lines only, never what the stream said.
+# terminal shows fixed-format lines only, never what the stream said. It
+# prints the URL only to a terminal: with its output on a pipe or in a file
+# it refuses to start and points to --open.
 #
 # With --open it hands that URL to the system browser instead and prints
 # only that it opened; if the browser cannot be launched it stops and says
@@ -117,6 +119,16 @@ if options[:stop]
     refuse.call(e.message)
     exit 1
   end
+end
+
+# Without --open the one-time URL is printed, so it is printed only to a
+# terminal: on a pipe or into a file (Claude Code's !, | tee, > out.txt) it
+# would reach whatever reads that, so the console does not start (0.9 Inv 10).
+unless options[:open] || $stdout.tty?
+  refuse.call('Without --open the console prints its one-time URL, and its output is not a terminal here (a pipe or a file), ' \
+              'so it did not start. Start it with --open to hand the URL to your browser instead (from Claude Code: ' \
+              '! ruby .kairos/skillsets/kairomone/scripts/kairomone.rb console --open --detach), or run it at a terminal.')
+  exit 1
 end
 
 begin

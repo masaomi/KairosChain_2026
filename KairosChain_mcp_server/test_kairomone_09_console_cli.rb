@@ -8,7 +8,10 @@
 # reaches stdout, stderr, a log or a pipe, with or without --detach; a
 # browser that cannot be launched stops the console, which says so without
 # the URL; --detach alone is refused; --stop signals the PID the console lock
-# names only when that process is the console script.
+# names only when that process is the console script (a Ruby whose path holds
+# a space included), and a lock just taken names no earlier PID; without
+# --open the console prints its URL only to a terminal, so on a pipe it
+# refuses to start.
 #
 # The installed copy of the SkillSet runs in a temporary project with its
 # output on pipes (as `!` in Claude Code reads it). A fake `claude` answers
@@ -318,6 +321,41 @@ class Kairomone09ConsoleCliTest < Minitest::Test
     assert_equal browser_files, files_holding(bootstrap, session), 'the URL is only in what the browser was handed'
   end
 
+  # Plain mode prints the URL, so on a pipe — Claude Code's !, | tee — it
+  # never starts: no URL, no child, no lock (0.9 Inv 10). At a terminal it
+  # prints the URL as before (the PTY suites in test_kairomone_console_*.rb).
+  def test_without_open_the_console_refuses_to_start_when_its_output_is_not_a_terminal
+    [run_console, run_cli, run_console('--port', '0')].each do |run|
+      status = run.finish(30)
+      refute_nil status, "the console must not start on a pipe:\n#{run.both}"
+      refute status.success?
+      assert_includes run.err, 'Without --open the console prints its one-time URL, and its output is not a terminal here'
+      assert_includes run.err, 'console --open --detach'
+      assert_equal '', run.out
+      SECRET_SHAPES.each { |shape| refute_match shape, run.both, 'nothing shaped like the URL' }
+    end
+    assert_empty claude_pids, 'nothing was started'
+    assert_empty browser_files, 'no URL was made'
+    refute File.exist?(lock_path) && File.read(lock_path).match?(/\d/), 'no console lock was taken'
+  end
+
+  # A console that was killed (SIGKILL) left its PID in the lock file; the
+  # next one truncates it as it takes the lock, so until it records its own
+  # PID --stop reads none, never the earlier one.
+  def test_taking_the_lock_clears_the_pid_an_earlier_console_left
+    FileUtils.mkdir_p(File.dirname(lock_path), mode: 0o700)
+    File.write(lock_path, "#{Process.pid}\n")
+    project = Kairomone::Console::Project.load(@project, home: @home)
+    lock = project.lock!
+    assert_equal '', File.read(lock_path), 'the held lock names no process until the console records its own'
+    error = assert_raises(Kairomone::Console::Refusal) { project.running_console_pid }
+    assert_match(/names no process yet/, error.message)
+    lock.record_pid(4_242_424)
+    assert_equal 4_242_424, project.running_console_pid
+  ensure
+    lock&.release
+  end
+
   def test_detach_alone_and_stop_with_other_options_are_refused
     [run_console('--detach'), run_cli('--detach')].each do |run|
       status = run.finish(30)
@@ -405,6 +443,15 @@ class Kairomone09ConsoleCliTest < Minitest::Test
     assert launch.console_command?('/usr/bin/ruby3.3 kairomone_console.rb --open')
     ['ruby -e sleep', '/bin/sleep 60', 'python kairomone_console.rb', 'ruby /x/not_kairomone_console.rb', 'ruby /x/kairomone_console.rb.bak',
      'ruby /x/kairomone.rb console --open', '', nil].each { |command| refute launch.console_command?(command), command.inspect }
+    # ps joins arguments with spaces: a Ruby whose path holds one is known by
+    # that path, never by a first word cut out of it.
+    spaced = '/Applications/My Tools/ruby 3.3/bin/ruby'
+    assert launch.console_command?("#{spaced} -I /x/lib /p/My Project/.kairos/skillsets/kairomone/scripts/kairomone_console.rb --open --detach", ruby: spaced)
+    assert launch.console_command?("#{spaced} kairomone_console.rb", ruby: spaced)
+    refute launch.console_command?("#{spaced} kairomone_console.rb"), 'another Ruby\'s spaced path is not guessed'
+    refute launch.console_command?('/Applications/My Tools/python kairomone_console.rb', ruby: spaced)
+    refute launch.console_command?("#{spaced}x kairomone_console.rb", ruby: spaced)
+    refute launch.console_command?("#{spaced} /x/kairomone.rb console --open", ruby: spaced)
 
     secret = Kairomone::Console::Secret.new
     filter = launch::OutputFilter.new(secret)

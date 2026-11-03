@@ -170,6 +170,10 @@ module Kairomone
           io.close
           raise Refusal, 'Another Kairomone console is running for this folder; stop it first'
         end
+        # A console that ended without releasing (SIGKILL) left its PID here;
+        # until this one records its own, the held lock names no process, so
+        # --stop never reads the earlier one.
+        io.truncate(0)
         Lock.new(io)
       rescue SystemCallError => e
         raise Refusal, "Cannot take the console lock in #{@run_dir}: #{e.class}"

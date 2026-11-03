@@ -250,8 +250,9 @@ folder: at a terminal, `ruby .kairos/skillsets/kairomone/scripts/kairomone.rb co
 or `... console --open` (hands the URL to the browser and prints none); from Claude Code, by typing
 `! ruby .kairos/skillsets/kairomone/scripts/kairomone.rb console --open --detach` (the console runs in the
 background; stop it with `... console --stop`; a new URL means stop and start again). Never suggest `!`
-without `--open`: the URL would print into this session. The console starts one Claude Code session for the
-page; whoever opens the URL answers that session's permission prompts.
+without `--open`: without it the console prints its URL, so it refuses to start when its output is not a
+terminal, as with `!`. The console starts one Claude Code session for the page; whoever opens the URL
+answers that session's permission prompts.
 
 - Never start the console yourself — not directly, not in the background, not through a pseudo-terminal —
   and never open, copy or exchange its URL, its session secret or its log under `.kairos/run/`. Hand the

@@ -166,11 +166,16 @@ module Kairomone
         alive?(pid) ? "Asked the Kairomone console (PID #{pid}) to stop; it has not ended yet." : "Kairomone console stopped (PID #{pid})."
       end
 
-      # A ruby process whose arguments include the console script.
-      def console_command?(command)
+      # A ruby process whose arguments include the console script. ps joins
+      # the arguments with spaces, so a Ruby whose path holds one is
+      # recognised by that path (this Ruby's, which kairomone.rb console
+      # starts the console with); any other by its first word.
+      def console_command?(command, ruby: RbConfig.ruby)
         return false unless command.is_a?(String) && !command.empty?
 
-        File.basename(command.split(/\s+/, 2).first.to_s).start_with?('ruby') && CONSOLE_SCRIPT.match?(command)
+        interpreter = (ruby.is_a?(String) && !ruby.empty? && (command == ruby || command.start_with?("#{ruby} "))) ||
+                      File.basename(command.split(/\s+/, 2).first.to_s).start_with?('ruby')
+        interpreter && CONSOLE_SCRIPT.match?(command)
       end
 
       def command_line(pid)

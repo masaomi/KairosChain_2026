@@ -382,7 +382,9 @@ through a filter that drops any line holding a URL or secret it issued; stop it
 with `console --stop`, which signals only the process the console lock names
 and only when it is the console. `--detach` alone is refused. From Claude Code,
 type `! ruby .kairos/skillsets/kairomone/scripts/kairomone.rb console --open
---detach`; without `--open` the URL would print into the session.
+--detach`. Without `--open` the console prints its URL, so it prints it only to a
+terminal: when its output is a pipe or a file (`!` in Claude Code, `| tee`,
+`> out.txt`) it refuses to start and points to `--open`.
 
 It needs WEBrick (`gem install webrick` if Ruby lacks it), `claude` on the PATH
 (or named by `--claude PATH` or by the `KAIROMONE_CONSOLE_CLAUDE` environment
