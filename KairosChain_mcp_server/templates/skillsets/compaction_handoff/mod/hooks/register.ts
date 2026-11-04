@@ -68,6 +68,10 @@ const cycle = {
   // True while the mod's own $.session.compact call is in flight, so the
   // session.compact observer leaves that cycle to compact() to close.
   inOwnCall: false,
+  // Set the moment the operator interrupts a turn while the mod waits to
+  // compact: no compaction starts, nor any already under way finishes its
+  // probe into one, until a turn ends normally.
+  held: false,
   limits: undefined as { ratio: number; point: number } | undefined,
   chain: Promise.resolve() as Promise<void>,
 }
@@ -97,6 +101,7 @@ function endCycle(next: Phase) {
   cycle.vetoes = 0
   cycle.busyRetries = 0
   cycle.retry = undefined
+  cycle.held = false
 }
 
 // One step at a time, in arrival order. A step that fails shows why in the
@@ -178,9 +183,9 @@ function retryCompact($: EngineInterface, ms: number) {
 // probe is read again (a retry, a later turn end).
 async function compact($: EngineInterface, known?: Probe) {
   const gen = cycle.gen
-  if (cycle.phase !== 'compacting') return
+  if (cycle.phase !== 'compacting' || cycle.held) return
   const p = known ?? (await probe($, cycle.requestedAt))
-  if (cycle.gen !== gen || cycle.phase !== 'compacting') return
+  if (cycle.gen !== gen || cycle.phase !== 'compacting' || cycle.held) return
   let result: Awaited<ReturnType<EngineInterface['session']['compact']>>
   cycle.inOwnCall = true
   try {
@@ -212,7 +217,7 @@ async function compact($: EngineInterface, known?: Probe) {
   }
   // Re-armed only by a measurement below the threshold (INV-10).
   endCycle('disarmed')
-  status($, p.fresh ? `compacted; read back ${p.handoff?.name}` : 'compacted; no handoff was found')
+  status($, p.fresh ? 'compacted; read-back requested' : 'compacted; no handoff was found')
   void $.prompt.submit({ text: p.readback_text }).then(
     r => {
       if ('drop' in r && r.drop !== undefined) status($, `read-back not delivered (dropped by a hook: ${r.drop})`)
@@ -259,6 +264,13 @@ export const register: Register = on => {
 
   // Every main-thread turn end takes up whatever the cycle left unfinished.
   on('turn.complete', ($, e, next) => {
+    if (e.agentId === undefined && e.reason === 'aborted' && cycle.phase === 'compacting') {
+      // Synchronously, so a retry already queued or probing sees it (INV-13).
+      cycle.held = true
+      cycle.retry?.cancel()
+      cycle.retry = undefined
+      cycle.busyRetries = 0
+    }
     if (e.agentId === undefined) {
       const { turnId, reason: ended } = e
       later($, 0, async () => {
@@ -295,14 +307,10 @@ export const register: Register = on => {
             status($, undefined)
           }
         } else if (cycle.phase === 'compacting') {
-          // An interrupted turn leaves the next move to the operator: no retry
-          // already scheduled may compact behind it.
-          if (ended === 'aborted') {
-            cycle.retry?.cancel()
-            cycle.retry = undefined
-            cycle.busyRetries = 0
-            return
-          }
+          // An interrupted turn leaves the next move to the operator (held is
+          // set in the hook itself); a turn that ends normally releases it.
+          if (ended === 'aborted') return
+          cycle.held = false
           cycle.busyRetries = 0
           cycle.vetoes = 0
           cycle.retry?.cancel()
@@ -330,11 +338,18 @@ export const register: Register = on => {
   on('session.compact', async ($, e, next) => {
     const foreign = !cycle.inOwnCall && e.agentId === undefined && e.trigger !== 'precompute'
     if (foreign) endCycle('outside')
-    const result = await next(e)
-    if (foreign && cycle.phase === 'outside') {
-      endCycle(result.skip === undefined ? 'disarmed' : 'armed')
-      status($, undefined)
+    let stood = false
+    try {
+      const result = await next(e)
+      stood = result.skip === undefined
+      return result
+    } finally {
+      // A compaction that failed or was held off leaves the mod armed, never
+      // stuck in 'outside'.
+      if (foreign && cycle.phase === 'outside') {
+        endCycle(stood ? 'disarmed' : 'armed')
+        status($, undefined)
+      }
     }
-    return result
   })
 }

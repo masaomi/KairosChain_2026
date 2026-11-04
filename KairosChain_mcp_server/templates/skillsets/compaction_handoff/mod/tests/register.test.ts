@@ -14,6 +14,7 @@ const SUMMARY = { role: 'user' as const, text: 'summary', toolUses: [] }
 type World = {
   compactDelay?: (ms: number) => Promise<void>
   rejectCompact?: boolean
+  failOutside?: boolean
   fresh: boolean
   veto?: string
   probeFails?: boolean
@@ -60,6 +61,7 @@ function world(on: On, init: Partial<World> = {}): World {
   on('session.compact', async (_, e) => {
     w.compacts.push(e.instructions)
     if (w.rejectCompact) throw new Error('a turn is running')
+    if (w.failOutside && e.instructions === 'the person typed /compact') throw new Error('summary failed')
     if (w.compactDelay) await w.compactDelay(2000)
     return w.veto === undefined ? { messages: [SUMMARY] } : { skip: w.veto }
   })
@@ -431,4 +433,45 @@ test('no cycle starts while someone else is compacting', async ($, on) => {
   await clock.settle()
   expect(w.submits).toEqual([])
   expect(w.statuses.at(-1)).toContain('off until')
+})
+
+test('an outside compaction that fails leaves the mod armed, not stuck', async ($, on) => {
+  const clock = mock.clock(on)
+  const w = world(on, { failOutside: true })
+  await measure($, 100_000)
+  await clock.settle()
+  try {
+    await $.session.compact({ trigger: 'manual', instructions: 'the person typed /compact', messages: [SUMMARY] })
+  } catch {
+    // the engine reports the failure to the operator
+  }
+  await clock.settle()
+  await measure($, 900_000)
+  await clock.settle()
+  expect(w.submits.length).toBe(1)
+})
+
+test('an interrupt holds off a retry that is already probing', async ($, on) => {
+  const clock = mock.clock(on)
+  const w = world(on, { fresh: true })
+  await measure($, 720_000)
+  await clock.settle()
+  w.rejectCompact = true
+  await turn($, 'r1', lastSubmit(w))
+  await clock.settle()
+  const tried = w.compacts.length
+  w.rejectCompact = false
+  w.slowProbe = ms => clock.sleep(ms)
+  // The 2 s retry fires and starts probing; the operator interrupts meanwhile.
+  await clock.advance(2000)
+  await clock.settle()
+  await turn($, 'peer', 'the operator stopped this turn', 'aborted')
+  for (let i = 0; i < 4; i++) await clock.advance(1000)
+  await clock.settle()
+  expect(w.compacts.length).toBe(tried)
+  await turn($, 'next', 'the operator typed something')
+  for (let i = 0; i < 4; i++) await clock.advance(1000)
+  await clock.settle()
+  expect(w.compacts.length).toBe(tried + 1)
+  expect(lastSubmit(w)).toBe(`READ ${HANDOFF.name}`)
 })
