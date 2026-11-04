@@ -6,6 +6,38 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.100.0] - 2026-11-04
+
+### Added — compaction_handoff 0.2.0 and Kairomone 0.9.0 ship as SkillSet templates (opt-in)
+
+Neither is installed by `system_upgrade` or `kairos-chain upgrade`; install each by name.
+
+- **compaction_handoff 0.2.0.** Keeps a long-lived Claude Code session's work across context compaction,
+  for sessions run with auto-compaction off. A Claude Code mod (`mod/`, loaded per session with
+  `claude --plugin-dir <data dir>/skillsets/compaction_handoff/mod`) asks the session for an L2 handoff
+  once usage passes `request_ratio` of the window, compacts as soon as that turn has ended, then asks the
+  session to read the handoff back. Three command hooks stay as insurance: each turn start past the
+  request point repeats the request, every compaction leaves a figures-only fallback record in L2, and
+  after every compaction the session is told which handoff to read. An operator interrupt, `/compact` or
+  `/clear` ends the mod's cycle; it never compacts while a turn runs or for a subagent.
+- **Kairomone 0.9.0.** Single-owner companions, any number per host, that grow through owned L1/L2 and
+  owner-started, evidence-backed growth runs driven by the host assistant over MCP; signed backups,
+  owner-accepted drawings as checked static SVG, and an owner-started loopback console page. No L0
+  changes, no built-in LLM or scheduler.
+
+### Changed
+
+- The gem ships files under `templates/**/.claude-plugin/` (a mod's manifest); the file globs did not
+  enter dot-folders before.
+
+**Upgrade notes**
+
+- Install compaction_handoff fresh (`kairos-chain skillset install compaction_handoff`). SkillSet upgrade,
+  the SkillSet content hash and the exchange archive still skip dot-folders, so an upgraded or exchanged
+  copy lacks `mod/.claude-plugin/plugin.json` and the mod does not load. Check that the file exists.
+- With compaction_handoff installed and projected, its three hooks act on every Claude Code session of the
+  project; the mod acts only in sessions started with `--plugin-dir`.
+
 ## [3.99.0] - 2026-10-25
 
 ### Security — Secure MMP v1: MMP direct mode discloses only what is public, and can admit only pinned keys (mmp 1.3.0, secure_mmp 0.1.0)
