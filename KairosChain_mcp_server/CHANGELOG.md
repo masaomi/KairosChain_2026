@@ -6,6 +6,18 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.100.1] - 2026-11-18
+
+### Changed — multi_llm_review codex seat moves to gpt-6.2-astra
+
+- The codex slot of the default roster runs `gpt-6.2-astra` (label `codex_gpt6.2-astra`), replacing
+  `gpt-6-astra`. Same slot and effort (high); roster size and reference ratios unchanged.
+- Tested before the swap through the shipping adapter, prompt builder and verdict parser: two trials per
+  model on one function with three planted defects; both models found all three and put the verdict on
+  line one. 6.2 graded the same defects higher and used about 4% more total tokens. Not a calibration.
+- Runs recorded under `codex_gpt6-astra` keep that label. L1 `multi_llm_review_workflow` 3.17.2 records
+  the change.
+
 ## [3.100.0] - 2026-11-04
 
 ### Added — compaction_handoff 0.2.0 and Kairomone 0.9.0 ship as SkillSet templates (opt-in)
