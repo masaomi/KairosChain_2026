@@ -165,24 +165,30 @@ reviewers:
   # until a profile accumulates. The persona-seat figures recorded before
   # 2026-09-24 were produced by Opus 5 and are its history, not a 5.5 profile.
 
-  # GPT-6-astra added 2026-09-05 at the operator's instruction, replacing
-  # gpt-5.6-sol (which had held this slot since 2026-07-23, itself replacing
-  # gpt-5.4). To restore either, set model and role_label back. Verified before
-  # the swap through the flags this adapter actually builds:
-  #   codex exec --sandbox read-only -m gpt-6-astra -c model_reasoning_effort=high
-  # answered with `model: gpt-6-astra` / `reasoning effort: high` in its header.
+  # GPT-6.2-astra replaced gpt-6-astra 2026-11-18 at the operator's instruction
+  # ("test, then replace"). gpt-6-astra held this slot from 2026-09-05, itself
+  # replacing gpt-5.6-sol (2026-07-23), which replaced gpt-5.4. To restore any of
+  # them, set model and role_label back. Verified before the swap:
+  #   - codex exec --sandbox read-only -m gpt-6.2-astra -c model_reasoning_effort=high
+  #     answered with `model: gpt-6.2-astra` / `reasoning effort: high` in its
+  #     header, with no "model metadata not found" warning; a made-up name
+  #     (gpt-6.2-nonexistent-zz) was refused with exit 1, so acceptance is evidence.
+  #   - Through this adapter, PromptBuilder and Consensus.extract_verdict, 2 trials
+  #     per model on one artifact with 3 planted defects: both models found 3/3 in
+  #     both trials and both put the verdict on line one (parsed: 6.2 REJECT x2,
+  #     6 REVISE x2). 6.2 graded the same defects higher (P0 1-2 of 3 vs 0 of 3),
+  #     took 14-17 s vs 18-22 s, and used about 4% more total tokens (36.1k vs
+  #     34.8k). Record: log/mlr_gpt62_astra_swap_20261118/.
   #
-  # gpt-6-astra's reviewer bias profile is not calibrated — record (a)/(b)/(c)
+  # gpt-6.2-astra's reviewer bias profile is not calibrated — record (a)/(b)/(c)
   # breakdowns per round (see multi_llm_reviewer_evaluation) until one
-  # accumulates. The 138-run profile recorded for codex_gpt5.6-sol in L1
-  # multi_llm_review_workflow belongs to the retired model and does NOT carry
-  # over to this slot. Since gpt-5.5 was retired the same day, codex holds ONE
-  # slot and it is uncalibrated — there is no longer a calibrated codex anchor
-  # to read a new seat against.
+  # accumulates. Runs recorded as codex_gpt6-astra belong to the retired model and
+  # do NOT carry over to this slot, as codex_gpt5.6-sol's 138-run profile did not
+  # carry over to gpt-6-astra. codex holds ONE slot and it is uncalibrated.
   - provider: codex
-    model: gpt-6-astra
+    model: gpt-6.2-astra
     effort: high
-    role_label: codex_gpt6-astra
+    role_label: codex_gpt6.2-astra
 
   # GPT-5.5 (added 2026-04-24) RETIRED 2026-09-05 at the operator's
   # instruction. It had held the second codex slot as the calibrated

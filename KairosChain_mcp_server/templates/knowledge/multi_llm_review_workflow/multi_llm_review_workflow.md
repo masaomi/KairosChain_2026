@@ -1,7 +1,7 @@
 ---
 name: multi_llm_review_workflow
 description: "Multi-LLM review methodology and execution — workflow pattern, CLI tooling, consensus analysis, Persona Assembly. Applicable to design, implementation, documentation, or any artifact."
-version: "3.17.1"
+version: "3.17.2"
 tags:
   - workflow
   - review
@@ -164,8 +164,10 @@ these numbers.
 The codex row is a profile of **gpt-5.6-sol**, which left the roster on
 2026-09-05 when gpt-6-astra replaced it. Nothing in that row transfers to the
 new occupant: the seat's identity here is the model, not the slot. Until a
-comparable corpus accumulates for `codex_gpt6-astra`, read the codex row as
-history and treat the new seat as uncalibrated. The same caution applies to
+comparable corpus accumulates for the current codex seat, read the codex row as
+history and treat the new seat as uncalibrated. (The seat changed again on
+2026-11-18: `codex_gpt6.2-astra` replaced `codex_gpt6-astra`, and the same rule
+applies — runs under the 6 label do not profile 6.2.) The same caution applies to
 every row from 2026-09-05 onward for a second reason — the corpus was gathered
 with reviewers at medium effort, and reviewers now run at high (see § Thinking
 Effort Configuration), so post-swap rounds are not directly comparable to it.
@@ -533,7 +535,7 @@ they disagree, the config is right and this section is stale.
       Opus 5.5, which under the default "delegate" strategy is taken by your
       persona team rather than spawned — so when you are Opus 5.5, Sonnet 5.5 is
       the only Claude CLI subprocess
-- [ ] Codex model: gpt-6-astra, with -m. One codex slot since gpt-5.5 was
+- [ ] Codex model: gpt-6.2-astra, with -m. One codex slot since gpt-5.5 was
       retired 2026-09-05 — do not add a second codex entry expecting the old
       cross-generation pairing
 - [ ] Cursor model: composer-2.5, passed explicitly as --model composer-2.5
@@ -953,7 +955,7 @@ outside this repository — see the incident recorded in § Pre-flight checklist
 
 | Tool | Command | Prompt Input | Output Collection | Model |
 |------|---------|-------------|-------------------|-------|
-| **Codex** | `codex exec -m <model> -c model_reasoning_effort=high` | stdin pipe: `cat prompt.md \| codex exec -m <model> -` | `-o /path/output.md` | gpt-6-astra — one slot since gpt-5.5 was retired 2026-09-05 |
+| **Codex** | `codex exec -m <model> -c model_reasoning_effort=high` | stdin pipe: `cat prompt.md \| codex exec -m <model> -` | `-o /path/output.md` | gpt-6.2-astra (since 2026-11-18, replacing gpt-6-astra) — one slot since gpt-5.5 was retired 2026-09-05 |
 | **Cursor Agent** | `agent -p --model composer-2.5` | File reference (stdin NOT supported) | stdout redirect: `> output.md` | composer-2.5, passed explicitly — never relying on the CLI default |
 | **Claude Code** | Agent tool (internal) | Direct prompt string | Write to workspace file | Orchestrator model, or the declared `persona_model` when personas run elsewhere |
 | **Claude CLI (Sonnet 5.5)** | `claude -p --model claude-sonnet-5-5 --effort high` | stdin pipe: `cat prompt.md \| claude -p --model claude-sonnet-5-5 --effort high` | stdout redirect: `> output.md` | Sonnet 5.5 — took Opus 4.6's slot on 2026-09-30 by operator decision; uncalibrated |
@@ -1613,12 +1615,12 @@ Step 2: Detect environment, and check the roster against config
   - Read the roster from config/multi_llm_review.yml — do NOT read CLI defaults
     and treat them as the roster. Detection only tells you whether a default has
     drifted; the model each slot runs is named on the command line.
-  - Report: "Auto mode: Codex (gpt-6-astra), Cursor (composer-2.5),
+  - Report: "Auto mode: Codex (gpt-6.2-astra), Cursor (composer-2.5),
     Claude Team (orchestrator model), Claude CLI (sonnet-5.5)"
 
 Step 3: Execute the configured roster in parallel (currently 4 slots, one of
         which is your own persona team)
-  - Bash(background): cat prompt.md | codex exec -m gpt-6-astra -c model_reasoning_effort=high -C workspace -o log/review_codex_gpt6-astra.md -
+  - Bash(background): cat prompt.md | codex exec -m gpt-6.2-astra -c model_reasoning_effort=high -C workspace -o log/review_codex_gpt6.2-astra.md -
   - Bash(background): agent -p --trust --model composer-2.5 "Read prompt and review..." > log/review_cursor.md
     (no effort flag — Cursor has no effort control)
   - Agent(background): Claude Team (orchestrator model, e.g. Opus 5.5) → write to log/review_claude_team_opus5.5.md
@@ -1664,7 +1666,7 @@ log/{artifact}_review{N}_consensus_{date}.md       # Consensus analysis
 ```
 
 LLM identifiers: `claude_cli_opus5.5`, `claude_cli_sonnet5.5`,
-`codex_gpt6-astra`, `cursor_composer2.5`, `cursor_gpt5.4`,
+`codex_gpt6.2-astra`, `cursor_composer2.5`, `cursor_gpt5.4`,
 `cursor_premium`. The delegated slot is reported as `claude_team_<model>`
 (e.g. `claude_team_claude-opus-5-5`), assembled at collect time — the roster's
 own labels stay CLI-neutral because either frontier entry can take either path.
@@ -1676,7 +1678,8 @@ returns, 85-128 characters in 5-7 seconds, no findings and no verdict text;
 retired 2026-09-05: `codex_gpt5.6-sol`, replaced by `codex_gpt6-astra`, and
 `codex_gpt5.5`, not replaced; retired 2026-09-24: `claude_cli_opus5`, succeeded in
 the same slot by `claude_cli_opus5.5`; retired 2026-09-30: `claude_cli_opus4.6`,
-succeeded in the same slot by `claude_cli_sonnet5.5`. Runs recorded under a retired identifier keep it —
+succeeded in the same slot by `claude_cli_sonnet5.5`; retired 2026-11-18:
+`codex_gpt6-astra`, succeeded in the same slot by `codex_gpt6.2-astra`. Runs recorded under a retired identifier keep it —
 the label names the model that answered, so renaming old records would attribute
 one model's findings to another)
 
@@ -2125,6 +2128,18 @@ Compression ratio: parallel agent raw → Assembly ≈ 2:1
   carries the roster line: agent 1.0.2 declares and convenes three personas, launched
   by the run's actor through a marker the SkillSet's hook rewrites, and submits the
   replies the host handed back. Design `log/agent_persona_seats_design_v0.3_20261022.md`.
+
+- Codex seat gpt-6-astra → gpt-6.2-astra (v3.17.2, 2026-11-18, operator
+  instruction: 「gpt-6.2-astraがリリースされたらしいですが、MLRのgpt席を6.2に置き換えられますか？
+  テストしてから置き換えてください。」). Same slot, same effort (high), label
+  `codex_gpt6.2-astra`; the roster size and the reference ratios are unchanged.
+  Tested before the swap through the shipping adapter, prompt builder and verdict
+  parser: two trials per model on one function with three planted defects; both
+  models found all three in both trials and put the verdict on line one. 6.2
+  graded the same defects higher (REJECT with 1–2 P0 against REVISE with none),
+  ran 14–17 s against 18–22 s, and used about 4% more total tokens. Two trials on
+  one artifact say nothing about a real round; the seat is uncalibrated. Record
+  `log/mlr_gpt62_astra_swap_20261118/`.
 
 **Key insight**: Design reviews and implementation reviews find
 **categorically different bugs**. Both phases are necessary. The corollary that
