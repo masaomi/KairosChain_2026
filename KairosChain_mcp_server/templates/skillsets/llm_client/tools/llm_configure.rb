@@ -28,7 +28,7 @@ module KairosMcp
                 provider: {
                   type: 'string',
                   description: 'LLM provider',
-                  enum: %w[anthropic openai local openrouter bedrock claude_code codex cursor]
+                  enum: %w[anthropic openai local openrouter bedrock claude_code codex cursor antigravity]
                 },
                 model: { type: 'string', description: 'Model name' },
                 api_key_env: { type: 'string', description: 'Environment variable name for API key' },

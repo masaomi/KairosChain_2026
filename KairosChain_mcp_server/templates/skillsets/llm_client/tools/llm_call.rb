@@ -81,7 +81,7 @@ module KairosMcp
                   type: 'string',
                   description: 'Override configured provider for this call only ' \
                     '(e.g., "codex", "cursor", "claude_code"). Useful for multi-LLM review.',
-                  enum: %w[anthropic openai local openrouter bedrock claude_code codex cursor]
+                  enum: %w[anthropic openai local openrouter bedrock claude_code codex cursor antigravity]
                 },
                 dispatch_id: {
                   type: 'string',
@@ -131,6 +131,7 @@ module KairosMcp
             'openai' => 'OPENAI_API_KEY',
             'codex' => nil,              # uses `codex login` CLI auth (~/.codex/)
             'cursor' => nil,             # uses `cursor login` CLI auth (~/.cursor/)
+            'antigravity' => nil,        # uses `agy` CLI login (~/.gemini/antigravity-cli/)
             'claude_code' => nil,        # uses subscription auth
             'bedrock' => nil,            # uses AWS credentials
             'local' => nil,
@@ -291,6 +292,9 @@ module KairosMcp
             when 'cursor'
               require_relative '../lib/llm_client/cursor_adapter'
               CursorAdapter.new(config)
+            when 'antigravity'
+              require_relative '../lib/llm_client/antigravity_adapter'
+              AntigravityAdapter.new(config)
             when 'bedrock'
               require_relative '../lib/llm_client/bedrock_adapter'
               BedrockAdapter.new(config)

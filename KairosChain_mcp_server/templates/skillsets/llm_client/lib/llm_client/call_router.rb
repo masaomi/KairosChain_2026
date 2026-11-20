@@ -25,6 +25,7 @@ module KairosMcp
           'openai' => 'OPENAI_API_KEY',
           'codex' => nil,
           'cursor' => nil,
+          'antigravity' => nil,
           'claude_code' => nil,
           'bedrock' => nil,
           'local' => nil,
@@ -164,6 +165,9 @@ module KairosMcp
           when 'cursor'
             require_relative 'cursor_adapter'
             CursorAdapter.new(config)
+          when 'antigravity'
+            require_relative 'antigravity_adapter'
+            AntigravityAdapter.new(config)
           when 'bedrock'
             require_relative 'bedrock_adapter'
             BedrockAdapter.new(config)

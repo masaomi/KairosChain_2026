@@ -1,7 +1,7 @@
 {
   "name": "llm_client",
-  "version": "0.4.0",
-  "description": "Pure LLM provider abstraction. One API call, returns response. No loop, no retry, no fallback.",
+  "version": "0.5.0",
+  "description": "Pure LLM provider abstraction. One API call, returns response. No loop, no retry, no fallback. v0.5.0 (2026-11-15): provider `antigravity` drives the Antigravity CLI (`agy`), prompt on stdin as stream-json, in a per-call directory holding only an agent definition (random name per call) with an empty tool allowlist; session settings deny every permission action under strict permission mode, plan mode is not used (it writes plan files), and a reply is refused unless the session reports that agent and strict mode and every tool step ends in the CLI's own permission refusal. The write probe has not been run. No model_observed is returned: the CLI's init event names a model before any model answers. agy keeps every turn on disk under ~/.gemini/antigravity-cli/.",
   "author": "Masaomi Hatakeyama",
   "layer": "L1",
   "depends_on": [],

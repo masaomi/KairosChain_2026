@@ -68,7 +68,8 @@ module KairosMcp
             {
               'claude_code' => probe_cli('claude', %w[--version]),
               'codex'       => probe_cli('codex',  %w[--version]),
-              'cursor'      => probe_cli('agent',  %w[--version])
+              'cursor'      => probe_cli('agent',  %w[--version]),
+              'antigravity' => probe_cli('agy',    %w[--version])
             }
           end
 
