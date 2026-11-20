@@ -1,7 +1,7 @@
 {
   "name": "dream",
-  "version": "0.4.0",
-  "description": "Memory consolidation and L2 lifecycle management. Scans for recurring patterns, manages L2 soft-archive, packages promotion proposals, and generates derived per-topic narrative digests that read declared succession, label drift and membership, and record checks by a context other than their author.",
+  "version": "0.3.0",
+  "description": "Memory consolidation and L2 lifecycle management. Scans for recurring patterns, manages L2 soft-archive, packages promotion proposals, and generates derived per-topic narrative digests.",
   "author": "Masaomi Hatakeyama",
   "layer": "L1",
   "depends_on": [],
