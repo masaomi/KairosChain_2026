@@ -3,6 +3,7 @@
 require 'digest'
 require 'fileutils'
 require 'yaml'
+require 'date'
 require 'zlib'
 require 'time'
 
@@ -349,6 +350,11 @@ module KairosMcp
             'has_references' => has_references,
             'summary' => summary
           }
+          # The edges a node declares are part of what it states to the context graph. A stub
+          # that dropped them would withdraw, by archiving, a succession the node declared.
+          %w[relations_schema relations].each do |key|
+            frontmatter[key] = original_meta[key] if original_meta.key?(key)
+          end
 
           includes = []
           includes << 'scripts/' if has_scripts
@@ -388,8 +394,11 @@ module KairosMcp
         # ---------------------------------------------------------------
 
         def extract_frontmatter(content)
-          if content =~ /\A---\n(.*?)\n---/m
-            YAML.safe_load($1, permitted_classes: [Symbol]) || {}
+          # Date and Time are permitted, as on the save path: a node with a date in its
+          # frontmatter must not read as empty here, or its stub would lose what it declares.
+          if content =~ /\A---\r?\n(.*?)\r?\n---/m
+            meta = YAML.safe_load($1, permitted_classes: [Symbol, Date, Time])
+            meta.is_a?(Hash) ? meta : {}
           else
             {}
           end

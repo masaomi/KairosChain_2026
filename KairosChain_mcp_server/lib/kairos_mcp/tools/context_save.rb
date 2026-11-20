@@ -12,7 +12,11 @@ module KairosMcp
       end
 
       def description
-        'Save (create or update) a L2 context. No blockchain recording - free modification for temporary work.'
+        'Save (create or update) a L2 context. No blockchain recording - free modification for temporary work. ' \
+          'A node that replaces or corrects an earlier L2 node says so in its own frontmatter: ' \
+          'relations: [{type: replaces|corrects, target: "v1:<session_id>/<name>", part: <optional>, ' \
+          'grounds: {quote: <the words>, by: <whose words>} or {contradicted_by: <node>}}]. ' \
+          'A save whose such edge has no grounds or names a node that does not exist is refused.'
       end
 
       def category
