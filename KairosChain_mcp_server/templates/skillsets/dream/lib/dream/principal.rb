@@ -53,10 +53,13 @@ module KairosMcp
 
         # An opaque name for the root a layer's nodes resolve under for this principal. Two
         # principals read the same node for a ref exactly when their scopes for its layer are
-        # equal. Reveals no path.
+        # equal. A root inside the instance's data directory is named by its place in it, so
+        # moving or restoring the data directory changes no scope. Reveals no path.
         def scope(layer)
-          root = layer.to_s == 'l1' ? knowledge_root : context_root
-          Digest::SHA256.hexdigest("dream_digest.scope\0#{real(root)}")
+          root = real(layer.to_s == 'l1' ? knowledge_root : context_root)
+          data = real(KairosMcp.data_dir)
+          place = root.start_with?("#{data}#{File::SEPARATOR}") ? "data:#{root[(data.size + 1)..]}" : "path:#{root}"
+          Digest::SHA256.hexdigest("dream_digest.scope\0#{place}")
         end
 
         # True if this principal may read every node of a READ set recorded under `scopes`

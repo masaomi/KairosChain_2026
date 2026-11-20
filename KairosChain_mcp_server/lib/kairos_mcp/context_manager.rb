@@ -150,35 +150,6 @@ module KairosMcp
       refuse_failing_succession_edges!(relations)
     end
 
-    # A save whose succession edge fails either validity condition is refused and stores
-    # nothing. Evaluated from what is on disk now, under this manager's context root (the
-    # saving principal's). Only succession edges are looked at, so a node that declares none
-    # is never refused here. Reading an edge evaluates the same conditions again and decides;
-    # this refusal anticipates that evaluation and does not replace it.
-    #
-    # @raise ContextGraph::SuccessionRefusedError
-    def refuse_failing_succession_edges!(relations)
-      relations.each_with_index do |item, idx|
-        next unless ContextGraph.succession_edge?(item)
-
-        failures = ContextGraph.succession_edge_failures(item, @context_dir)
-        next if failures.empty?
-
-        type = item['type'] || item[:type]
-        target = item['target'] || item[:target]
-        reasons = []
-        if failures.include?(:no_grounds)
-          reasons << 'it carries no grounds (grounds.quote with grounds.by, or grounds.contradicted_by)'
-        end
-        if failures.include?(:target_missing)
-          reasons << "its target #{target} does not exist#{formal_target_hint(target)}"
-        end
-        raise ContextGraph::SuccessionRefusedError,
-              "relations[#{idx}] (#{type}) is refused: #{reasons.join('; ')}. Nothing was stored. " \
-              'Correct the edge, or save the node without it.'
-      end
-    end
-
     # Formal targets (v1:<session id>/<name>) of every node under this manager's context root
     # that bears the given name. A writer holds names; an edge stores only the formal form,
     # which names one node.
@@ -296,6 +267,35 @@ module KairosMcp
     end
 
     private
+
+    # A save whose succession edge fails either validity condition is refused and stores
+    # nothing. Evaluated from what is on disk now, under this manager's context root (the
+    # saving principal's). Only succession edges are looked at, so a node that declares none
+    # is never refused here. Reading an edge evaluates the same conditions again and decides;
+    # this refusal anticipates that evaluation and does not replace it.
+    #
+    # @raise ContextGraph::SuccessionRefusedError
+    def refuse_failing_succession_edges!(relations)
+      relations.each_with_index do |item, idx|
+        next unless ContextGraph.succession_edge?(item)
+
+        failures = ContextGraph.succession_edge_failures(item, @context_dir)
+        next if failures.empty?
+
+        type = item['type'] || item[:type]
+        target = item['target'] || item[:target]
+        reasons = []
+        if failures.include?(:no_grounds)
+          reasons << 'it carries no grounds (grounds.quote with grounds.by, or grounds.contradicted_by)'
+        end
+        if failures.include?(:target_missing)
+          reasons << "its target #{target} does not exist#{formal_target_hint(target)}"
+        end
+        raise ContextGraph::SuccessionRefusedError,
+              "relations[#{idx}] (#{type}) is refused: #{reasons.join('; ')}. Nothing was stored. " \
+              'Correct the edge, or save the node without it.'
+      end
+    end
 
     # For a refused target: the nodes that do bear its name, so the writer can pick one.
     def formal_target_hint(target)

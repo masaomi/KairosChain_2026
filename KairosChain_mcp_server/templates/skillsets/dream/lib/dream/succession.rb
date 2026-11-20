@@ -28,9 +28,15 @@ module KairosMcp
             failures.empty?
           end
 
+          # The target for display: a formal target as written; anything else quoted, so text a
+          # node put in its target cannot pass for a line of whatever lists the edge.
+          def shown_target
+            target_ref ? target : target.inspect
+          end
+
           # As the declaring node wrote it; grounds and references are not resolved.
           def to_h
-            h = { 'holder' => holder, 'type' => type, 'target' => target, 'valid' => valid? }
+            h = { 'holder' => holder, 'type' => type, 'target' => shown_target, 'valid' => valid? }
             h['part'] = part unless part.nil?
             h['grounds'] = grounds unless grounds.nil?
             h['failures'] = failures.map(&:to_s) unless valid?
@@ -157,9 +163,11 @@ module KairosMcp
         def relations_of(ref, path)
           content = begin
             File.read(path, encoding: 'UTF-8')
-          rescue SystemCallError
+          rescue SystemCallError, IOError
             return unparseable!(ref, 'unreadable')
           end
+          return unparseable!(ref, 'not valid UTF-8') unless content.valid_encoding?
+
           m = content.match(/\A---\r?\n(.*?)\r?\n---/m)
           return [] unless m
 

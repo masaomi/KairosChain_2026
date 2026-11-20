@@ -83,21 +83,12 @@ module KairosMcp
         # @param include_l1 [Boolean]
         # @return [Array<Hash>] source descriptors for #build_read_set
         def resolve_sources_by_tag(tag, include_l1: true)
-          out = []
-          # Nodes are enumerated from the store itself, one file at a time: a node whose
-          # frontmatter does not parse carries no readable tag and is passed over, so it cannot
-          # abort the selection of the others.
-          each_l2_node do |sid, name, path|
-            content = safe_read(path)
-            next if content.nil?
-            next if frontmatter_value(content, 'status') == 'soft-archived' # don't cite stubs as live
-            next unless tag_match?(frontmatter_tags(content), tag)
-
-            out << { 'layer' => 'l2', 'session_id' => sid, 'name' => name }
+          out = l2_tag_scan.filter_map do |sid, name, tags|
+            { 'layer' => 'l2', 'session_id' => sid, 'name' => name } if tag_match?(tags, tag)
           end
 
           if include_l1 && (kp = knowledge_provider)
-            kp.list.each do |entry|
+            l1_entries(kp).each do |entry|
               next unless tag_match?(Array(entry[:tags]), tag)
 
               out << { 'layer' => 'l1', 'name' => entry[:name] }
@@ -141,8 +132,17 @@ module KairosMcp
           with_topic_lock(dir) do
             # Re-derive from CURRENT sources; never trust caller hashes/access (I4/I9). The
             # caller's snapshot only fixes WHICH sources are citable (I6).
-            read_set = build_read_set(sources_from_provenance(snapshot))
+            named = sources_from_provenance(snapshot)
+            read_set = build_read_set(named)
             raise 'no resolvable sources at write time (I4)' if read_set.empty?
+
+            # The narrative was made from every source of the snapshot. One that no longer
+            # resolves cannot be recorded, and a generation recorded without it would carry
+            # neither its hash nor its bound (I7/I9): the write is refused, not thinned.
+            gone = named.map { |s| source_ref(s['layer'], s) }.uniq - read_set.map { |e| e['ref'] }
+            unless gone.empty?
+              raise "a source of the snapshot no longer resolves (#{gone.join(', ')}); package again and regenerate"
+            end
 
             guard_slug_collision!(path, topic, events.load(slug)) # I10: never overwrite a different topic
             bound = access_bound(read_set)
@@ -208,6 +208,9 @@ module KairosMcp
           # label is given to it (I7).
           return { found: false, topic: topic, stored_not_current: true, age_days: age_days(gen['recorded_at']) } unless text
 
+          # generated_at (and the age sweep derives from it) is the artifact's own note, kept as
+          # in v0.4 for scheduling. It is not one of this design's labels and nothing is
+          # concluded from it about the text.
           meta = extract_frontmatter(safe_read(path).to_s)
           drift = drifted_sources(gen['read_set'])
           membership = membership_of(gen)
@@ -241,8 +244,12 @@ module KairosMcp
         # @param stale_after_days [Integer, nil] also flag digests older than this as 'aged'
         # @return [Array<Hash>] one entry per digest, sorted needs-refresh-first then oldest-first
         def sweep(stale_after_days: nil)
-          list.map do |slug|
+          (list + unrecorded_slugs).map do |slug|
             r = read(topic: slug)
+            if r[:no_generation_event]
+              next { topic: slug, state: 'no_generation_event', stale: false, drifted_count: 0,
+                     age_days: nil, aged: false, needs_refresh: true }
+            end
             if r[:stored_not_current]
               next { topic: slug, state: 'stored_not_current', stale: false, drifted_count: 0,
                      age_days: r[:age_days], aged: false, needs_refresh: true }
@@ -259,6 +266,7 @@ module KairosMcp
               membership: r[:membership]['state'],
               fresh: r[:fresh],
               checked: r[:checked],
+              check_mismatches: r[:checks].select { |c| c['counts'] }.sum { |c| c['mismatches'].size },
               age_days: r[:age_days],
               aged: !!aged,
               needs_refresh: r[:stale] || changed || !!aged,
@@ -276,8 +284,8 @@ module KairosMcp
         # @return [Hash] package-shaped { topic:, snapshot:, selection_rule:, directive:, dropped:, added:, status:, ... }
         def refresh(topic:)
           slug = slugify(topic)
-          _log, gen = current_generation(slug)
-          return { found: false, topic: topic } unless gen
+          log, gen = current_generation(slug)
+          return absent(topic, slug, log) unless gen
 
           pkg = package_for(gen['topic'], gen['selection_rule'], gen.dig('directive', 'id'))
           before = Array(gen['read_set']).map { |e| e['ref'] }
@@ -301,7 +309,7 @@ module KairosMcp
 
         # Topics whose current generation this principal may read.
         def list
-          (events.slugs | stored_slugs).select { |slug| current_generation(slug).last }.sort
+          events.slugs.select { |slug| current_generation(slug).last }
         end
 
         # What a checker receives: the current output and its READ set, nothing of the author's
@@ -343,9 +351,14 @@ module KairosMcp
           slug = slugify(topic)
           raise CheckRefusedError, 'compared_text is required: the digest text the checker compared' unless compared_text.is_a?(String)
 
-          log = events.load(slug)
-          gen = log.generation(generation.to_s)
-          # One reply for a generation that does not exist and for one outside this principal's bound.
+          log = begin
+            slug.empty? ? nil : events.load(slug)
+          rescue DigestEvents::CorruptError
+            nil
+          end
+          gen = log&.generation(generation.to_s)
+          # One reply for a generation that does not exist, for one outside this principal's
+          # bound, and for a topic whose log cannot be read.
           raise CheckRefusedError, 'no such generation for this topic' unless gen && @principal.within?(gen['scopes'])
 
           findings = recorded_findings(gen, mismatches, uncheckable)
@@ -422,6 +435,33 @@ module KairosMcp
           end
         end
 
+        # Every live L2 node with its tags: [session_id, name, tags]. Nodes are enumerated from
+        # the store itself, one file at a time: a node whose frontmatter does not parse carries
+        # no readable tag and is passed over, so it cannot abort the selection of the others.
+        # Scanned once per Digester instance, so a sweep reads the store once, not once per topic.
+        def l2_tag_scan
+          @l2_tag_scan ||= begin
+            found = []
+            each_l2_node do |sid, name, path|
+              content = safe_read(path)
+              next if content.nil?
+
+              meta = extract_frontmatter(content)
+              next if (meta['status'] || meta[:status]) == 'soft-archived' # don't cite stubs as live
+
+              found << [sid, name, Array(meta['tags'] || meta[:tags])]
+            end
+            found
+          rescue SystemCallError
+            @store_unlisted = true
+            found
+          end
+        end
+
+        def l1_entries(provider)
+          @l1_entries ||= provider.list
+        end
+
         # One index per Digester instance: every label of one call (and every topic of one
         # sweep) is evaluated against the same reading of the store.
         def succession_index
@@ -438,7 +478,7 @@ module KairosMcp
             selection_rule: rule,
             succession: resolved[:edges].map(&:to_h),
             unparseable_nodes: succession_index.unparseable,
-            read_set_complete: succession_index.complete?,
+            read_set_complete: succession_index.complete? && !@store_unlisted,
             access_bound: access_bound(read_set),
             directive: generation_directive(topic, read_set, resolved[:edges]),
             resolved_from: resolved_from_of(rule),
@@ -448,6 +488,10 @@ module KairosMcp
 
         # A selection rule as it is recorded in a generation event.
         def recorded_rule(selection_rule, resolved_from, snapshot)
+          unless selection_rule.nil? || selection_rule.is_a?(Hash)
+            raise 'selection_rule must be the mapping package returned; it was not recorded as a list in its place'
+          end
+
           if selection_rule.is_a?(Hash)
             given = stringify(selection_rule)
             case given['kind']
@@ -529,16 +573,21 @@ module KairosMcp
           Digest::SHA256.hexdigest(canonical)
         end
 
-        def stored_slugs
+        # Topic directories that hold stored text and have no event log: text written before
+        # generation events existed. Who is told of one is decided in #absent, as for read.
+        def unrecorded_slugs
           base = digest_base
           return [] unless Dir.exist?(base)
 
-          Dir.children(base).select { |c| Dir.exist?(File.join(base, c)) }
+          recorded = events.slugs
+          Dir.children(base).select do |c|
+            c.match?(/\A[a-z0-9_]+\z/) && !recorded.include?(c) && File.file?(File.join(base, c, "#{c}.md"))
+          end.sort
         end
 
         def replace_file(path, body)
           tmp = "#{path}.#{Process.pid}.#{rand(1 << 32).to_s(16)}.tmp" # unique per writer
-          File.write(tmp, body)
+          File.binwrite(tmp, body)
           File.rename(tmp, path) # POSIX atomic
         ensure
           File.delete(tmp) if tmp && File.exist?(tmp) # no orphan tmp on failure
@@ -548,7 +597,7 @@ module KairosMcp
           if previous.nil?
             File.delete(path) if File.exist?(path)
           else
-            File.binwrite(path, previous)
+            replace_file(path, previous)
           end
         rescue StandardError
           nil # what is stored then has no generation event naming it, and is not shown
@@ -573,7 +622,7 @@ module KairosMcp
           unknown = []
           unknown << 'the selection rule lists its nodes and cannot observe that the topic has grown' unless rule['kind'] == 'tag'
           unknown << "a node whose relations cannot be read may declare a succession: #{unparseable.join(', ')}" unless unparseable.empty?
-          unknown << 'the store could not be read in full' unless succession_index.complete?
+          unknown << 'the store could not be read in full' unless succession_index.complete? && !@store_unlisted
 
           state = if !added.empty? || !removed.empty? then 'changed'
                   elsif unknown.empty? then 'same'
@@ -631,7 +680,7 @@ module KairosMcp
 
             Array(list).map do |f|
               h = f.is_a?(Hash) ? stringify(f) : { 'assertion' => f.to_s }
-              cites = Array(h['cites']).map(&:to_s)
+              cites = Array(h['cites']).map(&:to_s).uniq
               outside = cites.reject { |c| members.key?(c) }
               raise CheckRefusedError, "a finding cites outside the READ set: #{outside.join(', ')}" unless outside.empty?
 
@@ -822,12 +871,19 @@ module KairosMcp
           lines = ["Declared succession edges (#{edges.size}):"]
           edges.each do |e|
             state = e.valid? ? 'VALID' : "NOT VALID (#{e.failures.map { |f| f.to_s.tr('_', ' ') }.join(', ')})"
-            line = "- [#{state}] #{e.holder} #{e.type} #{e.target}"
+            line = "- [#{state}] #{e.holder} #{e.type} #{e.shown_target}"
             line += " | part: #{e.part.to_s.inspect}" unless e.part.nil?
-            line += " | grounds (declared, unverified): #{JSON.generate(e.grounds)}" unless e.grounds.nil?
+            line += " | grounds (declared, unverified): #{one_line(e.grounds)}" unless e.grounds.nil?
             lines << line
           end
           lines.join("\n")
+        end
+
+        # A value from a node's frontmatter on one line, with nothing in it able to start a line.
+        def one_line(value)
+          JSON.generate(value)
+        rescue StandardError
+          value.inspect
         end
 
         # Identity of the directive text this version issues, independent of topic and sources:
@@ -870,6 +926,10 @@ module KairosMcp
         # a DIFFERENT topic mapping to the same slug must fail loudly, never silently overwrite.
         def guard_slug_collision!(path, topic, log)
           recorded = log.current_generation
+          # A principal outside the current generation's bound is shown nothing of the topic,
+          # a refusal that would name it included (I9): for it the slug is free.
+          return if recorded && !@principal.within?(recorded['scopes'])
+
           if recorded && recorded['topic'] != topic
             raise IdentifierError,
                   "slug collision: topic #{topic.inspect} maps to the slug of a topic that already has generation events; " \

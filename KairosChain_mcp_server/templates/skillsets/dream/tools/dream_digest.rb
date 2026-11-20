@@ -164,7 +164,7 @@ module KairosMcp
               content: arguments['content'],
               directive_id: arguments['directive_id'],
               resolved_from: arguments['resolved_from'],
-              selection_rule: arguments['selection_rule']
+              selection_rule: mapping(arguments['selection_rule'])
             )
             anchor_event(result[:generation]) if result[:success]
             text_content(format_write(result))
@@ -212,6 +212,15 @@ module KairosMcp
             )
             anchor_event(result[:event])
             text_content(format_check(result))
+          end
+
+          # A mapping argument a client sent as JSON text (the package prints the rule as JSON).
+          def mapping(value)
+            return value unless value.is_a?(String)
+
+            JSON.parse(value)
+          rescue JSON::ParserError
+            value
           end
 
           # From a name a writer holds to the formal targets an edge stores, under this
@@ -331,6 +340,9 @@ module KairosMcp
             lines << "**Generated at**: #{r[:generated_at]}"
             lines << ""
             lines << "_Derived view (I1/I8): not authoritative, regenerable, no write-back to L2/L1. Unchecked until a context other than its author checks it (I11)._"
+            unless r[:identity] && r[:identity]['source'] == 'layer'
+              lines << "_The invoking layer supplied no identity for this generation: checks of it are recorded and listed, and none can count._"
+            end
             lines.join("\n")
           end
 
@@ -429,8 +441,12 @@ module KairosMcp
                 lines << "| #{r[:topic]} | stored text is not the current output | – | – | – | #{r[:age_days]} | – |"
                 next
               end
+              if r[:state] == 'no_generation_event'
+                lines << "| #{r[:topic]} | stored before generation events existed; regenerate | – | – | – | – | – |"
+                next
+              end
               status = r[:stale] ? "⚠️ stale" : (r[:aged] ? "aged" : (r[:fresh] ? "fresh" : "no drift"))
-              lines << "| #{r[:topic]} | #{status} | #{r[:membership]} | #{r[:drifted_count]} | #{r[:checked] ? 'yes' : 'no'} | #{r[:age_days]} | #{r[:access_bound]} |"
+              lines << "| #{r[:topic]} | #{status} | #{r[:membership]} | #{r[:drifted_count]} | #{r[:checked] ? "yes (#{r[:check_mismatches]} mismatch(es) reported)" : 'no'} | #{r[:age_days]} | #{r[:access_bound]} |"
             end
             lines << ""
             lines << "_Scheduling note: an external trigger (cron / Claude Code hook / autonomous loop) "

@@ -62,7 +62,7 @@ module KairosMcp
           path = path_for(slug)
           return Log.new([]) unless File.exist?(path)
 
-          Log.new(verified(complete_lines(File.read(path))))
+          Log.new(verified(complete_lines(File.read(path, encoding: 'UTF-8'))))
         end
 
         # Append one event. The block receives the verified log as it stands under the lock and
@@ -71,7 +71,7 @@ module KairosMcp
         # @return [Hash] the event as recorded
         def append(slug)
           FileUtils.mkdir_p(@base_dir)
-          File.open(path_for(slug), File::RDWR | File::CREAT, 0o600) do |f|
+          File.open(path_for(slug), File::RDWR | File::CREAT, 0o600, encoding: 'UTF-8') do |f|
             f.flock(File::LOCK_EX)
             lines = complete_lines(f.read)
             events = verified(lines)
@@ -111,7 +111,7 @@ module KairosMcp
           lines.each_with_index.map do |line, i|
             event = begin
               JSON.parse(line)
-            rescue JSON::ParserError
+            rescue JSON::ParserError, EncodingError
               raise CorruptError, "event #{i + 1} is not a record"
             end
             ok = event.is_a?(Hash) && event['seq'] == i + 1 && event['prev'] == prev &&
