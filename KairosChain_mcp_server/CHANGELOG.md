@@ -6,6 +6,57 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.101.0] - 2026-11-20
+
+### Added — succession edges on the L2 save path; dream 0.4.0 digests read them, label membership and record checks
+
+Implements dream_digest design v0.13. First use of dream_digest (0.3.0) showed three ways a digest could
+misstate its sources: a change of mind read as a disagreement, a digest calling itself fresh while its
+topic had grown, and no reader but its writer.
+
+- **Core: succession edges.** An L2 node declares that it replaces or corrects an earlier L2 node in its
+  own frontmatter: `relations: [{type: replaces | corrects, target: "v1:<session_id>/<name>", part:
+  <optional>, grounds: {quote, by} | {contradicted_by}}]`. An edge is valid when it carries grounds and
+  its formal target exists (a soft-archived node exists). `ContextGraph.succession_edge_failures` states
+  the two conditions once, for the save path and for any reader. **`context_save` now refuses a save
+  whose `replaces` / `corrects` edge fails either one**, stores nothing and returns the reason; the
+  writer may save the node without the edge. Saves that declare no such edge are untouched, and
+  `informed_by` may still point forward. Other relation types, `supersedes` included, stay accepted and
+  declare no succession. A writer holds names and an edge stores only the formal form:
+  `ContextManager#formal_targets_for(name)` lists the nodes that bear a name, and a refusal for a missing
+  target names them.
+- **dream 0.4.0 — what a digest reads.** The READ set is the selected nodes closed under succession: a
+  node that declares succession over a member is a member whether or not it carries the topic's tag, and
+  so is the target of a member's valid edge. The generation directive lists the declared edges as data,
+  states a replacement only where a valid edge declares one, does not compose edges, and labels every
+  other difference between sources as date-only. Selection by tag no longer aborts on a node whose
+  frontmatter does not parse. A soft-archive stub keeps the relations its node declared.
+- **dream 0.4.0 — labels.** `read` evaluates two independent conditions now, for the caller, and stores
+  neither: drift (a source changed) and membership (the recorded selection rule, applied again and
+  closed, against the snapshot). A digest made from an explicit list, a node whose relations cannot be
+  read, and a store not read in full are membership-unknown, never fresh. Pass the `selection_rule`
+  that `package` and `refresh` return on to `write`.
+- **dream 0.4.0 — events and checks.** A generation and a check are events in an append-only,
+  hash-chained log per topic (`dream/digest_events/<slug>.jsonl`), apart from the artifact. The latest
+  generation event of a topic is its current one; labels are given only to stored text whose hash is its
+  output hash, and other stored text is not shown. New modes `check_package` and `check` let a context
+  other than the author compare a digest with its sources. A check counts only when both identities were
+  supplied by the invoking layer (an authenticated HTTP user), they differ, and the text compared is the
+  generation's output; a check of other text is recorded and listed on no label. Over stdio no identity
+  is supplied, so checks are recorded and listed and none counts. New mode `targets` turns a node name
+  into formal targets.
+- **dream 0.4.0 — access.** Nodes resolve under the roots core gives the caller's user context. A caller
+  that cannot read the whole READ set of a topic's current generation gets the reply a topic with no
+  digest gets, from every mode. A write whose snapshot names a source that no longer resolves is refused.
+- **Upgrade notes.** A digest written by dream 0.3.0 has no generation event: it is not shown, and
+  `sweep` reports it for regeneration. The blockchain block of a digest event is now
+  `dream_digest_event` with the event id alone (was `dream_digest_generation` with the provenance
+  refs). dream 0.4.0 needs this core (`min_core_version` 3.101.0).
+- Reviewed in two implementation-review rounds by nine seats; one blocking finding in round 1 (a write
+  that dropped a vanished source recorded too narrow an access scope), fixed, none in round 2. Left
+  open: a source edited between `package` and `write` is recorded with its new hash; the event log is
+  never compacted; a topic name is one namespace across user contexts.
+
 ## [3.100.1] - 2026-11-18
 
 ### Changed — multi_llm_review codex seat moves to gpt-6.2-astra
