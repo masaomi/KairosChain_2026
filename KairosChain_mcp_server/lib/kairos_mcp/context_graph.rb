@@ -25,6 +25,11 @@ module KairosMcp
     # (forward-compat) but skipped on traverse.
     KNOWN_TYPES = %w[informed_by].freeze
 
+    # Succession edges: an L2 node declares that it replaces or corrects another L2 node,
+    # wholly or in a named part. The edge is held by the node that replaces. Any other type
+    # name, and any mark kept outside relations[], declares no succession.
+    SUCCESSION_TYPES = %w[replaces corrects].freeze
+
     # Target canonical regex (v2.1 §2). Permissive enough to reference both
     # canonical session_ids (session_<8>_<6>_<8hex>) and the human-readable
     # forms already on disk (e.g. coaching_insights_20260327, received_skills).
@@ -58,6 +63,7 @@ module KairosMcp
     class SymlinkRejectedError < Error; end
     class PathResolutionError < Error; end
     class InvalidFrontmatterError < Error; end
+    class SuccessionRefusedError < Error; end
 
     module_function
 
@@ -148,6 +154,43 @@ module KairosMcp
       end
 
       nil
+    end
+
+    # True if a relations[] item is a succession edge.
+    def succession_edge?(item)
+      item.is_a?(Hash) && SUCCESSION_TYPES.include?(item['type'] || item[:type])
+    end
+
+    # The two conditions under which a succession edge is valid: it carries grounds, and its
+    # target, written in the formal form, exists under context_root (a soft-archived node
+    # exists). The same two are evaluated when a node is saved and whenever the edge is read;
+    # both callers use this method, each with its own context_root and at its own time.
+    #
+    # @return [Array<Symbol>] the conditions that fail (:no_grounds, :target_missing); [] = valid
+    def succession_edge_failures(item, context_root)
+      failures = []
+      failures << :no_grounds unless succession_grounds?(item['grounds'] || item[:grounds])
+      failures << :target_missing unless succession_target_exists?(item['target'] || item[:target], context_root)
+      failures
+    end
+
+    # Grounds are what made the change: the words, quoted, and whose words they are; or, for a
+    # correction of fact, a reference to the node that contradicts the replaced one. Their
+    # presence is checked. Whether quoted words were said, and whether a reference resolves,
+    # is not.
+    def succession_grounds?(grounds)
+      return false unless grounds.is_a?(Hash)
+
+      present = ->(key) { v = grounds[key] || grounds[key.to_sym]; v.is_a?(String) && !v.strip.empty? }
+      (present.call('quote') && present.call('by')) || present.call('contradicted_by')
+    end
+
+    # True if the target names a node that exists under context_root. A target that is
+    # malformed, dangling, or that cannot be resolved does not exist for this caller.
+    def succession_target_exists?(target, context_root)
+      resolve_target(target, context_root)[:status] == :ok
+    rescue Error
+      false
     end
 
     # Recursively check that a value tree contains only SAFE_VALUE_TYPES.
