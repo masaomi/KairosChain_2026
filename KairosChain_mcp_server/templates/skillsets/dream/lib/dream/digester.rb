@@ -75,24 +75,16 @@ module KairosMcp
         # @return [Array<Hash>] source descriptors for #build_read_set
         def resolve_sources_by_tag(tag, include_l1: true)
           out = []
-          cm = context_manager
-          if cm
-            cm.list_sessions.each do |session|
-              sid = session[:session_id]
-              cm.list_contexts_in_session(sid).each do |ctx|
-                # Route through l2_path so the same safe_seg?/confine guard applies here as in
-                # build_read_set (defense in depth even though listings come from the store).
-                path = l2_path(sid, ctx[:name])
-                next unless path && File.exist?(path)
+          # Nodes are enumerated from the store itself, one file at a time: a node whose
+          # frontmatter does not parse carries no readable tag and is passed over, so it cannot
+          # abort the selection of the others.
+          each_l2_node do |sid, name, path|
+            content = safe_read(path)
+            next if content.nil?
+            next if frontmatter_value(content, 'status') == 'soft-archived' # don't cite stubs as live
+            next unless tag_match?(frontmatter_tags(content), tag)
 
-                content = safe_read(path)
-                next if content.nil?
-                next if frontmatter_value(content, 'status') == 'soft-archived' # don't cite stubs as live
-                next unless tag_match?(frontmatter_tags(content), tag)
-
-                out << { 'layer' => 'l2', 'session_id' => sid, 'name' => ctx[:name] }
-              end
-            end
+            out << { 'layer' => 'l2', 'session_id' => sid, 'name' => name }
           end
 
           if include_l1 && (kp = knowledge_provider)
@@ -543,7 +535,8 @@ module KairosMcp
           if content =~ /\A---\n(.*?)\n---/m
             # Permit Time/Date: a digest's generated_at (or a hand-edited timestamp) may load as
             # Time; without this the whole frontmatter would silently fail to parse and drop to {}.
-            YAML.safe_load($1, permitted_classes: [Symbol, Time, Date]) || {}
+            meta = YAML.safe_load($1, permitted_classes: [Symbol, Time, Date])
+            meta.is_a?(Hash) ? meta : {}
           else
             {}
           end
@@ -568,10 +561,20 @@ module KairosMcp
           Array(tags).any? { |t| norm.call(t) == target }
         end
 
-        def context_manager
-          return nil unless defined?(KairosMcp::ContextManager)
+        # Every L2 node file under the context root, in a stable order. Goes through l2_path so
+        # the same safe_seg?/confine guard applies here as in build_read_set.
+        def each_l2_node
+          root = context_dir
+          return unless Dir.exist?(root)
 
-          KairosMcp::ContextManager.new
+          Dir.children(root).sort.each do |sid|
+            next unless safe_seg?(sid) && File.directory?(File.join(root, sid))
+
+            Dir.children(File.join(root, sid)).sort.each do |name|
+              path = l2_path(sid, name)
+              yield sid, name, path if path && File.file?(path)
+            end
+          end
         end
 
         def knowledge_provider
