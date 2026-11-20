@@ -6,6 +6,37 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.102.0] - 2026-11-20
+
+### Added — llm_client 0.5.0: provider `antigravity` (the Antigravity CLI, `agy`)
+
+- New llm_client provider `antigravity` (`AntigravityAdapter`) drives `agy`. The prompt goes to stdin
+  as one stream-json line, because `agy -p` takes the prompt only as its own argument. The call runs
+  under a per-call agent definition whose tool allowlist is empty (the only guard that removes web
+  search), with session settings that deny all seven permission actions under strict permission mode,
+  and with `--sandbox` and slash commands off. Plan mode is not used: it injects the /plan procedure
+  and wrote plan files under `~/.gemini/antigravity-cli/brain/`. Success requires exit 0 and a
+  `result` event with status SUCCESS and a non-empty response, since a turn whose tool was auto-denied
+  exits 0 with nothing said. On every run, before success is judged, a reply is refused unless the
+  session reports this call's agent (a random name per call) and strict permission mode, and every
+  tool step's last state is the CLI's own permission refusal (a tool that completed, failed after
+  running or never reported an outcome, and any unrecognised step or event, refuse the reply).
+  Measured: outside read, shell fetch, web search and a 100 KB prompt. **Not yet measured: the write
+  probe.** No `model_observed` is returned: the CLI's init event names a model before any model has
+  answered.
+- agy keeps every turn on disk under `~/.gemini/antigravity-cli/` and no setting turns that off, so
+  whatever is sent through this provider persists there.
+- **The default multi_llm_review roster is unchanged.** No seat uses this provider unless an
+  instance's own config names it.
+- Review state: three multi-LLM review rounds (2026-11-15 to 2026-11-18). The fixes for the round-3
+  blocking finding (a tool step left active passed the after-run check) have not been re-reviewed.
+- Not changed: core `Capability::EXTERNAL_BINARIES` does not name `agy`, so the capability manifest
+  under-reports this dependency.
+- Upgrade note: `kairos-chain upgrade` overwrites an installed SkillSet whose files differ from the
+  gem's, whatever the two versions are (only `config/` is left alone). An instance that carried
+  llm_client 0.5.0 ahead of the gem was put back to 0.4.0 by the 3.100.1 and 3.101.0 upgrades; from
+  this release the two are equal. The upgrade itself is not changed.
+
 ## [3.101.0] - 2026-11-20
 
 ### Added — succession edges on the L2 save path; dream 0.4.0 digests read them, label membership and record checks
