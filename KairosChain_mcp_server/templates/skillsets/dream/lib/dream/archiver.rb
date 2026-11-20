@@ -349,6 +349,11 @@ module KairosMcp
             'has_references' => has_references,
             'summary' => summary
           }
+          # The edges a node declares are part of what it states to the context graph. A stub
+          # that dropped them would withdraw, by archiving, a succession the node declared.
+          %w[relations_schema relations].each do |key|
+            frontmatter[key] = original_meta[key] if original_meta.key?(key)
+          end
 
           includes = []
           includes << 'scripts/' if has_scripts
