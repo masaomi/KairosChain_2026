@@ -6,6 +6,36 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.103.0] - 2026-11-22
+
+### Added — trust_gate 0.1.0: an on-demand gate for trust boundaries (opt-in SkillSet)
+
+- New SkillSet `trust_gate`. It asks four questions of a design or a diff that adds or changes an
+  entrance into an instance: an external connection, a credential, a run handed to another agent or
+  process, or outside text that a model will read. The questions are whether trust is attached to
+  verified content or identity and not to a location, whether authority is issued for one piece of
+  work and ends with it, whether outside text stays data whichever layer delivers it, and what a
+  compromised part could reach.
+- It is a gate that is called, not a norm that is always on. The operator calls it by name. It
+  answers per place with file-and-line evidence, it does not block, and it fixes nothing. Every
+  report ends by saying that it is what one reading found and not a complete inventory.
+- The SkillSet adds no MCP tools, no hooks and no config. It ships L1 `trust_boundary_questions`
+  0.3.1 (the questions and the only definition of the answer form), a plugin skill for the calling
+  session, and the subagent `trust-gatekeeper`, which did not write what it judges.
+- **Not in the core list.** It is installed only on request: `kairos-chain skillset install
+  trust_gate`, or `system_upgrade` with `names: ["trust_gate"]`. An upgrade check lists it as
+  optional and changes nothing for instances that do not install it.
+- The subagent's tools are an allowlist (read, search, list a directory, retrieve the entry). On
+  Claude Code the host's own record showed exactly those tools for a fresh process, and those plus
+  the hand-back tool for a subagent. **The OpenCode projection drops the allowlist** and keeps only
+  the denial of Write, Edit and Bash, so on that host the judge holds more tools than the work
+  needs. A definition edited during a session is not picked up until a new session.
+- The standard the judge obeys is looked up by name. An entry of the same name in an instance's own
+  knowledge store is returned before the SkillSet's entry, so an instance that already holds one
+  must remove it to use the shipped text.
+- Design review: three rounds. New blocking findings went 9, 2, 0, and round 3 was 5 of 5 seats
+  APPROVE. One call of the gate used 119 to 173 thousand subagent tokens in the trial.
+
 ## [3.102.0] - 2026-11-20
 
 ### Added — llm_client 0.5.0: provider `antigravity` (the Antigravity CLI, `agy`)
