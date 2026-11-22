@@ -1,0 +1,20 @@
+{
+  "name": "trust_gate",
+  "version": "0.1.0",
+  "description": "An on-demand gate for trust boundaries: four questions asked of a design or a diff that adds or changes an entrance into the instance, answered with file-and-line evidence by a subagent that did not write what it judges. Carries no tools and blocks nothing",
+  "author": "Masaomi Hatakeyama",
+  "layer": "L1",
+  "depends_on": [],
+  "provides": [
+    "trust_gate"
+  ],
+  "tool_classes": [],
+  "config_files": [],
+  "knowledge_dirs": [
+    "knowledge/trust_boundary_questions"
+  ],
+  "plugin": {
+    "skill_md": "plugin/SKILL.md",
+    "agents_dir": "plugin/agents"
+  }
+}
