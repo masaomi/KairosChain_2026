@@ -1,0 +1,20 @@
+{
+  "name": "handoff",
+  "version": "0.1.0",
+  "description": "Makes the end-of-session handoff one command. /handoff has the session write a handoff to L2 with context_save, then a script ties that handoff to the Claude Code session that wrote it. When the instance names a log file in config/handoff.yml, the script appends the L2 name and the resume command to it, and a SessionEnd hook appends the last turn, the handoffs saved in the session and the resume command when the session ends. With no log file named, nothing outside L2 and the SkillSet's own state is written. Claude Code formats (hook input, transcript rows) live in hooks/ and scripts/; L2 is written only by the session through context_save.",
+  "author": "Masaomi Hatakeyama",
+  "layer": "L2",
+  "depends_on": [],
+  "provides": [
+    "handoff"
+  ],
+  "tool_classes": [],
+  "config_files": [
+    "config/handoff.yml"
+  ],
+  "knowledge_dirs": [],
+  "plugin": {
+    "skill_md": "plugin/SKILL.md",
+    "hooks": "plugin/hooks.json"
+  }
+}

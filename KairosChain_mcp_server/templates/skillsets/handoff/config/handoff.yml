@@ -1,0 +1,21 @@
+# handoff — per-instance values (operator-owned).
+handoff:
+  # A file that receives one block per /handoff and one block per session end.
+  # Empty (the shipped value) turns both off: the handoff then lives in L2 only.
+  # A relative path is read from the directory that holds the data directory
+  # (the project root in the usual layout); an absolute path or ~ also works.
+  # Example: log_file: command.log
+  log_file:
+  # Copy the last turn (the operator's last prompt and the final reply) into the
+  # session-end block, as comment lines.
+  last_turn: true
+  # Longest copy of the last turn, in lines. A longer one keeps its end.
+  last_turn_max_lines: 200
+  # SessionEnd reasons that write a block: the operator leaving, /clear, a switch
+  # to another session with /resume, logout. "other" is left out so that runs
+  # started by tools (claude -p) do not write.
+  end_reasons:
+    - prompt_input_exit
+    - clear
+    - resume
+    - logout

@@ -1,0 +1,24 @@
+{
+  "_comment": [
+    "handoff: SessionEnd appends one block to the instance's log file (config/handoff.yml, log_file).",
+    "With no log file named the hook does nothing. It never blocks. Hook input it cannot read (another",
+    "host's shape) ends quietly with exit 0; a fault of this instance (config, log file) is exit 1 with",
+    "the cause on stderr. The session is over when it runs, so it cannot ask the model for a handoff;",
+    "it records which handoffs the session saved, or that it saved none.",
+    "The projector merges this into the host settings under a _projected_by tag; nobody edits",
+    "settings.json by hand."
+  ],
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"${KAIROS_DATA_DIR:-$CLAUDE_PROJECT_DIR/.kairos}/skillsets/handoff/hooks/session_end.rb\"; [ -f \"$f\" ] || exit 0; ruby \"$f\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}
