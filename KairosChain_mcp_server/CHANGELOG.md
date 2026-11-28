@@ -6,6 +6,51 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.104.0] - 2026-11-28
+
+### Added — handoff 0.1.0: one command for the end-of-session handoff (opt-in SkillSet)
+
+- New SkillSet `handoff`. `/handoff` has the session write a handoff to L2 with `context_save` and
+  then run `scripts/record.rb`. The script checks that the saved file exists and ties it to the
+  Claude Code session that wrote it.
+- A handoff carries the writing session's estimate of priority in its frontmatter: `importance` and
+  `urgency`, each 1 to 5, with a one-line basis. The script copies the numbers from there. They are
+  the session's reading and not the operator's ruling.
+- **Nothing outside L2 unless the instance asks.** `config/handoff.yml` ships with `log_file` empty.
+  When an instance names a file there, `/handoff` appends a comment block with the L2 name, the
+  priority and the resume command. A SessionEnd hook appends the last prompt the operator typed, the
+  model's final reply, the handoffs the session recorded (or the line that it recorded none) and the
+  resume command. Every line starts with `#` except the resume command, which is
+  `claude --resume <uuid>`, or `claude --resume "<title>"` when the title is made of letters,
+  digits, `_ . - /` and spaces.
+- **Not in the core list.** It is installed only on request: `kairos-chain skillset install
+  handoff`, or `system_upgrade` with `names: ["handoff"]`. An upgrade check lists it as optional and
+  changes nothing for instances that do not install it. It adds no MCP tools, and installing it
+  records nothing on the chain (layer L2).
+- **Claude Code only.** The hook and the script read Claude Code's session id, its SessionEnd input
+  and its transcript rows. The transcript format is internal and undocumented (checked on 2.1.332),
+  and the readers skip what they do not recognise. Hook input the hook cannot read ends quietly with
+  exit 0, so a copy delivered to another host does nothing there. A session end cannot ask the model
+  for anything, so a session that ends without `/handoff` gets the line
+  `L2 handoff: none saved in this session`.
+- A relative `log_file` is read from the directory that holds the data directory, for the hook and
+  the script alike. Both write the log and the session's state under one lock, the log first.
+- Known limits:
+  - A run cut between the log append and the state write can repeat a block or leave a handoff
+    unlisted at the next session end.
+  - The prompt and the reply shown are the last of each and are not always a pair.
+  - A title shared by two sessions makes the title form of the resume line ambiguous. The session
+    id is on the comment line above it.
+  - The scripts need the Ruby that runs KairosChain. An older `ruby` first on the host's PATH makes
+    the hook exit 1.
+- Implementation review: one pre-flight falsifier and three rounds. New blocking findings by class
+  went 9, 10, 2. The seat that runs mutations was not convened in round 3 and untested behavior
+  became advisory there, so the third count is not comparable with the first two. In round 3 the
+  two persona reviewers, Cursor and Gemini approved, and Opus 5.5, Sonnet 5.5 and Codex asked for
+  one shared change (rows that start with a tag carrying attributes). That change was made after
+  the round. It was checked by the tests and against 133 real transcripts by its author, and no
+  seat has read it. 78 tests, and 89 single-check removals all fail them.
+
 ## [3.103.0] - 2026-11-22
 
 ### Added — trust_gate 0.1.0: an on-demand gate for trust boundaries (opt-in SkillSet)
